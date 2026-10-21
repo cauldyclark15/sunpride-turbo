@@ -330,11 +330,12 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             .put("deviceTime",context.now)
             .apply{if(pay.method.kind==PaymentKind.CREDIT&&com.sunpride.van.pos.SapCreditExceptions.credit(request,context,quote.totalMinor)!=null)put("sapCreditExceptionId",checkNotNull(com.sunpride.van.pos.SapCreditExceptions.approved(request,context,quote.totalMinor)).getString("id"))}
             .apply{request.priceOverride?.let{put("priceOverride",com.sunpride.van.pos.SaleAdjustments.json(it.authorization))};if(pay.method.kind==PaymentKind.CREDIT)request.creditOverride?.let{put("creditOverride",com.sunpride.van.pos.SaleAdjustments.json(it))}}
-            .apply { if(s.startsWith("v2|")&&com.sunpride.van.pos.ManualDiscounts.amount(quote.lines)>0L){
+            .apply { if(s.startsWith("v2|")&&!com.sunpride.van.pos.PromotionEngine.useCanonical(request,context)&&context.governedPromotionsJson==null&&com.sunpride.van.pos.ManualDiscounts.amount(quote.lines)>0L){
                 put("authorityVersion",2).put("overrideId",request.manualDiscount?.requestId?:request.saleId)
                     .put("discountReason",com.sunpride.van.pos.ManualDiscounts.reason(request.manualDiscount))
                 request.manualDiscount?.approval?.let{put("offlineCode",it)}
             } }
+            .apply { if(com.sunpride.van.pos.PromotionEngine.useCanonical(request,context)) put("schemeEngineVersion",1) }
             .apply { fiscal?.let { put("fiscal",JSONObject().put("allocationId",it.allocationId).put("serial",it.serial.toString())) } }
         val sellingTax=fiscal?.let{com.sunpride.van.fiscal.FiscalTax.snapshot(quote.lines,JSONObject(checkNotNull(context.policy?.fiscalJson)),customer.priceListId,context.now)}
         sellingTax?.let{payload.getJSONObject("fiscal").put("tax",it)}

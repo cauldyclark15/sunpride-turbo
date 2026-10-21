@@ -1,5 +1,5 @@
 -- 0105_visits: Visit execution, activities, evidence, tasks, collections.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: visit_executions, visit_activities, visit_activity_evidence, visit_activity_rules, visit_activity_rule_activities, visit_location_evidence, field_tasks, field_task_evidence, field_collections, evidence_upload_claims, field_evidence_files, execution_events.
 
 -- visitExecutions [synced]

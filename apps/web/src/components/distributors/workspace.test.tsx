@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, expect, it, vi } from "vitest";
 import { DistributorWorkspace } from "./workspace";
 import { Ordering, Stock } from "./commercial";
+import { Setup } from "./setup";
 import type { Health, Workspace } from "./types";
 const state = vi.hoisted(() => ({
   role: "distributor",
@@ -32,6 +33,22 @@ vi.mock("../../lib/api", () => ({
   mutate: vi.fn(),
   useLive: vi.fn(),
 }));
+it("F-407 office can invite dedicated field representatives without granting portal finance", () => {
+  state.values.setup = {
+    distributor: workspace.distributor,
+    master: null,
+    policy: null,
+    users: [],
+    usersTruncated: false,
+  };
+  const html = renderToStaticMarkup(
+    createElement(Setup, { id: "sample", command: async () => ({}) }),
+  );
+  expect(html).toContain('name="access"');
+  expect(html).toContain('value="field"');
+  expect(html).toContain("existing Android field app");
+  expect(html).toContain("separate financial grants");
+});
 let workspace: Workspace;
 beforeEach(() => {
   state.role = "distributor";

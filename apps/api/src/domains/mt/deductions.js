@@ -30,14 +30,19 @@ async function view(c, r) {
   const { binding } = await deductionAccess(c, r.id, "report.read");
   const [meta] =
     await c.db`select t.label as type_label,p.name as owner_name,m.reference,m.received_on,
-    ((now() at time zone 'Asia/Manila')::date-m.received_on)::int as age_days,((now() at time zone 'Asia/Manila')::date-d.due_on)::int as overdue_days,i.invoice_number
+    ((now() at time zone 'Asia/Manila')::date-m.received_on)::int as age_days,((now() at time zone 'Asia/Manila')::date-d.due_on)::int as overdue_days,i.invoice_number,
+    f.status as financial_status,f.recovered_centavos as financial_recovered_centavos
     from mt_deductions d join mt_deduction_types t on t.id=d.type_id join profiles p on p.id=d.owner_profile_id
-    join mt_remittances m on m.id=d.remittance_id left join mt_invoice_replicas i on i.id=d.invoice_id where d.id=${r.id}`;
+    join mt_remittances m on m.id=d.remittance_id left join mt_invoice_replicas i on i.id=d.invoice_id left join deductions f on f.id=d.financial_case_id where d.id=${r.id}`;
   return {
     ...r,
     ...meta,
     branchLabel: binding.label,
     amountCentavos: Number(r.amount_centavos),
+    financialRecoveredCentavos:
+      meta.financial_recovered_centavos == null
+        ? null
+        : Number(meta.financial_recovered_centavos),
     disputes:
       await c.db`select id,reference,message,status,response,created_at from mt_disputes where deduction_id=${r.id} order by created_at`,
     events:

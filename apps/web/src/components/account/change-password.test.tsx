@@ -49,6 +49,10 @@ vi.mock("../../lib/auth/session", () => ({
       active: true,
     },
   }),
+  usePermissions: () => ({ can: () => false }),
+}));
+vi.mock("../../lib/auth", () => ({
+  usePermissions: () => ({ can: () => false }),
 }));
 vi.mock("../../lib/api/hooks", () => ({
   useApi: () => ({ data: [{ id: "unit", name: "Sample Cebu team" }] }),

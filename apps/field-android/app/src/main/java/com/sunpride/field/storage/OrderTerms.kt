@@ -7,7 +7,7 @@ import java.time.LocalDate
 /** SP-0088 account-scoped previews. The office always re-prices the quantity-only order wire. */
 data class OrderPriceList(val id: String, val code: String, val name: String, val currency: String, val sample: Boolean)
 data class OrderUnit(val productId: String, val uom: String, val unitPriceMinor: Long?)
-data class OrderTerms(val outletId: String, val priceList: OrderPriceList?, val lines: List<OrderUnit>)
+data class OrderTerms(val outletId: String, val priceList: OrderPriceList?, val lines: List<OrderUnit>, val schemesJson: String? = null)
 
 data class AccountSales(val from: String, val to: String, val complete: Boolean, val orders: Long,
     val amountMinor: Long, val recentOrders: Long, val recentAmountMinor: Long,
@@ -41,7 +41,7 @@ object OrderTermsCodec {
             TermsJson.text(o, "currency").also { require(it.matches(Regex("[A-Z]{3}"))) }, TermsJson.bool(o, "sample"))
     }
     fun decode(o: JSONObject): OrderTerms {
-        TermsJson.keys(o, "outletId", "priceList", "lines")
+        TermsJson.keys(o, "outletId", "priceList", "lines", *(if(o.has("schemes")) arrayOf("schemes") else emptyArray()))
         val list = if (o.get("priceList") == JSONObject.NULL) null else priceList(o.getJSONObject("priceList"))
         val a = o.getJSONArray("lines")
         require(a.length() <= 1800)
@@ -53,7 +53,9 @@ object OrderTermsCodec {
         }
         require(lines.map { it.productId to it.uom }.distinct().size == lines.size)
         require(list != null || lines.all { it.unitPriceMinor == null })
-        return OrderTerms(TermsJson.text(o, "outletId"), list, lines)
+        val id=TermsJson.text(o,"outletId")
+        val schemes=if(o.has("schemes")) o.getJSONObject("schemes").also { require(TermsJson.number(it,"engineVersion")==1L && TermsJson.text(it,"outletId")==id && it.getJSONArray("promotions").length()<=500) }.toString() else null
+        return OrderTerms(id, list, lines, schemes)
     }
     fun encodePriceList(l: OrderPriceList): JSONObject = JSONObject().put("id", l.id).put("code", l.code)
         .put("name", l.name).put("currency", l.currency).put("sample", l.sample)
@@ -61,6 +63,7 @@ object OrderTermsCodec {
         .put("priceList", t.priceList?.let(::encodePriceList) ?: JSONObject.NULL)
         .put("lines", JSONArray().apply { t.lines.forEach { l -> put(JSONObject().put("productId", l.productId)
             .put("uom", l.uom).put("unitPriceMinor", l.unitPriceMinor ?: JSONObject.NULL)) } })
+        .apply { t.schemesJson?.let { put("schemes",JSONObject(it)) } }
 }
 
 object AccountSummaryCodec {

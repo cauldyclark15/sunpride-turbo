@@ -4,6 +4,7 @@ import { useState, type FormEvent } from "react";
 import { apiFetch, mutate, useApi, useLive } from "../../lib/api";
 import { useSession } from "../../lib/auth/session";
 import { TrendChart } from "../cockpit/kit/trend-chart";
+import { ClaimantClaims } from "../claimant-claims";
 
 export type AgencyEvidence = {
   retailIssueFeedAvailable?: boolean;
@@ -530,6 +531,14 @@ export function AgencyWorkspace() {
             : "Create an agency and assign staff to begin."}
         </p>
       )}
+      {id && current.data ? (
+        <ClaimantClaims
+          key={id}
+          base="/api/v1/partners/claims/shared"
+          partyId={id}
+          name={current.data.partner.name}
+        />
+      ) : null}
       {id ? (
         <section className={panel}>
           <h2 className="font-medium">Frozen billing packages</h2>

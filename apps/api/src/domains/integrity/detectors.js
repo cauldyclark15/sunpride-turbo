@@ -303,12 +303,27 @@ export async function readQueue(c) {
     );
   const after = c.url.searchParams.get("after"),
     limit = 50;
+  const from = c.url.searchParams.get("from"),
+    to = c.url.searchParams.get("to");
+  if (
+    (from || to) &&
+    (!from ||
+      !to ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(from) ||
+      !/^\d{4}-\d{2}-\d{2}$/.test(to) ||
+      !Number.isFinite(Date.parse(from)) ||
+      !Number.isFinite(Date.parse(to)) ||
+      from > to)
+  )
+    throw invalid("Choose a valid integrity reporting period");
   if (after && !isUuid(after)) throw invalid("Invalid queue cursor");
   const rows =
     await c.db`select f.*,p.name as person_name,o.name as outlet_name,
     (select jsonb_build_object('outcome',d.outcome,'reasonCode',d.reason_code,'at',d.created_at) from integrity_dispositions d where d.finding_id=f.id order by d.created_at desc,id desc limit 1) as disposition
     from integrity_findings f join profiles p on p.id=f.profile_id left join outlets o on o.id=f.outlet_id
     where f.org_unit_id in ${c.db(ids.length ? ids : [null])} and p.org_unit_id in ${c.db(ids.length ? ids : [null])}
+      and (${from}::date is null or (f.occurred_at at time zone 'Asia/Manila')::date>=${from}::date)
+      and (${to}::date is null or (f.occurred_at at time zone 'Asia/Manila')::date<=${to}::date)
       and (${after}::uuid is null or (f.created_at,f.id)>(select created_at,id from integrity_findings where id=${after}::uuid)) order by f.created_at,f.id limit ${limit + 1}`;
   const visible = [];
   for (const r of rows.slice(0, limit)) {

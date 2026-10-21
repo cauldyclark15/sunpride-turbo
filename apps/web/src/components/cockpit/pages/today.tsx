@@ -49,6 +49,14 @@ const FIELD: Array<{
 
 type Person = TodayResponse["field"]["people"][number];
 
+/** The day's money first; the field measures sit with the field panel. */
+const SALES_KPIS = new Set([
+  "salesToday",
+  "mtdSales",
+  "balanceToSell",
+  "perDayNeeded",
+]);
+
 export function TodayView({
   data,
   now: nowProp,
@@ -131,10 +139,17 @@ export function TodayView({
   const sales = data.trend.map((t) => t.sales);
   const targets = data.trend.map((t) => t.target);
   const hasTarget = targets.some((t) => t !== null);
+  const salesKpis = data.kpis.filter((k) => SALES_KPIS.has(k.key));
+  const fieldKpis = data.kpis.filter((k) => !SALES_KPIS.has(k.key));
 
   return (
     <div className="grid gap-4">
-      <KpiGrid kpis={data.kpis} canSetTarget={canSetTarget} />
+      <KpiGrid
+        kpis={salesKpis}
+        canSetTarget={canSetTarget}
+        strip
+        label="Sales this day and month"
+      />
 
       <div className="grid items-start gap-4 lg:grid-cols-5">
         <Panel
@@ -182,6 +197,7 @@ export function TodayView({
                     <AttainmentBar
                       pct={row.attainmentPct}
                       status={row.status}
+                      scale={120}
                     />
                   </div>
                   <p className="mt-1 text-[12px] text-muted tabular-nums">
@@ -219,6 +235,15 @@ export function TodayView({
           )}
         </Panel>
       </div>
+
+      {fieldKpis.length ? (
+        <KpiGrid
+          kpis={fieldKpis}
+          canSetTarget={canSetTarget}
+          strip
+          label="Field, cash and vans"
+        />
+      ) : null}
 
       <Panel
         title="Field right now"

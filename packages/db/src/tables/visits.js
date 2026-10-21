@@ -7,27 +7,130 @@
  * bigint/numeric come back as string from Bun.sql.
  */
 
-export const VISIT_EXECUTION_SOURCE = /** @type {const} */ (["planned", "unplanned"]);
-export const VISIT_EXECUTION_INTENT = /** @type {const} */ (["sell", "collect", "merchandise", "audit", "deliver", "promotion", "complaint", "follow-up"]);
-export const VISIT_EXECUTION_STATE = /** @type {const} */ (["planned", "arrived", "checked-in", "in-progress", "checked-out", "completed", "skipped", "rescheduled", "missed"]);
-export const VISIT_EXECUTION_PRODUCTIVITY = /** @type {const} */ (["pending", "verified", "nonproductive"]);
-export const VISIT_EXECUTION_LATE_REVIEW_STATUS = /** @type {const} */ (["pending_review", "accepted", "rejected"]);
-export const VISIT_ACTIVITY_ACTIVITY_KIND = /** @type {const} */ (["inventory_check", "merchandising", "price_check", "promotion", "order_intent", "note", "call_sheet"]);
-export const VISIT_ACTIVITY_RULE_ACTIVITY_KIND = /** @type {const} */ (["call_sheet", "merchandising", "inventory_check", "price_check", "promotion", "order_intent", "note"]);
-export const VISIT_LOCATION_EVIDENCE_EVENT = /** @type {const} */ (["check_in", "check_out"]);
-export const VISIT_LOCATION_EVIDENCE_PROVIDER = /** @type {const} */ (["gps", "network", "fused", "unknown"]);
-export const VISIT_LOCATION_EVIDENCE_RESULT = /** @type {const} */ (["within_radius", "outside_radius", "unavailable", "unreliable"]);
-export const VISIT_LOCATION_EVIDENCE_REVIEW_STATUS = /** @type {const} */ (["pending_review", "verified", "approved_exception", "rejected"]);
-export const FIELD_TASK_KIND = /** @type {const} */ (["inventory_check", "merchandising", "price_check", "promotion", "follow_up"]);
-export const FIELD_TASK_STATUS = /** @type {const} */ (["open", "completed", "cancelled"]);
-export const FIELD_COLLECTION_STATUS = /** @type {const} */ (["recorded", "pending_review", "rejected"]);
-export const FIELD_EVIDENCE_FILE_STATUS = /** @type {const} */ (["pending", "verified", "rejected"]);
-export const EXECUTION_EVENT_ENTITY_TYPE = /** @type {const} */ (["visit", "activity", "task", "collection", "device", "order", "inventory"]);
-export const EXECUTION_EVENT_ACTOR_ROLE = /** @type {const} */ (["super_admin", "admin", "operations", "manager", "approver", "sales", "analyst", "viewer"]);
-export const EXECUTION_EVENT_SOURCE = /** @type {const} */ (["mobile", "web", "system"]);
+export const VISIT_EXECUTION_SOURCE = /** @type {const} */ ([
+  "planned",
+  "unplanned",
+]);
+export const VISIT_EXECUTION_INTENT = /** @type {const} */ ([
+  "sell",
+  "collect",
+  "merchandise",
+  "audit",
+  "deliver",
+  "promotion",
+  "complaint",
+  "follow-up",
+]);
+export const VISIT_EXECUTION_STATE = /** @type {const} */ ([
+  "planned",
+  "arrived",
+  "checked-in",
+  "in-progress",
+  "checked-out",
+  "completed",
+  "skipped",
+  "rescheduled",
+  "missed",
+]);
+export const VISIT_EXECUTION_PRODUCTIVITY = /** @type {const} */ ([
+  "pending",
+  "verified",
+  "nonproductive",
+]);
+export const VISIT_EXECUTION_LATE_REVIEW_STATUS = /** @type {const} */ ([
+  "pending_review",
+  "accepted",
+  "rejected",
+]);
+export const VISIT_ACTIVITY_ACTIVITY_KIND = /** @type {const} */ ([
+  "inventory_check",
+  "merchandising",
+  "price_check",
+  "promotion",
+  "order_intent",
+  "note",
+  "call_sheet",
+]);
+export const VISIT_ACTIVITY_RULE_ACTIVITY_KIND = /** @type {const} */ ([
+  "call_sheet",
+  "merchandising",
+  "inventory_check",
+  "price_check",
+  "promotion",
+  "order_intent",
+  "note",
+]);
+export const VISIT_LOCATION_EVIDENCE_EVENT = /** @type {const} */ ([
+  "check_in",
+  "check_out",
+]);
+export const VISIT_LOCATION_EVIDENCE_PROVIDER = /** @type {const} */ ([
+  "gps",
+  "network",
+  "fused",
+  "unknown",
+]);
+export const VISIT_LOCATION_EVIDENCE_RESULT = /** @type {const} */ ([
+  "within_radius",
+  "outside_radius",
+  "unavailable",
+  "unreliable",
+]);
+export const VISIT_LOCATION_EVIDENCE_REVIEW_STATUS = /** @type {const} */ ([
+  "pending_review",
+  "verified",
+  "approved_exception",
+  "rejected",
+]);
+export const FIELD_TASK_KIND = /** @type {const} */ ([
+  "inventory_check",
+  "merchandising",
+  "price_check",
+  "promotion",
+  "follow_up",
+]);
+export const FIELD_TASK_STATUS = /** @type {const} */ ([
+  "open",
+  "completed",
+  "cancelled",
+]);
+export const FIELD_COLLECTION_STATUS = /** @type {const} */ ([
+  "recorded",
+  "pending_review",
+  "rejected",
+]);
+export const FIELD_EVIDENCE_FILE_STATUS = /** @type {const} */ ([
+  "pending",
+  "verified",
+  "rejected",
+]);
+export const EXECUTION_EVENT_ENTITY_TYPE = /** @type {const} */ ([
+  "visit",
+  "activity",
+  "task",
+  "collection",
+  "device",
+  "order",
+  "inventory",
+]);
+export const EXECUTION_EVENT_ACTOR_ROLE = /** @type {const} */ ([
+  "super_admin",
+  "admin",
+  "operations",
+  "manager",
+  "approver",
+  "sales",
+  "analyst",
+  "viewer",
+]);
+export const EXECUTION_EVENT_SOURCE = /** @type {const} */ ([
+  "mobile",
+  "web",
+  "system",
+]);
 
 /**
- * `visit_executions` (Convex `visitExecutions`)
+ * `visit_executions`
  * @typedef {Object} VisitExecutionRow
  * @property {string} id
  * @property {string} organizationId
@@ -72,7 +175,7 @@ export const EXECUTION_EVENT_SOURCE = /** @type {const} */ (["mobile", "web", "s
  */
 
 /**
- * `visit_activities` (Convex `visitActivities`)
+ * `visit_activities`
  * @typedef {Object} VisitActivityRow
  * @property {string} id
  * @property {string} organizationId
@@ -91,7 +194,7 @@ export const EXECUTION_EVENT_SOURCE = /** @type {const} */ (["mobile", "web", "s
  */
 
 /**
- * `visit_activity_evidence` (Convex `visitActivities`, child of `visit_activities`)
+ * `visit_activity_evidence` (child of `visit_activities`)
  * @typedef {Object} VisitActivityEvidenceRow
  * @property {string} id
  * @property {string} visitActivityId
@@ -104,7 +207,7 @@ export const EXECUTION_EVENT_SOURCE = /** @type {const} */ (["mobile", "web", "s
  */
 
 /**
- * `visit_activity_rules` (Convex `visitActivityRules`)
+ * `visit_activity_rules`
  * @typedef {Object} VisitActivityRuleRow
  * @property {string} id
  * @property {string} organizationId
@@ -121,7 +224,7 @@ export const EXECUTION_EVENT_SOURCE = /** @type {const} */ (["mobile", "web", "s
  */
 
 /**
- * `visit_activity_rule_activities` (Convex `visitActivityRules`, child of `visit_activity_rules`)
+ * `visit_activity_rule_activities` (child of `visit_activity_rules`)
  * @typedef {Object} VisitActivityRuleActivityRow
  * @property {string} id
  * @property {string} visitActivityRuleId
@@ -135,7 +238,7 @@ export const EXECUTION_EVENT_SOURCE = /** @type {const} */ (["mobile", "web", "s
  */
 
 /**
- * `visit_location_evidence` (Convex `visitLocationEvidence`)
+ * `visit_location_evidence`
  * @typedef {Object} VisitLocationEvidenceRow
  * @property {string} id
  * @property {string} organizationId
@@ -165,7 +268,7 @@ export const EXECUTION_EVENT_SOURCE = /** @type {const} */ (["mobile", "web", "s
  */
 
 /**
- * `field_tasks` (Convex `fieldTasks`)
+ * `field_tasks`
  * @typedef {Object} FieldTaskRow
  * @property {string} id
  * @property {string} organizationId
@@ -187,7 +290,7 @@ export const EXECUTION_EVENT_SOURCE = /** @type {const} */ (["mobile", "web", "s
  */
 
 /**
- * `field_task_evidence` (Convex `fieldTasks`, child of `field_tasks`)
+ * `field_task_evidence` (child of `field_tasks`)
  * @typedef {Object} FieldTaskEvidenceRow
  * @property {string} id
  * @property {string} fieldTaskId
@@ -200,7 +303,7 @@ export const EXECUTION_EVENT_SOURCE = /** @type {const} */ (["mobile", "web", "s
  */
 
 /**
- * `field_collections` (Convex `fieldCollections`)
+ * `field_collections`
  * @typedef {Object} FieldCollectionRow
  * @property {string} id
  * @property {string} organizationId
@@ -223,7 +326,7 @@ export const EXECUTION_EVENT_SOURCE = /** @type {const} */ (["mobile", "web", "s
  */
 
 /**
- * `evidence_upload_claims` (Convex `evidenceUploadClaims`)
+ * `evidence_upload_claims`
  * @typedef {Object} EvidenceUploadClaimRow
  * @property {string} id
  * @property {string} organizationId
@@ -240,7 +343,7 @@ export const EXECUTION_EVENT_SOURCE = /** @type {const} */ (["mobile", "web", "s
  */
 
 /**
- * `field_evidence_files` (Convex `fieldEvidenceFiles`)
+ * `field_evidence_files`
  * @typedef {Object} FieldEvidenceFileRow
  * @property {string} id
  * @property {string} organizationId
@@ -267,7 +370,7 @@ export const EXECUTION_EVENT_SOURCE = /** @type {const} */ (["mobile", "web", "s
  */
 
 /**
- * `execution_events` (Convex `executionEvents`)
+ * `execution_events`
  * @typedef {Object} ExecutionEventRow
  * @property {string} id
  * @property {string} organizationId

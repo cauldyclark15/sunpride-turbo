@@ -5,7 +5,9 @@ import {
   readEligibilityFacts,
   readPartnerEvidence,
 } from "../integration/spec-adapters.js";
-import { fail } from "../orders/validation.js";
+import { authorizeCampaignQuote } from "./authority.js";
+import { readPromotionPerformance } from "./performance.js";
+import { readIncentiveMetrics } from "./metric-sources.js";
 
 /** SEAM(SAP): operational instructions await enqueueSapPosting; no synthetic SAP acknowledgement.
  * SEAM(FISCAL): requestOverride must authorize exact transaction facts; no local discount matrix.
@@ -17,26 +19,17 @@ export const seams = {
   /** @param {any} _db @param {any} _instruction @returns {Promise<{postingId:string}|null>} */
   enqueueSapPosting: enqueueTpmPosting,
   /** @param {any} _c @param {any} _facts @returns {Promise<{status:string,reference?:string}>} */
-  async requestOverride(_c, _facts) {
-    return { status: "needs_setup" };
-  },
+  requestOverride: authorizeCampaignQuote,
   /** @param {any} c @param {string} _type @param {string} _id */
   authorizeClaimant,
   /** @param {any} _c @param {string} _kind @param {string} _id @returns {Promise<any>} */
   readEvidence: readPartnerEvidence,
   /** @param {any} _c @param {any} _q @returns {Promise<any>} */
-  async readIncentiveMetrics(_c, _q) {
-    fail("Governed incentive metrics are not connected", "needs_setup");
-  },
+  readIncentiveMetrics,
   /** SEAM(TOWER/SAP): complete benefit spend (invoice/rebate/valued goods), source and completeness
    * accompany baseline, margin and definition-version facts; earnings are not total spend.
    * @param {any} _c @param {any} _q @returns {Promise<any>} */
-  async readPromotionPerformance(_c, _q) {
-    fail(
-      "Promotion baseline, complete SAP spend and margin feeds are not connected",
-      "needs_setup",
-    );
-  },
+  readPromotionPerformance,
 };
 /** Owner adapters are installed once at integration; tests replace only these named seams.
  * @param {Partial<typeof seams>} adapters */

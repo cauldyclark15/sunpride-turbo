@@ -1,7 +1,22 @@
-import { canonicalJson, sha256Hex } from "../../core/util.js";
+import { canonicalJson, sha256Hex, HEX64_RE } from "../../core/util.js";
 import { seams } from "./seams.js";
 import { changed, command, office, bounded } from "./common.js";
 import { posting } from "./finance.js";
+import {
+  provenClaimValue,
+  comparableEvidence,
+  claimQuantity,
+} from "./claim-matching.js";
+import {
+  applyExecutionOverride,
+  approveExecutionOverride,
+  executionExceptionEligible,
+} from "./claim-overrides.js";
+import { claimSourceOptions } from "./claim-source-options.js";
+import { executionEvidenceAccess } from "./evidence-access.js";
+import { filesDir, MAX_MEDIA_BYTES } from "../../core/media.js";
+import { join } from "node:path";
+import { queueClaimMail } from "./notifications.js";
 import {
   choice,
   date,
@@ -35,9 +50,17 @@ export async function readEvidence(c, kind, id) {
       r.status === "rejected"
     )
       return null;
+    const scope = await executionEvidenceAccess(c, {
+      outletId: r.outlet_id,
+      occurredAt: +new Date(r.captured_at),
+    });
+    if (!scope) return null;
     return {
       kind,
       sourceId: id,
+      ...scope,
+      storageId: r.storage_id,
+      evidenceVersion: 2,
       outletId: r.outlet_id,
       occurredAt: new Date(r.captured_at).getTime(),
       fingerprint: `photo:${r.checksum}`,
@@ -47,10 +70,16 @@ export async function readEvidence(c, kind, id) {
   if (kind === "checklist") {
     const [r] =
       await c.db`select e.*,a.device_time as execution_at,v.id as campaign_version_id from merchandising_compliance_checks e join merchandising_audits a on a.id=e.audit_id and a.deleted_at is null join campaigns m on m.code=e.program_ref and m.organization_id=e.organization_id join campaign_versions v on v.campaign_id=m.id and v.effective_from<=a.device_time and v.effective_to>a.device_time where e.id=${id} and e.organization_id='sunpride' and e.deleted_at is null and e.finding='compliant' and e.kind='promotion'`;
-    if (!r) return null;
+    if (!r) return seams.readEvidence(c, kind, id);
+    const scope = await executionEvidenceAccess(c, {
+      outletId: r.outlet_id,
+      occurredAt: +new Date(r.execution_at),
+    });
+    if (!scope) return null;
     return {
       kind,
       sourceId: id,
+      ...scope,
       outletId: r.outlet_id,
       campaignVersionId: r.campaign_version_id,
       occurredAt: new Date(r.execution_at).getTime(),
@@ -71,16 +100,22 @@ async function claim(c, id, lock = false) {
 /** @param {any} c @param {any} r @param {string} action @param {any} [details] */
 async function event(c, r, action, details = {}) {
   await c.db`insert into claim_events(claim_id,action,actor_subject,details) values(${r.id},${action},${c.actor.subject},${details})`;
-  await c.db`insert into claim_notifications(claim_id,party_type,party_id,message) values(${r.id},${r.claimant_party_type},${r.claimant_party_id},${`Your claim is ${action.replaceAll("_", " ")}.`})`;
+  const [notice] =
+    await c.db`insert into claim_notifications(claim_id,party_type,party_id,message) values(${r.id},${r.claimant_party_type},${r.claimant_party_id},${`Your claim is ${action.replaceAll("_", " ")}.`}) returning id`;
+  await queueClaimMail(c.db, notice.id);
   await changed(c, `claim.${action}`, r.id, details);
 }
 /** F-505 shared intake seam; caller identity checked here, including portal adapters.
  * @param {any} c @param {any} b */
 export async function submitClaim(c, b, sourceId = crypto.randomUUID()) {
   const type = choice(b.partyType, PARTY_TYPES, "Claimant type"),
-    party = text(b.partyId, "Claimant party", 160),
-    name = text(b.partyName, "Claimant name", 160);
+    party = text(b.partyId, "Claimant party", 160);
   await seams.authorizeClaimant(c, type, party);
+  const [named] =
+    type === "modern_trade"
+      ? await c.db`select label as name from mt_account_bindings where id::text=${party}`
+      : await c.db`select name from distributors where id::text=${party} and partner_kind=${type}`;
+  const name = text(named?.name ?? b.partyName, "Claimant name", 160);
   const from = date(b.periodFrom),
     to = date(b.periodTo),
     amount = integer(b.amountCentavos);
@@ -94,6 +129,11 @@ export async function submitClaim(c, b, sourceId = crypto.randomUUID()) {
     await c.db`select * from claim_types where id=${uuid(b.typeId)} and effective_from<=${new Date(c.now)} and effective_to>${new Date(c.now)}`;
   if (!policy) fail("Claim type is not currently effective");
   const reference = text(b.reference, "Claim reference", 120);
+  const quantity = claimQuantity(b);
+  if (b.earningId && quantity.quantity != null)
+    fail(
+      "Earned rebates already freeze quantity; use source-line quantities only for a direct evidence claim",
+    );
   if (b.earningId) {
     const [e] =
       await c.db`select * from promotion_earnings where id=${uuid(b.earningId)}`;
@@ -107,8 +147,8 @@ export async function submitClaim(c, b, sourceId = crypto.randomUUID()) {
       fail("Earning does not match the claim facts");
   }
   const [r] =
-    await c.db`insert into claims(id,reference,claimant_party_type,claimant_party_id,claimant_name,type_id,campaign_version_id,earning_id,outlet_id,period_from,period_to,amount_centavos,created_by)
-    values(${sourceId},${reference},${type},${party},${name},${policy.id},${b.campaignVersionId ? uuid(b.campaignVersionId) : null},${b.earningId ? uuid(b.earningId) : null},${b.outletId ? uuid(b.outletId) : null},${from},${to},${amount},${c.actor.subject}) returning *`;
+    await c.db`insert into claims(id,reference,claimant_party_type,claimant_party_id,claimant_name,type_id,campaign_version_id,earning_id,outlet_id,period_from,period_to,amount_centavos,created_by,product_id,uom,quantity_units)
+    values(${sourceId},${reference},${type},${party},${name},${policy.id},${b.campaignVersionId ? uuid(b.campaignVersionId) : null},${b.earningId ? uuid(b.earningId) : null},${b.outletId ? uuid(b.outletId) : null},${from},${to},${amount},${c.actor.subject},${quantity.quantity != null ? uuid(quantity.productId) : null},${quantity.quantity != null ? text(quantity.uom, "Source selling UOM", 32) : null},${quantity.quantity}) returning *`;
   await event(c, r, "submitted");
   return { id: r.id, status: r.status };
 }
@@ -140,22 +180,82 @@ function matches(c, r, source) {
         r.claimant_party_type === source.partyType))
   );
 }
+/** Shared immutable source linker for office and claimant intake. @param {any} c @param {any} r @param {any} b */
+export async function attachClaimEvidence(c, r, b) {
+  if (!["submitted", "needs_evidence"].includes(r.status))
+    fail("Evidence is locked after validation");
+  const kind = choice(b.kind, EVIDENCE_KINDS, "Evidence kind"),
+    requested = uuid(b.sourceId),
+    source = await readEvidence(
+      {
+        ...c,
+        claimEvidenceScope: {
+          partyType: r.claimant_party_type,
+          partyId: r.claimant_party_id,
+        },
+      },
+      kind,
+      requested,
+    ),
+    id =
+      kind === "secondary_sale"
+        ? uuid(source?.sourceId ?? requested)
+        : requested;
+  if (!matches(c, r, source))
+    fail("Evidence is not verified or does not match this claim");
+  await c.db`select pg_advisory_xact_lock(hashtextextended(${"tpm:source:" + kind + ":" + id},0))`;
+  await c.db`select pg_advisory_xact_lock(hashtextextended(${"tpm:proof:" + source.fingerprint},0))`;
+  const [same] =
+    await c.db`select id from claim_evidence where claim_id=${r.id} and kind=${kind} and source_id=${id}`;
+  if (!same) {
+    const [duplicate] =
+      await c.db`select id from claim_evidence where fingerprint=${source.fingerprint} or (kind=${kind} and source_id=${id}) union all select e.id from claim_evidence_revisions v join claim_evidence e on e.id=v.evidence_id where v.fingerprint=${source.fingerprint} limit 1`;
+    if (duplicate) fail("Evidence was already used by another claim");
+    await c.db`insert into claim_evidence(claim_id,kind,source_id,fingerprint,snapshot) values(${r.id},${kind},${id},${text(source.fingerprint, "Evidence fingerprint", 200)},${source})`;
+  }
+  await event(c, r, "evidence_added", { kind });
+  await c.db`update claims set last_material_by=${c.actor.subject},updated_at=now() where id=${r.id}`;
+  return { id: r.id };
+}
+/** Bounded packet intake is atomic with its source links; monetary validation stays independent. @param {any} c @param {any} b */
+export async function submitClaimPacket(c, b) {
+  if (!Array.isArray(b.sources) || b.sources.length > 20)
+    fail("Choose at most 20 source records");
+  const result = await submitClaim(c, b),
+    r = await claim(c, result.id);
+  for (const source of [...b.sources].sort((a, b) =>
+    `${a.kind}:${a.sourceId}`.localeCompare(`${b.kind}:${b.sourceId}`),
+  ))
+    await attachClaimEvidence(c, r, source);
+  return result;
+}
 /** F-506 immutable validation re-reads authoritative facts; a photo alone never proves payable money.
  * @param {any} c @param {any} r */
 export async function validateClaim(c, r) {
   const [policy] = await c.db`select * from claim_types where id=${r.type_id}`;
   const links =
-    await c.db`select * from claim_evidence where claim_id=${r.id} order by kind,source_id`;
+    await c.db`select e.*,coalesce(v.snapshot,e.snapshot) as snapshot from claim_evidence e left join lateral(select snapshot from claim_evidence_revisions where evidence_id=e.id order by seq desc limit 1)v on true where e.claim_id=${r.id} order by e.kind,e.source_id`;
   /** @type {string[]} */ const reasons = [];
   /** @type {any[]} */ const sources = [];
   for (const link of links) {
-    const source = await readEvidence(c, link.kind, link.source_id);
+    const source = await readEvidence(
+      {
+        ...c,
+        claimEvidenceScope: {
+          partyType: r.claimant_party_type,
+          partyId: r.claimant_party_id,
+        },
+      },
+      link.kind,
+      link.source_id,
+    );
     if (
       !matches(c, r, source) ||
-      canonicalJson(source) !== canonicalJson(link.snapshot)
+      canonicalJson(comparableEvidence(source, link.snapshot)) !==
+        canonicalJson(link.snapshot)
     )
       reasons.push(`Evidence changed or does not match: ${link.kind}`);
-    else sources.push(source);
+    else sources.push(comparableEvidence(source, link.snapshot));
   }
   for (const kind of policy.required_evidence)
     if (!sources.some((s) => s.kind === kind))
@@ -187,17 +287,23 @@ export async function validateClaim(c, r) {
     )
       reasons.push("Claim exceeds unclaimed earned value");
   } else {
-    const proven = sources.filter(
-      (s) =>
-        ["source_document", "secondary_sale", "attendance"].includes(s.kind) &&
-        Number.isSafeInteger(s.amountCentavos),
-    );
-    if (
-      !proven.length ||
-      BigInt(r.amount_centavos) >
-        proven.reduce((n, s) => n + BigInt(s.amountCentavos), 0n)
-    )
-      reasons.push("No authoritative source proves the claimed value");
+    const proven = provenClaimValue(sources, r);
+    if (proven === null || BigInt(r.amount_centavos) > proven)
+      reasons.push(
+        r.quantity_units != null
+          ? "Source SKU, selling unit, quantity or prorated value does not match"
+          : "No authoritative source proves the claimed value",
+      );
+    if (r.quantity_units != null) {
+      const line = sources.find(
+        (s) => s.productId === r.product_id && s.uom === r.uom,
+      );
+      if (
+        line?.outletId &&
+        sources.some((s) => s.outletId && s.outletId !== line.outletId)
+      )
+        reasons.push("Execution evidence belongs to another source store");
+    }
   }
   if (
     r.campaign_version_id &&
@@ -209,6 +315,14 @@ export async function validateClaim(c, r) {
     amount: String(r.amount_centavos),
     policyId: policy.id,
     required: policy.required_evidence,
+    ...(r.last_material_by ? { lastMaterialBy: r.last_material_by } : {}),
+    ...(r.quantity_units != null
+      ? {
+          product: r.product_id,
+          uom: r.uom,
+          quantity: String(r.quantity_units),
+        }
+      : {}),
     sources,
     earning: earning
       ? {
@@ -218,11 +332,14 @@ export async function validateClaim(c, r) {
         }
       : null,
   };
-  return {
+  const hash = sha256Hex(canonicalJson(content));
+  return applyExecutionOverride(c, r, policy, {
     passed: !reasons.length,
     reasons,
-    hash: sha256Hex(canonicalJson(content)),
-  };
+    hash,
+    baseHash: hash,
+    exceptionEligible: executionExceptionEligible(policy, reasons),
+  });
 }
 /** F-409/F-505 portal seam. Partner owners supply the effective membership grant, not a second claim object.
  * @param {any} c @param {{partyType:string,partyId:string}} q */
@@ -243,6 +360,13 @@ export const claimView = (r) => ({
   type: r.type_code,
   status: r.status,
   amountCentavos: Number(r.amount_centavos),
+  ...(r.quantity_units != null
+    ? {
+        productId: r.product_id,
+        uom: r.uom,
+        quantityUnits: Number(r.quantity_units),
+      }
+    : {}),
   periodFrom: String(
     r.period_from instanceof Date ? r.period_from.toISOString() : r.period_from,
   ).slice(0, 10),
@@ -256,40 +380,205 @@ export const claimView = (r) => ({
 });
 /** @param {any} router */
 export function installClaims(router) {
+  for (const action of ["amend", "refresh-evidence"])
+    router.post(`/api/v1/tpm/claims/${action}`, (/** @type {any} */ c) =>
+      command(
+        c,
+        `claim.${action}`,
+        c.body,
+        (cc) => office(cc, "order.encode"),
+        async (cc) => {
+          const b = c.body,
+            r = await claim(cc, b.id, true);
+          if (
+            ![
+              "submitted",
+              "needs_evidence",
+              "validated",
+              "rejected",
+              "approved",
+            ].includes(r.status)
+          )
+            fail("Only an unpaid claim can be revised");
+          const [paid] =
+            await cc.db`select 1 from claim_settlements where claim_id=${r.id} and status in ('pending','acknowledged') limit 1`;
+          if (paid)
+            fail(
+              "Reconcile the related SAP settlement before modifying this claim",
+            );
+          const reason = text(b.reason, "Revision reason", 1000);
+          if (action === "amend") {
+            const amount = integer(b.amountCentavos);
+            if (!amount) fail("Choose a positive claim amount");
+            const quantity = b.quantityUnits ?? r.quantity_units;
+            if (
+              b.quantityUnits != null &&
+              (!Number.isSafeInteger(b.quantityUnits) || b.quantityUnits <= 0)
+            )
+              fail("Choose positive whole source units");
+            if (r.quantity_units == null && b.quantityUnits != null)
+              fail("This claim has no source SKU/UOM quantity contract");
+            await cc.db`update claims set amount_centavos=${amount},quantity_units=${quantity},updated_at=now() where id=${r.id}`;
+          } else {
+            const kind = choice(b.kind, EVIDENCE_KINDS, "Evidence kind"),
+              id = uuid(b.sourceId),
+              source = await readEvidence(
+                {
+                  ...cc,
+                  claimEvidenceScope: {
+                    partyType: r.claimant_party_type,
+                    partyId: r.claimant_party_id,
+                  },
+                },
+                kind,
+                id,
+              );
+            if (!matches(cc, r, source))
+              fail("The new source version does not match this claim");
+            const [link] =
+              await cc.db`select id from claim_evidence where claim_id=${r.id} and kind=${kind} and source_id=${id}`;
+            if (!link) fail("Choose existing linked evidence");
+            await cc.db`select pg_advisory_xact_lock(hashtextextended(${"tpm:proof:" + source.fingerprint},0))`;
+            const [duplicate] =
+              await cc.db`select id from claim_evidence where claim_id<>${r.id} and fingerprint=${source.fingerprint} union all select e.id from claim_evidence_revisions v join claim_evidence e on e.id=v.evidence_id where e.claim_id<>${r.id} and v.fingerprint=${source.fingerprint} limit 1`;
+            if (duplicate) fail("This proof belongs to another claim");
+            await cc.db`insert into claim_evidence_revisions(evidence_id,fingerprint,snapshot,reason,actor_subject)values(${link.id},${source.fingerprint},${source},${reason},${cc.actor.subject})`;
+          }
+          await cc.db`update claims set status='needs_evidence',validation_hash=null,validated_by=null,approved_by=null,last_material_by=${cc.actor.subject},updated_at=now() where id=${r.id}`;
+          await event(
+            cc,
+            r,
+            action === "amend" ? "amended" : "source_refreshed",
+            { reason },
+          );
+          return { id: r.id, status: "needs_evidence" };
+        },
+      ),
+    );
+  router.get("/api/v1/tpm/claims/source-file", async (/** @type {any} */ c) => {
+    await office(c);
+    const r = await claim(c, c.url.searchParams.get("id")),
+      id = uuid(c.url.searchParams.get("sourceId")),
+      source = await readEvidence(c, "source_document", id);
+    if (!matches(c, r, source)) fail("Document does not match this claim");
+    const [doc] =
+      await c.db`select content,mime,sha256,distributor_id from distributor_documents where id=${id}`;
+    if (
+      !doc ||
+      source.partyType !== "distributor" ||
+      source.partyId !== doc.distributor_id ||
+      source.fingerprint !== `distributor-document:${id}:${doc.sha256}` ||
+      sha256Hex(doc.content) !== doc.sha256
+    )
+      fail("Original document is unavailable");
+    return new Response(doc.content, {
+      headers: {
+        "content-type": ["application/pdf", "image/jpeg", "image/png"].includes(
+          doc.mime,
+        )
+          ? doc.mime
+          : "application/octet-stream",
+        "content-disposition": 'attachment; filename="claim-source"',
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  });
+  router.get("/api/v1/tpm/claims/photo", async (/** @type {any} */ c) => {
+    await office(c);
+    const r = await claim(c, c.url.searchParams.get("id")),
+      source = await readEvidence(
+        c,
+        "photo",
+        uuid(c.url.searchParams.get("sourceId")),
+      );
+    if (!matches(c, r, source)) fail("Photo does not match this claim");
+    const [stored] =
+      await c.db`select path,sha256,mime from files where id=${source.storageId} and status='stored'`;
+    if (
+      !stored ||
+      source.fingerprint !== `photo:${stored.sha256}` ||
+      !HEX64_RE.test(stored.sha256) ||
+      stored.mime !== "image/jpeg" ||
+      stored.path !== `${stored.sha256.slice(0, 2)}/${stored.sha256}`
+    )
+      fail("Stored photo is unavailable");
+    const file = Bun.file(join(filesDir(c.env), stored.path));
+    if (!(await file.exists()) || file.size > MAX_MEDIA_BYTES)
+      fail("Stored photo is unavailable");
+    const bytes = new Uint8Array(await file.arrayBuffer());
+    if (sha256Hex(bytes) !== stored.sha256)
+      fail("Stored photo failed its digest check");
+    return new Response(bytes, {
+      headers: {
+        "content-type": "image/jpeg",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+      },
+    });
+  });
+  router.post("/api/v1/tpm/claims/execution-override", (/** @type {any} */ c) =>
+    command(
+      c,
+      "claim.execution_override",
+      c.body,
+      (cc) => office(cc, "order.approve"),
+      async (cc) => {
+        const r = await claim(cc, c.body.id, true);
+        if (
+          ![
+            "submitted",
+            "needs_evidence",
+            "validated",
+            "approved",
+            "part_settled",
+          ].includes(r.status)
+        )
+          fail("Choose an unsettled claim");
+        const [policy] =
+          await cc.db`select * from claim_types where id=${r.type_id}`;
+        const base = await validateClaim(cc, r),
+          id = await approveExecutionOverride(cc, r, policy, base, c.body),
+          result = await validateClaim(cc, r);
+        if (!result.passed)
+          fail("Exception is not authorized for the current source facts");
+        const status = ["approved", "part_settled"].includes(r.status)
+          ? r.status
+          : "validated";
+        await cc.db`update claims set status=${status},validation_hash=${result.hash},validated_by=${cc.actor.subject},updated_at=now() where id=${r.id}`;
+        await event(cc, r, "execution_exception_approved", {
+          overrideId: id,
+          waivedReasons: base.reasons,
+        });
+        return { id, status };
+      },
+    ),
+  );
   router.get(
     "/api/v1/tpm/claims/evidence-options",
     async (/** @type {any} */ c) => {
       await office(c);
       const r = await claim(c, c.url.searchParams.get("id"));
-      const from = date(
-        r.period_from instanceof Date
-          ? r.period_from.toISOString().slice(0, 10)
-          : String(r.period_from),
-      );
-      const to = date(
-        r.period_to instanceof Date
-          ? r.period_to.toISOString().slice(0, 10)
-          : String(r.period_to),
-      );
-      const rows = await c.db`select * from (
-      select e.id,'photo'::text as kind,o.name as outlet_name,e.captured_at as at
-      from field_evidence_files e join outlets o on o.id=e.outlet_id join files f on f.id=e.storage_id
-      where e.organization_id='sunpride' and e.deleted_at is null and e.status<>'rejected' and f.status='stored'
-      and (e.captured_at at time zone 'Asia/Manila')::date between ${from} and ${to}
-      and (${r.outlet_id}::uuid is null or e.outlet_id=${r.outlet_id})
-      union all
-      select e.id,'checklist'::text as kind,o.name as outlet_name,a.device_time as at
-      from merchandising_compliance_checks e join merchandising_audits a on a.id=e.audit_id and a.deleted_at is null join outlets o on o.id=e.outlet_id
-      where e.organization_id='sunpride' and e.deleted_at is null and e.kind='promotion' and e.finding='compliant'
-      and e.service_date between ${from} and ${to} and (${r.outlet_id}::uuid is null or e.outlet_id=${r.outlet_id})
-    ) proof order by at desc,id limit 101`;
-      return {
-        truncated: rows.length > 100,
-        rows: rows.slice(0, 100).map((/** @type {any} */ e) => ({
+      const rows = await claimSourceOptions(c, r),
+        visible = [];
+      for (const e of rows.slice(0, 100)) {
+        const source = await readEvidence(c, e.kind, e.id);
+        if (!matches(c, r, source)) continue;
+        visible.push({
           id: e.id,
           kind: e.kind,
-          label: `${e.kind === "photo" ? "Photo" : "Campaign checklist"} · ${e.outlet_name} · ${manilaDate(new Date(e.at))}`,
-        })),
+          label: `${e.label} · ${manilaDate(new Date(e.at))}`,
+          snapshot: source,
+          ...(e.kind === "photo"
+            ? {
+                photoUrl: `/api/v1/tpm/claims/photo?id=${r.id}&sourceId=${e.id}`,
+              }
+            : {}),
+        });
+      }
+      return {
+        truncated: rows.length > 100,
+        rows: visible,
       };
     },
   );
@@ -363,8 +652,11 @@ export function installClaims(router) {
     const r = await claim(c, c.url.searchParams.get("id"));
     return {
       ...claimView(r),
+      validation: await validateClaim(c, r),
+      overrides:
+        await c.db`select reason,evidence_reference,waived_reasons,created_at from claim_execution_overrides where claim_id=${r.id} order by created_at`,
       evidence:
-        await c.db`select kind,source_id,snapshot from claim_evidence where claim_id=${r.id}`,
+        await c.db`select e.kind,e.source_id,coalesce(v.snapshot,e.snapshot) as snapshot from claim_evidence e left join lateral(select snapshot from claim_evidence_revisions where evidence_id=e.id order by seq desc limit 1)v on true where e.claim_id=${r.id}`,
       events:
         await c.db`select action,details,created_at from claim_events where claim_id=${r.id} order by created_at`,
       settlements:
@@ -403,6 +695,17 @@ export function installClaims(router) {
           to = instant(b.effectiveTo);
         if (to <= from) fail("Policy end must follow start");
         if (b.kind === "claim_type") {
+          const hours = b.escalationHours ?? 48;
+          if (
+            !Number.isInteger(hours) ||
+            hours < 1 ||
+            hours > 720 ||
+            (b.emailNotifications != null &&
+              typeof b.emailNotifications !== "boolean")
+          )
+            fail(
+              "Choose 1–720 inactivity hours and an explicit email preference",
+            );
           const required = b.requiredEvidence;
           if (
             !Array.isArray(required) ||
@@ -412,7 +715,7 @@ export function installClaims(router) {
           )
             fail("Choose required evidence types");
           const [r] =
-            await cc.db`insert into claim_types(code,effective_from,effective_to,required_evidence,source) values(${text(b.code, "Type code", 80)},${from},${to},${required},'office') returning id`;
+            await cc.db`insert into claim_types(code,effective_from,effective_to,required_evidence,source,allow_execution_override,escalation_hours,email_notifications) values(${text(b.code, "Type code", 80)},${from},${to},${required},'office',${b.allowExecutionOverride === true},${hours},${b.emailNotifications !== false}) returning id`;
           await changed(cc, "claim_type.saved", r.id);
           return { id: r.id };
         }
@@ -451,24 +754,7 @@ export function installClaims(router) {
           const b = c.body,
             r = await claim(cc, b.id, true);
           if (action === "evidence") {
-            if (!["submitted", "needs_evidence"].includes(r.status))
-              fail("Evidence is locked after validation");
-            const kind = choice(b.kind, EVIDENCE_KINDS, "Evidence kind"),
-              id = uuid(b.sourceId),
-              source = await readEvidence(cc, kind, id);
-            if (!matches(cc, r, source))
-              fail("Evidence is not verified or does not match this claim");
-            await cc.db`select pg_advisory_xact_lock(hashtextextended(${"tpm:proof:" + source.fingerprint},0))`;
-            const [same] =
-              await cc.db`select id from claim_evidence where claim_id=${r.id} and kind=${kind} and source_id=${id}`;
-            if (!same) {
-              const [duplicate] =
-                await cc.db`select id from claim_evidence where fingerprint=${source.fingerprint}`;
-              if (duplicate) fail("Evidence was already used by another claim");
-              await cc.db`insert into claim_evidence(claim_id,kind,source_id,fingerprint,snapshot) values(${r.id},${kind},${id},${text(source.fingerprint, "Evidence fingerprint", 200)},${source})`;
-            }
-            await event(cc, r, "evidence_added", { kind });
-            return { id: r.id };
+            return attachClaimEvidence(cc, r, b);
           }
           if (action === "validate") {
             if (
@@ -483,7 +769,10 @@ export function installClaims(router) {
             });
             return result;
           }
-          if (r.created_by === cc.actor.subject)
+          if (
+            r.created_by === cc.actor.subject ||
+            r.last_material_by === cc.actor.subject
+          )
             fail(
               "You cannot approve or settle your own claim",
               "self_approval",
@@ -523,6 +812,11 @@ export function installClaims(router) {
           }
           if (!["approved", "part_settled"].includes(r.status))
             fail("Only approved claims may settle");
+          const validation = await validateClaim(cc, r);
+          if (!validation.passed || validation.hash !== r.validation_hash)
+            fail(
+              "Source evidence changed; reconcile and reauthorize this claim before further SAP settlement",
+            );
           const amount = integer(b.amountCentavos),
             method = choice(
               b.method,

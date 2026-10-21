@@ -7,6 +7,9 @@ import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { writeAudit } from "../org/audit.js";
 import { personAt } from "../org/scope.js";
 import { resolvePrice } from "../orders/pricing.js";
+import { callAvailability } from "../availability/sources.js";
+import { requestRetailAction } from "./sap.js";
+import { readEligibilityFacts } from "../integration/spec-adapters.js";
 import { accessOutlet, uuid, text, date } from "../visits/shared.js";
 export { uuid, text, date, accessOutlet };
 /** @param {any} value @param {number} [max] @param {number} [min] */
@@ -119,16 +122,8 @@ export async function scopedVisits(c, rows) {
  */
 export const seams = {
   validatePhoto: async (/** @type {any} */ _c, /** @type {any} */ _photo) => {},
-  availability: async (/** @type {any} */ c, /** @type {any} */ visit) => {
-    const [a] =
-      await c.db`select a.*, (select count(*)::int from merchandising_audit_missing_products m where m.merchandising_audit_id=a.id) as missing from merchandising_audits a where a.visit_id=${visit.id}`;
-    return a && a.required_count > 0 && a.missing === 0
-      ? {
-          score: (100 * a.required_available_count) / a.required_count,
-          sourceId: a.id,
-        }
-      : null;
-  },
+  availability: async (/** @type {any} */ c, /** @type {any} */ visit) =>
+    callAvailability(c.db, visit),
   // SEAM(SAP): expected price comes from the canonical effective replica resolver, never a supplied compliant flag.
   priceCompliance: async (
     /** @type {any} */ c,
@@ -197,6 +192,7 @@ export const seams = {
       channelKey: outlet.channel,
       classKey: outlet.classification,
       territoryId: assignment?.territory_id,
+      ...(await readEligibilityFacts(c, { outletId: outlet.id, at })),
     };
     // Missing geography/distributor facts are unknown, not a proof that no campaign applies.
     for (const campaign of rows)
@@ -243,10 +239,7 @@ export const seams = {
     }
     return true;
   },
-  requestSapAction: async (
-    /** @type {any} */ _c,
-    /** @type {any} */ _input,
-  ) => ({ status: "awaiting_seam" }),
+  requestSapAction: requestRetailAction,
 };
 /** F-313 F-321: assignment targets use current effective people scope, never a stale profile projection.
  * @param {any} c @param {string} id @param {boolean} [allowInactive] */

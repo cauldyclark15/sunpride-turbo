@@ -133,7 +133,14 @@ async function view(c, row) {
   const binding = await bindingAccess(c, row.binding_id);
   const lines =
     await c.db`select l.product_code as "productCode",p.name as "productName",l.uom,l.quantity::float8 as quantity,l.requested_price_centavos::float8 as "requestedPriceCentavos",l.approved_price_centavos::float8 as "approvedUnitPriceCentavos",l.gross_centavos::float8 as "grossCentavos",l.exceptions from mt_po_lines l left join products p on p.id=l.product_id where l.intake_id=${row.id} order by l.ordinal`;
-  return { ...row, branchLabel: binding.label, lines };
+  const [document] =
+    await c.db`select extraction from mt_po_documents where id=${row.document_id}`;
+  return {
+    ...row,
+    extraction: document?.extraction ?? null,
+    branchLabel: binding.label,
+    lines,
+  };
 }
 /** @param {any} c @param {string} id @param {string} [cap] */
 async function intake(c, id, cap = "order.encode") {
@@ -225,7 +232,7 @@ export function installIntake(router) {
         }
         const data = await validate(cc, binding, parsed);
         const [doc] =
-          await cc.db`insert into mt_po_documents(binding_id,filename,format,sha256,content_base64,created_by) values(${binding.id},${filename},${format},${hash},${b.contentBase64},${cc.user.id}) returning id`;
+          await cc.db`insert into mt_po_documents(binding_id,filename,format,sha256,content_base64,created_by,extraction) values(${binding.id},${filename},${format},${hash},${b.contentBase64},${cc.user.id},${parsed.extraction ?? {}}) returning id`;
         const [po] =
           await cc.db`insert into inbound_purchase_orders(document_id,binding_id,po_number,service_date,exceptions,created_by) values(${doc.id},${binding.id},${data.poNumber},${data.serviceDate},${data.exceptions},${cc.user.id}) returning id`;
         await saveLines(cc, po.id, data);

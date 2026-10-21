@@ -20,12 +20,13 @@ internal data class PromotionLine(
     var freeBase: Long,
     val price: PosPrice?,
     var discountMinor: Long,
-    var promotion: QuotedPromotion?
+    var promotion: QuotedPromotion?,
+    val grossMinorOverride: Long? = null
 ) {
-    val grossMinor: Long get() = if (paidBase == 0L) 0L else price?.let { CheckoutRules.lineTotal(it.unitPriceMinor,paidBase,product.quantityScale) } ?: 0L
+    val grossMinor: Long get() = grossMinorOverride ?: if (paidBase == 0L) 0L else price?.let { CheckoutRules.lineTotal(it.unitPriceMinor,paidBase,product.quantityScale) } ?: 0L
 }
 
-internal data class PromotionResult(val lines: List<PromotionLine>, val issues: List<CheckoutIssue>)
+internal data class PromotionResult(val lines: List<PromotionLine>, val issues: List<CheckoutIssue>, val earnedMinor: Long = 0)
 
 /**
  * F-110: negotiated engine v1 follows the canonical TPM precedence/exclusions, residual-net stacking,
@@ -33,6 +34,10 @@ internal data class PromotionResult(val lines: List<PromotionLine>, val issues: 
  * original conflict/rounding rules. Neither mode invents a price; unsupported rules block completion.
  */
 internal object PromotionEngine {
+    /** Main's shared-JS negotiated engine and the earlier simple wire are alternatives, never stacked.
+     * An explicit price/manual exception keeps the validated simple adapter; advanced programmes hold for office review. */
+    fun useCanonical(request:CheckoutRequest,context:CheckoutContext)=context.policy?.schemesJson!=null&&context.governedPromotionsJson==null&&request.manualDiscount==null&&request.priceOverride==null
+
     /** F-110: an unsupported governed programme must not disappear into a full-price sale. */
     fun needsOffice(request:CheckoutRequest,context:CheckoutContext):Boolean=runCatching{
         val raw=context.policy?.fiscalJson?:return@runCatching false
@@ -41,6 +46,8 @@ internal object PromotionEngine {
         (0 until rows.length()).any{i->val r=rows.getJSONObject(i);val ids=r.getJSONArray("productIds");require(ids.length()<=100)
             r.getString("outletId")==request.customerId&&(ids.length()==0||(0 until ids.length()).any{n->request.lines.any{it.productId==ids.getString(n)}})}
     }.getOrDefault(true)
+    fun applyGoverned(cart:List<CartLine>,customer:Customer,products:Map<String,Product>,prices:List<PriceLine>,snapshot:String,now:Long):PromotionResult =
+        GovernedPromotions.apply(cart,customer,products,prices,snapshot,now)
     fun apply(
         cart: List<CartLine>,
         customer: Customer,

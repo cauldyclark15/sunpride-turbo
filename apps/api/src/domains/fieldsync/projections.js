@@ -1,6 +1,7 @@
 import { callSnapshot } from "../availability/calls.js";
 import { tx } from "@sunpride/db/client";
-import { partnerContext } from "../partners/boundary.js";
+import { partnerContext, partnerStoreGrants } from "../partners/boundary.js";
+import { releasesAt } from "../availability/masters.js";
 import { agendaForPlans } from "../coverage/agenda.js";
 import { workforceContext } from "../coverage/workforce-policies.js";
 import { checkDayManifest } from "./manifest.js";
@@ -13,8 +14,11 @@ import {
 import { catalogueMetadata } from "../masters/catalogue.js";
 import { inventoryRows, PHOTO_TYPES } from "./reference.js";
 import { requireCapability } from "../../core/capabilities.js";
+import { ApiError } from "../../core/errors.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { resolvePrice } from "../orders/pricing.js";
+import { nativeSchemeContext } from "../tpm/native-context.js";
+import { masterId } from "../integration/replicas.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import {
   ORGANIZATION,
@@ -205,10 +209,7 @@ async function bundleData(ctx) {
     throw rebootstrap("Download the current Manila day");
   const db = ctx.db;
   const partner = await partnerContext(db, ctx.actor);
-  const partnerGrants = partner
-    ? await db`select outlet_id,effective_to from partner_outlet_assignments
-    where distributor_id=${partner.distributor_id} and effective_from<=now() and (effective_to is null or effective_to>now())`
-    : [];
+  const partnerGrants = partner ? await partnerStoreGrants(db, partner) : [];
   const permitted = new Set(
     partnerGrants.map((/** @type {any} */ r) => r.outlet_id),
   );
@@ -232,9 +233,7 @@ async function bundleData(ctx) {
   );
   const retailEnabled =
     ctx.app === "field-android" &&
-    (
-      await db`select 1 from availability_releases where kind='msl' and status='published' and effective_from<=${new Date(ctx.now)} and (effective_to is null or effective_to>${new Date(ctx.now)}) limit 1`
-    ).length > 0;
+    (await releasesAt(db, "msl", ctx.now)).length > 0;
   const retailContext = {
     ...ctx,
     availabilityHistory: new Map(),
@@ -305,6 +304,13 @@ async function bundleData(ctx) {
           territoryId: o.territory_id,
           territoryCode: o.territory_code,
         });
+  }
+  // F-211/F-407: off-route shared outlets need the same canonical MSL, not a name-only roster.
+  if (retailEnabled) {
+    retailContext.availabilityOutletIds = [...outlets.keys()];
+    for (const value of outlets.values())
+      if (!value.availability)
+        value.availability = await callSnapshot(retailContext, value.id, date);
   }
   // F-006: the exact definition/policy rides the existing encrypted outlet snapshot.
   if (flowEnabled && outlets.size) {
@@ -504,14 +510,15 @@ async function bundleData(ctx) {
     includeOldOpen: true,
   });
   for (const id of outletIds) {
-    if (partner) continue;
+    if (partner?.partner_kind === "agency") continue;
     const [customer] =
       await db`select c.*,round(c.credit_limit*100)::bigint as credit_minor from outlet_customer_links l join customers c on c.id=l.customer_id where l.outlet_id=${id}
       and l.deleted_at is null and c.deleted_at is null and l.effective_from<=${new Date(ctx.now)} and (l.effective_to is null or l.effective_to>${new Date(ctx.now)})`;
     if (customer)
       localCustomers.set(customer.id, { id: customer.id, code: customer.code });
-    const priceLines = [];
-    const listIds = new Set();
+    const priceLines = [],
+      nativePrices = [],
+      listIds = new Set();
     for (const productId of new Set(
       [...lines, ...assortment]
         .filter(
@@ -530,10 +537,16 @@ async function bundleData(ctx) {
           organizationId: person.organization_id,
           productId: p.id,
           uom,
-          channelKey: customer?.channel ?? person.channel_scope ?? null,
+          channelKey:
+            outlets.get(id)?.channel ??
+            customer?.channel ??
+            person.channel_scope ??
+            null,
           customerCode: customer?.code ?? null,
+          outletId: id,
           at: ctx.now,
         });
+        nativePrices.push({ productId: p.id, uom, ...price });
         if (price.priceListId) listIds.add(price.priceListId);
         priceLines.push({
           productId: p.id,
@@ -559,9 +572,37 @@ async function bundleData(ctx) {
             currency: pl.currency,
             sample: pl.source === "sample",
           }
-        : null,
+        : priceLines.some((p) => p.unitPriceMinor !== null)
+          ? {
+              id: masterId("field.priceQuote", id),
+              code: "SAP-QUOTE",
+              name: "SAP replicated conditions",
+              currency: "PHP",
+              sample: nativePrices.some((p) => p.source === "sap_sample"),
+            }
+          : null,
       lines: priceLines,
+      ...(ctx.params.schemeEngine === 1
+        ? {
+            schemes: await nativeSchemeContext(
+              { ...ctx, db },
+              {
+                outletId: id,
+                channelKey:
+                  outlets.get(id)?.channel ?? customer?.channel ?? null,
+                products: priceLines.map((p) => ({
+                  productId: p.productId,
+                  uom: p.uom,
+                  name: productMap.get(p.productId)?.name,
+                  code: productMap.get(p.productId)?.code,
+                })),
+                prices: nativePrices,
+              },
+            ),
+          }
+        : {}),
     });
+    if (partner) continue; // No accounting/AR history is granted to external field staff.
     const links = customer
       ? await db`select outlet_id from outlet_customer_links where customer_id=${customer.id} and deleted_at is null
       and effective_from<=${new Date(ctx.now)} and (effective_to is null or effective_to>${new Date(ctx.now)}) order by outlet_id limit 21`
@@ -834,10 +875,21 @@ async function fieldLoad(ctx, entity, ids) {
 /** @param {any} ctx */
 export function installProjections(ctx) {
   ctx.registerProjection("field.bundle", {
-    params: (/** @type {any} */ p) => ({
-      dayFrom: serviceDate(p.dayFrom),
-      ...(p.includeWorkforce === true ? { includeWorkforce: true } : {}),
-    }),
+    params: (/** @type {any} */ p) => {
+      if (p.schemeEngine !== undefined && p.schemeEngine !== 1)
+        throw new ApiError(
+          "version_unsupported",
+          426,
+          "Update the native promotion engine",
+          false,
+          { action: "update" },
+        );
+      return {
+        dayFrom: serviceDate(p.dayFrom),
+        ...(p.includeWorkforce === true ? { includeWorkforce: true } : {}),
+        ...(p.schemeEngine === 1 ? { schemeEngine: 1 } : {}),
+      };
+    },
     snapshot: fieldSnapshot,
     entities: ["visit", "activity", "inventory", "field.manifest"],
     scopeKeys: async (/** @type {ProjectionCtx} */ p) => {

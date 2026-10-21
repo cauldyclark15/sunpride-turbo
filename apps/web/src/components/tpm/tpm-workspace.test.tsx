@@ -8,8 +8,17 @@ import {
 import { centavos, peso } from "./model";
 const state = vi.hoisted(() => ({
   edit: true,
+  tab: "Claims",
   values: {} as Record<string, unknown>,
 }));
+vi.mock("react", async (original) => {
+  const react = await original<typeof import("react")>();
+  return {
+    ...react,
+    useState: (initial: unknown) =>
+      react.useState(initial === "Claims" ? state.tab : initial),
+  };
+});
 vi.mock("../../lib/api", () => ({
   useApi: (key: unknown[]) => ({ data: state.values[String(key[1])] }),
   useLive: vi.fn(),
@@ -20,6 +29,7 @@ vi.mock("../../lib/auth", () => ({
 }));
 beforeEach(() => {
   state.edit = true;
+  state.tab = "Claims";
   state.values = {
     summary: {
       asOf: 1792454400000,
@@ -135,6 +145,77 @@ it("F-501 F-507 read-only viewers never receive master or claims write controls"
   expect(trade).not.toContain("Create next version");
   expect(trade).not.toContain("Scheme authoring");
   expect(finance).not.toContain("Submit claim");
+});
+it("F-509 separates SAP write-off from recovery and exposes independent pending-resolution controls", () => {
+  state.tab = "Deductions";
+  state.values.deductions = {
+    rows: [
+      {
+        id: "case",
+        accountKey: "Sample account",
+        classification: "short_delivery",
+        ownerName: "Sample owner",
+        amountCentavos: 1000,
+        recoveredCentavos: 600,
+        writtenOffCentavos: 100,
+        ageDays: 2,
+        status: "open",
+      },
+    ],
+  };
+  const html = renderToStaticMarkup(createElement(FinanceClaimsWorkspace));
+  expect(html).toContain("outstanding " + peso(300));
+  expect(html).toContain("SAP write-off " + peso(100));
+  for (const label of [
+    "Change classification",
+    "Request SAP recovery",
+    "Request SAP write-off",
+    "independent approver",
+    "pending request does not reduce",
+  ])
+    expect(html).toContain(label);
+  state.edit = false;
+  expect(
+    renderToStaticMarkup(createElement(FinanceClaimsWorkspace)),
+  ).not.toContain("Request SAP write-off");
+});
+it("F-508 exposes versioned margin sources and weighted account/mechanic summaries", () => {
+  state.values["roi-policies"] = {
+    distributors: [
+      { id: "sample-partner", name: "Sample partner", account_key: "SAMPLE" },
+    ],
+    rows: [],
+  };
+  state.values.roi = {
+    rows: [],
+    aggregates: [
+      {
+        dimension: "mechanic",
+        key: "rebate",
+        label: "Sample rebate",
+        spendCentavos: 100,
+        incrementalVolumeBase: 2,
+        netRoiBps: 0,
+        sample: true,
+      },
+    ],
+  };
+  const html = renderToStaticMarkup(createElement(TradeMarketingWorkspace));
+  for (const label of [
+    "Save margin and cost source",
+    "Sample partner",
+    "Margin per base piece",
+    "automatically after 30 days",
+    "missing feeds remain unknown",
+    "Sample rebate",
+    "net ROI 0.0%",
+    "Clearly marked sample assumptions",
+  ])
+    expect(html).toContain(label);
+  state.edit = false;
+  expect(
+    renderToStaticMarkup(createElement(TradeMarketingWorkspace)),
+  ).not.toContain("Save margin and cost source");
 });
 it("F-501 integer centavos distinguish unknown, zero and exact input values", () => {
   expect(centavos("12.35")).toBe(1235);

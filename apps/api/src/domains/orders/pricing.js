@@ -16,6 +16,19 @@ import {
  * @returns {Promise<{unitPriceCentavos:number|null,priceListId:string|null,source:string,taxCode?:string,taxBasisPoints?:number,taxTreatment?:string|null,taxInclusive?:boolean,sourceTaxInclusive?:boolean,sourceUnitPriceCentavos?:number,sapKey?:string,sapVersion?:number,effectiveFrom?:number,effectiveTo?:number|null}>}
  */
 export async function resolvePrice(db, q) {
+  if (q.outletId) {
+    const [outlet] =
+      await db`select channel from outlets where id=${q.outletId} and organization_id=${q.organizationId} and deleted_at is null`;
+    if (!outlet)
+      return {
+        unitPriceCentavos: null,
+        priceListId: null,
+        source: "missing_outlet",
+      };
+    // Store channel is a persisted eligibility fact, not the accounting account's
+    // channel or a caller-selected way to obtain another channel's condition.
+    q = { ...q, channelKey: outlet.channel };
+  }
   const accountPrice = await resolveAccountPrice(db, q);
   if (accountPrice) return accountPrice;
   let key = channel(q.channelKey);
@@ -41,18 +54,7 @@ export {
   evaluateSchemes as applyPromotions,
 } from "../tpm/engine.js";
 
-/** @param {any} db @param {string} organizationId @param {number} at */
-export async function activePromotions(db, organizationId, at) {
-  const rows = await db`select p.*,v.scope as campaign_scope from promotions p
-    left join campaign_versions v on v.id=p.campaign_version_id
-    where p.organization_id=${organizationId} and p.deleted_at is null and p.status='active'
-    and p.effective_from<=${new Date(at)} and (p.effective_to is null or p.effective_to>${new Date(at)})
-    and (v.id is null or (v.status='active' and v.effective_from<=${new Date(at)} and v.effective_to>${new Date(at)}))
-    order by p.precedence,p.code limit 501`;
-  if (rows.length > 500)
-    fail("More than 500 active schemes; narrow the catalog");
-  return rows;
-}
+export { activePromotions } from "../tpm/active.js";
 
 /** Selling UOM -> integer scaled base units. @param {any} db @param {any} product @param {string} uom @param {number} quantity @param {number} at */
 export async function baseQuantity(db, product, uom, quantity, at) {

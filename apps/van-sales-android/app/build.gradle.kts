@@ -29,6 +29,14 @@ val betaSigning = Properties().apply {
 
 // Sunpride Van Sales POS (ADR-010): its own app, never the field app with POS switched on.
 // One v2 origin; old endpoint properties are deliberately ignored.
+val schemeResources = layout.buildDirectory.dir("generated/native-schemes")
+val prepareNativeSchemes = tasks.register<Exec>("prepareNativeSchemes") {
+    inputs.files(rootProject.file("../api/scripts/build-native-schemes.js"), rootProject.file("../api/src/domains/tpm/native-entry.js"), rootProject.file("../api/src/domains/tpm/engine.js"), rootProject.file("../api/src/domains/orders/validation.js"), rootProject.file("../api/src/core/util.js"), rootProject.file("../api/src/core/errors.js"))
+    outputs.dir(schemeResources)
+    commandLine("bun", rootProject.file("../api/scripts/build-native-schemes.js").absolutePath, schemeResources.get().asFile.absolutePath)
+}
+tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(prepareNativeSchemes) }
+
 android {
     namespace = "com.sunpride.van"
     compileSdk = 36
@@ -91,6 +99,10 @@ android {
     kotlinOptions { jvmTarget = "17" }
     sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/domain-contracts/native/retail"))
     testOptions { unitTests.isReturnDefaultValues = true }
+    sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/native-promotions/src/main/kotlin"))
+    sourceSets.getByName("test").java.srcDir(rootProject.file("../../packages/native-promotions/src/test/kotlin"))
+    sourceSets.getByName("test").resources.srcDir(rootProject.file("../../packages/native-promotions/fixtures"))
+    sourceSets.getByName("main").resources.srcDir(prepareNativeSchemes)
     sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/callflow-native/src/main/kotlin"))
     sourceSets.getByName("test").java.srcDir(rootProject.file("../../packages/callflow-native/src/test/kotlin"))
     // F-616: one catalogue and scanner implementation for both Android products.
@@ -132,6 +144,7 @@ androidComponents {
 }
 
 dependencies {
+    implementation("org.mozilla:rhino:1.9.1")
     implementation(libs.core)
     implementation(libs.activity.compose)
     implementation(platform(libs.compose.bom))

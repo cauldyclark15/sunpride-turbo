@@ -20,7 +20,7 @@ class NativeApi(private val environment: AppEnvironment, private val auth: AuthC
         if (o.opt("enabled") != enabled || o.optLong("effectiveFrom",0) <= 0) throw AuthFailure(AuthFailure.Kind.SERVER)
     }
     fun request(path: String, body: JSONObject? = null, headers: Map<String,String> = emptyMap()): JSONObject {
-        require(path in setOf("/api/me","/api/devices/challenge","/api/devices/bind","/api/v1/location/consent","/api/devices/control/recover","/api/devices/control/ack","/api/v1/callflow/geofence/request","/api/v1/integrity/devices/pairing/start","/api/v1/fiscal/overrides/request","/api/v1/fiscal/overrides/status","/api/v1/credit/check"))
+        require(path.substringBefore('?') in setOf("/api/me","/api/devices/challenge","/api/devices/bind","/api/v1/location/consent","/api/devices/control/recover","/api/devices/control/ack","/api/v1/callflow/geofence/request","/api/v1/integrity/devices/pairing/start","/api/v1/fiscal/overrides/request","/api/v1/fiscal/overrides/status","/api/v1/credit/check","/api/v1/storepos/mode/switch","/api/v1/storepos/customers/lookup"))
         if (!environment.isReady) throw AuthFailure(AuthFailure.Kind.NOT_CONFIGURED)
         for (attempt in 0..1) {
             val builder = Request.Builder().url(environment.siteUrl.trimEnd('/')+path)

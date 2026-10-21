@@ -1,5 +1,5 @@
 -- 0107_inventory: Canonical inventory: locations, lots, movements, ledger, documents.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: inventory_locations, product_inventory_policies, replenishment_policies, inventory_movements, inventory_balances, inventory_lots, inventory_lot_balances, inventory_commands, inventory_movement_lines, inventory_allocations, inventory_ledger_entries, inventory_reservations, inventory_reservation_lines, goods_receipts, goods_receipt_lines, truck_route_sessions, stock_transfers, stock_transfer_lines, stock_count_sessions, stock_count_lines, inventory_adjustments, inventory_adjustment_lines, bill_of_materials, bill_of_material_versions, bill_of_material_components, production_orders, production_material_issues, production_output_receipts, lot_genealogy_links, truck_inventory_checkpoints, truck_inventory_checkpoint_lines, negative_stock_allowances, negative_stock_flags, inventory_reconciliation_runs, inventory_reconciliation_differences.
 
 -- inventoryLocations [synced]
@@ -738,7 +738,7 @@ create table inventory_reconciliation_runs (
   organization_id text not null,
   scope text not null,
   status text not null check (status in ('pending', 'running', 'completed', 'failed')),
-  convex_cutoff timestamptz not null,
+  operational_cutoff timestamptz not null,
   sap_cutoff timestamptz not null,
   compared_count integer not null,
   difference_count integer not null,
@@ -760,7 +760,7 @@ create table inventory_reconciliation_differences (
   location_id uuid,
   product_code text not null,
   warehouse_code text not null,
-  convex_base bigint not null,
+  operational_base bigint not null,
   sap_base bigint not null,
   difference_base bigint not null,
   classification text not null check (classification in ('mapping', 'timing', 'missing_inbound', 'missing_outbound', 'duplicate', 'unauthorized_adjustment', 'unresolved')),

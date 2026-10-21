@@ -1,5 +1,5 @@
 -- 0102_catalog: Units of measure, products, customers, warehouses.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: units_of_measure, products, product_selling_uoms, customers, warehouses, uom_conversions, product_barcodes, sales_assignments.
 
 -- unitsOfMeasure [synced]

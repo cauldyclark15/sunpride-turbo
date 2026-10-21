@@ -52,7 +52,7 @@ fun OrderReviewScreen(visit: VisitDisplay, controller: FieldController, modifier
             draft.requestedDeliveryDate?.let { Text("Requested delivery · $it\nOffice confirmation pending", modifier = Modifier.testTag("order-requested-delivery")) }
             SectionCard("Products") {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    draft.lines.forEach { line ->
+                    draft.lines.forEachIndexed { index,line ->
                         Row(Modifier.fillMaxWidth().testTag("order-line-${line.productId}"),
                             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                             Column(Modifier.weight(1f)) {
@@ -63,7 +63,7 @@ fun OrderReviewScreen(visit: VisitDisplay, controller: FieldController, modifier
                             Column(horizontalAlignment = Alignment.End) {
                                 Text("%,d %s".format(line.quantity, line.uom), style = MaterialTheme.typography.bodyMedium)
                                 Text(if (line.unitPriceMinor == null) "Priced by the office" else
-                                    OrderSubmission.lineAmount(line)?.let(OrderSubmission::money) ?: "Amount too large to preview",
+                                    (if(totals.lineTotals.isNotEmpty()) totals.lineTotals[index] else OrderSubmission.lineAmount(line))?.let(OrderSubmission::money) ?: "Amount too large to preview",
                                     style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("order-line-amount-${line.productId}"))
                             }
                         }
@@ -76,6 +76,10 @@ fun OrderReviewScreen(visit: VisitDisplay, controller: FieldController, modifier
                         modifier = Modifier.semantics(mergeDescendants = true) {}.testTag("order-totals"))
                     Text(totals.amountText, style = MaterialTheme.typography.titleSmall,
                         modifier = Modifier.testTag("order-amount"))
+                    if(totals.discountMinor>0) Text("Promotion discount ${OrderSubmission.money(totals.discountMinor)}",modifier=Modifier.testTag("order-promotion-discount"))
+                    totals.schemeBenefits.forEach { Text(it,style=MaterialTheme.typography.bodySmall) }
+                    if(totals.earnedMinor>0) Text("Quoted deferred rebate ${OrderSubmission.money(totals.earnedMinor)}. Not an invoice discount; the office confirms and settles separately.",modifier=Modifier.testTag("order-deferred-rebate"))
+                    if(totals.approvalRequired) Text("Office discount approval required",modifier=Modifier.testTag("order-promotion-approval"))
                     totals.officeText?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                         modifier = Modifier.testTag("order-office-lines")) }
                     draft.priceList?.let { list ->

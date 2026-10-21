@@ -51,7 +51,7 @@ Van POS (van v1):
 ### Ordering and time
 
 - Business order is the server's: `mobileChanges.sequence` for the pull feed, the server's transaction order for workflow and postings, and the ack `serverTime` as the official time. The **device clock is evidence only** (when the rep says it happened, call duration) and is range-checked: more than 24 hours ahead of server time, or older than the 7-day late window, is refused without writing anything.
-- The phone sends its outbox oldest-first, at most 20 operations per push, one in-flight sync per device scope. The server enforces `dependsOn` (activity/check-out need an acknowledged check-in), one open call at a time and approved-plan stop order; it never reorders by device time. Proven by `convex/mobile/push.test.ts` "orders by server arrival, never by device clock…" and the chaos suite.
+- The phone sends its outbox oldest-first, at most 20 operations per push, one in-flight sync per device scope. The server enforces `dependsOn` (activity/check-out need an acknowledged check-in), one open call at a time and approved-plan stop order; it never reorders by device time. Proven by `apps/api/test/fieldsync.test.js` "orders by server arrival, never by device clock…" and the chaos suite.
 
 ### Outcomes, retries and remediation
 

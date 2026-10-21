@@ -1,4 +1,5 @@
 import { ApiError } from "../../core/errors.js";
+import { localOcr } from "./ocr.js";
 
 /** Bounded RFC-4180 parser. Never use split(',') for retailer exports.
  * @param {string} input @returns {string[][]} */
@@ -56,7 +57,7 @@ export async function parsePurchaseOrder(
   format,
   bytes,
   mapping = {},
-  ocr = ocrStub,
+  ocr = localOcr,
 ) {
   if (format === "ocr") return ocr.extract(bytes);
   const input = new TextDecoder("utf-8", { fatal: true })

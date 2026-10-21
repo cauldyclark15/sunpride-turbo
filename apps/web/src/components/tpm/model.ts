@@ -1,3 +1,4 @@
+import type { EvidenceSnapshot } from "./claim-evidence-preview";
 export type Campaign = {
   id: string;
   versionId: string;
@@ -17,6 +18,9 @@ export type Campaign = {
   source: string;
 };
 export type Claim = {
+  productId?: string;
+  quantityUnits?: number;
+  uom?: string;
   id: string;
   reference: string;
   partyType: string;
@@ -40,11 +44,18 @@ export type Summary = {
   trend: { date: string; amountCentavos: number }[];
 };
 export type Options = {
+  parties?: { id: string; name: string; type: string }[];
   territories?: { id: string; code: string; name: string }[];
   products: { id: string; code: string; name: string; uom: string }[];
   outlets: { id: string; code: string; name: string }[];
   people: { id: string; name: string }[];
-  evidence: { id: string; label: string; kind: string }[];
+  evidence: {
+    id: string;
+    label: string;
+    kind: string;
+    snapshot?: EvidenceSnapshot;
+    photoUrl?: string;
+  }[];
   evidenceTruncated?: boolean;
 };
 export type Liability = {
@@ -69,10 +80,12 @@ export type Deduction = {
   ownerName: string;
   amountCentavos: number;
   recoveredCentavos: number;
+  writtenOffCentavos: number;
   ageDays: number;
   status: string;
 };
 export type Roi = {
+  sample?: boolean;
   id: string;
   campaignName: string;
   accountKey: string;
@@ -96,6 +109,13 @@ export type Policies = {
   }[];
 };
 export type Incentives = {
+  adjustments?: {
+    id: string;
+    statement_id: string;
+    amount_centavos: number | string;
+    reason: string;
+    status: string;
+  }[];
   plans: { id: string; name: string }[];
   statements: {
     id: string;
@@ -108,8 +128,9 @@ export type Incentives = {
     result: {
       lines: {
         metric: string;
-        actual: number;
-        target: number;
+        actual: number | null;
+        target: number | null;
+        excluded?: boolean;
         amountCentavos: number;
       }[];
     };
@@ -135,4 +156,8 @@ export function centavos(v: FormDataEntryValue | null) {
   const n = Number(BigInt(whole!) * 100n + BigInt(part.padEnd(2, "0")));
   if (!Number.isSafeInteger(n)) throw new Error("Amount is too large.");
   return n;
+}
+export function signedCentavos(v: FormDataEntryValue | null) {
+  if (typeof v !== "string") throw new Error("Enter an adjustment amount");
+  return v.startsWith("-") ? -centavos(v.slice(1)) : centavos(v);
 }

@@ -1,5 +1,5 @@
 -- 0110_van: Van sales: vehicles, trips, loads, damage, credit terms.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: vehicles, van_trips, van_trip_loads, van_trip_load_lines, van_operations, van_damage_records, van_damage_photos, outlet_credit_terms.
 
 -- vehicles [synced]

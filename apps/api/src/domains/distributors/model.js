@@ -69,6 +69,7 @@ export const PARTNER_GRANTS = Object.freeze([
   "documents",
   "dsr",
   "settlement",
+  "van",
 ]);
 /** Staff access is capability AND current supervising unit, never global merely because someone is a manager.
  * Partner role has zero core capabilities, so internal queries/exports/sync fail closed.

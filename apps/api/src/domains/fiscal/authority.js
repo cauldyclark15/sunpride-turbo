@@ -16,7 +16,23 @@ import {
   verifyOfflineApprovalGrant,
 } from "./offline-grants.js";
 import { authorize as distributorAccess } from "../distributors/model.js";
+import { currentFinancialActor } from "./actors.js";
 export const OVERRIDE_KINDS = ["price", "credit", "stock", "discount", "void"];
+/** Current financial person is a strict employee or an explicitly granted portal partner. @param {any} db @param {any} actor @param {any} p */
+export async function currentFiscalActor(db, actor, p = {}) {
+  const current = await currentFinancialActor(db, actor);
+  const distributorId = p.distributorId ?? p.facts?.distributorId;
+  if (current.role === "distributor" && distributorId) {
+    const d = await distributorAccess(
+      { db, actor: current },
+      uuid(distributorId),
+      "order",
+    );
+    if (p.orgUnitId && d.org_unit_id !== p.orgUnitId)
+      refuse("Distributor authority belongs to another supervising area");
+  }
+  return current;
+}
 export const REQUESTER_ROLES = [...ROLES, "distributor"];
 /** Hold current profile authority through the financial transaction, including provider awaits.
  * @param {any} db @param {any} actor */
@@ -66,7 +82,7 @@ async function requesterAccess(db, actor, unit, kind = null) {
 /** F-110/F-511: one scoped, effective matrix for native previews; transaction enforcement stays here.
  * @param {any} db @param {any} actor @param {string} orgUnitId @param {Record<string,string|undefined>} env */
 export async function authorityContext(db, actor, orgUnitId, env) {
-  actor = await currentActor(db, actor);
+  actor = await currentFinancialActor(db, actor);
   await requesterAccess(db, actor, orgUnitId);
   const rules =
     await db`select * from fiscal_authority_rules where org_unit_id=${orgUnitId} and role=${actor.role} and effective_from<=now() and (effective_to is null or effective_to>now()) order by kind,channel,min_centavos limit 201`;
@@ -94,7 +110,7 @@ export async function authorityContext(db, actor, orgUnitId, env) {
 /** F-110/F-124: requester can collect a verified approval; no second approval engine or secret key.
  * @param {any} db @param {any} actor @param {string} id @param {Record<string,string|undefined>} env */
 export async function readOverride(db, actor, id, env) {
-  actor = await currentActor(db, actor);
+  actor = await currentFinancialActor(db, actor);
   const [r] =
     await db`select * from fiscal_override_requests where id=${uuid(id)} and requester_id=${actor.profileId}`;
   if (!r) refuse("Override request was not found");
@@ -162,6 +178,7 @@ export async function readOverride(db, actor, id, env) {
 /** F-124/F-511. No ambiguous or absent rule can grant authority. @param {any} db @param {any} actor @param {any} p */
 export async function authorityRule(db, actor, p) {
   await requesterAccess(db, actor, p.orgUnitId, p.kind);
+  await currentFiscalActor(db, actor, p);
   const amount = integer(p.amountCentavos);
   const rules =
     await db`select * from fiscal_authority_rules where org_unit_id=${p.orgUnitId} and kind=${choice(p.kind, OVERRIDE_KINDS)} and role=${actor.role} and channel in (${text(p.channel, 50, true)},'*') and min_centavos<=${String(amount)} and max_centavos>=${String(amount)} and effective_from<=now() and (effective_to is null or effective_to>now()) order by (channel='*') for share`;
@@ -176,7 +193,7 @@ export async function authorityRule(db, actor, p) {
 /** F-124 public seam. Caller owns transaction; facts must include original/proposed document facts.
  * @param {any} db @param {any} actor @param {any} p */
 export async function requestOverride(db, actor, p) {
-  actor = await currentActor(db, actor);
+  actor = await currentFiscalActor(db, actor, p);
   if (
     p.expectedRequesterId !== undefined &&
     p.expectedRequesterId !== actor.profileId
@@ -254,9 +271,15 @@ export async function decideOverride(db, actor, p, env) {
   };
 }
 /** F-511 point-of-transaction enforcement. Only exact approved facts may be consumed, once.
- * @param {any} db @param {any} actor @param {any} p @param {Record<string,string|undefined>} [env] */
-export async function enforceAuthority(db, actor, p, env = process.env) {
-  actor = await currentActor(db, actor);
+ * @param {any} db @param {any} actor @param {any} p @param {Record<string,string|undefined>} [env] @param {{consume?:boolean}} [options] */
+export async function enforceAuthority(
+  db,
+  actor,
+  p,
+  env = process.env,
+  options = {},
+) {
+  actor = await currentFiscalActor(db, actor, p);
   await holdAuthority(db, actor);
   const rule = await authorityRule(db, actor, p);
   const [r] =
@@ -332,7 +355,8 @@ export async function enforceAuthority(db, actor, p, env = process.env) {
       refuse("Override was already consumed");
     return { overrideId: r.id };
   }
-  await db`insert into fiscal_override_events(request_id,kind,actor_profile_id,reason,operation_id) values(${r.id},'consumed',${actor.profileId},${r.reason},${uuid(p.operationId)})`;
+  if (options.consume !== false)
+    await db`insert into fiscal_override_events(request_id,kind,actor_profile_id,reason,operation_id) values(${r.id},'consumed',${actor.profileId},${r.reason},${uuid(p.operationId)})`;
   return { overrideId: r.id };
 }
 /** F-511 effective-dated policy editor. @param {any} db @param {any} actor @param {any} p */

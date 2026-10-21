@@ -1,5 +1,5 @@
 -- 0101_territories: Territories and routes.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: territories, territory_ownerships, territory_salespeople, routes, route_territories, route_salespeople.
 
 -- territories [synced]

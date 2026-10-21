@@ -23,6 +23,7 @@ import {
 import { tripFor } from "../van/access.js";
 import { writeAudit } from "../org/audit.js";
 import { policyAt } from "./promise.js";
+import { frozenQuantityScale } from "./source-units.js";
 
 /** @param {any} value */
 export const day = (value) =>
@@ -119,6 +120,7 @@ export async function confirm(ctx, p) {
       uom: l.uom,
       quantity: Number(l.quantity),
       expectedBase: Number(l.quantity_base),
+      quantityScale: frozenQuantityScale(order, l),
     })),
   };
   await ctx.db`update presell_order_promises set confirmed_delivery_date=${confirmed},confirmed_at=${new Date(ctx.now)},confirmed_by=${ctx.actor.subject},confirmation_reason=${reason} where id=${promise.id}`;
@@ -150,8 +152,8 @@ export async function processHandoff(db, id) {
     const [drop] =
       await t`insert into delivery_drops(handoff_id) values(${h.id}) returning id`;
     for (const l of h.snapshot.lines)
-      await t`insert into delivery_drop_lines(drop_id,order_line_id,ordinal,product_id,product_code,description,uom,ordered_quantity,expected_base)
-      values(${drop.id},${l.id},${l.ordinal ?? 0},${l.productId},${l.productCode},${l.description},${l.uom},${l.quantity},${l.expectedBase})`;
+      await t`insert into delivery_drop_lines(drop_id,order_line_id,ordinal,product_id,product_code,description,uom,ordered_quantity,expected_base,quantity_scale)
+      values(${drop.id},${l.id},${l.ordinal ?? 0},${l.productId},${l.productCode},${l.description},${l.uom},${l.quantity},${l.expectedBase},${l.quantityScale ?? null})`;
     await t`update delivery_handoffs set status='acknowledged',attempts=attempts+1,sap_reference=${`MOCK-DELIVERY-${h.id}`},source='mock_sap',last_error=null,updated_at=now() where id=${id}`;
     await recordChange(t, {
       entity: "delivery",

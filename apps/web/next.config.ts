@@ -29,7 +29,7 @@ export default function nextConfig(phase: string): NextConfig {
     phase === PHASE_DEVELOPMENT_SERVER || Boolean(process.env.API_ORIGIN);
   return {
     devIndicators: false,
-    transpilePackages: ["@sunpride/ui", "@sunpride/backend"],
+    transpilePackages: ["@sunpride/ui"],
     env: { NEXT_PUBLIC_SP_BUILD_ID: buildVersion() },
     async headers() {
       return [

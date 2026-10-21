@@ -1,3 +1,4 @@
+import { modeAt, modeBundle } from "../storepos/model.js";
 import { callSnapshot } from "../availability/calls.js";
 import { tx } from "@sunpride/db/client";
 import { deliveryBundle } from "../presell/driver.js";
@@ -13,6 +14,7 @@ import { resolvePrice } from "../orders/pricing.js";
 import { schemeFeed } from "./schemes.js";
 import { cachedCreditView, creditTerms } from "../integration/credit-view.js";
 import { creditRequestsForTrip } from "../integration/credit-exceptions.js";
+import { nativeSchemeContext } from "../tpm/native-context.js";
 import { masterId } from "../integration/replicas.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
 import { productFor } from "./facts.js";
@@ -82,10 +84,22 @@ export function vanProjection(env) {
     next: null,
   });
   return {
-    params: (p) => ({
-      serviceDate: date(p.serviceDate),
-      ...(p.catalogue === true ? { catalogue: true } : {}),
-    }),
+    params: (p) => {
+      if (p.schemeEngine !== undefined && p.schemeEngine !== 1)
+        throw new ApiError(
+          "version_unsupported",
+          426,
+          "Update the native promotion engine",
+          false,
+          { action: "update" },
+        );
+      return {
+        serviceDate: date(p.serviceDate),
+        ...(p.catalogue === true ? { catalogue: true } : {}),
+        ...(p.schemeEngine === 1 ? { schemeEngine: 1 } : {}),
+        ...(p.posMode === true ? { posMode: true } : {}),
+      };
+    },
     snapshot,
     // CORE currently cannot emit snapshot mode for a since-cursor cycle. Refuse rather
     // than mislabel a full replacement as a delta or renew authority over stale data.
@@ -103,7 +117,7 @@ export function vanProjection(env) {
 /** Complete seller/trip DTO; never serializes a raw database document. @param {any} ctx @param {any} env */
 export async function bundle(ctx, env) {
   return tx(ctx.db, async (db) => {
-    const { actor, device } = await currentDeviceActor(
+    const { actor, device, partner } = await currentDeviceActor(
       db,
       ctx.actor,
       ctx.device.id,
@@ -115,11 +129,24 @@ export async function bundle(ctx, env) {
         422,
         "Only today's trip can be downloaded",
       );
+    const posMode = await modeAt(db, device.id);
+    if (posMode?.mode === "store" && ctx.params.posMode !== true)
+      throw new ApiError(
+        "update_required",
+        422,
+        "Update this POS to use Store mode",
+      );
+    const storePos =
+      ctx.params.posMode === true
+        ? await modeBundle(db, actor, device, posMode)
+        : null;
     let trips =
-      await db`select id from van_trips where salesperson_profile_id=${actor.profileId} and service_date=${serviceDate} and status not in ('cancelled','closed') and deleted_at is null order by created_at desc limit 2`;
+      storePos?.mode === "store"
+        ? []
+        : await db`select id from van_trips where salesperson_profile_id=${actor.profileId} and service_date=${serviceDate} and status not in ('cancelled','closed') and deleted_at is null order by created_at desc limit 2`;
     // Sequential trips are allowed after settlement; only multiple OPEN trips are ambiguous.
     // Keep the latest closed trip visible when the office has not planned the next one yet.
-    if (!trips.length)
+    if (!trips.length && storePos?.mode !== "store")
       trips =
         await db`select id from van_trips where salesperson_profile_id=${actor.profileId} and service_date=${serviceDate} and status='closed' and deleted_at is null order by created_at desc limit 1`;
     if (trips.length > 1)
@@ -131,7 +158,7 @@ export async function bundle(ctx, env) {
     const empty = {
       serviceDate,
       seller: { profileId: actor.profileId, name: actor.name },
-      policy: policy(env, null),
+      policy: { ...policy(env, null), ...(storePos ? { storePos } : {}) },
       trip: null,
       load: null,
       truckStock: [],
@@ -144,7 +171,7 @@ export async function bundle(ctx, env) {
       availability: [],
       deliveryDrops: [],
     };
-    if (!trips.length) return empty;
+    if (storePos?.mode === "store" || !trips.length) return empty;
     const trip = await tripFor(db, actor, trips[0].id, "van.operate");
     if (trip.started_device_id && trip.started_device_id !== device.id)
       throw new ApiError(
@@ -212,7 +239,11 @@ export async function bundle(ctx, env) {
     // Current persisted ownership, not a historical customer link, is the authorization key.
     const configured = await hasConfiguredFlowsForApp(db, ctx.app, ctx.now);
     /** @type {any[]} */ const candidates = complete(
-      await db`select o.id,a.sequence,a.route_id from outlets o
+      partner
+        ? await db`select o.id,a.sequence,a.route_id from distributor_outlets g join outlets o on o.id=g.outlet_id
+        left join outlet_assignments a on a.outlet_id=o.id and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now()) and a.deleted_at is null
+        where g.distributor_id=${partner.distributor_id} and g.effective_from<=now() and (g.effective_to is null or g.effective_to>now()) and o.status='active' and o.deleted_at is null order by a.sequence nulls last,o.code limit 601`
+        : await db`select o.id,a.sequence,a.route_id from outlets o
         left join outlet_assignments a on a.outlet_id=o.id and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now()) and a.deleted_at is null
         left join territory_ownerships own on own.territory_id=a.territory_id and own.effective_from<=now() and (own.effective_to is null or own.effective_to>now()) and own.deleted_at is null
         where o.status='active' and o.deleted_at is null and
@@ -223,7 +254,8 @@ export async function bundle(ctx, env) {
     );
     /** @type {any[]} */ const customers = [],
       priceLines = [],
-      taxQuotes = [];
+      taxQuotes = [],
+      schemeContexts = [];
     const priceKeys = new Set();
     /** @type {Record<string,any>} */ const creditSnapshots = {};
     /** @type {Map<string,Map<string,string|null>>} */ const sourceLists =
@@ -255,6 +287,7 @@ export async function bundle(ctx, env) {
       let priceListId = null;
       const sourceList = new Map();
       sourceLists.set(o.id, sourceList);
+      const nativePrices = [];
       for (const p of products) {
         const price = await resolvePrice(db, {
           organizationId: trip.organization_id,
@@ -262,10 +295,12 @@ export async function bundle(ctx, env) {
           uom: p.uomCode,
           channelKey: o.channel,
           customerCode: o.customerCode,
+          outletId: o.id,
           at: Date.now(),
         });
         if (price.unitPriceCentavos === null || !price.priceListId) continue;
         sourceList.set(p.productId, price.priceListId);
+        nativePrices.push({ productId: p.productId, uom: p.uomCode, ...price });
         // F-016 a customer quote may combine base, channel and customer conditions.
         // The offline grouping is a quote identity, not a second authoritative price list.
         priceListId = masterId("van.priceQuote", o.id);
@@ -304,6 +339,24 @@ export async function bundle(ctx, env) {
           });
         }
       }
+      if (ctx.params.schemeEngine === 1)
+        schemeContexts.push(
+          await nativeSchemeContext(
+            { ...ctx, db, actor },
+            {
+              outletId: o.id,
+              channelKey: o.channel,
+              orgUnitId: trip.org_unit_id,
+              products: products.map((p) => ({
+                productId: p.productId,
+                uom: p.uomCode,
+                name: p.name,
+                code: p.code,
+              })),
+              prices: nativePrices,
+            },
+          ),
+        );
       customers.push({
         outletId: o.id,
         code: o.code,
@@ -380,6 +433,7 @@ export async function bundle(ctx, env) {
       seller: empty.seller,
       policy: {
         ...tripPolicy,
+        ...(storePos ? { storePos } : {}),
         paymentMethods: await tenderPolicy(db, trip.org_unit_id),
         fiscal: {
           ...(await fiscalBundle(db, actor, trip, device.id, env)),
@@ -392,6 +446,9 @@ export async function bundle(ctx, env) {
           creditSnapshots,
           sapCreditRequests: await creditRequestsForTrip(db, actor, trip),
         },
+        ...(ctx.params.schemeEngine === 1
+          ? { schemes: { engineVersion: 1, outlets: schemeContexts } }
+          : {}),
         ...(routeOps ? { operationsVersion: 1 } : {}),
       },
       ...(routeOps ? { vanOps: routeOps } : {}),

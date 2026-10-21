@@ -138,7 +138,7 @@ export async function postMovement(tx, input) {
       STATUSES,
       "available",
     );
-    const toStatus = choice(
+    let toStatus = choice(
       line.toStockStatus ?? line.stockStatus,
       STATUSES,
       "available",
@@ -163,6 +163,19 @@ export async function postMovement(tx, input) {
       line.productId,
       org,
     );
+    if (line.lotId && line.toLocationId && toStatus === "available") {
+      const [held] =
+        await tx`select id from inventory_lot_holds where lot_id=${line.lotId} and released_at is null limit 1`;
+      if (held) {
+        if (["pos_void", "pos_return", "reversal"].includes(input.kind))
+          toStatus = "quality_hold";
+        else
+          invalid(
+            "This batch is under recall; receive or transfer it into held stock",
+            "recall_hold",
+          );
+      }
+    }
     if (tracking === "serial")
       invalid("Serial stock is not enabled for this release");
     const [source] = line.fromLocationId
@@ -304,11 +317,12 @@ async function allocate(t, org, line, policy, tracking, status, kind, at) {
   if (line.lotId) {
     id(line.lotId, "Lot");
     const [lot] =
-      await t`select * from inventory_lots where id=${line.lotId} and organization_id=${org} and product_id=${line.productId} for update`;
+      await t`select l.*,exists(select 1 from inventory_lot_holds h where h.lot_id=l.id and h.released_at is null) as recall_held from inventory_lots l where l.id=${line.lotId} and l.organization_id=${org} and l.product_id=${line.productId} for update of l`;
     if (!lot) invalid("Lot does not belong to this product");
     if (
       sale &&
-      (lot.quality_status !== "released" ||
+      (lot.recall_held ||
+        lot.quality_status !== "released" ||
         (lot.expires_at && new Date(lot.expires_at) <= cutoff) ||
         (Number(policy?.minimum_remaining_shelf_life_days) > 0 &&
           !lot.expires_at))
@@ -322,7 +336,7 @@ async function allocate(t, org, line, policy, tracking, status, kind, at) {
   if (!line.fromLocationId || policyName === "explicit_only")
     invalid("Select a lot for this movement");
   const candidates =
-    await t`select b.*,l.expires_at,l.quality_status from inventory_lot_balances b join inventory_lots l on l.id=b.lot_id
+    await t`select b.*,l.expires_at,l.quality_status,exists(select 1 from inventory_lot_holds h where h.lot_id=l.id and h.released_at is null) as recall_held from inventory_lot_balances b join inventory_lots l on l.id=b.lot_id
     where b.organization_id=${org} and b.product_id=${line.productId} and b.location_id=${line.fromLocationId} and b.stock_status=${status}
       and b.available_base>0 order by b.expiry_sort_key,b.receipt_sequence,b.id for update of b,l`;
   if (policyName === "fifo")
@@ -335,7 +349,8 @@ async function allocate(t, org, line, policy, tracking, status, kind, at) {
   for (const row of candidates) {
     if (
       sale &&
-      (row.quality_status !== "released" ||
+      (row.recall_held ||
+        row.quality_status !== "released" ||
         (row.expires_at && new Date(row.expires_at) <= cutoff) ||
         (Number(policy?.minimum_remaining_shelf_life_days) > 0 &&
           !row.expires_at))

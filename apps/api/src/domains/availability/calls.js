@@ -1,5 +1,6 @@
 import { advance, ownedCall } from "../callflow/engine.js";
 import { DSR_ACCESS } from "../distributors/dsr-context.js";
+import { canonicalModelSuggestion } from "../analytics/order-model.js";
 import { ApiError, forbidden, invalid } from "../../core/errors.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
@@ -15,6 +16,9 @@ import {
 } from "../visits/shared.js";
 import { bounded, dateOf, midnight } from "../fieldsync/model.js";
 import { releasesAt, outletAt, audit } from "./masters.js";
+import { campaignPlanning } from "./campaigns.js";
+import { activePromotions } from "../orders/pricing.js";
+import { readEligibilityFacts } from "../integration/spec-adapters.js";
 import {
   VERSION,
   checklist,
@@ -117,8 +121,13 @@ export async function callSnapshot(ctx, outletId, day, persist = true) {
   const history = allHistory.filter(
     (/** @type {any} */ h) => h.outlet_id === outletId,
   );
-  const promotions =
-    await ctx.db`select * from suggested_order_promotions where organization_id='sunpride' and deleted_at is null and effective_from<=${new Date(at)} and (effective_to is null or effective_to>${new Date(at)})`;
+  const promotions = await activePromotions(ctx.db, "sunpride", at);
+  const campaignFacts = {
+    ...(await readEligibilityFacts(ctx, { outletId, at })),
+    outletId,
+    channelKey: outlet.channel,
+    territoryId: outlet.territory_id ?? null,
+  };
   const required = msl?.payload.lines ?? [];
   const allIds = [
     ...new Set([
@@ -151,13 +160,14 @@ export async function callSnapshot(ctx, outletId, day, persist = true) {
         ? observations.find((/** @type {any} */ o) => o.productId === p.id)
         : null;
     const h = history.filter((/** @type {any} */ h) => h.product_id === p.id);
-    const uplift = Math.max(
-      0,
-      ...promotions
-        .filter((/** @type {any} */ r) => r.product_id === p.id)
-        .map((/** @type {any} */ r) => Number(r.uplift_pct)),
+    const campaigns = campaignPlanning(
+      promotions,
+      campaignFacts,
+      p.id,
+      outlet.is_sample === true,
     );
-    const recommendation = policy
+    const uplift = Math.max(0, ...campaigns.map((r) => r.upliftPct));
+    let recommendation = policy
       ? suggest(
           {
             offtake: obs?.offtake ?? null,
@@ -186,6 +196,33 @@ export async function callSnapshot(ctx, outletId, day, persist = true) {
           reasons: ["Availability rules need setup"],
           daysCover: null,
         };
+    if (policy)
+      recommendation = await canonicalModelSuggestion(
+        ctx,
+        {
+          owner,
+          outletId,
+          productId: p.id,
+          day,
+          sample: outlet.is_sample === true,
+          historyDailyBase: h.length
+            ? h.reduce(
+                (/** @type {number} */ n, /** @type {any} */ r) =>
+                  n + Number(r.quantity_base ?? 0),
+                0,
+              ) / 84
+            : null,
+          offtake: obs?.offtake ?? null,
+          stockBase:
+            obs?.shelfBase != null && obs?.backroomBase != null
+              ? obs.shelfBase + obs.backroomBase
+              : null,
+          upliftPct: uplift,
+          coverDays: policy.coverDays,
+          minimumBase: l?.minimumBase ?? 0,
+        },
+        recommendation,
+      );
     lines.push({
       productId: p.id,
       code: p.code,
@@ -195,7 +232,11 @@ export async function callSnapshot(ctx, outletId, day, persist = true) {
       barcodes: p.barcodes,
       required: !!l,
       minimumBase: l?.minimumBase ?? 1,
-      objective: f?.objective ?? null,
+      objective:
+        [f?.objective, ...campaigns.map((r) => r.objective)]
+          .filter(Boolean)
+          .join("; ") || null,
+      campaigns,
       ...recommendation,
     });
   }

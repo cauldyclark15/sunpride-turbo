@@ -6,6 +6,7 @@ import { writeAudit } from "../org/audit.js";
 import { changed, bounded, command, office } from "./common.js";
 import { fail, integer, safe, text, uuid } from "../orders/validation.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
+import { queueClaimMail } from "./notifications.js";
 
 /** F-504 transactional operational staging, handed to the SAP-owned outbox when available.
  * @param {any} c @param {any} input */
@@ -14,7 +15,8 @@ export async function posting(c, input) {
     await c.db`select 1 from promotion_earnings e join campaign_versions v on v.id=e.campaign_version_id join promotions p on p.id=e.promotion_id
     where e.id=${input.earningId ?? null}::uuid and (v.source='sample' or p.source='sample')
     union all select 1 from claim_settlements s join claims q on q.id=s.claim_id join claim_types ct on ct.id=q.type_id
-    where s.id=${input.settlementId ?? null}::uuid and ct.source='sample' limit 1`;
+    where s.id=${input.settlementId ?? null}::uuid and ct.source='sample'
+    union all select 1 from deductions where id=${input.deductionId ?? null}::uuid and source_mode='sample' limit 1`;
   // SAP adapters must retain this provenance and refuse sample postings on a real connection.
   input = { ...input, sourceMode: sample ? "sample" : "operational" };
   const key = text(input.sourceKey, "Posting source", 200);
@@ -39,17 +41,44 @@ export async function posting(c, input) {
     await c.db`update tpm_posting_instructions set status='queued',updated_at=now() where id=${p.id}`;
   return p;
 }
+/** F-410/F-501 reserve partner orders before the durable SAP handoff, using the same accrual key.
+ * @param {any} c @param {any} order */
+export async function reserveOrder(c, order) {
+  const sourceType = order.source_type === "van_sale" ? "van_sale" : "order";
+  for (const p of order.pricing_snapshot?.promotionsApplied ?? []) {
+    const amount = integer(
+      Number(p.discountCentavos ?? 0) +
+        Number(p.earnedCentavos ?? 0) +
+        Number(p.freeGoodsValueCentavos ?? 0),
+    );
+    if (!p.campaignVersionId || !amount) continue;
+    await commitBudget(
+      {
+        ...c,
+        now:
+          order.pricing_snapshot.pricedAt ??
+          new Date(order.offline_created_at ?? order.created_at).getTime(),
+      },
+      {
+        campaignVersionId: p.campaignVersionId,
+        amountCentavos: amount,
+        sourceKey: `earned:${sourceType}:${order.id}:promotion:${p.id}`,
+      },
+    );
+  }
+}
 /** F-504 server-earned facts come only from the frozen canonical order snapshot, never caller money.
  * Invoke within the source order transaction after approval; replay is by source order+scheme.
  * @param {any} c @param {any} order */
 export async function accrueOrder(c, order) {
   if (!["approved", "posted", "fulfilled"].includes(order.status))
     fail("Only accepted orders earn promotion liability");
+  await reserveOrder(c, order);
   for (const p of order.pricing_snapshot?.promotionsApplied ?? []) {
     const benefit =
       p.benefitTiming === "claimable" ? p.earnedCentavos : p.discountCentavos;
     if (!p.campaignVersionId || !benefit) continue;
-    const key = `order:${order.id}:promotion:${p.id}`;
+    const key = `${order.source_type === "van_sale" ? "van_sale" : "order"}:${order.id}:promotion:${p.id}`;
     const facts = {
       key,
       version: p.campaignVersionId,
@@ -65,17 +94,7 @@ export async function accrueOrder(c, order) {
       if (old.source_hash !== hash) fail("Earning source conflicts");
       continue;
     }
-    await commitBudget(
-      {
-        ...c,
-        now: new Date(order.offline_created_at ?? order.created_at).getTime(),
-      },
-      {
-        campaignVersionId: p.campaignVersionId,
-        amountCentavos: benefit,
-        sourceKey: `earned:${key}`,
-      },
-    );
+
     if (p.benefitTiming !== "claimable") continue;
     const [earning] =
       await c.db`insert into promotion_earnings(campaign_version_id,promotion_id,source_key,source_hash,outlet_id,account_key,earned_at,amount_centavos) values(${uuid(p.campaignVersionId)},${uuid(p.id)},${key},${hash},${order.outlet_id},${order.customer_code},${new Date(order.offline_created_at ?? order.created_at)},${integer(p.earnedCentavos)}) returning *`;
@@ -92,10 +111,10 @@ export async function accrueOrder(c, order) {
   }
 }
 /** F-504 source void reversal. Block a void after settlement allocation until Finance reconciles.
- * @param {any} c @param {string} orderId */
-export async function reverseOrder(c, orderId) {
+ * @param {any} c @param {string} orderId @param {"order"|"van_sale"} [sourceType] */
+export async function reverseOrder(c, orderId, sourceType = "order") {
   const rows =
-    await c.db`select * from promotion_earnings where source_key like ${"order:" + orderId + ":promotion:%"} for update`;
+    await c.db`select * from promotion_earnings where source_key like ${sourceType + ":" + orderId + ":promotion:%"} for update`;
   for (const e of rows) {
     if (Number(e.reversed_centavos) === Number(e.amount_centavos)) continue;
     const [used] =
@@ -106,10 +125,26 @@ export async function reverseOrder(c, orderId) {
       sourceKey: `reverse:${e.id}`,
       kind: "reversal",
       earningId: e.id,
-      amountCentavos: Number(e.amount_centavos),
+      amountCentavos: Number(
+        BigInt(e.amount_centavos) - BigInt(e.reversed_centavos),
+      ),
       currency: "PHP",
     });
     await changed(c, "earning.reversed", e.id);
+  }
+  // F-501: both immediate discounts and deferred rebates reserved campaign spend.
+  // Voiding releases the remaining commitment without erasing the original reservation.
+  const commitments =
+    await c.db`select b.* from campaign_commitment_balances b where source_key like ${"earned:" + sourceType + ":" + orderId + ":promotion:%"} and amount_centavos>0 order by campaign_id,id`;
+  for (const b of commitments) {
+    await c.db`select id from campaigns where id=${b.campaign_id} for update`;
+    const [remaining] =
+      await c.db`select amount_centavos from campaign_commitment_balances where id=${b.id}`;
+    if (BigInt(remaining.amount_centavos) <= 0n) continue;
+    const [release] =
+      await c.db`insert into campaign_commitment_releases(commitment_id,source_key,amount_centavos,reason,actor_subject)
+      values(${b.id},${"void:" + orderId + ":" + b.id},${remaining.amount_centavos},'Canonical order void',${c.actor.subject}) on conflict(source_key) do nothing returning id`;
+    if (release) await changed(c, "budget.released", release.id);
   }
 }
 /** F-504/F-507 trusted SAP inbox seam only (not an office mark-posted HTTP endpoint).
@@ -132,6 +167,31 @@ export async function applySapAcknowledgement(db, ack, env = undefined) {
         ? text(ack.sapDocument, "SAP document", 160)
         : null;
     await t`update tpm_posting_instructions set status=${ack.status},sap_document=${doc},sap_response_hash=${hash},updated_at=now() where id=${p.id}`;
+    if (p.payload.deductionId) {
+      const [d] =
+        await t`select * from deductions where id=${uuid(p.payload.deductionId)} for update`;
+      if (!d) fail("Deduction source is missing");
+      const action = p.payload.deductionAction;
+      if (
+        !["recover", "write_off"].includes(action) ||
+        p.kind !== (action === "recover" ? "payment" : "credit_memo")
+      )
+        fail("Deduction posting action is invalid");
+      if (ack.status === "acknowledged") {
+        if (
+          BigInt(d.recovered_centavos) +
+            BigInt(d.written_off_centavos) +
+            BigInt(p.amount_centavos) >
+          BigInt(d.amount_centavos)
+        )
+          fail("SAP resolution exceeds deduction balance");
+        if (action === "recover")
+          await t`update deductions set recovered_centavos=recovered_centavos+${p.amount_centavos},updated_at=now() where id=${d.id}`;
+        else
+          await t`update deductions set written_off_centavos=written_off_centavos+${p.amount_centavos},updated_at=now() where id=${d.id}`;
+      }
+      await t`insert into deduction_events(deduction_id,action,actor_subject,reason,recovered_centavos) values(${d.id},${"sap." + action + "." + ack.status},'system:sap',${doc ?? ack.sourceEventId},${ack.status === "acknowledged" && action === "recover" ? p.amount_centavos : 0})`;
+    }
     if (p.settlement_id && ["payment", "credit_memo"].includes(p.kind)) {
       const [s] =
         await t`select * from claim_settlements where id=${p.settlement_id} for update`;
@@ -148,7 +208,9 @@ export async function applySapAcknowledgement(db, ack, env = undefined) {
             : "approved";
       await t`update claims set status=${status},updated_at=now() where id=${claim.id}`;
       await t`insert into claim_events(claim_id,action,actor_subject,details) values(${claim.id},${"sap." + ack.status},'system:sap',${{ settlementId: s.id, document: doc }})`;
-      await t`insert into claim_notifications(claim_id,party_type,party_id,message) values(${claim.id},${claim.claimant_party_type},${claim.claimant_party_id},${ack.status === "acknowledged" ? "SAP confirmed your claim settlement." : "SAP rejected the settlement; Finance will review it."})`;
+      const [notice] =
+        await t`insert into claim_notifications(claim_id,party_type,party_id,message) values(${claim.id},${claim.claimant_party_type},${claim.claimant_party_id},${ack.status === "acknowledged" ? "SAP confirmed your claim settlement." : "SAP rejected the settlement; Finance will review it."}) returning id`;
+      await queueClaimMail(t, notice.id);
       if (ack.status === "acknowledged" && claim.earning_id)
         await posting(
           { db: t, env },

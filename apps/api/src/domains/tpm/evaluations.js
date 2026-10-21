@@ -1,6 +1,8 @@
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { seams } from "./seams.js";
 import { bounded, changed, command, office } from "./common.js";
+import { currentActor } from "../van/access.js";
+import { enforcePartnerSelf } from "../partners/boundary.js";
 import {
   date,
   divide,
@@ -27,6 +29,18 @@ export function computeIncentive(rules, facts, base) {
   integer(base);
   const lines = rules.map((rule) => {
     const fact = facts[rule.metric];
+    if (rule.weightBps === 0)
+      return {
+        metric: rule.metric,
+        actual: fact?.actual ?? null,
+        target: fact?.target ?? null,
+        definitionVersion:
+          fact?.definitionVersion ?? "excluded-by-effective-plan/v1",
+        weightBps: 0,
+        achievementBps: 0,
+        amountCentavos: 0,
+        excluded: true,
+      };
     if (
       !fact ||
       !Number.isSafeInteger(fact.actual) ||
@@ -66,6 +80,7 @@ export function computeIncentive(rules, facts, base) {
       weightBps: rule.weightBps,
       achievementBps: achievement,
       amountCentavos: amount,
+      excluded: false,
     };
   });
   return {
@@ -91,6 +106,8 @@ function validateMetrics(rules) {
       fail("Invalid incentive metric");
     integer(r.weightBps, "Weight", 10000);
     integer(r.capBps, "Attainment cap", 20000);
+    if (r.target != null && (!Number.isSafeInteger(r.target) || r.target <= 0))
+      fail("Explicit metric targets must be positive whole canonical units");
   }
   if (
     rules.reduce(
@@ -114,8 +131,15 @@ export function computeRoi(facts, spend) {
     !facts.definitionVersion
   )
     fail("Baseline, margin and metric provenance are required");
+  if (
+    facts.incrementalMarginCentavos != null &&
+    !Number.isSafeInteger(facts.incrementalMarginCentavos)
+  )
+    fail("Weighted margin must be exact integer centavos");
   const incremental = promoted - baseline,
-    incrementalMargin = safe(BigInt(incremental) * BigInt(margin));
+    incrementalMargin =
+      facts.incrementalMarginCentavos ??
+      safe(BigInt(incremental) * BigInt(margin));
   const cost = safe(BigInt(integer(spend)) + BigInt(other));
   return {
     baselineVolumeBase: baseline,
@@ -135,18 +159,82 @@ export function computeRoi(facts, spend) {
         )
       : null,
     directional: true,
+    sample: facts.sample === true,
     baselineMethod: facts.baselineMethod,
     marginSource: facts.marginSource,
   };
 }
+/** Aggregate latest account cuts, never average ROI percentages or sum old revisions.
+ * @param {any[]} rows */
+export function aggregatePerformance(rows) {
+  /** @type {Map<string,{dimension:string,key:string,label:string,baseline:bigint,promoted:bigint,margin:bigint,cost:bigint,sample:boolean}>} */
+  const groups = new Map();
+  for (const row of rows)
+    for (const [dimension, key, label] of [
+      ["campaign", row.campaign_version_id, row.campaign_name],
+      ["account", row.account_key, row.account_key],
+      ["mechanic", row.mechanic, row.mechanic],
+    ]) {
+      const id = dimension + ":" + key;
+      if (!groups.has(id))
+        groups.set(id, {
+          dimension,
+          key,
+          label,
+          baseline: 0n,
+          promoted: 0n,
+          margin: 0n,
+          cost: 0n,
+          sample: false,
+        });
+      const group = groups.get(id),
+        result = row.result;
+      if (!group) throw new Error("Missing performance group");
+      group.baseline += BigInt(result.baselineVolumeBase);
+      group.promoted += BigInt(result.promotedVolumeBase);
+      group.margin += BigInt(result.incrementalMarginCentavos);
+      group.cost += BigInt(result.spendCentavos);
+      group.sample ||= result.sample === true;
+    }
+  return [...groups.values()].map((g) => ({
+    dimension: g.dimension,
+    key: g.key,
+    label: g.label,
+    sample: g.sample,
+    baselineVolumeBase: safe(g.baseline),
+    promotedVolumeBase: safe(g.promoted),
+    incrementalVolumeBase: safe(g.promoted - g.baseline),
+    spendCentavos: safe(g.cost),
+    grossRoiBps: g.cost ? safe((g.margin * 10000n) / g.cost) : null,
+    netRoiBps: g.cost ? safe(((g.margin - g.cost) * 10000n) / g.cost) : null,
+  }));
+}
 /** @param {any} router */
 export function installEvaluations(router) {
+  for (const path of [
+    "/api/v1/account/incentives",
+    "/api/v1/partners/incentives/mine",
+  ])
+    router.get(path, async (/** @type {any} */ c) => {
+      const actor = await currentActor(c.db, c.actor);
+      await enforcePartnerSelf(c.db, actor);
+      const rows = bounded(
+        await c.db`select s.id,s.status,s.period_from,s.period_to,s.result,s.amount_centavos,i.name as plan_name,i.source as plan_source from incentive_statements s join incentive_plans i on i.id=s.plan_id where s.profile_id=${actor.profileId} order by s.period_to desc limit 501`,
+      );
+      return {
+        rows: rows.map((/** @type {any} */ r) => ({
+          ...r,
+          amountCentavos: Number(r.amount_centavos),
+        })),
+      };
+    });
   router.get("/api/v1/tpm/roi", async (/** @type {any} */ c) => {
     await office(c);
     const rows = bounded(
-      await c.db`select e.*,v.name as campaign_name from promotion_evaluations e join campaign_versions v on v.id=e.campaign_version_id order by e.created_at desc limit 501`,
+      await c.db`select e.*,v.name as campaign_name from (select distinct on(campaign_version_id,account_key) * from promotion_evaluations order by campaign_version_id,account_key,created_at desc,id desc) e join campaign_versions v on v.id=e.campaign_version_id order by e.created_at desc limit 501`,
     );
     return {
+      aggregates: aggregatePerformance(rows),
       rows: rows.map((e) => ({
         id: e.id,
         campaignName: e.campaign_name,
@@ -238,8 +326,10 @@ export function installEvaluations(router) {
           to = instant(b.effectiveTo);
         if (to <= from) fail("Plan end must follow start");
         validateMetrics(b.metrics);
+        if (!["sample", "office"].includes(b.source ?? "office"))
+          fail("Choose a sample or office incentive policy source");
         const [r] =
-          await cc.db`insert into incentive_plans(code,name,effective_from,effective_to,base_centavos,metrics,source,created_by) values(${text(b.code, "Plan code", 80)},${text(b.name, "Plan name", 160)},${from},${to},${integer(b.baseCentavos)},${b.metrics},'office',${cc.actor.subject}) returning id`;
+          await cc.db`insert into incentive_plans(code,name,effective_from,effective_to,base_centavos,metrics,source,created_by) values(${text(b.code, "Plan code", 80)},${text(b.name, "Plan name", 160)},${from},${to},${integer(b.baseCentavos)},${b.metrics},${b.source ?? "office"},${cc.actor.subject}) returning id`;
         await changed(cc, "incentive.plan_saved", r.id);
         return { id: r.id };
       },
@@ -271,6 +361,7 @@ export function installEvaluations(router) {
           profileId: profile,
           periodFrom: from,
           periodTo: to,
+          rules: plan.metrics,
         });
         const result = computeIncentive(
           plan.metrics,

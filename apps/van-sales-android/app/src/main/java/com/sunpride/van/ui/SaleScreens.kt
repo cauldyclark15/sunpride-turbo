@@ -148,6 +148,7 @@ import com.sunpride.van.pos.*
                     Text("Total",Modifier.weight(1f),style = MaterialTheme.typography.titleLarge)
                     Text(PosMoney.format(q.totalMinor,q.currency),style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("checkout-total"))
                 }
+                if(q.earnedMinor > 0) Text("Quoted deferred rebate ${PosMoney.format(q.earnedMinor,q.currency)}. Not deducted from this payment; the office confirms and settles it separately.",style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("deferred-rebate"))
             }
         }
         SectionCard("Payment") {

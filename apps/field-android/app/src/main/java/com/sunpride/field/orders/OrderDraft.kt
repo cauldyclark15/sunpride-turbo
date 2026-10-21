@@ -71,7 +71,7 @@ data class OrderDraft(
     val submittedRequestId: String? = null, val submittedAt: Long? = null,
     val priceList: OrderPriceList? = null,
     /** F-301 additive local/v2 intent field; absence preserves existing field-selling drafts. */
-    val requestedDeliveryDate: String? = null)
+    val requestedDeliveryDate: String? = null, val schemesJson: String? = null)
 
 object OrderDraftCodec {
     private fun JSONObject.nullable(key: String): String? = if (!has(key) || isNull(key)) null else getString(key)
@@ -90,7 +90,7 @@ object OrderDraftCodec {
         } })
         .put("createdAt", d.createdAt).put("updatedAt", d.updatedAt)
         .put("submittedRequestId", d.submittedRequestId ?: JSONObject.NULL)
-        .put("submittedAt", d.submittedAt ?: JSONObject.NULL).toString()
+        .put("submittedAt", d.submittedAt ?: JSONObject.NULL).apply { d.schemesJson?.let { put("schemes",JSONObject(it)) } }.toString()
     fun decode(text: String): OrderDraft {
         val o = JSONObject(text)
         val lines = o.getJSONArray("lines")
@@ -106,7 +106,7 @@ object OrderDraftCodec {
             o.getLong("createdAt"), o.getLong("updatedAt"), o.getString("priceAvailability"),
             // SP-0061 rows predate submission and omit both keys.
             o.nullable("submittedRequestId"), if (!o.has("submittedAt") || o.isNull("submittedAt")) null else o.getLong("submittedAt"),
-            if (!o.has("priceList") || o.isNull("priceList")) null else OrderTermsCodec.priceList(o.getJSONObject("priceList")), o.nullable("requestedDeliveryDate"))
+            if (!o.has("priceList") || o.isNull("priceList")) null else OrderTermsCodec.priceList(o.getJSONObject("priceList")), o.nullable("requestedDeliveryDate"),o.optJSONObject("schemes")?.toString())
     }
 }
 
@@ -182,7 +182,7 @@ object OrderDraftRules {
         val draft = OrderDraft(existing?.draftId ?: uuid().lowercase(), clientVisitId, checkInRequestId,
             checkIn.text("plannedVisitId"), outletId, checkIn.getString("serviceDate"), customerId, customerCode,
             outlet?.text("territoryId"), outlet?.text("territoryCode"), outlet?.text("routeId"), sheet.revision,
-            lines, existing?.createdAt ?: now, now, priceList = terms?.priceList, requestedDeliveryDate = requestedDeliveryDate)
+            lines, existing?.createdAt ?: now, now, priceList = terms?.priceList, requestedDeliveryDate = requestedDeliveryDate, schemesJson = terms?.schemesJson)
         validate(store, draft, existing)
         return draft
     }
@@ -208,9 +208,10 @@ object OrderDraftRules {
         if (sheet.revision != draft.catalogRevision || draft.lines.any { line ->
                 catalog[line.productId]?.let { it.code == line.code && it.name == line.name } != true
             }) throw OrderDraftFailure(OrderDraftFailure.Code.CATALOG_CHANGED)
-        if (draft.priceList != terms?.priceList || staleLines(draft, sheet, terms).isNotEmpty())
+        if (draft.priceList != terms?.priceList || draft.schemesJson != terms?.schemesJson || staleLines(draft, sheet, terms).isNotEmpty())
             throw OrderDraftFailure(if (terms != null || draft.priceList != null || draft.lines.any { it.unitPriceMinor != null })
                 OrderDraftFailure.Code.PRICES_CHANGED else OrderDraftFailure.Code.CATALOG_CHANGED)
+        if(draft.schemesJson!=null && OrderSubmission.totals(draft).schemeProblem!=null) throw OrderDraftFailure(OrderDraftFailure.Code.PRICES_CHANGED)
         val outlet = store.outlets().firstOrNull { it.id == draft.outletId }?.let { JSONObject(it.json) }
         PresellDates.validate(outlet?.optJSONObject("callFlow"), draft.requestedDeliveryDate, draft.updatedAt)
         require(outlet?.text("customerId") == draft.customerId && outlet?.text("territoryId") == draft.territoryId &&

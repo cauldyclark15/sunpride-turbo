@@ -4,7 +4,7 @@ Memo §II: per diem is checked against the approved MCP; only calls and activiti
 backed by the required reports, count. Call answers of 2 Oct 2026: the rate is set per position
 outside the system, all sales personnel claim, supervisors or managers validate.
 
-Where: web Supervision → Per diem. Backend `packages/backend/convex/supervision/per_diem.ts`
+Where: web Supervision → Per diem. Backend `apps/api/src/domains/fieldreports/index.js`
 (rules in `per_diem_model.ts`, rule version `sop-004/2026-10-04`).
 
 ## What counts

@@ -191,6 +191,8 @@ describe("F-306 F-307 F-309 F-611 modern trade web", () => {
       type_id: "type-secret-id",
       type_label: "Short delivery",
       amountCentavos: 10000,
+      financial_status: "open",
+      financialRecoveredCentavos: 2500,
       status: "disputed",
       reference: "REM-1",
       received_on: "2026-09-01",
@@ -221,6 +223,8 @@ describe("F-306 F-307 F-309 F-611 modern trade web", () => {
         canApprove={false}
       />,
     );
+    expect(html).toContain("Shared financial case");
+    expect(html).toContain("Open Finance claims");
     expect(html).toContain("Account team");
     expect(html).toContain("42 days past SLA");
     expect(html).toContain("CLAIM-1");

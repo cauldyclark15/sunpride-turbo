@@ -2,7 +2,7 @@ import type { StatusTone } from "@sunpride/ui";
 
 /**
  * Pure view rules for the DAR / ROAR screens (SOP-009). Backend truth lives in
- * `packages/backend/convex/field_reports/model.ts`; nothing here decides access.
+ * `apps/api/src/domains/fieldreports/index.js`; nothing here decides access.
  */
 
 export type ReportKind = "dar" | "roar";

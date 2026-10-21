@@ -106,12 +106,18 @@ function SetupForms({
         <ActionForm
           title="Invite or update a partner user"
           submitLabel="Save partner access"
-          detail="Uses existing registration and sign-in. Partner users get no employee capabilities. Their email cannot already belong to an employee."
+          detail="Portal users keep separate financial grants. Field representatives use the existing field app, assigned stores, PJP and MSL. Use a new email, not an employee or portal login."
           onSubmit={(f) =>
             command("invite", {
               email: value(f, "email"),
               name: value(f, "name"),
-              grants: f.getAll("grant").map(String),
+              access: value(f, "access"),
+              grants:
+                value(f, "access") === "field"
+                  ? ["read", "dsr"]
+                  : value(f, "access") === "van"
+                    ? ["read", "van"]
+                    : f.getAll("grant").map(String),
             })
           }
         >
@@ -120,6 +126,15 @@ function SetupForms({
           </Field>
           <Field label="Email">
             <input type="email" name="email" required className={fieldClass} />
+          </Field>
+          <Field label="Access type">
+            <select name="access" className={fieldClass}>
+              <option value="portal">Distributor portal</option>
+              <option value="field">
+                Field representative — existing Android field app
+              </option>
+              <option value="van">Van operator — existing Van/Store app</option>
+            </select>
           </Field>
           <fieldset className="grid grid-cols-2 gap-2">
             <legend className="mb-2 text-sm font-medium">Partner grants</legend>

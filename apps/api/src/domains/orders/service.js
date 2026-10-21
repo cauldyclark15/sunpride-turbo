@@ -11,6 +11,7 @@ import { writeAudit } from "../org/audit.js";
 import { enqueueRefresh } from "../analytics/refresh.js";
 import { accessibleOrder, outletContext, scoped } from "./access.js";
 import { eligibilityFacts } from "../tpm/campaigns.js";
+import { seams as tpmSeams } from "../tpm/seams.js";
 import { accrueOrder, reverseOrder } from "../tpm/finance.js";
 import { enforceCompanyDiscount } from "../fiscal/commercial.js";
 import {
@@ -28,6 +29,7 @@ import {
   decimalMoney,
   divide,
   fail,
+  integer,
   manilaDate,
   quantityMilli,
   safe,
@@ -176,6 +178,7 @@ export async function quote(ctx, input) {
       uom,
       quantity,
       quantityBase,
+      quantityScale: Number(product.quantity_scale ?? 1),
       ...price,
       priceListCode: list?.code ?? null,
       priceListName: list?.name ?? null,
@@ -193,6 +196,49 @@ export async function quote(ctx, input) {
   // F-511: capture is a priced draft, not financial permission. The same Fiscal
   // matrix consumes exact persisted facts on independent approval, for ALL schemes.
 
+  const governed = promo.promotionsApplied.filter((p) => p.campaignVersionId);
+  for (const promotion of governed) {
+    promotion.freeGoodsValueCentavos = 0;
+    for (const gift of promotion.freeGoods) {
+      const price = await resolvePrice(ctx.db, {
+        organizationId: ORGANIZATION,
+        productId: gift.productId,
+        uom: gift.uom,
+        channelKey: input.channelKey ?? null,
+        customerCode: input.customerCode ?? null,
+        outletId: input.outletId ?? null,
+        at: input.at ?? ctx.now,
+      });
+      if (price.unitPriceCentavos == null)
+        fail("A free product needs a governed reference price before approval");
+      gift.referenceValueCentavos = safe(
+        BigInt(integer(price.unitPriceCentavos)) * BigInt(gift.quantity),
+      );
+      promotion.freeGoodsValueCentavos = safe(
+        BigInt(promotion.freeGoodsValueCentavos) +
+          BigInt(gift.referenceValueCentavos),
+      );
+    }
+  }
+  if (governed.length) {
+    const authority = await tpmSeams.requestOverride(ctx, {
+      kind: "discount",
+      channelKey: input.channelKey,
+      outletId: input.outletId ?? null,
+      subtotalCentavos: promo.subtotalCentavos,
+      totalCentavos: promo.totalCentavos,
+      promotions: governed,
+      lines: priced,
+      customerCode: input.customerCode ?? null,
+      serviceDate: manilaDate(input.at ?? ctx.now),
+      discountOverrideId: input.discountOverrideId ?? null,
+    });
+    if (authority.status !== "authorized")
+      fail(
+        "Finance discount authority must authorize this campaign quote",
+        "authority_required",
+      );
+  }
   const allocations = promo.lineDiscounts;
   const net = priced.map((l, i) => ({
     ...l,
@@ -216,6 +262,7 @@ export async function quote(ctx, input) {
       description: p.name,
       uom: gift.uom,
       quantity: gift.quantity,
+      quantityScale: Number(p.quantity_scale ?? 1),
       quantityBase: await baseQuantity(
         ctx.db,
         p,
@@ -299,13 +346,16 @@ export async function createOrder(ctx, input, options = {}) {
     ? date(input.serviceDate)
     : manilaDate(ctx.now);
   const at = input.at ?? ctx.now;
-  const pricing = await quote(ctx, {
-    ...input,
-    customerCode,
-    channelKey: sellingChannel,
-    at,
-  });
   const id = crypto.randomUUID();
+  const pricing = await quote(
+    { ...ctx, orderAuthorityOperationId: id },
+    {
+      ...input,
+      customerCode,
+      channelKey: sellingChannel,
+      at,
+    },
+  );
   const [{ sequence }] =
     await ctx.db`select nextval('orders_document_seq')::text as sequence`;
   const orderNumber = `SP-${serviceDate.replaceAll("-", "")}-${String(sequence).padStart(6, "0")}`;

@@ -84,6 +84,7 @@ export type Credit = {
   ageing?: Record<string, number>;
 };
 export type Quote = {
+  authority?: { status: string; pendingId?: string };
   totalCentavos: number;
   subtotalCentavos: number;
   canConfirm: boolean;
@@ -106,8 +107,9 @@ export type Quote = {
   }[];
   benefits: {
     name: string;
+    earnedCentavos?: number;
     discountCentavos: number;
-    freeGoods: { quantity: number; uom: string }[];
+    freeGoods: { quantity: number; uom: string; productName?: string }[];
   }[];
   credit: Credit;
 };

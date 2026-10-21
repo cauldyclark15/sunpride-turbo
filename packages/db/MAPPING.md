@@ -1,10 +1,10 @@
-# Convex → Postgres table mapping
+# Domain entity → PostgreSQL table mapping
 
-One row per Convex table in `packages/backend/convex/schema.ts` (146). Child tables
+One row per baseline domain entity (146). SQL migrations and `src/tables` are the current schema authority. Child tables
 hold normalised arrays of line/membership facts (`<parent>_id`, `ordinal`).
 The first Postgres table in each row is the main table; the test parses this file.
 
-| Convex table | Postgres table(s) | Migration | Notes |
+| Entity | Postgres table(s) | Migration | Notes |
 |---|---|---|---|
 | profiles | `profiles` | 0100_org | `user_id` → CORE `users`; `auth_subject` kept nullable (legacy actor token); synced (`deleted_at`, `change_seq`) |
 | accessInvitations | `access_invitations` | 0100_org |  |
@@ -154,4 +154,4 @@ The first Postgres table in each row is the main table; the test parses this fil
 | liveLocations | `live_locations` | 0116_location | synced (`deleted_at`, `change_seq`) |
 
 Better Auth component tables are not mapped: CORE's `users` and `sessions` replace them.
-Convex `_storage` references become `files(id)` foreign keys (CORE).
+File references use platform `files(id)` foreign keys (CORE).

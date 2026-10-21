@@ -3,6 +3,9 @@
 import { apiFetch, useApi } from "../../lib/api";
 import { useSession } from "../../lib/auth/session";
 import { ChangePassword } from "./change-password";
+import { EarnedStatements } from "./earned-statements";
+import { AccountNotifications } from "./notifications";
+import { usePermissions } from "../../lib/auth";
 
 const ROLE_NAMES: Record<string, string> = {
   super_admin: "System administrator",
@@ -18,25 +21,32 @@ const ROLE_NAMES: Record<string, string> = {
 type Unit = { id: string; name: string };
 
 export function AccountPage() {
-  const { profile } = useSession();
+  const { profile, me } = useSession();
+  const { can } = usePermissions();
   const units = useApi<Unit[]>(
-    profile?.orgUnitId ? ["account-area", profile.id, profile.orgUnitId] : null,
+    profile?.orgUnitId && !me?.partner
+      ? ["account-area", profile.id, profile.orgUnitId]
+      : null,
     ({ signal }) => apiFetch<Unit[]>("/api/v1/org/tree", { signal }),
   );
   if (!profile) return null;
-  const area = profile.orgUnitId
-    ? (units.data?.find((unit) => unit.id === profile.orgUnitId)?.name ??
-      (units.error ? "Area unavailable. Try again shortly." : "Loading area…"))
-    : ["super_admin", "analyst"].includes(profile.role)
-      ? "All areas"
-      : "No area assigned yet";
+  const area = me?.partner
+    ? "Assigned partner area"
+    : profile.orgUnitId
+      ? (units.data?.find((unit) => unit.id === profile.orgUnitId)?.name ??
+        (units.error
+          ? "Area unavailable. Try again shortly."
+          : "Loading area…"))
+      : ["super_admin", "analyst"].includes(profile.role)
+        ? "All areas"
+        : "No area assigned yet";
 
   return (
     <main className="mx-auto grid w-full max-w-3xl gap-6 py-4">
       <header>
         <h1 className="text-2xl font-semibold tracking-tight">Account</h1>
         <p className="mt-2 text-sm text-muted">
-          Your sign-in details and password.
+          Your details, notices and password.
         </p>
       </header>
       <section
@@ -57,7 +67,15 @@ export function AccountPage() {
           ))}
         </dl>
       </section>
+      <AccountNotifications
+        key={JSON.stringify([profile, me?.partner])}
+        partner={Boolean(me?.partner)}
+        readAlerts={!me?.partner && can("report.read")}
+      />
       <ChangePassword />
+      {profile.role === "sales" ? (
+        <EarnedStatements partner={Boolean(me?.partner)} />
+      ) : null}
     </main>
   );
 }

@@ -16,6 +16,9 @@ export function installWorkspace(router) {
     const people = bounded(
       await c.db`select id,name from profiles where status='active' and deleted_at is null order by name limit 501`,
     );
+    const parties = bounded(
+      await c.db`select * from (select id,name,partner_kind as type from distributors where status not in ('suspended','rejected') and effective_from<=now() and (effective_to is null or effective_to>now()) union all select id,label as name,'modern_trade' as type from mt_account_bindings where effective_from<=now() and (effective_to is null or effective_to>now()))parties order by name limit 501`,
+    );
     const evidence =
       await c.db`select e.id,e.outlet_id,o.name as outlet_name,e.captured_at as occurred_at,'photo'::text as kind from field_evidence_files e join outlets o on o.id=e.outlet_id join files f on f.id=e.storage_id where e.organization_id='sunpride' and e.deleted_at is null and f.status='stored' and e.status<>'rejected' order by e.captured_at desc limit 101`;
     return {
@@ -23,6 +26,7 @@ export function installWorkspace(router) {
       territories,
       outlets,
       people,
+      parties,
       evidenceTruncated: evidence.length > 100,
       evidence: evidence.slice(0, 100).map((/** @type {any} */ e) => ({
         id: e.id,
@@ -36,7 +40,7 @@ export function installWorkspace(router) {
     const now = new Date(c.now);
     const [campaigns] =
       await c.db`select coalesce(sum(v.budget_centavos),0) as budget,
-      coalesce(sum((select coalesce(sum(amount_centavos),0) from campaign_commitments where campaign_id=v.campaign_id)),0) as committed
+      coalesce(sum((select coalesce(sum(amount_centavos),0) from campaign_commitment_balances where campaign_id=v.campaign_id)),0) as committed
       from campaign_versions v where v.status='active' and v.effective_from<=${now} and v.effective_to>${now}`;
     const [claims] =
       await c.db`select count(*) filter(where status in ('submitted','needs_evidence'))::integer as awaiting,

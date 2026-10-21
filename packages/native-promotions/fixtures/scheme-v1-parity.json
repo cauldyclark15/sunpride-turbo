@@ -1,0 +1,838 @@
+[
+  {
+    "name": "bogo",
+    "request": {
+      "engineVersion": 1,
+      "lines": [
+        {
+          "productId": "sample-a",
+          "uom": "EA",
+          "quantity": 4,
+          "unitPriceCentavos": 101,
+          "lineTotalCentavos": 404,
+          "priceListId": "sample-list"
+        },
+        {
+          "productId": "sample-b",
+          "uom": "EA",
+          "quantity": 2,
+          "unitPriceCentavos": 200,
+          "lineTotalCentavos": 400,
+          "priceListId": "sample-list"
+        }
+      ],
+      "promotions": [
+        {
+          "id": "sample-promo-0",
+          "code": "SAMPLE-0",
+          "name": "Sample bogo",
+          "rule": {
+            "kind": "bogo",
+            "buy": {
+              "productId": "sample-a",
+              "uom": "EA",
+              "quantity": 2
+            },
+            "free": {
+              "productId": "sample-b",
+              "uom": "EA",
+              "quantity": 1
+            }
+          },
+          "engine_version": 1,
+          "precedence": 10,
+          "stacking": "stackable",
+          "benefit_timing": "on_invoice"
+        }
+      ],
+      "facts": {
+        "classKey": "A"
+      }
+    },
+    "expected": {
+      "engineVersion": 1,
+      "subtotalCentavos": 804,
+      "knownSubtotalCentavos": 804,
+      "totalCentavos": 804,
+      "promotionsApplied": [
+        {
+          "id": "sample-promo-0",
+          "code": "SAMPLE-0",
+          "name": "Sample bogo",
+          "kind": "bogo",
+          "engineVersion": 1,
+          "campaignVersionId": null,
+          "benefitTiming": "on_invoice",
+          "earnedCentavos": 0,
+          "discountCentavos": 0,
+          "freeGoods": [
+            {
+              "productId": "sample-b",
+              "uom": "EA",
+              "quantity": 2
+            }
+          ],
+          "lineIndexes": [0],
+          "allocations": [0, 0]
+        }
+      ],
+      "lineDiscounts": [0, 0],
+      "eligibility": []
+    }
+  },
+  {
+    "name": "free_goods",
+    "request": {
+      "engineVersion": 1,
+      "lines": [
+        {
+          "productId": "sample-a",
+          "uom": "EA",
+          "quantity": 4,
+          "unitPriceCentavos": 101,
+          "lineTotalCentavos": 404,
+          "priceListId": "sample-list"
+        },
+        {
+          "productId": "sample-b",
+          "uom": "EA",
+          "quantity": 2,
+          "unitPriceCentavos": 200,
+          "lineTotalCentavos": 400,
+          "priceListId": "sample-list"
+        }
+      ],
+      "promotions": [
+        {
+          "id": "sample-promo-1",
+          "code": "SAMPLE-1",
+          "name": "Sample free_goods",
+          "rule": {
+            "kind": "free_goods",
+            "buy": {
+              "productId": "sample-a",
+              "uom": "EA",
+              "quantity": 2
+            },
+            "free": {
+              "productId": "sample-b",
+              "uom": "EA",
+              "quantity": 1
+            }
+          },
+          "engine_version": 1,
+          "precedence": 10,
+          "stacking": "stackable",
+          "benefit_timing": "on_invoice"
+        }
+      ],
+      "facts": {
+        "classKey": "A"
+      }
+    },
+    "expected": {
+      "engineVersion": 1,
+      "subtotalCentavos": 804,
+      "knownSubtotalCentavos": 804,
+      "totalCentavos": 804,
+      "promotionsApplied": [
+        {
+          "id": "sample-promo-1",
+          "code": "SAMPLE-1",
+          "name": "Sample free_goods",
+          "kind": "free_goods",
+          "engineVersion": 1,
+          "campaignVersionId": null,
+          "benefitTiming": "on_invoice",
+          "earnedCentavos": 0,
+          "discountCentavos": 0,
+          "freeGoods": [
+            {
+              "productId": "sample-b",
+              "uom": "EA",
+              "quantity": 2
+            }
+          ],
+          "lineIndexes": [0],
+          "allocations": [0, 0]
+        }
+      ],
+      "lineDiscounts": [0, 0],
+      "eligibility": []
+    }
+  },
+  {
+    "name": "percent_off",
+    "request": {
+      "engineVersion": 1,
+      "lines": [
+        {
+          "productId": "sample-a",
+          "uom": "EA",
+          "quantity": 4,
+          "unitPriceCentavos": 101,
+          "lineTotalCentavos": 404,
+          "priceListId": "sample-list"
+        },
+        {
+          "productId": "sample-b",
+          "uom": "EA",
+          "quantity": 2,
+          "unitPriceCentavos": 200,
+          "lineTotalCentavos": 400,
+          "priceListId": "sample-list"
+        }
+      ],
+      "promotions": [
+        {
+          "id": "sample-promo-2",
+          "code": "SAMPLE-2",
+          "name": "Sample percent_off",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "sample-a",
+              "uom": "EA",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 5000
+          },
+          "engine_version": 1,
+          "precedence": 10,
+          "stacking": "stackable",
+          "benefit_timing": "on_invoice"
+        }
+      ],
+      "facts": {
+        "classKey": "A"
+      }
+    },
+    "expected": {
+      "engineVersion": 1,
+      "subtotalCentavos": 804,
+      "knownSubtotalCentavos": 804,
+      "totalCentavos": 602,
+      "promotionsApplied": [
+        {
+          "id": "sample-promo-2",
+          "code": "SAMPLE-2",
+          "name": "Sample percent_off",
+          "kind": "percent_off",
+          "engineVersion": 1,
+          "campaignVersionId": null,
+          "benefitTiming": "on_invoice",
+          "earnedCentavos": 0,
+          "discountCentavos": 202,
+          "freeGoods": [],
+          "lineIndexes": [0],
+          "allocations": [202, 0]
+        }
+      ],
+      "lineDiscounts": [202, 0],
+      "eligibility": []
+    }
+  },
+  {
+    "name": "value_off",
+    "request": {
+      "engineVersion": 1,
+      "lines": [
+        {
+          "productId": "sample-a",
+          "uom": "EA",
+          "quantity": 4,
+          "unitPriceCentavos": 101,
+          "lineTotalCentavos": 404,
+          "priceListId": "sample-list"
+        },
+        {
+          "productId": "sample-b",
+          "uom": "EA",
+          "quantity": 2,
+          "unitPriceCentavos": 200,
+          "lineTotalCentavos": 400,
+          "priceListId": "sample-list"
+        }
+      ],
+      "promotions": [
+        {
+          "id": "sample-promo-3",
+          "code": "SAMPLE-3",
+          "name": "Sample value_off",
+          "rule": {
+            "kind": "value_off",
+            "item": {
+              "productId": "sample-a",
+              "uom": "EA",
+              "quantity": 1
+            },
+            "valueCentavos": 25
+          },
+          "engine_version": 1,
+          "precedence": 10,
+          "stacking": "stackable",
+          "benefit_timing": "on_invoice"
+        }
+      ],
+      "facts": {
+        "classKey": "A"
+      }
+    },
+    "expected": {
+      "engineVersion": 1,
+      "subtotalCentavos": 804,
+      "knownSubtotalCentavos": 804,
+      "totalCentavos": 704,
+      "promotionsApplied": [
+        {
+          "id": "sample-promo-3",
+          "code": "SAMPLE-3",
+          "name": "Sample value_off",
+          "kind": "value_off",
+          "engineVersion": 1,
+          "campaignVersionId": null,
+          "benefitTiming": "on_invoice",
+          "earnedCentavos": 0,
+          "discountCentavos": 100,
+          "freeGoods": [],
+          "lineIndexes": [0],
+          "allocations": [100, 0]
+        }
+      ],
+      "lineDiscounts": [100, 0],
+      "eligibility": []
+    }
+  },
+  {
+    "name": "quantity_off",
+    "request": {
+      "engineVersion": 1,
+      "lines": [
+        {
+          "productId": "sample-a",
+          "uom": "EA",
+          "quantity": 4,
+          "unitPriceCentavos": 101,
+          "lineTotalCentavos": 404,
+          "priceListId": "sample-list"
+        },
+        {
+          "productId": "sample-b",
+          "uom": "EA",
+          "quantity": 2,
+          "unitPriceCentavos": 200,
+          "lineTotalCentavos": 400,
+          "priceListId": "sample-list"
+        }
+      ],
+      "promotions": [
+        {
+          "id": "sample-promo-4",
+          "code": "SAMPLE-4",
+          "name": "Sample quantity_off",
+          "rule": {
+            "kind": "quantity_off",
+            "item": {
+              "productId": "sample-a",
+              "uom": "EA",
+              "quantity": 2
+            },
+            "quantityOff": 1
+          },
+          "engine_version": 1,
+          "precedence": 10,
+          "stacking": "stackable",
+          "benefit_timing": "on_invoice"
+        }
+      ],
+      "facts": {
+        "classKey": "A"
+      }
+    },
+    "expected": {
+      "engineVersion": 1,
+      "subtotalCentavos": 804,
+      "knownSubtotalCentavos": 804,
+      "totalCentavos": 602,
+      "promotionsApplied": [
+        {
+          "id": "sample-promo-4",
+          "code": "SAMPLE-4",
+          "name": "Sample quantity_off",
+          "kind": "quantity_off",
+          "engineVersion": 1,
+          "campaignVersionId": null,
+          "benefitTiming": "on_invoice",
+          "earnedCentavos": 0,
+          "discountCentavos": 202,
+          "freeGoods": [],
+          "lineIndexes": [0],
+          "allocations": [202, 0]
+        }
+      ],
+      "lineDiscounts": [202, 0],
+      "eligibility": []
+    }
+  },
+  {
+    "name": "slab",
+    "request": {
+      "engineVersion": 1,
+      "lines": [
+        {
+          "productId": "sample-a",
+          "uom": "EA",
+          "quantity": 4,
+          "unitPriceCentavos": 101,
+          "lineTotalCentavos": 404,
+          "priceListId": "sample-list"
+        },
+        {
+          "productId": "sample-b",
+          "uom": "EA",
+          "quantity": 2,
+          "unitPriceCentavos": 200,
+          "lineTotalCentavos": 400,
+          "priceListId": "sample-list"
+        }
+      ],
+      "promotions": [
+        {
+          "id": "sample-promo-5",
+          "code": "SAMPLE-5",
+          "name": "Sample slab",
+          "rule": {
+            "kind": "slab",
+            "item": {
+              "productId": "sample-a",
+              "uom": "EA",
+              "quantity": 1
+            },
+            "slabs": [
+              {
+                "minQuantity": 2,
+                "percentOffBasisPoints": 500
+              },
+              {
+                "minQuantity": 4,
+                "percentOffBasisPoints": 1500
+              }
+            ]
+          },
+          "engine_version": 1,
+          "precedence": 10,
+          "stacking": "stackable",
+          "benefit_timing": "on_invoice"
+        }
+      ],
+      "facts": {
+        "classKey": "A"
+      }
+    },
+    "expected": {
+      "engineVersion": 1,
+      "subtotalCentavos": 804,
+      "knownSubtotalCentavos": 804,
+      "totalCentavos": 743,
+      "promotionsApplied": [
+        {
+          "id": "sample-promo-5",
+          "code": "SAMPLE-5",
+          "name": "Sample slab",
+          "kind": "slab",
+          "engineVersion": 1,
+          "campaignVersionId": null,
+          "benefitTiming": "on_invoice",
+          "earnedCentavos": 0,
+          "discountCentavos": 61,
+          "freeGoods": [],
+          "lineIndexes": [0],
+          "allocations": [61, 0]
+        }
+      ],
+      "lineDiscounts": [61, 0],
+      "eligibility": []
+    }
+  },
+  {
+    "name": "combo",
+    "request": {
+      "engineVersion": 1,
+      "lines": [
+        {
+          "productId": "sample-a",
+          "uom": "EA",
+          "quantity": 4,
+          "unitPriceCentavos": 101,
+          "lineTotalCentavos": 404,
+          "priceListId": "sample-list"
+        },
+        {
+          "productId": "sample-b",
+          "uom": "EA",
+          "quantity": 2,
+          "unitPriceCentavos": 200,
+          "lineTotalCentavos": 400,
+          "priceListId": "sample-list"
+        }
+      ],
+      "promotions": [
+        {
+          "id": "sample-promo-6",
+          "code": "SAMPLE-6",
+          "name": "Sample combo",
+          "rule": {
+            "kind": "combo",
+            "components": [
+              {
+                "productId": "sample-a",
+                "uom": "EA",
+                "quantity": 2
+              },
+              {
+                "productId": "sample-b",
+                "uom": "EA",
+                "quantity": 1
+              }
+            ],
+            "bundlePriceMinor": 300
+          },
+          "engine_version": 1,
+          "precedence": 10,
+          "stacking": "stackable",
+          "benefit_timing": "on_invoice"
+        }
+      ],
+      "facts": {
+        "classKey": "A"
+      }
+    },
+    "expected": {
+      "engineVersion": 1,
+      "subtotalCentavos": 804,
+      "knownSubtotalCentavos": 804,
+      "totalCentavos": 600,
+      "promotionsApplied": [
+        {
+          "id": "sample-promo-6",
+          "code": "SAMPLE-6",
+          "name": "Sample combo",
+          "kind": "combo",
+          "engineVersion": 1,
+          "campaignVersionId": null,
+          "benefitTiming": "on_invoice",
+          "earnedCentavos": 0,
+          "discountCentavos": 204,
+          "freeGoods": [],
+          "lineIndexes": [0, 1],
+          "allocations": [103, 101]
+        }
+      ],
+      "lineDiscounts": [103, 101],
+      "eligibility": []
+    }
+  },
+  {
+    "name": "basket",
+    "request": {
+      "engineVersion": 1,
+      "lines": [
+        {
+          "productId": "sample-a",
+          "uom": "EA",
+          "quantity": 4,
+          "unitPriceCentavos": 101,
+          "lineTotalCentavos": 404,
+          "priceListId": "sample-list"
+        },
+        {
+          "productId": "sample-b",
+          "uom": "EA",
+          "quantity": 2,
+          "unitPriceCentavos": 200,
+          "lineTotalCentavos": 400,
+          "priceListId": "sample-list"
+        }
+      ],
+      "promotions": [
+        {
+          "id": "sample-promo-7",
+          "code": "SAMPLE-7",
+          "name": "Sample basket",
+          "rule": {
+            "kind": "basket",
+            "minSubtotalCentavos": 500,
+            "valueCentavos": 50
+          },
+          "engine_version": 1,
+          "precedence": 10,
+          "stacking": "stackable",
+          "benefit_timing": "on_invoice"
+        }
+      ],
+      "facts": {
+        "classKey": "A"
+      }
+    },
+    "expected": {
+      "engineVersion": 1,
+      "subtotalCentavos": 804,
+      "knownSubtotalCentavos": 804,
+      "totalCentavos": 754,
+      "promotionsApplied": [
+        {
+          "id": "sample-promo-7",
+          "code": "SAMPLE-7",
+          "name": "Sample basket",
+          "kind": "basket",
+          "engineVersion": 1,
+          "campaignVersionId": null,
+          "benefitTiming": "on_invoice",
+          "earnedCentavos": 0,
+          "discountCentavos": 50,
+          "freeGoods": [],
+          "lineIndexes": [0, 1],
+          "allocations": [26, 24]
+        }
+      ],
+      "lineDiscounts": [26, 24],
+      "eligibility": []
+    }
+  },
+  {
+    "name": "stacking",
+    "request": {
+      "engineVersion": 1,
+      "lines": [
+        {
+          "productId": "sample-a",
+          "uom": "EA",
+          "quantity": 4,
+          "unitPriceCentavos": 101,
+          "lineTotalCentavos": 404,
+          "priceListId": "sample-list"
+        },
+        {
+          "productId": "sample-b",
+          "uom": "EA",
+          "quantity": 2,
+          "unitPriceCentavos": 200,
+          "lineTotalCentavos": 400,
+          "priceListId": "sample-list"
+        }
+      ],
+      "promotions": [
+        {
+          "id": "sample-promo-0",
+          "code": "SAMPLE-0",
+          "name": "Sample percent_off",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "sample-a",
+              "uom": "EA",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 5000
+          },
+          "engine_version": 1,
+          "precedence": 10,
+          "stacking": "stackable",
+          "benefit_timing": "on_invoice"
+        },
+        {
+          "id": "sample-promo-1",
+          "code": "SAMPLE-1",
+          "name": "Sample basket",
+          "rule": {
+            "kind": "basket",
+            "minSubtotalCentavos": 500,
+            "valueCentavos": 50
+          },
+          "engine_version": 1,
+          "precedence": 20,
+          "stacking": "stackable",
+          "benefit_timing": "on_invoice"
+        }
+      ],
+      "facts": {
+        "classKey": "A"
+      }
+    },
+    "expected": {
+      "engineVersion": 1,
+      "subtotalCentavos": 804,
+      "knownSubtotalCentavos": 804,
+      "totalCentavos": 552,
+      "promotionsApplied": [
+        {
+          "id": "sample-promo-0",
+          "code": "SAMPLE-0",
+          "name": "Sample percent_off",
+          "kind": "percent_off",
+          "engineVersion": 1,
+          "campaignVersionId": null,
+          "benefitTiming": "on_invoice",
+          "earnedCentavos": 0,
+          "discountCentavos": 202,
+          "freeGoods": [],
+          "lineIndexes": [0],
+          "allocations": [202, 0]
+        },
+        {
+          "id": "sample-promo-1",
+          "code": "SAMPLE-1",
+          "name": "Sample basket",
+          "kind": "basket",
+          "engineVersion": 1,
+          "campaignVersionId": null,
+          "benefitTiming": "on_invoice",
+          "earnedCentavos": 0,
+          "discountCentavos": 50,
+          "freeGoods": [],
+          "lineIndexes": [0, 1],
+          "allocations": [17, 33]
+        }
+      ],
+      "lineDiscounts": [219, 33],
+      "eligibility": []
+    }
+  },
+  {
+    "name": "eligibility-exclusion",
+    "request": {
+      "engineVersion": 1,
+      "lines": [
+        {
+          "productId": "sample-a",
+          "uom": "EA",
+          "quantity": 4,
+          "unitPriceCentavos": 101,
+          "lineTotalCentavos": 404,
+          "priceListId": "sample-list"
+        },
+        {
+          "productId": "sample-b",
+          "uom": "EA",
+          "quantity": 2,
+          "unitPriceCentavos": 200,
+          "lineTotalCentavos": 400,
+          "priceListId": "sample-list"
+        }
+      ],
+      "promotions": [
+        {
+          "id": "sample-promo-0",
+          "code": "SAMPLE-0",
+          "name": "Sample percent_off",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "sample-a",
+              "uom": "EA",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 5000
+          },
+          "engine_version": 1,
+          "precedence": 10,
+          "stacking": "stackable",
+          "benefit_timing": "on_invoice",
+          "eligibility": {
+            "classKey": {
+              "include": ["A"],
+              "exclude": ["A"]
+            }
+          }
+        }
+      ],
+      "facts": {
+        "classKey": "A"
+      }
+    },
+    "expected": {
+      "engineVersion": 1,
+      "subtotalCentavos": 804,
+      "knownSubtotalCentavos": 804,
+      "totalCentavos": 804,
+      "promotionsApplied": [],
+      "lineDiscounts": [0, 0],
+      "eligibility": [
+        {
+          "id": "sample-promo-0",
+          "eligible": false,
+          "reasons": ["classKey:excluded"]
+        }
+      ]
+    }
+  },
+  {
+    "name": "deferred-rebate",
+    "request": {
+      "engineVersion": 1,
+      "lines": [
+        {
+          "productId": "sample-a",
+          "uom": "EA",
+          "quantity": 4,
+          "unitPriceCentavos": 101,
+          "lineTotalCentavos": 404,
+          "priceListId": "sample-list"
+        },
+        {
+          "productId": "sample-b",
+          "uom": "EA",
+          "quantity": 2,
+          "unitPriceCentavos": 200,
+          "lineTotalCentavos": 400,
+          "priceListId": "sample-list"
+        }
+      ],
+      "promotions": [
+        {
+          "id": "sample-promo-0",
+          "code": "SAMPLE-0",
+          "name": "Sample percent_off",
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "sample-a",
+              "uom": "EA",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 5000
+          },
+          "engine_version": 1,
+          "precedence": 10,
+          "stacking": "stackable",
+          "benefit_timing": "claimable"
+        }
+      ],
+      "facts": {}
+    },
+    "expected": {
+      "engineVersion": 1,
+      "subtotalCentavos": 804,
+      "knownSubtotalCentavos": 804,
+      "totalCentavos": 804,
+      "promotionsApplied": [
+        {
+          "id": "sample-promo-0",
+          "code": "SAMPLE-0",
+          "name": "Sample percent_off",
+          "kind": "percent_off",
+          "engineVersion": 1,
+          "campaignVersionId": null,
+          "benefitTiming": "claimable",
+          "earnedCentavos": 202,
+          "discountCentavos": 0,
+          "freeGoods": [],
+          "lineIndexes": [0],
+          "allocations": [202, 0]
+        }
+      ],
+      "lineDiscounts": [0, 0],
+      "eligibility": []
+    }
+  }
+]

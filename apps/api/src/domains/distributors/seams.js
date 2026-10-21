@@ -4,6 +4,7 @@ import {
   enqueueDistributorPosting,
 } from "../integration/spec-adapters.js";
 import { configurations } from "../callflow/engine.js";
+import { roleHas } from "../../core/capabilities.js";
 
 // SEAM(SAP): replace these local reference adapters with domains/integration's
 // sapCreditCheck / enqueueSapPosting at integration. Only EXPLICIT sample masters
@@ -111,7 +112,10 @@ export async function distributorCallflowConfig(c, d) {
     grants: member?.grants ?? [],
     outlets,
     source: "partner_grants",
-    nativeReady: true,
+    nativeReady: outlets.length > 0 && configs.size === outlets.length,
+    fieldApp: "field-android",
+    access:
+      "Dedicated field invitation or explicitly bound partner field identity; portal grants remain scoped",
     seam: "CALLFLOW",
     requiredSharedModules: ["pjp", "msl", "availability"],
   };
@@ -120,15 +124,36 @@ export async function distributorCallflowConfig(c, d) {
 // Never route a partner to the employee van writer before it enforces ownership.
 /** @param {any} c @param {any} d */
 export async function distributorVanContext(c, d) {
-  const vans =
-    await c.db`select id,code,name,inventory_location_id from distributor_locations where distributor_id=${d.id} and kind='van' and effective_from<=now() and (effective_to is null or effective_to>now()) order by code`;
+  const arrangements =
+    await c.db`select a.*,v.vehicle_code as code,v.name,v.truck_location_id as inventory_location_id from distributor_van_arrangements a join vehicles v on v.id=a.vehicle_id where a.distributor_id=${d.id} and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now()) and v.status='active' and v.deleted_at is null order by v.vehicle_code`;
+  const operators =
+    await c.db`select p.id,p.name from distributor_users u join profiles p on p.id=u.profile_id where u.distributor_id=${d.id} and 'van'=any(u.grants) and u.effective_from<=now() and (u.effective_to is null or u.effective_to>now()) and p.role='sales' and p.status='active' and p.deleted_at is null and p.user_id is not null and p.org_unit_id=${d.org_unit_id} and exists(select 1 from employee_assignments e where e.profile_id=p.id and e.role='sales' and e.org_unit_id=p.org_unit_id and e.effective_from<=now() and (e.effective_to is null or e.effective_to>now()) and e.deleted_at is null) order by p.name`;
+  const [stores] =
+    await c.db`select count(*)::int as n from distributor_outlets where distributor_id=${d.id} and effective_from<=now() and (effective_to is null or effective_to>now())`;
+  const trips =
+    await c.db`select id,trip_number,service_date,status,salesperson_profile_id from van_trips where distributor_id=${d.id} and deleted_at is null order by service_date desc,created_at desc limit 51`;
+  const vehicleOptions = roleHas(c.actor.role, "van.manage")
+    ? await c.db`select id,vehicle_code as code,name from vehicles where org_unit_id=${d.org_unit_id} and status='active' and deleted_at is null order by vehicle_code limit 501`
+    : [];
+  if (vehicleOptions.length > 500)
+    fail("Narrow the supervising area before configuring a van");
+  const ready = arrangements.length > 0 && operators.length > 0 && stores.n > 0;
   return {
     engine: "van",
     distributorId: d.id,
-    vans,
-    ready: false,
+    vans: arrangements,
+    arrangements,
+    operators,
+    vehicleOptions,
+    trips: trips.slice(0, 50),
+    tripsTruncated: trips.length > 50,
+    ready,
+    app: "van-sales-android",
+    stockOwnership:
+      "Explicit Sunpride-owned consignment; the company stock and SAP ledgers remain authoritative",
     seam: "VANOPS",
-    message:
-      "Partner settlement awaits the shared van engine's partner authorization adapter. No second settlement ledger is created.",
+    message: ready
+      ? "Use the existing Van/Store APK with the dedicated van login. The office plans trips and independently approves loads and settlement; only assigned partner stores are available."
+      : "Configure a consignment vehicle, invite and activate a dedicated van operator, and assign its partner stores. No second app or settlement ledger is required.",
   };
 }

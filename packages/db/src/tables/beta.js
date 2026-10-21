@@ -7,10 +7,12 @@
  * bigint/numeric come back as string from Bun.sql.
  */
 
-export const SAMPLE_DATA_CHANGE_KIND = /** @type {const} */ (["customer_credit_limit"]);
+export const SAMPLE_DATA_CHANGE_KIND = /** @type {const} */ ([
+  "customer_credit_limit",
+]);
 
 /**
- * `sample_data_rows` (Convex `sampleDataRows`)
+ * `sample_data_rows`
  * @typedef {Object} SampleDataRowRow
  * @property {string} id
  * @property {string} batch
@@ -22,7 +24,7 @@ export const SAMPLE_DATA_CHANGE_KIND = /** @type {const} */ (["customer_credit_l
  */
 
 /**
- * `sample_data_changes` (Convex `sampleDataChanges`)
+ * `sample_data_changes`
  * @typedef {Object} SampleDataChangeRow
  * @property {string} id
  * @property {string} organizationId

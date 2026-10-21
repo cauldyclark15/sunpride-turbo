@@ -28,7 +28,8 @@ import {
   syncFinancial,
   syncMaster,
 } from "./setup.js";
-import { placeOrder, quote } from "./ordering.js";
+import { placeOrder, quote, requestQuoteApproval } from "./ordering.js";
+import { saveVanArrangement } from "./van-arrangement.js";
 import {
   createCreditException,
   completeCreditException,
@@ -217,6 +218,7 @@ export function install(router, platform) {
   post("agreement/accept", "documents", acceptAgreement);
   get("workspace", "read", workspace);
   post("quote", "order", quote);
+  post("quote/approval", "order", requestQuoteApproval);
   post("orders", "order", placeOrder);
   post("financial/request", "order", async (c, d, b) => {
     const { partnerDiscount, requestCommercial } =
@@ -414,6 +416,7 @@ export function install(router, platform) {
   post("audit", "read", recordAudit, true);
   get("callflow-config", "dsr", distributorCallflowConfig);
   get("van-context", "settlement", distributorVanContext);
+  post("van-arrangements/save", "settlement", saveVanArrangement, true);
   platform.registerTopic(
     "distributor",
     async (/** @type {any} */ actor, /** @type {string} */ topic) => {

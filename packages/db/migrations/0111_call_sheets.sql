@@ -1,5 +1,5 @@
 -- 0111_call_sheets: Call sheets.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: call_sheet_accounts, call_sheet_account_lines, call_sheet_account_revisions, call_sheet_account_revision_products, call_sheet_entries.
 
 -- callSheetAccounts [synced]

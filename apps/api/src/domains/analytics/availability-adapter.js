@@ -1,4 +1,5 @@
-// SEAM(AVAILABILITY): replace this source/policy adapter with the governed F-220 reader at integration.
+import { availabilitySources } from "../availability/sources.js";
+// F-602: the availability domain supplies canonical checklists and MSL assignment.
 import { ApiError } from "../../core/errors.js";
 import { addDays, pct, dateOf, kpi } from "./measures.js";
 import { readStores, readVisits, visitSummary, readPeople } from "./data.js";
@@ -60,7 +61,7 @@ async function load(db, p, s) {
   );
   const ids = stores.map((/** @type {any} */ o) => o.id),
     end = p.to + "T23:59:59.999+08:00";
-  const [policies, assigned, weights] = await Promise.all([
+  const [policies, legacyAssigned, weights] = await Promise.all([
     db`select distinct on(org_unit_id) * from analytics_cockpit_policies where org_unit_id in ${db(s.ids.length ? s.ids : [null])} and effective_from<=${end} and (effective_to is null or effective_to>${end}) order by org_unit_id,effective_from desc`,
     db`select a.outlet_id,ap.product_id from outlet_assortments a join outlet_assortment_products ap on ap.outlet_assortment_id=a.id and ap.deleted_at is null where a.outlet_id in ${db(ids.length ? ids : [null])} and a.deleted_at is null and a.effective_from<=${end} and (a.effective_to is null or a.effective_to>${end})`,
     db`select outlet_id,turnover_centavos,source_ref from analytics_turnover_weights where outlet_id in ${db(ids.length ? ids : [null])} and effective_from<=${end} and (effective_to is null or effective_to>${end})`,
@@ -78,7 +79,7 @@ async function load(db, p, s) {
     and (${s.ownProfileId}::uuid is null or audit.assignee_profile_id=${s.ownProfileId})
     order by a.outlet_id,a.product_id,a.service_date desc,a.created_at desc,a.id desc`
     : [];
-  const fresh = observations.filter((/** @type {any} */ a) => {
+  const legacyFresh = observations.filter((/** @type {any} */ a) => {
     const o = stores.find((/** @type {any} */ o) => o.id === a.outlet_id);
     const policy = policies.find(
       (/** @type {any} */ r) => r.org_unit_id === o?.owner_unit_id,
@@ -88,12 +89,27 @@ async function load(db, p, s) {
       dateOf(a.service_date) >= addDays(p.to, 1 - policy.freshness_days)
     );
   });
+  const canonical = await availabilitySources(
+    db,
+    p,
+    s,
+    stores,
+    policies,
+    legacyAssigned,
+    legacyFresh,
+  );
+  const assigned = canonical.assigned,
+    fresh = canonical.observations;
   const present = (/** @type {any} */ a) =>
-    ["available", "low_stock"].includes(a?.status);
+    a?.source === "availability"
+      ? a.shelfPresent === true
+      : ["available", "low_stock"].includes(a?.status);
   const measured = (/** @type {any} */ a) =>
-    ["available", "low_stock", "out_of_stock", "not_carried"].includes(
-      a?.status,
-    );
+    a?.source === "availability"
+      ? a.shelfPresent !== null
+      : ["available", "low_stock", "out_of_stock", "not_carried"].includes(
+          a?.status,
+        );
   const observation = new Map(
     fresh.map((/** @type {any} */ a) => [`${a.outlet_id}:${a.product_id}`, a]),
   );
@@ -164,7 +180,7 @@ async function load(db, p, s) {
     checked,
     osa: required > 0 && checked === required ? pct(available, required) : null,
     completenessPct: pct(checked, required),
-    setupRequired: !policies.length,
+    setupRequired: canonical.setupRequired,
     definitionVersion: "commercial/v1",
     definition:
       "ND: fresh observed stocking outlets / validated universe; WD: same stocking weighted by governed outlet turnover. OSA: available assigned MSL lines / all assigned MSL lines, unknown until fully measured.",

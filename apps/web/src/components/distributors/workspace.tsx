@@ -7,6 +7,8 @@ import { Accreditation, Claims, Documents, Money } from "./finance";
 import { Ordering, Overview, Stock } from "./commercial";
 import { Reconcile, Secondary } from "./secondary";
 import { Setup } from "./setup";
+import { ClaimantClaims } from "../claimant-claims";
+import { VanArrangement, type PartnerVanData } from "./van-arrangement";
 import type { Partner, Workspace } from "./types";
 import {
   ActionForm,
@@ -177,7 +179,12 @@ function PartnerDetail({
   const query = usePartnerQuery<Workspace>(partner.id, "workspace");
   const canManage =
     office && ["super_admin", "admin"].includes(session.profile?.role ?? "");
-  const tabs = TABS.filter((t) => office || partner.grants?.includes(t.grant));
+  const tabs = TABS.filter(
+    (t) =>
+      office ||
+      partner.grants?.includes(t.grant) ||
+      (t.id === "field" && partner.grants?.includes("settlement")),
+  );
   const active =
     tabs.some((t) => t.id === tab) || (tab === "setup" && canManage)
       ? tab
@@ -255,12 +262,20 @@ function PartnerDetail({
                 />
               ) : null}
               {active === "claims" ? (
-                <Claims
-                  workspace={w}
-                  command={command}
-                  canWrite={canWrite}
-                  office={office}
-                />
+                <>
+                  <Claims
+                    workspace={w}
+                    command={command}
+                    canWrite={canWrite}
+                    office={office}
+                  />
+                  <ClaimantClaims
+                    key={partner.id}
+                    base="/api/v1/distributors/claims/shared"
+                    partyId={partner.id}
+                    name={partner.name}
+                  />
+                </>
               ) : null}
               {active === "money" ? (
                 <Money
@@ -287,7 +302,13 @@ function PartnerDetail({
                 />
               ) : null}
               {active === "field" ? (
-                <FieldConfig id={partner.id} showVan={has("settlement")} />
+                <FieldConfig
+                  id={partner.id}
+                  showVan={has("settlement")}
+                  showDsr={has("dsr")}
+                  office={canManage}
+                  command={command}
+                />
               ) : null}
             </>
           )}
@@ -301,55 +322,54 @@ function PartnerDetail({
     </>
   );
 }
-function FieldConfig({ id, showVan }: { id: string; showVan: boolean }) {
+function FieldConfig({
+  id,
+  showVan,
+  showDsr,
+  office,
+  command,
+}: {
+  id: string;
+  showVan: boolean;
+  showDsr: boolean;
+  office: boolean;
+  command: (action: string, body: Record<string, unknown>) => Promise<unknown>;
+}) {
   const config = usePartnerQuery<{
       engine: string;
       nativeReady: boolean;
       outlets: { id: string; name: string }[];
-    }>(id, "callflow-config"),
-    van = usePartnerQuery<{
-      ready: boolean;
-      message: string;
-      vans: { id: string; name: string }[];
-    }>(id, "van-context", showVan);
+    }>(id, "callflow-config", showDsr),
+    van = usePartnerQuery<PartnerVanData>(id, "van-context", showVan);
   return (
     <>
-      <State query={config}>
-        {(c) => (
-          <Panel
-            title="Distributor reps use the shared call flow"
-            detail="Server configuration and partner grants are ready. Native configuration is connected by the shared call-flow lane; no separate distributor app is created."
-          >
-            <p className="text-sm">
-              Assigned shared outlets: {c.outlets.length}
-            </p>
-            <ul className="grid gap-2 text-sm">
-              {c.outlets.map((o) => (
-                <li key={o.id}>{o.name}</li>
-              ))}
-            </ul>
-            <p className="text-sm text-muted">
-              {c.nativeReady
-                ? "Native configuration connected"
-                : "Native connection pending"}
-            </p>
-          </Panel>
-        )}
-      </State>
-      {showVan ? (
-        <State query={van}>
-          {(v) => (
+      {showDsr ? (
+        <State query={config}>
+          {(c) => (
             <Panel
-              title="Distributor van load and settlement"
-              detail={v.message}
+              title="Distributor reps use the shared call flow"
+              detail="Invite a dedicated field representative in Setup, assign their PJP and stores, then sign in to the existing Android field app. Portal credentials remain separate; no distributor app is needed."
             >
+              <p className="text-sm">
+                Assigned shared outlets: {c.outlets.length}
+              </p>
               <ul className="grid gap-2 text-sm">
-                {v.vans.map((x) => (
-                  <li key={x.id}>{x.name}</li>
+                {c.outlets.map((o) => (
+                  <li key={o.id}>{o.name}</li>
                 ))}
               </ul>
+              <p className="text-sm text-muted">
+                {c.nativeReady
+                  ? "Native configuration connected"
+                  : "Native connection pending"}
+              </p>
             </Panel>
           )}
+        </State>
+      ) : null}
+      {showVan ? (
+        <State query={van}>
+          {(v) => <VanArrangement data={v} office={office} command={command} />}
         </State>
       ) : null}
     </>

@@ -218,7 +218,7 @@ async function buildBilling(c, p, b) {
   };
 }
 /** @param {any} c @param {string} id @param {string} periodId */
-async function billing(c, id, periodId) {
+export async function billing(c, id, periodId) {
   await authorize(c, id, "billing");
   const [p] =
     await c.db`select * from partner_billing_periods where id=${uuid(periodId)} and distributor_id=${id}`;

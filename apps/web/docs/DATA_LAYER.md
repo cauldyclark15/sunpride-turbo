@@ -1,6 +1,6 @@
 # Web data layer (Bun API)
 
-Convex is gone from the web's root. Feature code reads and writes the Bun API (`docs/architecture/BACKEND_V2.md` §3–4) through `apps/web/src/lib/api` and `apps/web/src/lib/auth`. The layer is in-house, built on React context and `useSyncExternalStore`, with no swr or react-query.
+Feature code reads and writes the Bun API (`docs/architecture/BACKEND_V2.md` §3–4) through `apps/web/src/lib/api` and `apps/web/src/lib/auth`. The layer is in-house, built on React context and `useSyncExternalStore`, with no swr or react-query.
 
 ## The pieces
 
@@ -21,20 +21,7 @@ Errors are always `ApiError { code, message, retryable, status }`, taken from th
 
 A key is an array of JSON values. Put every input in the key: the domain, the view, ids, filters, and the month. Keys match by prefix: invalidating `["issues"]` refetches `["issues", "board", {...}]` and `["issues", "assignees"]`. Sign-in, sign-out and an account change clear every key, and responses still in flight for the old identity are dropped.
 
-## Before → after (issues board)
-
-Before (Convex):
-
-```tsx
-const result = useQuery(
-  api.issues.queries.board,
-  canRead ? { archived: filters.archived, search: search || undefined } : "skip",
-);
-const move = useMutation(api.issues.mutations.move);
-await move(input);
-```
-
-After:
+## Example: issues board
 
 ```tsx
 import { apiFetch, mutate, useApi, useLive } from "@/lib/api";
@@ -50,11 +37,11 @@ useLive(["issues"], [["issues"]]); // other people's moves show up live
 await mutate("/api/v1/issues/move", input, { invalidate: [["issues"]] });
 ```
 
-`result.data` is `undefined` while loading, exactly like `useQuery`. Read `result.error` and `result.status` instead of relying on a thrown error. For a plain GET, pass the path itself as the fetcher: `useApi(["issues", "assignees"], "/api/v1/issues/assignees")`.
+`result.data` is `undefined` while loading, while the request is pending. Read `result.error` and `result.status` instead of relying on a thrown error. For a plain GET, pass the path itself as the fetcher: `useApi(["issues", "assignees"], "/api/v1/issues/assignees")`.
 
 ## Rules for feature lanes
 
-- Take DTO types from your own `model/` files. Never derive them from `@sunpride/backend` (`FunctionReturnType`, `Doc`, `Id`): IDs are plain strings and instants are epoch-ms.
+- Take DTO types from your own `model/` files. Do not derive them from server implementation bindings: IDs are plain strings and instants are epoch-ms.
 - Every command that someone might retry gets an `idempotencyKey`. Create it once per user intent and reuse it when the person retries. Never retry a command automatically, and never write optimistically.
 - Topics are proposals until the API grants them (web inventory §8.3). The server decides what a subscriber may hear, and the client never widens it. The session subscribes to the topic `me`.
 - Hiding a button with `can()` is not authorization. The API checks every request.

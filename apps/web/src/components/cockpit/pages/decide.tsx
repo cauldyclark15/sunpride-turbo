@@ -5,6 +5,8 @@ import { CallFlowReviews, CallFlowReport } from "../../callflow-admin";
 import { IntegrityReview } from "../../integrity/review";
 import Link from "next/link";
 import { FiscalWorkspace } from "../../fiscal/fiscal-workspace";
+import { RetailExceptionReview } from "../../storepos/retail-workspace";
+import { StoreShiftReview } from "../../storepos/storepos-admin";
 import { FraudPanel, AlertsPanel } from "./tower";
 import { useCallback, useState } from "react";
 import { useAnalytics } from "../api";
@@ -313,6 +315,8 @@ export function DecidePage() {
           />
         )}
       </PageData>
+      <StoreShiftReview />
+      <RetailExceptionReview />
       <CallFlowReviews />
       <CallFlowReport />
       <FiscalWorkspace decisionsOnly />

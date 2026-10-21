@@ -41,6 +41,7 @@ export type IntakeLine = {
 };
 export type Intake = {
   id: string;
+  extraction?: { modelVersion?: string; text?: string } | null;
   po_number: string | null;
   service_date: string | null;
   branchLabel: string;
@@ -93,6 +94,8 @@ export type Deduction = {
   type_id: string;
   type_label: string;
   amountCentavos: number;
+  financial_status?: string;
+  financialRecoveredCentavos?: number | null;
   status: string;
   reference: string;
   received_on: string;
@@ -117,6 +120,7 @@ export type DeductionQueue = {
   freshness: number;
 };
 export type PortalOverview = {
+  claimantBranches?: { id: string; name: string }[];
   purchaseOrders: {
     id: string;
     poNumber: string;
@@ -141,6 +145,8 @@ export type PortalOverview = {
     id: string;
     branch: string;
     amountCentavos: number;
+    financialStatus?: string;
+    financialRecoveredCentavos?: number | null;
     status: string;
     type: string;
     reference: string;

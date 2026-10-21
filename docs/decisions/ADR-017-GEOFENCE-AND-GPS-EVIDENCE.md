@@ -24,8 +24,8 @@ Privacy by design: only explicit foreground check-in/check-out events are captur
 
 ## Consequences
 
-- Add outlet geolocation/radius/version, location events, exception decisions and retention/deletion jobs; `visits` currently has only `planned/completed/cancelled` and no evidence (`packages/backend/convex/schema.ts`). Index for scoped review, never open coordinate queries nationally by default.
-- Add scoped exception capability to `packages/backend/convex/lib/capabilities.ts` (ADR-009); preserve analyst read-only permissions and audit every raw-coordinate access. Both native field apps implement equivalent capture, disclosure and offline UI (ADR-010).
+- Add outlet geolocation/radius/version, location events, exception decisions and retention/deletion jobs; `visits` currently has only `planned/completed/cancelled` and no evidence (`packages/db/MAPPING.md`). Index for scoped review, never open coordinate queries nationally by default.
+- Add scoped exception capability to `apps/api/src/core/capabilities.js` (ADR-009); preserve analyst read-only permissions and audit every raw-coordinate access. Both native field apps implement equivalent capture, disclosure and offline UI (ADR-010).
 - Check-in/out and per-diem interfaces must distinguish provisional, verified and exception-approved events; reporting and finance must not count an unreviewed location as verified (memo §3).
 
 ## Open questions

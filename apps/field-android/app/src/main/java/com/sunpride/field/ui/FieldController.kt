@@ -113,6 +113,7 @@ interface FieldBackend {
     fun submitOrderDraft(draftId: String, previousRequestId: String): OrderDraft = error("No local store")
     val cachedDeviceId: String? get() = null
     /** AND-016: configured photo types (empty → provisional defaults). */
+    fun earnedStatements(): List<com.sunpride.field.ui.incentives.EarnedStatement> = error("Connect to view earned statements")
     fun catalogueProducts(): List<com.sunpride.field.storage.CatalogProduct> = emptyList()
     fun catalogueImage(image:com.sunpride.catalogue.CatalogueImage):ByteArray? = null
     fun warmCatalogueImages(isActive:()->Boolean = {true}) {}
@@ -401,6 +402,8 @@ class LiveFieldBackend(
         val store = EncryptedFieldDatabase.store(context, scope)
         return try { runBlocking { store.activityRules() } } finally { store.close() }
     }
+    override fun earnedStatements(): List<com.sunpride.field.ui.incentives.EarnedStatement> =
+        com.sunpride.field.ui.incentives.EarnedStatements.decode(functions.api.get(com.sunpride.field.ui.incentives.EarnedStatements.PATH))
     override fun catalogueImage(image:com.sunpride.catalogue.CatalogueImage):ByteArray? = functions.api.image(image)
     override fun warmCatalogueImages(isActive:()->Boolean) {
         com.sunpride.catalogue.warmCatalogueImages(context,catalogueProducts().mapNotNull { it.catalogue },::catalogueImage,isActive)

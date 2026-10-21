@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useApi } from "../../lib/api";
 import { useSession } from "../../lib/auth/session";
 import type { PortalOverview } from "./model";
+import { ClaimantClaims } from "../claimant-claims";
 import {
   Field,
   Form,
@@ -180,6 +181,13 @@ export function CustomerPortal() {
                 {d.invoiceNumber ?? "Invoice not linked"} · Follow-up due{" "}
                 {dateText(d.dueOn)}
               </p>
+              {d.financialStatus ? (
+                <p className="mt-3 text-sm">
+                  Financial follow-up: {label(d.financialStatus)} · recovered{" "}
+                  {php(d.financialRecoveredCentavos ?? 0)}. Case review and
+                  financial recovery are separate.
+                </p>
+              ) : null}
               {d.status === "resolved" ? (
                 <p className="mt-3 text-sm">
                   Case review closed. Invoice settlement is not shown here.
@@ -256,6 +264,14 @@ export function CustomerPortal() {
           <Notice>No deductions have been recorded for your account.</Notice>
         ) : null}
       </section>
+      {data.claimantBranches?.map((branch) => (
+        <ClaimantClaims
+          key={branch.id}
+          base="/api/v1/portal/claims"
+          partyId={branch.id}
+          name={branch.name}
+        />
+      ))}
     </main>
   );
 }

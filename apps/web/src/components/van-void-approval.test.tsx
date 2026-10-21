@@ -2,7 +2,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { VOID_REASONS } from "../../../../packages/backend/convex/van/model";
+import { VOID_REASONS } from "../../../api/src/domains/van/model.js";
 import {
   pesosToCentavos,
   requestVoidCode,

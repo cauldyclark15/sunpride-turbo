@@ -2,7 +2,7 @@ import type { StatusTone } from "@sunpride/ui";
 
 /**
  * Pure view rules for the trainer forms (SOP-010, memo annexes D, F, G). A UI-only mirror
- * of `packages/backend/convex/supervision/trainer_forms_model.ts`; the test compares the
+ * of `apps/api/src/domains/fieldreports/index.js`; the test compares the
  * two so the labels and Annex G items never drift.
  */
 

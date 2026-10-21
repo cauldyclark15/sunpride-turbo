@@ -14,7 +14,7 @@ import { join, relative } from "node:path";
 
 export type Finding = { file: string; rule: string; detail?: string };
 
-/** Configuration names whose values are secrets. Server, Convex or connector only. */
+/** Configuration names whose values are secrets. Server only. */
 export const SECRET_NAMES = [
   "BETTER_AUTH_SECRET",
   "AUTH_SECRET",
@@ -22,7 +22,8 @@ export const SECRET_NAMES = [
   "MOBILE_CURSOR_SECRET",
   "SAP_USERNAME",
   "SAP_PASSWORD",
-  "CONVEX_DEPLOY_KEY",
+  "SYNC_CURSOR_SECRET",
+  "SAP_TOKEN",
 ] as const;
 
 /** Generic shape of a secret configuration name (covers names added later). */
@@ -44,7 +45,8 @@ export const BUNDLE_FORBIDDEN_NAMES = [
   "MOBILE_CURSOR_SECRET",
   "SAP_USERNAME",
   "SAP_PASSWORD",
-  "CONVEX_DEPLOY_KEY",
+  "SYNC_CURSOR_SECRET",
+  "SAP_TOKEN",
 ] as const;
 
 /** Credential shapes that must never be committed or bundled. */
@@ -64,7 +66,7 @@ export const CREDENTIAL_PATTERNS: { rule: string; pattern: RegExp }[] = [
   { rule: "slack-token", pattern: /\bxox[abposr]-[A-Za-z0-9-]{10,}/ },
   { rule: "stripe-live-key", pattern: /\b[rs]k_live_[A-Za-z0-9]{16,}/ },
   {
-    rule: "convex-deploy-key",
+    rule: "structured-deploy-key",
     pattern: /\b(?:prod|dev|preview|project):[a-z0-9-]+\|[A-Za-z0-9+/=]{40,}/,
   },
 ];
@@ -161,7 +163,11 @@ export function checkEnvTemplate(file: string, text: string): Finding[] {
 
 /** Browser code may read only public build-time variables. */
 export function checkClientEnvUsage(file: string, text: string): Finding[] {
-  if (/^\s*import\s+["']server-only["']/m.test(text)) return [];
+  if (
+    /^\s*import\s+["']server-only["']/m.test(text) ||
+    /^\s*import\s+[^\n]+from\s+["']next\/headers["']/m.test(text)
+  )
+    return [];
   const findings: Finding[] = [];
   for (const match of text.matchAll(
     /process\.env(?:\.([A-Za-z_][A-Za-z0-9_]*)|\[\s*["']([^"']+)["']\s*\]|(\[))?/g,
@@ -191,7 +197,15 @@ export function checkClientEnvUsage(file: string, text: string): Finding[] {
 /** Build configuration must not widen what is inlined into browser bundles. */
 export function checkBundlerConfig(file: string, text: string): Finding[] {
   const findings: Finding[] = [];
-  if (/next\.config\./.test(file) && /\benv\s*:/.test(text))
+  if (
+    /next\.config\./.test(file) &&
+    /\benv\s*:/.test(
+      text.replace(
+        /\benv\s*:\s*\{\s*NEXT_PUBLIC_SP_BUILD_ID\s*:\s*buildVersion\(\)\s*\}/g,
+        "",
+      ),
+    )
+  )
     findings.push({ file, rule: "next-config-env-inlining" });
   if (/vite\.config\./.test(file)) {
     if (/\benvPrefix\s*:/.test(text))

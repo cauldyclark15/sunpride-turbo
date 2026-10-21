@@ -33,8 +33,8 @@ After the count is saved the trip takes **no more sales, voids, customer returns
 
 | Setting              | Default                                                 | Where                                                             |
 | -------------------- | ------------------------------------------------------- | ----------------------------------------------------------------- |
-| Approval required    | Yes, for any difference (no tolerance)                  | `VAN_POLICY.stockVarianceRequiresApproval`, `convex/van/model.ts` |
-| Reasons              | The seven above, per line                               | `STOCK_VARIANCE_REASONS`, `convex/van/model.ts`                   |
+| Approval required    | Yes, for any difference (no tolerance)                  | `VAN_POLICY.stockVarianceRequiresApproval`, `apps/api/src/domains/van/model.js` |
+| Reasons              | The seven above, per line                               | `STOCK_VARIANCE_REASONS`, `apps/api/src/domains/van/model.js`                   |
 | Count by             | Product's own unit, sellable and damaged apart          | handheld Count stock screen                                       |
 | Products counted     | Every product on the load sheet or in truck stock       | handheld `StockReconciliationRules.expectedLines`                 |
 | Recount after saving | Not on the phone; the office corrects it                | —                                                                 |

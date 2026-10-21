@@ -88,8 +88,9 @@ export function installPortal(router) {
     const invoices =
       await c.db`select id,binding_id,invoice_number,amount_centavos,issued_on,due_on,source,source_version,received_at from mt_invoice_replicas where binding_id in ${c.db(ids)} order by issued_on desc limit 501`;
     const deductions =
-      await c.db`select d.id,d.binding_id,d.amount_centavos,d.status,d.claim_reference,d.due_on,t.label,m.reference,m.received_on,((now() at time zone 'Asia/Manila')::date-m.received_on)::int as age_days,i.invoice_number
-      from mt_deductions d join mt_deduction_types t on t.id=d.type_id join mt_remittances m on m.id=d.remittance_id left join mt_invoice_replicas i on i.id=d.invoice_id where d.binding_id in ${c.db(ids)} order by d.due_on,d.id limit 501`;
+      await c.db`select d.id,d.binding_id,d.amount_centavos,d.status,d.claim_reference,d.due_on,t.label,m.reference,m.received_on,((now() at time zone 'Asia/Manila')::date-m.received_on)::int as age_days,i.invoice_number,
+      f.status as financial_status,f.recovered_centavos as financial_recovered_centavos
+      from mt_deductions d join mt_deduction_types t on t.id=d.type_id join mt_remittances m on m.id=d.remittance_id left join mt_invoice_replicas i on i.id=d.invoice_id left join deductions f on f.id=d.financial_case_id where d.binding_id in ${c.db(ids)} order by d.due_on,d.id limit 501`;
     if (po.length > 500 || invoices.length > 500 || deductions.length > 500)
       throw new ApiError(
         "capacity",
@@ -119,6 +120,11 @@ export function installPortal(router) {
         branch: allowed.find((/** @type {any} */ b) => b.id === d.binding_id)
           ?.label,
         amountCentavos: Number(d.amount_centavos),
+        financialStatus: d.financial_status,
+        financialRecoveredCentavos:
+          d.financial_recovered_centavos == null
+            ? null
+            : Number(d.financial_recovered_centavos),
         status: d.status,
         type: d.label,
         reference: d.reference,
@@ -131,6 +137,10 @@ export function installPortal(router) {
       });
     return {
       purchaseOrders,
+      claimantBranches: allowed.map((/** @type {any} */ b) => ({
+        id: b.id,
+        name: b.label,
+      })),
       invoices: invoices.map((/** @type {any} */ i) => ({
         id: i.id,
         branch: allowed.find((/** @type {any} */ b) => b.id === i.binding_id)

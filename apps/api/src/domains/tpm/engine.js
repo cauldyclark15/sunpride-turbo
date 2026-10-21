@@ -67,6 +67,10 @@ function unit(u) {
 export function validateScheme(r) {
   if (!r || typeof r !== "object" || Array.isArray(r))
     fail("Scheme rule is required");
+  if (r.demandUpliftPct != null)
+    integer(r.demandUpliftPct, "Planning demand uplift", 500);
+  if (r.planningObjective != null)
+    text(r.planningObjective, "Planning objective", 500);
   if (["buy_x_get_y", "bogo", "free_goods"].includes(r.kind)) {
     unit(r.buy);
     unit(r.free);

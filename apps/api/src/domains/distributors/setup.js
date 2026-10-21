@@ -60,10 +60,23 @@ export async function invite(c, d, b) {
     grants.some((g) => !PARTNER_GRANTS.includes(g))
   )
     fail("Choose supported partner grants");
-  const deviceScope = await ensurePartnerDeviceScope(c, d);
+  const van = b.access === "van";
+  const field = b.access === "field" || van;
+  if (
+    field &&
+    (!grants.includes(van ? "van" : "dsr") ||
+      grants.some((g) => !["read", van ? "van" : "dsr"].includes(g)))
+  )
+    fail(
+      "Field/van operators require only read and their dedicated DSR or van grant; use a separate portal login for financial access",
+    );
+  const role = field ? "sales" : "distributor";
+  const deviceScope = field
+    ? d.org_unit_id
+    : await ensurePartnerDeviceScope(c, d);
   const [existing] =
     await c.db`select * from profiles where lower(email)=${email} for update`;
-  if (existing && existing.role !== "distributor")
+  if (existing && existing.role !== role)
     fail(
       "An employee account cannot become a distributor account",
       "conflict",
@@ -71,9 +84,15 @@ export async function invite(c, d, b) {
     );
   const [p] = existing
     ? [existing]
-    : await c.db`insert into profiles(name,email,role,status,employment_type,org_unit_id) values(${name},${email},'distributor','active','third_party',${deviceScope}) returning *`;
+    : await c.db`insert into profiles(name,email,role,status,employment_type,org_unit_id) values(${name},${email},${role},'active','third_party',${deviceScope}) returning *`;
   const [current] =
     await c.db`select * from distributor_users where profile_id=${p.id} and (effective_to is null or effective_to>now())`;
+  if (existing && !current && field)
+    fail(
+      "An employee account cannot become distributor field staff",
+      "conflict",
+      409,
+    );
   if (current && current.distributor_id !== d.id)
     fail("Account already belongs to another distributor", "conflict", 409);
   if (current)
@@ -82,9 +101,11 @@ export async function invite(c, d, b) {
   await c.db`update profiles set org_unit_id=${deviceScope},scope_epoch=scope_epoch+1 where id=${p.id}`;
   const [m] =
     await c.db`insert into distributor_users(distributor_id,profile_id,grants) values(${d.id},${p.id},${c.db.array(grants, "TEXT")}) returning id`;
+  if (field && !existing)
+    await c.db`insert into employee_assignments(profile_id,org_unit_id,role,effective_from,actor_subject,reason) values(${p.id},${deviceScope},'sales',now(),${c.actor.subject},'F-407 distributor field invitation')`;
   if (!p.user_id) {
     await c.db`update access_invitations set status='revoked' where lower(email)=${email} and status='pending'`;
-    await c.db`insert into access_invitations(email,name,role,status,invited_by,invited_at,profile_id) values(${email},${name},'distributor','pending',${c.actor.subject},now(),${p.id})`;
+    await c.db`insert into access_invitations(email,name,role,status,invited_by,invited_at,profile_id) values(${email},${name},${role},'pending',${c.actor.subject},now(),${p.id})`;
   }
   return { id: m.id, profileId: p.id, email, grants };
 }

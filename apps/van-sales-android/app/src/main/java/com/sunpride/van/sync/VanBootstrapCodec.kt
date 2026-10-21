@@ -21,7 +21,7 @@ object VanBootstrapCodec {
         o.optJSONObject("stockReconciliation")?.let { StockReconciliationPolicy(it.getBoolean("approvalRequired"),
             strings(it.getJSONArray("reasons")),nullable(it,"key")) },
         o.optJSONObject("tripClose")?.let { TripClosePolicy(it.getBoolean("requireCashCount"),it.getBoolean("requireStockCount"),
-            it.getBoolean("requireUploadsSent"),it.getBoolean("exceptionsNeedReview")) },o.optInt("operationsVersion",0),o.optJSONObject("fiscal")?.toString())
+            it.getBoolean("requireUploadsSent"),it.getBoolean("exceptionsNeedReview")) },o.optInt("operationsVersion",0),o.optJSONObject("fiscal")?.toString(),o.optJSONObject("schemes")?.toString())
     /** VAN-012: optional; a policy cached before it (or an older server) allows cash only. */
     fun paymentMethods(a: JSONArray): List<PaymentMethod> {
         val methods = objects(a).map { PaymentMethod(it.getString("code"), it.getString("label"), PaymentKind.of(it.getString("kind")),
@@ -120,6 +120,9 @@ object VanBootstrapCodec {
         objects(legacy.getJSONArray("products")).forEach { it.remove("catalogue") }
         legacy.getJSONObject("policy").remove("fiscal")
         legacy.optJSONArray("promotions")?.let(::objects)?.forEach{p->listOf("engineVersion","precedence","stacking","exclusionGroup","excludes","outletIds").forEach(p::remove)}
+        legacy.getJSONObject("policy").remove("schemes")
+        legacy.getJSONObject("policy").remove("storePos")
+        o.getJSONObject("policy").optJSONObject("storePos")?.let(com.sunpride.van.storepos.StorePosConfig::decode)
         VanWireSchema.validate(legacy)
         if (o.getJSONObject("policy").has("fiscal")) {
             com.sunpride.van.fiscal.FiscalNumbers.ranges(o.getJSONObject("policy"))
@@ -130,6 +133,13 @@ object VanBootstrapCodec {
         val l = o.optJSONObject("load")?.let { Load(it.getString("loadId"), it.getString("status"), objects(it.getJSONArray("lines")).map(::line)) }
         val ps = objects(o.getJSONArray("products")).map(::product)
         val cs = objects(o.getJSONArray("customers")).map(::customer)
+        o.getJSONObject("policy").optJSONObject("schemes")?.let { s ->
+            require(s.getInt("engineVersion") == 1)
+            val contexts = objects(s.getJSONArray("outlets"))
+            require(contexts.size <= 600 && contexts.map { it.getString("outletId") }.toSet() == cs.map { it.outletId }.toSet())
+            require(contexts.map { it.getString("outletId") }.distinct().size == contexts.size)
+            require(contexts.all { it.getInt("engineVersion") == 1 && it.getJSONArray("promotions").length() <= 500 })
+        }
         val stocks = objects(o.getJSONArray("truckStock")).map { TruckStock(it.getString("productId"),base(it,"availableBase"),base(it,"damagedBase")) }
         val prices = o.optJSONArray("priceLines")?.let(::objects)?.map {
             val minor = it.getString("unitPriceMinor").toLong()

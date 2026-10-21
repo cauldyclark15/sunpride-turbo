@@ -1,5 +1,6 @@
 "use client";
 
+import { RetailWorkspace } from "../../storepos/retail-workspace";
 import { DormancyPanel } from "../../dormancy-panel";
 
 import Link from "next/link";
@@ -273,6 +274,7 @@ export function StoresView({
 }
 
 export function StoresPage() {
+  const [tab, setTab] = useState("distribution");
   const { query, params, link, set } = usePageQuery(["status", "q", "limit"]);
   const status = (
     TABS.some((t) => t.id === params.get("status"))
@@ -283,32 +285,68 @@ export function StoresPage() {
   return (
     <CockpitPage
       title="Stores"
-      question="Where is distribution weak?"
-      header={result.data}
-      bar={<PeriodScopeBar scopeLabel={result.data?.scope.label} />}
+      question={
+        tab === "retail"
+          ? "Which retail store needs action?"
+          : "Where is distribution weak?"
+      }
+      header={tab === "retail" ? undefined : result.data}
+      bar={
+        tab === "retail" ? undefined : (
+          <PeriodScopeBar scopeLabel={result.data?.scope.label} />
+        )
+      }
     >
-      <PageData result={result} label="store figures">
-        {(data) => (
-          <StoresView
-            data={data}
-            status={status}
-            q={params.get("q") ?? ""}
-            csv={csvHref("stores", query)}
-            link={link}
-            onStatus={(s) => set({ status: s, limit: null })}
-            onSearch={(q) => set({ q: q || null, limit: null })}
-            onMore={() =>
-              set(
-                { limit: String(Number(params.get("limit") || 50) + 50) },
-                { replace: true },
-              )
-            }
-          />
-        )}
-      </PageData>
-      <div className="mt-6">
-        <DormancyPanel />
+      <div
+        role="tablist"
+        aria-label="Store channel"
+        className="mb-4 flex gap-2"
+      >
+        <button
+          role="tab"
+          aria-selected={tab === "distribution"}
+          className={buttonClass}
+          onClick={() => setTab("distribution")}
+        >
+          Distribution
+        </button>
+        <button
+          role="tab"
+          aria-selected={tab === "retail"}
+          className={buttonClass}
+          onClick={() => setTab("retail")}
+        >
+          Retail POS
+        </button>
       </div>
+      {tab === "retail" ? (
+        <RetailWorkspace />
+      ) : (
+        <>
+          <PageData result={result} label="store figures">
+            {(data) => (
+              <StoresView
+                data={data}
+                status={status}
+                q={params.get("q") ?? ""}
+                csv={csvHref("stores", query)}
+                link={link}
+                onStatus={(s) => set({ status: s, limit: null })}
+                onSearch={(q) => set({ q: q || null, limit: null })}
+                onMore={() =>
+                  set(
+                    { limit: String(Number(params.get("limit") || 50) + 50) },
+                    { replace: true },
+                  )
+                }
+              />
+            )}
+          </PageData>
+          <div className="mt-6">
+            <DormancyPanel />
+          </div>
+        </>
+      )}
     </CockpitPage>
   );
 }

@@ -1,4 +1,4 @@
-// Bun API DTOs. IDs are transport strings, never Convex-generated types.
+// Bun API DTOs. IDs are plain UUID transport strings.
 export type Id<Table extends string> = Table extends string ? string : never;
 export type Role =
   | "super_admin"

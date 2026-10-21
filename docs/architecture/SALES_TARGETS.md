@@ -1,6 +1,6 @@
 # Sales targets (CVX-017)
 
-Backend: `packages/backend/convex/targets/` (`model.ts` rules, `sales.ts` endpoints), table `salesTargets`.
+Backend: `apps/api/src/domains/analytics/index.js` (`model.ts` rules, `sales.ts` endpoints), table `salesTargets`.
 
 ## What a target is
 

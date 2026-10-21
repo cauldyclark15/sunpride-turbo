@@ -1,6 +1,7 @@
 import { requireNationalScope } from "../../core/capabilities.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { forbidden } from "../../core/errors.js";
+import { holdRecallLots } from "../inventory/holds.js";
 import {
   accessOutlet,
   bounded,
@@ -67,6 +68,14 @@ export async function traceBatch(c, lotId) {
         continue;
       }
     }
+    if (r.source_org_unit_id) {
+      const { requireCapability } = await import("./common.js");
+      try {
+        await requireCapability(c, "inventory.read", r.source_org_unit_id);
+      } catch {
+        continue;
+      }
+    }
     allowed.push(r);
   }
   const { unitIds } = await scopeFilterForActor(c.db, c.actor);
@@ -75,6 +84,8 @@ export async function traceBatch(c, lotId) {
       "No received outlet from this batch is in your scope",
       "out_of_scope",
     );
+  const [hold] =
+    await c.db`select exists(select 1 from inventory_lot_holds where lot_id in ${c.db(ids)} and released_at is null) as active`;
   return {
     lot: {
       id: lot.id,
@@ -86,6 +97,7 @@ export async function traceBatch(c, lotId) {
       unitIds === null ? ids : [...new Set(allowed.map((r) => r.lot_id))],
     backwardGenealogy: unitIds === null ? genealogy : [],
     rows: allowed,
+    stockHeld: hold.active,
     affectedOutlets: new Set(allowed.map((r) => r.outlet_id)).size,
     completeness: "supported_sources_only",
     warning:
@@ -102,6 +114,8 @@ export async function confirmReceipt(c) {
   const sourceKey = text(b.sourceKey, 200),
     version = text(b.sourceVersion, 100),
     qty = integer(b.quantityBase, 1_000_000_000, 1);
+  const [product] =
+    await c.db`select p.quantity_scale,p.uom from products p join inventory_lots l on l.product_id=p.id where l.id=${b.lotId}`;
   if (!Number.isSafeInteger(b.receivedAt) || b.receivedAt > c.now)
     throw invalid("Check the received date");
   await c.db`select pg_advisory_xact_lock(hashtextextended(${`retail-receipt:${sourceKey}`},0))`;
@@ -119,7 +133,7 @@ export async function confirmReceipt(c) {
     return { id: old.id };
   }
   const [r] =
-    await c.db`insert into retail_batch_receipts(outlet_id,lot_id,quantity_base,source_key,source_kind,source_version,received_at,actor_subject) values(${b.outletId},${b.lotId},${qty},${sourceKey},'delivery_confirmation',${version},${new Date(b.receivedAt)},${c.actor.subject}) returning id`;
+    await c.db`insert into retail_batch_receipts(outlet_id,lot_id,quantity_base,source_key,source_kind,source_version,received_at,actor_subject,quantity_scale,source_uom) values(${b.outletId},${b.lotId},${qty},${sourceKey},'delivery_confirmation',${version},${new Date(b.receivedAt)},${c.actor.subject},${product.quantity_scale},${product.uom}) returning id`;
   await changed(c, "batch.confirmed", r.id);
   return { id: r.id };
 }
@@ -130,8 +144,9 @@ export async function openRecall(c) {
     trace = await traceBatch(c, uuid(b.lotId));
   const [r] =
     await c.db`insert into retail_recall_cases(lot_id,reason,actor_subject) values(${trace.lot.id},${text(b.reason, 1000)},${c.actor.subject}) returning id`;
+  const stockHold = await holdRecallLots(c, r.id, trace.descendantLotIds);
   await changed(c, "recall.opened", r.id);
-  return { id: r.id, trace };
+  return { id: r.id, trace: { ...trace, stockHeld: true }, stockHold };
 }
 /** @param {any} c @param {string} id */
 export async function recallDetail(c, id) {

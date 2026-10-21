@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { ModelWorkbench } from "./model-workbench";
 import Link from "next/link";
 import { apiFetch, buildApiUrl, mutate, useApi, useLive } from "@/lib/api";
 import {
@@ -553,6 +554,7 @@ export function DemandPanel({ query }: { query: AnalyticsQuery }) {
           </p>
         </div>
       ) : null}
+      <ModelWorkbench />
     </Panel>
   );
 }

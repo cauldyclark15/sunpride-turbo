@@ -134,7 +134,7 @@ test("F-306 F-309 field sales cannot bypass office queues through direct HTTP ca
     expect((await api(seller, path)).status).toBe(403);
 });
 
-test("F-306 sample PDF retains its actual bytes and requires manual OCR review without invented facts", async () => {
+test("F-306 sample PDF uses actual local OCR and still requires source review without invented facts", async () => {
   const bytes = new Uint8Array(
     await Bun.file(
       new URL("./fixtures/mt/sample-po.pdf", import.meta.url),
@@ -143,7 +143,8 @@ test("F-306 sample PDF retains its actual bytes and requires manual OCR review w
   const parsed = await parsePurchaseOrder("ocr", bytes);
   expect(parsed.lines).toEqual([]);
   expect(parsed.poNumber).toBe("");
-  expect(parsed.exceptions[0]).toContain("not connected");
+  expect(parsed.exceptions[0]).toContain("OCR-assisted draft");
+  expect(parsed.extraction.modelVersion).toBe("apple-vision-text/v1");
 });
 
 test("F-307 immutable contract original is captured with a proposed version, replayed once and scoped on download", async () => {
@@ -680,6 +681,12 @@ test("F-309 remittance balances, invoice isolation, ownership/SLA and claim agei
   expect(q.body.rows[0].age_days).toBeGreaterThan(0);
   expect(q.body.summary.overdue).toBe(1);
   expect(q.body.rows[0].owner_name).toBe("admin");
+  expect(q.body.rows[0].financial_status).toBe("open");
+  expect(q.body.rows[0].financialRecoveredCentavos).toBe(0);
+  const [financial] =
+    await h.db`select f.* from deductions f join mt_deductions d on d.financial_case_id=f.id where d.id=${q.body.rows[0].id}`;
+  expect(financial.source_key).toBe(`mt:${q.body.rows[0].id}`);
+  expect(Number(financial.amount_centavos)).toBe(1000);
   expect((await api(foreign, "deductions")).body.rows).toEqual([]);
   expect(
     (

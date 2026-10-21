@@ -29,6 +29,22 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     private val publicKeyLoader: suspend () -> String? = { null },
     private val fingerprintLoader: suspend () -> String = { "Unavailable" }) {
     init { require(damagePhotoSource == null || fixtureMode && com.sunpride.van.BuildConfig.DEBUG); require(callLocationSource == null || com.sunpride.van.BuildConfig.DEBUG) }
+    var storePos by mutableStateOf(com.sunpride.van.storepos.StorePosState(null,null,0,0)); private set
+    val storeMode: Boolean get() = storePos.config?.mode == "store"
+    fun openStoreShift(amount: Long) = command("Opening float saved on this phone") { repository.openStoreShift(amount) }
+    fun closeStoreShift(amount: Long) = command("Blind count saved. The office will review any difference.") { repository.closeStoreShift(amount); page=Page.HOME }
+    fun saveStoreAction(kind:String,payload:org.json.JSONObject) = command("Saved securely on this phone. Sync when connected.") {repository.storeAction(kind,payload);page=Page.HOME}
+    fun saveStoreSale(id:String,lines:List<CartLine>,tenders:List<com.sunpride.van.storepos.StoreTransactions.Tender>,total:Long,phone:String?,pin:String?,points:Long) = command("Store sale saved. Preview the receipt before printing.") {
+        repository.storeSale(id,lines,tenders,total,phone,pin,points);page=Page.STORE_RECEIPTS
+    }
+    fun switchStoreMode(pin:String) = command("POS mode updated") {repository.switchPosMode(if(storeMode)"van" else "store",pin);page=Page.HOME}
+    fun printStoreReceipt(id:String,paperConfirmed:Boolean) = command {
+        val status=printer.diagnostics()
+        check(status.paper!=com.sunpride.van.printing.PaperState.OUT && (status.paper==com.sunpride.van.printing.PaperState.OK || paperConfirmed)) {"Confirm printer paper first"}
+        val document=repository.storePrint(id)
+        val result=printer.print(document)
+        message=if(result==PrintResult.Success)"Print sent. Check the paper before printing again." else "Print may be incomplete. Any further print is marked REPRINT."
+    }
     var page by mutableStateOf(Page.HOME)
         private set
     var session by mutableStateOf(SessionState())
@@ -158,6 +174,11 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.promotions.collect { promotions = it } }
         launch { repository.truckStock.collect { stock = it } }
         launch { repository.policy.collect { policy = it } }
+        launch { repository.storePos.collect { value ->
+            val changed=storePos.config?.mode != value.config?.mode
+            storePos=value
+            if(changed) { page=Page.HOME; sale=null; selectedCustomer=null; callFlow=null; currentCall=null }
+        } }
         launch { repository.damageRecords.collect { damageRecords = it } }
         launch { repository.seller.collect { seller = it } }
         launch { repository.syncStatus.collect(::acceptSyncStatus) }

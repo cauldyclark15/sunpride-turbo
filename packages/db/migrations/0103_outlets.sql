@@ -1,5 +1,5 @@
 -- 0103_outlets: Outlets, pins, assignments, enrolment.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: outlets, outlet_contacts, outlet_photos, outlet_customer_links, outlet_pins, outlet_assignments, outlet_enrolments, outlet_enrolment_photos, outlet_enrolment_events, outlet_code_settings.
 
 -- outlets [synced]
