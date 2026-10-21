@@ -28,6 +28,7 @@ import {
   syncMaster,
 } from "./setup.js";
 import { placeOrder, quote } from "./ordering.js";
+import { saveVanArrangement } from "./van-arrangement.js";
 import {
   declareStock,
   processSecondary,
@@ -352,6 +353,7 @@ export function install(router, platform) {
   post("audit", "read", recordAudit, true);
   get("callflow-config", "dsr", distributorCallflowConfig);
   get("van-context", "settlement", distributorVanContext);
+  post("van-arrangements/save", "settlement", saveVanArrangement, true);
   platform.registerTopic(
     "distributor",
     async (/** @type {any} */ actor, /** @type {string} */ topic) => {

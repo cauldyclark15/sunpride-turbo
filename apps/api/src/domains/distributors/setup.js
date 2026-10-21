@@ -60,14 +60,15 @@ export async function invite(c, d, b) {
     grants.some((g) => !PARTNER_GRANTS.includes(g))
   )
     fail("Choose supported partner grants");
-  const field = b.access === "field";
+  const van = b.access === "van";
+  const field = b.access === "field" || van;
   if (
     field &&
-    (!grants.includes("dsr") ||
-      grants.some((g) => !["read", "dsr"].includes(g)))
+    (!grants.includes(van ? "van" : "dsr") ||
+      grants.some((g) => !["read", van ? "van" : "dsr"].includes(g)))
   )
     fail(
-      "Field representatives require only read and DSR grants; use a separate portal login for financial access",
+      "Field/van operators require only read and their dedicated DSR or van grant; use a separate portal login for financial access",
     );
   const role = field ? "sales" : "distributor";
   const deviceScope = field

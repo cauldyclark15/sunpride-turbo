@@ -14,6 +14,9 @@ import {
 export async function scopeOf(db, actor) {
   const partner = await partnerContext(db, actor);
   const assignments = partner ? await partnerStoreGrants(db, partner) : [];
+  const arrangements = partner?.grants.includes("van")
+    ? await db`select id,vehicle_id,effective_from,effective_to from distributor_van_arrangements where distributor_id=${partner.distributor_id} and effective_from<=now() and (effective_to is null or effective_to>now()) order by id`
+    : [];
   const fingerprint = sha256Hex(
     [
       actor.profileId,
@@ -29,6 +32,7 @@ export async function scopeOf(db, actor) {
               grants: partner.grants,
               until: partner.effective_to,
               assignments,
+              arrangements,
             }),
           ]
         : []),

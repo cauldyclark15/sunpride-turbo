@@ -115,7 +115,9 @@ function SetupForms({
               grants:
                 value(f, "access") === "field"
                   ? ["read", "dsr"]
-                  : f.getAll("grant").map(String),
+                  : value(f, "access") === "van"
+                    ? ["read", "van"]
+                    : f.getAll("grant").map(String),
             })
           }
         >
@@ -131,6 +133,7 @@ function SetupForms({
               <option value="field">
                 Field representative — existing Android field app
               </option>
+              <option value="van">Van operator — existing Van/Store app</option>
             </select>
           </Field>
           <fieldset className="grid grid-cols-2 gap-2">

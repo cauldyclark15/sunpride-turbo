@@ -1,4 +1,6 @@
 import { tx } from "@sunpride/db/client";
+import { actorFor } from "../../core/context.js";
+import { partnerVan } from "./partner.js";
 import { routePolicy } from "./route-policy.js";
 import { enqueue } from "../../core/jobs.js";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
@@ -180,6 +182,22 @@ export async function planTrip(db, actor, p) {
   if (!seller || !seller.user_id || !roleHas(seller.role, "van.operate"))
     throw invalid("Choose an active van seller");
   await requireCapability({ db, actor }, "van.manage", seller.org_unit_id);
+  const sellerActor = await actorFor(db, seller.user_id);
+  if (
+    !sellerActor &&
+    (
+      await db`select 1 from distributor_users where profile_id=${seller.id} limit 1`
+    ).length
+  )
+    throw invalid("Choose a currently assigned partner van seller");
+  const partner = sellerActor ? await partnerVan(db, sellerActor) : null;
+  if (partner)
+    await partnerVan(db, sellerActor, {
+      distributor_id: partner.distributor_id,
+      salesperson_profile_id: seller.id,
+      org_unit_id: vehicle.org_unit_id,
+      vehicle_id: vehicle.id,
+    });
   if (p.routeId) {
     const owners =
       await db`select r.id,o.org_unit_id from routes r join route_territories rt on rt.route_id=r.id join territory_ownerships o on o.territory_id=rt.territory_id
@@ -201,8 +219,8 @@ export async function planTrip(db, actor, p) {
     await db`select count(*)::int as n from van_trips where vehicle_id=${vehicle.id} and service_date=${serviceDate}`;
   const tripNumber = `TRIP-${serviceDate.replaceAll("-", "")}-${vehicle.vehicle_code}-${count.n + 1}`;
   const [trip] =
-    await db`insert into van_trips(organization_id,org_unit_id,trip_number,vehicle_id,truck_location_id,source_location_id,route_id,service_date,salesperson_profile_id,salesperson_subject,driver_name,helper_name,status,created_by)
-    values(${vehicle.organization_id},${vehicle.org_unit_id},${tripNumber},${vehicle.id},${truck.id},${source.id},${p.routeId ?? null},${serviceDate},${seller.id},${seller.user_id},${text(p.driverName, 80)},${text(p.helperName, 80)},'planned',${actor.subject}) returning id`;
+    await db`insert into van_trips(organization_id,org_unit_id,trip_number,vehicle_id,truck_location_id,source_location_id,route_id,service_date,salesperson_profile_id,salesperson_subject,driver_name,helper_name,status,created_by,distributor_id)
+    values(${vehicle.organization_id},${vehicle.org_unit_id},${tripNumber},${vehicle.id},${truck.id},${source.id},${p.routeId ?? null},${serviceDate},${seller.id},${seller.user_id},${text(p.driverName, 80)},${text(p.helperName, 80)},'planned',${actor.subject},${partner?.distributor_id ?? null}) returning id`;
   await audit(db, trip, actor, "van.trip.planned", trip.id);
   if (version === 1) {
     const [planned] = await db`select * from van_trips where id=${trip.id}`;

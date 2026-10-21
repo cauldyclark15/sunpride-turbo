@@ -100,7 +100,7 @@ export function vanProjection(env) {
 /** Complete seller/trip DTO; never serializes a raw database document. @param {any} ctx @param {any} env */
 export async function bundle(ctx, env) {
   return tx(ctx.db, async (db) => {
-    const { actor, device } = await currentDeviceActor(
+    const { actor, device, partner } = await currentDeviceActor(
       db,
       ctx.actor,
       ctx.device.id,
@@ -209,7 +209,11 @@ export async function bundle(ctx, env) {
     // Current persisted ownership, not a historical customer link, is the authorization key.
     const configured = await hasConfiguredFlowsForApp(db, ctx.app, ctx.now);
     /** @type {any[]} */ const candidates = complete(
-      await db`select o.id,a.sequence,a.route_id from outlets o
+      partner
+        ? await db`select o.id,a.sequence,a.route_id from distributor_outlets g join outlets o on o.id=g.outlet_id
+        left join outlet_assignments a on a.outlet_id=o.id and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now()) and a.deleted_at is null
+        where g.distributor_id=${partner.distributor_id} and g.effective_from<=now() and (g.effective_to is null or g.effective_to>now()) and o.status='active' and o.deleted_at is null order by a.sequence nulls last,o.code limit 601`
+        : await db`select o.id,a.sequence,a.route_id from outlets o
         left join outlet_assignments a on a.outlet_id=o.id and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now()) and a.deleted_at is null
         left join territory_ownerships own on own.territory_id=a.territory_id and own.effective_from<=now() and (own.effective_to is null or own.effective_to>now()) and own.deleted_at is null
         where o.status='active' and o.deleted_at is null and
@@ -272,6 +276,7 @@ export async function bundle(ctx, env) {
           uom: p.uomCode,
           channelKey: o.channel,
           customerCode: o.customerCode,
+          outletId: o.id,
           at: Date.now(),
         });
         if (price.unitPriceCentavos === null || !price.priceListId) continue;
