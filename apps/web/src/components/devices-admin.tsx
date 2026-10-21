@@ -18,6 +18,7 @@ import type { FunctionArgs } from "./master-data/api";
 import { useState, type FormEvent } from "react";
 import { AdminSelectField } from "./org-admin";
 import { SetupSearch } from "./master-data/setup-health";
+import { StorePosAdmin } from "./storepos/storepos-admin";
 
 export type DeviceAction = "suspend" | "revoke" | "reinstate";
 type DeviceStatus = "active" | "suspended" | "revoked";
@@ -33,7 +34,7 @@ type DeviceMutations = {
   ) => Promise<unknown>;
 };
 
-/** Reason codes mirror `convex/mobile/devices.ts`; the server stays authoritative. */
+/** Reason codes mirror `apps/api/src/core/devices.js`; the server stays authoritative. */
 export const deviceReasons: Record<
   DeviceAction,
   { id: string; label: string }[]
@@ -319,7 +320,10 @@ export function DevicesAdmin() {
           <Card label="Phone">Loading phone…</Card>
         ) : (
           <Card label={`Phone ${device.inventoryTag}`}>
-            <aside aria-label="Phone detail" className="grid gap-4">
+            <aside
+              aria-label="Phone detail"
+              className="grid min-w-0 grid-cols-1 gap-4"
+            >
               <p className="text-[13px] text-muted">
                 {device.employeeName ?? "Unassigned"} · {device.platform}{" "}
                 {device.osVersion} · app {device.appVersion}
@@ -350,6 +354,7 @@ export function DevicesAdmin() {
                   received operations before supervised recovery or recapture.
                 </p>
               ) : null}
+              <StorePosAdmin key={device.deviceId} deviceId={device.deviceId} />
               <h4 className="text-[11px] font-medium uppercase tracking-wide text-muted">
                 Received from this phone
               </h4>

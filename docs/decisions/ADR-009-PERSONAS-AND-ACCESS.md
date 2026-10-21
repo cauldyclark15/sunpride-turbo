@@ -23,7 +23,7 @@ a later ADR that changes the role list itself.
   never overwrites history. Values come from the client document, never from our judgement.
 - **Endpoints ask for capabilities, not roles or titles.** `requireCapability(ctx, "mcp.approve",
 targetUnitId?)` resolves the role from the profile, checks the capability table in
-  `convex/lib/capabilities.ts`, and then enforces organizational scope for the target unit. Adding
+  `apps/api/src/core/capabilities.js`, and then enforces organizational scope for the target unit. Adding
   a client title changes `positions`, never an endpoint.
 - **`analyst` is the only role that reads across the whole organization** — Finance and Treasury are
   CC'd on national claims and AR reckoning. Cross-scope access is paired with read-only

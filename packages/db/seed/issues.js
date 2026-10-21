@@ -1,20 +1,15 @@
 import { readFile } from "node:fs/promises";
-import { homedir } from "node:os";
-import { join } from "node:path";
 import { tx } from "../src/client.js";
 
-export const DEFAULT_ISSUES_FILE = join(
-  homedir(),
-  "cnc/_backups/sunpride-convex-20261019/issues.json",
-);
 /**
  * Restore only facts present in the backup. The supplied archive contains board
  * summaries, not bodies or comment text; completeness is persisted separately.
  * Existing numbers are NEVER overwritten. No attachment bytes or claims imported.
  * @param {import('../src/client.js').Db} db
- * @param {{file?:string}} [options]
+ * @param {{file:string}} options
  */
-export async function seedIssues(db, { file = DEFAULT_ISSUES_FILE } = {}) {
+export async function seedIssues(db, { file }) {
+  if (!file) throw new Error("Choose an explicit issue archive file");
   const parsed = JSON.parse(await readFile(file, "utf8"));
   const entries = Array.isArray(parsed) ? parsed : parsed.issues;
   if (!Array.isArray(entries) || parsed.truncated === true)

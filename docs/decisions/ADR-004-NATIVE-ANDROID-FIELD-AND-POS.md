@@ -8,7 +8,7 @@ Status: accepted. The iOS clause is superseded by ADR-010 (native field apps on 
 - Outsales POS is a native Android application installed on handheld devices with an attached printer. Receipt printing targets the handheld's integrated or attached printer.
 - Field execution is Android-first. iOS is deferred until a business owner requires it; the iOS workstream stays unscoped until then.
 - The web management app (`apps/web`) remains the only browser surface and stays the home of coverage planning, approvals, imports, administration, and analytics.
-- Convex remains the sole operational authority (ADR-003). Native applications are clients, never systems of record, and reach Convex only through the mobile gateway.
+- The API remains the operational command boundary; SAP remains the business system of record (ADR-003). Native applications are clients, never systems of record, and reach Bun API only through the mobile gateway.
 
 ## Consequences
 

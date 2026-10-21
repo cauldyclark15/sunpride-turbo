@@ -1,51 +1,10 @@
-# Offline and poor-network chaos tests — field apps
+# Offline and poor-network chaos scenarios
 
-Tracker: SP-0025 (QSR-003), milestone `12 · Field sales pilot (Cebu)`.
+This catalogue retains the business faults and manual route checks. It is not a current release execution report or an assertion that every named native case has run. The API is Bun/PostgreSQL with `/api/sync`; iOS is paused and must not be run for this cleanup.
 
-Acceptance: test airplane mode, intermittent connectivity, long offline periods, app
-restarts and reconnect during every critical field and van transaction. The business
-guarantees under test are ADR-019 (offline business guarantees), ADR-020 (device
-registration and revocation) and ADR-021 (mobile sync gateway).
+Current server verification sources are `apps/api/test/sync.test.js`, `fieldsync.test.js`, `visits.test.js`, `van.test.js` and `vanops.test.js`, run file-isolated with `SP_LANE=<lane> bun run test`. Android JVM tests exercise retained local state/transport boundaries; only the assigned real-device route can prove process death, encrypted persistence, camera/printer and SIM-removed operation. Record exact test names/counts and logs for each candidate rather than reusing removed server test claims.
 
-This document has three parts:
-
-1. The scenario catalogue below. Each scenario names the automated tests that inject the
-   fault on every commit (server, Android and iPhone), and a `Device check:` line for the
-   same fault on a real phone.
-2. A device protocol for the pilot phones, run once per release candidate before UAT
-   (`docs/qa/SFA_UAT_SCENARIOS.md`, UAT-FLD-04 and UAT-E2E-02).
-3. Findings from the chaos runs, the coverage status per transaction, and the gaps that
-   remain. SP-0025 is not complete until the device sign-off sheet is filled in and the
-   transactions listed under "Not yet testable" exist and have their own scenarios.
-
-`packages/backend/convex/acceptance/chaos_catalog.test.ts` fails the build if a scenario
-loses its automated or device marker, or if a referenced test (TypeScript `it("…")`,
-Kotlin `@Test fun …` or Swift `func test…`) is renamed or deleted.
-
-## What the automated suites do
-
-| Suite                                                                           | Runs in                      | How faults are injected                                                                                                                                                                                                      |
-| ------------------------------------------------------------------------------- | ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `packages/backend/convex/mobile/chaos.test.ts`                                  | `bun run test` (convex-test) | A seeded fault injector between a phone-like outbox and the real `mobile/push:applyOne` mutation: airplane mode, lost request, lost acknowledgement, duplicate delivery, restart replay of acknowledged work, clock advance. |
-| `apps/field-android/app/src/test/java/com/sunpride/field/sync/ChaosSyncTest.kt` | Gradle JVM unit tests        | A seeded fault transport around the production `VisitSync`, `BootstrapClient` and store rules; restarts discard the sync engine and reopen the same store.                                                                   |
-| `apps/field-ios/FieldIOSTests/ChaosSyncTests.swift`                             | `bun run native:ios`         | A seeded fault stub under the production sync clients, `AppModel` and the encrypted SQLCipher store; restarts reopen the same encrypted database.                                                                            |
-
-Every seeded run checks the same outcome: each queued operation reaches the server
-exactly once, in the order it was saved; a dependent (note, call sheet, check-out) is sent
-only after its check-in is acknowledged; a resend carries byte-identical operation bytes;
-nothing queued is deleted; and the phone never shows "All synced" while anything is
-pending, sending, held or awaiting review.
-
-Fault words used below:
-
-- Airplane mode: the request never leaves the phone.
-- Lost acknowledgement: the server saves the work, the answer never reaches the phone
-  (weak signal, or the app is killed mid-send).
-- Duplicate: the same request arrives twice at once (foreground and background sync, or
-  a network retry).
-- Long offline: hours to days without a successful sync, past the 24-hour offline cache
-  and lease and up to the 7-day late window (ADR-019; both values provisional).
-- Restart: the app process dies and starts again with only what it saved on the phone.
+A complete rehearsal verifies immutable operation bytes, stable IDs, acknowledged dependency order, no duplicate business writes after a lost response, held authorization on scope/device withdrawal, and no “All synced” while pending/review/held evidence remains. Use the returned cache/lease expiry and applicable late window, not a historical assumed lease duration. Preserve unsent data for reconciliation.
 
 ## Scenarios
 
@@ -67,8 +26,6 @@ Fault words used below:
   exactly one call; replaying the whole queue after reconnect changes nothing. Offline, the
   phone refuses the next planned stop until the earlier one is started and ended, refuses a
   second start of the same stop, and refuses a "no sale" close without a reason.
-- Automated: `packages/backend/convex/mobile/chaos.test.ts` — "drains a two-store offline day exactly once under 40 seeded mixes of airplane mode, lost requests, lost acks, duplicates and restart replays"
-- Automated: `packages/backend/convex/mobile/chaos.test.ts` — "drains a planned MCP day with every structured activity form and a nonproductive stop exactly once under 30 seeded fault mixes"
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/sync/ChaosSyncTest.kt` — "seededOfflineDayTwoStoresDrainsExactlyOnceInEnqueueOrder"
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/sync/ChaosSyncTest.kt` — "plannedDayEveryFormAndNoSaleStopDrainsExactlyOnceUnderSeededFaults"
 - Automated: `apps/field-ios/FieldIOSTests/ChaosSyncTests.swift` — "testSeededOfflineDayDrainsTwoStoresExactlyOnceInEnqueueOrder"
@@ -85,8 +42,6 @@ Fault words used below:
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/sync/ChaosSyncTest.kt` — "callSheetAndStructuredActivityLostAcksReplayWithoutMutation"
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/sync/ChaosSyncTest.kt` — "fakeServerRejectsChangedBytesForSameClientRequestId"
 - Automated: `apps/field-ios/FieldIOSTests/ChaosSyncTests.swift` — "testLostAcknowledgementReconnectReturnsSameAckWithoutDoubleCount"
-- Automated: `packages/backend/convex/mobile/push.test.ts` — "conflicts on changed payload or different device, and concurrent same-key calls commit once"
-- Automated: `packages/backend/convex/mobile/chaos.test.ts` — "returns the stored ack for a planned check-in whose answer was lost, and refuses a second check-in for the same planned stop under a new request ID"
 - Device check: protocol step D3.
 
 ### CHAOS-03 · The signal drops in the middle of a batch
@@ -116,9 +71,6 @@ Fault words used below:
 - Fault: reordered delivery.
 - Expected: the server rejects it (`dependency_missing`, `mcp_order` or `call_open`)
   without using up its request ID; sent again in order, the same bytes are accepted.
-- Automated: `packages/backend/convex/mobile/chaos.test.ts` — "rejects a dependent sent ahead of its dependency after a restart without consuming its key, then accepts it in order"
-- Automated: `packages/backend/convex/mobile/chaos.test.ts` — "refuses the next planned stop while the earlier stop is open or unclosed after a restart, without consuming its key, then accepts the same bytes in order"
-- Automated: `packages/backend/convex/mobile/push.test.ts` — "rejects missing dependency and unsupported middle item without consuming keys; later independent operation works"
 - Device check: not reproducible by hand (the apps never send out of order); covered by the automated tests only.
 
 ### CHAOS-06 · Foreground and background sync race on reconnect
@@ -127,7 +79,6 @@ Fault words used below:
 - Fault: duplicate delivery from two sync flights at the same time.
 - Expected: each operation is committed once and both flights see the same
   acknowledgements; on the phone only one flight runs at a time.
-- Automated: `packages/backend/convex/mobile/chaos.test.ts` — "commits each operation once when foreground and background flights resend the same queue concurrently"
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/sync/VisitSyncTest.kt` — "overlappingSyncCallsShareOneFlight"
 - Device check: protocol step D4.
 
@@ -138,7 +89,6 @@ Fault words used below:
 - Expected: queued work is kept and sent when signal returns; after the lease expires the
   phone refuses new work until it refreshes; a day synced up to 7 days late is accepted and
   flagged for supervisor review; older work is refused and kept on the phone for review.
-- Automated: `packages/backend/convex/mobile/chaos.test.ts` — "accepts a day synced six days late and flags it for supervisor review, but refuses work older than the late window without writing"
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/sync/ChaosSyncTest.kt` — "expiredLeaseAndStaleCachePreserveQueuedWorkUntilReconnect"
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/sync/ChaosSyncTest.kt` — "rebootstrapAfterLongOfflineRetriesRecentWorkAndReviewsWorkBeyondSevenDays"
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/sync/ChaosSyncTest.kt` — "offlineLeaseRenewalStaysHeldWithoutCrashingAndVerifiedBootstrapRenews"
@@ -153,7 +103,6 @@ Fault words used below:
 - Expected: queued work is held, never deleted and never sent past the revocation; an
   unexplained 401 refreshes once and does not invent a revocation; only a verified
   bootstrap of the same person, phone and scope resumes the held queue.
-- Automated: `packages/backend/convex/mobile/chaos.test.ts` — "refuses the rest of the queue when the phone was revoked while offline, keeps accepted work, and never replays past the revocation"
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/sync/ChaosSyncTest.kt` — "revokedUnauthorizedAndCursorConflictHoldQueuedWorkOnReconnect"
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/sync/ChaosSyncTest.kt` — "verifiedSameScopeBootstrapAfter409ResumesFrozenQueue"
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/sync/ChaosSyncTest.kt` — "failedRebootstrapStaysHeldUntilVerifiedForegroundBootstrap"
@@ -192,7 +141,6 @@ Fault words used below:
 - Expected: the photo stays on the phone as pending until it uploads; a retried attach
   resolves to the original evidence row (no second file); a different photo type or size
   under the same checksum is a conflict; the visit outbox is never blocked by a photo.
-- Automated: `packages/backend/convex/mobile/chaos.test.ts` — "resolves a retried photo attach whose answer was lost to the original evidence row, and refuses changed metadata under the same checksum"
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/evidence/EvidenceUploaderTest.kt` — "offlineKeepsThePhotoPendingAndALostAttachResponseResolvesToTheSameRow"
 - Automated: `apps/field-android/app/src/test/java/com/sunpride/field/evidence/EvidenceUploaderTest.kt` — "damagedFilesRejectedStartsAndHeldPartitionsNeverUpload"
 - Device check: protocol step D8 (Android only).
@@ -311,6 +259,6 @@ issue is not complete until both of these are done; neither can be done in code:
 - Photo evidence on iPhone: the iPhone app has no photo capture yet; add it to CHAOS-11
   when it does.
 - The first photo attach's storage checks (size, type, checksum against the stored file)
-  cannot run under convex-test, which has no file metadata; they are covered as isolated
+  cannot run under SQL-backed API tests, which has no file metadata; they are covered as isolated
   checks in `visits/evidence.test.ts` and on the real phone in step D8.
 - Device steps D1–D7 on the pilot phones need the pilot team and their phones.

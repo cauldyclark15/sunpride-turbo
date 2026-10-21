@@ -1,6 +1,6 @@
 # Master data and opening stock imports
 
-Two controlled CSV operations put Sunpride's real data into Convex. Both validate on the
+Two controlled CSV operations put Sunpride's real data into Bun API. Both validate on the
 server, preview before writing, and are safe to re-upload: a repeated request returns the
 original result and writes nothing (ADR-003).
 
@@ -94,7 +94,7 @@ and for opening stock a row whose lot already carries stock at that location is 
 ## Cutover sequence
 
 1. Provision the inventory foundation (Web → Inventory → **Provision inventory foundation**).
-2. Provision the organization foundation: `bunx convex run migrations:seedOrganizationFoundation`.
+Use the current API/admin workflow; the retired cloud command is not available.
 3. Import the product master and resolve every reported error.
 4. Export the approved opening quantities, lots, expiry dates, and unit costs to
    `opening-stock.csv` and import it under one stable run key.

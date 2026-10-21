@@ -1,6 +1,6 @@
 # Daily execution dashboard (`ANA-002`)
 
-Where: web **Reports** (`/analytics`), below the national totals, for supervision readers (`people.read` + `visit.read`: super admin, admin, manager, analyst, viewer). Backend: `packages/backend/convex/analytics/execution.ts` (`day`, `exceptions`); pure rules in `analytics/model.ts`, mirrored by `apps/web/src/lib/execution-dashboard.ts` (a test keeps them equal).
+Where: web **Reports** (`/analytics`), below the national totals, for supervision readers (`people.read` + `visit.read`: super admin, admin, manager, analyst, viewer). Backend: `apps/api/src/domains/analytics/index.js` (`day`, `exceptions`); pure rules in `analytics/model.ts`, mirrored by `apps/web/src/lib/execution-dashboard.ts` (a test keeps them equal).
 
 Filters are the Supervision ones: Manila service date, unit (inside the caller's own scope, never wider), channel, and "My team only". Field `sales` keep their own figures in the Daily Sales Report and DAR/ROAR.
 

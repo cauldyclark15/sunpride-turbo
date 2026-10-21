@@ -2,7 +2,7 @@ import { ApiError, forbidden, unauthenticated } from "./errors.js";
 import { hooks, unitInScope } from "./hooks.js";
 
 /**
- * Capability gate (ADR-009), ported 1:1 from Convex `lib/capabilities.ts` and `lib/roles.ts`.
+ * Capability gate (ADR-009), enforced by the Bun API with the frozen baseline grants.
  * Endpoints ask for a CAPABILITY, never a job title or bare role string.
  */
 

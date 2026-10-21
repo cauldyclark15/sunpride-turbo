@@ -115,7 +115,7 @@ Today → **Find product**. It works without signal.
    | Payment                        | What you enter                                                        | Payment state on the receipt      |
    | ------------------------------ | --------------------------------------------------------------------- | --------------------------------- |
    | **Cash**                       | **Cash received (₱)**; the screen shows the change                    | **Paid**                          |
-   | **Check**                      | The check number; the amount is the full total, no change             | **To be confirmed by the office** |
+   | **Cheque**                      | The check number; the amount is the full total, no change             | **To be confirmed by the office** |
    | **GCash**                      | The GCash reference number; the full total                            | **To be confirmed by the office** |
    | **Bank transfer**              | The bank reference number; the full total                             | **To be confirmed by the office** |
    | **Credit (charge to account)** | Nothing; the screen shows the terms, the credit left and the due date | **Charged to account · due …**    |
@@ -142,7 +142,7 @@ Wrong sale? Do not sell again to correct it: [void it](#12-void-a-sale). Goods c
 **When a receipt did not print:**
 
 1. Fix the paper or printer.
-2. Today → **Receipts**. Each sale of this trip shows the time, customer, total, receipt number and **Not printed** or **Printed · N reprints left**.
+2. Today → **Receipts**. Each sale of this trip shows the time, customer, total, receipt number and **Not printed** or **Sent to printer · N reprints left**.
 3. **Not printed** → **Print receipt** prints the original.
 4. Printed, but the copy is lost, faded or jammed → **Reprint**, choose the reason (**Customer needs another copy**, **Paper jammed or ran out**, **Print is faded or hard to read**, **Copy for the office**) and tap **Print copy N**. A reprint is marked **REPRINT** with the time and reason.
 5. At most 3 reprints per sale, only for sales of the current trip. After that the card says to ask the office.

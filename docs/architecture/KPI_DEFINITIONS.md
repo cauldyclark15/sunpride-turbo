@@ -35,7 +35,7 @@ A zero-value order is **not** automatic productivity; only applicable evidenced 
 
 ## Daily targets from the memo
 
-Memo §2's rows are reproduced, including its overlapping third/fourth rows; no inferred employee assignment. `positionStandards` already seeds KAS, Booking, RS, PMOT Extruck and Public Market Stalls, but not a separate ADP-stalls position (`packages/backend/convex/sfa/constants.ts:89-130`; ADR-009). Source effective date is 2026-02-01 (memo provenance); currency of the standard **pending Client question 12**.
+Memo §2's rows are reproduced, including its overlapping third/fourth rows; no inferred employee assignment. `positionStandards` already seeds KAS, Booking, RS, PMOT Extruck and Public Market Stalls, but not a separate ADP-stalls position (`apps/api/src/domains/org/index.js`; ADR-009). Source effective date is 2026-02-01 (memo provenance); currency of the standard **pending Client question 12**.
 
 | Memo §2 structure / role                                                   | Calls per selling day | Productive-call target |
 | -------------------------------------------------------------------------- | --------------------: | ---------------------: |

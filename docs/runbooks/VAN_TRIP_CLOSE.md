@@ -41,7 +41,7 @@ After closing, the trip takes **no more sales, voids, customer returns, damage, 
 | Exceptions confirmed by the seller                | Yes     | `VAN_TRIP_CLOSE_POLICY.exceptionsNeedReview` |
 | Trip started, phone not paused, sales match stock | Always  | handheld `TripCloseRules` (not configurable) |
 
-The policy is `convex/van/model.ts` → `VAN_TRIP_CLOSE_POLICY`, sent to the handheld in the bootstrap as `policy.tripClose` (van-v1, additive). A handheld whose cached policy predates it uses the strictest checks. Work that has no van upload yet (sales, voids, returns, the counts and the close itself) is "parked": it does not count as waiting to send, and it is listed in the close manifest instead.
+The policy is `apps/api/src/domains/van/model.js` → `VAN_TRIP_CLOSE_POLICY`, sent to the handheld in the bootstrap as `policy.tripClose` (van-v1, additive). A handheld whose cached policy predates it uses the strictest checks. Work that has no van upload yet (sales, voids, returns, the counts and the close itself) is "parked": it does not count as waiting to send, and it is listed in the close manifest instead.
 
 Sunpride has not told us its end-of-day checklist; these are our own defaults (one edit away). Sample data for testing: the beta sample seed (`docs/runbooks/BETA_SAMPLE_DATA.md`, `beta/sample:planVanDay`).
 

@@ -5,7 +5,7 @@ uses the same server API and bootstrap field.
 
 ## Photo types
 
-- The backend list lives in `packages/backend/convex/visits/policy.ts` (`EVIDENCE_PHOTO_TYPES`) and
+- The backend list lives in `apps/api/src/domains/visits/shared.js` (`EVIDENCE_PHOTO_TYPES`) and
   reaches phones in every bootstrap page as `photoTypes: [{ code, label }]` (additive optional v1 field).
 - Current list is **provisional** until Sunpride confirms it: Store front, Shelf and display, Price tags,
   Promotion material, Other. Sources: memo 2026-01-20 merchandising execution (display / price tagging),
@@ -59,7 +59,7 @@ falls back to the same provisional defaults).
 - Offline, signed out or server busy: nothing changes; the job retries later.
 - Lost attach response: the retry uploads the same bytes again; the server returns the original evidence
   row for the same visit, person and checksum (no duplicate row). The retry's own blob is left
-  unreferenced in Convex storage (not deleted, because the caller-supplied storage ID is unproven).
+  unreferenced in Bun API storage (not deleted, because the caller-supplied storage ID is unproven).
 - Storage refusal or an expired upload claim: retried up to 5 times, then marked for office review.
 - `invalid_request`, `out_of_scope`, `conflict`, a rejected Start, or a damaged local file: marked for
   office review at once and kept on the phone. A held partition (sign-out, removed phone, scope change)

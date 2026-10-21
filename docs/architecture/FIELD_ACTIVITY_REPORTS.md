@@ -14,7 +14,7 @@ see who filed, who filed late and who did not, per person per day. The report ca
 
 ## Who files what
 
-The person's current position decides (`convex/field_reports/model.ts`):
+The person's current position decides (`apps/api/src/domains/fieldreports/index.js`):
 
 - **DAR**: SCDM, CDM — Key Accounts, CDM — Gen Trade, DS (memo), plus Sr CDS and CDS (our decision:
   supervisory positions that run Work-With and have no other daily report).

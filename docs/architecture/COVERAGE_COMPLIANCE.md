@@ -1,6 +1,6 @@
 # Route/coverage compliance analytics (`ANA-008`)
 
-Backend: `packages/backend/convex/analytics/compliance.ts` (query) and `analytics/compliance_model.ts` (pure rules). Web: Reports → **Coverage compliance** (`apps/web/src/components/analytics/coverage-compliance.tsx`, rules mirrored in `apps/web/src/lib/coverage-compliance.ts` and kept equal by a test).
+Backend: `apps/api/src/domains/analytics/index.js` (query) and `analytics/compliance_model.ts` (pure rules). Web: Reports → **Coverage compliance** (`apps/web/src/components/analytics/coverage-compliance.tsx`, rules mirrored in `apps/web/src/lib/coverage-compliance.ts` and kept equal by a test).
 
 ## What it shows
 

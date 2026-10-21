@@ -113,6 +113,8 @@ object VanBootstrapCodec {
         objects(legacy.getJSONArray("products")).forEach { it.remove("catalogue") }
         legacy.getJSONObject("policy").remove("fiscal")
         legacy.getJSONObject("policy").remove("schemes")
+        legacy.getJSONObject("policy").remove("storePos")
+        o.getJSONObject("policy").optJSONObject("storePos")?.let(com.sunpride.van.storepos.StorePosConfig::decode)
         VanWireSchema.validate(legacy)
         if (o.getJSONObject("policy").has("fiscal")) {
             com.sunpride.van.fiscal.FiscalNumbers.ranges(o.getJSONObject("policy"))

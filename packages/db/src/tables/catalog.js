@@ -7,13 +7,32 @@
  * bigint/numeric come back as string from Bun.sql.
  */
 
-export const UNITS_OF_MEASURE_DIMENSION = /** @type {const} */ (["count", "mass", "volume", "length", "area"]);
-export const PRODUCT_TRACKING_MODE = /** @type {const} */ (["none", "lot", "serial"]);
-export const PRODUCT_ALLOCATION_POLICY = /** @type {const} */ (["fefo", "fifo", "explicit_only"]);
-export const UOM_CONVERSION_ROUNDING_MODE = /** @type {const} */ (["exact", "half_up", "floor", "ceiling"]);
+export const UNITS_OF_MEASURE_DIMENSION = /** @type {const} */ ([
+  "count",
+  "mass",
+  "volume",
+  "length",
+  "area",
+]);
+export const PRODUCT_TRACKING_MODE = /** @type {const} */ ([
+  "none",
+  "lot",
+  "serial",
+]);
+export const PRODUCT_ALLOCATION_POLICY = /** @type {const} */ ([
+  "fefo",
+  "fifo",
+  "explicit_only",
+]);
+export const UOM_CONVERSION_ROUNDING_MODE = /** @type {const} */ ([
+  "exact",
+  "half_up",
+  "floor",
+  "ceiling",
+]);
 
 /**
- * `units_of_measure` (Convex `unitsOfMeasure`)
+ * `units_of_measure`
  * @typedef {Object} UnitsOfMeasureRow
  * @property {string} id
  * @property {string} organizationId
@@ -30,7 +49,7 @@ export const UOM_CONVERSION_ROUNDING_MODE = /** @type {const} */ (["exact", "hal
  */
 
 /**
- * `products` (Convex `products`)
+ * `products`
  * @typedef {Object} ProductRow
  * @property {string} id
  * @property {string} code
@@ -55,7 +74,7 @@ export const UOM_CONVERSION_ROUNDING_MODE = /** @type {const} */ (["exact", "hal
  */
 
 /**
- * `product_selling_uoms` (Convex `products`, child of `products`)
+ * `product_selling_uoms` (child of `products`)
  * @typedef {Object} ProductSellingUomRow
  * @property {string} id
  * @property {string} productId
@@ -68,7 +87,7 @@ export const UOM_CONVERSION_ROUNDING_MODE = /** @type {const} */ (["exact", "hal
  */
 
 /**
- * `customers` (Convex `customers`)
+ * `customers`
  * @typedef {Object} CustomerRow
  * @property {string} id
  * @property {string} code
@@ -85,7 +104,7 @@ export const UOM_CONVERSION_ROUNDING_MODE = /** @type {const} */ (["exact", "hal
  */
 
 /**
- * `warehouses` (Convex `warehouses`)
+ * `warehouses`
  * @typedef {Object} WarehouseRow
  * @property {string} id
  * @property {string} code
@@ -99,7 +118,7 @@ export const UOM_CONVERSION_ROUNDING_MODE = /** @type {const} */ (["exact", "hal
  */
 
 /**
- * `uom_conversions` (Convex `uomConversions`)
+ * `uom_conversions`
  * @typedef {Object} UomConversionRow
  * @property {string} id
  * @property {string} organizationId
@@ -119,7 +138,7 @@ export const UOM_CONVERSION_ROUNDING_MODE = /** @type {const} */ (["exact", "hal
  */
 
 /**
- * `product_barcodes` (Convex `productBarcodes`)
+ * `product_barcodes`
  * @typedef {Object} ProductBarcodeRow
  * @property {string} id
  * @property {string} organizationId
@@ -135,7 +154,7 @@ export const UOM_CONVERSION_ROUNDING_MODE = /** @type {const} */ (["exact", "hal
  */
 
 /**
- * `sales_assignments` (Convex `salesAssignments`)
+ * `sales_assignments`
  * @typedef {Object} SalesAssignmentRow
  * @property {string} id
  * @property {string} salespersonSubject

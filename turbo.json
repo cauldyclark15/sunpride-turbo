@@ -2,41 +2,45 @@
   "$schema": "https://turborepo.dev/schema.json",
   "ui": "tui",
   "globalEnv": [
-    "CONVEX_SITE_URL",
-    "WEB_SITE_URL",
-    "PWA_SITE_URL",
-    "CONNECTOR_SIGNING_SECRET",
-    "CONVEX_INTEGRATION_URL",
-    "CONNECTOR_ID",
-    "SAP_ADAPTER",
-    "SAP_BASE_URL",
-    "SAP_USERNAME",
-    "SAP_PASSWORD",
-    "SAP_POLL_INTERVAL_MS",
-    "CONNECTOR_PORT"
+    "DATABASE_URL",
+    "SYNC_CURSOR_SECRET",
+    "SP_LANE",
+    "SAP_MODE",
+    "SAP_ORIGIN",
+    "SAP_TOKEN",
+    "SAP_TIMEOUT_MS"
   ],
   "tasks": {
     "build": {
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "env": [
-        "NEXT_PUBLIC_CONVEX_URL",
-        "NEXT_PUBLIC_CONVEX_SITE_URL",
         "NEXT_PUBLIC_BETA_APK_URL",
         "NEXT_PUBLIC_BETA_ENABLE",
         "NEXT_PUBLIC_GOOGLE_MAPS_KEY",
         "NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID",
-        "VITE_CONVEX_URL",
-        "VITE_CONVEX_SITE_URL"
+        "API_ORIGIN"
       ],
       "outputs": [".next/**", "!.next/cache/**", "!.next/dev/**", "dist/**"]
     },
-    "lint": { "dependsOn": ["^lint"] },
-    "typecheck": { "dependsOn": ["^typecheck", "^codegen"] },
-    "test": { "dependsOn": ["^build"] },
-    "test:e2e": { "cache": false },
-    "codegen": { "cache": false, "outputs": ["convex/_generated/**"] },
-    "dev": { "cache": false, "persistent": true },
-    "deploy": { "cache": false }
+    "lint": {
+      "dependsOn": ["^lint"]
+    },
+    "typecheck": {
+      "dependsOn": ["^typecheck"]
+    },
+    "test": {
+      "dependsOn": ["^build"]
+    },
+    "test:e2e": {
+      "cache": false
+    },
+    "dev": {
+      "cache": false,
+      "persistent": true
+    },
+    "deploy": {
+      "cache": false
+    }
   }
 }

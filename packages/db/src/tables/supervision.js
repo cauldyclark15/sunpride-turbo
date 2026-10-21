@@ -7,21 +7,66 @@
  * bigint/numeric come back as string from Bun.sql.
  */
 
-export const WORK_WITH_SESSION_OBJECTIVE = /** @type {const} */ (["training", "sales_validation"]);
-export const WORK_WITH_SESSION_MODE = /** @type {const} */ (["booking", "truck"]);
-export const WORK_WITH_SESSION_STATUS = /** @type {const} */ (["open", "completed", "cancelled"]);
-export const WORK_WITH_SESSION_PRE_CALL_DOCUMENT = /** @type {const} */ (["distribution", "productivity", "daily_productive_sales_report", "call_sheet"]);
-export const WORK_WITH_SESSION_OBSERVATION_AREA = /** @type {const} */ (["bcp", "psf"]);
-export const WORK_WITH_SESSION_OBSERVATION_RATING = /** @type {const} */ (["met", "partial", "not_met"]);
-export const PER_DIEM_VALIDATION_DECISION = /** @type {const} */ (["validated", "returned"]);
+export const WORK_WITH_SESSION_OBJECTIVE = /** @type {const} */ ([
+  "training",
+  "sales_validation",
+]);
+export const WORK_WITH_SESSION_MODE = /** @type {const} */ ([
+  "booking",
+  "truck",
+]);
+export const WORK_WITH_SESSION_STATUS = /** @type {const} */ ([
+  "open",
+  "completed",
+  "cancelled",
+]);
+export const WORK_WITH_SESSION_PRE_CALL_DOCUMENT = /** @type {const} */ ([
+  "distribution",
+  "productivity",
+  "daily_productive_sales_report",
+  "call_sheet",
+]);
+export const WORK_WITH_SESSION_OBSERVATION_AREA = /** @type {const} */ ([
+  "bcp",
+  "psf",
+]);
+export const WORK_WITH_SESSION_OBSERVATION_RATING = /** @type {const} */ ([
+  "met",
+  "partial",
+  "not_met",
+]);
+export const PER_DIEM_VALIDATION_DECISION = /** @type {const} */ ([
+  "validated",
+  "returned",
+]);
 export const TALK_SHEET_STATUS = /** @type {const} */ (["draft", "final"]);
-export const TALK_SHEET_ITEM_TOPIC = /** @type {const} */ (["siv_stt", "buying_accounts", "program_utilization", "report_submission", "inventory_days", "marketing_program", "other_operational"]);
-export const TALK_SHEET_ITEM_STATUS = /** @type {const} */ (["completed", "on_going", "overdue"]);
-export const TRAINER_FORM_KIND = /** @type {const} */ (["training_program", "training_sheet", "job_evaluation"]);
-export const TRAINER_FORM_STATUS = /** @type {const} */ (["draft", "signed", "acknowledged"]);
+export const TALK_SHEET_ITEM_TOPIC = /** @type {const} */ ([
+  "siv_stt",
+  "buying_accounts",
+  "program_utilization",
+  "report_submission",
+  "inventory_days",
+  "marketing_program",
+  "other_operational",
+]);
+export const TALK_SHEET_ITEM_STATUS = /** @type {const} */ ([
+  "completed",
+  "on_going",
+  "overdue",
+]);
+export const TRAINER_FORM_KIND = /** @type {const} */ ([
+  "training_program",
+  "training_sheet",
+  "job_evaluation",
+]);
+export const TRAINER_FORM_STATUS = /** @type {const} */ ([
+  "draft",
+  "signed",
+  "acknowledged",
+]);
 
 /**
- * `work_with_sessions` (Convex `workWithSessions`)
+ * `work_with_sessions`
  * @typedef {Object} WorkWithSessionRow
  * @property {string} id
  * @property {string} organizationId
@@ -56,7 +101,7 @@ export const TRAINER_FORM_STATUS = /** @type {const} */ (["draft", "signed", "ac
  */
 
 /**
- * `work_with_session_observations` (Convex `workWithSessions`, child of `work_with_sessions`)
+ * `work_with_session_observations` (child of `work_with_sessions`)
  * @typedef {Object} WorkWithSessionObservationRow
  * @property {string} id
  * @property {string} workWithSessionId
@@ -70,7 +115,7 @@ export const TRAINER_FORM_STATUS = /** @type {const} */ (["draft", "signed", "ac
  */
 
 /**
- * `per_diem_validations` (Convex `perDiemValidations`)
+ * `per_diem_validations`
  * @typedef {Object} PerDiemValidationRow
  * @property {string} id
  * @property {string} organizationId
@@ -97,7 +142,7 @@ export const TRAINER_FORM_STATUS = /** @type {const} */ (["draft", "signed", "ac
  */
 
 /**
- * `talk_sheets` (Convex `talkSheets`)
+ * `talk_sheets`
  * @typedef {Object} TalkSheetRow
  * @property {string} id
  * @property {string} organizationId
@@ -118,7 +163,7 @@ export const TRAINER_FORM_STATUS = /** @type {const} */ (["draft", "signed", "ac
  */
 
 /**
- * `talk_sheet_items` (Convex `talkSheetItems`)
+ * `talk_sheet_items`
  * @typedef {Object} TalkSheetItemRow
  * @property {string} id
  * @property {string} organizationId
@@ -140,7 +185,7 @@ export const TRAINER_FORM_STATUS = /** @type {const} */ (["draft", "signed", "ac
  */
 
 /**
- * `trainer_forms` (Convex `trainerForms`)
+ * `trainer_forms`
  * @typedef {Object} TrainerFormRow
  * @property {string} id
  * @property {string} organizationId
@@ -166,7 +211,7 @@ export const TRAINER_FORM_STATUS = /** @type {const} */ (["draft", "signed", "ac
  */
 
 /**
- * `trainer_form_evaluation_sessions` (Convex `trainerForms`, child of `trainer_forms`)
+ * `trainer_form_evaluation_sessions` (child of `trainer_forms`)
  * @typedef {Object} TrainerFormEvaluationSessionRow
  * @property {string} id
  * @property {string} trainerFormId

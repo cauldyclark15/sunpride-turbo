@@ -7,7 +7,7 @@ import { useVanCommand } from "./van/use-command";
 import type { VoidCode, VoidCodeInput } from "./van/model";
 import { useState, type FormEvent } from "react";
 
-/** Mirrors `VOID_REASONS` in `convex/van/model.ts` (parity-tested). */
+/** Mirrors `VOID_REASONS` in `apps/api/src/domains/van/model.js` (parity-tested). */
 export const VAN_VOID_REASONS = [
   { code: "wrong_items", label: "Wrong items" },
   { code: "wrong_quantity", label: "Wrong quantity" },

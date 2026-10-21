@@ -1,7 +1,7 @@
 /**
  * CALL-09 outside-call PO form rules. Pure so the Node test runner can exercise them; the
- * labels mirror `packages/backend/convex/sfa/productive_call.ts` (a test keeps them equal)
- * because client components must not import Convex server modules.
+ * activity codes mirror `apps/api/src/domains/visits/productive.js`; labels retain the frozen UI wording
+ * and are checked against the API activity codes without bundling server modules.
  */
 
 export const OUTSIDE_CALL_ACTIVITY_LABELS = {

@@ -1,3 +1,4 @@
+import { modeAt, modeBundle } from "../storepos/model.js";
 import { callSnapshot } from "../availability/calls.js";
 import { tx } from "@sunpride/db/client";
 import { deliveryBundle } from "../presell/driver.js";
@@ -93,6 +94,7 @@ export function vanProjection(env) {
         serviceDate: date(p.serviceDate),
         ...(p.catalogue === true ? { catalogue: true } : {}),
         ...(p.schemeEngine === 1 ? { schemeEngine: 1 } : {}),
+        ...(p.posMode === true ? { posMode: true } : {}),
       };
     },
     snapshot,
@@ -124,11 +126,24 @@ export async function bundle(ctx, env) {
         422,
         "Only today's trip can be downloaded",
       );
+    const posMode = await modeAt(db, device.id);
+    if (posMode?.mode === "store" && ctx.params.posMode !== true)
+      throw new ApiError(
+        "update_required",
+        422,
+        "Update this POS to use Store mode",
+      );
+    const storePos =
+      ctx.params.posMode === true
+        ? await modeBundle(db, actor, device, posMode)
+        : null;
     let trips =
-      await db`select id from van_trips where salesperson_profile_id=${actor.profileId} and service_date=${serviceDate} and status not in ('cancelled','closed') and deleted_at is null order by created_at desc limit 2`;
+      storePos?.mode === "store"
+        ? []
+        : await db`select id from van_trips where salesperson_profile_id=${actor.profileId} and service_date=${serviceDate} and status not in ('cancelled','closed') and deleted_at is null order by created_at desc limit 2`;
     // Sequential trips are allowed after settlement; only multiple OPEN trips are ambiguous.
     // Keep the latest closed trip visible when the office has not planned the next one yet.
-    if (!trips.length)
+    if (!trips.length && storePos?.mode !== "store")
       trips =
         await db`select id from van_trips where salesperson_profile_id=${actor.profileId} and service_date=${serviceDate} and status='closed' and deleted_at is null order by created_at desc limit 1`;
     if (trips.length > 1)
@@ -140,7 +155,7 @@ export async function bundle(ctx, env) {
     const empty = {
       serviceDate,
       seller: { profileId: actor.profileId, name: actor.name },
-      policy: policy(env, null),
+      policy: { ...policy(env, null), ...(storePos ? { storePos } : {}) },
       trip: null,
       load: null,
       truckStock: [],
@@ -153,7 +168,7 @@ export async function bundle(ctx, env) {
       availability: [],
       deliveryDrops: [],
     };
-    if (!trips.length) return empty;
+    if (storePos?.mode === "store" || !trips.length) return empty;
     const trip = await tripFor(db, actor, trips[0].id, "van.operate");
     if (trip.started_device_id && trip.started_device_id !== device.id)
       throw new ApiError(
@@ -397,6 +412,7 @@ export async function bundle(ctx, env) {
       seller: empty.seller,
       policy: {
         ...tripPolicy,
+        ...(storePos ? { storePos } : {}),
         paymentMethods: await tenderPolicy(db, trip.org_unit_id),
         fiscal: await fiscalBundle(db, actor, trip, device.id),
         ...(ctx.params.schemeEngine === 1

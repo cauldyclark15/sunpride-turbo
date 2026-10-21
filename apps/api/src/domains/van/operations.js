@@ -1,3 +1,4 @@
+import { modeAt } from "../storepos/model.js";
 import { bindCreditDecision } from "../integration/credit.js";
 import { configureSap } from "../integration/transport.js";
 import {
@@ -248,6 +249,8 @@ async function dispatchOperation(ctx, env) {
     ctx.actor,
     ctx.device.id,
   );
+  if ((await modeAt(db, device.id))?.mode === "store")
+    refuse("Switch this handheld to Van mode before van operations");
   await db`select set_config('sunpride.actor',${actor.userId},true)`;
   const trip = await tripFor(db, actor, uuid(p.tripId), "van.operate", true);
   if (

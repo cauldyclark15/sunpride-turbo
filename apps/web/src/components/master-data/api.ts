@@ -6,7 +6,7 @@ import type { QueryValue } from "../../lib/api/fetch";
 import type { CommandArgs, CommandMap, CommandResult, ReadMap } from "./model";
 
 // Explicit route catalogue. Group names preserve the editors' public form helpers, not
-// a Convex client: every value is a Bun HTTP route and every DTO is locally owned.
+// a generated client: every value is a Bun HTTP route and every DTO is locally owned.
 export const api = {
   lib: { capabilities: { currentPermissions: "org/permissions" } },
   domains: {

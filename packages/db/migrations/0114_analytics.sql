@@ -1,5 +1,5 @@
 -- 0114_analytics: Daily rollups, agent metrics, targets, admin pack.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: daily_territory_metrics, daily_customer_metrics, daily_sku_metrics, rollup_contributions, rollup_contribution_skus, rollup_refreshes, agent_daily_metrics, agent_metric_refreshes, suggested_order_promotions, admin_pack_records, sales_targets.
 
 -- dailyTerritoryMetrics

@@ -14,8 +14,6 @@ node_modules
 
 # Testing
 coverage
-# Convex coverage-plan module (not test coverage output)
-!packages/backend/convex/coverage/
 # v2 API coverage-plan domain (not test coverage output)
 !apps/api/src/domains/coverage/
 
@@ -45,7 +43,6 @@ yarn-error.log*
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
-apps/sap-connector/data/
 
 # Generated PWA artifacts
 apps/pwa/public/sw.js

@@ -1,83 +1,46 @@
-# Sunpride Turbo
+# Sunpride Sales System
 
-Sunpride’s integrated operations platform plans four user-facing products on one shared Convex backend/database: a Next.js management web app, native iOS and Android field-sales apps, and a separate native Android van POS. A JavaScript-only Bun connector bridges Convex and SAP. The native apps are planned, not yet present in this repository; the existing field PWA is frozen and will be retired after the native pilot ([ADR-004](docs/decisions/ADR-004-NATIVE-ANDROID-FIELD-AND-POS.md), [ADR-010](docs/decisions/ADR-010-NATIVE-FIELD-APPS-IOS-AND-ANDROID.md)).
+Sunpride runs on a Bun HTTP API and native PostgreSQL 17 with pgvector. The Next.js management web is also the installable office app. Android field sales and van POS keep encrypted local databases and durable outboxes, synchronizing through `/api/sync`. The iOS source is retained but delivery is paused.
 
 ## Workspace
 
-| Path                                 | Runtime                          | Purpose                                                               |
-| ------------------------------------ | -------------------------------- | --------------------------------------------------------------------- |
-| `apps/web`                           | Next.js 16 / React 19            | Management, approvals, administration, analytics                      |
-| `apps/pwa`                           | Vite / React 19                  | Frozen legacy field PWA; retire after native pilot                    |
-| `apps/field-ios` _(planned)_         | Swift / SwiftUI                  | Native iOS field execution                                            |
-| `apps/field-android` _(planned)_     | Kotlin / Jetpack Compose         | Native Android field execution                                        |
-| `apps/van-sales-android` _(planned)_ | Kotlin / Jetpack Compose         | Separate Android van-sales POS and truck-stock execution              |
-| `apps/sap-connector`                 | Bun JavaScript (no compile step) | Outbound-only bridge between local SAP and Convex                     |
-| `packages/backend`                   | Convex                           | Database, Better Auth, realtime API, workflows, integration endpoints |
-| `packages/ui`                        | HeroUI + HeroUI Pro              | Sunpride theme, logo, KPI, table, status, and layout primitives       |
-| `packages/integration-contracts`     | JSON Schema                      | Versioned SAP integration envelopes and payloads                      |
+| Path | Responsibility |
+| --- | --- |
+| `apps/api` | Auth, scoped domain commands, sync, media, realtime and jobs |
+| `packages/db` | SQL migrations, typed rows and sample-marked seeds |
+| `apps/web` | Management cockpit, workflows and installable office app |
+| `apps/field-android` | Offline field sales |
+| `apps/van-sales-android` | Offline van POS, receipts and settlement |
+| `apps/field-ios` | Paused native field client |
+| `apps/sap-mock` | Local SAP contract service |
+| `apps/pwa` | Retired field-pilot notice; retained local storage is not erased |
+| `packages/ui` | Shared presentation |
+| `packages/domain-contracts` | Frozen wire fixtures and native interoperability tests |
+| `packages/integration-contracts` | SAP payload schemas |
 
-## Start locally
+## Local development
 
-Prerequisites: Bun 1.3.14 or newer and access to the configured Convex and HeroUI Pro accounts.
+Use Bun 1.3.14+, PostgreSQL 17 and the existing workspace UI packages. The API database uses `vector`, `pgcrypto`, `citext` and `btree_gist`. Database sessions use UTC; business days use Manila time. No hosted backend account or container database is needed.
 
-```bash
-git clone git@github.com:cauldyclark15/sunpride-turbo.git
-cd sunpride-turbo
-bun install
-bun run setup:env
-bun run dev:backend
-```
+1. Run `bun install`.
+2. Run `bun run setup:env` to create the web templates; put real secrets only in ignored local configuration or private environment variables. `.env.example` lists configuration names.
+3. Supply `DATABASE_URL` privately and run `bun packages/db/src/migrate.js`.
+4. For an isolated demo, run `bun packages/db/seed/run.js`; it adds marked sample rows idempotently. Never reset a shared database.
+5. Start `bun run dev:api` (4310), `API_ORIGIN=http://127.0.0.1:4310 bun --cwd apps/web run dev --port 4300`, and optionally `bun run dev:sap` (4435).
 
-In separate terminals:
+The same-origin web proxy sends `/api` and `/ws` to the API. Web auth uses the httpOnly `sp_session` cookie; native auth uses the v2 bearer/device-proof protocol. Invitations and active profiles gate access. The server rechecks capabilities and organizational scope on each operation.
 
-```bash
-bun run dev:web
-bun run dev:pwa # legacy PWA only; no new field features
-bun run dev:sap
-```
+## Verification
 
-- Web: `http://localhost:3000`
-- Legacy PWA: `http://localhost:5173` (frozen; not the planned field app)
-- Connector health: `http://localhost:4100/health`
-- Convex dashboard: `https://dashboard.convex.dev/t/cncit/sunpride-turbo/perceptive-grasshopper-340`
+Run API `bunx tsc -p jsconfig.json` and `SP_LANE=<your-lane> bun run test` from `apps/api`. The script isolates test files to prevent global mock leakage. Run DB `bunx tsc -p jsconfig.json` and `SP_LANE=<your-lane> bun test` from `packages/db`.
 
-Access is invitation-only. The bootstrap migration reserves `jcing.jc@gmail.com` as the sole initial `super_admin`; arriving first never grants authority. The super admin can authorize the first administrators and users from Security & Admin, and administrators can provision non-admin users after that.
+From `apps/web`, run `bunx tsc --noEmit`, `bunx vitest run`, `bun run lint`, and `bunx next build`. Android build/unit/lint checks run separately in each project with Android Studio's JBR. A build is not a physical-device proof. iOS is paused; do not build or install it for this cleanup.
 
-## Environment
+`bun run audit:stack` rejects retired-backend references across tracked and new repository text, including lockfiles, docs and native configuration. Only the two lead-owned v2 architecture contracts and write-protected instructions are exempt. `bun run audit:secrets` checks credential hygiene without printing values.
 
-Every runtime has a colocated, copy-ready `.env.example` containing the current
-local development values:
+## References
 
-```bash
-cp packages/backend/.env.example packages/backend/.env.local
-cp apps/web/.env.example apps/web/.env.local
-cp apps/pwa/.env.example apps/pwa/.env.local
-cp apps/sap-connector/.env.example apps/sap-connector/.env.local
-```
-
-Running `bun run setup:env` performs those copies without overwriting existing
-files. It also retrieves `CONNECTOR_SIGNING_SECRET` from the configured Convex
-deployment without displaying or committing it. Use `bun run setup:env --force`
-only when you intentionally want to replace all four local files from the
-examples.
-
-The copied values connect the existing web app, legacy PWA and connector to the shared
-`perceptive-grasshopper-340` development deployment. The
-[`packages/backend/.env.deployment.example`](packages/backend/.env.deployment.example)
-file lists the Convex-hosted settings needed when creating a different
-deployment; its secret fields intentionally remain blank.
-
-Better Auth uses email and password. Registration is blocked unless the email has a pending access invitation; the bootstrap email is always eligible. Run `bunx convex run migrations:bootstrapSuperAdmin` from `packages/backend` after pushing backend changes; it is idempotent.
-
-Never expose SAP credentials or the connector signing secret to the web, legacy PWA or planned native apps. See [security controls](docs/security/SECURITY.md) and the [SAP connector runbook](docs/runbooks/SAP_CONNECTOR.md).
-
-## Quality gate
-
-```bash
-bun run lint
-bun run typecheck
-bun run test
-bun run build
-```
-
-See the [system architecture](docs/architecture/SYSTEM.md), [architecture decision index](docs/decisions/README.md) and [SFA delivery sequence](docs/delivery/SFA_DELIVERY_SEQUENCE.md) for the target products and rollout.
+- [Backend contract](docs/architecture/BACKEND_V2.md) and [analytics contract](docs/architecture/ANALYTICS_V2.md)
+- [System overview](docs/architecture/SYSTEM.md), [web data layer](apps/web/docs/DATA_LAYER.md)
+- [SAP backbone](docs/spec/sap.md), [release and cutover](docs/spec/release-and-cutover.md)
+- [Decisions](docs/decisions/README.md), [client requirements](docs/requirements/)

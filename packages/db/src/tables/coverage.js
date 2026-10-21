@@ -8,18 +8,52 @@
  */
 
 export const COVERAGE_PLAN_CYCLE_TYPE = /** @type {const} */ (["monthly"]);
-export const COVERAGE_PLAN_STATUS = /** @type {const} */ (["draft", "submitted", "approved", "active", "superseded"]);
-export const COVERAGE_PLAN_APPROVAL_CAPACITY = /** @type {const} */ (["supervisor", "backup", "scope_approver"]);
-export const COVERAGE_PLAN_OUTLET_FREQUENCY = /** @type {const} */ (["weekly", "biweekly", "monthly", "custom"]);
-export const COVERAGE_PLAN_OUTLET_PREFERRED_WEEKDAY = /** @type {const} */ ([0, 1, 2, 3, 4, 5, 6]);
-export const COVERAGE_PLAN_SLOT_KIND = /** @type {const} */ (["outlet_visit", "non_visit"]);
-export const POSITION_ROUTINE_TEMPLATE_WEEKDAY = /** @type {const} */ ([0, 1, 2, 3, 4, 5, 6]);
-export const POSITION_ROUTINE_TEMPLATE_DAY_KIND = /** @type {const} */ (["selling", "field", "admin", "day_off"]);
-export const POSITION_ROUTINE_TEMPLATE_ACTIVITY_KIND = /** @type {const} */ (["outlet_visit", "non_visit"]);
-export const PLANNED_VISIT_STATUS = /** @type {const} */ (["planned", "cancelled", "replaced"]);
+export const COVERAGE_PLAN_STATUS = /** @type {const} */ ([
+  "draft",
+  "submitted",
+  "approved",
+  "active",
+  "superseded",
+]);
+export const COVERAGE_PLAN_APPROVAL_CAPACITY = /** @type {const} */ ([
+  "supervisor",
+  "backup",
+  "scope_approver",
+]);
+export const COVERAGE_PLAN_OUTLET_FREQUENCY = /** @type {const} */ ([
+  "weekly",
+  "biweekly",
+  "monthly",
+  "custom",
+]);
+export const COVERAGE_PLAN_OUTLET_PREFERRED_WEEKDAY = /** @type {const} */ ([
+  0, 1, 2, 3, 4, 5, 6,
+]);
+export const COVERAGE_PLAN_SLOT_KIND = /** @type {const} */ ([
+  "outlet_visit",
+  "non_visit",
+]);
+export const POSITION_ROUTINE_TEMPLATE_WEEKDAY = /** @type {const} */ ([
+  0, 1, 2, 3, 4, 5, 6,
+]);
+export const POSITION_ROUTINE_TEMPLATE_DAY_KIND = /** @type {const} */ ([
+  "selling",
+  "field",
+  "admin",
+  "day_off",
+]);
+export const POSITION_ROUTINE_TEMPLATE_ACTIVITY_KIND = /** @type {const} */ ([
+  "outlet_visit",
+  "non_visit",
+]);
+export const PLANNED_VISIT_STATUS = /** @type {const} */ ([
+  "planned",
+  "cancelled",
+  "replaced",
+]);
 
 /**
- * `coverage_plans` (Convex `coveragePlans`)
+ * `coverage_plans`
  * @typedef {Object} CoveragePlanRow
  * @property {string} id
  * @property {string} organizationId
@@ -59,7 +93,7 @@ export const PLANNED_VISIT_STATUS = /** @type {const} */ (["planned", "cancelled
  */
 
 /**
- * `coverage_plan_territories` (Convex `coveragePlans`, child of `coverage_plans`)
+ * `coverage_plan_territories` (child of `coverage_plans`)
  * @typedef {Object} CoveragePlanTerritoryRow
  * @property {string} id
  * @property {string} coveragePlanId
@@ -72,7 +106,7 @@ export const PLANNED_VISIT_STATUS = /** @type {const} */ (["planned", "cancelled
  */
 
 /**
- * `coverage_assignments` (Convex `coverageAssignments`)
+ * `coverage_assignments`
  * @typedef {Object} CoverageAssignmentRow
  * @property {string} id
  * @property {string} planId
@@ -88,7 +122,7 @@ export const PLANNED_VISIT_STATUS = /** @type {const} */ (["planned", "cancelled
  */
 
 /**
- * `coverage_plan_outlets` (Convex `coveragePlanOutlets`)
+ * `coverage_plan_outlets`
  * @typedef {Object} CoveragePlanOutletRow
  * @property {string} id
  * @property {string} planId
@@ -112,7 +146,7 @@ export const PLANNED_VISIT_STATUS = /** @type {const} */ (["planned", "cancelled
  */
 
 /**
- * `coverage_plan_slots` (Convex `coveragePlanSlots`)
+ * `coverage_plan_slots`
  * @typedef {Object} CoveragePlanSlotRow
  * @property {string} id
  * @property {string} slotKey
@@ -138,7 +172,7 @@ export const PLANNED_VISIT_STATUS = /** @type {const} */ (["planned", "cancelled
  */
 
 /**
- * `position_routine_templates` (Convex `positionRoutineTemplates`)
+ * `position_routine_templates`
  * @typedef {Object} PositionRoutineTemplateRow
  * @property {string} id
  * @property {string} organizationId
@@ -155,7 +189,7 @@ export const PLANNED_VISIT_STATUS = /** @type {const} */ (["planned", "cancelled
  */
 
 /**
- * `position_routine_template_activities` (Convex `positionRoutineTemplates`, child of `position_routine_templates`)
+ * `position_routine_template_activities` (child of `position_routine_templates`)
  * @typedef {Object} PositionRoutineTemplateActivityRow
  * @property {string} id
  * @property {string} positionRoutineTemplateId
@@ -168,7 +202,7 @@ export const PLANNED_VISIT_STATUS = /** @type {const} */ (["planned", "cancelled
  */
 
 /**
- * `planned_visits` (Convex `plannedVisits`)
+ * `planned_visits`
  * @typedef {Object} PlannedVisitRow
  * @property {string} id
  * @property {string} generationKey
@@ -195,7 +229,7 @@ export const PLANNED_VISIT_STATUS = /** @type {const} */ (["planned", "cancelled
  */
 
 /**
- * `supervisor_away_periods` (Convex `supervisorAwayPeriods`)
+ * `supervisor_away_periods`
  * @typedef {Object} SupervisorAwayPeriodRow
  * @property {string} id
  * @property {string} organizationId
@@ -212,7 +246,7 @@ export const PLANNED_VISIT_STATUS = /** @type {const} */ (["planned", "cancelled
  */
 
 /**
- * `coverage_audit_events` (Convex `coverageAuditEvents`)
+ * `coverage_audit_events`
  * @typedef {Object} CoverageAuditEventRow
  * @property {string} id
  * @property {string} planId

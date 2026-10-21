@@ -7,49 +7,314 @@
  * bigint/numeric come back as string from Bun.sql.
  */
 
-export const INVENTORY_LOCATION_TYPE = /** @type {const} */ (["warehouse", "zone", "bin", "production", "wip", "truck", "in_transit", "returns", "virtual_boundary"]);
-export const PRODUCT_INVENTORY_POLICY_TRACKING_MODE = /** @type {const} */ (["none", "lot", "serial"]);
-export const PRODUCT_INVENTORY_POLICY_ALLOCATION_POLICY = /** @type {const} */ (["fefo", "fifo", "explicit_only"]);
-export const PRODUCT_INVENTORY_POLICY_COSTING_METHOD = /** @type {const} */ (["weighted_average", "fifo_layer"]);
-export const REPLENISHMENT_POLICY_LAST_ALERT_STATE = /** @type {const} */ (["ok", "low"]);
-export const INVENTORY_MOVEMENT_MOVEMENT_TYPE = /** @type {const} */ (["opening_balance", "goods_receipt", "inventory_issue", "reservation", "reservation_release", "transfer_ship", "transfer_receive", "inventory_adjustment", "status_change", "pos_sale", "pos_void", "pos_return", "production_issue", "production_output", "production_scrap", "reversal", "van_load", "van_unload"]);
-export const INVENTORY_MOVEMENT_STATUS = /** @type {const} */ (["posted", "reversed"]);
-export const INVENTORY_LOT_QUALITY_STATUS = /** @type {const} */ (["pending", "released", "quarantined", "rejected", "expired"]);
-export const INVENTORY_LOT_BALANCE_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const INVENTORY_COMMAND_STATUS = /** @type {const} */ (["posted", "rejected", "review_required"]);
-export const INVENTORY_MOVEMENT_LINE_FROM_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const INVENTORY_MOVEMENT_LINE_TO_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const INVENTORY_ALLOCATION_FROM_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const INVENTORY_ALLOCATION_TO_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const INVENTORY_ALLOCATION_ALLOCATION_POLICY = /** @type {const} */ (["fefo", "fifo", "explicit_only"]);
-export const INVENTORY_LEDGER_ENTRY_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const INVENTORY_RESERVATION_STATUS = /** @type {const} */ (["active", "partially_consumed", "consumed", "released", "expired", "cancelled"]);
-export const GOODS_RECEIPT_RECEIPT_TYPE = /** @type {const} */ (["purchase_order", "transfer", "return", "production", "unplanned"]);
-export const GOODS_RECEIPT_STATUS = /** @type {const} */ (["draft", "in_inspection", "partially_posted", "posted", "cancelled", "review_required"]);
-export const GOODS_RECEIPT_LINE_DESTINATION_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const TRUCK_ROUTE_SESSION_STATUS = /** @type {const} */ (["planned", "loading", "open", "closing", "reconciling", "closed", "review_required"]);
-export const STOCK_TRANSFER_STATUS = /** @type {const} */ (["draft", "requested", "approved", "reserved", "picking", "shipped", "partially_received", "received", "cancelled", "review_required"]);
-export const STOCK_COUNT_SESSION_COUNT_TYPE = /** @type {const} */ (["cycle", "full", "spot", "route_close"]);
-export const STOCK_COUNT_SESSION_STATUS = /** @type {const} */ (["draft", "frozen", "counting", "submitted", "reviewed", "approved", "posted", "cancelled"]);
-export const STOCK_COUNT_LINE_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const STOCK_COUNT_LINE_FINDING = /** @type {const} */ (["over", "missing", "damaged", "expired", "wrong_lot", "wrong_location"]);
-export const INVENTORY_ADJUSTMENT_STATUS = /** @type {const} */ (["draft", "submitted", "approved", "posted", "rejected", "reversed"]);
-export const INVENTORY_ADJUSTMENT_LINE_STOCK_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const BILL_OF_MATERIAL_VERSION_STATUS = /** @type {const} */ (["draft", "approved", "active", "obsolete"]);
-export const BILL_OF_MATERIAL_COMPONENT_ISSUE_POLICY = /** @type {const} */ (["backflush", "manual_issue", "staged"]);
-export const PRODUCTION_ORDER_STATUS = /** @type {const} */ (["draft", "released", "material_staged", "in_progress", "partially_completed", "completed", "cancelled", "closed", "review_required"]);
-export const PRODUCTION_MATERIAL_ISSUE_ISSUE_TYPE = /** @type {const} */ (["issue", "return"]);
-export const PRODUCTION_OUTPUT_RECEIPT_QUALITY_STATUS = /** @type {const} */ (["available", "quality_hold", "quarantine", "damaged", "expired", "rejected", "wip", "in_transit"]);
-export const NEGATIVE_STOCK_ALLOWANCE_OPERATION = /** @type {const} */ (["distributor"]);
-export const NEGATIVE_STOCK_ALLOWANCE_MOVEMENT_TYPE = /** @type {const} */ (["pos_sale", "inventory_issue", "transfer_ship"]);
-export const NEGATIVE_STOCK_FLAG_MOVEMENT_TYPE = /** @type {const} */ (["pos_sale", "inventory_issue", "transfer_ship"]);
-export const NEGATIVE_STOCK_FLAG_STATUS = /** @type {const} */ (["open", "resolved"]);
-export const INVENTORY_RECONCILIATION_RUN_STATUS = /** @type {const} */ (["pending", "running", "completed", "failed"]);
-export const INVENTORY_RECONCILIATION_DIFFERENCE_CLASSIFICATION = /** @type {const} */ (["mapping", "timing", "missing_inbound", "missing_outbound", "duplicate", "unauthorized_adjustment", "unresolved"]);
-export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {const} */ (["open", "resolved", "accepted"]);
+export const INVENTORY_LOCATION_TYPE = /** @type {const} */ ([
+  "warehouse",
+  "zone",
+  "bin",
+  "production",
+  "wip",
+  "truck",
+  "in_transit",
+  "returns",
+  "virtual_boundary",
+  "store",
+]);
+export const PRODUCT_INVENTORY_POLICY_TRACKING_MODE = /** @type {const} */ ([
+  "none",
+  "lot",
+  "serial",
+]);
+export const PRODUCT_INVENTORY_POLICY_ALLOCATION_POLICY =
+  /** @type {const} */ (["fefo", "fifo", "explicit_only"]);
+export const PRODUCT_INVENTORY_POLICY_COSTING_METHOD = /** @type {const} */ ([
+  "weighted_average",
+  "fifo_layer",
+]);
+export const REPLENISHMENT_POLICY_LAST_ALERT_STATE = /** @type {const} */ ([
+  "ok",
+  "low",
+]);
+export const INVENTORY_MOVEMENT_MOVEMENT_TYPE = /** @type {const} */ ([
+  "opening_balance",
+  "goods_receipt",
+  "inventory_issue",
+  "reservation",
+  "reservation_release",
+  "transfer_ship",
+  "transfer_receive",
+  "inventory_adjustment",
+  "status_change",
+  "pos_sale",
+  "pos_void",
+  "pos_return",
+  "production_issue",
+  "production_output",
+  "production_scrap",
+  "reversal",
+  "van_load",
+  "van_unload",
+]);
+export const INVENTORY_MOVEMENT_STATUS = /** @type {const} */ ([
+  "posted",
+  "reversed",
+]);
+export const INVENTORY_LOT_QUALITY_STATUS = /** @type {const} */ ([
+  "pending",
+  "released",
+  "quarantined",
+  "rejected",
+  "expired",
+]);
+export const INVENTORY_LOT_BALANCE_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const INVENTORY_COMMAND_STATUS = /** @type {const} */ ([
+  "posted",
+  "rejected",
+  "review_required",
+]);
+export const INVENTORY_MOVEMENT_LINE_FROM_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const INVENTORY_MOVEMENT_LINE_TO_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const INVENTORY_ALLOCATION_FROM_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const INVENTORY_ALLOCATION_TO_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const INVENTORY_ALLOCATION_ALLOCATION_POLICY = /** @type {const} */ ([
+  "fefo",
+  "fifo",
+  "explicit_only",
+]);
+export const INVENTORY_LEDGER_ENTRY_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const INVENTORY_RESERVATION_STATUS = /** @type {const} */ ([
+  "active",
+  "partially_consumed",
+  "consumed",
+  "released",
+  "expired",
+  "cancelled",
+]);
+export const GOODS_RECEIPT_RECEIPT_TYPE = /** @type {const} */ ([
+  "purchase_order",
+  "transfer",
+  "return",
+  "production",
+  "unplanned",
+]);
+export const GOODS_RECEIPT_STATUS = /** @type {const} */ ([
+  "draft",
+  "in_inspection",
+  "partially_posted",
+  "posted",
+  "cancelled",
+  "review_required",
+]);
+export const GOODS_RECEIPT_LINE_DESTINATION_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const TRUCK_ROUTE_SESSION_STATUS = /** @type {const} */ ([
+  "planned",
+  "loading",
+  "open",
+  "closing",
+  "reconciling",
+  "closed",
+  "review_required",
+]);
+export const STOCK_TRANSFER_STATUS = /** @type {const} */ ([
+  "draft",
+  "requested",
+  "approved",
+  "reserved",
+  "picking",
+  "shipped",
+  "partially_received",
+  "received",
+  "cancelled",
+  "review_required",
+]);
+export const STOCK_COUNT_SESSION_COUNT_TYPE = /** @type {const} */ ([
+  "cycle",
+  "full",
+  "spot",
+  "route_close",
+]);
+export const STOCK_COUNT_SESSION_STATUS = /** @type {const} */ ([
+  "draft",
+  "frozen",
+  "counting",
+  "submitted",
+  "reviewed",
+  "approved",
+  "posted",
+  "cancelled",
+]);
+export const STOCK_COUNT_LINE_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const STOCK_COUNT_LINE_FINDING = /** @type {const} */ ([
+  "over",
+  "missing",
+  "damaged",
+  "expired",
+  "wrong_lot",
+  "wrong_location",
+]);
+export const INVENTORY_ADJUSTMENT_STATUS = /** @type {const} */ ([
+  "draft",
+  "submitted",
+  "approved",
+  "posted",
+  "rejected",
+  "reversed",
+]);
+export const INVENTORY_ADJUSTMENT_LINE_STOCK_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const BILL_OF_MATERIAL_VERSION_STATUS = /** @type {const} */ ([
+  "draft",
+  "approved",
+  "active",
+  "obsolete",
+]);
+export const BILL_OF_MATERIAL_COMPONENT_ISSUE_POLICY = /** @type {const} */ ([
+  "backflush",
+  "manual_issue",
+  "staged",
+]);
+export const PRODUCTION_ORDER_STATUS = /** @type {const} */ ([
+  "draft",
+  "released",
+  "material_staged",
+  "in_progress",
+  "partially_completed",
+  "completed",
+  "cancelled",
+  "closed",
+  "review_required",
+]);
+export const PRODUCTION_MATERIAL_ISSUE_ISSUE_TYPE = /** @type {const} */ ([
+  "issue",
+  "return",
+]);
+export const PRODUCTION_OUTPUT_RECEIPT_QUALITY_STATUS = /** @type {const} */ ([
+  "available",
+  "quality_hold",
+  "quarantine",
+  "damaged",
+  "expired",
+  "rejected",
+  "wip",
+  "in_transit",
+]);
+export const NEGATIVE_STOCK_ALLOWANCE_OPERATION = /** @type {const} */ ([
+  "distributor",
+]);
+export const NEGATIVE_STOCK_ALLOWANCE_MOVEMENT_TYPE = /** @type {const} */ ([
+  "pos_sale",
+  "inventory_issue",
+  "transfer_ship",
+]);
+export const NEGATIVE_STOCK_FLAG_MOVEMENT_TYPE = /** @type {const} */ ([
+  "pos_sale",
+  "inventory_issue",
+  "transfer_ship",
+]);
+export const NEGATIVE_STOCK_FLAG_STATUS = /** @type {const} */ ([
+  "open",
+  "resolved",
+]);
+export const INVENTORY_RECONCILIATION_RUN_STATUS = /** @type {const} */ ([
+  "pending",
+  "running",
+  "completed",
+  "failed",
+]);
+export const INVENTORY_RECONCILIATION_DIFFERENCE_CLASSIFICATION =
+  /** @type {const} */ ([
+    "mapping",
+    "timing",
+    "missing_inbound",
+    "missing_outbound",
+    "duplicate",
+    "unauthorized_adjustment",
+    "unresolved",
+  ]);
+export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS =
+  /** @type {const} */ (["open", "resolved", "accepted"]);
 
 /**
- * `inventory_locations` (Convex `inventoryLocations`)
+ * `inventory_locations`
  * @typedef {Object} InventoryLocationRow
  * @property {string} id
  * @property {string} organizationId
@@ -59,7 +324,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  * @property {string | null} parentLocationId
  * @property {string} code
  * @property {string} name
- * @property {"warehouse" | "zone" | "bin" | "production" | "wip" | "truck" | "in_transit" | "returns" | "virtual_boundary"} type
+ * @property {"warehouse" | "zone" | "bin" | "production" | "wip" | "truck" | "in_transit" | "returns" | "virtual_boundary" | "store"} type
  * @property {boolean} active
  * @property {boolean} allowsPicking
  * @property {boolean} allowsReceiving
@@ -75,7 +340,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `product_inventory_policies` (Convex `productInventoryPolicies`)
+ * `product_inventory_policies`
  * @typedef {Object} ProductInventoryPolicyRow
  * @property {string} id
  * @property {string} organizationId
@@ -102,7 +367,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `replenishment_policies` (Convex `replenishmentPolicies`)
+ * `replenishment_policies`
  * @typedef {Object} ReplenishmentPolicyRow
  * @property {string} id
  * @property {string} organizationId
@@ -121,7 +386,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `inventory_movements` (Convex `inventoryMovements`)
+ * `inventory_movements`
  * @typedef {Object} InventoryMovementRow
  * @property {string} id
  * @property {string} organizationId
@@ -145,7 +410,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `inventory_balances` (Convex `inventoryBalances`)
+ * `inventory_balances`
  * @typedef {Object} InventoryBalanceRow
  * @property {string} id
  * @property {string} productCode
@@ -179,7 +444,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `inventory_lots` (Convex `inventoryLots`)
+ * `inventory_lots`
  * @typedef {Object} InventoryLotRow
  * @property {string} id
  * @property {string} organizationId
@@ -201,7 +466,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `inventory_lot_balances` (Convex `inventoryLotBalances`)
+ * `inventory_lot_balances`
  * @typedef {Object} InventoryLotBalanceRow
  * @property {string} id
  * @property {string} organizationId
@@ -221,7 +486,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `inventory_commands` (Convex `inventoryCommands`)
+ * `inventory_commands`
  * @typedef {Object} InventoryCommandRow
  * @property {string} id
  * @property {string} organizationId
@@ -242,7 +507,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `inventory_movement_lines` (Convex `inventoryMovementLines`)
+ * `inventory_movement_lines`
  * @typedef {Object} InventoryMovementLineRow
  * @property {string} id
  * @property {string} organizationId
@@ -267,7 +532,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `inventory_allocations` (Convex `inventoryAllocations`)
+ * `inventory_allocations`
  * @typedef {Object} InventoryAllocationRow
  * @property {string} id
  * @property {string} organizationId
@@ -290,7 +555,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `inventory_ledger_entries` (Convex `inventoryLedgerEntries`)
+ * `inventory_ledger_entries`
  * @typedef {Object} InventoryLedgerEntryRow
  * @property {string} id
  * @property {string} organizationId
@@ -315,7 +580,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `inventory_reservations` (Convex `inventoryReservations`)
+ * `inventory_reservations`
  * @typedef {Object} InventoryReservationRow
  * @property {string} id
  * @property {string} organizationId
@@ -331,7 +596,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `inventory_reservation_lines` (Convex `inventoryReservationLines`)
+ * `inventory_reservation_lines`
  * @typedef {Object} InventoryReservationLineRow
  * @property {string} id
  * @property {string} organizationId
@@ -348,7 +613,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `goods_receipts` (Convex `goodsReceipts`)
+ * `goods_receipts`
  * @typedef {Object} GoodsReceiptRow
  * @property {string} id
  * @property {string} organizationId
@@ -366,7 +631,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `goods_receipt_lines` (Convex `goodsReceiptLines`)
+ * `goods_receipt_lines`
  * @typedef {Object} GoodsReceiptLineRow
  * @property {string} id
  * @property {string} organizationId
@@ -384,7 +649,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `truck_route_sessions` (Convex `truckRouteSessions`)
+ * `truck_route_sessions`
  * @typedef {Object} TruckRouteSessionRow
  * @property {string} id
  * @property {string} organizationId
@@ -402,7 +667,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `stock_transfers` (Convex `stockTransfers`)
+ * `stock_transfers`
  * @typedef {Object} StockTransferRow
  * @property {string} id
  * @property {string} organizationId
@@ -424,7 +689,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `stock_transfer_lines` (Convex `stockTransferLines`)
+ * `stock_transfer_lines`
  * @typedef {Object} StockTransferLineRow
  * @property {string} id
  * @property {string} organizationId
@@ -441,7 +706,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `stock_count_sessions` (Convex `stockCountSessions`)
+ * `stock_count_sessions`
  * @typedef {Object} StockCountSessionRow
  * @property {string} id
  * @property {string} organizationId
@@ -459,7 +724,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `stock_count_lines` (Convex `stockCountLines`)
+ * `stock_count_lines`
  * @typedef {Object} StockCountLineRow
  * @property {string} id
  * @property {string} organizationId
@@ -481,7 +746,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `inventory_adjustments` (Convex `inventoryAdjustments`)
+ * `inventory_adjustments`
  * @typedef {Object} InventoryAdjustmentRow
  * @property {string} id
  * @property {string} organizationId
@@ -499,7 +764,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `inventory_adjustment_lines` (Convex `inventoryAdjustmentLines`)
+ * `inventory_adjustment_lines`
  * @typedef {Object} InventoryAdjustmentLineRow
  * @property {string} id
  * @property {string} organizationId
@@ -516,7 +781,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `bill_of_materials` (Convex `billOfMaterials`)
+ * `bill_of_materials`
  * @typedef {Object} BillOfMaterialRow
  * @property {string} id
  * @property {string} organizationId
@@ -529,7 +794,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `bill_of_material_versions` (Convex `billOfMaterialVersions`)
+ * `bill_of_material_versions`
  * @typedef {Object} BillOfMaterialVersionRow
  * @property {string} id
  * @property {string} organizationId
@@ -547,7 +812,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `bill_of_material_components` (Convex `billOfMaterialComponents`)
+ * `bill_of_material_components`
  * @typedef {Object} BillOfMaterialComponentRow
  * @property {string} id
  * @property {string} organizationId
@@ -563,7 +828,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `production_orders` (Convex `productionOrders`)
+ * `production_orders`
  * @typedef {Object} ProductionOrderRow
  * @property {string} id
  * @property {string} organizationId
@@ -584,7 +849,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `production_material_issues` (Convex `productionMaterialIssues`)
+ * `production_material_issues`
  * @typedef {Object} ProductionMaterialIssueRow
  * @property {string} id
  * @property {string} organizationId
@@ -598,7 +863,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `production_output_receipts` (Convex `productionOutputReceipts`)
+ * `production_output_receipts`
  * @typedef {Object} ProductionOutputReceiptRow
  * @property {string} id
  * @property {string} organizationId
@@ -614,7 +879,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `lot_genealogy_links` (Convex `lotGenealogyLinks`)
+ * `lot_genealogy_links`
  * @typedef {Object} LotGenealogyLinkRow
  * @property {string} id
  * @property {string} organizationId
@@ -630,7 +895,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `truck_inventory_checkpoints` (Convex `truckInventoryCheckpoints`)
+ * `truck_inventory_checkpoints`
  * @typedef {Object} TruckInventoryCheckpointRow
  * @property {string} id
  * @property {string} organizationId
@@ -643,7 +908,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `truck_inventory_checkpoint_lines` (Convex `truckInventoryCheckpointLines`)
+ * `truck_inventory_checkpoint_lines`
  * @typedef {Object} TruckInventoryCheckpointLineRow
  * @property {string} id
  * @property {string} organizationId
@@ -657,7 +922,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `negative_stock_allowances` (Convex `negativeStockAllowances`)
+ * `negative_stock_allowances`
  * @typedef {Object} NegativeStockAllowanceRow
  * @property {string} id
  * @property {string} organizationId
@@ -676,7 +941,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `negative_stock_flags` (Convex `negativeStockFlags`)
+ * `negative_stock_flags`
  * @typedef {Object} NegativeStockFlagRow
  * @property {string} id
  * @property {string} organizationId
@@ -698,13 +963,13 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `inventory_reconciliation_runs` (Convex `inventoryReconciliationRuns`)
+ * `inventory_reconciliation_runs`
  * @typedef {Object} InventoryReconciliationRunRow
  * @property {string} id
  * @property {string} organizationId
  * @property {string} scope
  * @property {"pending" | "running" | "completed" | "failed"} status
- * @property {Date} convexCutoff
+ * @property {Date} operationalCutoff
  * @property {Date} sapCutoff
  * @property {number} comparedCount
  * @property {number} differenceCount
@@ -716,7 +981,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  */
 
 /**
- * `inventory_reconciliation_differences` (Convex `inventoryReconciliationDifferences`)
+ * `inventory_reconciliation_differences`
  * @typedef {Object} InventoryReconciliationDifferenceRow
  * @property {string} id
  * @property {string} organizationId
@@ -725,7 +990,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS = /** @type {
  * @property {string | null} locationId
  * @property {string} productCode
  * @property {string} warehouseCode
- * @property {string} convexBase
+ * @property {string} operationalBase
  * @property {string} sapBase
  * @property {string} differenceBase
  * @property {"mapping" | "timing" | "missing_inbound" | "missing_outbound" | "duplicate" | "unauthorized_adjustment" | "unresolved"} classification

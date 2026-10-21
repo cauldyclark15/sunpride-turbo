@@ -20,9 +20,10 @@ internal data class PromotionLine(
     var freeBase: Long,
     val price: PosPrice?,
     var discountMinor: Long,
-    var promotion: QuotedPromotion?
+    var promotion: QuotedPromotion?,
+    val grossMinorOverride: Long? = null
 ) {
-    val grossMinor: Long get() = if (paidBase == 0L) 0L else price?.let { CheckoutRules.lineTotal(it.unitPriceMinor,paidBase,product.quantityScale) } ?: 0L
+    val grossMinor: Long get() = grossMinorOverride ?: if (paidBase == 0L) 0L else price?.let { CheckoutRules.lineTotal(it.unitPriceMinor,paidBase,product.quantityScale) } ?: 0L
 }
 
 internal data class PromotionResult(val lines: List<PromotionLine>, val issues: List<CheckoutIssue>, val earnedMinor: Long = 0)
@@ -34,6 +35,8 @@ internal data class PromotionResult(val lines: List<PromotionLine>, val issues: 
  * supplies a different rounding or allocation rule.
  */
 internal object PromotionEngine {
+    fun applyGoverned(cart:List<CartLine>,customer:Customer,products:Map<String,Product>,prices:List<PriceLine>,snapshot:String,now:Long):PromotionResult =
+        GovernedPromotions.apply(cart,customer,products,prices,snapshot,now)
     fun apply(
         cart: List<CartLine>,
         customer: Customer,

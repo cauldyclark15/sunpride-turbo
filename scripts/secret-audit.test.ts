@@ -28,14 +28,14 @@ describe("secret configuration names", () => {
       "MOBILE_CURSOR_SECRET",
       "SAP_PASSWORD",
       "SAP_USERNAME",
-      "CONVEX_DEPLOY_KEY",
+      "SYNC_CURSOR_SECRET",
       "NEW_VENDOR_API_KEY",
     ])
       expect(isSecretName(name)).toBe(true);
     for (const name of [
-      "NEXT_PUBLIC_CONVEX_URL",
-      "VITE_CONVEX_SITE_URL",
-      "CONVEX_SITE_URL",
+      "NEXT_PUBLIC_SITE_URL",
+      "VITE_SITE_URL",
+      "API_ORIGIN",
       "SAP_BASE_URL",
       "CONNECTOR_ID",
     ])
@@ -58,7 +58,7 @@ describe("secret configuration names", () => {
     const values = collectSecretValues([
       ["CONNECTOR_SIGNING_SECRET", fakeSecret],
       ["SAP_PASSWORD", "short"],
-      ["NEXT_PUBLIC_CONVEX_URL", "https://example.convex.cloud"],
+      ["NEXT_PUBLIC_SITE_URL", "https://example.test"],
     ]);
     expect([...values]).toEqual([[fakeSecret, "CONNECTOR_SIGNING_SECRET"]]);
   });
@@ -109,7 +109,7 @@ describe("configuration rules", () => {
     expect(
       checkEnvTemplate(
         ".env.example",
-        `CONNECTOR_SIGNING_SECRET=\nSAP_PASSWORD=\nCONVEX_URL=https://x.convex.cloud`,
+        `CONNECTOR_SIGNING_SECRET=\nSAP_PASSWORD=\nAPI_ORIGIN=https://example.test`,
       ),
     ).toEqual([]);
     expect(
@@ -127,7 +127,7 @@ describe("configuration rules", () => {
     for (const file of [
       ".env",
       "apps/web/.env.local",
-      "packages/backend/.env.production",
+      "apps/api/.env.production",
       "apps/field-android/local.properties",
       "apps/field-ios/Config/Local.xcconfig",
       "certs/server.pem",
@@ -136,7 +136,7 @@ describe("configuration rules", () => {
       expect(checkTrackedPath(file)).toHaveLength(1);
     for (const file of [
       ".env.example",
-      "packages/backend/.env.deployment.example",
+      "apps/api/.env.example",
       "apps/field-ios/Config/Dev.xcconfig",
       "apps/web/src/lib/env.ts",
     ])
@@ -147,7 +147,7 @@ describe("configuration rules", () => {
     expect(
       checkClientEnvUsage(
         "a.tsx",
-        `process.env.NEXT_PUBLIC_CONVEX_URL; process.env.NODE_ENV; import.meta.env.VITE_CONVEX_URL; import.meta.env.DEV`,
+        `process.env.NEXT_PUBLIC_SITE_URL; process.env.NODE_ENV; import.meta.env.VITE_SITE_URL; import.meta.env.DEV`,
       ),
     ).toEqual([]);
     const details = checkClientEnvUsage(
@@ -167,6 +167,18 @@ describe("configuration rules", () => {
         `import "server-only";\nprocess.env.BETTER_AUTH_SECRET`,
       ),
     ).toEqual([]);
+  });
+
+  test("Next headers is a server boundary, not permission for an ordinary browser module", () => {
+    expect(
+      checkClientEnvUsage(
+        "server.ts",
+        'import { cookies } from "next/headers";\nprocess.env.API_ORIGIN',
+      ),
+    ).toEqual([]);
+    expect(
+      checkClientEnvUsage("client.ts", "process.env.API_ORIGIN"),
+    ).toHaveLength(1);
   });
 
   test("bundler configs must not inline extra environment", () => {
@@ -190,12 +202,33 @@ describe("configuration rules", () => {
     ).toEqual([]);
   });
 
+  test("permits only the public worker build id exception, never another inlined value", () => {
+    expect(
+      checkBundlerConfig(
+        "next.config.ts",
+        "env: { NEXT_PUBLIC_SP_BUILD_ID: buildVersion() }",
+      ),
+    ).toEqual([]);
+    expect(
+      checkBundlerConfig(
+        "next.config.ts",
+        "env: { NEXT_PUBLIC_SP_BUILD_ID: buildVersion(), AUTH_SECRET: secret }",
+      ),
+    ).toHaveLength(1);
+    expect(
+      checkBundlerConfig(
+        "next.config.ts",
+        "env: { NEXT_PUBLIC_SP_BUILD_ID: buildVersion() }, env: { AUTH_SECRET: secret }",
+      ),
+    ).toHaveLength(1);
+  });
+
   test("turbo keeps secrets out of the build task environment", () => {
     const findings = checkTurboConfig(
       "turbo.json",
       JSON.stringify({
-        globalEnv: ["CONVEX_SITE_URL", "SAP_PASSWORD"],
-        tasks: { build: { env: ["NEXT_PUBLIC_CONVEX_URL", "AUTH_SECRET"] } },
+        globalEnv: ["API_ORIGIN", "SAP_PASSWORD"],
+        tasks: { build: { env: ["NEXT_PUBLIC_SITE_URL", "AUTH_SECRET"] } },
       }),
     );
     expect(findings.map((f) => `${f.rule}:${f.detail}`)).toEqual([

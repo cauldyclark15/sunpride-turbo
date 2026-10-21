@@ -1,5 +1,5 @@
 -- 0100_org: Org units, positions, people/profiles, teams, audit log.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: org_unit_types, org_units, org_unit_parent_edges, positions, position_standards, profiles, access_invitations, employee_assignments, teams, team_memberships, audit_logs.
 
 create extension if not exists btree_gist;

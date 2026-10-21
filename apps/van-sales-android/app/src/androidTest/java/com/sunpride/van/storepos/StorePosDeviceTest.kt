@@ -1,0 +1,84 @@
+package com.sunpride.van.storepos
+
+import androidx.activity.ComponentActivity
+import androidx.compose.runtime.*
+import androidx.compose.ui.test.*
+import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.test.espresso.Espresso
+import com.sunpride.van.AppEnvironment
+import com.sunpride.van.retail.RetailRoomFixture
+import com.sunpride.van.ui.*
+import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.flow.first
+import org.json.JSONObject
+import org.junit.*
+import org.junit.Assert.*
+import java.util.UUID
+
+/** F-R01: real SQLCipher Room and shared UI on the H10P; fixtures are explicitly isolated. */
+class StorePosDeviceTest {
+    @get:Rule val rule=createAndroidComposeRule<ComponentActivity>()
+    private lateinit var f:RetailRoomFixture
+    private var mounted by mutableStateOf(false)
+    private val mode=UUID.randomUUID().toString()
+    private val register=UUID.randomUUID().toString()
+    private fun snapshot():String {
+        val o=JSONObject(f.snapshot())
+        o.put("trip",JSONObject.NULL).put("load",JSONObject.NULL)
+        o.getJSONObject("policy").put("storePos",JSONObject().put("version",1).put("mode","store").put("modeVersionId",mode)
+            .put("registerId",register).put("registerName","Sample register 1").put("storeName","Sample Cebu Colon store")
+            .put("terminalCode","CEBU-COLON-01").put("policyId",UUID.randomUUID().toString()).put("shift",JSONObject.NULL)
+            .put("allowLocalSwitch",false).put("transactionsEnabled",false))
+        return o.toString()
+    }
+    @Before fun open() {f=RetailRoomFixture();runBlocking{f.store.replaceBootstrap(snapshot())}}
+    @After fun close() {rule.runOnUiThread{mounted=false};rule.waitForIdle();f.close()}
+    @Test fun F_R01_offlineSessionSurvivesDatabaseReopenWithImmutableOrderedOperations()=runBlocking {
+        val session=StorePosStore(f.store)
+        val id=session.open(100_000)
+        val bytes=f.store.pending().single().operationJson
+        f.reopen()
+        val reopened=StorePosStore(f.store)
+        assertEquals(id,reopened.state.first().shift!!.shiftId)
+        assertEquals(bytes,f.store.pending().single().operationJson)
+        reopened.close(99_000)
+        val rows=f.store.pending()
+        assertEquals(listOf("store.shift.open","store.shift.close"),rows.map{it.kind})
+        assertTrue(rows[1].createdAt>rows[0].createdAt)
+        val close=JSONObject(rows[1].operationJson)
+        assertEquals(rows[0].clientRequestId,close.getJSONArray("dependsOn").getString(0))
+        assertFalse(close.getJSONObject("payload").has("expectedCentavos"))
+        f.reopen()
+        assertNull(StorePosStore(f.store).state.first().shift)
+        f.store.hold()
+        assertTrue(runCatching{StorePosStore(f.store).open(0)}.isFailure)
+        Unit
+    }
+    @Test fun F_R01_storeScreensHideVanActionsAndKeepBlindCountClearOfSystemBars() {
+        val c=VanController(f.repository(),AppEnvironment("https://retail.invalid"))
+        mounted=true
+        rule.setContent{if(mounted)VanApp(c,restore=false)}
+        rule.waitUntil(10_000){c.initialized && c.storeMode}
+        rule.onNodeWithTag("store-shift").assertIsDisplayed()
+        rule.onNodeWithTag("open-customers").assertDoesNotExist()
+        rule.onNodeWithTag("open-route-ops").assertDoesNotExist()
+        captureVanScreenshot(rule,"retail-store-home","store-shift")
+        rule.onNodeWithTag("store-shift").performClick()
+        captureVanScreenshot(rule,"retail-opening-float","save-store-shift")
+        rule.onNodeWithTag("store-cash-amount").performTextInput("1000")
+        Espresso.closeSoftKeyboard()
+        rule.onNodeWithTag("save-store-shift").performClick()
+        rule.waitUntil(10_000){!c.busy && c.storePos.shift!=null}
+        rule.onNodeWithTag("screen-title").assertTextEquals("Blind cash count")
+        rule.onNodeWithText("Expected",substring=true).assertDoesNotExist()
+        captureVanScreenshot(rule,"retail-blind-count","save-store-shift")
+        rule.onNodeWithTag("store-cash-amount").performTextReplacement("990")
+        Espresso.closeSoftKeyboard()
+        rule.onNodeWithTag("save-store-shift").performClick()
+        rule.waitUntil(10_000){!c.busy && c.page==Page.HOME && c.storePos.shift==null}
+        captureVanScreenshot(rule,"retail-closed-session","store-shift")
+        rule.onNodeWithTag("open-pos-mode").performScrollTo().performClick()
+        rule.onNodeWithTag("pos-mode-value").assertTextEquals("Store")
+        captureVanScreenshot(rule,"retail-mode-settings","primary")
+    }
+}

@@ -32,8 +32,8 @@ Governed reason codes (stable code, label, category, effective dates, owner appr
 
 ## Consequences
 
-- Extend `packages/backend/convex/schema.ts` `visits` beyond `planned/completed/cancelled`: link outlet/MCP version, intents, statuses, event/audit log, evidence, activity records and correction records; migrate legacy `cancelled` explicitly rather than silently mapping it. Existing `salesForce.ts` readers need migration.
-- Enforce `visit.record` and `visit.read` capabilities plus ADR-005 unit scope on new commands; manager exception decisions need their own scoped capability, not a title check (`packages/backend/convex/lib/capabilities.ts`).
+- Extend `packages/db/MAPPING.md` `visits` beyond `planned/completed/cancelled`: link outlet/MCP version, intents, statuses, event/audit log, evidence, activity records and correction records; migrate legacy `cancelled` explicitly rather than silently mapping it. Existing `salesForce.ts` readers need migration.
+- Enforce `visit.record` and `visit.read` capabilities plus ADR-005 unit scope on new commands; manager exception decisions need their own scoped capability, not a title check (`apps/api/src/core/capabilities.js`).
 - Reports/DSR and Call Sheet joins must use linked evidence, channel and rule version (memo §6, Annexes B–C); separate actual, productive, missed, skipped and off-plan counts.
 
 ## Open questions

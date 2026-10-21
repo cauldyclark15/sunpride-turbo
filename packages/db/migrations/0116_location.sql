@@ -1,5 +1,5 @@
 -- 0116_location: Location pings and live positions.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: location_pings, live_locations.
 
 -- locationPings [synced]

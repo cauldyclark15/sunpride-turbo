@@ -17,28 +17,9 @@ refines them later.
 
 ## How to use this document
 
-- Each scenario has an ID (`VUAT-<area>-<nn>`), the role that runs it, preconditions, steps
-  and the expected result. Testers record Pass / Fail / Blocked and the defect number on the
-  sign-off sheet at the end.
-- `Automated:` lines name a test that proves the same behaviour on every build:
-  - `packages/backend/...test.ts` — server (convex-test), runs in `bun run test`;
-  - `apps/web/...test.tsx` — web approval screens, runs in `bun run test`;
-  - `apps/van-sales-android/app/src/test/...kt` — handheld rules (JVM), runs in
-    `./gradlew testDevDebugUnitTest`;
-  - `apps/van-sales-android/app/src/androidTest/...kt` — runs on the H10P itself (encrypted
-    database, printer, scanner, screens) through
-    `~/.hermes/scripts/sunpride-pos-device-test.sh <worktree>`.
-- A green automated test does not replace the UAT run: UAT proves the screens, the handheld,
-  the paper and the people's workflow. `Manual only:` marks what no automated test covers.
-- `Known gap:` states what the current build does not do yet, so a tester does not log it
-  as a defect. `Pending:` names a tracker item that is built but not yet merged; run that
-  scenario once the item reaches the pilot build, otherwise mark it Blocked.
-- `packages/backend/convex/acceptance/van_uat_catalog.test.ts` fails the build if a scenario
-  loses its role, expected result or test marker, or if a referenced test is renamed or
-  deleted (server, web, JVM and H10P tests alike).
-- The server half of the whole day runs on the beta sample data as one story in
-  `packages/backend/convex/acceptance/van_pilot.acceptance.test.ts` (`VUAT-E2E-01`,
-  `VUAT-E2E-02`).
+These are required business scenarios, not a current feature inventory or automated execution report. Record Pass / Fail / Blocked, build, role, data and evidence for the actual v2 release. Do not infer that a removed server test still proves a scenario. Current API sources are `apps/api/test/coverage.test.js`, `devices.test.js`, `visits.test.js`, `sync.test.js`, `fieldsync.test.js`, `van.test.js`, `vanops.test.js` and `sap.test.js`; run the file-isolated package runner with `SP_LANE=<lane>`.
+
+Retained native test references are source pointers only. Physical offline/camera/printing and public deployment need their own proof. Android field uses the assigned Redmi, van uses the H10P; iOS delivery is paused. Rehearsals use marked sample data until client inputs arrive, and mock SAP is explicitly not production SAP access.
 
 ## Environment and roles
 
@@ -49,7 +30,7 @@ refines them later.
 | Web app   | DEV or beta deployment of the management web app (Approvals module)                   |
 | Data      | Beta sample data (`docs/runbooks/BETA_SAMPLE_DATA.md`), until Sunpride's real data    |
 | Time zone | Asia/Manila; the trip is for today's Manila date                                      |
-| SAP       | Not part of this pilot: van sales, returns and loads are not posted to SAP yet        |
+| SAP       | Local mock mediation; real SAP production posting is not certified        |
 
 | UAT role            | Sample login               | App role     | Used for                                              |
 | ------------------- | -------------------------- | ------------ | ----------------------------------------------------- |
@@ -58,7 +39,7 @@ refines them later.
 | Warehouse / office  | `operations@sunpride.test` | `operations` | Takes the leftovers back and closes the trip          |
 | Approver (backup)   | `approver@sunpride.test`   | `approver`   | Second approver; proves approvals are not seller-only |
 | Administrator       | `admin@sunpride.test`      | `admin`      | Approves the handheld, plans trips                    |
-| Lead (no app login) | deployment admin key       | —            | Seeds sample data and plans the day (`planVanDay`)    |
+| Lead (no app login) | authorized local seed operator       | —            | Seeds sample data and plans the day (`planVanDay`)    |
 
 Use a different person (and login) for each role: the seller can never approve their own
 load difference, damage, void, cash count or stock count, and UAT must prove that.
@@ -71,9 +52,7 @@ Entry:
    device suite.
 2. The beta sample data is seeded and every tester has signed in once (seed run twice, see
    `docs/runbooks/BETA_SAMPLE_DATA.md`).
-3. Each test day the lead runs `bunx convex run beta/sample:planVanDay` so the seller has a
-   trip on `SMP-TRK-01` / `SMP-R-CBS-1` with a 10-line load sheet. There is no web screen for
-   trip planning yet.
+3. Use the existing web van-trip workflow and the idempotent PostgreSQL sample seed to prepare an authorized isolated test day. Verify the trip and load before downloading it.
 4. The H10P has the current beta APK, paper in the printer, and is registered (`VUAT-SET-01`).
 
 Exit (van pilot go/no-go):
@@ -114,7 +93,6 @@ the van day cannot be completed; Medium = a workaround exists; Low = cosmetic.
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/ui/VanUiDeviceTest.kt` — "printerTestOpensBeforeSignInAndReturnsToSignIn"
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/ui/VanUiDeviceTest.kt` — "wrongPasswordAndOfflineShowPlainSignInMessages"
 - Automated: `apps/van-sales-android/app/src/test/java/com/sunpride/van/auth/EnrollmentTest.kt` — "registeredUnboundChallengesSignsBindsAndReadsBack"
-- Automated: `packages/backend/convex/van/device_auth.test.ts` — "VAN_ANDROID signs only van bootstrap/push; rejection leaves the nonce usable on its proper path"
 - Manual only: the administrator's approval in the web app and the real sign-in on DEV.
 
 ### VUAT-SET-02 · The day's trip, customers and prices reach the handheld
@@ -126,9 +104,6 @@ the van day cannot be completed; Medium = a workaround exists; Low = cosmetic.
   "Check the load"; Customers lists the route stores in route order, then other stores in
   the area and walk-ins; each loaded product shows its Route Sales price (or "Priced by the
   office" when no single price exists, never a guess).
-- Automated: `packages/backend/convex/beta/sample.test.ts` — "plans the van tester's sample day (trip + load sheet) idempotently, priced on the handheld"
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "orders current route customers by sequence, adds covered unplanned customers, excludes expired/inactive/foreign outlets"
-- Automated: `packages/backend/convex/acceptance/van_pilot.acceptance.test.ts` — "VUAT-E2E-01 sample van day: download, confirm load, start, record damage, approve codes, unload leftovers and close"
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/ui/VanUiDeviceTest.kt` — "homeRendersFixtureAndSafePrimaryBounds"
 
 ### B. Load
@@ -141,8 +116,6 @@ the van day cannot be completed; Medium = a workaround exists; Low = cosmetic.
 - Expected: a case scan adds the case's pieces (e.g. 24 PC); after sync the load shows
   Loaded, the truck stock equals the load sheet, the depot is lower by the same quantities,
   and Today offers Start trip.
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "matched actuals post one van_load with depot/truck ledger entries and command metadata"
-- Automated: `packages/backend/convex/acceptance/van_pilot.acceptance.test.ts` — "VUAT-E2E-01 sample van day: download, confirm load, start, record damage, approve codes, unload leftovers and close"
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/storage/EncryptedVanStoreTest.kt` — "pendingLoadDoesNotBecomeStockUntilServerPostingAck"
 - Manual only: counting the real cases on the truck and scanning their barcodes.
 
@@ -154,7 +127,6 @@ the van day cannot be completed; Medium = a workaround exists; Low = cosmetic.
 - Expected: step 1 is refused; after step 3 the load says "Waiting for supervisor approval"
   and no stock moves; the seller cannot approve; after approval the truck holds the counted
   (not the planned) quantity and Start trip is offered.
-- Automated: `packages/backend/convex/acceptance/van_pilot.acceptance.test.ts` — "VUAT-E2E-02 sample load discrepancy waits for the Cebu supervisor and posts the counted quantities"
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/ui/VanUiDeviceTest.kt` — "changedLoadRequiresReasonAndIsDurablyQueued"
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/storage/EncryptedVanStoreTest.kt` — "discrepancyAckHasNoLoadMovementUntilLaterPostedBootstrap"
 - Known gap: there is no web screen for load approval yet; the supervisor approves through
@@ -170,8 +142,6 @@ the van day cannot be completed; Medium = a workaround exists; Low = cosmetic.
   the trip on route and New sale becomes available. A second open trip for the same truck or
   seller on the same day is refused.
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/ui/VanUiDeviceTest.kt` — "startRequiresLoadedTripAndBothChecks"
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "refuses start before posting, on the wrong day, without confirmations or with an open session"
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "enforces one open trip per truck/day and salesman/day, increments numbers after cancellation"
 
 ### C. Selling offline
 
@@ -228,7 +198,6 @@ the van day cannot be completed; Medium = a workaround exists; Low = cosmetic.
 - Automated: `apps/van-sales-android/app/src/test/java/com/sunpride/van/pos/CheckoutRulesTest.kt` — "otherMethodsTakeTheExactTotalAndNeedAValidUnusedReference"
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/storage/SaleCheckoutStoreTest.kt` — "creditSaleIsChargedToTheAccountWithADueDateWithinCreditLeft"
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/storage/SaleCheckoutStoreTest.kt` — "walkInCustomerCannotBuyOnCredit"
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "sends the office payment methods and each customer's current credit terms (VAN-012)"
 
 ### VUAT-SELL-05 · Walk-in customer
 
@@ -351,8 +320,6 @@ the van day cannot be completed; Medium = a workaround exists; Low = cosmetic.
   piece needs a photo; after sync the office truck stock shows the same damaged quantity.
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/ui/VanUiDeviceTest.kt` — "damageBeyondStockIsRefusedAndValidDamageUpdatesProjection"
 - Automated: `apps/van-sales-android/app/src/test/java/com/sunpride/van/data/DamageRulesTest.kt` — "requiredReasonNeedsPhotoBelowApprovalAndExpiredDoesNot"
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "requires an uploaded photo of the same seller for visible-damage reasons"
-- Automated: `packages/backend/convex/acceptance/van_pilot.acceptance.test.ts` — "VUAT-E2E-01 sample van day: download, confirm load, start, record damage, approve codes, unload leftovers and close"
 - Manual only: taking the photo with the H10P camera.
 
 ### VUAT-DMG-02 · Large damage waits for the supervisor
@@ -364,9 +331,6 @@ the van day cannot be completed; Medium = a workaround exists; Low = cosmetic.
 - Expected: the record waits for approval with its photo; the seller cannot decide; reject
   needs a note and puts the stock back through a separate reversal; the handheld shows the
   decision after sync.
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "holds records at the approval threshold for a supervisor, with a photo, and shows them on the device"
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "lets only an in-scope supervisor who is not the recorder decide"
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "rejects with a reason through a separate reversal movement, never editing the original"
 - Automated: `apps/web/src/components/van-damage-approvals.test.tsx` — "never rejects without a note, and sends the note when given"
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/ui/VanUiDeviceTest.kt` — "approvalBoundaryRequiresPhotoRetakeAndShowsSupervisorHistory"
 
@@ -385,9 +349,7 @@ the van day cannot be completed; Medium = a workaround exists; Low = cosmetic.
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/ui/VanUiDeviceTest.kt` — "voidDialogRequiresSupervisorCodeClearsItOnReasonChangeAndPrintsOnlyVoidSlips"
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/storage/SaleVoidStoreTest.kt` — "voidRestoresExactlyTheSaleAndLeavesEveryOriginalFactByteIdentical"
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/storage/SaleVoidStoreTest.kt` — "wrongCodeWritesNothingInAnyTable"
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "issues the code a supervisor in scope reads to the seller, audited without the code"
 - Automated: `apps/web/src/components/van-void-approval.test.tsx` — "offers exactly the backend's void reasons"
-- Automated: `packages/backend/convex/acceptance/van_pilot.acceptance.test.ts` — "VUAT-E2E-01 sample van day: download, confirm load, start, record damage, approve codes, unload leftovers and close"
 - Manual only: the phone call between seller and supervisor.
 
 ### VUAT-VOID-02 · A returned sale cannot be voided; a voided sale takes no return
@@ -424,7 +386,6 @@ the van day cannot be completed; Medium = a workaround exists; Low = cosmetic.
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/ui/VanUiDeviceTest.kt` — "cashCountShowsExpectedCashNeedsAReasonAndAboveToleranceTheSupervisorCodeThenStopsSelling"
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/storage/CashReconciliationStoreTest.kt` — "aDifferenceAboveToleranceNeedsTheExactCodeAndRefusalsWriteNothing"
 - Automated: `apps/van-sales-android/app/src/test/java/com/sunpride/van/pos/CashReconciliationTest.kt` — "aVoidCodeForTheSameTripNeverApprovesCash"
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "refuses the seller, roles without the capability, other regions, bad input, trips not on the road and a missing secret"
 - Automated: `apps/web/src/components/van-cash-approval.test.tsx` — "sends the trimmed trip number, centavos and reason; refuses an incomplete or matching form"
 - Open item: the ₱50.00 tolerance and the reasons are our default (`docs/runbooks/VAN_CASH_RECONCILIATION.md`).
 
@@ -472,10 +433,7 @@ the van day cannot be completed; Medium = a workaround exists; Low = cosmetic.
 - Expected: the office keeps one load, one stock movement and gives the same answer; a
   different body under the same request is refused as a conflict and kept for review, never
   retried silently.
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "VAN-013 replay returns identical ack once, changed payload conflicts, ownership and operate capability fail closed"
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "replays trip starts and damage with stable acknowledgements, no duplicate sessions or movements"
 - Automated: `apps/van-sales-android/app/src/test/java/com/sunpride/van/sync/VanSyncTest.kt` — "rejectedAndConflictAreNeverRetried"
-- Automated: `packages/backend/convex/acceptance/van_pilot.acceptance.test.ts` — "VUAT-E2E-01 sample van day: download, confirm load, start, record damage, approve codes, unload leftovers and close"
 
 ### VUAT-SYNC-03 · Suspended or removed handheld keeps its work
 
@@ -485,7 +443,6 @@ the van day cannot be completed; Medium = a workaround exists; Low = cosmetic.
   phone (paused for review, never deleted, never retried by itself) and says the phone is
   paused. Recovery of paused work goes through the office
   (`docs/runbooks/MOBILE_DEVICE_INCIDENT.md`).
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "the production HTTP push refuses a suspension committed after proof verification"
 - Automated: `apps/van-sales-android/app/src/androidTest/java/com/sunpride/van/storage/EncryptedVanStoreTest.kt` — "holdAndReviewNeverAutomaticallyRetry"
 - Automated: `apps/van-sales-android/app/src/test/java/com/sunpride/van/auth/EnrollmentTest.kt` — "revokedOrSuspendedStops"
 - Manual only: suspending the real handheld in the web app.
@@ -524,9 +481,6 @@ the van day cannot be completed; Medium = a workaround exists; Low = cosmetic.
 - Expected: step 1 is refused ("return leftovers first"); the seller cannot do the warehouse
   step; the leftovers go back to the depot in one movement, damaged kept apart; the truck is
   empty; the trip closes and leaves the handheld.
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "starts with crew/odometer/device, sells through existing POS, damages, unloads both statuses and closes"
-- Automated: `packages/backend/convex/van/workflow.test.ts` — "gates return and close by capability, stored trip scope and lifecycle"
-- Automated: `packages/backend/convex/acceptance/van_pilot.acceptance.test.ts` — "VUAT-E2E-01 sample van day: download, confirm load, start, record damage, approve codes, unload leftovers and close"
 - Known gap: there is no web screen for returning leftovers or closing the trip yet; the lead
   runs `van/trips:returnLeftover` and `van/trips:close` as the operations tester. Because van
   sales are not uploaded yet, the office truck stock does not include the day's sales, so the
@@ -544,7 +498,6 @@ the van day cannot be completed; Medium = a workaround exists; Low = cosmetic.
 - Expected: every step succeeds with the same data flowing through; at the end the cash in
   the bag equals the counted cash, the truck is empty and the trip is closed on the handheld
   and in the office.
-- Automated: `packages/backend/convex/acceptance/van_pilot.acceptance.test.ts` — "VUAT-E2E-01 sample van day: download, confirm load, start, record damage, approve codes, unload leftovers and close"
 - Manual only: the handheld half of the day (selling, printing, counts) on the H10P.
 
 ### VUAT-E2E-02 · Load difference day
@@ -552,7 +505,6 @@ the van day cannot be completed; Medium = a workaround exists; Low = cosmetic.
 - Role: Van seller, Supervisor
 - Steps: run `VUAT-LOAD-02`, then `VUAT-LOAD-03` and `VUAT-E2E-01` from the first sale.
 - Expected: as in those scenarios; the day's stock starts from the counted load.
-- Automated: `packages/backend/convex/acceptance/van_pilot.acceptance.test.ts` — "VUAT-E2E-02 sample load discrepancy waits for the Cebu supervisor and posts the counted quantities"
 
 ## Open items for Sunpride (affect expected results)
 

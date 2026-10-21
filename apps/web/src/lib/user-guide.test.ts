@@ -14,7 +14,7 @@ const guide = readFileSync(
 const sourceRoots = [
   "apps/web/src",
   "packages/ui/src",
-  "packages/backend/convex",
+  "apps/api/src",
 ] as const;
 
 function sourceFiles(dir: URL): string[] {
@@ -23,7 +23,7 @@ function sourceFiles(dir: URL): string[] {
     const child = new URL(name, dir);
     if (statSync(child).isDirectory())
       return sourceFiles(new URL(`${name}/`, dir));
-    return /\.(ts|tsx)$/.test(name) && !/\.test\.tsx?$/.test(name)
+    return /\.(js|ts|tsx)$/.test(name) && !/\.test\.[jt]sx?$/.test(name)
       ? [child.pathname]
       : [];
   });

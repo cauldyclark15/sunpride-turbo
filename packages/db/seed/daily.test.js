@@ -32,13 +32,15 @@ const sentinel = crypto.randomUUID(),
   testerVisit = crypto.randomUUID(),
   testerOrder = crypto.randomUUID();
 
+const lane = process.env.SP_LANE ?? "core";
+if (!/^[a-z0-9_]+$/.test(lane)) throw new Error("Invalid SP_LANE");
 beforeAll(async () => {
   setSystemTime(new Date(at(today, 12 * 60)));
   const base = (
-    await Bun.file(`${process.env.HOME}/.sunpride-keys/pg-lane-core-url`).text()
+    await Bun.file(`${process.env.HOME}/.sunpride-keys/pg-lane-${lane}-url`).text()
   ).trim();
   admin = createDb(base, { max: 1 });
-  name = `sunpride_lane_core_t${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
+  name = `sunpride_lane_${lane}_t${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
   await admin.unsafe(`create database ${ident(name)}`);
   const url = new URL(base);
   url.pathname = `/${name}`;

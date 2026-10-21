@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import type { McpDeadlineState as ServerState } from "../../../../packages/backend/convex/coverage/calendar_rules";
+import { deadlineState } from "../../../api/src/domains/coverage/deadlines.js";
 import {
   capacityLabel,
   deadlineDate,
@@ -8,11 +8,40 @@ import {
   type McpDeadlineState,
 } from "./mcp-deadlines";
 
-// Compile-time parity with the server's state union, both directions.
-const toServer = (state: McpDeadlineState): ServerState => state;
-const fromServer = (state: ServerState): McpDeadlineState => state;
-
 describe("MCP deadline labels", () => {
+  it("labels every deadline state emitted by the Bun API", () => {
+    const deadlines = {
+      localMonth: "2026-10",
+      submissionOpensDate: "2026-09-24",
+      submissionDueDate: "2026-09-30",
+      approvalDueDate: "2026-10-07",
+      submissionOpensAt: 10,
+      submissionDueAt: 20,
+      approvalDueAt: 30,
+    };
+    const emitted = [
+      deadlineState(deadlines, null, 0).state,
+      deadlineState(deadlines, null, 15).state,
+      deadlineState(deadlines, null, 25).state,
+      deadlineState(deadlines, { status: "submitted" }, 25).state,
+      deadlineState(deadlines, { status: "submitted" }, 35).state,
+      deadlineState(deadlines, { status: "approved", approved_at: 25 }, 35)
+        .state,
+      deadlineState(deadlines, { status: "approved", approved_at: 35 }, 35)
+        .state,
+    ];
+    expect(emitted).toEqual([
+      "not_open",
+      "due",
+      "overdue",
+      "awaiting_approval",
+      "approval_overdue",
+      "approved",
+      "approved_late",
+    ]);
+    for (const state of emitted)
+      expect(deadlineStateLabel(state as McpDeadlineState)).toBeDefined();
+  });
   it("labels every state with a tone", () => {
     const states: McpDeadlineState[] = [
       "not_open",
@@ -23,9 +52,7 @@ describe("MCP deadline labels", () => {
       "approved",
       "approved_late",
     ];
-    expect(
-      states.map((s) => deadlineStateLabel(fromServer(toServer(s)))),
-    ).toEqual([
+    expect(states.map((s) => deadlineStateLabel(s))).toEqual([
       { label: "Not yet due", tone: "neutral" },
       { label: "Due", tone: "warning" },
       { label: "Overdue", tone: "danger" },

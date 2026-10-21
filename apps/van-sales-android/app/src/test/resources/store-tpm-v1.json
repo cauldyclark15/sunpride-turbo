@@ -1,0 +1,478 @@
+[
+  {
+    "name": "free-basket",
+    "lines": [
+      {
+        "productId": "a",
+        "uom": "PC",
+        "quantity": 3,
+        "unitPriceCentavos": 101,
+        "lineTotalCentavos": 303,
+        "priceListId": "base"
+      },
+      {
+        "productId": "b",
+        "uom": "PC",
+        "quantity": 2,
+        "unitPriceCentavos": 202,
+        "lineTotalCentavos": 404,
+        "priceListId": "base"
+      }
+    ],
+    "schemes": [
+      {
+        "id": "ONE",
+        "code": "ONE",
+        "name": "ONE",
+        "engine_version": 1,
+        "rule": {
+          "kind": "basket",
+          "minSubtotalCentavos": 0,
+          "percentOffBasisPoints": 10000
+        },
+        "effectiveFrom": 1,
+        "effectiveTo": null,
+        "stacking": "stack",
+        "benefit_timing": "on_invoice"
+      }
+    ],
+    "expected": {
+      "total": 0,
+      "discounts": [303, 404],
+      "free": []
+    }
+  },
+  {
+    "name": "half-up",
+    "lines": [
+      {
+        "productId": "a",
+        "uom": "PC",
+        "quantity": 3,
+        "unitPriceCentavos": 101,
+        "lineTotalCentavos": 303,
+        "priceListId": "base"
+      },
+      {
+        "productId": "b",
+        "uom": "PC",
+        "quantity": 2,
+        "unitPriceCentavos": 202,
+        "lineTotalCentavos": 404,
+        "priceListId": "base"
+      }
+    ],
+    "schemes": [
+      {
+        "id": "ONE",
+        "code": "ONE",
+        "name": "ONE",
+        "engine_version": 1,
+        "rule": {
+          "kind": "percent_off",
+          "item": {
+            "productId": "a",
+            "uom": "PC",
+            "quantity": 1
+          },
+          "percentOffBasisPoints": 5000
+        },
+        "effectiveFrom": 1,
+        "effectiveTo": null,
+        "stacking": "stack",
+        "benefit_timing": "on_invoice"
+      }
+    ],
+    "expected": {
+      "total": 555,
+      "discounts": [152, 0],
+      "free": []
+    }
+  },
+  {
+    "name": "basket",
+    "lines": [
+      {
+        "productId": "a",
+        "uom": "PC",
+        "quantity": 3,
+        "unitPriceCentavos": 101,
+        "lineTotalCentavos": 303,
+        "priceListId": "base"
+      },
+      {
+        "productId": "b",
+        "uom": "PC",
+        "quantity": 2,
+        "unitPriceCentavos": 202,
+        "lineTotalCentavos": 404,
+        "priceListId": "base"
+      }
+    ],
+    "schemes": [
+      {
+        "id": "ONE",
+        "code": "ONE",
+        "name": "ONE",
+        "engine_version": 1,
+        "rule": {
+          "kind": "basket",
+          "minSubtotalCentavos": 500,
+          "valueCentavos": 103
+        },
+        "effectiveFrom": 1,
+        "effectiveTo": null,
+        "stacking": "stack",
+        "benefit_timing": "on_invoice"
+      }
+    ],
+    "expected": {
+      "total": 604,
+      "discounts": [45, 58],
+      "free": []
+    }
+  },
+  {
+    "name": "value",
+    "lines": [
+      {
+        "productId": "a",
+        "uom": "PC",
+        "quantity": 3,
+        "unitPriceCentavos": 101,
+        "lineTotalCentavos": 303,
+        "priceListId": "base"
+      },
+      {
+        "productId": "b",
+        "uom": "PC",
+        "quantity": 2,
+        "unitPriceCentavos": 202,
+        "lineTotalCentavos": 404,
+        "priceListId": "base"
+      }
+    ],
+    "schemes": [
+      {
+        "id": "ONE",
+        "code": "ONE",
+        "name": "ONE",
+        "engine_version": 1,
+        "rule": {
+          "kind": "value_off",
+          "item": {
+            "productId": "a",
+            "uom": "PC",
+            "quantity": 2
+          },
+          "valueCentavos": 30
+        },
+        "effectiveFrom": 1,
+        "effectiveTo": null,
+        "stacking": "stack",
+        "benefit_timing": "on_invoice"
+      }
+    ],
+    "expected": {
+      "total": 677,
+      "discounts": [30, 0],
+      "free": []
+    }
+  },
+  {
+    "name": "quantity",
+    "lines": [
+      {
+        "productId": "a",
+        "uom": "PC",
+        "quantity": 3,
+        "unitPriceCentavos": 101,
+        "lineTotalCentavos": 303,
+        "priceListId": "base"
+      },
+      {
+        "productId": "b",
+        "uom": "PC",
+        "quantity": 2,
+        "unitPriceCentavos": 202,
+        "lineTotalCentavos": 404,
+        "priceListId": "base"
+      }
+    ],
+    "schemes": [
+      {
+        "id": "ONE",
+        "code": "ONE",
+        "name": "ONE",
+        "engine_version": 1,
+        "rule": {
+          "kind": "quantity_off",
+          "item": {
+            "productId": "a",
+            "uom": "PC",
+            "quantity": 2
+          },
+          "quantityOff": 1
+        },
+        "effectiveFrom": 1,
+        "effectiveTo": null,
+        "stacking": "stack",
+        "benefit_timing": "on_invoice"
+      }
+    ],
+    "expected": {
+      "total": 606,
+      "discounts": [101, 0],
+      "free": []
+    }
+  },
+  {
+    "name": "slab",
+    "lines": [
+      {
+        "productId": "a",
+        "uom": "PC",
+        "quantity": 3,
+        "unitPriceCentavos": 101,
+        "lineTotalCentavos": 303,
+        "priceListId": "base"
+      },
+      {
+        "productId": "b",
+        "uom": "PC",
+        "quantity": 2,
+        "unitPriceCentavos": 202,
+        "lineTotalCentavos": 404,
+        "priceListId": "base"
+      }
+    ],
+    "schemes": [
+      {
+        "id": "ONE",
+        "code": "ONE",
+        "name": "ONE",
+        "engine_version": 1,
+        "rule": {
+          "kind": "slab",
+          "item": {
+            "productId": "a",
+            "uom": "PC",
+            "quantity": 1
+          },
+          "slabs": [
+            {
+              "minQuantity": 1,
+              "percentOffBasisPoints": 500
+            },
+            {
+              "minQuantity": 3,
+              "percentOffBasisPoints": 1250
+            }
+          ]
+        },
+        "effectiveFrom": 1,
+        "effectiveTo": null,
+        "stacking": "stack",
+        "benefit_timing": "on_invoice"
+      }
+    ],
+    "expected": {
+      "total": 669,
+      "discounts": [38, 0],
+      "free": []
+    }
+  },
+  {
+    "name": "combo",
+    "lines": [
+      {
+        "productId": "a",
+        "uom": "PC",
+        "quantity": 3,
+        "unitPriceCentavos": 101,
+        "lineTotalCentavos": 303,
+        "priceListId": "base"
+      },
+      {
+        "productId": "b",
+        "uom": "PC",
+        "quantity": 2,
+        "unitPriceCentavos": 202,
+        "lineTotalCentavos": 404,
+        "priceListId": "base"
+      }
+    ],
+    "schemes": [
+      {
+        "id": "ONE",
+        "code": "ONE",
+        "name": "ONE",
+        "engine_version": 1,
+        "rule": {
+          "kind": "combo",
+          "components": [
+            {
+              "productId": "a",
+              "uom": "PC",
+              "quantity": 1
+            },
+            {
+              "productId": "b",
+              "uom": "PC",
+              "quantity": 1
+            }
+          ],
+          "bundlePriceMinor": 250
+        },
+        "effectiveFrom": 1,
+        "effectiveTo": null,
+        "stacking": "stack",
+        "benefit_timing": "on_invoice"
+      }
+    ],
+    "expected": {
+      "total": 601,
+      "discounts": [46, 60],
+      "free": []
+    }
+  },
+  {
+    "name": "gift",
+    "lines": [
+      {
+        "productId": "a",
+        "uom": "PC",
+        "quantity": 3,
+        "unitPriceCentavos": 101,
+        "lineTotalCentavos": 303,
+        "priceListId": "base"
+      },
+      {
+        "productId": "b",
+        "uom": "PC",
+        "quantity": 2,
+        "unitPriceCentavos": 202,
+        "lineTotalCentavos": 404,
+        "priceListId": "base"
+      }
+    ],
+    "schemes": [
+      {
+        "id": "ONE",
+        "code": "ONE",
+        "name": "ONE",
+        "engine_version": 1,
+        "rule": {
+          "kind": "bogo",
+          "buy": {
+            "productId": "a",
+            "uom": "PC",
+            "quantity": 2
+          },
+          "free": {
+            "productId": "b",
+            "uom": "PC",
+            "quantity": 1
+          }
+        },
+        "effectiveFrom": 1,
+        "effectiveTo": null,
+        "stacking": "stack",
+        "benefit_timing": "on_invoice"
+      }
+    ],
+    "expected": {
+      "total": 707,
+      "discounts": [0, 0],
+      "free": [
+        {
+          "productId": "b",
+          "uom": "PC",
+          "quantity": 1
+        }
+      ]
+    }
+  },
+  {
+    "name": "stacking-and-claim",
+    "lines": [
+      {
+        "productId": "a",
+        "uom": "PC",
+        "quantity": 3,
+        "unitPriceCentavos": 101,
+        "lineTotalCentavos": 303,
+        "priceListId": "base"
+      },
+      {
+        "productId": "b",
+        "uom": "PC",
+        "quantity": 2,
+        "unitPriceCentavos": 202,
+        "lineTotalCentavos": 404,
+        "priceListId": "base"
+      }
+    ],
+    "schemes": [
+      {
+        "id": "A",
+        "code": "A",
+        "name": "A",
+        "engine_version": 1,
+        "rule": {
+          "kind": "basket",
+          "minSubtotalCentavos": 0,
+          "percentOffBasisPoints": 10000
+        },
+        "effectiveFrom": 1,
+        "effectiveTo": null,
+        "stacking": "stack",
+        "benefit_timing": "on_invoice",
+        "precedence": 1,
+        "exclusion_group": "G"
+      },
+      {
+        "id": "B",
+        "code": "B",
+        "name": "B",
+        "engine_version": 1,
+        "rule": {
+          "kind": "percent_off",
+          "item": {
+            "productId": "a",
+            "uom": "PC",
+            "quantity": 1
+          },
+          "percentOffBasisPoints": 5000
+        },
+        "effectiveFrom": 1,
+        "effectiveTo": null,
+        "stacking": "stack",
+        "benefit_timing": "on_invoice",
+        "precedence": 2,
+        "exclusion_group": "G"
+      },
+      {
+        "id": "C",
+        "code": "C",
+        "name": "C",
+        "engine_version": 1,
+        "rule": {
+          "kind": "basket",
+          "minSubtotalCentavos": 0,
+          "percentOffBasisPoints": 1000
+        },
+        "effectiveFrom": 1,
+        "effectiveTo": null,
+        "stacking": "stack",
+        "benefit_timing": "claimable",
+        "precedence": 3
+      }
+    ],
+    "expected": {
+      "total": 0,
+      "discounts": [303, 404],
+      "free": []
+    }
+  }
+]

@@ -1,6 +1,6 @@
 # Customer execution dashboard (`ANA-005`)
 
-Where: web **Reports** (`/analytics`) › **Customer execution**, below Daily execution. Backend: `packages/backend/convex/analytics/customer.ts` (`stores` picker, `store` figures); pure rules in `analytics/customer_model.ts`. The web (`apps/web/src/components/analytics/customer-execution.tsx`) only formats.
+Where: web **Reports** (`/analytics`) › **Customer execution**, below Daily execution. Backend: `apps/api/src/domains/analytics/index.js` (`stores` picker, `store` figures); pure rules in `analytics/customer_model.ts`. The web (`apps/web/src/components/analytics/customer-execution.tsx`) only formats.
 
 Who: supervision readers (`people.read` + `visit.read`) who also hold `report.read` — super admin, admin, manager, analyst, viewer — for stores whose **current** owner unit (territory owner, else custodian) is inside their own organizational scope. Field `sales` never sees it.
 

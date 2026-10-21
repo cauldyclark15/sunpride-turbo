@@ -8,15 +8,51 @@
  */
 
 export const VEHICLE_STATUS = /** @type {const} */ (["active", "inactive"]);
-export const VAN_TRIP_STATUS = /** @type {const} */ (["planned", "loading", "loaded", "active", "closing", "reconciling", "closed", "cancelled", "review_required"]);
-export const VAN_TRIP_LOAD_STATUS = /** @type {const} */ (["planned", "discrepancy", "posted", "cancelled"]);
-export const VAN_TRIP_LOAD_LINE_DISCREPANCY_REASON = /** @type {const} */ (["short_loaded", "over_loaded", "damaged_at_loading", "wrong_item", "other"]);
-export const VAN_OPERATION_KIND = /** @type {const} */ (["trip.start", "load.confirm", "truck.damage"]);
-export const VAN_DAMAGE_RECORD_REASON = /** @type {const} */ (["crushed", "leaking", "expired", "spoiled", "other"]);
-export const VAN_DAMAGE_RECORD_STATUS = /** @type {const} */ (["recorded", "pending_approval", "approved", "rejected"]);
+export const VAN_TRIP_STATUS = /** @type {const} */ ([
+  "planned",
+  "loading",
+  "loaded",
+  "active",
+  "closing",
+  "reconciling",
+  "closed",
+  "cancelled",
+  "review_required",
+]);
+export const VAN_TRIP_LOAD_STATUS = /** @type {const} */ ([
+  "planned",
+  "discrepancy",
+  "posted",
+  "cancelled",
+]);
+export const VAN_TRIP_LOAD_LINE_DISCREPANCY_REASON = /** @type {const} */ ([
+  "short_loaded",
+  "over_loaded",
+  "damaged_at_loading",
+  "wrong_item",
+  "other",
+]);
+export const VAN_OPERATION_KIND = /** @type {const} */ ([
+  "trip.start",
+  "load.confirm",
+  "truck.damage",
+]);
+export const VAN_DAMAGE_RECORD_REASON = /** @type {const} */ ([
+  "crushed",
+  "leaking",
+  "expired",
+  "spoiled",
+  "other",
+]);
+export const VAN_DAMAGE_RECORD_STATUS = /** @type {const} */ ([
+  "recorded",
+  "pending_approval",
+  "approved",
+  "rejected",
+]);
 
 /**
- * `vehicles` (Convex `vehicles`)
+ * `vehicles`
  * @typedef {Object} VehicleRow
  * @property {string} id
  * @property {string} organizationId
@@ -36,7 +72,7 @@ export const VAN_DAMAGE_RECORD_STATUS = /** @type {const} */ (["recorded", "pend
  */
 
 /**
- * `van_trips` (Convex `vanTrips`)
+ * `van_trips`
  * @typedef {Object} VanTripRow
  * @property {string} id
  * @property {string} organizationId
@@ -68,7 +104,7 @@ export const VAN_DAMAGE_RECORD_STATUS = /** @type {const} */ (["recorded", "pend
  */
 
 /**
- * `van_trip_loads` (Convex `vanTripLoads`)
+ * `van_trip_loads`
  * @typedef {Object} VanTripLoadRow
  * @property {string} id
  * @property {string} organizationId
@@ -93,7 +129,7 @@ export const VAN_DAMAGE_RECORD_STATUS = /** @type {const} */ (["recorded", "pend
  */
 
 /**
- * `van_trip_load_lines` (Convex `vanTripLoadLines`)
+ * `van_trip_load_lines`
  * @typedef {Object} VanTripLoadLineRow
  * @property {string} id
  * @property {string} organizationId
@@ -116,7 +152,7 @@ export const VAN_DAMAGE_RECORD_STATUS = /** @type {const} */ (["recorded", "pend
  */
 
 /**
- * `van_operations` (Convex `vanOperations`)
+ * `van_operations`
  * @typedef {Object} VanOperationRow
  * @property {string} id
  * @property {string} organizationId
@@ -135,7 +171,7 @@ export const VAN_DAMAGE_RECORD_STATUS = /** @type {const} */ (["recorded", "pend
  */
 
 /**
- * `van_damage_records` (Convex `vanDamageRecords`)
+ * `van_damage_records`
  * @typedef {Object} VanDamageRecordRow
  * @property {string} id
  * @property {string} organizationId
@@ -169,7 +205,7 @@ export const VAN_DAMAGE_RECORD_STATUS = /** @type {const} */ (["recorded", "pend
  */
 
 /**
- * `van_damage_photos` (Convex `vanDamagePhotos`)
+ * `van_damage_photos`
  * @typedef {Object} VanDamagePhotoRow
  * @property {string} id
  * @property {string} organizationId
@@ -186,7 +222,7 @@ export const VAN_DAMAGE_RECORD_STATUS = /** @type {const} */ (["recorded", "pend
  */
 
 /**
- * `outlet_credit_terms` (Convex `outletCreditTerms`)
+ * `outlet_credit_terms`
  * @typedef {Object} OutletCreditTermRow
  * @property {string} id
  * @property {string} organizationId
