@@ -580,6 +580,34 @@ test("F-303 F-304 F-308 signed driver ePOD advances the shared engine, freezes e
   const f = await fixture({ deliveryDay: today }),
     drop = await dispatched(f),
     at = Date.now();
+  const [campaign] =
+    await h.db`insert into campaigns(code) values('SAMPLE-DELIVERY-BENEFITS') returning id`;
+  const [version] =
+    await h.db`insert into campaign_versions(campaign_id,version,name,mechanic,status,effective_from,effective_to,budget_centavos,expected_volume_base,expected_roi_bps,source,created_by) values(${campaign.id},1,'Sample delivery rebate','Sample proportional variance','active',${new Date(at - 1000)},${new Date(at + 86400000)},1000,10,1000,'sample','sample') returning id`;
+  const [promotion] =
+    await h.db`insert into promotions(organization_id,code,name,rule_kind,rule,status,source,effective_from,effective_to,campaign_version_id,benefit_timing) values('sunpride','SAMPLE-DELIVERY-BENEFITS','Sample delivery rebate','basket',${{ kind: "basket", minSubtotalCentavos: 1, valueCentavos: 100 }},'active','sample',${new Date(at - 1000)},${new Date(at + 86400000)},${version.id},'claimable') returning id`;
+  const pricing = {
+    pricedAt: at,
+    promotionsApplied: [
+      {
+        id: promotion.id,
+        campaignVersionId: version.id,
+        benefitTiming: "claimable",
+        earnedCentavos: 100,
+        discountCentavos: 0,
+        allocations: [100],
+        freeGoods: [],
+      },
+    ],
+  };
+  await h.db`update orders set pricing_snapshot=${pricing} where id=${f.order.id}`;
+  const { accrueOrder } = await import("../src/domains/tpm/finance.js");
+  await tx(h.db, (db) =>
+    accrueOrder(
+      { db, env: h.env, actor: { subject: "sample-delivery" }, now: at },
+      { ...f.order, pricing_snapshot: pricing },
+    ),
+  );
   const config = await configuration(h.db, "driver_delivery", f.outlet, at),
     fix = {
       latitude: 10.33,
@@ -679,6 +707,21 @@ test("F-303 F-304 F-308 signed driver ePOD advances the shared engine, freezes e
     result = (await push(f, proofOp))[0];
   expect(result.status).toBe("applied");
   expect((await push(f, proofOp))[0].status).toBe("duplicate");
+  const [earning] =
+    await h.db`select reversed_centavos from promotion_earnings where promotion_id=${promotion.id}`;
+  expect(Number(earning.reversed_centavos)).toBe(30);
+  expect(
+    (
+      await h.db`select * from tpm_posting_instructions where kind='reversal' and payload->>'sourceKey' like 'partial-return:%'`
+    ).length,
+  ).toBe(1);
+  expect(
+    Number(
+      (
+        await h.db`select amount_centavos from campaign_commitment_balances where campaign_id=${campaign.id}`
+      )[0].amount_centavos,
+    ),
+  ).toBe(70);
   expect((await push(f, timing("departure", 3)))[0].status).toBe("applied");
   const [times] =
     await h.db`select arrived_at,unloading_at,departed_at,window_breach_reason from delivery_drops where id=${drop.id}`;

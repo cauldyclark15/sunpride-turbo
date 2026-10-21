@@ -12,6 +12,7 @@ import {
 } from "../src/domains/tpm/reconciliation.js";
 import {
   returnedBenefits,
+  deliveryBenefits,
   reverseVanBenefitTotals,
 } from "../src/domains/tpm/returns.js";
 
@@ -31,6 +32,26 @@ const receipt = {
     },
   ],
 };
+test("F-504 partial delivery prorates original line identities and separately valued gifts", () => {
+  const pricing = {
+    promotionsApplied: [
+      {
+        ...receipt.promotionsApplied[0],
+        freeGoods: [{ productId: "gift", referenceValueCentavos: 30 }],
+      },
+    ],
+  };
+  const lines = [{ id: "original-line", quantity_base: "3" }];
+  expect(
+    deliveryBenefits(pricing, lines, new Map([["original-line", 1n]]))[0],
+  ).toMatchObject({ earned: 33, spend: 43 });
+  expect(
+    deliveryBenefits(pricing, lines, new Map([["original-line", 3n]]))[0],
+  ).toMatchObject({ earned: 100, spend: 130 });
+  expect(() =>
+    deliveryBenefits(pricing, lines, new Map([["original-line", 4n]])),
+  ).toThrow();
+});
 test("F-504 split returns use frozen allocations and cumulative centavo rounding", () => {
   expect(returnedBenefits(receipt, new Map([[product, 1n]]))[0]).toMatchObject({
     earned: 33,

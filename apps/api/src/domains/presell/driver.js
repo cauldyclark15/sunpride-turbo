@@ -14,6 +14,7 @@ import { invalid } from "../../core/errors.js";
 import { uuid, text, integer, manilaDate } from "../orders/validation.js";
 import { writeAudit } from "../org/audit.js";
 import { day } from "./service.js";
+import { reverseDeliveryBenefits } from "../tpm/returns.js";
 
 /** F-303: a delivery is assigned to an existing trip/person/registered phone, never inferred from a cached customer.
  * @param {any} ctx @param {string} dropId */
@@ -182,6 +183,7 @@ export async function recordProof(ctx) {
   for (const l of lines.filter((l) => l.reason))
     await ctx.db`insert into delivery_variances(proof_id,drop_line_id,accepted_base,short_base,rejected_base,damaged_base,reason,note)
     values(${proof.id},${l.lineId},${l.acceptedBase},${l.shortBase},${l.rejectedBase},${l.damagedBase},${l.reason},${l.note})`;
+  await reverseDeliveryBenefits(fresh, drop.order_id, proof.id);
   await advance(fresh, call, "delivery_confirm", proof.id);
   const variance = lines.some(
     (l) => l.shortBase + l.rejectedBase + l.damagedBase > 0,
