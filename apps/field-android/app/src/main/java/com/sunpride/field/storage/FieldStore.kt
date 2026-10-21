@@ -636,6 +636,8 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
         ?.let { runCatching { JSONObject(it).optString("name") }.getOrNull() }?.takeIf { it.isNotBlank() }
     override suspend fun employeeId(): String? = metadata().takeIf { it.activeGeneration != null }?.employeeJson
         ?.let { runCatching { JSONObject(it).optString("id") }.getOrNull() }?.takeIf { it.isNotBlank() }
+    suspend fun masterScopeId(): String = JSONObject(checkNotNull(metadata().employeeJson)).getString("orgUnitId")
+    suspend fun masterReadUntil(): Long = metadata().let {minOf(it.leaseExpiresAt?:0L,it.cacheExpiresAt?:0L)}
     override suspend fun localCache(entity: String, key: String): DeltaRow? {
         require(entity.startsWith("local."))
         return dao.delta(a, d, s, entity, key)

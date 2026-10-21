@@ -102,6 +102,8 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
             stored.optString("blobId") != o.getString("uploadId")) throw VanWireFailure()
     }
     private fun envelope() = JSONObject().put("version",2).put("app",RestDeviceApi.APP).put("deviceId",deviceId)
+    /** F-004: reuse the signed v2 transport, never the van bundle's main cursor. */
+    fun masterPull(request: JSONObject): JSONObject = JSONObject(send(PULL,request.toString().toByteArray(Charsets.UTF_8)))
     private fun send(path: String, body: ByteArray): String {
         for (attempt in 0..1) {
             val bearer = transport.token(attempt > 0)

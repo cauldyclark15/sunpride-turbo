@@ -56,6 +56,8 @@ interface FieldBackend {
     fun signIn(email: String, password: String)
     fun companySignIn(tokens: JSONObject) { error("Company sign-in unavailable") }
     fun replacementCode(): JSONObject { error("Replacement pairing unavailable") }
+    fun sapMasters(refresh: Boolean): JSONObject? = null
+    fun sapMasterLifetime(): String? = null
     fun queueMockRefusal(outletId: String) { error("Integrity attempt storage unavailable") }
     fun signOut()
     fun changePassword(current: String, next: String, confirm: String) { error("Password change unavailable") }
@@ -637,6 +639,7 @@ class LiveFieldBackend(
                     try { runBlocking { scoped.syncHealth() } } finally { scoped.close() }
                 }
                 failed = health != "synced"
+                if(!failed) runCatching {sapMasters(true)} // F-004: independent authorized master cursor, no parallel selling book.
                 com.sunpride.field.diagnostics.SafeLog.event(context, if (failed) "sync_retry" else "sync_complete")
                 prefs.edit().putBoolean("$key.failed", failed).apply()
             } catch (e: Exception) {
@@ -885,6 +888,26 @@ class LiveFieldBackend(
         }
         schedulePendingWork()
     }
+    override fun sapMasters(refresh: Boolean): JSONObject? {
+        val identity=storedScope() ?: return null
+        val session= sessionKey() ?: return null
+        val epoch=authorizationEpoch
+        val key=com.sunpride.field.device.RequestSigner.bodyDigest("$session|${identity.account}|${identity.deviceId}|${identity.fingerprint}".toByteArray())
+        val store=EncryptedFieldDatabase.store(context,identity)
+        val access=com.sunpride.catalogue.SapMasterAccess(context)
+        val current={session==sessionKey() && identity==storedScope() && epoch==authorizationEpoch && auth.isSignedIn && runBlocking {store.isLeaseValid(System.currentTimeMillis())}}
+        val read={runBlocking {store.localCache("local.sap.masters",key)?.takeUnless {it.tombstone}?.json}}
+        try {
+            fun display(state:JSONObject?):JSONObject?=state?.put("authorizationExpiresAt",runBlocking {store.masterReadUntil()})
+            if(!refresh)return display(access.cached(key,read,current))
+            val binding=com.sunpride.catalogue.SapMasterMirror.Binding("field-android",identity.deviceId,runBlocking {store.masterScopeId()},identity.fingerprint)
+            return display(access.refresh(key,binding,read,{json->runBlocking {
+                check(current());store.putLocalCache("local.sap.masters",key,json,System.currentTimeMillis(),key)
+            }},{request->functions.api.signed("/api/sync/pull",request,signerLoader(),identity.deviceId)},current,
+                {e->e !is AuthFailure || e.kind!=AuthFailure.Kind.OFFLINE}))
+        }finally{store.close()}
+    }
+    override fun sapMasterLifetime(): String? = if(auth.isSignedIn) "${sessionKey()}|${storedScope()}|$authorizationEpoch" else null
     override fun signIn(email: String, password: String) = auth.signIn(email, password)
     override fun companySignIn(tokens: JSONObject) = auth.acceptCompanySession(tokens)
     override fun replacementCode(): JSONObject = functions.api.post("/api/v1/integrity/devices/pairing/start",
@@ -1488,6 +1511,8 @@ class FieldController(
     fun companyKey(): JSONObject = backend.loadSigner().let { JSONObject().put("keyId", com.sunpride.field.device.RequestSigner.bodyDigest(it.publicKeySpki)).put("publicKeySpki",it.publicKeyBase64) }
     fun signCompanyMessage(message: String): String = backend.loadSigner().sign(message)
     fun replacementCode(): JSONObject = backend.replacementCode()
+    fun sapMasters(refresh: Boolean): JSONObject? = backend.sapMasters(refresh)
+    fun sapMasterLifetime(): String? = backend.sapMasterLifetime()
     fun companySignIn(tokens: JSONObject) = scope.launch(ui) {
         ++sessionGeneration; busy=true; error=null
         try { withContext(io) { backend.companySignIn(tokens) }; state=EnrollmentState.Unregistered }

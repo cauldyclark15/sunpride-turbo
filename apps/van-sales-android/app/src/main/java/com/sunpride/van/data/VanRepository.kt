@@ -33,6 +33,26 @@ class VanRepository private constructor(private val context: Context, private va
     private val devices = RestDeviceApi(api)
     fun replacementCode(): JSONObject = api.request("/api/v1/integrity/devices/pairing/start",
         com.sunpride.integrity.replacementPairingBody("van-android",companyKey(),loadSigner()::sign))
+    fun sapMasters(refresh: Boolean): JSONObject? {
+        val st=current.value ?: return null
+        val session=sessionKey() ?: return null
+        val raw=index.getString("$session.identity",null) ?: return null
+        val identity=JSONObject(raw);val epoch=st.authorizationEpoch()
+        val key=hex(sha256("$session|${st.scope.fullAuthSubject}|${st.scope.deviceId}".toByteArray()))
+        val access=com.sunpride.catalogue.SapMasterAccess(context)
+        val valid={session==sessionKey() && st===current.value && epoch==st.authorizationEpoch() && auth.isSignedIn && runBlocking {st.canSync()}}
+        val read={runBlocking {st.db.rows().meta(st.scope.fullAuthSubject,st.scope.deviceId)?.policyJson?.let {JSONObject(it).optJSONObject("sapMasterMirror")?.toString()}}}
+        fun display(state:JSONObject?):JSONObject? = state?.put("authorizationExpiresAt",runBlocking {st.db.rows().meta(st.scope.fullAuthSubject,st.scope.deviceId)?.let {minOf(it.leaseExpiresAt?:0L,it.cacheExpiresAt?:0L)}?:0L})
+        if(!refresh)return display(access.cached(key,read,valid))
+        val client=gateway as? VanSyncClient ?: return null
+        val binding=com.sunpride.catalogue.SapMasterMirror.Binding("van-android",st.scope.deviceId,identity.getString("scopeId"),identity.getString("fingerprint"))
+        return display(access.refresh(key,binding,read,{json->runBlocking {st.db.withTransaction {
+            check(valid());val meta=checkNotNull(st.db.rows().meta(st.scope.fullAuthSubject,st.scope.deviceId))
+            val policy=JSONObject(checkNotNull(meta.policyJson)).put("sapMasterMirror",JSONObject(json))
+            st.db.rows().insertSyncMeta(meta.copy(policyJson=policy.toString()))
+        }}},client::masterPull,valid,{e->e !is VanSyncFailure || e.code!="offline"}))
+    }
+    fun sapMasterLifetime(): String? = if(auth.isSignedIn) current.value?.let {"${sessionKey()}|${it.scope}|${it.authorizationEpoch()}"} else null
     private val index = context.getSharedPreferences(if(stubMode != null) "van_stub_identity_index" else "van_identity_index",Context.MODE_PRIVATE)
     private val current = MutableStateFlow<RoomVanStore?>(null)
     // A cached trip is not a grant. Expiry also withdraws already-visible reference data without a network.
@@ -364,7 +384,10 @@ class VanRepository private constructor(private val context: Context, private va
             throw e
         }
         val st = store()
-        try { VanSync(st,checkNotNull(gateway),evidence=st.evidence).syncNow(); session.value = SessionState(true) }
+        try {
+            VanSync(st,checkNotNull(gateway),evidence=st.evidence).syncNow(); session.value = SessionState(true)
+            if(stubMode==null) withContext(Dispatchers.IO) {runCatching {sapMasters(true)}}
+        }
         catch (e: AuthFailure) {
             if (!auth.isSignedIn) { session.value = SessionState(); enrollment.value = EnrollmentState.SignedOut; current.value = null; gateway = null }
             throw e

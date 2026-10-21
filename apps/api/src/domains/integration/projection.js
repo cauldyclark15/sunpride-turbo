@@ -4,6 +4,7 @@ import { recordChange } from "../../core/sync.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
 import { scopeFilterForActor } from "../org/scope.js";
+import { currentDeviceActor, tripFor } from "../van/access.js";
 
 /** F-004: authorize master identities again on every snapshot and delta; no national customer/price leakage.
  * @param {any} ctx
@@ -11,10 +12,45 @@ import { scopeFilterForActor } from "../org/scope.js";
 async function grants(ctx) {
   await requireCapability(ctx, "report.read");
   const db = ctx.db;
-  const { unitIds } = await scopeFilterForActor(db, ctx.actor);
-  if (unitIds === null) return null;
-  /** @type {any[]} */ const outlets =
-    await db`select distinct o.id,o.code,c.code as customer_code,coalesce(o.channel,c.channel) as channel from outlets o
+  let { unitIds } = await scopeFilterForActor(db, ctx.actor);
+  /** @type {any} */ let van = null;
+  if (ctx.device?.app === "van-android") {
+    const { actor } = await currentDeviceActor(db, ctx.actor, ctx.device.id);
+    let trips =
+      await db`select id from van_trips where salesperson_profile_id=${actor.profileId} and service_date=(now() at time zone 'Asia/Manila')::date and status not in ('cancelled','closed') and deleted_at is null order by created_at desc limit 2`;
+    if (!trips.length)
+      trips =
+        await db`select id from van_trips where salesperson_profile_id=${actor.profileId} and service_date=(now() at time zone 'Asia/Manila')::date and status='closed' and deleted_at is null order by created_at desc limit 1`;
+    if (trips.length > 1)
+      throw new ApiError(
+        "trip_conflict",
+        409,
+        "Reconcile multiple open trips before copying masters",
+      );
+    if (!trips.length)
+      return {
+        outlets: new Set(),
+        channels: new Set(),
+        products: new Set(),
+        customers: new Set(),
+        locations: new Set(),
+      };
+    van = await tripFor(db, actor, trips[0].id, "van.operate");
+    if (van.started_device_id && van.started_device_id !== ctx.device.id)
+      throw new ApiError(
+        "out_of_scope",
+        403,
+        "Trip is bound to another handheld",
+      );
+    unitIds = [van.org_unit_id];
+  } else if (unitIds === null) return null;
+  /** @type {any[]} */ const outlets = van
+    ? await db`select distinct o.id,o.code,c.code as customer_code,coalesce(o.channel,c.channel) as channel from outlets o
+      left join outlet_customer_links link on link.outlet_id=o.id and link.deleted_at is null and link.effective_from<=now() and (link.effective_to is null or link.effective_to>now())
+      left join customers c on c.id=link.customer_id and c.deleted_at is null
+      left join outlet_assignments a on a.outlet_id=o.id and a.deleted_at is null and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now())
+      where o.status='active' and o.deleted_at is null and (a.route_id=${van.route_id} or (a.id is null and o.custodian_org_unit_id=${van.org_unit_id}))`
+    : await db`select distinct o.id,o.code,c.code as customer_code,coalesce(o.channel,c.channel) as channel from outlets o
     left join outlet_customer_links link on link.outlet_id=o.id and link.deleted_at is null and link.effective_from<=now() and (link.effective_to is null or link.effective_to>now())
     left join customers c on c.id=link.customer_id and c.deleted_at is null
     where o.deleted_at is null and exists(select 1 from planned_visits p join coverage_plans cp on cp.id=p.plan_id where cp.status in ('approved','active') and cp.approval_signature is not null and cp.deleted_at is null and p.status='planned' and p.outlet_id=o.id and p.assignee_profile_id=${ctx.actor.profileId} and p.deleted_at is null and p.service_date>=(now() at time zone 'Asia/Manila')::date and p.service_date<=(now() at time zone 'Asia/Manila')::date+2)`;
@@ -48,12 +84,16 @@ async function grants(ctx) {
     return owner && unitIds.includes(owner);
   });
   const ids = allowed.map((o) => o.id);
-  const productRows = ids.length
-    ? await db`select distinct p.code from products p join call_sheet_account_lines l on l.product_id=p.id join call_sheet_accounts a on a.id=l.call_sheet_account_id where a.outlet_id in ${db(ids)} and a.deleted_at is null and l.deleted_at is null`
-    : [];
-  const locations = unitIds.length
-    ? await db`select code from inventory_locations where org_unit_id in ${db(unitIds)} and active and deleted_at is null`
-    : [];
+  const productRows = van
+    ? await db`select distinct p.code from products p where p.deleted_at is null and (exists(select 1 from van_trip_load_lines l where l.trip_id=${van.id} and l.product_id=p.id and l.deleted_at is null) or exists(select 1 from inventory_balances b where b.location_id=${van.truck_location_id} and b.product_id=p.id and b.deleted_at is null))`
+    : ids.length
+      ? await db`select distinct p.code from products p join call_sheet_account_lines l on l.product_id=p.id join call_sheet_accounts a on a.id=l.call_sheet_account_id where a.outlet_id in ${db(ids)} and a.deleted_at is null and l.deleted_at is null`
+      : [];
+  const locations = van
+    ? await db`select code from inventory_locations where id in ${db([van.truck_location_id, van.source_location_id])} and org_unit_id in ${db(unitIds)} and active and deleted_at is null`
+    : unitIds.length
+      ? await db`select code from inventory_locations where org_unit_id in ${db(unitIds)} and active and deleted_at is null`
+      : [];
   return {
     outlets: new Set(allowed.map((o) => o.code)),
     channels: new Set(allowed.map((o) => o.channel)),

@@ -293,6 +293,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun updateCompanyWaiting(value: Boolean) { companySignInPending=value }
     fun companyKey(): org.json.JSONObject = repository.companyKey()
     fun replacementCode(): org.json.JSONObject = repository.replacementCode()
+    fun sapMasters(refresh: Boolean): org.json.JSONObject? = repository.sapMasters(refresh)
+    fun sapMasterLifetime(): String? = repository.sapMasterLifetime()
     fun signCompanyMessage(message: String): String = repository.signCompanyMessage(message)
     fun companySignIn(tokens: org.json.JSONObject) = command {
         repository.companySignIn(tokens)

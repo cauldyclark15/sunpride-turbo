@@ -302,7 +302,8 @@ fun FieldApp(
                     onReportIssue = features.reportIssueUrl?.let { url -> { openLink(context, url) } },
                     biometrics = biometrics,
                     onChangePassword = { controller.resetPasswordForm(); page = "change-password" },
-                    onBatteryGuide = if (batteryGuide != null) ({ page = "location-battery" }) else null)
+                    onBatteryGuide = if (batteryGuide != null) ({ page = "location-battery" }) else null,
+                    sapContent = {com.sunpride.catalogue.SapMasterCopy(controller::sapMasters,controller::sapMasterLifetime)})
                 page == "change-password" -> ChangePasswordScreen(controller.passwordBusy, controller.passwordMessage,
                     controller.passwordChanged, onChange = { current, next, confirm ->
                         controller.changePassword(current, next, confirm) { biometrics?.passwordChanged() }
@@ -653,11 +654,13 @@ fun EnrollmentScreen(state: EnrollmentState, key: DeviceKeyInfo?, busy: Boolean,
 @Composable
 fun AccountScreen(key: DeviceKeyInfo?, onSignOut: () -> Unit, onBack: () -> Unit,
     onSupport: () -> Unit = {}, modifier: Modifier = Modifier, showKeyDetails: Boolean = true,
-    onReportIssue: (() -> Unit)? = null, biometrics: BiometricGate? = null, onChangePassword: (() -> Unit)? = null, onBatteryGuide: (() -> Unit)? = null) {
+    onReportIssue: (() -> Unit)? = null, biometrics: BiometricGate? = null, onChangePassword: (() -> Unit)? = null, onBatteryGuide: (() -> Unit)? = null,
+    sapContent: (@Composable ()->Unit)? = null) {
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             SectionCard("Phone") {
+                sapContent?.invoke()
                 ValueRow("Model", if (Build.MODEL.startsWith("sdk_")) "Android emulator" else Build.MODEL, Modifier.testTag("device-info"))
                 ValueRow("OS", "Android ${Build.VERSION.RELEASE}")
                 ValueRow("App version", BuildConfig.VERSION_NAME)

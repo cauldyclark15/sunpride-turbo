@@ -13,6 +13,7 @@ import com.sunpride.van.auth.PasswordChange
 @Composable fun AccountScreen(c: VanController) {
     ScreenFrame("Account",c::back,message = c.message) {
         Text(c.seller?.name ?: "Your account",style = MaterialTheme.typography.titleLarge)
+        com.sunpride.catalogue.SapMasterCopy(c::sapMasters,c::sapMasterLifetime)
         ListRow("Change password","Use your current password to choose a new one","open-change-password",
             enabled = !c.busy,onClick = { c.open(Page.CHANGE_PASSWORD) })
         Text("Saved work stays on this phone when you sign out.",style = MaterialTheme.typography.bodyMedium)
