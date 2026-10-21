@@ -12,7 +12,7 @@ import { enqueueRefresh } from "../analytics/refresh.js";
 import { accessibleOrder, outletContext, scoped } from "./access.js";
 import { eligibilityFacts } from "../tpm/campaigns.js";
 import { accrueOrder, reverseOrder } from "../tpm/finance.js";
-import { seams as tpmSeams } from "../tpm/seams.js";
+import { enforceCompanyDiscount } from "../fiscal/commercial.js";
 import {
   activePromotions,
   applyPromotions,
@@ -190,22 +190,9 @@ export async function quote(ctx, input) {
   // Freeze NET line facts too: analytics sum(order_lines) must equal order.total.
   if (promo.knownSubtotalCentavos > MAX_CENTAVOS)
     fail("Order amount exceeds the supported accounting range");
-  const governed = promo.promotionsApplied.filter((p) => p.campaignVersionId);
-  if (governed.length) {
-    const authority = await tpmSeams.requestOverride(ctx, {
-      kind: "discount",
-      channelKey: input.channelKey,
-      outletId: input.outletId ?? null,
-      subtotalCentavos: promo.subtotalCentavos,
-      totalCentavos: promo.totalCentavos,
-      promotions: governed,
-    });
-    if (authority.status !== "authorized")
-      fail(
-        "Finance discount authority must authorize this campaign quote",
-        "authority_required",
-      );
-  }
+  // F-511: capture is a priced draft, not financial permission. The same Fiscal
+  // matrix consumes exact persisted facts on independent approval, for ALL schemes.
+
   const allocations = promo.lineDiscounts;
   const net = priced.map((l, i) => ({
     ...l,
@@ -409,6 +396,7 @@ export async function transition(ctx, id, status, reason, input = {}) {
     );
   const before = row.status;
   if (status === "approved") {
+    await enforceCompanyDiscount(ctx, row, note);
     const [latest] =
       await ctx.db`select id,status from sap_credit_override_requests where customer_code=${row.customer_code} and request_facts->>'sourceType'='order' and request_facts->>'sourceId'=${row.id} order by created_at desc,id desc limit 1`;
     const exceptionId =

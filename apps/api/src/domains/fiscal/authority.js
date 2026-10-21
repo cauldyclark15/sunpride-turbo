@@ -17,6 +17,7 @@ import {
 } from "./offline-grants.js";
 import { authorize as distributorAccess } from "../distributors/model.js";
 export const OVERRIDE_KINDS = ["price", "credit", "stock", "discount", "void"];
+export const REQUESTER_ROLES = [...ROLES, "distributor"];
 /** Hold current profile authority through the financial transaction, including provider awaits.
  * @param {any} db @param {any} actor */
 async function holdAuthority(db, actor) {
@@ -370,7 +371,7 @@ export async function saveRule(db, actor, p) {
     await db`update fiscal_authority_rules set effective_to=${from},updated_at=now() where id=${old.id}`;
   }
   const overlaps =
-    await db`select id from fiscal_authority_rules where org_unit_id=${p.orgUnitId} and kind=${choice(p.kind, OVERRIDE_KINDS)} and role=${choice(p.role, [...ROLES])} and channel=${text(p.channel, 50, true)} and min_centavos<=${String(max)} and max_centavos>=${String(min)} and effective_from<coalesce(${to}::timestamptz,'infinity'::timestamptz) and coalesce(effective_to,'infinity'::timestamptz)>${from}`;
+    await db`select id from fiscal_authority_rules where org_unit_id=${p.orgUnitId} and kind=${choice(p.kind, OVERRIDE_KINDS)} and role=${choice(p.role, REQUESTER_ROLES)} and channel=${text(p.channel, 50, true)} and min_centavos<=${String(max)} and max_centavos>=${String(min)} and effective_from<coalesce(${to}::timestamptz,'infinity'::timestamptz) and coalesce(effective_to,'infinity'::timestamptz)>${from}`;
   if (overlaps.length)
     refuse("Authority bands and effective periods must not overlap");
   const [sample] =

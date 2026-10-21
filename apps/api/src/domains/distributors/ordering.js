@@ -17,6 +17,8 @@ import {
   bindCreditDecision,
 } from "../integration/credit.js";
 import { creditExceptionReference } from "../integration/credit-exceptions.js";
+import { partnerDiscount, requestCommercial } from "../fiscal/commercial.js";
+import { enforceFinancialOverride } from "../fiscal/discounts.js";
 
 /** F-403/F-410: eligible existing promotion rules, one governed quotation. TPM replaces
  * only the evaluator seam at integration, never a second distributor scheme engine.
@@ -101,6 +103,9 @@ export async function quote(c, d, b) {
         quantity: free.quantity,
         quantityBase,
         unitPriceCentavos: 0,
+        authorityValueCentavos: integer(
+          free.quantity * integer(p.priceCentavos),
+        ),
         lineTotalCentavos: 0,
         priceListId: p.priceListId ?? null,
         inStock: paid + quantityBase <= availableBase,
@@ -196,6 +201,15 @@ export async function placeOrder(c, d, b) {
     );
   const id = crypto.randomUUID(),
     number = `DP-${id.slice(0, 8).toUpperCase()}`;
+  const financial = await partnerDiscount(c, d, q, po),
+    authority = await requestCommercial(c, financial);
+  if (authority.id)
+    await enforceFinancialOverride(
+      c.db,
+      financial.actor,
+      { ...financial.input, overrideId: authority.id, operationId: id },
+      c.env ?? {},
+    );
   const req = await enqueueSapPosting(c, d, "primary_order", id, {
     orderId: id,
     poNumber: po,

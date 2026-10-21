@@ -324,6 +324,27 @@ export function Ordering({
                 .join("")}
             </p>
           ))}
+          {preview.benefits.some(
+            (b) => b.discountCentavos > 0 || b.freeGoods.length > 0,
+          ) && (
+            <ActionForm
+              title="Price and discount authority"
+              submitLabel="Send exact quotation to Finance"
+              successMessage="Review recorded in the existing Finance desk. Confirmation rechecks the current role, channel, value band and decision."
+              onSubmit={async () => {
+                await command("financial/request", {
+                  poNumber: po,
+                  lines: cart,
+                });
+              }}
+            >
+              <p className="text-sm text-muted">
+                Published benefits still require your role's authority. An
+                above-limit request needs another authorized person before this
+                purchase order can be confirmed.
+              </p>
+            </ActionForm>
+          )}
           {!["within", "no_limit"].includes(preview.credit.status) && (
             <ActionForm
               title="Ask for a credit exception"

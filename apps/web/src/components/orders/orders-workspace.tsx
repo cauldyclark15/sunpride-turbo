@@ -544,6 +544,10 @@ export function OrderDrawer({
   );
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [financialNote, setFinancialNote] = useState<{
+    id: string;
+    message: string;
+  } | null>(null);
   const intent = useRef<{ hash: string; key: string } | null>(null);
   useEffect(() => {
     const prior = document.activeElement as HTMLElement | null;
@@ -740,6 +744,52 @@ export function OrderDrawer({
                 ))}
               </ol>
             </section>
+            {d.canDecide && d.status === "pending_approval" && (
+              <section className="space-y-2 rounded-xl border border-border p-4">
+                <h3>Price and discount authority</h3>
+                <p className="text-sm text-muted">
+                  Approval also checks the original requester's current role,
+                  channel and value band. Send the frozen source to Finance if a
+                  higher authority is needed.
+                </p>
+                <Button
+                  variant="outline"
+                  isDisabled={busy}
+                  onPress={async () => {
+                    setBusy(true);
+                    setError("");
+                    try {
+                      const response = await mutate<{
+                        requiresSecond: boolean;
+                      }>(
+                        "/api/v1/fiscal/commercial/request",
+                        { orderId: id },
+                        { invalidate: [["fiscal"]] },
+                      );
+                      setFinancialNote({
+                        id,
+                        message: response.requiresSecond
+                          ? "Sent for independent Finance review. Return here after its decision."
+                          : "Within the configured self limit; normal independent order approval still applies.",
+                      });
+                    } catch (e) {
+                      setError(
+                        e instanceof Error
+                          ? e.message
+                          : "Financial review was not requested",
+                      );
+                    } finally {
+                      setBusy(false);
+                    }
+                  }}
+                >
+                  Request financial review
+                </Button>
+                {financialNote?.id === id && (
+                  <p role="status">{financialNote.message}</p>
+                )}
+              </section>
+            )}
             {d.canDecide && (
               <form
                 onSubmit={decide}

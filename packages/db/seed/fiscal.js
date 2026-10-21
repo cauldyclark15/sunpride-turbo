@@ -79,6 +79,21 @@ export async function seedFiscal(db) {
           await t`insert into sample_data_rows(batch,table_name,row_id,key) values('sunpride-fiscal-sample','fiscal_authority_rules',${id},${`fiscal_authority_rules:${id}`}) on conflict(batch,key) do nothing`;
         }
     }
+    // F-511: sample desk/field/partner actors also transact without a sample van.
+    // Add explicit marked defaults, never infer policy for an unmarked client unit.
+    const pairs =
+      await t`select distinct p.org_unit_id,p.role from profiles p join sample_data_rows mp on mp.table_name='profiles' and mp.row_id=p.id::text join sample_data_rows mu on mu.table_name='org_units' and mu.row_id=p.org_unit_id::text where p.status='active' and p.deleted_at is null and p.role in ('sales','manager','super_admin','admin','operations','approver') union select d.org_unit_id,'distributor' as role from distributors d join sample_data_rows md on md.table_name='distributors' and md.row_id=d.id::text join sample_data_rows mu on mu.table_name='org_units' and mu.row_id=d.org_unit_id::text where d.status='accredited'`;
+    for (const pair of pairs)
+      for (const kind of pair.role === "distributor"
+        ? ["price", "credit", "discount"]
+        : ["price", "credit", "stock", "discount", "void"]) {
+        const id = rowId(
+          "fiscal_authority_rules",
+          `${pair.org_unit_id}-${kind}-${pair.role}`,
+        );
+        await t`insert into fiscal_authority_rules(id,org_unit_id,kind,role,channel,min_centavos,max_centavos,self_limit_centavos,approver_roles,offline_allowed,effective_from,sample) values(${id},${pair.org_unit_id},${kind},${pair.role},'*',0,999999999,${kind === "discount" ? 500 : 0},${["manager", "approver", "super_admin"]},true,'2026-01-01',true) on conflict(id) do nothing`;
+        await t`insert into sample_data_rows(batch,table_name,row_id,key) values('sunpride-fiscal-sample','fiscal_authority_rules',${id},${`fiscal_authority_rules:${id}`}) on conflict(batch,key) do nothing`;
+      }
     return { registrations: count, status: "sample, not filed" };
   });
 }

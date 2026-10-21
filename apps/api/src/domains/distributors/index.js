@@ -181,9 +181,11 @@ export function install(router, platform) {
   );
   /** @param {string} path @param {string} grant @param {(c:any,d:any,b:any)=>Promise<any>} fn @param {boolean} [office] */
   const post = (path, grant, fn, office = false) =>
-    router.post(`/api/v1/distributors/${path}`, (c) =>
-      command(c, `F-4.${path}`, grant, fn, office),
-    );
+    router.post(`/api/v1/distributors/${path}`, async (c) => {
+      const result = await command(c, `F-4.${path}`, grant, fn, office);
+      if (path === "financial/request") await c.publish("fiscal");
+      return result;
+    });
   /** @param {string} path @param {string} grant @param {(c:any,d:any)=>Promise<any>} fn @param {string[]} [columns] */
   const get = (path, grant, fn, columns) =>
     router.get(`/api/v1/distributors/${path}`, async (c) => {
@@ -214,6 +216,19 @@ export function install(router, platform) {
   get("workspace", "read", workspace);
   post("quote", "order", quote);
   post("orders", "order", placeOrder);
+  post("financial/request", "order", async (c, d, b) => {
+    const { partnerDiscount, requestCommercial } =
+      await import("../fiscal/commercial.js");
+    return requestCommercial(
+      c,
+      await partnerDiscount(
+        c,
+        d,
+        await quote(c, d, b),
+        text(b.poNumber, "Purchase order reference"),
+      ),
+    );
+  });
   post("credit/exception", "order", async (c, d, b) => {
     const priced = await quote(c, d, { ...b, sapCreditExceptionId: undefined });
     if (

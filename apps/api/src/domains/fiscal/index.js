@@ -21,11 +21,13 @@ import {
   authorityContext,
   readOverride,
 } from "./authority.js";
+import { installCommercial } from "./commercial.js";
 export { allocateDocumentNumber } from "./series.js";
 export { requestOverride } from "./authority.js";
 
 /** F-018/F-019/F-020/F-124/F-511. @param {any} router @param {any} ctx */
 export function install(router, ctx) {
+  installCommercial(router);
   ctx.registerTopic(
     "fiscal",
     (/** @type {any} */ actor, /** @type {string} */ topic) =>

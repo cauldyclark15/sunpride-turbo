@@ -32,7 +32,35 @@ function units(q: unknown, s: unknown) {
 /** F-110/F-124: the reviewer sees the exact proposed line reductions, not opaque identifiers. */
 export function OverrideFacts({ value }: { value: unknown }) {
   const f = object(value);
-  if (f.version === 1 && f.kind === "sap_credit_exception")
+  if (f.kind === "commercial_discount")
+    return (
+      <section className="space-y-2 text-sm">
+        <p>
+          {String(f.sourceNumber)} · {String(f.customerCode)}
+        </p>
+        <p>
+          Published original {money(f.subtotalCentavos)} · final{" "}
+          {money(f.totalCentavos)} · governed free-goods value{" "}
+          {money(f.giftValueCentavos)}
+        </p>
+        <p>
+          Exact source quotation; current requester role, channel and value band
+          are checked again before posting. Finance review does not change a
+          governed base price.
+        </p>
+        {Array.isArray(f.lines) &&
+          f.lines.slice(0, 100).map((value: unknown, i: number) => {
+            const l = object(value);
+            return (
+              <p key={i}>
+                {String(l.productName)} · {String(l.quantity)} {String(l.uom)} ·
+                unit {money(l.unitPriceCentavos)} · net {money(l.totalCentavos)}
+              </p>
+            );
+          })}
+      </section>
+    );
+  if (f.kind === "sap_credit_exception")
     return (
       <section className="grid gap-2 text-sm">
         <p>

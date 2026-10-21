@@ -1,6 +1,34 @@
 import { it, expect } from "vitest";
 import { renderToStaticMarkup } from "react-dom/server";
 import { OverrideFacts } from "./override-facts";
+it("F-511 financial reviewer sees the frozen published quote and governed gift value, not a caller authority number", () => {
+  const html = renderToStaticMarkup(
+    <OverrideFacts
+      value={{
+        version: 5,
+        kind: "commercial_discount",
+        sourceNumber: "SAMPLE-MT",
+        customerCode: "SAMPLE-C",
+        subtotalCentavos: 10000,
+        totalCentavos: 9800,
+        giftValueCentavos: 0,
+        lines: [
+          {
+            productName: "SAMPLE published item",
+            quantity: 1,
+            uom: "EA",
+            unitPriceCentavos: 10000,
+            totalCentavos: 9800,
+          },
+        ],
+      }}
+    />,
+  );
+  expect(html).toContain("SAMPLE published item");
+  expect(html).toContain("current requester role, channel and value band");
+  expect(html).toContain("governed free-goods value");
+  expect(html).toContain("does not change a governed base price");
+});
 it("F-404 reviewer sees frozen exposure and the separate SAP decision requirement", () => {
   const html = renderToStaticMarkup(
     <OverrideFacts
