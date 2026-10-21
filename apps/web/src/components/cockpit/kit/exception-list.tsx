@@ -80,28 +80,31 @@ export function ExceptionList({
             className="flex flex-col gap-2 py-3 first:pt-0 last:pb-0 sm:flex-row sm:items-center sm:gap-4"
           >
             <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-wider text-muted">
-                <StatusDot status={item.severity} />
-                <span>{SEVERITY_LABEL[item.severity]}</span>
-                <span aria-hidden>·</span>
-                <span>{KIND_LABEL[item.kind] ?? item.kind}</span>
-              </div>
               {onOpen ? (
                 <button
                   type="button"
                   onClick={() => onOpen(item)}
-                  className="mt-1 text-left text-sm font-semibold text-foreground hover:underline"
+                  className="text-left text-sm font-semibold text-foreground hover:underline"
                 >
                   {item.title}
                 </button>
               ) : (
-                <p className="mt-1 text-sm font-semibold text-foreground">
+                <p className="text-sm font-semibold text-foreground">
                   {item.title}
                 </p>
               )}
               <p className="mt-0.5 text-[13px] text-muted">{item.detail}</p>
-              <p className="mt-1 flex flex-wrap gap-x-3 text-[12.5px] text-muted">
-                <span>{item.owner ? item.owner.name : "No owner yet"}</span>
+              <p className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[12.5px] text-muted">
+                <span className="inline-flex items-center gap-1.5 font-medium text-foreground">
+                  <StatusDot status={item.severity} />
+                  {SEVERITY_LABEL[item.severity]}
+                  <span className="font-normal text-muted">
+                    · {KIND_LABEL[item.kind] ?? item.kind}
+                  </span>
+                </span>
+                <span>
+                  {item.owner ? `Owner: ${item.owner.name}` : "No owner yet"}
+                </span>
                 <span>Open {formatAge(item.openedAt, now)}</span>
                 {item.dueAt !== null ? (
                   <span className={overdue ? "font-medium text-[#b4101f]" : ""}>

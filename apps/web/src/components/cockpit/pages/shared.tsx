@@ -82,9 +82,12 @@ export function Segmented<T extends string>({
 export function AttainmentBar({
   pct,
   status,
+  scale = 100,
 }: {
   pct: number | null;
   status: string;
+  /** Percent at the full width; above 100 a tick marks the target. */
+  scale?: number;
 }) {
   const tone =
     status === "ok"
@@ -96,11 +99,20 @@ export function AttainmentBar({
           : "bg-[#a1a1aa]";
   return (
     <span className="inline-flex w-full min-w-16 items-center gap-2">
-      <span className="h-1.5 flex-1 overflow-hidden rounded-full bg-default-soft">
+      <span className="relative h-1.5 flex-1 rounded-full bg-default-soft">
         {pct !== null ? (
           <span
-            className={`block h-full rounded-full ${tone}`}
-            style={{ width: `${Math.min(100, Math.max(0, pct))}%` }}
+            className={`absolute inset-y-0 left-0 rounded-full ${tone}`}
+            style={{
+              width: `${(Math.min(scale, Math.max(0, pct)) / scale) * 100}%`,
+            }}
+          />
+        ) : null}
+        {scale > 100 ? (
+          <span
+            aria-hidden
+            className="absolute -inset-y-1 w-px bg-foreground/45"
+            style={{ left: `${(100 / scale) * 100}%` }}
           />
         ) : null}
       </span>
