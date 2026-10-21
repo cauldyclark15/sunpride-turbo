@@ -176,6 +176,7 @@ export async function quote(ctx, input) {
       uom,
       quantity,
       quantityBase,
+      quantityScale: Number(product.quantity_scale ?? 1),
       ...price,
       priceListCode: list?.code ?? null,
       priceListName: list?.name ?? null,
@@ -233,6 +234,7 @@ export async function quote(ctx, input) {
       description: p.name,
       uom: gift.uom,
       quantity: gift.quantity,
+      quantityScale: Number(p.quantity_scale ?? 1),
       quantityBase: await baseQuantity(
         ctx.db,
         p,

@@ -3,6 +3,7 @@
 import { useState, type FormEvent, type ReactNode } from "react";
 import { apiFetch, mutate, useApi, useLive } from "../lib/api";
 import { useSession } from "../lib/auth/session";
+import { TraceQuantity } from "./retail-trace-quantity";
 
 type Named = { id: string; name: string; code?: string };
 type Component = { key: string; weight: number; allowNotApplicable: boolean };
@@ -132,7 +133,10 @@ export type Trace = {
     lot_number: string;
     certainty: string;
     source_key: string;
+    quantity_scale?: number | null;
+    source_uom?: string | null;
   }[];
+  stockHeld?: boolean;
   affectedOutlets: number;
   warning: string;
 };
@@ -925,11 +929,22 @@ export function BatchTrace({ trace }: { trace: Trace }) {
         {trace.lot.batch} · {trace.lot.product}
       </h3>
       <p>{trace.affectedOutlets} affected outlets in your scope</p>
+      {trace.stockHeld ? (
+        <p>
+          Recall stock hold is active. Affected batches cannot be sold, reserved
+          or released to available stock. Recovered returns remain held.
+        </p>
+      ) : null}
       <p className="text-sm text-muted">{trace.warning}</p>
       {trace.rows.map((r) => (
         <article key={r.id} className="rounded-lg border border-border p-3">
           <p>
-            {r.outlet_name} · {r.lot_number} · {r.quantity_base} base units
+            {r.outlet_name} · {r.lot_number} ·{" "}
+            <TraceQuantity
+              quantity={r.quantity_base}
+              scale={r.quantity_scale}
+              uom={r.source_uom}
+            />
           </p>
           <p>
             {r.certainty === "allocation_inference"
