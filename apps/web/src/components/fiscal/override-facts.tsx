@@ -32,7 +32,7 @@ function units(q: unknown, s: unknown) {
 /** F-110/F-124: the reviewer sees the exact proposed line reductions, not opaque identifiers. */
 export function OverrideFacts({ value }: { value: unknown }) {
   const f = object(value);
-  if (f.version !== 2 || !Array.isArray(f.lines))
+  if (![2, 3].includes(Number(f.version)) || !Array.isArray(f.lines))
     return (
       <p className="text-xs text-muted-foreground">
         Older request format. Check the source transaction in audit history
@@ -41,11 +41,18 @@ export function OverrideFacts({ value }: { value: unknown }) {
     );
   return (
     <div className="overflow-x-auto">
+      {f.version === 3 && (
+        <p>
+          Requested {String(f.kind)} exception. Credit approval does not change
+          SAP’s limit or replace its live reservation.
+        </p>
+      )}
       <table className="w-full text-left text-xs">
         <thead>
           <tr>
             <th>Product</th>
             <th>Quantity</th>
+            {f.kind === "price" && <th>Original governed unit price</th>}
             <th>Unit price</th>
             <th>Before</th>
             <th>Reduction</th>
@@ -66,6 +73,9 @@ export function OverrideFacts({ value }: { value: unknown }) {
                   {units(l.quantityBase, l.quantityScale)}{" "}
                   {String(l.uomCode ?? "")}
                 </td>
+                {f.kind === "price" && (
+                  <td>{money(l.originalUnitPriceMinor)}</td>
+                )}
                 <td>{money(l.unitPriceMinor)}</td>
                 <td>{money(l.grossMinor)}</td>
                 <td>{money(l.discountMinor)}</td>

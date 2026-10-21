@@ -28,6 +28,7 @@ import com.sunpride.van.pos.*
     val draft = c.sale
     var editing by remember { mutableStateOf<Product?>(null) }
     var discounting by remember { mutableStateOf(false) }
+    var changingPrice by remember { mutableStateOf(false) }
     val quote = remember(c.prices,c.promotions,c.stock,c.customers,c.policy,draft) { c.cartQuote() }
     val priced = draft?.lines?.map { line ->
         val product = c.products.firstOrNull { it.productId == line.productId }
@@ -79,6 +80,8 @@ import com.sunpride.van.pos.*
         }
         SecondaryButton("Add product",c::pickProduct,Modifier.testTag("sale-add-product"),!c.busy)
         SecondaryButton("Line & basket discounts",{discounting=true},Modifier.testTag("sale-discounts"),!c.busy&&draft.lines.isNotEmpty())
+        SecondaryButton("Price exception",{changingPrice=true},Modifier.testTag("sale-price-exception"),!c.busy&&draft.lines.isNotEmpty())
+        if(draft.priceOverride!=null)FinancialApprovalCard(c,"price")
         quote?.takeIf{ManualDiscounts.amount(it.lines)>0L}?.let{DiscountApprovalCard(c,it)}
         SecondaryButton("Cancel sale",c::cancelSale,Modifier.testTag("sale-cancel"),!c.busy)
     }
@@ -87,6 +90,7 @@ import com.sunpride.van.pos.*
             title = "Change quantity",onSave = { c.setSaleLine(product.productId,it); editing = null },onClose = { editing = null })
     }
     if(discounting)DiscountDialog(c){discounting=false}
+    if(changingPrice)PriceOverrideDialog(c){changingPrice=false}
 }
 
 @Composable fun CheckoutScreen(c: VanController) {
@@ -98,12 +102,12 @@ import com.sunpride.van.pos.*
     // Credit sold here and references already used (VAN-012); the store re-checks both while saving.
     LaunchedEffect(c.sale?.saleId) { c.refreshPaymentFacts() }
     var approvalExpiryTick by remember { mutableIntStateOf(0) }
-    val approvalToken=c.sale?.manualDiscount?.approval
-    LaunchedEffect(approvalToken){
-        if(approvalToken!=null){
-            val expires=runCatching{org.json.JSONObject(java.util.Base64.getUrlDecoder().decode(approvalToken.split('.')[1]).toString(Charsets.UTF_8)).getLong("expiresAt")}.getOrNull()
-            if(expires!=null){kotlinx.coroutines.delay((expires-System.currentTimeMillis()).coerceIn(0L,86_400_000L)+1);approvalExpiryTick++}
-        }
+    val approvalTokens=listOfNotNull(c.sale?.manualDiscount?.approval,c.sale?.priceOverride?.authorization?.approval,c.sale?.creditOverride?.approval)
+    LaunchedEffect(approvalTokens,c.policy,approvalExpiryTick){
+        val now=System.currentTimeMillis()
+        val times=approvalTokens.mapNotNull{token->runCatching{org.json.JSONObject(java.util.Base64.getUrlDecoder().decode(token.split('.')[1]).toString(Charsets.UTF_8)).getLong("expiresAt")}.getOrNull()}.toMutableList()
+        runCatching{val rules=org.json.JSONObject(checkNotNull(c.policy?.fiscalJson)).getJSONObject("authority").getJSONArray("rules");for(i in 0 until rules.length()){val rule=rules.getJSONObject(i);times.add(rule.getLong("effectiveFrom"));if(!rule.isNull("effectiveTo"))times.add(rule.getLong("effectiveTo"))}}
+        times.filter{it>now}.minOrNull()?.let{kotlinx.coroutines.delay((it-now).coerceAtMost(86_400_000L)+1);approvalExpiryTick++}
     }
     val payment = PaymentInput(method.code,if (method.kind == PaymentKind.CASH) VanRules.parseMoney(cash) else null,
         reference.takeIf { method.referenceRequired })
@@ -160,6 +164,7 @@ import com.sunpride.van.pos.*
                 }
                 PaymentKind.CREDIT -> {
                     SaleCreditPanel(c){approvalExpiryTick++}
+                    FinancialApprovalCard(c,"credit")
                     quote?.payment?.dueDate?.let { Text("Due $it",style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("credit-due")) }
                 }
             }

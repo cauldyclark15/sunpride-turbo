@@ -9,7 +9,13 @@ import {
 import { invoiceForSale, enqueueSapPosting } from "../fiscal/transactions.js";
 import { issueDocument } from "../fiscal/series.js";
 import { enforceAuthority } from "../fiscal/authority.js";
-import { enforceDiscount, saleDiscountFacts } from "../fiscal/discounts.js";
+import {
+  enforceDiscount,
+  saleDiscountFacts,
+  enforceFinancialOverride,
+  saleOverrideFacts,
+  priceOverrideAmount,
+} from "../fiscal/discounts.js";
 import { collectionTaxReference } from "../fiscal/taxes.js";
 import { validateSaleSchemes } from "./schemes.js";
 import { capturePickup } from "./pickups.js";
@@ -577,9 +583,13 @@ async function sale(db, trip, actor, p, opId, env) {
     });
     if (price.unitPriceCentavos === null)
       refuse("This product has no governed selling price", "invalid_request");
-    const unitPrice = BigInt(safeNumber(price.unitPriceCentavos));
-    if (integer(l.unitPriceMinor) !== unitPrice)
-      refuse("The selling price changed", "stock_conflict");
+    const governedUnit = BigInt(safeNumber(price.unitPriceCentavos)),
+      unitPrice = integer(l.unitPriceMinor);
+    if (unitPrice !== governedUnit && !p.priceOverride)
+      refuse(
+        "The selling price changed; request a matching price exception",
+        "stock_conflict",
+      );
     const gross = extend(unitPrice, paid, product.quantityScale),
       discount = integer(l.discountMinor ?? "0");
     if (discount > gross)
@@ -599,6 +609,7 @@ async function sale(db, trip, actor, p, opId, env) {
       paidBase: String(paid),
       freeBase: String(free),
       unitPriceMinor: String(unitPrice),
+      originalUnitPriceMinor: String(governedUnit),
       totalMinor: String(lineTotal),
       grossMinor: String(gross),
       discountMinor: String(discount),
@@ -622,6 +633,31 @@ async function sale(db, trip, actor, p, opId, env) {
     });
   }
   safeNumber(total);
+  if (quoted.some((l) => l.unitPriceMinor !== l.originalUnitPriceMinor)) {
+    const o = p.priceOverride ?? {};
+    await enforceFinancialOverride(
+      db,
+      actor,
+      {
+        orgUnitId: trip.org_unit_id,
+        kind: "price",
+        channel: customer.channel,
+        amountCentavos: String(priceOverrideAmount(quoted)),
+        overrideId: o.overrideId,
+        operationId: opId,
+        reason: o.reason,
+        offlineCode: o.offlineCode,
+        facts: saleOverrideFacts(
+          "price",
+          saleId,
+          customer.id,
+          quoted,
+          String(total),
+        ),
+      },
+      env,
+    );
+  }
   const schemes = await validateSaleSchemes(
     db,
     actor,
@@ -691,6 +727,32 @@ async function sale(db, trip, actor, p, opId, env) {
       await db`select * from outlet_credit_terms where outlet_id=${customer.id} and effective_from<=${new Date(at)} and (effective_to is null or effective_to>${new Date(at)}) and deleted_at is null`;
     if (!terms || terms.currency !== "PHP")
       refuse("Credit terms need setup", "invalid_request");
+    // A local exception relaxes only the app ceiling; SAP still owns the actual reservation.
+    const creditAuthority = p.creditOverride
+      ? {
+          orgUnitId: trip.org_unit_id,
+          kind: "credit",
+          channel: customer.channel,
+          amountCentavos: String(total),
+          overrideId: p.creditOverride.overrideId,
+          operationId: opId,
+          reason: p.creditOverride.reason,
+          offlineCode: p.creditOverride.offlineCode,
+          facts: saleOverrideFacts(
+            "credit",
+            saleId,
+            customer.id,
+            quoted,
+            String(total),
+          ),
+        }
+      : null;
+    if (total > BigInt(terms.credit_limit_minor) && !creditAuthority)
+      refuse(
+        "This invoice exceeds the local credit ceiling; request an exact credit exception",
+      );
+    if (creditAuthority)
+      await enforceFinancialOverride(db, actor, creditAuthority, env);
     // F-112 SAP decides the complete amount; never add local exposure twice.
     creditDecisionId = await bindCreditDecision(db, {
       customerCode: customer.customerCode,
@@ -699,6 +761,33 @@ async function sale(db, trip, actor, p, opId, env) {
       sourceId: saleId,
       env,
     });
+    if (creditAuthority)
+      await enforceFinancialOverride(db, actor, creditAuthority, env);
+    if (quoted.some((l) => l.unitPriceMinor !== l.originalUnitPriceMinor)) {
+      const o = p.priceOverride;
+      await enforceFinancialOverride(
+        db,
+        actor,
+        {
+          orgUnitId: trip.org_unit_id,
+          kind: "price",
+          channel: customer.channel,
+          amountCentavos: String(priceOverrideAmount(quoted)),
+          overrideId: o.overrideId,
+          operationId: opId,
+          reason: o.reason,
+          offlineCode: o.offlineCode,
+          facts: saleOverrideFacts(
+            "price",
+            saleId,
+            customer.id,
+            quoted,
+            String(total),
+          ),
+        },
+        env,
+      );
+    }
     const due = new Date(at + terms.terms_days * 86400000);
     const dueDate = today(due.getTime());
     if (pay.dueDate !== dueDate)

@@ -441,7 +441,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         val lines = if (quantityBase <= 0) draft.lines.filterNot { it.productId == productId }
             else if (draft.lines.any { it.productId == productId }) draft.lines.map { if (it.productId == productId) it.copy(quantityBase = quantityBase) else it }
             else draft.lines + CartLine(productId,quantityBase)
-        sale = draft.copy(lines = lines,manualDiscount=draft.manualDiscount?.copy(lineMinor=draft.manualDiscount.lineMinor.filterKeys{id->lines.any{it.productId==id}},requestId=UUID.randomUUID().toString(),approval=null))
+        sale = draft.copy(lines = lines,manualDiscount=draft.manualDiscount?.copy(lineMinor=draft.manualDiscount.lineMinor.filterKeys{id->lines.any{it.productId==id}},requestId=UUID.randomUUID().toString(),approval=null),priceOverride=draft.priceOverride?.let{it.copy(unitMinor=it.unitMinor.filterKeys{id->lines.any{it.productId==id}},authorization=it.authorization.copy(requestId=UUID.randomUUID().toString(),approval=null))},creditOverride=draft.creditOverride?.copy(requestId=UUID.randomUUID().toString(),approval=null))
         discountMessage=null
         discountEpoch++
     }
@@ -453,9 +453,48 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun saleContext(now: Long = System.currentTimeMillis()): CheckoutContext =
         CheckoutContext(VanRules.canSell(trip) && session.signedIn,customers,products,stock,prices,policy,now,trip?.serviceDate,
             paymentFacts.creditUsedMinor,paymentFacts.usedReferences,cashCounted,promotions,stockCounted)
-    fun quote(payment: PaymentInput): CheckoutResult? = sale?.let { CheckoutRules.evaluate(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,payment,it.manualDiscount),saleContext()) }
+    fun quote(payment: PaymentInput): CheckoutResult? = sale?.let { CheckoutRules.evaluate(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,payment,it.manualDiscount,it.priceOverride,it.creditOverride),saleContext()) }
     /** Lines and total of the cart alone, before a payment is entered. */
-    fun cartQuote(ignoreManual:Boolean=false): CheckoutQuote? = sale?.let { CheckoutRules.cartQuote(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,PaymentInput(PaymentMethod.CASH.code),if(ignoreManual)null else it.manualDiscount),saleContext()) }
+    fun cartQuote(ignoreManual:Boolean=false,ignorePrices:Boolean=false): CheckoutQuote? = sale?.let { CheckoutRules.cartQuote(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,PaymentInput(PaymentMethod.CASH.code),if(ignoreManual)null else it.manualDiscount,if(ignorePrices)null else it.priceOverride,it.creditOverride),saleContext()) }
+    /** F-124: retire every cart-bound grant when another financial fact changes. */
+    fun setSalePrices(input:SalePriceOverride?){
+        sale=sale?.let{d->d.copy(priceOverride=input?.copy(authorization=input.authorization.copy(reason=input.authorization.reason.trim(),requestId=UUID.randomUUID().toString(),approval=null)),manualDiscount=d.manualDiscount?.copy(requestId=UUID.randomUUID().toString(),approval=null),creditOverride=null)}
+        discountEpoch++;financialMessage=null;discountMessage=null
+    }
+    fun setCreditExceptionReason(reason:String){sale=sale?.copy(creditOverride=FinancialOverride(reason=reason));discountEpoch++;financialMessage=null}
+    var financialMessage by mutableStateOf<String?>(null)
+        private set
+    private fun financialInput(kind:String)=if(kind=="price")sale?.priceOverride?.authorization else sale?.creditOverride
+    private fun financialRequest(input:FinancialOverride?=null,kind:String="price"):CheckoutRequest {
+        val d=checkNotNull(sale)
+        return CheckoutRequest(d.saleId,d.customer.outletId,d.lines,PaymentInput("cash"),d.manualDiscount,if(kind=="price"&&input!=null)d.priceOverride?.copy(authorization=input)else d.priceOverride,if(kind=="credit"&&input!=null)input else d.creditOverride)
+    }
+    private fun financialFacts(kind:String)=sale?.let{d->cartQuote()?.let{SaleAdjustments.facts(kind,financialRequest(kind=kind),it.lines,saleContext())}}
+    private fun financialFingerprint(kind:String)=financialFacts(kind)?.let{com.sunpride.integrity.OfflineApproval.factsHash(it)}
+    private fun setFinancialInput(kind:String,input:FinancialOverride){sale=sale?.let{d->if(kind=="price")d.copy(priceOverride=d.priceOverride?.copy(authorization=input))else d.copy(creditOverride=input)}}
+    fun requestCartOverride(kind:String)=command{
+        require(kind in listOf("price","credit"));val epoch=++discountEpoch;val input=checkNotNull(financialInput(kind));val request=financialRequest(kind=kind)
+        val quote=checkNotNull(cartQuote());val facts=checkNotNull(financialFacts(kind));val fingerprint=financialFingerprint(kind);val valid=repository.fiscalLifetime()
+        val fiscal=JSONObject(checkNotNull(policy?.fiscalJson));val a=fiscal.getJSONObject("authority")
+        val amount=if(kind=="price")SaleAdjustments.priceAmount(request,quote.lines,saleContext())else quote.totalMinor
+        val response=repository.fiscalRequest("overrides/request",JSONObject().put("id",input.requestId).put("expectedRequesterId",a.getString("profileId")).put("orgUnitId",a.getString("orgUnitId")).put("kind",kind)
+            .put("channel",fiscal.getJSONObject("customerChannels").getString(checkNotNull(request.customerId))).put("amountCentavos",amount.toString()).put("reason",input.reason.trim()).put("facts",facts))
+        check(valid()&&epoch==discountEpoch&&financialInput(kind)?.requestId==input.requestId&&financialFingerprint(kind)==fingerprint){"The cart changed; request this exception again"}
+        financialMessage=if(response.getBoolean("requiresSecond"))"$kind request saved. Another person must approve this exact cart."else"$kind reason recorded within your current authority. Sync checks it again."
+    }
+    fun checkCartOverride(kind:String)=command{
+        require(kind in listOf("price","credit"));val epoch=++discountEpoch;val input=checkNotNull(financialInput(kind));val fingerprint=financialFingerprint(kind);val valid=repository.fiscalLifetime()
+        val response=try{repository.fiscalRequest("overrides/status",JSONObject().put("id",input.requestId))}catch(e:Exception){if(epoch==discountEpoch&&financialFingerprint(kind)==fingerprint&&e is NativeApiFailure&&e.status in 400..499)setFinancialInput(kind,input.copy(approval=null,denied=true));throw e}
+        check(valid()&&epoch==discountEpoch&&financialInput(kind)?.requestId==input.requestId&&financialFingerprint(kind)==fingerprint){"The cart changed; request this exception again"}
+        if(!response.isNull("grant"))acceptCartOverride(kind,response.getString("grant"),true)else{
+            val status=response.getString("status");setFinancialInput(kind,input.copy(approval=null,denied=status!="within_own_limit"));financialMessage="$kind: "+when(status){"within_own_limit"->"Reason recorded within your authority.";"rejected"->"The office refused this request.";"consumed"->"Already used. Check the saved invoice.";else->"Waiting for another authorized person."}
+        }
+    }
+    fun acceptCartOverride(kind:String,token:String,renewed:Boolean=false){
+        val input=financialInput(kind)?:return;val q=cartQuote()?:return;val updated=input.copy(approval=token.trim(),denied=input.denied&&!renewed)
+        val problem=SaleAdjustments.authorize(kind,financialRequest(updated,kind),q.lines,saleContext());discountEpoch++
+        if(problem!=null){setFinancialInput(kind,input.copy(approval=null,denied=true));financialMessage=VanRules.checkoutMessage(problem,null);return};setFinancialInput(kind,updated);financialMessage="$kind approval matches this cart. SAP and current authority are still checked on sync."
+    }
     /** F-112: check the current cart through the existing SAP gateway, not a local credit calculator. */
     fun checkSaleCredit()=command{
         val draft=checkNotNull(sale);val quote=checkNotNull(cartQuote());val valid=repository.fiscalLifetime()
@@ -469,7 +508,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         private set
     private var discountEpoch=0L
     fun setSaleDiscounts(input:ManualDiscountInput?){
-        sale=sale?.copy(manualDiscount=input?.copy(reason=input.reason.trim(),requestId=UUID.randomUUID().toString(),approval=null))
+        sale=sale?.let{d->d.copy(manualDiscount=input?.copy(reason=input.reason.trim(),requestId=UUID.randomUUID().toString(),approval=null),priceOverride=d.priceOverride?.let{it.copy(authorization=it.authorization.copy(requestId=UUID.randomUUID().toString(),approval=null))},creditOverride=d.creditOverride?.copy(requestId=UUID.randomUUID().toString(),approval=null))}
         discountMessage=null
         discountEpoch++
     }
@@ -513,7 +552,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         if(token.isBlank()||ManualDiscounts.amount(quote.lines)==0L){discountMessage="Paste an approval for a discounted cart first.";return}
         val old=draft.manualDiscount?:ManualDiscountInput(reason="Applied governed promotion",requestId=draft.saleId)
         val input=old.copy(approval=token.trim(),denied=old.denied&&!renewed)
-        val problem=ManualDiscounts.authorize(CheckoutRequest(draft.saleId,draft.customer.outletId,draft.lines,PaymentInput("cash"),input),quote.lines,saleContext())
+        val problem=ManualDiscounts.authorize(CheckoutRequest(draft.saleId,draft.customer.outletId,draft.lines,PaymentInput("cash"),input,draft.priceOverride,draft.creditOverride),quote.lines,saleContext())
         if(problem!=null){discountMessage=VanRules.checkoutMessage(problem,null);return}
         sale=draft.copy(manualDiscount=input);discountMessage="Approval matches this cart. Changes, expiry or withdrawn authority can still refuse sync."
     }
@@ -523,7 +562,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun completeSale(payment: PaymentInput, expectedTotalMinor: Long) = command {
         val draft = checkNotNull(sale)
         try {
-            val receipt = repository.completeSale(CheckoutRequest(draft.saleId,draft.customer.outletId,draft.lines,payment,draft.manualDiscount),expectedTotalMinor)
+            val receipt = repository.completeSale(CheckoutRequest(draft.saleId,draft.customer.outletId,draft.lines,payment,draft.manualDiscount,draft.priceOverride,draft.creditOverride),expectedTotalMinor)
             lastReceipt = receipt; sale = null; page = Page.SALE_DONE; printMessage = null
             // VAN-017: the sale is saved first; the receipt prints after, and a printer problem never touches the sale.
             if (receipt.fiscalJson == null) startPrint(receipt.saleId,explicit = false,reason = null)
@@ -701,4 +740,4 @@ data class CloseDraft(val closeId: String, val reviewed: Boolean = false, val od
 const val LOCATION_OFF_MESSAGE = "Location sharing is off. Allow location for Sunpride Van (and turn location on), then check Today."
 const val TRIP_CLOSED_MESSAGE = "This trip is closed on this phone. Nothing more can be recorded on it."
 /** A sale being built for one customer (VAN-011). */
-data class SaleDraft(val saleId: String, val customer: Customer, val lines: List<CartLine>,val manualDiscount:ManualDiscountInput? = null)
+data class SaleDraft(val saleId: String, val customer: Customer, val lines: List<CartLine>,val manualDiscount:ManualDiscountInput? = null,val priceOverride:SalePriceOverride?=null,val creditOverride:FinancialOverride?=null)

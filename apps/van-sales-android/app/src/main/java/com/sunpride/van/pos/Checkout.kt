@@ -38,7 +38,7 @@ data class QuotedPayment(val method: PaymentMethod, val amountMinor: Long, val t
 
 /** What the seller is about to sell. [saleId] is a UUID-v4 made when the cart opens; it makes Complete sale safe to tap twice. */
 data class CheckoutRequest(val saleId: String, val customerId: String?, val lines: List<CartLine>, val payment: PaymentInput,
-    val manualDiscount:ManualDiscountInput? = null)
+    val manualDiscount:ManualDiscountInput? = null,val priceOverride:SalePriceOverride?=null,val creditOverride:FinancialOverride?=null)
 
 enum class CheckoutProblem {
     TRIP_NOT_SELLING, NO_CUSTOMER, UNKNOWN_CUSTOMER, EMPTY_CART, TOO_MANY_LINES, DUPLICATE_PRODUCT,
@@ -48,6 +48,7 @@ enum class CheckoutProblem {
     PROMOTION_CONFLICT, PROMOTION_NEEDS_OFFICE,
     DISCOUNT_INVALID,DISCOUNT_REASON_REQUIRED,DISCOUNT_POLICY_NOT_READY,DISCOUNT_APPROVAL_REQUIRED,DISCOUNT_APPROVAL_INVALID,
     TAX_NOT_READY, CREDIT_EXPOSURE_STALE, CREDIT_EXPOSURE_UNKNOWN,
+    OVERRIDE_REASON_REQUIRED,OVERRIDE_POLICY_NOT_READY,OVERRIDE_APPROVAL_REQUIRED,OVERRIDE_INVALID,
     /** VAN-022: the trip's cash is already counted, so it sells nothing more. */
     CASH_COUNTED,
     /** VAN-023: the approved physical stock count freezes every stock-changing action. */
@@ -115,7 +116,8 @@ object CheckoutRules {
         val products = context.products.associateBy { it.productId }
         val available = context.stock.associate { it.productId to it.availableBase }
         val customer = context.customers.firstOrNull { it.outletId == request.customerId }
-        val promotionResult = customer?.let { PromotionEngine.apply(request.lines,it,products,context.prices,context.promotions,context.now) }
+        val effectivePrices=runCatching{SaleAdjustments.prices(request,context)}.getOrElse{issues+=CheckoutIssue(CheckoutProblem.OVERRIDE_INVALID);context.prices}
+        val promotionResult = customer?.let { PromotionEngine.apply(request.lines,it,products,effectivePrices,context.promotions,context.now) }
             ?: PromotionResult(emptyList(),emptyList())
         issues += promotionResult.issues
         val needsOfficeProducts = promotionResult.issues.filter { it.problem == CheckoutProblem.PROMOTION_NEEDS_OFFICE }
@@ -127,7 +129,7 @@ object CheckoutRules {
             if (product == null) { issues += CheckoutIssue(CheckoutProblem.UNKNOWN_PRODUCT,line.productId); return@forEachIndexed }
             if (line.quantityBase !in 1L..MAX_BASE) { issues += CheckoutIssue(CheckoutProblem.BAD_QUANTITY,line.productId); return@forEachIndexed }
             val promotionLine = promotionResult.lines.firstOrNull { it.lineNumber == index + 1 }
-            val price = promotionLine?.price ?: PriceResolver.resolve(product,context.prices,context.now,customer)
+            val price = promotionLine?.price ?: PriceResolver.resolve(product,effectivePrices,context.now,customer)
             if (price == null && line.productId !in needsOfficeProducts) {
                 issues += CheckoutIssue(CheckoutProblem.UNPRICED,line.productId); return@forEachIndexed
             }
@@ -143,7 +145,7 @@ object CheckoutRules {
             val total = Math.subtractExact(gross,discount)
             if (total > MAX_MINOR) { issues += CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE,line.product.productId); return@forEach }
             if (price != null) currencies += price.currency
-            val matching = PriceResolver.matching(line.product,context.prices,context.now,customer)
+            val matching = PriceResolver.matching(line.product,effectivePrices,context.now,customer)
             val quantity = Math.addExact(line.paidBase,line.freeBase)
             // Stock is checked against paid plus free goods; damaged stock is never sellable.
             if (!(context.policy?.allowNegativeStock ?: false) && (available[line.product.productId] ?: 0L) < quantity)
@@ -156,6 +158,7 @@ object CheckoutRules {
             .onFailure { issues+=CheckoutIssue(CheckoutProblem.DISCOUNT_INVALID) }
         if(!runCatching{ManualDiscounts.amount(quoted)<=MAX_MINOR}.getOrDefault(false))issues+=CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE)
         if(!context.previewOnly)ManualDiscounts.authorize(request,quoted,context)?.let{issues+=CheckoutIssue(it)}
+        if(!context.previewOnly&&request.priceOverride?.unitMinor?.isNotEmpty()==true)SaleAdjustments.authorize("price",request,quoted,context)?.let{issues+=CheckoutIssue(it)}
         if(!context.previewOnly&&PromotionEngine.needsOffice(request,context))issues+=CheckoutIssue(CheckoutProblem.PROMOTION_NEEDS_OFFICE)
         if(!context.previewOnly&&context.policy?.fiscalJson!=null)runCatching{
             com.sunpride.van.fiscal.FiscalTax.snapshot(quoted,org.json.JSONObject(context.policy.fiscalJson),customer?.priceListId,context.now)
@@ -166,13 +169,13 @@ object CheckoutRules {
         }
         if (total > MAX_MINOR) issues += CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE)
 
-        val payment = payment(request.payment,total,customer,context,issues)
+        val payment = payment(request.payment,total,customer,context,issues,request,quoted)
         if (issues.isNotEmpty() || payment == null) return CheckoutResult(null,issues.distinct())
         return CheckoutResult(CheckoutQuote(quoted,currencies.single(),total,payment.tenderedMinor ?: total,payment.changeMinor,payment),emptyList())
     }
 
     /** VAN-012 payment rules; adds problems to [issues] and returns null when the payment cannot be recorded. */
-    private fun payment(input: PaymentInput, total: Long, customer: Customer?, context: CheckoutContext, issues: MutableList<CheckoutIssue>): QuotedPayment? {
+    private fun payment(input: PaymentInput, total: Long, customer: Customer?, context: CheckoutContext, issues: MutableList<CheckoutIssue>,request:CheckoutRequest,lines:List<QuotedLine>): QuotedPayment? {
         val method = (context.policy?.paymentMethods ?: PaymentMethod.CASH_ONLY).firstOrNull { it.code == input.methodCode }
             ?: return null.also { issues += CheckoutIssue(CheckoutProblem.UNKNOWN_PAYMENT_METHOD) }
         return when (method.kind) {
@@ -204,7 +207,8 @@ object CheckoutRules {
                 val credit=CreditExposure.credit(buyer,context)
                     ?:return null.also { issues+=CheckoutIssue(CreditExposure.problem(buyer,context)) }
                 val used = context.creditUsedMinor[buyer.outletId] ?: 0L
-                if (Math.addExact(used,total) > credit.availableMinor) return null.also { issues += CheckoutIssue(CheckoutProblem.CREDIT_LIMIT_EXCEEDED) }
+                if(request.creditOverride!=null)SaleAdjustments.authorize("credit",request,lines,context)?.let{problem->return null.also{issues+=CheckoutIssue(problem)}}
+                if (Math.addExact(used,total) > credit.availableMinor && (request.creditOverride==null||!SaleAdjustments.creditWithinSap(request,lines,context,Math.addExact(used,total)))) return null.also { issues += CheckoutIssue(CheckoutProblem.CREDIT_LIMIT_EXCEEDED) }
                 val due = context.serviceDate?.let { runCatching { java.time.LocalDate.parse(it).plusDays(credit.termsDays.toLong()).toString() }.getOrNull() }
                 QuotedPayment(method,total,null,0,null,PaymentState.ON_ACCOUNT,due)
             }

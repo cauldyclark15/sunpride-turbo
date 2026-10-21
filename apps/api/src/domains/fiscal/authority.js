@@ -16,6 +16,20 @@ import {
   verifyOfflineApprovalGrant,
 } from "./offline-grants.js";
 export const OVERRIDE_KINDS = ["price", "credit", "stock", "discount", "void"];
+/** Hold current profile authority through the financial transaction, including provider awaits.
+ * @param {any} db @param {any} actor */
+async function holdAuthority(db, actor) {
+  const [p] =
+    await db`select role,status,org_unit_id,deleted_at from profiles where id=${actor.profileId} for share`;
+  if (
+    !p ||
+    p.status !== "active" ||
+    p.deleted_at ||
+    p.role !== actor.role ||
+    p.org_unit_id !== actor.orgUnitId
+  )
+    refuse("Authority changed; refresh before this transaction");
+}
 /** @param {any} db @param {any} actor @param {any} input */
 async function liveRequestRule(db, actor, input) {
   try {
@@ -139,7 +153,7 @@ export async function authorityRule(db, actor, p) {
   );
   const amount = integer(p.amountCentavos);
   const rules =
-    await db`select * from fiscal_authority_rules where org_unit_id=${p.orgUnitId} and kind=${choice(p.kind, OVERRIDE_KINDS)} and role=${actor.role} and channel in (${text(p.channel, 50, true)},'*') and min_centavos<=${String(amount)} and max_centavos>=${String(amount)} and effective_from<=now() and (effective_to is null or effective_to>now()) order by (channel='*')`;
+    await db`select * from fiscal_authority_rules where org_unit_id=${p.orgUnitId} and kind=${choice(p.kind, OVERRIDE_KINDS)} and role=${actor.role} and channel in (${text(p.channel, 50, true)},'*') and min_centavos<=${String(amount)} and max_centavos>=${String(amount)} and effective_from<=now() and (effective_to is null or effective_to>now()) order by (channel='*') for share`;
   const exact = rules.filter((/** @type {any} */ r) => r.channel === p.channel);
   const candidates = exact.length ? exact : rules;
   if (candidates.length !== 1)
@@ -230,6 +244,7 @@ export async function decideOverride(db, actor, p, env) {
  * @param {any} db @param {any} actor @param {any} p @param {Record<string,string|undefined>} [env] */
 export async function enforceAuthority(db, actor, p, env = process.env) {
   actor = await currentActor(db, actor);
+  await holdAuthority(db, actor);
   const rule = await authorityRule(db, actor, p);
   const [r] =
     await db`select * from fiscal_override_requests where id=${uuid(p.overrideId)} for update`;
@@ -249,11 +264,7 @@ export async function enforceAuthority(db, actor, p, env = process.env) {
   const events =
     await db`select * from fiscal_override_events where request_id=${r.id}`;
   const used = events.find((/** @type {any} */ e) => e.kind === "consumed");
-  if (used) {
-    if (used.operation_id !== p.operationId)
-      refuse("Override was already consumed");
-    return { overrideId: r.id };
-  }
+
   if (events.some((/** @type {any} */ e) => e.kind === "rejected"))
     refuse("Override was refused");
   if (r.requires_second) {
@@ -269,6 +280,7 @@ export async function enforceAuthority(db, actor, p, env = process.env) {
       : null;
     if (!approver || !rule.approver_roles.includes(approver.role))
       refuse("The approver's authority changed");
+    await holdAuthority(db, approver);
     await requireCapability(
       { db, actor: approver },
       "order.approve",
@@ -301,6 +313,11 @@ export async function enforceAuthority(db, actor, p, env = process.env) {
         (!portable && !safeEqual(sha256Hex(p.offlineCode), approval.code_hash)))
     )
       refuse("Offline authorization code is invalid");
+  }
+  if (used) {
+    if (used.operation_id !== p.operationId)
+      refuse("Override was already consumed");
+    return { overrideId: r.id };
   }
   await db`insert into fiscal_override_events(request_id,kind,actor_profile_id,reason,operation_id) values(${r.id},'consumed',${actor.profileId},${r.reason},${uuid(p.operationId)})`;
   return { overrideId: r.id };
