@@ -2,7 +2,14 @@ import { test, expect } from "bun:test";
 import { tx } from "@sunpride/db/client";
 import { startHarness } from "./harness.js";
 import { ensureRoot } from "../src/domains/org/identity.js";
-import { accrueOrder } from "../src/domains/tpm/finance.js";
+import {
+  accrueOrder,
+  applySapAcknowledgement,
+} from "../src/domains/tpm/finance.js";
+import {
+  reconcileLiabilities,
+  installReconciliation,
+} from "../src/domains/tpm/reconciliation.js";
 import {
   returnedBenefits,
   reverseVanBenefitTotals,
@@ -130,6 +137,47 @@ test("F-504 partial returns stage each remaining earning reversal once and relea
     expect(
       (await h.db`select * from campaign_commitment_releases`).length,
     ).toBe(2);
+    expect(await reconcileLiabilities(h.db)).toEqual({
+      checked: 1,
+      exceptions: 1,
+    });
+    const instructions =
+      await h.db`select id from tpm_posting_instructions where earning_id=${earning.id}`;
+    for (const instruction of instructions)
+      await applySapAcknowledgement(
+        h.db,
+        {
+          instructionId: instruction.id,
+          status: "acknowledged",
+          sapDocument: "SAMPLE-" + instruction.id,
+          sourceEventId: instruction.id,
+        },
+        h.env,
+      );
+    expect(await reconcileLiabilities(h.db)).toEqual({
+      checked: 1,
+      exceptions: 0,
+    });
+    /** @type {any[][]} */ const schedules = [];
+    const handlers = new Map();
+    installReconciliation({
+      registerJob: (/** @type {string} */ name, /** @type {any} */ fn) =>
+        handlers.set(name, fn),
+      scheduler: {
+        daily: (/** @type {any[]} */ ...args) => schedules.push(args),
+      },
+      publish: async () => {},
+    });
+    expect(schedules[0].slice(0, 3)).toEqual([
+      "03:30",
+      "Asia/Manila",
+      "tpm.liability-reconciliation",
+    ]);
+    await schedules[0][3]({ db: h.db });
+    expect(
+      (await h.db`select kind from jobs where kind='tpm.reconcile'`).length,
+    ).toBe(1);
+    await handlers.get("tpm.reconcile")({ db: h.db, payload: {} });
   } finally {
     await h.close();
   }

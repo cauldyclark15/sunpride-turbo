@@ -3,6 +3,7 @@ import { installCampaigns } from "./campaigns.js";
 import { installWorkspace } from "./workspace.js";
 import { installClaims } from "./claims.js";
 import { installFinance } from "./finance.js";
+import { installReconciliation } from "./reconciliation.js";
 import { installDeductions } from "./deductions.js";
 import { installEvaluations } from "./evaluations.js";
 import { installClaimantPortals } from "./portal.js";
@@ -16,6 +17,7 @@ export function install(router, ctx) {
   installClaimantPortals(router);
   installClaimNotifications(router, ctx);
   installFinance(router);
+  installReconciliation(ctx);
   installDeductions(router);
   installEvaluations(router);
 }
