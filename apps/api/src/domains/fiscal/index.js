@@ -134,7 +134,12 @@ export function install(router, ctx) {
       const rules =
         await db`select r.*,u.name as branch_name from fiscal_authority_rules r join org_units u on u.id=r.org_unit_id where (${all} or r.org_unit_id in ${db(ids)}) order by r.effective_from desc limit 501`;
       const documents =
-        await db`select d.*,r.branch_name,r.document_type,r.sample,(select jsonb_agg(jsonb_build_object('kind',e.kind,'reason',e.reason,'at',e.created_at,'facts',e.facts) order by e.created_at,e.id) from fiscal_document_events e where e.document_id=d.id) as journal from fiscal_documents d join fiscal_series s on s.id=d.series_id join fiscal_registrations r on r.id=s.registration_id join fiscal_allocations a on a.id=d.allocation_id where (${all} or r.org_unit_id in ${db(ids)}) and (${actor.role !== "sales"} or a.profile_id=${actor.profileId}) and (${day}::date is null or (d.issued_at at time zone 'Asia/Manila')::date=${day}) order by d.created_at desc limit 501`;
+        await db`select d.*,r.branch_name,r.document_type,r.sample,
+        (select jsonb_build_object('status',e.status,'reference',e.external_document_number,'source',e.sap_result->>'source') from integration_events e where e.source_id=d.source_id::text and
+          ((d.source_type='van_sale' and e.source_type='van_sale' and e.event_type='invoice') or
+           (d.source_type='van_collection' and e.source_type='van_payment' and e.event_type='payment') or
+           (d.source_type in ('van_return','van_void') and e.source_type=d.source_type and e.event_type='credit_memo')) order by e.received_at,e.id limit 1) as sap_posting,
+        (select jsonb_agg(jsonb_build_object('kind',e.kind,'reason',e.reason,'at',e.created_at,'facts',e.facts) order by e.created_at,e.id) from fiscal_document_events e where e.document_id=d.id) as journal from fiscal_documents d join fiscal_series s on s.id=d.series_id join fiscal_registrations r on r.id=s.registration_id join fiscal_allocations a on a.id=d.allocation_id where (${all} or r.org_unit_id in ${db(ids)}) and (${actor.role !== "sales"} or a.profile_id=${actor.profileId}) and (${day}::date is null or (d.issued_at at time zone 'Asia/Manila')::date=${day}) order by d.created_at desc limit 501`;
       const devices =
         await db`select id,inventory_tag as name from registered_devices where status='active' and (${all} or org_unit_id in ${db(ids)}) order by inventory_tag limit 501`;
       const units =

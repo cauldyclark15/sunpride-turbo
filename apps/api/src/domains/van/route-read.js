@@ -91,7 +91,7 @@ export async function routeBundle(db, trip) {
   const reloads =
     await db`select o.id,o.facts,coalesce((select jsonb_agg(jsonb_build_object('kind',e.kind,'facts',e.facts) order by e.created_at,e.id) from van_reload_events e where e.request_id=o.id),'[]') as events from van_trip_observations o where o.trip_id=${trip.id} and o.kind='reload_request' order by o.captured_at,o.id`;
   const [posting] =
-    await db`select status from van_sap_requests where source_id=${settlements.versions[0]?.id ?? null} and kind='van_settlement'`;
+    await db`select case when e.status='dead_letter' then 'refused' else r.status end as status,r.acknowledgement from van_sap_requests r left join integration_events e on e.id=r.integration_event_id where r.source_id=${settlements.versions[0]?.id ?? null} and r.kind='van_settlement'`;
   return {
     version: 1,
     policies,

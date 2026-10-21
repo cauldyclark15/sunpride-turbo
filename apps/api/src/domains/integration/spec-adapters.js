@@ -144,6 +144,17 @@ export async function enqueueDistributorPosting(c, d, kind, key, payload) {
 /** F-003: called only after identity/hash/lease verification, inside the ACK transaction.
  * @param {any} db @param {any} row @param {any} result @param {Record<string,string|undefined>} [env] */
 export async function acknowledgeSpecPosting(db, row, result, env = undefined) {
+  if (row.source_type === "van_settlement") {
+    const ack = {
+      reference: result.documentNumber,
+      source: result.source,
+      effectId: row.event_id,
+    };
+    const [r] =
+      await db`update van_sap_requests set status='acknowledged',acknowledgement=${ack},updated_at=now() where source_id=${row.source_id} and kind='van_settlement' and integration_event_id=${row.id} returning source_id`;
+    if (!r) fail("Settlement posting request is missing");
+    await db`update van_trips t set sap_settlement_document_number=${result.documentNumber} from van_settlements s where s.id=${row.source_id} and t.id=s.trip_id`;
+  }
   if (row.source_type === "tpm_instruction")
     await applySapAcknowledgement(
       db,

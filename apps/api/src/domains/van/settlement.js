@@ -5,12 +5,22 @@ import { audit, assertTruckStock, expectedStock } from "./facts.js";
 import { routePolicy } from "./route-policy.js";
 import { requireTemperature } from "./route-evidence.js";
 import { uuid, text, refuse, safeNumber } from "./model.js";
+import { enqueueApprovedVanSettlement } from "../integration/settlement-adapter.js";
 
-/** SEAM(SAP): replace this adapter with enqueueSapPosting at integration. It never claims posted.
+/** F-119: retain the operational request, linked atomically to the canonical SAP outbox.
  * @param {any} db @param {{sourceId:string,kind:string,facts:any}} input
  */
 export async function enqueueSapPosting(db, input) {
+  if (input.kind !== "van_settlement")
+    throw invalid("Unsupported van posting source");
+  const [old] =
+    await db`select * from van_sap_requests where source_id=${input.sourceId} and kind=${input.kind}`;
+  if (old && canonicalJson(old.facts) !== canonicalJson(input.facts))
+    refuse("Settlement request facts changed");
+  const posting = await enqueueApprovedVanSettlement(db, input.sourceId);
   await db`insert into van_sap_requests(source_id,kind,facts,status) values(${input.sourceId},${input.kind},${input.facts},'pending') on conflict(source_id,kind) do nothing`;
+  await db`update van_sap_requests set integration_event_id=${posting.id},status=case when ${posting.quarantined} then 'refused' else status end,updated_at=now() where source_id=${input.sourceId} and kind=${input.kind}`;
+  return posting;
 }
 
 /** F-117/F-123 frozen, versioned submission, not a warehouse receipt or supervisor approval.
@@ -253,14 +263,21 @@ export async function decideSettlement(db, actor, p) {
       ).length
     )
       refuse("Release the cold-chain excursions before approval");
-    await enqueueSapPosting(db, {
-      sourceId: s.id,
-      kind: "van_settlement",
-      facts: { ...s.facts, contentHash: s.content_hash, version: s.version },
-    });
     await db`update van_trips set status='closed',closed_at=now(),updated_at=now() where id=${trip.id}`;
   }
   await db`insert into van_settlement_decisions(settlement_id,decision,note,actor_profile_id) values(${s.id},${decision},${note},${actor.profileId})`;
+  const posting =
+    decision === "approved"
+      ? await enqueueSapPosting(db, {
+          sourceId: s.id,
+          kind: "van_settlement",
+          facts: {
+            ...s.facts,
+            contentHash: s.content_hash,
+            version: s.version,
+          },
+        })
+      : null;
   await audit(db, trip, actor, `van.settlement.${decision}`, s.id, {
     version: s.version,
     note,
@@ -269,7 +286,11 @@ export async function decideSettlement(db, actor, p) {
     tripId: trip.id,
     settlementId: s.id,
     decision,
-    postingStatus: decision === "approved" ? "pending_sap" : "not_requested",
+    postingStatus: posting?.quarantined
+      ? "refused_sap"
+      : decision === "approved"
+        ? "pending_sap"
+        : "not_requested",
   };
 }
 

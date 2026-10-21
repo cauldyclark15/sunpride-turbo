@@ -4,6 +4,7 @@ import { useState, useEffect, type FormEvent } from "react";
 import { mutate, useApi, useLive } from "../../lib/api";
 import { Panel } from "../cockpit/kit";
 import { FiscalAudit } from "./audit";
+import { FiscalPosting, type FiscalSapPosting } from "./posting";
 import {
   authorityMinor,
   authorityPeso,
@@ -24,6 +25,7 @@ type Document = {
   document_number: string;
   document_type: string;
   branch_name: string;
+  sap_posting?: FiscalSapPosting | null;
   journal: { kind: string; reason: string }[];
   snapshot: {
     totalMinor: string;
@@ -827,6 +829,9 @@ export function FiscalWorkspace({
                     : "Registered document"}
                 </p>
                 <p>VAT: {formatPhp(doc.snapshot.tax?.vatMinor)}</p>
+                <p>
+                  <FiscalPosting posting={doc.sap_posting} />
+                </p>
                 {doc.journal.map((e, i) => (
                   <p key={i}>
                     {word(e.kind)} — {e.reason}

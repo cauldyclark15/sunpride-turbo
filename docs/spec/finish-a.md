@@ -31,6 +31,10 @@ Lost/retired allocation tails can be reconciled by another authorized administra
 
 A locally refused mock check-in queues independent integrity telemetry in the existing encrypted outbox. It never opens a visit or advances call flow, and no mock coordinates are retained in that telemetry. Signed upload counts the refusal once in the office mock-attempt denominator and creates a mock finding, not travel/batch facts. Not-yet-uploaded attempts remain outside the server denominator; OS signals are not hardware attestation.
 
+## F-119: operational posting bridges
+
+Independent settlement approval links the retained operational request to one canonical SAP outbox effect for that immutable version, with frozen source facts and dependencies. It waits for earlier invoice/payment/credit/movement effects. Only the identity/hash/lease-checked provider acknowledgement marks the request acknowledged and writes the trip reference. Replaying a version preserves its original dependency set. Queue conflicts stay retained for operator resolution, not renamed as success. The fiscal register reads existing SI/OR/CM source events rather than creating duplicate financial documents; it distinguishes queued/refused/acknowledged and labels mock success SAMPLE. No live SAP posting is claimed.
+
 ## Needs Sunpride
 
 Real IdP/provider configuration, SAP access/mappings, fiscal registration/permit evidence and production signing/distribution ownership remain external inputs. Existing clearly marked sample/mock data keeps the software usable without inventing these outcomes. No sample registration is presented as a BIR filing. These notes describe our implementation choices, not confirmed client operating policy.
