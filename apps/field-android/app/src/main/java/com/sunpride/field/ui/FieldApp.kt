@@ -296,6 +296,7 @@ fun FieldApp(
                     onBiometric = biometrics?.takeIf { it.canRetry }?.let { gate -> gate::unlock },
                     companyContent = { com.sunpride.integrity.CompanySignIn(environment.apiOrigin,"field-android",environment.isReady && !controller.busy,
                         controller::companyKey,controller::signCompanyMessage,controller::updateCompanyWaiting, { controller.companySignIn(it) }) })
+                ready&&controller.today.partnerMode&&page !in setOf("account","support","change-password","sync") -> DsrScreen(controller,location,modifier)
                 page == "account" -> AccountScreen(controller.key, signOut,
                     onBack = { page = "home" }, onSupport = { page = "support" }, modifier = modifier,
                     showKeyDetails = FieldFeature.PHONE_KEY_DETAILS in features,

@@ -1,4 +1,5 @@
 import { requireAvailability } from "../availability/callflow.js";
+import { DSR_ACCESS } from "../distributors/dsr-context.js";
 import { OpRejected } from "../../core/sync.js";
 import { invalid } from "../../core/errors.js";
 import { canonicalJson, isUuid } from "../../core/util.js";
@@ -273,7 +274,9 @@ export async function review(ctx, call, kind, reason) {
 export async function beginCall(ctx, input) {
   const config = await configuration(
     ctx.db,
-    await profileAt(ctx.db, ctx.app, input.outlet, ctx.payload.deviceTime),
+    ctx[DSR_ACCESS]
+      ? "distributor_rep"
+      : await profileAt(ctx.db, ctx.app, input.outlet, ctx.payload.deviceTime),
     input.outlet,
     ctx.payload.deviceTime,
   );

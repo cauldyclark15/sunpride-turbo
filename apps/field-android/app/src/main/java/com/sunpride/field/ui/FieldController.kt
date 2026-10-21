@@ -59,6 +59,7 @@ interface FieldBackend {
     fun sapMasters(refresh: Boolean): JSONObject? = null
     fun sapMasterLifetime(): String? = null
     fun creditControl(action:String,args:JSONObject):JSONObject {error("Connect to check credit control")}
+    fun queueDomain(kind:String,payload:JSONObject,aggregate:String,dependencies:List<String>):String {error("Connect to refresh this form")}
     fun appUpdates(): com.sunpride.integrity.AppUpdateClient? = null
     fun queueMockRefusal(outletId: String) { error("Integrity attempt storage unavailable") }
     fun signOut()
@@ -203,7 +204,8 @@ data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynce
                      val routeCode: String? = null,
                      /** Today's sales vs target from the daily sales report (live or saved). */
                      val sales: com.sunpride.field.ui.today.DaySalesView = com.sunpride.field.ui.today.DaySalesView(),
-                      val targets:com.sunpride.catalogue.TargetProgressView=com.sunpride.catalogue.TargetProgressView())
+                      val targets:com.sunpride.catalogue.TargetProgressView=com.sunpride.catalogue.TargetProgressView(),
+                     val partnerMode:Boolean=false,val partner:JSONObject?=null)
 
 private const val TEAM_CACHE = "local.team"
 private const val SALES_CACHE = "local.daysales"
@@ -579,6 +581,33 @@ class LiveFieldBackend(
         runCatching { com.sunpride.field.sync.work.SyncWork.enqueue(context) }
         return sent
     }
+    override fun queueDomain(kind:String,payload:JSONObject,aggregate:String,dependencies:List<String>):String{
+        val partition=storedScope()?:error("Sync this account first")
+        val life=sapMasterLifetime()?:error("Sign in again")
+        val ticket=com.sunpride.field.sync.DomainOutbox.ticket()
+        val row=com.sunpride.field.sync.DomainOutbox.intent(partition,kind,payload,aggregate,dependencies)
+        withStore { store->store.enqueueDomain(row,System.currentTimeMillis()) {com.sunpride.field.sync.DomainOutbox.current(ticket)&&sapMasterLifetime()==life&&storedScope()==partition} }
+        runCatching{com.sunpride.field.sync.work.SyncWork.enqueue(context)}
+        return row.requestId
+    }
+    private fun dsrToday(device:String,signer:DeviceSigner,me:JSONObject?,failure:Exception?=null,expectedKey:String?=sessionKey()):TodayData{
+        val key=sessionKey()?:return TodayData(partnerMode=true)
+        if(key!=expectedKey)return TodayData(partnerMode=true)
+        val ticket=if(me!=null)com.sunpride.field.sync.DomainOutbox.begin()else com.sunpride.field.sync.DomainOutbox.ticket()
+        val repo=com.sunpride.field.sync.DsrRepository(context,prefs,environmentOrigin,key,device,
+            {sessionKey()==key&&com.sunpride.field.sync.DomainOutbox.current(ticket)},functions.api::get,
+            {path,body->functions.api.signed(path,body,signer,device)})
+        fun deny(e:Exception)=e !is AuthFailure||e.kind!=AuthFailure.Kind.OFFLINE
+        fun refuse(){synchronized(com.sunpride.field.sync.DomainOutbox.authorizationLock){
+            if(sessionKey()!=key||!com.sunpride.field.sync.DomainOutbox.current(ticket))return@synchronized
+            com.sunpride.field.sync.DomainOutbox.deny(key)
+            val saved=prefs.edit().putBoolean("$key.domainDenied",true).commit()
+            val held=runCatching{runBlocking{EncryptedFieldDatabase.holdExisting(context)}}.isSuccess
+            if(!saved||!held)runCatching{auth.signOut()}
+        }}
+        if(failure!=null&&deny(failure))refuse()
+        return try{repo.load(me)}catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;if(deny(e))refuse();repo.load(null).copy(stale=true,warning="Sync unavailable. Held or expired assignments cannot record.")}
+    }
     private fun sessionKey(): String? = vault.readSession()?.let {
         MessageDigest.getInstance("SHA-256").digest(it.toByteArray(Charsets.UTF_8))
             .joinToString("") { b -> "%02x".format(b.toInt() and 255) }
@@ -598,10 +627,18 @@ class LiveFieldBackend(
         var warning: String? = null
         var failed = prefs.getBoolean("$key.failed", true)
         val terminal = prefs.getInt("$key.updateVersion", -1) == com.sunpride.field.BuildConfig.VERSION_CODE
+        if(!sync&&prefs.getBoolean("$key.partner",false))return dsrToday(deviceId,signer,null,expectedKey=key)
         if (sync && !terminal) {
             com.sunpride.field.diagnostics.SafeLog.event(context, "sync_started")
             try {
-                val authenticated = subjectFromToken()
+                val verifiedMe=functions.api.me()
+                check(verifiedMe.getJSONObject("profile").getBoolean("active"))
+                if(verifiedMe.getJSONObject("profile").getString("role")=="distributor"){
+                    check(prefs.edit().putBoolean("$key.partner",true).commit())
+                    return dsrToday(deviceId,signer,verifiedMe,expectedKey=key)
+                }
+                prefs.edit().putBoolean("$key.partner",false).apply()
+                val authenticated = "v2:${environmentOrigin}|${verifiedMe.getJSONObject("profile").getString("subject")}"
                 val existing = storedScope()?.takeIf { it.account == authenticated && it.deviceId == deviceId }
                 val existingCursor = existing?.let { scope ->
                     val scoped = EncryptedFieldDatabase.store(context, scope)
@@ -647,6 +684,7 @@ class LiveFieldBackend(
                 prefs.edit().putBoolean("$key.failed", failed).apply()
             } catch (e: Exception) {
                 com.sunpride.field.diagnostics.SafeLog.event(context, "sync_retry")
+                if(prefs.getBoolean("$key.partner",false))return dsrToday(deviceId,signer,null,e,expectedKey=key)
                 failed = true
                 prefs.edit().putBoolean("$key.failed", true).apply()
                 warning = when (e) {
@@ -817,6 +855,7 @@ class LiveFieldBackend(
         if (scope != suggestionScope) { suggestionScope = scope; retireSuggestions() }
     }
     private fun retireSuggestions() {
+        com.sunpride.field.sync.DomainOutbox.retire()
         com.sunpride.field.auth.ProjectionGrant.retire()
         com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository.retire()
     }
@@ -1602,6 +1641,13 @@ class FieldController(
         finally { busy = false }
     }
     fun checkAgain(quiet: Boolean = false) = scope.launch(ui) { refresh(quiet) }
+    fun queueDomain(kind:String,payload:JSONObject,aggregate:String,dependencies:List<String> = emptyList())=scope.launch(ui){
+        if(busy||state !is EnrollmentState.Ready)return@launch
+        busy=true;error=null
+        try{withContext(io){backend.queueDomain(kind,payload,aggregate,dependencies)};loadToday(sync=false)}
+        catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;error=if(e is IllegalArgumentException||e is IllegalStateException)e.message else userMessage(e)}
+        finally{busy=false}
+    }
 
     var passwordBusy by mutableStateOf(false); private set
     var passwordMessage by mutableStateOf<String?>(null); private set

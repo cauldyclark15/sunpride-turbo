@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { installDsr, dsrBundle } from "./dsr.js";
 import { nextDayClose } from "../../core/scope.js";
 import { actorFor } from "../../core/context.js";
 import { requireCapability } from "../../core/capabilities.js";
@@ -154,6 +155,7 @@ function csv(rows, columns) {
 }
 /** @param {import('../../core/router.js').Router} router @param {any} platform */
 export function install(router, platform) {
+  installDsr(router, platform);
   router.get("/api/v1/distributors", (c) => read(c, partners));
   router.post("/api/v1/distributors/create", createDistributor);
   router.get("/api/v1/distributors/setup", (c) =>
@@ -446,7 +448,7 @@ export function install(router, platform) {
         );
         return {
           data: wire({
-            configuration: config,
+            ...(await dsrBundle({ ...cc, device: c.device }, d, config, m)),
             catalog: m.payload.products,
             masterVersion: Number(m.version),
           }),

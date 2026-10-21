@@ -1,6 +1,7 @@
 import { evaluateCheckInIntegrity } from "../integrity/detectors.js";
 import { requireAvailability } from "../availability/callflow.js";
-import { requireCapability } from "../../core/capabilities.js";
+import { requireVisitCapability as requireCapability } from "./shared.js";
+import { DSR_ACCESS } from "../distributors/dsr-context.js";
 import { canonicalJson } from "../../core/util.js";
 import {
   beginCall,
@@ -63,18 +64,21 @@ export async function checkIn(ctx) {
   await requireCapability(ctx, "visit.record", ctx.actor.orgUnitId);
   const integrity = await evaluateCheckInIntegrity(ctx, p);
   if (!integrity.allowed) reject("mock_location_refused");
-  const employee = await employeeAt(ctx.db, ctx.actor.profileId, ctx.now);
+  const employee =
+    ctx[DSR_ACCESS]?.employee ??
+    (await employeeAt(ctx.db, ctx.actor.profileId, ctx.now));
   const { outlet, owner } = await accessOutlet(ctx, p.outletId, "visit.record");
   if (
     outlet.status !== "active" ||
-    owner !== employee.org_unit_id ||
-    owner !== ctx.actor.orgUnitId
+    (!ctx[DSR_ACCESS] &&
+      (owner !== employee.org_unit_id || owner !== ctx.actor.orgUnitId))
   )
     reject("out_of_scope");
   // Serializes two distinct check-in op IDs as well as dependent writes on this person's day.
   await ctx.db`select pg_advisory_xact_lock(hashtext(${`visits:${ctx.actor.profileId}`}))`;
-  const assignments =
-    await ctx.db`select a.* from outlet_assignments a join territory_salespeople s on s.territory_id=a.territory_id
+  const assignments = ctx[DSR_ACCESS]
+    ? await ctx.db`select a.* from outlet_assignments a where a.outlet_id=${p.outletId} and a.deleted_at is null and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now())`
+    : await ctx.db`select a.* from outlet_assignments a join territory_salespeople s on s.territory_id=a.territory_id
     join territories t on t.id=a.territory_id
     where a.outlet_id=${p.outletId} and s.profile_id=${ctx.actor.profileId} and t.status='active'
     and a.deleted_at is null and s.deleted_at is null and t.deleted_at is null
@@ -163,24 +167,26 @@ export async function checkIn(ctx) {
     await ctx.db`select customer_id from outlet_customer_links where outlet_id=${p.outletId} and deleted_at is null
     and effective_from<=${new Date(ctx.now)} and (effective_to is null or effective_to>${new Date(ctx.now)})`;
   if (links.length > 1) reject();
+  const recordingUnit = ctx[DSR_ACCESS] ? ctx.actor.orgUnitId : owner;
   const rules = await rulesAt(ctx.db, p.deviceTime);
   const productivePolicy = await snapshotProductivePolicy(
     ctx.db,
     ctx.actor.profileId,
     p.deviceTime,
+    ctx[DSR_ACCESS]?.employee,
   );
   const [visit] =
     await ctx.db`insert into visit_executions (organization_id,client_visit_id,planned_visit_id,plan_id,slot_id,plan_version,
     assignee_profile_id,outlet_id,org_unit_id,route_id,customer_id,service_date,source,intents,state,unplanned_reason,productivity,rule_version,
     last_server_time,checked_in_at,started_at,recording_device_id,activity_rules_snapshot,productive_policy_snapshot)
     values (${ORGANIZATION},${p.clientVisitId},${p.plannedVisitId ?? null},${planned?.plan_id ?? null},${planned?.plan_slot_id ?? null},${planned?.plan_version ?? null},
-      ${ctx.actor.profileId},${p.outletId},${owner},${assignment.route_id},${links[0]?.customer_id ?? null},${p.serviceDate},${planned ? "planned" : "unplanned"},
+      ${ctx.actor.profileId},${p.outletId},${recordingUnit},${assignment.route_id},${links[0]?.customer_id ?? null},${p.serviceDate},${planned ? "planned" : "unplanned"},
       array(select jsonb_array_elements_text(${{ values: p.intents }}::jsonb->'values')),'checked-in',${planned ? null : text(p.unplannedReason, 500)},'pending',${RULE_VERSION},${new Date(ctx.now)},${new Date(ctx.now)},${new Date(p.deviceTime)},${ctx.device.id},${{ rules }}::jsonb->'rules',${productivePolicy}) returning *`;
   await beginCall(ctx, {
     channelProfile: PROFILE_FIELD,
     clientCallId: p.clientVisitId,
     outlet,
-    unitId: owner,
+    unitId: recordingUnit,
     visitId: visit.id,
     serviceDate: p.serviceDate,
     planned: !!planned,
@@ -381,11 +387,9 @@ export async function checkOut(ctx) {
       : [];
   const [{ n }] =
     await ctx.db`select count(*)::int as n from field_collections where visit_id=${visit.id} and status='recorded' and deleted_at is null`;
-  const person = await employeeAt(
-    ctx.db,
-    ctx.actor.profileId,
-    ms(visit.started_at),
-  );
+  const person =
+    ctx[DSR_ACCESS]?.employee ??
+    (await employeeAt(ctx.db, ctx.actor.profileId, ms(visit.started_at)));
   const [standard] = person.position_id
     ? await ctx.db`select productive_call_rule from position_standards where position_id=${person.position_id} and deleted_at is null
     and effective_from<=${visit.started_at} and (effective_to is null or effective_to>${visit.started_at})`

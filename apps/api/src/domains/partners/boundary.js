@@ -109,6 +109,13 @@ export async function enforcePartnerHttp(c) {
     ].includes(path)
   )
     return;
+  // F-407: distributor push is narrowed again to scoped DSR adapters BEFORE receipt replay.
+  if (
+    m.partner_kind === "distributor" &&
+    m.grants.includes("dsr") &&
+    path === "/api/sync/push"
+  )
+    return;
   if (
     m.partner_kind === "agency" &&
     m.grants.includes("field") &&
@@ -158,6 +165,11 @@ export async function enforcePartnerSelf(db, actor) {
 /** Runs INSIDE every op transaction, before even idempotent receipts.
  * @param {any} db @param {any} actor @param {any} op */
 export async function enforcePartnerOp(db, actor, op) {
+  if (actor?.role === "distributor") {
+    const { enforceDsrOp } = await import("../distributors/dsr.js");
+    await enforceDsrOp(db, actor, op);
+    return;
+  }
   const member = await enforcePartnerSelf(db, actor);
   if (!member) return;
   if (

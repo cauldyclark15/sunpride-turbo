@@ -66,8 +66,13 @@ function assertStoredPolicy(p) {
 /** Resolve at the captured call instant, not sync time or today's position standard.
  * A publication made after an offline call cannot rewrite that call's definition.
  * @param {any} db @param {string} profileId @param {number} at */
-export async function snapshotProductivePolicy(db, profileId, at) {
-  const person = await employeeAt(db, profileId, at);
+export async function snapshotProductivePolicy(
+  db,
+  profileId,
+  at,
+  /** @type {any} */ scopedPerson = null,
+) {
+  const person = scopedPerson ?? (await employeeAt(db, profileId, at));
   // SEAM(MASTERS): dated channel history is not available here. Apply unit/position
   // history only; never guess a past call's channel from today's profile.
   const rows =

@@ -1,4 +1,12 @@
-import { requireCapability } from "../../core/capabilities.js";
+import { requireCapability as coreCapability } from "../../core/capabilities.js";
+import { DSR_ACCESS } from "../distributors/dsr-context.js";
+/** @param {any} ctx @param {string} capability @param {string} [unit] */
+export function requireVisitCapability(ctx, capability, unit) {
+  return ctx[DSR_ACCESS]
+    ? ctx[DSR_ACCESS].permission(capability, unit)
+    : coreCapability(ctx, capability, unit);
+}
+const requireCapability = requireVisitCapability;
 import { forbidden, invalid } from "../../core/errors.js";
 import { OpRejected } from "../../core/sync.js";
 import { isUuid } from "../../core/util.js";
@@ -80,6 +88,7 @@ export async function employeeAt(db, profileId, at) {
 }
 /** Current owner is authoritative even when reading historical facts. @param {any} ctx @param {string} outletId @param {string} capability */
 export async function accessOutlet(ctx, outletId, capability) {
+  if (ctx[DSR_ACCESS]) return ctx[DSR_ACCESS].outlet(outletId);
   await partnerOutlet(ctx.db, ctx.actor, outletId);
   const [outlet] =
     await ctx.db`select * from outlets where id=${uuid(outletId)} and organization_id=${ORGANIZATION} and deleted_at is null`;
@@ -104,18 +113,23 @@ export async function accessVisit(
     visit.assignee_profile_id !== actor.profileId
   )
     throw forbidden("Not your visit", "out_of_scope");
-  const person = await employeeAt(
-    ctx.db,
-    visit.assignee_profile_id,
-    Date.now(),
-  );
+  const [external] = ctx[DSR_ACCESS]
+    ? []
+    : await ctx.db`select p.org_unit_id from profiles p join distributors d on d.device_org_unit_id=p.org_unit_id where p.id=${visit.assignee_profile_id} and p.role='distributor' and p.status='active' and p.deleted_at is null and p.org_unit_id=${visit.org_unit_id} limit 1`;
+  const person = ctx[DSR_ACCESS]
+    ? ctx[DSR_ACCESS].employee
+    : (external ??
+      (await employeeAt(ctx.db, visit.assignee_profile_id, Date.now())));
   await requireCapability(ctx, capability, person.org_unit_id);
   const { outlet, owner } = await accessOutlet(
     ctx,
     visit.outlet_id,
     capability,
   );
-  if (person.org_unit_id !== owner || outlet.status !== "active")
+  if (
+    (!ctx[DSR_ACCESS] && !external && person.org_unit_id !== owner) ||
+    outlet.status !== "active"
+  )
     throw forbidden("Visit ownership changed", "out_of_scope");
   return visit;
 }

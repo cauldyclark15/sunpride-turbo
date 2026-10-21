@@ -1,4 +1,5 @@
 import { dateOf } from "../fieldsync/model.js";
+import { DSR_ACCESS } from "../distributors/dsr-context.js";
 import { ORGANIZATION, product, reject } from "./shared.js";
 
 /** Read-only validation of FIELDREPORTS' account setup; never writes another lane's projection.
@@ -6,6 +7,11 @@ import { ORGANIZATION, product, reject } from "./shared.js";
  */
 export async function validateAccountCapture(ctx, visit, activity) {
   if (!["call_sheet", "order_intent"].includes(activity.kind)) return;
+  if (ctx[DSR_ACCESS]) {
+    for (const l of activity.lines ?? [])
+      if (!ctx[DSR_ACCESS].allowed.has(l.productId)) reject("out_of_scope");
+    return;
+  }
   const [account] =
     await ctx.db`select * from call_sheet_accounts where outlet_id=${visit.outlet_id} and organization_id=${ORGANIZATION} and deleted_at is null`;
   if (!account && activity.kind === "call_sheet") reject();

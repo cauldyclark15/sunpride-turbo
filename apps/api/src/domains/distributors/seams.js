@@ -87,7 +87,7 @@ export async function distributorCallflowConfig(c, d) {
   if (c.actor.role === "distributor" && !member?.grants.includes("dsr"))
     fail("DSR grant required", "forbidden", 403);
   const outlets =
-    await c.db`select o.id,o.code,o.name,g.territory_id from distributor_outlets g join outlets o on o.id=g.outlet_id where g.distributor_id=${d.id} and g.effective_from<=now() and (g.effective_to is null or g.effective_to>now()) and o.deleted_at is null order by o.code`;
+    await c.db`select o.id,o.code,o.name,o.channel,o.classification,g.territory_id,g.effective_to as grant_until from distributor_outlets g join outlets o on o.id=g.outlet_id where g.distributor_id=${d.id} and g.effective_from<=now() and (g.effective_to is null or g.effective_to>now()) and o.deleted_at is null order by o.code`;
   const configs = await configurations(
     c.db,
     "distributor_rep",
@@ -101,11 +101,17 @@ export async function distributorCallflowConfig(c, d) {
     configuration: "distributor_rep",
     distributorId: d.id,
     membershipId: member?.id ?? null,
-    validUntil: member?.effective_to ?? null,
+    validUntil:
+      [
+        member?.effective_to,
+        ...outlets.map((/** @type {any} */ o) => o.grant_until),
+      ]
+        .filter(Boolean)
+        .sort((a, b) => +new Date(a) - +new Date(b))[0] ?? null,
     grants: member?.grants ?? [],
     outlets,
     source: "partner_grants",
-    nativeReady: false,
+    nativeReady: true,
     seam: "CALLFLOW",
     requiredSharedModules: ["pjp", "msl", "availability"],
   };

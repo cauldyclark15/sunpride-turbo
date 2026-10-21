@@ -221,7 +221,7 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
     private suspend fun push() {
         while (true) {
             // F-209/F-222: skip forms waiting for media without starving a later ready call.
-            val pending = store.pending()
+            val pending = store.pending().filterNot{DomainOutbox.isDomain(it.first.kind)}
             if (pending.isEmpty()) return
             val ready = mutableListOf<IntentRow>(); val wire = mutableListOf<String>()
             for ((intent, _) in pending) {

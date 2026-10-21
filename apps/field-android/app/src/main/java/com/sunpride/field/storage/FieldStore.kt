@@ -445,6 +445,18 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             check(isCurrent()) { "Authorization changed while saving." }
         }
     }
+    /** F-407/F-223/F-613: bounded domain forms use the existing atomic intent/outbox transaction. */
+    suspend fun enqueueDomain(intent:IntentRow,now:Long,isCurrent:()->Boolean){
+        require(intent.account==a&&intent.deviceId==d&&intent.scope==s&&com.sunpride.field.sync.DomainOutbox.isDomain(intent.kind))
+        require(intent.serializedOperation.length in 1..100000)
+        db.withTransaction{
+            check(isCurrent()&&isLeaseValid(now)){"Refresh the current account before recording."}
+            check(pending().count{com.sunpride.field.sync.DomainOutbox.isDomain(it.first.kind)}<100){"Sync saved forms first."}
+            val ordered=maxOf(intent.createdAt,(dao.latestCreatedAt(a,d,s)?:Long.MIN_VALUE)+1)
+            dao.insertIntent(intent.copy(createdAt=ordered));dao.insertOutbox(OutboxRow(a,d,s,intent.requestId,ordered))
+            check(isCurrent()){"Authorization changed while recording."}
+        }
+    }
     override suspend fun enqueue(intent: IntentRow, now: Long) = enqueueWithCheckpoint(intent, now) {}
 
     /** Test seam: throwing after the intent insertion proves Room rolls back both rows. */

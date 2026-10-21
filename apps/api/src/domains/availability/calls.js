@@ -1,4 +1,5 @@
 import { advance, ownedCall } from "../callflow/engine.js";
+import { DSR_ACCESS } from "../distributors/dsr-context.js";
 import { ApiError, forbidden, invalid } from "../../core/errors.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
@@ -98,16 +99,19 @@ export async function callSnapshot(ctx, outletId, day, persist = true) {
   ]);
   let allHistory = ctx.availabilityHistory?.get(historyKey);
   if (!allHistory) {
-    allHistory = await orderFacts(
-      ctx.db,
-      ctx.availabilityOutletIds ?? [outletId],
-      {
-        ids: [owner],
-        ownProfileId: ctx.actor.role === "sales" ? ctx.actor.profileId : null,
-      },
-      dateOf(new Date(midnight(day) - 83 * 86_400_000)),
-      day,
-    );
+    allHistory = ctx[DSR_ACCESS]
+      ? []
+      : await orderFacts(
+          ctx.db,
+          ctx.availabilityOutletIds ?? [outletId],
+          {
+            ids: [owner],
+            ownProfileId:
+              ctx.actor.role === "sales" ? ctx.actor.profileId : null,
+          },
+          dateOf(new Date(midnight(day) - 83 * 86_400_000)),
+          day,
+        );
     ctx.availabilityHistory?.set(historyKey, allHistory);
   }
   const history = allHistory.filter(
@@ -239,7 +243,7 @@ export async function record(ctx) {
     callKey = uuid(p.callKey);
   validTime(p.deviceTime, ctx.now);
   if (ctx.device) {
-    await currentActor(ctx.db, ctx.actor);
+    if (!ctx[DSR_ACCESS]) await currentActor(ctx.db, ctx.actor);
     await reauthorizeDevice(ctx.db, ctx.actor, ctx.device.id);
   }
   const [snapshot] =
@@ -332,7 +336,7 @@ export async function record(ctx) {
     return { entityId: id, eventIds: [] };
   }
   const [before] =
-    await ctx.db`select * from availability_checks where outlet_id=${snapshot.outlet_id} and device_time<${new Date(p.deviceTime)} order by device_time desc,id desc limit 1`;
+    await ctx.db`select * from availability_checks where outlet_id=${snapshot.outlet_id} and (${!ctx[DSR_ACCESS]} or profile_id=${ctx.actor.profileId}) and device_time<${new Date(p.deviceTime)} order by device_time desc,id desc limit 1`;
   const lines = result.lines.map((l) => {
     const previous = before?.lines.find(
       (/** @type {any} */ r) => r.productId === l.productId,
@@ -387,7 +391,7 @@ export async function decideProposal(ctx) {
   const p = ctx.payload ?? ctx.body,
     id = uuid(p.decisionId);
   if (ctx.device) {
-    await currentActor(ctx.db, ctx.actor);
+    if (!ctx[DSR_ACCESS]) await currentActor(ctx.db, ctx.actor);
     await reauthorizeDevice(ctx.db, ctx.actor, ctx.device.id);
   }
   const [check] =
