@@ -1,3 +1,4 @@
+import { posting } from "./finance.js";
 import { bounded, changed, command, office } from "./common.js";
 import {
   choice,
@@ -48,6 +49,7 @@ export function installDeductions(router) {
         ownerName: d.owner_name,
         amountCentavos: Number(d.amount_centavos),
         recoveredCentavos: Number(d.recovered_centavos),
+        writtenOffCentavos: Number(d.written_off_centavos),
         ageDays: d.age_days,
         status: d.status,
         dueOn: String(
@@ -79,7 +81,14 @@ export function installDeductions(router) {
           fail("Deduction is closed or missing");
         const action = choice(
             b.action,
-            ["assign", "dispute", "recover", "resolve"],
+            [
+              "assign",
+              "classify",
+              "dispute",
+              "recover",
+              "write_off",
+              "resolve",
+            ],
             "Case action",
           ),
           reason = text(b.reason, "Reason");
@@ -89,22 +98,44 @@ export function installDeductions(router) {
             await cc.db`select id from profiles where id=${uuid(b.ownerProfileId)} and status='active' and deleted_at is null`;
           if (!owner) fail("Choose an active case owner");
           await cc.db`update deductions set owner_profile_id=${owner.id},updated_at=now() where id=${r.id}`;
+        } else if (action === "classify") {
+          const classification = text(b.classification, "Classification", 80);
+          await cc.db`update deductions set classification=${classification},updated_at=now() where id=${r.id}`;
         } else if (action === "dispute")
           await cc.db`update deductions set status='disputed',updated_at=now() where id=${r.id}`;
-        else if (action === "recover") {
-          recovery = integer(b.amountCentavos);
+        else if (action === "recover" || action === "write_off") {
+          if (r.created_by === cc.actor.subject)
+            fail(
+              "An independent Finance approver must authorize financial resolution",
+            );
+          const amount = integer(b.amountCentavos);
+          const [pending] =
+            await cc.db`select coalesce(sum(amount_centavos),0) as amount from tpm_posting_instructions where payload->>'deductionId'=${r.id} and status in ('awaiting_seam','queued')`;
           if (
-            !recovery ||
-            BigInt(recovery) + BigInt(r.recovered_centavos) >
+            !amount ||
+            BigInt(amount) +
+              BigInt(pending.amount) +
+              BigInt(r.recovered_centavos) +
+              BigInt(r.written_off_centavos) >
               BigInt(r.amount_centavos)
           )
-            fail("Recovery exceeds outstanding deduction");
-          await cc.db`update deductions set recovered_centavos=recovered_centavos+${recovery},updated_at=now() where id=${r.id}`;
+            fail("Resolution exceeds the uncommitted outstanding deduction");
+          await posting(cc, {
+            sourceKey: `deduction:${r.id}:${b.idempotencyKey}`,
+            kind: action === "recover" ? "payment" : "credit_memo",
+            deductionId: r.id,
+            deductionAction: action,
+            accountKey: r.account_key,
+            amountCentavos: amount,
+            currency: "PHP",
+            reason,
+          });
         } else {
-          if (Number(r.recovered_centavos) !== Number(r.amount_centavos))
-            fail(
-              "Record recovery before closing; SAP write-off decisions need a posting adapter",
-            );
+          if (
+            BigInt(r.recovered_centavos) + BigInt(r.written_off_centavos) !==
+            BigInt(r.amount_centavos)
+          )
+            fail("Wait for SAP-confirmed recovery or write-off before closing");
           await cc.db`update deductions set status='resolved',updated_at=now() where id=${r.id}`;
         }
         await cc.db`insert into deduction_events(deduction_id,action,actor_subject,reason,recovered_centavos) values(${r.id},${action},${cc.actor.subject},${reason},${recovery})`;

@@ -15,7 +15,8 @@ export async function posting(c, input) {
     await c.db`select 1 from promotion_earnings e join campaign_versions v on v.id=e.campaign_version_id join promotions p on p.id=e.promotion_id
     where e.id=${input.earningId ?? null}::uuid and (v.source='sample' or p.source='sample')
     union all select 1 from claim_settlements s join claims q on q.id=s.claim_id join claim_types ct on ct.id=q.type_id
-    where s.id=${input.settlementId ?? null}::uuid and ct.source='sample' limit 1`;
+    where s.id=${input.settlementId ?? null}::uuid and ct.source='sample'
+    union all select 1 from deductions where id=${input.deductionId ?? null}::uuid and source_mode='sample' limit 1`;
   // SAP adapters must retain this provenance and refuse sample postings on a real connection.
   input = { ...input, sourceMode: sample ? "sample" : "operational" };
   const key = text(input.sourceKey, "Posting source", 200);
@@ -166,6 +167,31 @@ export async function applySapAcknowledgement(db, ack, env = undefined) {
         ? text(ack.sapDocument, "SAP document", 160)
         : null;
     await t`update tpm_posting_instructions set status=${ack.status},sap_document=${doc},sap_response_hash=${hash},updated_at=now() where id=${p.id}`;
+    if (p.payload.deductionId) {
+      const [d] =
+        await t`select * from deductions where id=${uuid(p.payload.deductionId)} for update`;
+      if (!d) fail("Deduction source is missing");
+      const action = p.payload.deductionAction;
+      if (
+        !["recover", "write_off"].includes(action) ||
+        p.kind !== (action === "recover" ? "payment" : "credit_memo")
+      )
+        fail("Deduction posting action is invalid");
+      if (ack.status === "acknowledged") {
+        if (
+          BigInt(d.recovered_centavos) +
+            BigInt(d.written_off_centavos) +
+            BigInt(p.amount_centavos) >
+          BigInt(d.amount_centavos)
+        )
+          fail("SAP resolution exceeds deduction balance");
+        if (action === "recover")
+          await t`update deductions set recovered_centavos=recovered_centavos+${p.amount_centavos},updated_at=now() where id=${d.id}`;
+        else
+          await t`update deductions set written_off_centavos=written_off_centavos+${p.amount_centavos},updated_at=now() where id=${d.id}`;
+      }
+      await t`insert into deduction_events(deduction_id,action,actor_subject,reason,recovered_centavos) values(${d.id},${"sap." + action + "." + ack.status},'system:sap',${doc ?? ack.sourceEventId},${ack.status === "acknowledged" && action === "recover" ? p.amount_centavos : 0})`;
+    }
     if (p.settlement_id && ["payment", "credit_memo"].includes(p.kind)) {
       const [s] =
         await t`select * from claim_settlements where id=${p.settlement_id} for update`;

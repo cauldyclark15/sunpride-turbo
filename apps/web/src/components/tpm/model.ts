@@ -80,6 +80,7 @@ export type Deduction = {
   ownerName: string;
   amountCentavos: number;
   recoveredCentavos: number;
+  writtenOffCentavos: number;
   ageDays: number;
   status: string;
 };

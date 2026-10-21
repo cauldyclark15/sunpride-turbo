@@ -1202,7 +1202,13 @@ export function FinanceClaimsWorkspace() {
                 </h3>
                 <p className="text-sm">
                   {r.ownerName} · {r.ageDays} days · {words(r.status)} ·
-                  outstanding {peso(r.amountCentavos - r.recoveredCentavos)}
+                  outstanding{" "}
+                  {peso(
+                    r.amountCentavos -
+                      r.recoveredCentavos -
+                      (r.writtenOffCentavos ?? 0),
+                  )}{" "}
+                  · SAP write-off {peso(r.writtenOffCentavos ?? 0)}
                 </p>
                 {canApprove && r.status !== "resolved" ? (
                   <CommandForm
@@ -1211,6 +1217,7 @@ export function FinanceClaimsWorkspace() {
                     build={(d) => ({
                       id: r.id,
                       action: d.get("action"),
+                      classification: d.get("classification"),
                       reason: d.get("reason"),
                       ...(d.get("amount")
                         ? { amountCentavos: centavos(d.get("amount")) }
@@ -1219,16 +1226,28 @@ export function FinanceClaimsWorkspace() {
                   >
                     <Field label="Action">
                       <select name="action" className={input}>
+                        <option value="classify">Change classification</option>
                         <option value="dispute">Dispute</option>
-                        <option value="recover">
-                          Record reconciled recovery
-                        </option>
+                        <option value="recover">Request SAP recovery</option>
+                        <option value="write_off">Request SAP write-off</option>
                         <option value="resolve">
-                          Close fully recovered case
+                          Close SAP-reconciled case
                         </option>
                       </select>
                     </Field>
-                    <Field label="Recovery · ₱, only for recovery">
+                    <Field label="Classification · only when changing classification">
+                      <input
+                        name="classification"
+                        defaultValue={r.classification}
+                        className={input}
+                      />
+                    </Field>
+                    <p className="text-xs text-muted">
+                      Recovery and write-off require an independent approver and
+                      SAP acknowledgement. A pending request does not reduce the
+                      balance.
+                    </p>
+                    <Field label="Amount · ₱, for recovery or write-off">
                       <input name="amount" className={input} />
                     </Field>
                     <Field label="Reason / SAP reference">
