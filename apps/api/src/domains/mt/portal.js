@@ -137,6 +137,10 @@ export function installPortal(router) {
       });
     return {
       purchaseOrders,
+      claimantBranches: allowed.map((/** @type {any} */ b) => ({
+        id: b.id,
+        name: b.label,
+      })),
       invoices: invoices.map((/** @type {any} */ i) => ({
         id: i.id,
         branch: allowed.find((/** @type {any} */ b) => b.id === i.binding_id)

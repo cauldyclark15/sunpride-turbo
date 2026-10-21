@@ -120,6 +120,7 @@ export type DeductionQueue = {
   freshness: number;
 };
 export type PortalOverview = {
+  claimantBranches?: { id: string; name: string }[];
   purchaseOrders: {
     id: string;
     poNumber: string;

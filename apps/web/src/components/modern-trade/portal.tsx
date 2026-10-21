@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useApi } from "../../lib/api";
 import { useSession } from "../../lib/auth/session";
 import type { PortalOverview } from "./model";
+import { ClaimantClaims } from "../claimant-claims";
 import {
   Field,
   Form,
@@ -263,6 +264,14 @@ export function CustomerPortal() {
           <Notice>No deductions have been recorded for your account.</Notice>
         ) : null}
       </section>
+      {data.claimantBranches?.map((branch) => (
+        <ClaimantClaims
+          key={branch.id}
+          base="/api/v1/portal/claims"
+          partyId={branch.id}
+          name={branch.name}
+        />
+      ))}
     </main>
   );
 }

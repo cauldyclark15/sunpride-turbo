@@ -182,6 +182,13 @@ export async function acknowledgeSpecPosting(db, row, result, env = undefined) {
 /** F-505: effective partner grants, including office scope, precede every claimant read/write.
  * @param {any} c @param {string} type @param {string} id */
 export async function authorizeClaimant(c, type, id) {
+  if (type === "modern_trade" && (!c.actor || c.actor.role === "mt_customer")) {
+    const { portalAccess } = await import("../mt/portal.js");
+    const { allowed } = await portalAccess(c);
+    if (!allowed.some((/** @type {any} */ b) => b.id === id))
+      fail("Claimant outside your customer branch", "out_of_scope", 403);
+    return;
+  }
   if (type === "agency") {
     await authorizeAgency(c, id, "billing");
     return;
@@ -217,6 +224,21 @@ export async function readEligibilityFacts(c, q) {
  * @param {any} c @param {string} kind @param {string} id @returns {Promise<any>} */
 export async function readPartnerEvidence(c, kind, id) {
   if (kind !== "source_document") return executionEvidence(c, kind, id);
+  const [deduction] =
+    await c.db`select d.id,d.binding_id,d.amount_centavos,d.updated_at,m.received_on,m.reference from mt_deductions d join mt_remittances m on m.id=d.remittance_id where d.id=${id}`;
+  if (deduction) {
+    await authorizeClaimant(c, "modern_trade", deduction.binding_id);
+    return {
+      kind,
+      sourceId: id,
+      fingerprint: `mt-deduction:${id}:${deduction.amount_centavos}:${new Date(deduction.updated_at).toISOString()}`,
+      verified: true,
+      occurredAt: +new Date(deduction.received_on),
+      partyType: "modern_trade",
+      partyId: deduction.binding_id,
+      amountCentavos: Number(deduction.amount_centavos),
+    };
+  }
   const [r] = await c.db`select * from distributor_documents where id=${id}`;
   if (!r) return null;
   await authorize(c, r.distributor_id, "claim");

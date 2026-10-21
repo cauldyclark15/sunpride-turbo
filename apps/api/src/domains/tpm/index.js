@@ -5,12 +5,14 @@ import { installClaims } from "./claims.js";
 import { installFinance } from "./finance.js";
 import { installDeductions } from "./deductions.js";
 import { installEvaluations } from "./evaluations.js";
+import { installClaimantPortals } from "./portal.js";
 /** @param {any} router */
 export function install(router) {
   registerTopic("tpm", (actor) => actor.role !== "sales");
   installCampaigns(router);
   installWorkspace(router);
   installClaims(router);
+  installClaimantPortals(router);
   installFinance(router);
   installDeductions(router);
   installEvaluations(router);

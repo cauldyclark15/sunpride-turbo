@@ -140,6 +140,40 @@ function matches(c, r, source) {
         r.claimant_party_type === source.partyType))
   );
 }
+/** Shared immutable source linker for office and claimant intake. @param {any} c @param {any} r @param {any} b */
+export async function attachClaimEvidence(c, r, b) {
+  if (!["submitted", "needs_evidence"].includes(r.status))
+    fail("Evidence is locked after validation");
+  const kind = choice(b.kind, EVIDENCE_KINDS, "Evidence kind"),
+    id = uuid(b.sourceId),
+    source = await readEvidence(c, kind, id);
+  if (!matches(c, r, source))
+    fail("Evidence is not verified or does not match this claim");
+  await c.db`select pg_advisory_xact_lock(hashtextextended(${"tpm:source:" + kind + ":" + id},0))`;
+  await c.db`select pg_advisory_xact_lock(hashtextextended(${"tpm:proof:" + source.fingerprint},0))`;
+  const [same] =
+    await c.db`select id from claim_evidence where claim_id=${r.id} and kind=${kind} and source_id=${id}`;
+  if (!same) {
+    const [duplicate] =
+      await c.db`select id from claim_evidence where fingerprint=${source.fingerprint} or (kind=${kind} and source_id=${id})`;
+    if (duplicate) fail("Evidence was already used by another claim");
+    await c.db`insert into claim_evidence(claim_id,kind,source_id,fingerprint,snapshot) values(${r.id},${kind},${id},${text(source.fingerprint, "Evidence fingerprint", 200)},${source})`;
+  }
+  await event(c, r, "evidence_added", { kind });
+  return { id: r.id };
+}
+/** Bounded packet intake is atomic with its source links; monetary validation stays independent. @param {any} c @param {any} b */
+export async function submitClaimPacket(c, b) {
+  if (!Array.isArray(b.sources) || b.sources.length > 20)
+    fail("Choose at most 20 source records");
+  const result = await submitClaim(c, b),
+    r = await claim(c, result.id);
+  for (const source of [...b.sources].sort((a, b) =>
+    `${a.kind}:${a.sourceId}`.localeCompare(`${b.kind}:${b.sourceId}`),
+  ))
+    await attachClaimEvidence(c, r, source);
+  return result;
+}
 /** F-506 immutable validation re-reads authoritative facts; a photo alone never proves payable money.
  * @param {any} c @param {any} r */
 export async function validateClaim(c, r) {
@@ -451,24 +485,7 @@ export function installClaims(router) {
           const b = c.body,
             r = await claim(cc, b.id, true);
           if (action === "evidence") {
-            if (!["submitted", "needs_evidence"].includes(r.status))
-              fail("Evidence is locked after validation");
-            const kind = choice(b.kind, EVIDENCE_KINDS, "Evidence kind"),
-              id = uuid(b.sourceId),
-              source = await readEvidence(cc, kind, id);
-            if (!matches(cc, r, source))
-              fail("Evidence is not verified or does not match this claim");
-            await cc.db`select pg_advisory_xact_lock(hashtextextended(${"tpm:proof:" + source.fingerprint},0))`;
-            const [same] =
-              await cc.db`select id from claim_evidence where claim_id=${r.id} and kind=${kind} and source_id=${id}`;
-            if (!same) {
-              const [duplicate] =
-                await cc.db`select id from claim_evidence where fingerprint=${source.fingerprint}`;
-              if (duplicate) fail("Evidence was already used by another claim");
-              await cc.db`insert into claim_evidence(claim_id,kind,source_id,fingerprint,snapshot) values(${r.id},${kind},${id},${text(source.fingerprint, "Evidence fingerprint", 200)},${source})`;
-            }
-            await event(cc, r, "evidence_added", { kind });
-            return { id: r.id };
+            return attachClaimEvidence(cc, r, b);
           }
           if (action === "validate") {
             if (

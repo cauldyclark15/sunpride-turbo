@@ -7,6 +7,7 @@ import { Accreditation, Claims, Documents, Money } from "./finance";
 import { Ordering, Overview, Stock } from "./commercial";
 import { Reconcile, Secondary } from "./secondary";
 import { Setup } from "./setup";
+import { ClaimantClaims } from "../claimant-claims";
 import type { Partner, Workspace } from "./types";
 import {
   ActionForm,
@@ -255,12 +256,20 @@ function PartnerDetail({
                 />
               ) : null}
               {active === "claims" ? (
-                <Claims
-                  workspace={w}
-                  command={command}
-                  canWrite={canWrite}
-                  office={office}
-                />
+                <>
+                  <Claims
+                    workspace={w}
+                    command={command}
+                    canWrite={canWrite}
+                    office={office}
+                  />
+                  <ClaimantClaims
+                    key={partner.id}
+                    base="/api/v1/distributors/claims/shared"
+                    partyId={partner.id}
+                    name={partner.name}
+                  />
+                </>
               ) : null}
               {active === "money" ? (
                 <Money
