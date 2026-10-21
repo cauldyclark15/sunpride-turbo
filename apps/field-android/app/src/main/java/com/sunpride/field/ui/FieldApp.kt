@@ -250,7 +250,7 @@ fun FieldApp(
                             ?: if (controller.orderOpen && controller.orderReview) "Review" else if (controller.orderOpen) "Order"
                             else if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
                     } else if (controller.state != EnrollmentState.SignedOut && !locked && (page == "account" || page == "change-password" || page == "sync" || page == "support" ||
-                        (ready && (page == "route" || page == "customers" || page == "customer" || page == "team" || page == "census" || page == "workforce")))) Row(verticalAlignment = Alignment.CenterVertically) {
+                        (ready && (page == "route" || page == "customers" || page == "customer" || page == "team" || page == "census" || page == "workforce" || page == "jointcall")))) Row(verticalAlignment = Alignment.CenterVertically) {
                         IconButton(onClick = goBack,
                             modifier = Modifier.height(48.dp).testTag(when (page) {
                                 "sync" -> "sync-back"; "support" -> "support-back"; "route" -> "route-back"
@@ -261,7 +261,7 @@ fun FieldApp(
                         }
                         Text(when (page) {
                             "change-password" -> "Change password"; "sync" -> "Sync"; "support" -> "Support info"; "route" -> "Route"
-                            "customers" -> "Customers"; "customer" -> "Outlet"; "team" -> "Team"; "census" -> "Census"; "workforce" -> "Attendance & prospects"; else -> "Account"
+                            "customers" -> "Customers"; "customer" -> "Outlet"; "team" -> "Team"; "census" -> "Census"; "workforce" -> "Attendance & prospects"; "jointcall" -> "Work-With & coaching"; else -> "Account"
                         }, style = MaterialTheme.typography.titleMedium,
                             modifier = when (page) {
                                 "account" -> Modifier.testTag("account-title"); "route" -> Modifier.testTag("route-title")
@@ -329,6 +329,7 @@ fun FieldApp(
                         onAutostart = { batteryGuide.openAutostart(context) },
                         onDone = { page = "home" }, modifier = modifier)
                 }
+                ready && page == "jointcall" -> JointCallScreen(controller,modifier)
                 ready && page == "catalogue" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
                     com.sunpride.field.catalogue.FieldCatalogue(backend, { page = "home" }, modifier)
                 }
@@ -379,6 +380,7 @@ fun FieldApp(
                             Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                                 Text("Attendance and new prospects work offline.",style=MaterialTheme.typography.bodyMedium)
                                 SecondaryButton("Attendance & prospects",{controller.openWorkforce();page="workforce"},Modifier.testTag("workforce-open"))
+                                if(controller.today.supervisor) SecondaryButton("Work-With & coaching",{page="jointcall"},Modifier.testTag("jointcall-open"))
                             }
                         }
                         dayView?.let { view ->

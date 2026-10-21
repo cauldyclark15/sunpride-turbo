@@ -26,6 +26,7 @@ import com.sunpride.field.sync.LiveBootstrapTransport
 import com.sunpride.field.sync.BootstrapCodec
 import com.sunpride.field.device.RequestSigner
 import org.json.JSONObject
+import org.json.JSONArray
 import java.util.Base64
 import java.time.LocalDate
 import java.time.ZoneId
@@ -60,6 +61,7 @@ interface FieldBackend {
     fun sapMasterLifetime(): String? = null
     fun creditControl(action:String,args:JSONObject):JSONObject {error("Connect to check credit control")}
     fun queueDomain(kind:String,payload:JSONObject,aggregate:String,dependencies:List<String>):String {error("Connect to refresh this form")}
+    fun domainForms(kind:String,refresh:Boolean):JSONObject? = null
     fun appUpdates(): com.sunpride.integrity.AppUpdateClient? = null
     fun queueMockRefusal(outletId: String) { error("Integrity attempt storage unavailable") }
     fun signOut()
@@ -585,10 +587,43 @@ class LiveFieldBackend(
         val partition=storedScope()?:error("Sync this account first")
         val life=sapMasterLifetime()?:error("Sign in again")
         val ticket=com.sunpride.field.sync.DomainOutbox.ticket()
+        if(kind in setOf("jointcall.capture","collections.capture")) check(domainForms(kind.substringBefore("."),false)!=null) {"Refresh this authorized form before recording"}
         val row=com.sunpride.field.sync.DomainOutbox.intent(partition,kind,payload,aggregate,dependencies)
         withStore { store->store.enqueueDomain(row,System.currentTimeMillis()) {com.sunpride.field.sync.DomainOutbox.current(ticket)&&sapMasterLifetime()==life&&storedScope()==partition} }
         runCatching{com.sunpride.field.sync.work.SyncWork.enqueue(context)}
         return row.requestId
+    }
+    /** F-223/F-613 independently granted finite snapshots in the existing encrypted partition. */
+    override fun domainForms(kind:String,refresh:Boolean):JSONObject? {
+        require(kind in setOf("jointcall","collections"))
+        val partition=storedScope()?:return null
+        val day=LocalDate.now(ZoneId.of("Asia/Manila")).toString()
+        val grant=projectionGrant("forms:$kind",day)?:return null
+        val topic="field.$kind";val params=JSONObject().put("serviceDate",day)
+        val store=EncryptedFieldDatabase.store(context,partition)
+        fun refuse(){if(!grant.deny())auth.signOut()}
+        return try{runBlocking{
+            if(refresh)try{
+                val me=functions.api.me()
+                check(me.getJSONObject("profile").getBoolean("active")&&me.getJSONObject("device").getString("id")==partition.deviceId)
+                check("v2:$environmentOrigin|${me.getJSONObject("profile").getString("subject")}"==partition.account&&me.getJSONObject("scope").getString("fingerprint")==partition.fingerprint)
+                val response=functions.api.signed(com.sunpride.field.sync.V2Wire.PULL,com.sunpride.field.sync.V2Wire.pull(partition.deviceId,me.getJSONObject("scope").getString("id"),topic,params),loadSigner(),partition.deviceId)
+                val b=com.sunpride.field.sync.V2Wire.bundle(response,me,topic,params)
+                check(b.getBoolean("complete")&&!response.getBoolean("hasMore"))
+                val data=b.getJSONObject("data")
+                check(data.getString("profileId")==store.employeeId())
+                val expires=minOf(b.getJSONObject("authorization").getLong("expiresAt"),b.getJSONObject("offlineLease").getLong("expiresAt"))
+                check(expires>response.getLong("serverTime"))
+                if(grant.current()&&storedScope()==partition){
+                    val text=JSONObject().put("expiresAt",expires).put("data",data).toString()
+                    grant.wrap(text)?.let{store.putLocalCache(topic,day,it,response.getLong("serverTime"),day)}
+                }
+            }catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;if(e !is AuthFailure||e.kind!=AuthFailure.Kind.OFFLINE)refuse()}
+            if(!grant.current()||storedScope()!=partition||!store.isLeaseValid(System.currentTimeMillis()))return@runBlocking null
+            val cache=store.localCache(topic,day)?.json?.let{grant.read(it)}?.let(::JSONObject)?:return@runBlocking null
+            if(cache.getLong("expiresAt")<=System.currentTimeMillis())return@runBlocking null
+            cache.getJSONObject("data").put("authorizationExpiresAt",cache.getLong("expiresAt")).put("localOperations",JSONArray().apply{for((row,out) in store.history().filter{it.first.kind=="$kind.capture"})put(JSONObject().put("requestId",row.requestId).put("aggregateId",row.clientVisitId).put("state",out.state).put("payload",JSONObject(row.serializedOperation).getJSONObject("payload")))})
+        }}finally{store.close()}
     }
     private fun dsrToday(device:String,signer:DeviceSigner,me:JSONObject?,failure:Exception?=null,expectedKey:String?=sessionKey()):TodayData{
         val key=sessionKey()?:return TodayData(partnerMode=true)
@@ -674,6 +709,13 @@ class LiveFieldBackend(
                         .putString("$key.device", deviceId).apply()
                 }
                 val healthScope = storedScope()
+                if(healthScope!=null&&healthScope.fingerprint==verifiedMe.getJSONObject("scope").getString("fingerprint")) {
+                    val ticket=com.sunpride.field.sync.DomainOutbox.ticket()
+                    val scoped=EncryptedFieldDatabase.store(context,healthScope)
+                    try { runBlocking { com.sunpride.field.sync.DomainOutbox.sync(scoped,healthScope,verifiedMe.getJSONObject("scope").getString("id"),
+                        {sessionKey()==key&&storedScope()==healthScope&&com.sunpride.field.sync.DomainOutbox.current(ticket)},
+                        {path,body->functions.api.signed(path,body,signer,deviceId)}) } } finally {scoped.close()}
+                }
                 val health = healthScope?.let { scope ->
                     val scoped = EncryptedFieldDatabase.store(context, scope)
                     try { runBlocking { scoped.syncHealth() } } finally { scoped.close() }
@@ -1582,6 +1624,7 @@ class FieldController(
     fun signCompanyMessage(message: String): String = backend.loadSigner().sign(message)
     fun replacementCode(): JSONObject = backend.replacementCode()
     fun creditControl(action:String,args:JSONObject):JSONObject=backend.creditControl(action,args)
+    fun domainForms(kind:String,refresh:Boolean):JSONObject?=backend.domainForms(kind,refresh)
     fun sapMasters(refresh: Boolean): JSONObject? = backend.sapMasters(refresh)
     fun sapMasterLifetime(): String? = backend.sapMasterLifetime()
     fun appUpdates(): com.sunpride.integrity.AppUpdateClient? = backend.appUpdates()

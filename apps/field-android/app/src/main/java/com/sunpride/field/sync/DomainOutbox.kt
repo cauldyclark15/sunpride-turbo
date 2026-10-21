@@ -36,6 +36,10 @@ object DomainOutbox {
             val ack=store.ack(p.getString("localVisitRequestId"))?:return null
             p.remove("localVisitRequestId");p.put("visitId",ack.entityId)
         }
+        if(p.has("localSessionRequestId")){
+            val ack=store.ack(p.getString("localSessionRequestId"))?:return null
+            p.remove("localSessionRequestId");p.put("sessionId",ack.entityId)
+        }
         store.putLocalCache("local.domain.wire",row.requestId,op.toString(),row.createdAt,"")
         return op
     }

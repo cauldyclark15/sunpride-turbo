@@ -72,6 +72,8 @@ const CHANGE_LOCK = 4310002;
 
 /** @type {Map<string, OpHandler>} */
 const ops = new Map();
+/** @type {Map<string,(db:any,actor:any,op:any)=>Promise<void>>} */
+const opGuards = new Map();
 /** @type {Map<string, Projection>} */
 const projections = new Map();
 
@@ -84,10 +86,12 @@ export class OpRejected extends Error {
   }
 }
 
-/** @param {string} opType @param {OpHandler} handler */
-export function registerOp(opType, handler) {
+/** Optional domain guard runs inside the transaction before receipt replay (F-223/F-613).
+ * @param {string} opType @param {OpHandler} handler @param {(db:any,actor:any,op:any)=>Promise<void>} [guard] */
+export function registerOp(opType, handler, guard) {
   if (ops.has(opType)) throw new Error(`op ${opType} already registered`);
   ops.set(opType, handler);
+  if (guard) opGuards.set(opType, guard);
 }
 
 /** @param {string} name @param {Projection|Projection['snapshot']} handler */
@@ -103,6 +107,7 @@ export function registerProjection(name, handler) {
 /** Test/reset helper. */
 export function clearSyncRegistry() {
   ops.clear();
+  opGuards.clear();
   projections.clear();
 }
 
@@ -292,6 +297,7 @@ async function applyOne(ctx, op, deviceId) {
         deviceId,
       );
       await enforcePartnerOp(t, actor, op);
+      await opGuards.get(op.opType)?.(t, actor, op);
       const existing = await findReceipt(t, actor, deviceId, op.clientOpId);
       if (existing) {
         if (existing.payload_hash !== hash)

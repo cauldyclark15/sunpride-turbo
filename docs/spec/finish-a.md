@@ -127,6 +127,14 @@ One real signed HTTP/Postgres case completed PJP/MSL projection → check-in →
 
 Migration decision: `0579_dsr_execution_roles.sql` is an additive sibling inside the allocated final 0579 prefix. The inspected migrator tracks complete filenames, so it applies alongside `0579_credit_exception_receipts.sql` without rewriting an already-applied file or taking another lane's range. It only permits the true distributor value in the existing execution-event actor-role constraint; it grants no capabilities.
 
+## F-223: offline Work-With coaching in the existing field app
+
+Supervisors can download their scoped trainees, open Work-With sessions and earlier agreed actions, then record BCP/PSF observations, training discussion, pre-call documents, SWOT and dated owner-specific next actions offline. Save draft commits to the existing encrypted intent/outbox; a retained draft can be reopened and saved as a dependent immutable revision before any network connection. The durable predecessor acknowledgement resolves its canonical session ID. The server compares the preceding form's canonical revision, so an intervening office edit is a reconciliation conflict, not an overwrite.
+
+The signed `field.jointcall` projection uses an independent finite encrypted grant. Denial, sign-out, scope epochs, expiry and stale requests cannot restore an earlier authorized cache. Existing Work-With writers own cadence, actual MCP completion, trainer-only editing and carry review; phone checkboxes never certify completion. Completion remains pending until acknowledged. No coaching table, second queue or substitute cadence policy was created. A narrow optional CORE operation guard authorizes the current trainee/session under locks before receipt replay; other registered operations retain their existing behavior.
+
+One minimal real-Postgres/signed HTTP case passed: draft → dependent complete coaching/action capture → carried action, an office-edit conflict and a withdrawn-trainee replay refusal. The actual signed response and captured payload feed the passing JVM parser/immutable-draft case. Android compile/lint and API typecheck passed; the physical new-screen/Room pass remains for the final device visit.
+
 ## Needs Sunpride
 
 Real IdP/provider configuration, SAP access/mappings, fiscal registration/permit evidence and production signing/distribution ownership remain external inputs. Existing clearly marked sample/mock data keeps the software usable without inventing these outcomes. No sample registration is presented as a BIR filing. These notes describe our implementation choices, not confirmed client operating policy.

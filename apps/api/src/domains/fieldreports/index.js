@@ -48,10 +48,12 @@ import { productivity, productivityRoster } from "./productivity.js";
 import { reportKindFor, RULE_VERSION } from "./rules.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { installProjections } from "./mobile.js";
+import { installNativeJointCalls } from "./native-jointcalls.js";
 
 /** @param {any} router @param {any} platform */
 export function install(router, platform) {
   installProjections(platform);
+  installNativeJointCalls(platform);
   const base = "/api/v1/fieldreports/";
   /** @param {string} name @param {(c:any,a:any)=>Promise<any>} fn */
   const get = (name, fn) =>

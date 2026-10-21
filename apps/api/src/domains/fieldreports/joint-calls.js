@@ -13,7 +13,13 @@ export async function jointCallState(c, s) {
     await c.db`select a.*,w.service_date as agreed_on from joint_call_actions a join work_with_sessions w on w.id=a.session_id
       where a.trainer_profile_id=${s.trainer_profile_id} and a.trainee_profile_id=${s.trainee_profile_id} and w.status<>'cancelled'
       and (a.session_id=${s.id} or a.reviewed_in_session_id=${s.id} or (a.status='open' and w.service_date<=${day(s.service_date)}::date and a.session_id<>${s.id}))
-      order by w.service_date,a.session_id,a.ordinal limit 200`;
+      order by w.service_date,a.session_id,a.ordinal limit 201`;
+  if (rows.length > 200)
+    fail(
+      "Reconcile older joint-call actions in the office before downloading more",
+      422,
+      "report_limit",
+    );
   /** @param {any} r */
   const view = (r) => ({
     id: r.id,
