@@ -680,6 +680,12 @@ test("F-309 remittance balances, invoice isolation, ownership/SLA and claim agei
   expect(q.body.rows[0].age_days).toBeGreaterThan(0);
   expect(q.body.summary.overdue).toBe(1);
   expect(q.body.rows[0].owner_name).toBe("admin");
+  expect(q.body.rows[0].financial_status).toBe("open");
+  expect(q.body.rows[0].financialRecoveredCentavos).toBe(0);
+  const [financial] =
+    await h.db`select f.* from deductions f join mt_deductions d on d.financial_case_id=f.id where d.id=${q.body.rows[0].id}`;
+  expect(financial.source_key).toBe(`mt:${q.body.rows[0].id}`);
+  expect(Number(financial.amount_centavos)).toBe(1000);
   expect((await api(foreign, "deductions")).body.rows).toEqual([]);
   expect(
     (

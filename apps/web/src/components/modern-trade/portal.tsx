@@ -180,6 +180,13 @@ export function CustomerPortal() {
                 {d.invoiceNumber ?? "Invoice not linked"} · Follow-up due{" "}
                 {dateText(d.dueOn)}
               </p>
+              {d.financialStatus ? (
+                <p className="mt-3 text-sm">
+                  Financial follow-up: {label(d.financialStatus)} · recovered{" "}
+                  {php(d.financialRecoveredCentavos ?? 0)}. Case review and
+                  financial recovery are separate.
+                </p>
+              ) : null}
               {d.status === "resolved" ? (
                 <p className="mt-3 text-sm">
                   Case review closed. Invoice settlement is not shown here.

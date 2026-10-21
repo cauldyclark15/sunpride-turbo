@@ -1,5 +1,6 @@
 "use client";
 import { useState } from "react";
+import Link from "next/link";
 import { useApi } from "../../lib/api";
 import type { Deduction, DeductionQueue, Options } from "./model";
 import { deductionExport } from "./export";
@@ -275,6 +276,15 @@ export function DeductionCase({
           ? `Claim: ${r.claim_reference}`
           : "Next action: link the underlying claim or review the customer dispute."}
       </p>
+      {r.financial_status ? (
+        <p className="mb-3 text-sm">
+          Shared financial case: {label(r.financial_status)} · recovered{" "}
+          {php(r.financialRecoveredCentavos ?? 0)}.{" "}
+          <Link href="/finance-claims" className="underline">
+            Open Finance claims
+          </Link>
+        </p>
+      ) : null}
       {cmd.error ? <Notice>{cmd.error}</Notice> : null}
       {r.status !== "resolved" && (canEdit || canApprove) ? (
         <details>
