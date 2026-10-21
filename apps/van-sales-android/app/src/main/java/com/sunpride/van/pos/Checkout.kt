@@ -156,6 +156,7 @@ object CheckoutRules {
             .onFailure { issues+=CheckoutIssue(CheckoutProblem.DISCOUNT_INVALID) }
         if(!runCatching{ManualDiscounts.amount(quoted)<=MAX_MINOR}.getOrDefault(false))issues+=CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE)
         if(!context.previewOnly)ManualDiscounts.authorize(request,quoted,context)?.let{issues+=CheckoutIssue(it)}
+        if(!context.previewOnly&&PromotionEngine.needsOffice(request,context))issues+=CheckoutIssue(CheckoutProblem.PROMOTION_NEEDS_OFFICE)
         if(!context.previewOnly&&context.policy?.fiscalJson!=null)runCatching{
             com.sunpride.van.fiscal.FiscalTax.snapshot(quoted,org.json.JSONObject(context.policy.fiscalJson),customer?.priceListId,context.now)
         }.onFailure{issues+=CheckoutIssue(CheckoutProblem.TAX_NOT_READY)}

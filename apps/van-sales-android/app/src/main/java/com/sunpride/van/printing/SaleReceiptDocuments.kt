@@ -57,8 +57,9 @@ object SaleReceiptDocuments {
                 add(ReceiptElement.Columns("  ${line.quantityLabel} ${line.uomCode} x ${money(line.unitPriceMinor, receipt.currency)}",
                     money(line.totalMinor, receipt.currency)))
                 line.promotionCode?.let { code ->
-                    add(ReceiptElement.Text("  Promo $code  -${money(line.discountMinor,receipt.currency)}"))
+                    add(ReceiptElement.Text("  Offer $code"))
                 }
+                if(line.discountMinor>0)add(ReceiptElement.Text("  Discounts -${money(line.discountMinor,receipt.currency)}"))
                 if (line.freeBase > 0L) add(ReceiptElement.Text("  Free ${line.freeQuantityLabel ?: line.freeBase} ${line.uomCode} (${line.promotionCode ?: "promotion"})"))
             }
             add(ReceiptElement.Divider())

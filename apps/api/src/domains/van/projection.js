@@ -10,6 +10,7 @@ import { fiscalBundle } from "../fiscal/transactions.js";
 import { routeBundle } from "./route-read.js";
 import { ApiError } from "../../core/errors.js";
 import { resolvePrice } from "../orders/pricing.js";
+import { schemeFeed } from "./schemes.js";
 import { masterId } from "../integration/replicas.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
 import { productFor } from "./facts.js";
@@ -222,6 +223,8 @@ export async function bundle(ctx, env) {
       priceLines = [],
       taxQuotes = [];
     const priceKeys = new Set();
+    /** @type {Map<string,Map<string,string|null>>} */ const sourceLists =
+      new Map();
     for (const candidate of candidates) {
       let o;
       try {
@@ -266,6 +269,8 @@ export async function bundle(ctx, env) {
           };
       }
       let priceListId = null;
+      const sourceList = new Map();
+      sourceLists.set(o.id, sourceList);
       for (const p of products) {
         const price = await resolvePrice(db, {
           organizationId: trip.organization_id,
@@ -276,6 +281,7 @@ export async function bundle(ctx, env) {
           at: Date.now(),
         });
         if (price.unitPriceCentavos === null || !price.priceListId) continue;
+        sourceList.set(p.productId, price.priceListId);
         // F-016 a customer quote may combine base, channel and customer conditions.
         // The offline grouping is a quote identity, not a second authoritative price list.
         priceListId = masterId("van.priceQuote", o.id);
@@ -366,6 +372,14 @@ export async function bundle(ctx, env) {
     );
     const routeOps = await routeBundle(db, trip);
     const tripPolicy = policy(env, trip.id);
+    const schemes = await schemeFeed(
+      db,
+      actor,
+      customers,
+      products,
+      sourceLists,
+      ctx.now,
+    );
     const customerChannels = customers.length
       ? await db`select id,channel from outlets where id in ${db(customers.map((c) => c.outletId))}`
       : [];
@@ -390,6 +404,7 @@ export async function bundle(ctx, env) {
           ),
           taxVersion: 1,
           taxQuotes,
+          schemeHolds: schemes.holds,
         },
         ...(routeOps ? { operationsVersion: 1 } : {}),
       },
@@ -459,7 +474,7 @@ export async function bundle(ctx, env) {
         500,
       ),
       deliveryDrops: await deliveryBundle(db, actor, trip),
-      promotions: [],
+      promotions: schemes.promotions,
     };
   });
 }

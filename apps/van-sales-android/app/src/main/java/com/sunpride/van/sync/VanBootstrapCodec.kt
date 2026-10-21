@@ -80,8 +80,13 @@ object VanBootstrapCodec {
             }
             else -> throw IllegalArgumentException("Unknown promotion")
         }
+        val version=if(o.has("engineVersion"))o.getInt("engineVersion") else 0;require(version in 0..1)
+        val stacking=if(o.has("stacking"))o.getString("stacking") else "exclusive";require(stacking in listOf("exclusive","stackable"))
+        fun list(key:String):List<String>?=o.optJSONArray(key)?.let{a->require(a.length()<=600);(0 until a.length()).map{a.getString(it)}}
+        val outlets=list("outletIds");if(version==1)require(!outlets.isNullOrEmpty()&&outlets.distinct().size==outlets.size)
         return Promotion(o.getString("promotionId"),o.getString("code"),o.getString("name"),
-            nullable(o,"priceListId"),from,to,rule)
+            nullable(o,"priceListId"),from,to,rule,version,if(o.has("precedence"))o.getInt("precedence") else 100,
+            stacking,nullable(o,"exclusionGroup"),list("excludes")?:emptyList(),outlets)
     }
     fun promotionJson(p: Promotion): JSONObject {
         val rule = when (val r = p.rule) {
@@ -92,6 +97,8 @@ object VanBootstrapCodec {
         return JSONObject().put("promotionId",p.promotionId).put("code",p.code).put("name",p.name)
             .put("priceListId",p.priceListId ?: JSONObject.NULL).put("effectiveFrom",p.effectiveFrom)
             .put("effectiveTo",p.effectiveTo ?: JSONObject.NULL).put("rule",rule)
+            .put("engineVersion",p.engineVersion).put("precedence",p.precedence).put("stacking",p.stacking)
+            .put("exclusionGroup",p.exclusionGroup?:JSONObject.NULL).put("excludes",JSONArray(p.excludes)).put("outletIds",p.outletIds?.let{JSONArray(it)}?:JSONObject.NULL)
     }
     private fun unitJson(u: PromotionUnit) = JSONObject().put("productId",u.productId).put("uomCode",u.uomCode).put("quantity",u.quantity)
     fun damageRecords(a: JSONArray): List<DamageRecord> = objects(a).map {
@@ -112,6 +119,7 @@ object VanBootstrapCodec {
         val legacy = JSONObject(o.toString())
         objects(legacy.getJSONArray("products")).forEach { it.remove("catalogue") }
         legacy.getJSONObject("policy").remove("fiscal")
+        legacy.optJSONArray("promotions")?.let(::objects)?.forEach{p->listOf("engineVersion","precedence","stacking","exclusionGroup","excludes","outletIds").forEach(p::remove)}
         VanWireSchema.validate(legacy)
         if (o.getJSONObject("policy").has("fiscal")) {
             com.sunpride.van.fiscal.FiscalNumbers.ranges(o.getJSONObject("policy"))
@@ -137,6 +145,7 @@ object VanBootstrapCodec {
         val promotions = o.optJSONArray("promotions")?.let(::objects)?.map(::promotion) ?: emptyList()
         require(promotions.map { it.promotionId }.distinct().size == promotions.size)
         require(promotions.map { it.code }.distinct().size == promotions.size)
+        require(promotions.map{it.engineVersion}.distinct().size<=1&&promotions.all{p->p.outletIds?.all{id->cs.any{it.outletId==id}}!=false})
         fun units(p: Promotion): List<PromotionUnit> = when (val r = p.rule) {
             is PromotionRule.BuyXGetY -> listOf(r.buy,r.free)
             is PromotionRule.PercentOff -> listOf(r.item)

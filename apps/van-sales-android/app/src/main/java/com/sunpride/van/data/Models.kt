@@ -92,7 +92,9 @@ sealed class PromotionRule {
 
 /** A server-governed, effective-dated promotion frozen in the bootstrap. */
 data class Promotion(val promotionId: String, val code: String, val name: String, val priceListId: String?,
-    val effectiveFrom: Long, val effectiveTo: Long?, val rule: PromotionRule) {
+    val effectiveFrom: Long, val effectiveTo: Long?, val rule: PromotionRule,
+    val engineVersion:Int=0,val precedence:Int=100,val stacking:String="exclusive",val exclusionGroup:String?=null,
+    val excludes:List<String> = emptyList(),val outletIds:List<String>?=null) {
     val kind: String get() = when (rule) {
         is PromotionRule.BuyXGetY -> "buy_x_get_y"
         is PromotionRule.PercentOff -> "percent_off"

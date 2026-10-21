@@ -11,6 +11,7 @@ import { issueDocument } from "../fiscal/series.js";
 import { enforceAuthority } from "../fiscal/authority.js";
 import { enforceDiscount, saleDiscountFacts } from "../fiscal/discounts.js";
 import { collectionTaxReference } from "../fiscal/taxes.js";
+import { validateSaleSchemes } from "./schemes.js";
 import { configuredTender } from "../fiscal/tenders.js";
 import { requireAvailability } from "../availability/callflow.js";
 import { postMovement } from "../inventory/posting.js";
@@ -560,9 +561,9 @@ async function sale(db, trip, actor, p, opId, env) {
     const qty = integer(l.quantityBase, true);
     const paid = l.paidBase === undefined ? qty : integer(l.paidBase),
       free = l.freeBase === undefined ? 0n : integer(l.freeBase);
-    if (paid + free !== qty || free !== 0n)
+    if (paid + free !== qty)
       refuse(
-        "Promotion approval is not supported by the pricing seam",
+        "Paid and free quantities must equal the stock quantity",
         "invalid_request",
       );
     const price = await resolvePrice(db, {
@@ -580,11 +581,8 @@ async function sale(db, trip, actor, p, opId, env) {
       refuse("The selling price changed", "stock_conflict");
     const gross = extend(unitPrice, paid, product.quantityScale),
       discount = integer(l.discountMinor ?? "0");
-    if (discount > gross || l.promotion)
-      refuse(
-        "Discount exceeds the gross or promotion needs the programme seam",
-        "invalid_request",
-      );
+    if (discount > gross)
+      refuse("Discount exceeds the gross", "invalid_request");
     const lineTotal = gross - discount;
     if (
       integer(l.totalMinor) !== lineTotal ||
@@ -597,6 +595,8 @@ async function sale(db, trip, actor, p, opId, env) {
       ...frozenProduct(product),
       lineNumber: i + 1,
       quantityBase: String(qty),
+      paidBase: String(paid),
+      freeBase: String(free),
       unitPriceMinor: String(unitPrice),
       totalMinor: String(lineTotal),
       grossMinor: String(gross),
@@ -621,6 +621,15 @@ async function sale(db, trip, actor, p, opId, env) {
     });
   }
   safeNumber(total);
+  const schemes = await validateSaleSchemes(
+    db,
+    actor,
+    trip,
+    customer,
+    quoted,
+    p.lines,
+    at,
+  );
   if (integer(p.totalMinor) !== total)
     refuse("Sale total does not reconcile", "invalid_request");
   if (discounts > 0n && p.authorityVersion === 2)
@@ -718,6 +727,7 @@ async function sale(db, trip, actor, p, opId, env) {
     totalMinor: String(total),
     discountMinor: String(discounts),
     lines: quoted,
+    schemes,
     payment: { ...pay, label: method.label },
     soldAt: at,
   };

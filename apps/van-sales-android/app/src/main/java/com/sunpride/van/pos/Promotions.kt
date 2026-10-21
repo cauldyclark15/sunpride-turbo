@@ -28,12 +28,19 @@ internal data class PromotionLine(
 internal data class PromotionResult(val lines: List<PromotionLine>, val issues: List<CheckoutIssue>)
 
 /**
- * Pure offline promotion evaluation. The bootstrap is authoritative: this engine never invents a price and never
- * combines promotions. A conflict or an un-evaluable rule blocks checkout; percentage discounts deliberately round down
- * in centavos and bundle discounts are allocated in component order without making a line negative until the office
- * supplies a different rounding or allocation rule.
+ * F-110: negotiated engine v1 follows the canonical TPM precedence/exclusions, residual-net stacking,
+ * half-up percentages and proportional bundle allocation. Historical unversioned snapshots retain their
+ * original conflict/rounding rules. Neither mode invents a price; unsupported rules block completion.
  */
 internal object PromotionEngine {
+    /** F-110: an unsupported governed programme must not disappear into a full-price sale. */
+    fun needsOffice(request:CheckoutRequest,context:CheckoutContext):Boolean=runCatching{
+        val raw=context.policy?.fiscalJson?:return@runCatching false
+        val rows=org.json.JSONObject(raw).optJSONArray("schemeHolds")?:return@runCatching false
+        require(rows.length()<=1000)
+        (0 until rows.length()).any{i->val r=rows.getJSONObject(i);val ids=r.getJSONArray("productIds");require(ids.length()<=100)
+            r.getString("outletId")==request.customerId&&(ids.length()==0||(0 until ids.length()).any{n->request.lines.any{it.productId==ids.getString(n)}})}
+    }.getOrDefault(true)
     fun apply(
         cart: List<CartLine>,
         customer: Customer,
@@ -53,9 +60,12 @@ internal object PromotionEngine {
         if (customer.priceListMode == CustomerPriceListMode.NONE) return PromotionResult(lines,emptyList())
         val applicable = mutableListOf<Applicable>()
         val issues = mutableListOf<CheckoutIssue>()
+        val protocol=promotions.any{it.engineVersion==1}
         promotions.asSequence()
             .filter { it.effectiveFrom <= now && (it.effectiveTo == null || now < it.effectiveTo) }
             .filter { it.priceListId == null || it.priceListId == effectiveListId }
+            .filter { it.outletIds==null||customer.outletId in it.outletIds }
+            .sortedWith(if(protocol)compareBy<Promotion>{it.precedence}.thenBy{it.code} else compareBy{promotions.indexOf(it)})
             .forEach { promotion ->
                 when (val rule = promotion.rule) {
                     is PromotionRule.BuyXGetY -> {
@@ -132,10 +142,13 @@ internal object PromotionEngine {
                 }
             }
         val touches = applicable.flatMap { item -> item.touched.map { it to item.promotion } }.groupBy({ it.first },{ it.second })
-        touches.filterValues { promotionsForProduct -> promotionsForProduct.map { it.promotionId }.distinct().size > 1 }
+        if(!protocol)touches.filterValues { promotionsForProduct -> promotionsForProduct.map { it.promotionId }.distinct().size > 1 }
             .keys.forEach { issues += CheckoutIssue(CheckoutProblem.PROMOTION_CONFLICT,it) }
         if (issues.isNotEmpty()) return PromotionResult(lines,issues.distinct())
+        var exclusive=false;val groups=mutableSetOf<String>();val blocked=mutableSetOf<String>();val applied=mutableSetOf<String>()
         applicable.forEach { item ->
+            val p=item.promotion
+            if(protocol&&(exclusive||p.code in blocked||p.exclusionGroup?.let{it in groups}==true||p.excludes.any{it in applied}||p.stacking=="exclusive"&&applied.isNotEmpty()))return@forEach
             val quoted = item.promotion.quoted()
             when (val action = item.action) {
                 is Action.Gift -> {
@@ -151,21 +164,34 @@ internal object PromotionEngine {
                 }
                 is Action.Percent -> {
                     val line = byProduct.getValue(item.primaryProductId())
-                    line.discountMinor = maxOf(line.discountMinor,percentDiscount(line.grossMinor,action.basisPoints))
+                    val discount=percentDiscount(if(protocol)line.grossMinor-line.discountMinor else line.grossMinor,action.basisPoints,protocol)
+                    if(protocol&&discount==0L)return@forEach
+                    line.discountMinor = if(protocol)Math.addExact(line.discountMinor,discount) else maxOf(line.discountMinor,discount)
                     line.promotion = quoted
                 }
                 is Action.Bundle -> {
-                    var remaining = action.discountMinor
-                    action.components.forEach { unit ->
-                        val line = byProduct.getValue(unit.productId)
-                        val available = maxOf(0L,line.grossMinor - line.discountMinor)
-                        val allocated = minOf(remaining,available)
-                        line.discountMinor = Math.addExact(line.discountMinor,allocated)
-                        line.promotion = quoted
-                        remaining -= allocated
+                    if(protocol){
+                        val rows=action.components.map{byProduct.getValue(it.productId)}
+                        val balances=rows.map{maxOf(0L,it.grossMinor-it.discountMinor)};val sum=balances.fold(0L,Math::addExact)
+                        val discount=minOf(action.discountMinor,sum);if(discount==0L)return@forEach
+                        val allocated=balances.map{BigInteger.valueOf(discount).multiply(BigInteger.valueOf(it)).divide(BigInteger.valueOf(sum)).toLong()}.toMutableList()
+                        var residue=discount-allocated.fold(0L,Math::addExact)
+                        allocated.indices.forEach{i->if(residue>0&&allocated[i]<balances[i]){allocated[i]++;residue--}}
+                        rows.forEachIndexed{i,line->line.discountMinor=Math.addExact(line.discountMinor,allocated[i]);line.promotion=quoted}
+                    }else{
+                        var remaining = action.discountMinor
+                        action.components.forEach { unit ->
+                            val line = byProduct.getValue(unit.productId)
+                            val available = maxOf(0L,line.grossMinor - line.discountMinor)
+                            val allocated = minOf(remaining,available)
+                            line.discountMinor = Math.addExact(line.discountMinor,allocated)
+                            line.promotion = quoted
+                            remaining -= allocated
+                        }
                     }
                 }
             }
+            if(protocol){applied+=p.code;p.exclusionGroup?.let{groups+=it};blocked+=p.excludes;exclusive=p.stacking=="exclusive"}
         }
         return PromotionResult(lines,emptyList())
     }
@@ -176,8 +202,8 @@ internal object PromotionEngine {
         CustomerPriceListMode.NONE -> null
     }
 
-    private fun percentDiscount(gross: Long, basisPoints: Int): Long =
-        BigInteger.valueOf(gross).multiply(BigInteger.valueOf(basisPoints.toLong()))
+    private fun percentDiscount(gross: Long, basisPoints: Int,halfUp:Boolean=false): Long =
+        BigInteger.valueOf(gross).multiply(BigInteger.valueOf(basisPoints.toLong())).add(if(halfUp)BigInteger.valueOf(5000L) else BigInteger.ZERO)
             .divide(BigInteger.valueOf(10_000L)).coerceAtMostLong()
 
     private fun baseUnits(unit: PromotionUnit, product: Product): Long? = safeMultiply(unit.quantity.toLong(),product.quantityScale)
