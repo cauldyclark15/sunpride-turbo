@@ -35,6 +35,25 @@ const shift = {
   canDecide: false,
 };
 describe("F-R01 Store cashier setup and blind review", () => {
+  it("F-R01 exact cents never hides a one-cent blind cash discrepancy", () => {
+    const view = html(
+      createElement(StoreShiftRows, {
+        shifts: [
+          {
+            ...shift,
+            declaredCentavos: "100000",
+            expectedCentavos: "100001",
+            varianceCentavos: "-1",
+            canDecide: true,
+            closureId: "closure",
+          },
+        ],
+        onDecide: vi.fn(),
+      }),
+    );
+    expect(view).toContain("₱1,000.01");
+    expect(view).toMatch(/[−-]₱0\.01/);
+  });
   it("uses plain register/person labels and never renders private identifiers", () => {
     const view = html(createElement(StoreShiftRows, { shifts: [shift] }));
     expect(view).toContain("Cebu Colon");
@@ -80,7 +99,8 @@ describe("F-R01 Store cashier setup and blind review", () => {
     const view = html(createElement(StorePosAdmin, { deviceId: "pos" }));
     expect(view).toContain("Current mode: Store");
     expect(view).toContain("Save POS mode");
-    expect(view).toContain("Store checkout is not enabled yet");
+    expect(view).toContain("sales, split tender, receipts and daily closing");
+    expect(view).toContain("Allow manager-PIN mode switching");
     expect(
       html(createElement(StorePosAdmin, { deviceId: "field-phone" })),
     ).toBe("");

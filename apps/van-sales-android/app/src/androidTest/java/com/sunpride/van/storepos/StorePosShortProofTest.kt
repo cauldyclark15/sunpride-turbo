@@ -61,8 +61,10 @@ class StorePosShortProofTest {
                 capture("retail-short-$label-receipt")
             }
             takeSale("online")
+            rule.runOnIdle{c.syncNow()};rule.waitUntil(20_000){!c.busy&&c.storePos.queued==0}
+            assertEquals(0,c.storePos.review)
             home(c);rule.runOnIdle{c.open(Page.STORE_READS)};rule.waitForIdle();capture("retail-short-x-report")
-            rule.onNodeWithTag("store-x-read").performScrollTo().performClick();rule.waitUntil(20_000){!c.busy}
+            rule.onNodeWithTag("store-x-read").performScrollTo().performClick();rule.waitUntil(20_000){!c.busy&&c.page==Page.HOME}
             for((page,label)in listOf(Page.STORE_STOCK to "stock",Page.STORE_DEPOSIT to "deposit",Page.STORE_CUSTOMERS to "customers",Page.POS_MODE to "settings")){
                 rule.runOnIdle{c.open(page)};rule.waitForIdle();capture("retail-short-$label")
             }
@@ -73,7 +75,7 @@ class StorePosShortProofTest {
             rule.runOnIdle{c.syncNow()};rule.waitUntil(20_000){!c.busy&&c.storePos.queued==0}
             assertEquals(0,c.storePos.review);capture("retail-short-synced")
             rule.runOnIdle{c.open(Page.STORE_READS)};rule.waitForIdle();capture("retail-short-received-x")
-            rule.onNodeWithTag("store-z-read").performScrollTo().performClick();rule.waitUntil(20_000){!c.busy}
+            rule.onNodeWithTag("store-z-read").performScrollTo().performClick();rule.waitUntil(20_000){!c.busy&&c.page==Page.HOME}
             home(c);rule.onNodeWithTag("store-shift").performClick();rule.onNodeWithTag("store-cash-amount").performTextInput("1000");Espresso.closeSoftKeyboard();capture("retail-short-blind-count")
             rule.onNodeWithTag("save-store-shift").performClick();rule.waitUntil(20_000){!c.busy&&c.storePos.shift==null}
             rule.runOnIdle{c.syncNow()};rule.waitUntil(20_000){!c.busy&&c.storePos.queued==0}

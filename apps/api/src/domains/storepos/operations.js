@@ -121,7 +121,7 @@ async function read(c) {
   const tenders =
     await db`select method,max(label) as label,sum(amount_centavos)::text as amount from store_tenders t join store_shifts h on h.id=t.shift_id where h.register_id=${r.id} and h.service_date=${today(p.deviceTime)} group by method order by method`;
   const credits =
-    await db`select v.*,s.receipt from store_reversals v join store_sales s on s.id=v.sale_id join store_shifts h on h.id=v.shift_id where h.register_id=${r.id} and h.service_date=${today(p.deviceTime)} and v.status='approved' and v.kind='refund'`;
+    await db`select v.*,s.receipt,o.order_number as credit_number from store_reversals v join store_sales s on s.id=v.sale_id join store_shifts h on h.id=v.shift_id left join orders o on o.id=v.order_id where h.register_id=${r.id} and h.service_date=${today(p.deviceTime)} and v.status='approved' and v.kind='refund'`;
   let total = 0n;
   /** @type {Record<string,bigint>} */
   const vat = {
@@ -146,6 +146,7 @@ async function read(c) {
     for (const k of Object.keys(vat)) vat[k] -= BigInt(s.receipt.tax[k]);
     journal.push({
       kind: "refund",
+      number: s.credit_number,
       original: s.receipt.receiptNumber,
       amount: s.receipt.totalMinor,
     });

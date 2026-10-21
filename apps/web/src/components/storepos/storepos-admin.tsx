@@ -3,7 +3,9 @@
 import { useState, type FormEvent } from "react";
 import { mutate, useApi, useLive } from "../../lib/api";
 import { Panel } from "../cockpit/kit";
-import { formatPhp, formatDayTime } from "../cockpit/format";
+import { formatPhp as cockpitPhp, formatDayTime } from "../cockpit/format";
+const formatPhp = (value: number | null | undefined) =>
+  cockpitPhp(value, { cents: true });
 
 type Choice = { id: string; name: string; org_unit_id?: string };
 type Register = Choice & {
@@ -34,11 +36,11 @@ export type StorePosWorkspace = {
   shifts: Shift[];
   canManage: boolean;
   truncated: boolean;
-  transactionsEnabled: false;
+  transactionsEnabled: boolean;
 };
 const key = ["storepos", "workspace"] as const;
 const control =
-  "w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm";
+  "min-w-0 max-w-full w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm";
 const button =
   "rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-50";
 export function storeStatus(status: string) {
@@ -66,7 +68,7 @@ function Select({
   options: Choice[];
 }) {
   return (
-    <label className="grid gap-1 text-sm">
+    <label className="grid min-w-0 gap-1 text-sm">
       {label}
       <select
         aria-label={label}
@@ -94,6 +96,7 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
   const result = useWorkspace();
   const [registerId, setRegisterId] = useState("");
   const [mode, setMode] = useState("van");
+  const [allowSwitch, setAllowSwitch] = useState(false);
   const [person, setPerson] = useState("");
   const [location, setLocation] = useState("");
   const [name, setName] = useState("");
@@ -112,6 +115,9 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
     );
   const device = data.devices.find((d) => d.id === deviceId);
   if (!data.canManage || !device) return null;
+  const selectedRegister = data.registers.find(
+    (r) => r.id === (registerId || device.register_id),
+  );
   async function send(path: string, body: Record<string, unknown>) {
     setBusy(true);
     setNotice("");
@@ -136,13 +142,13 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
   return (
     <section
       aria-label="POS configuration"
-      className="grid gap-3 border-t border-separator pt-4"
+      className="grid min-w-0 max-w-full gap-3 break-words border-t border-separator pt-4"
     >
       <h4 className="text-sm font-medium">POS configuration</h4>
       <p className="text-sm text-muted">
         Current mode: {device.mode === "store" ? "Store" : "Van"}. One app, one
-        inventory system. Store checkout is not enabled yet; cashier sessions
-        can be tested.
+        inventory system. Store mode includes cashier sessions, sales, split
+        tender, receipts and daily closing.
       </p>
       {data.truncated && (
         <p role="alert">
@@ -156,19 +162,27 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
         onChange={setRegisterId}
         options={data.registers.map((r) => ({
           id: r.id,
-          name: `${r.store_name} · ${r.name} (${r.terminal_code})`,
+          name: `${r.store_name} · ${r.name}`,
         }))}
       />
+      {selectedRegister && (
+        <p className="min-w-0 break-words text-sm text-muted">
+          {selectedRegister.store_name} · {selectedRegister.name}
+          <span className="block">
+            Terminal · {selectedRegister.terminal_code}
+          </span>
+        </p>
+      )}
       <form
-        className="grid gap-2"
+        className="grid min-w-0 gap-2"
         onSubmit={submit("mode/set", {
           deviceId,
           mode,
           registerId: registerId || null,
-          allowLocalSwitch: false,
+          allowLocalSwitch: allowSwitch,
         })}
       >
-        <label className="grid gap-1 text-sm">
+        <label className="grid min-w-0 gap-1 text-sm">
           New mode
           <select
             aria-label="New mode"
@@ -181,8 +195,8 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
           </select>
         </label>
         <p className="text-xs text-muted">
-          Close the cashier session or settle the van trip first. Manager PIN
-          switching is not available; the office remains in control.
+          Close the cashier session or settle the van trip first. Manager
+          switching requires a configured register PIN and a connection.
         </p>
         <button
           className={button}
@@ -190,6 +204,14 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
         >
           Save POS mode
         </button>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={allowSwitch}
+            onChange={(e) => setAllowSwitch(e.target.checked)}
+          />
+          Allow manager-PIN mode switching
+        </label>
       </form>
       <form
         className="grid gap-2 border-t border-separator pt-3"
@@ -236,7 +258,7 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
             });
         }}
       >
-        <label className="grid gap-1 text-sm">
+        <label className="grid min-w-0 gap-1 text-sm">
           Allowed over/short (₱)
           <input
             className={control}

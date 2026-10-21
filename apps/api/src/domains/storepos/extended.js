@@ -10,6 +10,8 @@ import { uuid, integer, refuse, text, choice, today } from "../van/model.js";
 import { registerFor, modeAt } from "./model.js";
 import { STORE_OPS, storeOperation, decideReversal } from "./operations.js";
 import { phone } from "./commercial.js";
+import { filesDir } from "../../core/media.js";
+import { join } from "node:path";
 import { date as realDate } from "../orders/validation.js";
 import { verifyPin } from "./security.js";
 import { commands as inventory } from "../inventory/commands.js";
@@ -74,6 +76,7 @@ export function installExtended(router, platform) {
     });
   router.get("/api/v1/storepos/report", report);
   router.get("/api/v1/storepos/operations", office);
+  router.get("/api/v1/storepos/deposits/:id/photo", depositPhoto);
   router.get(
     "/api/v1/storepos/customers/lookup",
     async (/** @type {any} */ c) => {
@@ -306,6 +309,40 @@ async function target(db, actor, p) {
     await db`insert into store_daily_targets(register_id,from_date,to_date,amount_centavos) values(${p.registerId},${from},${to},${amount}) returning id`;
   return { id: row.id };
 }
+/** F-R06: private evidence is readable only by its cashier or a currently scoped cash approver. @param {any} c */
+async function depositPhoto(c) {
+  const actor = await currentActor(c.db, c.actor);
+  const [d] =
+    await c.db`select d.register_id,d.requested_by,f.sha256,f.size from store_deposits d join files f on f.id=d.photo_id and f.owner_id=d.register_id and f.purpose='bank-deposit' and f.status='stored' where d.id=${uuid(c.params.id)}`;
+  if (!d) throw new ApiError("not_found", 404, "Deposit slip is not available");
+  await registerFor(c.db, actor, d.register_id);
+  if (
+    d.requested_by !== actor.profileId &&
+    !roleHas(actor.role, "van.cash.approve")
+  )
+    throw new ApiError(
+      "out_of_scope",
+      403,
+      "This deposit slip requires cash-review access",
+    );
+  if (!/^[a-f0-9]{64}$/.test(d.sha256))
+    throw new ApiError("not_found", 404, "Deposit slip is not available");
+  const file = Bun.file(join(filesDir(c.env), d.sha256.slice(0, 2), d.sha256));
+  if (!(await file.exists()))
+    throw new ApiError("not_found", 404, "Deposit slip is not available");
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  if (bytes.length !== Number(d.size) || sha256Hex(bytes) !== d.sha256)
+    throw new ApiError("not_found", 404, "Deposit slip could not be verified");
+  return new Response(bytes, {
+    headers: {
+      "content-type": "image/jpeg",
+      "content-disposition": 'inline; filename="deposit-slip.jpg"',
+      "cache-control": "private, no-store",
+      "x-content-type-options": "nosniff",
+      "referrer-policy": "no-referrer",
+    },
+  });
+}
 /** F-R02/R03/R05/R06 office queues, authorized before every read. @param {any} c */
 async function office(c) {
   const actor = await currentActor(c.db, c.actor);
@@ -321,16 +358,27 @@ async function office(c) {
     await db`select id,bank,reference,amount_centavos::text as amount,status,requested_by,expected_centavos::text as expected,discrepancy_centavos::text as difference from store_deposits where register_id=${r.id} order by created_at desc limit 100`;
   const replenishments =
     await db`select s.id,s.status,s.transfer_id,s.requested_by,p.name,s.quantity_base::text as quantity from store_replenishments s join store_reorder_points r on r.id=s.rule_id join products p on p.id=r.product_id where r.register_id=${r.id} order by s.created_at desc limit 100`;
+  const from = realDate(c.url.searchParams.get("from") ?? today()),
+    to = realDate(c.url.searchParams.get("to") ?? from);
+  if (to < from || (Date.parse(to) - Date.parse(from)) / 86400000 > 31)
+    refuse("Choose up to 32 days of register reads");
   const reads =
-    await db`select id,kind,sequence::text,snapshot from store_reads where register_id=${r.id} order by captured_at desc limit 100`;
+    await db`select id,kind,sequence::text,snapshot from store_reads where register_id=${r.id} and snapshot->>'date' between ${from} and ${to} order by captured_at desc limit 1001`;
+  if (reads.length > 1000) refuse("Narrow the X/Z reporting period");
   const scope = await scopeFilterForActor(db, actor);
   const ids = scope.unitIds ?? [];
   const locations =
     await db`select id,name,type from inventory_locations where active and deleted_at is null and (${scope.unitIds === null} or org_unit_id in ${db(ids.length ? ids : ["00000000-0000-0000-0000-000000000000"])}) order by name limit 501`;
   const products =
     await db`select id,name,code from products where active and deleted_at is null order by name limit 501`;
-  const outlets =
-    await db`select o.id,o.name from outlets o where o.status='active' and o.deleted_at is null and o.custodian_org_unit_id=${r.org_unit_id} order by name limit 501`;
+  const candidates =
+    await db`select o.id,o.name from outlets o where o.organization_id=${r.organization_id} and o.status='active' and o.deleted_at is null order by name limit 501`;
+  if (candidates.length > 500)
+    refuse("Narrow the active commercial-store catalogue");
+  const outlets = [];
+  for (const outlet of candidates)
+    if ((await outletOwnerUnit(db, outlet.id, Date.now())) === r.org_unit_id)
+      outlets.push(outlet);
   return {
     register: {
       id: r.id,
@@ -346,6 +394,9 @@ async function office(c) {
     })),
     deposits: deposits.map((/** @type {any} */ d) => ({
       ...d,
+      canViewPhoto:
+        roleHas(actor.role, "van.cash.approve") ||
+        d.requested_by === actor.profileId,
       expected:
         roleHas(actor.role, "van.cash.approve") &&
         d.requested_by !== actor.profileId

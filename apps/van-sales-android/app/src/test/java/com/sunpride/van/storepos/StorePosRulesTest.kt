@@ -41,13 +41,16 @@ class StorePosRulesTest {
         assertFalse(o.getJSONObject("payload").has("expectedCentavos"))
         assertEquals(a.clientRequestId,o.getString("clientOpId"))
     }
-    @Test fun F_R01_unknownOrTransactionEnabledConfigurationsFailClosed() {
+    @Test fun F_R01_configurationsAcceptTransactionsAndRejectUnknownModeOrMissingFlags() {
         val o=JSONObject().put("version",1).put("mode","store").put("modeVersionId",mode)
             .put("registerId",register).put("registerName","Register").put("storeName","Store").put("terminalCode","ONE")
             .put("policyId",UUID.randomUUID().toString()).put("shift",JSONObject.NULL).put("allowLocalSwitch",false).put("transactionsEnabled",false)
         assertEquals("store",StorePosConfig.decode(o).mode)
         o.put("transactionsEnabled",true)
+        assertTrue(StorePosConfig.decode(o).details.getBoolean("transactionsEnabled"))
+        o.remove("allowLocalSwitch")
         assertThrows(IllegalArgumentException::class.java){StorePosConfig.decode(o)}
+        o.put("allowLocalSwitch",false)
         o.put("transactionsEnabled",false).put("mode","unknown")
         assertThrows(IllegalArgumentException::class.java){StorePosConfig.decode(o)}
     }

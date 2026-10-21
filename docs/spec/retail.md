@@ -14,7 +14,7 @@ Store sales have a cashier-session context, not fabricated trips or trucks. The 
 
 Native checkout extends the existing pure `CheckoutRules` / `PromotionEngine` with TPM v1 evaluation. Legacy Van contexts select the unchanged evaluator. Governed Store contexts use the canonical precedence, exclusions, residual stacking, half-up centavos and proportional allocation. Server-generated golden fixtures cover the native evaluator. Campaigns requiring the TPM/Fiscal finance-authority seam fail closed when that upstream seam returns `needs_setup`; no cashier can manufacture authorization.
 
-Cash, GCash, card and their split are captured with references, exact totals, cash received/change and independent non-cash confirmation status. Receipt-linked full refunds and original-session voids require a different office approver. Refunds create canonical negative commercial facts and a credit memo, preserving the original invoice; returned goods enter quality hold. Frozen local receipt facts remain primary for reprints, independent of later master-data changes. A print attempt is reserved before printer I/O and uncertain outcomes are never automatically retried. Real permits are independently verified by the fiscal authority; sample receipts explicitly say SAMPLE SERIES, not a BIR tax invoice.
+Cash, GCash, card and their split are captured with references, exact totals, cash received/change and pending non-cash confirmation status. Receipt-linked full refunds and original-session voids require a different office approver. Refunds create canonical negative commercial facts and a credit memo, preserving the original invoice; returned goods enter quality hold. Frozen local receipt facts remain primary for reprints, independent of later master-data changes. A print attempt is reserved before printer I/O and uncertain outcomes are never automatically retried. Real permits are independently verified by the fiscal authority; sample receipts explicitly say SAMPLE SERIES, not a BIR tax invoice.
 
 `SEAM(ORDERS)` is the small Store-to-canonical-order writer in `storepos/commercial.js`; the integrator can move its adapter into the ORDERS owner without changing the wire. It already writes the shared commercial fact source, never an isolated retail-sales measure.
 
@@ -32,7 +32,7 @@ Office users configure effective-dated SKU/store reorder points and target stock
 
 ## F-R06 — Deposits
 
-Deposit capture takes a bounded JPEG slip into app-private noBackup evidence storage, an amount, bank/reference and a Z-read. Existing signed media claims/uploads bind the image to its cashier/device/register. A durable deposit matches cash tender proceeds, excluding opening float; a mismatch appears in the Retail POS queue and Decide for independent acceptance/investigation. Count the drawer before depositing that day's proceeds. A slip is captured evidence, not invented bank confirmation.
+Deposit capture takes a bounded JPEG slip into app-private noBackup evidence storage, an amount, bank/reference and a Z-read. Existing signed media claims/uploads bind the image to its cashier/device/register. An authenticated, current-scope office link opens the verified slip bytes; it is never a public image URL. A durable deposit matches cash tender proceeds, excluding opening float; a mismatch appears in the Retail POS queue and Decide for independent acceptance/investigation. Count the drawer before depositing that day's proceeds. A slip is captured evidence, not invented bank confirmation.
 
 ## F-R07 — Loyalty and employee verification
 

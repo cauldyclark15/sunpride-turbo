@@ -591,3 +591,78 @@ test("F-R08 follow-up two registers never double-count a store; dated target edi
     await h.db`select count(*)::int as n from fiscal_audit_events where table_name='store_daily_targets' and action='DELETE' and before_facts->>'amount_centavos'='10000'`;
   expect(audit.n).toBeGreaterThan(0);
 });
+
+test("F-R06 photo review serves the verified private slip only after current authorization", async () => {
+  await sale("cash");
+  await push(op("store.read", { kind: "z" }));
+  const [z] = await h.db`select id from store_reads where kind='z'`;
+  const bytes = new Uint8Array(
+    await Bun.file(
+      import.meta.dir + "/fixtures/sample-return.jpg",
+    ).arrayBuffer(),
+  );
+  const digest = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+  const claim = await signedPost(h, seller, "/api/media/claims", {
+    version: 2,
+    app: "van-android",
+    deviceId: seller.deviceId,
+    purpose: "bank-deposit",
+    ownerId: register,
+    mime: "image/jpeg",
+    size: bytes.length,
+    sha256: digest,
+  });
+  expect(claim.res.status).toBe(200);
+  const upload = await h.fetch("/api/media/uploads/" + claim.body.uploadId, {
+    method: "PUT",
+    headers: {
+      authorization: `Bearer ${claim.body.uploadToken}`,
+      "content-type": "image/jpeg",
+    },
+    body: bytes,
+  });
+  expect(upload.status).toBe(200);
+  await push(
+    op("store.deposit", {
+      zReadId: z.id,
+      bank: "SAMPLE bank",
+      reference: "SAMPLE-PHOTO-SLIP",
+      amountCentavos: "4499",
+      photoSha256: digest,
+    }),
+  );
+  const [d] = await h.db`select id from store_deposits`;
+  const path = `/api/v1/storepos/deposits/${d.id}/photo`;
+  const refused = await h.fetch(path);
+  expect(refused.status).toBe(401);
+  const photo = await h.fetch(path, { headers: { cookie } });
+  expect(photo.status).toBe(200);
+  expect(photo.headers.get("cache-control")).toBe("private, no-store");
+  expect(
+    new Bun.CryptoHasher("sha256")
+      .update(new Uint8Array(await photo.arrayBuffer()))
+      .digest("hex"),
+  ).toBe(digest);
+  const own = await h.fetch(path, {
+    headers: { authorization: `Bearer ${seller.access}` },
+  });
+  expect(own.status).toBe(200);
+});
+
+test("F-R02 credit journal retains its actual fiscal credit number and signed refund amount", async () => {
+  const id = await sale("cash");
+  await push(
+    op("store.refund", { saleId: id, reason: "SAMPLE journal return" }),
+  );
+  const [reversal] =
+    await h.db`select id from store_reversals where sale_id=${id}`;
+  await web("reversals/decide", { id: reversal.id, decision: "approved" });
+  await push(op("store.read", { kind: "x" }));
+  const [r] = await h.db`select snapshot from store_reads`;
+  const credit = r.snapshot.journal.find(
+    (/** @type {any} */ x) => x.kind === "refund",
+  );
+  expect(credit.number.startsWith("SAMPLE-CM-")).toBe(true);
+  expect(credit.amount).toBe("4500");
+  expect(r.snapshot.salesCentavos).toBe("0");
+});
