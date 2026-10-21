@@ -1,0 +1,333 @@
+{
+  "simulation": {
+    "assumptions": {
+      "dayMinutes": 480,
+      "sellingDays": 24,
+      "serviceMinutes": 20,
+      "visitsPer4Weeks": 4,
+      "travelKmh": 20,
+      "roadFactor": 1.3
+    },
+    "territories": [
+      {
+        "territoryId": "df7a5a5e-d1ed-4e88-ae04-23b2820560c9",
+        "name": "SAMPLE A",
+        "before": {
+          "outlets": 2,
+          "potential": 0,
+          "potentialMissing": 2,
+          "visits": 8,
+          "serviceMinutes": 160,
+          "travelMinutes": 487,
+          "unpinned": 0,
+          "people": 0,
+          "capacityMinutes": 0,
+          "loadPct": null,
+          "travelSource": "SAMPLE geometric estimate · no road graph or live traffic",
+          "provisionalTravel": true
+        },
+        "after": {
+          "outlets": 1,
+          "potential": 0,
+          "potentialMissing": 1,
+          "visits": 4,
+          "serviceMinutes": 80,
+          "travelMinutes": 0,
+          "unpinned": 0,
+          "people": 0,
+          "capacityMinutes": 0,
+          "loadPct": null,
+          "travelSource": "SAMPLE geometric estimate · no road graph or live traffic",
+          "provisionalTravel": true
+        },
+        "movedIn": 0,
+        "movedOut": 1,
+        "pins": [{ "code": "SAMPLE-0", "lat": 10, "lon": 123, "moved": false }],
+        "previousBoundary": null,
+        "boundary": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [122.9, 9.9],
+              [123.05, 9.9],
+              [123.05, 10.4],
+              [122.9, 10.4],
+              [122.9, 9.9]
+            ]
+          ]
+        }
+      },
+      {
+        "territoryId": "80bb0403-c0fa-4bb7-bc22-a09825edafe8",
+        "name": "SAMPLE B",
+        "before": {
+          "outlets": 1,
+          "potential": 0,
+          "potentialMissing": 1,
+          "visits": 4,
+          "serviceMinutes": 80,
+          "travelMinutes": 0,
+          "unpinned": 0,
+          "people": 0,
+          "capacityMinutes": 0,
+          "loadPct": null,
+          "travelSource": "SAMPLE geometric estimate · no road graph or live traffic",
+          "provisionalTravel": true
+        },
+        "after": {
+          "outlets": 2,
+          "potential": 0,
+          "potentialMissing": 2,
+          "visits": 8,
+          "serviceMinutes": 160,
+          "travelMinutes": 487,
+          "unpinned": 0,
+          "people": 0,
+          "capacityMinutes": 0,
+          "loadPct": null,
+          "travelSource": "SAMPLE geometric estimate · no road graph or live traffic",
+          "provisionalTravel": true
+        },
+        "movedIn": 1,
+        "movedOut": 0,
+        "pins": [
+          { "code": "SAMPLE-1", "lat": 10.1, "lon": 123.1, "moved": true },
+          { "code": "SAMPLE-2", "lat": 10.2, "lon": 123.2, "moved": false }
+        ],
+        "previousBoundary": null,
+        "boundary": {
+          "type": "Polygon",
+          "coordinates": [
+            [
+              [123.05, 9.9],
+              [123.4, 9.9],
+              [123.4, 10.4],
+              [123.05, 10.4],
+              [123.05, 9.9]
+            ]
+          ]
+        }
+      }
+    ],
+    "provisionalTravel": true,
+    "expandedMoves": 1
+  },
+  "book": {
+    "canPlan": true,
+    "canBoundary": true,
+    "me": "f182df4c-1342-4dba-9182-38a897f58e01",
+    "defaults": {
+      "dayMinutes": 480,
+      "sellingDays": 24,
+      "serviceMinutes": 20,
+      "visitsPer4Weeks": 4,
+      "travelKmh": 20,
+      "roadFactor": 1.3
+    },
+    "territories": [
+      {
+        "id": "df7a5a5e-d1ed-4e88-ae04-23b2820560c9",
+        "name": "SAMPLE A",
+        "boundaryGeoJson": "{\"type\":\"Polygon\",\"coordinates\":[[[122.9,9.9],[123.05,9.9],[123.05,10.4],[122.9,10.4],[122.9,9.9]]]}"
+      },
+      {
+        "id": "80bb0403-c0fa-4bb7-bc22-a09825edafe8",
+        "name": "SAMPLE B",
+        "boundaryGeoJson": "{\"type\":\"Polygon\",\"coordinates\":[[[123.05,9.9],[123.4,9.9],[123.4,10.4],[123.05,10.4],[123.05,9.9]]]}"
+      }
+    ],
+    "routes": [
+      {
+        "id": "183afd81-f194-4b04-bfdd-2933d3688052",
+        "name": "SAMPLE whole beat",
+        "territoryId": "df7a5a5e-d1ed-4e88-ae04-23b2820560c9"
+      }
+    ],
+    "routingConfigured": false,
+    "stores": [
+      {
+        "id": "1a588128-0def-4312-bc53-14a32239d4da",
+        "code": "SAMPLE-0",
+        "name": "SAMPLE store 0",
+        "territoryId": "df7a5a5e-d1ed-4e88-ae04-23b2820560c9"
+      },
+      {
+        "id": "c68b41a7-549b-45e9-b80d-a583d315fe8e",
+        "code": "SAMPLE-1",
+        "name": "SAMPLE store 1",
+        "territoryId": "df7a5a5e-d1ed-4e88-ae04-23b2820560c9"
+      },
+      {
+        "id": "0b38008f-3445-40c6-9ee0-4b89983422d1",
+        "code": "SAMPLE-2",
+        "name": "SAMPLE store 2",
+        "territoryId": "80bb0403-c0fa-4bb7-bc22-a09825edafe8"
+      }
+    ],
+    "scenarios": [
+      {
+        "id": "cf03069a-736e-42ef-a1cf-8a0da1795fae",
+        "name": "SAMPLE boundary review",
+        "effectiveOn": "2026-10-22",
+        "status": "published",
+        "moves": 1,
+        "preparedBy": "prepare",
+        "preparedById": "f182df4c-1342-4dba-9182-38a897f58e01",
+        "publishedBy": "publish",
+        "contentHash": "3d68a180710e25b4b282b5229eac6482d434c5821968d3321c3b6ab257a8e485",
+        "assumptions": {
+          "travelKmh": 20,
+          "dayMinutes": 480,
+          "roadFactor": 1.3,
+          "sellingDays": 24,
+          "serviceMinutes": 20,
+          "visitsPer4Weeks": 4
+        },
+        "territories": [
+          {
+            "name": "SAMPLE A",
+            "pins": [
+              { "lat": 10, "lon": 123, "code": "SAMPLE-0", "moved": false }
+            ],
+            "after": {
+              "people": 0,
+              "visits": 4,
+              "loadPct": null,
+              "outlets": 1,
+              "unpinned": 0,
+              "potential": 0,
+              "travelSource": "SAMPLE geometric estimate · no road graph or live traffic",
+              "travelMinutes": 0,
+              "serviceMinutes": 80,
+              "capacityMinutes": 0,
+              "potentialMissing": 1,
+              "provisionalTravel": true
+            },
+            "before": {
+              "people": 0,
+              "visits": 8,
+              "loadPct": null,
+              "outlets": 2,
+              "unpinned": 0,
+              "potential": 0,
+              "travelSource": "SAMPLE geometric estimate · no road graph or live traffic",
+              "travelMinutes": 487,
+              "serviceMinutes": 160,
+              "capacityMinutes": 0,
+              "potentialMissing": 2,
+              "provisionalTravel": true
+            },
+            "movedIn": 0,
+            "boundary": {
+              "type": "Polygon",
+              "coordinates": [
+                [
+                  [122.9, 9.9],
+                  [123.05, 9.9],
+                  [123.05, 10.4],
+                  [122.9, 10.4],
+                  [122.9, 9.9]
+                ]
+              ]
+            },
+            "movedOut": 1,
+            "territoryId": "df7a5a5e-d1ed-4e88-ae04-23b2820560c9",
+            "previousBoundary": null
+          },
+          {
+            "name": "SAMPLE B",
+            "pins": [
+              { "lat": 10.1, "lon": 123.1, "code": "SAMPLE-1", "moved": true },
+              { "lat": 10.2, "lon": 123.2, "code": "SAMPLE-2", "moved": false }
+            ],
+            "after": {
+              "people": 0,
+              "visits": 8,
+              "loadPct": null,
+              "outlets": 2,
+              "unpinned": 0,
+              "potential": 0,
+              "travelSource": "SAMPLE geometric estimate · no road graph or live traffic",
+              "travelMinutes": 487,
+              "serviceMinutes": 160,
+              "capacityMinutes": 0,
+              "potentialMissing": 2,
+              "provisionalTravel": true
+            },
+            "before": {
+              "people": 0,
+              "visits": 4,
+              "loadPct": null,
+              "outlets": 1,
+              "unpinned": 0,
+              "potential": 0,
+              "travelSource": "SAMPLE geometric estimate · no road graph or live traffic",
+              "travelMinutes": 0,
+              "serviceMinutes": 80,
+              "capacityMinutes": 0,
+              "potentialMissing": 1,
+              "provisionalTravel": true
+            },
+            "movedIn": 1,
+            "boundary": {
+              "type": "Polygon",
+              "coordinates": [
+                [
+                  [123.05, 9.9],
+                  [123.4, 9.9],
+                  [123.4, 10.4],
+                  [123.05, 10.4],
+                  [123.05, 9.9]
+                ]
+              ]
+            },
+            "movedOut": 0,
+            "territoryId": "80bb0403-c0fa-4bb7-bc22-a09825edafe8",
+            "previousBoundary": null
+          }
+        ],
+        "plan": {
+          "boundaries": [
+            {
+              "geoJson": {
+                "type": "Polygon",
+                "coordinates": [
+                  [
+                    [122.9, 9.9],
+                    [123.05, 9.9],
+                    [123.05, 10.4],
+                    [122.9, 10.4],
+                    [122.9, 9.9]
+                  ]
+                ]
+              },
+              "territoryId": "df7a5a5e-d1ed-4e88-ae04-23b2820560c9",
+              "previousHash": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+            },
+            {
+              "geoJson": {
+                "type": "Polygon",
+                "coordinates": [
+                  [
+                    [123.05, 9.9],
+                    [123.4, 9.9],
+                    [123.4, 10.4],
+                    [123.05, 10.4],
+                    [123.05, 9.9]
+                  ]
+                ]
+              },
+              "territoryId": "80bb0403-c0fa-4bb7-bc22-a09825edafe8",
+              "previousHash": "74234e98afe7498fb5daf1f36ac2d78acc339464f950703b8c019892f982b90b"
+            }
+          ],
+          "routeMoves": [],
+          "routingMode": "estimate",
+          "boundaryStatus": "applied",
+          "boundaryEffectiveFrom": 1792598400000
+        },
+        "boundaryJobStatus": "pending"
+      }
+    ]
+  }
+}

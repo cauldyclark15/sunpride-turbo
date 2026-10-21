@@ -12,6 +12,16 @@ import { currentActor } from "../van/access.js";
 import { assignmentCommand } from "../org/outlets.js";
 import { ORG_LOCK } from "../org/identity.js";
 import { required } from "../org/model.js";
+import { writeAudit } from "../org/audit.js";
+import {
+  scenarioPlan,
+  routeSelection,
+  expandMoves,
+  roadWorkloads,
+  transferRoutes,
+  scheduleBoundaries,
+  applyScenarioBoundaries,
+} from "./scenario-planning.js";
 import { manilaDate } from "./model.js";
 
 const hash = (/** @type {any} */ v) => sha256Hex(canonicalJson(v));
@@ -104,7 +114,7 @@ export function workload(stores, people, a) {
 async function facts(c, territoryIds) {
   const db = c.db;
   const territories =
-    await db`select t.id,t.name,t.status,o.org_unit_id from territories t left join lateral (select org_unit_id from territory_ownerships x where x.territory_id=t.id and x.deleted_at is null and x.effective_from<=now() and (x.effective_to is null or x.effective_to>now()) order by effective_from desc limit 1) o on true
+    await db`select t.id,t.name,t.status,t.boundary_geo_json,o.org_unit_id from territories t left join lateral (select org_unit_id from territory_ownerships x where x.territory_id=t.id and x.deleted_at is null and x.effective_from<=now() and (x.effective_to is null or x.effective_to>now()) order by effective_from desc limit 1) o on true
       where t.id in ${db(territoryIds)} and t.deleted_at is null`;
   if (territories.length !== territoryIds.length)
     throw notFound("Territory not found");
@@ -114,7 +124,8 @@ async function facts(c, territoryIds) {
     await requireCapability(c, "outlet.assign", t.org_unit_id);
   }
   const stores =
-    await db`select s.id,s.code,s.name,s.territory_id,s.sales_potential,s.classification,s.cycle_days,s.owner_unit_id,
+    await db`select s.id,s.code,s.name,s.territory_id,s.sales_potential,s.classification,s.cycle_days,s.owner_unit_id,s.route_id,
+      (select x.sequence from outlet_assignments x where x.outlet_id=s.id and x.deleted_at is null and x.effective_from<=now() and (x.effective_to is null or x.effective_to>now()) order by x.effective_from desc limit 1) sequence,
       (select a.id from outlet_assignments a where a.outlet_id=s.id and a.deleted_at is null and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now()) order by effective_from desc limit 1) as assignment_id,
       p.latitude,p.longitude
       from analytics_store_scope s
@@ -199,67 +210,139 @@ export function simulateFacts(f, moves, a) {
     );
 }
 
-/** @param {any} c @param {any} b @param {number|null} [from] */
-async function build(c, b, from = null) {
-  const a = assumptions(b.assumptions);
-  if (!Array.isArray(b.moves) || b.moves.length < 1 || b.moves.length > 100)
-    throw invalid("Move 1 to 100 stores");
-  const moves = b.moves.map((/** @type {any} */ m) => ({
+/** @param {any} c @param {any} b @param {number|null} [from] @param {boolean} [routeTravel] */
+async function build(c, b, from = null, routeTravel = true) {
+  const a = assumptions(b.assumptions),
+    plan = scenarioPlan(b.plan);
+  if (!Array.isArray(b.moves ?? []) || (b.moves ?? []).length > 100)
+    throw invalid("Move at most 100 stores");
+  const explicit = (b.moves ?? []).map((/** @type {any} */ m) => ({
     outletId: required(m?.outletId, "Store", 64),
     toTerritoryId: required(m?.toTerritoryId, "Destination territory", 64),
+    ...(m.routeId ? { routeId: m.routeId, sequence: m.sequence } : {}),
   }));
   if (
-    new Set(moves.map((/** @type {any} */ m) => m.outletId)).size !==
-    moves.length
+    new Set(explicit.map((/** @type {any} */ m) => m.outletId)).size !==
+    explicit.length
   )
     throw invalid("Each store moves once per scenario");
-  const srcRows =
-    await c.db`select id,territory_id from analytics_store_scope where id in ${c.db(moves.map((/** @type {any} */ m) => m.outletId))} and status='active'`;
-  if (srcRows.length !== moves.length) throw invalid("Choose active stores");
-  for (const m of moves) {
+  const srcRows = explicit.length
+    ? await c.db`select id,territory_id from analytics_store_scope where id in ${c.db(explicit.map((/** @type {any} */ m) => m.outletId))} and status='active'`
+    : [];
+  if (srcRows.length !== explicit.length) throw invalid("Choose active stores");
+  for (const m of explicit) {
     const s = srcRows.find((/** @type {any} */ r) => r.id === m.outletId);
-    if (!s.territory_id)
-      throw invalid("A store without a territory cannot be moved here");
-    if (s.territory_id === m.toTerritoryId)
-      throw invalid("A store is already in that territory");
+    if (!s.territory_id || s.territory_id === m.toTerritoryId)
+      throw invalid("Move a store to another territory");
   }
+  const routes = plan.routeMoves.length ? await routeSelection(c, plan) : [];
   const ids = [
     ...new Set([
       ...srcRows.map((/** @type {any} */ r) => r.territory_id),
-      ...moves.map((/** @type {any} */ m) => m.toTerritoryId),
+      ...explicit.map((/** @type {any} */ m) => m.toTerritoryId),
+      ...routes.flatMap((r) => [r.territory_id, r.toTerritoryId]),
+      ...plan.boundaries.map((b) => b.territoryId),
     ]),
   ];
-  if (ids.length > 20)
-    throw invalid("A scenario touches at most 20 territories");
-  const f = await facts(c, ids);
-  if (from != null) {
-    // Same rule the ORG writer enforces at publish: an approved/active plan holding the store or its
-    // route locks membership until that plan ends. Say so now, with the first free day.
+  if (!ids.length || ids.length > 20)
+    throw invalid("Choose changes within 1 to 20 territories");
+  const f = await facts(c, ids),
+    moves = expandMoves(f, explicit, routes, plan);
+  if (!moves.length && !plan.boundaries.length)
+    throw invalid("Choose at least one store or boundary change");
+  for (const b of plan.boundaries)
+    await requireCapability(
+      c,
+      "territory.manage",
+      f.territories.find((/** @type {any} */ t) => t.id === b.territoryId)
+        .org_unit_id,
+    );
+  if (from != null && moves.length) {
     const locked =
       await c.db`select o.name,max(p.effective_to) as until from coverage_plans p join coverage_plan_outlets x on x.plan_id=p.id
-        join analytics_store_scope o on o.id in ${c.db(moves.map((/** @type {any} */ m) => m.outletId))} and (x.outlet_id=o.id or (o.route_id is not null and x.route_id=o.route_id))
-        where p.deleted_at is null and p.status in ('approved','active') and p.effective_to>${new Date(from)} group by o.name order by o.name`;
+   join analytics_store_scope o on o.id in ${c.db(moves.map((/** @type {any} */ m) => m.outletId))} and (x.outlet_id=o.id or (o.route_id is not null and x.route_id=o.route_id))
+   where p.deleted_at is null and p.status in ('approved','active') and p.effective_to>${new Date(from)} group by o.name order by o.name`;
     if (locked.length)
       throw conflict(
-        `${locked.map((/** @type {any} */ l) => `${l.name} is in an approved coverage plan until ${dayText(l.until)}`).join("; ")}. Choose a start day after that.`,
+        `${locked.map((/** @type {any} */ l) => `${l.name} is in an approved coverage plan until ${dayText(l.until)}`).join("; ")}. Choose a later start day.`,
         "plan_locked",
       );
   }
   const sim = simulateFacts(f, moves, a);
-  // The publish must see the same current memberships it was simulated against.
-  const fingerprint = hash(
-    f.stores
-      .map((/** @type {any} */ s) => [s.id, s.territory_id, s.assignment_id])
+  for (const t of sim) {
+    const original = f.territories.find(
+      (/** @type {any} */ r) => r.id === t.territoryId,
+    );
+    let old = null;
+    try {
+      old = original.boundary_geo_json
+        ? JSON.parse(original.boundary_geo_json)
+        : null;
+    } catch {}
+    Object.assign(t, {
+      previousBoundary: old,
+      boundary:
+        plan.boundaries.find((b) => b.territoryId === t.territoryId)?.geoJson ??
+        old,
+    });
+  }
+  if (routeTravel) await roadWorkloads(c, f, moves, sim, plan);
+  const fingerprint = hash({
+    stores: f.stores
+      .map((/** @type {any} */ s) => [
+        s.id,
+        s.territory_id,
+        s.route_id,
+        s.sequence,
+        s.assignment_id,
+        s.latitude,
+        s.longitude,
+        s.sales_potential,
+        s.classification,
+        s.cycle_days,
+      ])
       .sort(),
-  );
-  return { a, moves, sim, fingerprint };
+    territories: f.territories
+      .map((/** @type {any} */ t) => [t.id, t.org_unit_id, t.boundary_geo_json])
+      .sort(),
+    people: [...f.people].sort((x, y) =>
+      x.territory_id.localeCompare(y.territory_id),
+    ),
+    policies: f.policies,
+    routes: routes.map((r) => [r.id, r.territory_id, r.association_id]),
+  });
+  return {
+    a,
+    moves,
+    sim,
+    fingerprint,
+    routes,
+    plan: {
+      ...plan,
+      boundaries: plan.boundaries.map((b) => ({
+        ...b,
+        previousHash: hash(
+          f.territories.find((/** @type {any} */ t) => t.id === b.territoryId)
+            .boundary_geo_json ?? null,
+        ),
+      })),
+    },
+  };
 }
 
 /** @param {any} ctx */
 export async function simulateScenario(ctx) {
   await requireCapability(ctx, "outlet.assign");
   const r = await build(ctx, ctx.body ?? {});
-  return { assumptions: r.a, territories: r.sim, provisionalTravel: true };
+  return {
+    assumptions: r.a,
+    territories: r.sim,
+    provisionalTravel: r.sim.some(
+      (/** @type {any} */ t) =>
+        t.before.provisionalTravel || t.after.provisionalTravel,
+    ),
+    expandedMoves: r.moves.length,
+  };
 }
 
 /** @param {any} ctx */
@@ -275,6 +358,7 @@ export async function saveScenario(ctx) {
     effectiveOn,
     moves: b.moves,
     assumptions: b.assumptions ?? null,
+    ...(b.plan ? { plan: b.plan } : {}),
   });
   return tx(ctx.db, async (db) => {
     const actor = await currentActor(db, ctx.actor),
@@ -300,10 +384,11 @@ export async function saveScenario(ctx) {
       moves: r.moves,
       assumptions: r.a,
       fingerprint: r.fingerprint,
+      plan: r.plan,
     });
     const [s] =
-      await db`insert into territory_scenarios(name,effective_on,assumptions,moves,simulation,input_fingerprint,content_hash,prepared_by,client_key,request_hash)
-      values(${name},${effectiveOn},${r.a},${r.moves},${r.sim},${r.fingerprint},${contentHash},${actor.profileId},${key},${request}) returning id`;
+      await db`insert into territory_scenarios(name,effective_on,assumptions,moves,simulation,input_fingerprint,content_hash,prepared_by,client_key,request_hash,plan)
+      values(${name},${effectiveOn},${r.a},${r.moves},${r.sim},${r.fingerprint},${contentHash},${actor.profileId},${key},${request},${r.plan}) returning id`;
     return { id: s.id, contentHash };
   });
 }
@@ -335,7 +420,12 @@ export async function publishScenario(ctx) {
         "The scenario changed since you reviewed it",
         "stale_scenario",
       );
-    const r = await build(c, { moves: s.moves, assumptions: s.assumptions });
+    const r = await build(
+      c,
+      { moves: s.moves, assumptions: s.assumptions, plan: s.plan },
+      null,
+      false,
+    );
     if (r.fingerprint !== s.input_fingerprint)
       throw conflict(
         "Territory memberships changed since the simulation: simulate again",
@@ -345,15 +435,36 @@ export async function publishScenario(ctx) {
     if (from <= c.now)
       throw conflict("The effective day has passed: save a new scenario");
     // ORG owns membership: its writer re-checks scope, ownership cover and signed-plan locks.
-    const ids = await assignmentCommand(c, "batchAssign", {
-      assignments: s.moves.map((/** @type {any} */ m) => ({
-        outletId: m.outletId,
-        territoryId: m.toTerritoryId,
-      })),
-      effectiveFrom: from,
-      reason: `F-224 territory scenario "${s.name}"`,
-    });
+    const reason = `F-224 territory scenario "${s.name}"`;
+    await transferRoutes(c, r.routes, from, reason, assignmentCommand);
+    const ids = s.moves.length
+      ? await assignmentCommand(c, "batchAssign", {
+          assignments: s.moves.map((/** @type {any} */ m) => ({
+            outletId: m.outletId,
+            territoryId: m.toTerritoryId,
+            ...(m.routeId ? { routeId: m.routeId, sequence: m.sequence } : {}),
+          })),
+          effectiveFrom: from,
+          reason,
+        })
+      : [];
     await t`update territory_scenarios set status='published',published_by=${actor?.profileId},published_at=now(),assignment_ids=${t.array(ids, "UUID")},updated_at=now() where id=${s.id}`;
+    if (s.plan?.boundaries?.length) {
+      s.plan = {
+        ...s.plan,
+        boundaryStatus: "scheduled",
+        boundaryEffectiveFrom: from,
+      };
+      await t`update territory_scenarios set plan=${s.plan} where id=${s.id}`;
+      await scheduleBoundaries(c, s, from);
+    }
+    await writeAudit(t, {
+      subject: actor?.subject,
+      action: "territory.scenario.publish",
+      entityType: "territory_scenarios",
+      entityId: s.id,
+      details: { contentHash: s.content_hash, assignments: ids.length },
+    });
     ctx.platform?.publish?.("coverage");
     return { status: "published", assignments: ids.length };
   });
@@ -400,7 +511,7 @@ export async function readScenarios(ctx) {
   const role = ctx.actor?.role;
   const canPlan = !!role && roleHas(role, "outlet.assign");
   const territories =
-    await db`select t.id,t.name,o.org_unit_id from territories t join lateral (select org_unit_id from territory_ownerships x where x.territory_id=t.id and x.deleted_at is null and x.effective_from<=now() and (x.effective_to is null or x.effective_to>now()) limit 1) o on true where t.deleted_at is null and t.status='active' order by t.name limit 500`;
+    await db`select t.id,t.name,t.boundary_geo_json,o.org_unit_id from territories t join lateral (select org_unit_id from territory_ownerships x where x.territory_id=t.id and x.deleted_at is null and x.effective_from<=now() and (x.effective_to is null or x.effective_to>now()) limit 1) o on true where t.deleted_at is null and t.status='active' order by t.name limit 500`;
   const mine = [];
   for (const t of territories) {
     try {
@@ -409,23 +520,38 @@ export async function readScenarios(ctx) {
         canPlan ? "outlet.assign" : "report.read",
         t.org_unit_id,
       );
-      mine.push({ id: t.id, name: t.name });
+      mine.push({
+        id: t.id,
+        name: t.name,
+        boundaryGeoJson: t.boundary_geo_json,
+      });
     } catch {}
   }
   const ids = mine.map((t) => t.id);
   const stores = ids.length
     ? await db`select id,code,name,territory_id from analytics_store_scope where territory_id in ${db(ids)} and status='active' order by name limit 3000`
     : [];
+  const routes = ids.length
+    ? await db`select distinct r.id,r.name,rt.territory_id from routes r join route_territories rt on rt.route_id=r.id where rt.territory_id in ${db(ids)} and rt.deleted_at is null and rt.effective_from<=now() and (rt.effective_to is null or rt.effective_to>now()) and r.status='active' and r.deleted_at is null and r.effective_from<=now() and (r.effective_to is null or r.effective_to>now()) order by r.name,r.id limit 501`
+    : [];
+  if (routes.length > 500) throw conflict("Narrow the route planning scope");
   const rows =
-    await db`select s.*,pp.name prepared_name,pb.name published_name from territory_scenarios s join profiles pp on pp.id=s.prepared_by left join profiles pb on pb.id=s.published_by order by s.created_at desc limit 50`;
+    await db`select s.*,(select j.status from jobs j where j.kind='coverage.scenarioBoundaries' and j.payload->>'scenarioId'=s.id::text order by j.created_at desc limit 1) boundary_job_status,pp.name prepared_name,pb.name published_name from territory_scenarios s join profiles pp on pp.id=s.prepared_by left join profiles pb on pb.id=s.published_by order by s.created_at desc limit 50`;
   const visible = rows.filter((/** @type {any} */ s) =>
     s.simulation.every((/** @type {any} */ t) => ids.includes(t.territoryId)),
   );
   return {
     canPlan,
+    canBoundary: !!role && roleHas(role, "territory.manage"),
     me: ctx.actor?.profileId ?? null,
     defaults: DEFAULTS,
     territories: mine,
+    routes: routes.map((/** @type {any} */ r) => ({
+      id: r.id,
+      name: r.name,
+      territoryId: r.territory_id,
+    })),
+    routingConfigured: !!ctx.env?.ROUTING_OSRM_ORIGIN,
     stores: stores.map((/** @type {any} */ s) => ({
       id: s.id,
       code: s.code,
@@ -444,12 +570,21 @@ export async function readScenarios(ctx) {
       contentHash: s.content_hash,
       assumptions: s.assumptions,
       territories: s.simulation,
+      plan: s.plan,
+      boundaryJobStatus: s.boundary_job_status,
     })),
   };
 }
 
-/** @param {any} router */
-export function installTerritoryScenarios(router) {
+/** @param {any} router @param {any} [platform] */
+export function installTerritoryScenarios(router, platform) {
+  platform?.registerJob(
+    "coverage.scenarioBoundaries",
+    async (/** @type {any} */ j) => {
+      await applyScenarioBoundaries(j.db, j.payload.scenarioId);
+      await platform.publish?.("coverage");
+    },
+  );
   router.get("/api/v1/coverage/territory-scenarios", (/** @type {any} */ c) =>
     readScenarios(c),
   );

@@ -211,7 +211,7 @@ export function install(router, platform) {
   installTargetCascade(router, platform);
   installTargetProgress(router, platform);
   installCollections(router);
-  installTerritoryScenarios(router);
+  installTerritoryScenarios(router, platform);
   router.get("/api/v1/coverage/adherence", (c) =>
     tx(c.db, (db) =>
       readAdherence({ ...c, db }, Object.fromEntries(c.url.searchParams)),

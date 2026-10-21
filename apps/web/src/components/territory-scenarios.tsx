@@ -2,6 +2,16 @@
 import { useMemo, useRef, useState } from "react";
 import { useApi, useLive, useMutate } from "../lib/api";
 
+type Geometry =
+  | { type: "Polygon"; coordinates: [number, number][][] }
+  | { type: "MultiPolygon"; coordinates: [number, number][][][] }
+  | { type: "Feature"; geometry: Geometry };
+type Plan = {
+  routeMoves?: { routeId: string; toTerritoryId: string }[];
+  boundaries?: { territoryId: string; geoJson: Geometry }[];
+  routingMode?: string;
+  boundaryStatus?: string;
+};
 type Work = {
   outlets: number;
   potential: number;
@@ -9,6 +19,8 @@ type Work = {
   visits: number;
   serviceMinutes: number;
   travelMinutes: number;
+  travelSource?: string;
+  provisionalTravel?: boolean;
   unpinned: number;
   people: number;
   capacityMinutes: number;
@@ -22,6 +34,8 @@ type TerritorySim = {
   movedIn: number;
   movedOut: number;
   pins: { code: string; lat: number; lon: number; moved: boolean }[];
+  boundary?: Geometry | null;
+  previousBoundary?: Geometry | null;
 };
 type Scenario = {
   id: string;
@@ -34,11 +48,16 @@ type Scenario = {
   publishedBy: string | null;
   contentHash: string;
   territories: TerritorySim[];
+  plan?: Plan;
+  boundaryJobStatus?: string | null;
 };
 type Book = {
   canPlan: boolean;
+  canBoundary?: boolean;
   me: string | null;
-  territories: { id: string; name: string }[];
+  territories: { id: string; name: string; boundaryGeoJson?: string | null }[];
+  routes?: { id: string; name: string; territoryId: string }[];
+  routingConfigured?: boolean;
   stores: { id: string; code: string; name: string; territoryId: string }[];
   scenarios: Scenario[];
 };
@@ -62,12 +81,34 @@ export function loadReading(t: TerritorySim) {
   return `${b ?? "—"}% → ${a}% of capacity.${over}`;
 }
 
+export function boundaryRings(g?: Geometry | null): [number, number][][] {
+  if (!g) return [];
+  if (g.type === "Feature") return boundaryRings(g.geometry);
+  return g.type === "Polygon" ? g.coordinates : g.coordinates.flat();
+}
+export function boundaryMessage(plan?: Plan, status?: string | null) {
+  if (!plan?.boundaries?.length) return null;
+  if (plan.boundaryStatus === "applied")
+    return "Boundary shapes applied on the effective day.";
+  if (status === "failed")
+    return "Boundary update needs reconciliation. Existing shapes remain; save a corrected scenario.";
+  return plan.boundaryStatus === "scheduled"
+    ? "Boundary shapes are scheduled for the effective day. People assignments do not move automatically."
+    : `${plan.boundaries.length} boundary shapes await independent review.`;
+}
 /** F-224: small pin sketch for one territory after the moves; moved stores are drawn hollow. */
 function PinSketch({ t }: { t: TerritorySim }) {
-  if (t.pins.length === 0)
+  const proposed = boundaryRings(t.boundary),
+    previous = boundaryRings(t.previousBoundary);
+  if (t.pins.length === 0 && !proposed.length && !previous.length)
     return <p className="text-xs text-muted">No verified pins.</p>;
-  const lats = t.pins.map((p) => p.lat),
-    lons = t.pins.map((p) => p.lon);
+  const pts = [
+    ...t.pins.map((p) => [p.lon, p.lat] as [number, number]),
+    ...proposed.flat(),
+    ...previous.flat(),
+  ];
+  const lats = pts.map((p) => p[1]),
+    lons = pts.map((p) => p[0]);
   const [y0, y1, x0, x1] = [
     Math.min(...lats),
     Math.max(...lats),
@@ -84,6 +125,24 @@ function PinSketch({ t }: { t: TerritorySim }) {
       height={100}
       className="rounded border border-border"
     >
+      {[
+        ...previous.map((r) => ({ r, old: true })),
+        ...proposed.map((r) => ({ r, old: false })),
+      ].map(({ r, old }, i) => (
+        <path
+          key={i}
+          d={
+            r
+              .map((p, j) => `${j ? "L" : "M"}${sx(p[0])},${sy(p[1])}`)
+              .join(" ") + " Z"
+          }
+          fill="none"
+          stroke="currentColor"
+          strokeWidth={1}
+          strokeDasharray={old ? "3 3" : undefined}
+          opacity={old ? 0.4 : 0.8}
+        />
+      ))}
       {t.pins.map((p) => (
         <circle
           key={p.code}
@@ -99,12 +158,13 @@ function PinSketch({ t }: { t: TerritorySim }) {
   );
 }
 
-function CompareTable({ territories }: { territories: TerritorySim[] }) {
+export function CompareTable({ territories }: { territories: TerritorySim[] }) {
   return (
     <div className="grid gap-1 overflow-x-auto">
       <p className="text-xs text-muted">
         Before → after. Load = (visit time + estimated travel) ÷ capacity over
-        four weeks. On the map, hollow circles are the moved stores.
+        four weeks. Hollow circles are moved stores; old boundaries are dashed
+        and proposed boundaries solid. Road estimates exclude live traffic.
       </p>
       <table
         aria-label="Before and after"
@@ -150,6 +210,16 @@ function CompareTable({ territories }: { territories: TerritorySim[] }) {
               </td>
               <td className="text-right tabular-nums">
                 {hours(t.before.travelMinutes)} → {hours(t.after.travelMinutes)}
+                <span className="block max-w-56 whitespace-normal text-xs text-muted">
+                  Before:{" "}
+                  {t.before.travelSource ??
+                    "SAMPLE geometric estimate · historical scenario"}
+                </span>
+                <span className="block max-w-56 whitespace-normal text-xs text-muted">
+                  After:{" "}
+                  {t.after.travelSource ??
+                    "SAMPLE geometric estimate · historical scenario"}
+                </span>
                 {t.after.unpinned ? (
                   <span className="block text-xs text-muted">
                     {t.after.unpinned} unpinned, not counted
@@ -193,6 +263,17 @@ export function TerritoryScenarios() {
     [busy, setBusy] = useState(false),
     [error, setError] = useState(""),
     [notice, setNotice] = useState("");
+  const [routeMoves, setRouteMoves] = useState<
+    { routeId: string; toTerritoryId: string }[]
+  >([]);
+  const [route, setRoute] = useState("");
+  const [boundaries, setBoundaries] = useState<
+    { territoryId: string; geoJson: Geometry }[]
+  >([]);
+  const [boundaryText, setBoundaryText] = useState("");
+  const [routingMode, setRoutingMode] = useState("estimate");
+  const plan = { routeMoves, boundaries, routingMode };
+  const hasChanges = moves.length + routeMoves.length + boundaries.length > 0;
   const stores = useMemo(
     () => (data.data?.stores ?? []).filter((s) => s.territoryId === from),
     [data.data, from],
@@ -252,9 +333,10 @@ export function TerritoryScenarios() {
         <p className="text-sm text-muted">
           Draft store moves between territories and compare stores, potential,
           visit and travel time against each team&apos;s capacity. Travel is a
-          straight-line estimate until road routing exists. A second person
-          publishes; the move starts on the chosen day and the stores join the
-          destination&apos;s next journey plan.
+          labelled SAMPLE geometric estimate or an operator-configured
+          road-graph estimate, never live traffic. Whole route moves preserve
+          stop order. A second person publishes; the move starts on the chosen
+          day and the stores join the destination&apos;s next journey plan.
         </p>
       </header>
       {error && <p role="alert">{error}</p>}
@@ -271,8 +353,13 @@ export function TerritoryScenarios() {
                 {s.name} · {s.moves} {s.moves === 1 ? "store" : "stores"} · from{" "}
                 {s.effectiveOn} · prepared by {s.preparedBy}
               </p>
+              <p className="text-xs text-muted">
+                {boundaryMessage(s.plan, s.boundaryJobStatus)}
+              </p>
               <CompareTable territories={s.territories} />
-              {d.canPlan && s.preparedById !== d.me ? (
+              {d.canPlan &&
+              s.preparedById !== d.me &&
+              (!s.plan?.boundaries?.length || d.canBoundary) ? (
                 <button
                   className={button}
                   disabled={busy}
@@ -290,7 +377,9 @@ export function TerritoryScenarios() {
                 <p className="text-xs text-muted">
                   {s.preparedById === d.me
                     ? "A different person must publish your scenario."
-                    : "Waiting for an operations or admin user."}
+                    : s.plan?.boundaries?.length
+                      ? "A different administrator must publish boundary changes."
+                      : "Waiting for an operations or admin user."}
                 </p>
               )}
               {s.preparedById === d.me && (
@@ -370,6 +459,153 @@ export function TerritoryScenarios() {
               Add move
             </button>
           </div>
+          <div className="grid gap-2 sm:grid-cols-2">
+            <label className="grid gap-1 text-sm">
+              Travel model
+              <select
+                value={routingMode}
+                onChange={(e) => {
+                  setRoutingMode(e.target.value);
+                  setSim(null);
+                }}
+                disabled={busy}
+              >
+                <option value="estimate">SAMPLE geometric estimate</option>
+                <option value="road">Configured OSRM road graph</option>
+              </select>
+            </label>
+            <p className="text-xs text-muted">
+              {d.routingConfigured
+                ? "A trusted operator routing origin is configured. Failed or oversized road requests remain visibly SAMPLE fallback."
+                : "No road origin configured. The free geometric fallback remains clearly SAMPLE; an operator can configure a local OSRM service."}
+            </p>
+            <label className="grid gap-1 text-sm">
+              Whole route in the source territory
+              <select
+                value={route}
+                onChange={(e) => setRoute(e.target.value)}
+                disabled={busy}
+              >
+                <option value="">Choose route</option>
+                {(d.routes ?? [])
+                  .filter(
+                    (r) =>
+                      r.territoryId === from &&
+                      !routeMoves.some((m) => m.routeId === r.id),
+                  )
+                  .map((r) => (
+                    <option key={r.id} value={r.id}>
+                      {r.name}
+                    </option>
+                  ))}
+              </select>
+            </label>
+            <button
+              className={button}
+              disabled={busy || !route || !to || from === to}
+              onClick={() => {
+                setRouteMoves([
+                  ...routeMoves,
+                  { routeId: route, toTerritoryId: to },
+                ]);
+                setRoute("");
+                setSim(null);
+              }}
+            >
+              Move entire route to selected destination
+            </button>
+          </div>
+          <p className="text-xs text-muted">
+            Whole-route publication transfers its canonical territory and every
+            active stop in one transaction. It does not move people; review
+            destination capacity and assign its salesperson separately. Existing
+            approved-plan locks remain.
+          </p>
+          {routeMoves.map((m) => (
+            <p key={m.routeId} className="text-sm">
+              {d.routes?.find((r) => r.id === m.routeId)?.name ?? "Whole route"}{" "}
+              → {label(m.toTerritoryId)}{" "}
+              <button
+                className={button}
+                onClick={() => {
+                  setRouteMoves(routeMoves.filter((r) => r !== m));
+                  setSim(null);
+                }}
+              >
+                Remove route move
+              </button>
+            </p>
+          ))}
+          <details className="grid gap-2" hidden={!d.canBoundary}>
+            <summary className="text-sm">
+              Propose geographic boundary changes
+            </summary>
+            <p className="text-xs text-muted">
+              Select a destination territory above. Paste its proposed
+              Polygon/MultiPolygon GeoJSON, in longitude/latitude. Include each
+              affected territory's replacement shape. Verified pins determine
+              store moves; ambiguous or unpinned stores need explicit
+              destinations. A second person approves; shapes are applied on the
+              effective day, never early.
+            </p>
+            <label className="grid gap-1 text-sm">
+              Proposed boundary
+              <textarea
+                rows={5}
+                className="w-full rounded border border-border p-2 font-mono text-xs"
+                value={boundaryText}
+                onChange={(e) => setBoundaryText(e.target.value)}
+                disabled={busy}
+              />
+            </label>
+            <button
+              className={button}
+              disabled={busy || !to}
+              onClick={() =>
+                setBoundaryText(
+                  d.territories.find((t) => t.id === to)?.boundaryGeoJson ?? "",
+                )
+              }
+            >
+              Load current destination shape
+            </button>
+            <button
+              className={button}
+              disabled={busy || !to || !boundaryText.trim()}
+              onClick={() => {
+                try {
+                  const geoJson = JSON.parse(boundaryText) as Geometry;
+                  setBoundaries([
+                    ...boundaries.filter((b) => b.territoryId !== to),
+                    { territoryId: to, geoJson },
+                  ]);
+                  setBoundaryText("");
+                  setSim(null);
+                  setError("");
+                } catch {
+                  setError(
+                    "Paste valid GeoJSON. The server also validates closed rings and coordinate bounds.",
+                  );
+                }
+              }}
+            >
+              Add destination boundary
+            </button>
+            {boundaries.map((b) => (
+              <p key={b.territoryId} className="text-sm">
+                New boundary · {label(b.territoryId)}{" "}
+                <button
+                  className={button}
+                  onClick={() => {
+                    setBoundaries(boundaries.filter((x) => x !== b));
+                    setSim(null);
+                  }}
+                >
+                  Remove boundary
+                </button>
+              </p>
+            ))}
+          </details>
           {moves.length > 0 && (
             <ul aria-label="Planned moves" className="grid gap-1 text-sm">
               {moves.map((m) => (
@@ -390,11 +626,11 @@ export function TerritoryScenarios() {
           )}
           <button
             className={button}
-            disabled={busy || moves.length === 0}
+            disabled={busy || !hasChanges}
             onClick={async () => {
               const r = await post<{ territories: TerritorySim[] }>(
                 "simulate",
-                { moves },
+                { moves, plan },
                 "",
               );
               if (r) setSim(r.territories);
@@ -427,12 +663,14 @@ export function TerritoryScenarios() {
                   onClick={async () => {
                     const r = await post(
                       "save",
-                      { name, effectiveOn, moves },
+                      { name, effectiveOn, moves, plan },
                       "Saved for a second person to publish.",
                       true,
                     );
                     if (r) {
                       setMoves([]);
+                      setRouteMoves([]);
+                      setBoundaries([]);
                       setSim(null);
                     }
                   }}
@@ -453,6 +691,10 @@ export function TerritoryScenarios() {
                 {s.name} · {s.moves} {s.moves === 1 ? "store" : "stores"} from{" "}
                 {s.effectiveOn} · prepared by {s.preparedBy}, published by{" "}
                 {s.publishedBy}
+                <p className="text-xs text-muted">
+                  {boundaryMessage(s.plan, s.boundaryJobStatus)}
+                </p>
+                <CompareTable territories={s.territories} />
               </li>
             ))}
           </ul>
