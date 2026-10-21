@@ -299,8 +299,12 @@ fun FieldApp(
                     showKeyDetails = FieldFeature.PHONE_KEY_DETAILS in features,
                     onReportIssue = features.reportIssueUrl?.let { url -> { openLink(context, url) } },
                     biometrics = biometrics,
+                    onIncentives = if (ready) ({ page = "incentives" }) else null,
                     onChangePassword = { controller.resetPasswordForm(); page = "change-password" },
                     onBatteryGuide = if (batteryGuide != null) ({ page = "location-battery" }) else null)
+                ready && page == "incentives" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
+                    com.sunpride.field.ui.incentives.EarnedStatementsScreen(backend, { page = "account" }, modifier)
+                }
                 page == "change-password" -> ChangePasswordScreen(controller.passwordBusy, controller.passwordMessage,
                     controller.passwordChanged, onChange = { current, next, confirm ->
                         controller.changePassword(current, next, confirm) { biometrics?.passwordChanged() }
@@ -646,7 +650,7 @@ fun EnrollmentScreen(state: EnrollmentState, key: DeviceKeyInfo?, busy: Boolean,
 @Composable
 fun AccountScreen(key: DeviceKeyInfo?, onSignOut: () -> Unit, onBack: () -> Unit,
     onSupport: () -> Unit = {}, modifier: Modifier = Modifier, showKeyDetails: Boolean = true,
-    onReportIssue: (() -> Unit)? = null, biometrics: BiometricGate? = null, onChangePassword: (() -> Unit)? = null, onBatteryGuide: (() -> Unit)? = null) {
+    onReportIssue: (() -> Unit)? = null, biometrics: BiometricGate? = null, onChangePassword: (() -> Unit)? = null, onBatteryGuide: (() -> Unit)? = null, onIncentives: (() -> Unit)? = null) {
     Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -656,6 +660,9 @@ fun AccountScreen(key: DeviceKeyInfo?, onSignOut: () -> Unit, onBack: () -> Unit
                 ValueRow("App version", BuildConfig.VERSION_NAME)
                 if (showKeyDetails) ValueRow("Key storage", key?.protection ?: "Unavailable", Modifier.testTag("key-storage"))
                 if (showKeyDetails) ValueRow("Fingerprint", key?.fingerprint ?: "Unavailable")
+            }
+            if (onIncentives != null) SectionCard("My earnings") {
+                ListRow("Earned statements", "Personal results · online only", "info", Modifier.testTag("earned-statements-open"), onClick = onIncentives)
             }
             if (biometrics != null) BiometricSetting(biometrics)
             if (onChangePassword != null) SectionCard("Password") {
