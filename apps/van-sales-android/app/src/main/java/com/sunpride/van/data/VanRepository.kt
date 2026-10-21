@@ -343,6 +343,9 @@ class VanRepository private constructor(private val context: Context, private va
         val photo=photoFiles(st.scope).save(bytes,90_000)
         VanCallStore(st).record("delivery.confirm",outletId,fix,JSONObject().put("deviceTime",at).put("dropId",dropId).put("signature",signature).put("receiverName",receiver).put("lines",lines).put("watermark",watermark).put("photoSha256",photo.sha256)).also { schedule() }
     }
+    suspend fun recordCollection(paymentId: String,saleId: String,amount: Long,method: String,reference: String?) = withContext(Dispatchers.IO) {
+        CollectionStore(store()).record(paymentId,saleId,amount,method,reference).also {schedule()}
+    }
     suspend fun savedSales(): List<SavedSale> = withContext(Dispatchers.IO) { val st = store(); RoomReceiptPrintLog(st.db,st.scope).savedSales() }
     /** DEBUG practice data only: the fixture store, so device tests can seed the (still empty) price list. */
     internal fun fixtureStore(): RoomVanStore { check(BuildConfig.DEBUG && stubMode != null); return store() }

@@ -353,6 +353,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
                 return@withTransaction prior.result(sale.receiptNumber,true)
             throw VoidRefused(VoidProblem.ALREADY_VOIDED)
         }
+        check(dao.outboxRows(s,d).none {it.kind=="payment.record" && JSONObject(it.operationJson).getJSONObject("payload").optString("saleId")==saleId}) { "This invoice has a collection; reconcile it with the office before cancellation" }
         // VAN-019 x VAN-021: goods already returned against this sale are back on the truck; voiding the whole sale
         // would put them back a second time. The rest goes through a return instead.
         if (dao.outboxRows(s,d).any { it.kind == RETURN_KIND &&

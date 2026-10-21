@@ -19,7 +19,7 @@ import com.sunpride.van.printing.*
 @Composable fun FiscalPreviewButtons(saved: SavedSale) {
     var preview by remember { mutableStateOf<Boolean?>(null) }
     if(saved.receipt.fiscalJson == null) return
-    SecondaryButton("Invoice preview",{preview=false},Modifier.testTag("fiscal-preview"))
+    SecondaryButton(if(saved.isCollection) "Official Receipt preview" else "Invoice preview",{preview=false},Modifier.testTag("fiscal-preview"))
     SecondaryButton("Reprint preview",{preview=true},Modifier.testTag("fiscal-reprint-preview"))
     preview?.let { reprint ->
         val r=saved.receipt
@@ -30,7 +30,7 @@ import com.sunpride.van.printing.*
         Dialog(onDismissRequest={preview=null},properties=DialogProperties(usePlatformDefaultWidth=false)) {
             Surface(Modifier.fillMaxWidth().padding(12.dp).statusBarsPadding().navigationBarsPadding(),shape=SunprideTokens.shapes.large) {
                 Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                    Text(if(reprint) "REPRINT preview" else "Sales Invoice preview",style=MaterialTheme.typography.titleLarge)
+                    Text(if(reprint) "REPRINT preview" else if(saved.isCollection) "Official Receipt preview" else "Sales Invoice preview",style=MaterialTheme.typography.titleLarge)
                     Text("Preview only. No paper printed.",style=MaterialTheme.typography.bodyMedium)
                     Text(lines,fontFamily=FontFamily.Monospace,style=MaterialTheme.typography.bodySmall,
                         modifier=Modifier.weight(1f,false).verticalScroll(rememberScrollState()).testTag("fiscal-preview-text"))

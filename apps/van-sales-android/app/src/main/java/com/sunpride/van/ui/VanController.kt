@@ -463,6 +463,11 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             message = e.issues.joinToString("\n") { issue -> VanRules.checkoutMessage(issue.problem,issue.productId?.let { id -> products.firstOrNull { it.productId == id }?.name }) }
         }
     }
+    fun recordCollection(paymentId: String,saleId: String,amount: Long,method: String,reference: String?,onSaved: () -> Unit) = command {
+        repository.recordCollection(paymentId,saleId,amount,method,reference)
+        savedSales=repository.savedSales();refreshPaymentFacts();onSaved()
+        message="Collection and Official Receipt saved on this phone. Preview before printing; sync for office confirmation."
+    }
     /** [onVoided] runs only after the void is saved, so a refused code keeps the dialog (and what was typed) open. */
     fun voidSale(saleId: String, reason: String?, note: String?, code: String?, onVoided: () -> Unit = {}) = command {
         try {

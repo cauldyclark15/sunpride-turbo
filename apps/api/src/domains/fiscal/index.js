@@ -31,9 +31,11 @@ export function install(router, ctx) {
   );
   ctx.registerOp("fiscal.print", async (/** @type {any} */ c) => {
     const { actor } = await currentDeviceActor(c.db, c.actor, c.device.id);
+    const sourceType = c.payload.paymentId ? "van_collection" : "van_sale";
+    const sourceId = uuid(c.payload.paymentId || c.payload.saleId);
     const [d] =
-      await c.db`select id from fiscal_documents where source_type='van_sale' and source_id=${uuid(c.payload.saleId)}`;
-    if (!d) refuse("Sync the invoice before its print journal");
+      await c.db`select id from fiscal_documents where source_type=${sourceType} and source_id=${sourceId}`;
+    if (!d) refuse("Sync the fiscal document before its print journal");
     const result = await documentEvent(c.db, actor, {
       ...c.payload,
       documentId: d.id,

@@ -29,7 +29,7 @@ object SaleReceiptDocuments {
         val at = { ms: Long -> Instant.ofEpochMilli(ms).atZone(zone).format(time) }
         val elements = buildList {
             add(ReceiptElement.Text(registration?.getString("entityName") ?: "SUNPRIDE VAN SALES", ReceiptStyle(ReceiptAlignment.CENTER, bold = true, doubleHeight = true)))
-            add(ReceiptElement.Text(if(fiscal != null) "SALES INVOICE" else "DELIVERY RECEIPT", ReceiptStyle(ReceiptAlignment.CENTER, bold = true)))
+            add(ReceiptElement.Text(if(fiscal?.optString("documentType")=="official_receipt") "OFFICIAL RECEIPT" else if(fiscal != null) "SALES INVOICE" else "DELIVERY RECEIPT", ReceiptStyle(ReceiptAlignment.CENTER, bold = true)))
             registration?.let { r ->
                 add(ReceiptElement.Text(r.getString("branchName")))
                 add(ReceiptElement.Text(r.getString("address")))
@@ -41,6 +41,7 @@ object SaleReceiptDocuments {
             if (reprint) add(ReceiptElement.Text("REPRINT - COPY ${attempt.copyNumber}", ReceiptStyle(ReceiptAlignment.CENTER, bold = true, doubleWidth = true)))
             add(ReceiptElement.Divider())
             add(ReceiptElement.Text("Receipt: ${receipt.receiptNumber}"))
+            fiscal?.optString("invoiceNumber")?.takeIf {it.isNotBlank()}?.let {add(ReceiptElement.Text("Against invoice: $it"))}
             add(ReceiptElement.Text("Date: ${at(receipt.createdAt)}"))
             add(ReceiptElement.Text("Customer: ${receipt.customerName}"))
             header.sellerName?.let { add(ReceiptElement.Text("Seller: $it")) }

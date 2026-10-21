@@ -36,14 +36,14 @@ object FiscalNumbers {
         dao.insertSequenceCounter(SequenceCounterRow(scope.fullAuthSubject,scope.deviceId,counterKey,serial))
         return Issued("${range.getString("prefix")}-${serial.toString().padStart(9,'0')}",id,serial,range.getJSONObject("registration"))
     }
-    fun snapshot(issued: Issued, total: Long): String {
+    fun snapshot(issued: Issued, total: Long, documentType: String = "sales_invoice"): String {
         val bps = issued.registration.getInt("taxBasisPoints")
         val denominator = BigInteger.valueOf(10000L+bps)
         require(total >= 0)
         val netExact = BigInteger.valueOf(total).multiply(BigInteger.valueOf(10000)).add(denominator.divide(BigInteger.valueOf(2))).divide(denominator)
         check(netExact.bitLength() < 63)
         val net = netExact.toLong()
-        return JSONObject().put("documentType","sales_invoice").put("documentNumber",issued.number)
+        return JSONObject().put("documentType",documentType).put("documentNumber",issued.number)
             .put("registration",issued.registration).put("allocationId",issued.allocationId).put("serial",issued.serial.toString())
             .put("tax",JSONObject().put("rateBasisPoints",bps).put("vatableSalesMinor",if(bps>0) net.toString() else "0")
                 .put("vatMinor",if(bps>0) Math.subtractExact(total,net).toString() else "0")

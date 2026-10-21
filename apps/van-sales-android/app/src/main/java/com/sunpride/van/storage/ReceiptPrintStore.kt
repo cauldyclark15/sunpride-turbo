@@ -89,6 +89,7 @@ interface ReceiptPrintDao {
 
 /** A saved sale on the current trip, for the Receipts list. */
 data class SavedSale(val receipt: SaleReceipt, val prints: List<PrintAttempt>, val void: SaleVoidInfo? = null) {
+    val isCollection: Boolean get() = receipt.fiscalJson?.let {JSONObject(it).optString("documentType")=="official_receipt"} == true
     val voidSlipPrinted: Boolean get() = prints.any { it.kind == PrintKind.VOID && it.mayHaveReachedPaper }
     val voidSlipsLeft: Int get() = maxOf(0,ReprintRules.MAX_REPRINTS+1 - prints.count { it.kind == PrintKind.VOID && it.mayHaveReachedPaper })
     val printed: Boolean get() = prints.any { it.mayHaveReachedPaper }
@@ -110,7 +111,7 @@ class RoomReceiptPrintLog(private val db: VanDatabase, private val scope: StoreS
     private val d = scope.deviceId
 
     override suspend fun begin(saleId: String, explicit: Boolean, reasonCode: String?): BeginPrint = db.withTransaction {
-        val sale = dao.saleRows(s, d).singleOrNull { it.saleId == saleId } ?: return@withTransaction BeginPrint.Refused(PrintRefusal.SALE_NOT_FOUND)
+        val sale = printableRows().singleOrNull { it.saleId == saleId } ?: return@withTransaction BeginPrint.Refused(PrintRefusal.SALE_NOT_FOUND)
         if (dao.meta(s, d)?.held != false) return@withTransaction BeginPrint.Refused(PrintRefusal.HELD)
         val trip = dao.trip(s, d)
         if (trip?.tripId != sale.tripId) return@withTransaction BeginPrint.Refused(PrintRefusal.NOT_THIS_TRIP)
@@ -134,7 +135,7 @@ class RoomReceiptPrintLog(private val db: VanDatabase, private val scope: StoreS
     override suspend fun finish(printId: String, outcome: PrintOutcome) = db.withTransaction {
         require(outcome != PrintOutcome.STARTED)
         val row = prints.all(s,d).single { it.printId == printId }
-        val sale = dao.saleRows(s,d).single { it.saleId == row.saleId }
+        val sale = printableRows().single { it.saleId == row.saleId }
         check(prints.finish(s, d, printId, outcome.wire, clock()) == 1) { "Print already finished" }
         journal(row,sale,when(outcome) { PrintOutcome.PRINTED -> "printed"; PrintOutcome.NOT_PRINTED -> "not_printed"; else -> "uncertain" })
     }
@@ -142,7 +143,7 @@ class RoomReceiptPrintLog(private val db: VanDatabase, private val scope: StoreS
         if (!s.startsWith("v2|") || db.receiptPrints().saleReceipt(s,d,sale.saleId)?.let { FrozenReceipts.decode(it.documentJson).first.fiscalJson } == null) return
         val at = maxOf(clock(),Math.addExact(dao.latestCreatedAt(s,d) ?: 0L,1L))
         val key = UUID.randomUUID().toString()
-        val payload = JSONObject().put("saleId",sale.saleId).put("tripId",sale.tripId).put("deviceTime",at)
+        val payload = JSONObject().put(if(sale.status=="collection") "paymentId" else "saleId",sale.saleId).put("tripId",sale.tripId).put("deviceTime",at)
             .put("kind",if(row.kind == "reprint") "reprint" else "print").put("reason",row.reason ?: "Original print attempt")
             .put("outcome",outcome).put("printId",row.printId)
         val op = JSONObject().put("kind","fiscal.print").put("clientRequestId",key).put("payload",payload)
@@ -155,9 +156,11 @@ class RoomReceiptPrintLog(private val db: VanDatabase, private val scope: StoreS
         val tripId = dao.trip(s, d)?.tripId ?: return@withTransaction emptyList()
         val history = prints.all(s, d).groupBy { it.saleId }
         val voids = dao.salevoidRows(s,d).associateBy { it.saleId }
-        dao.saleRows(s, d).filter { it.tripId == tripId }.sortedWith(compareByDescending<SaleRow> { it.createdAt }.thenByDescending { it.receiptNumber })
+        printableRows().filter { it.tripId == tripId }.sortedWith(compareByDescending<SaleRow> { it.createdAt }.thenByDescending { it.receiptNumber })
             .map { SavedSale(frozen(it, null).first, history[it.saleId].orEmpty().map { row -> row.attempt() },voids[it.saleId]?.info()) }
     }
+
+    private suspend fun printableRows(): List<SaleRow> = dao.saleRows(s,d) + CollectionStore(RoomVanStore(db,scope,clock)).printableCollections()
 
     suspend fun history(saleId: String): List<PrintAttempt> = prints.forSale(s, d, saleId).map { it.attempt() }
 

@@ -63,6 +63,7 @@ import java.time.format.DateTimeFormatter
 @Composable fun ReceiptsScreen(c: VanController) {
     var reprinting by remember { mutableStateOf<SavedSale?>(null) }
     var voiding by remember { mutableStateOf<SavedSale?>(null) }
+    var collecting by remember { mutableStateOf<SavedSale?>(null) }
     val time = remember { DateTimeFormatter.ofPattern("h:mm a") }
     ScreenFrame("Receipts",c::back,message = c.message ?: c.printMessage) {
         Text("Sales saved on this trip. A copy after the first print is marked REPRINT. Voided sales print only VOID slips.",style = MaterialTheme.typography.bodyMedium)
@@ -86,12 +87,15 @@ import java.time.format.DateTimeFormatter
                     modifier = Modifier.testTag("receipt-$index-void")) }
                 FiscalPreviewButtons(saved)
                 PrintButtons(c,saved,"receipt-$index") { reprinting = it }
-                if (saved.void == null && c.policy?.let { VoidRules.offered(it).isNotEmpty() } == true)
+                if (!saved.isCollection && saved.void == null && r.paymentKind == com.sunpride.van.data.PaymentKind.CREDIT && !c.tripClosed)
+                    SecondaryButton("Collect payment & issue OR",{collecting=saved},Modifier.testTag("receipt-$index-collect"),enabled=!c.busy)
+                if (!saved.isCollection && saved.void == null && c.policy?.let { VoidRules.offered(it).isNotEmpty() } == true)
                     SecondaryButton("Void sale",{ voiding = saved },Modifier.testTag("receipt-$index-void-sale"),enabled = !c.busy && !c.printing)
             }
         }
     }
     reprinting?.let { ReprintDialog(it,onPrint = { reason -> c.printReceipt(it.receipt.saleId,reason); reprinting = null },onClose = { reprinting = null }) }
+    collecting?.let { CollectionDialog(c,it,onClose={collecting=null}) }
     voiding?.let { saved -> c.policy?.let { policy ->
         var attempted by remember(saved.receipt.saleId) { mutableStateOf(false) }
         VoidSaleDialog(saved,policy,c.busy,error = c.message.takeIf { attempted && !c.busy },onVoid = { reason,note,code ->

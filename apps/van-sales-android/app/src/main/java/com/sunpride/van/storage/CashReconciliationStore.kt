@@ -40,7 +40,12 @@ class CashReconciliationStore(private val store: RoomVanStore) {
         val voided = dao.salevoidRows(s, d).map { it.saleId }.toSet()
         val methods = policy()?.paymentMethods ?: PaymentMethod.CASH_ONLY
         val ops = dao.outboxRows(s, d).filter { it.kind == SALE_KIND }.associateBy { it.clientRequestId }
-        return dao.saleRows(s, d).filter { it.tripId == tripId }.sortedBy { it.createdAt }.map { sale ->
+        val collections = dao.outboxRows(s,d).filter {it.tripId==tripId && it.kind=="payment.record"}.map { op ->
+            val p=JSONObject(op.operationJson).getJSONObject("payload")
+            val r=FrozenReceipts.decode(checkNotNull(db.receiptPrints().saleReceipt(s,d,p.getString("paymentId"))).documentJson).first
+            TripPayment(r.saleId,r.receiptNumber,r.paymentMethod,r.paymentLabel,r.paymentKind,r.totalMinor,r.currency,false)
+        }
+        return collections + dao.saleRows(s, d).filter { it.tripId == tripId }.sortedBy { it.createdAt }.map { sale ->
             val payload = JSONObject(checkNotNull(ops[sale.idempotencyKey]) { "Sale without its operation" }.operationJson).getJSONObject("payload")
             val payment = payload.getJSONObject("payment")
             // A sale saved before VAN-012 has {"terms":"cash"}: cash for the whole total.
