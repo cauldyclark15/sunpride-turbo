@@ -69,10 +69,13 @@ export function KpiCard({
   kpi,
   setTargetHref = SET_TARGET_HREF,
   canSetTarget = true,
+  flat = false,
 }: {
   kpi: Kpi;
   setTargetHref?: string;
   canSetTarget?: boolean;
+  /** Drawn as a cell of a KpiGrid strip: no border or radius of its own. */
+  flat?: boolean;
 }) {
   const delta = formatDelta(kpi.deltaPct);
   const good =
@@ -86,10 +89,12 @@ export function KpiCard({
     <article
       data-kpi={kpi.key}
       data-status={kpi.status}
-      className="ck-kpi relative flex min-w-0 flex-col rounded-2xl border border-border bg-surface px-4 py-3.5"
+      className={`ck-kpi relative flex min-w-0 flex-col px-4 py-3.5 ${
+        flat ? "" : "rounded-2xl border border-border bg-surface"
+      }`}
     >
       <div className="flex items-start justify-between gap-2">
-        <h3 className="min-h-[2lh] text-[12px] font-medium leading-tight text-muted sm:min-h-0">
+        <h3 className="min-h-[2lh] text-balance text-[12px] font-medium leading-tight text-muted sm:min-h-0">
           {kpi.label}
         </h3>
         <details className="ck-info group relative shrink-0">
@@ -136,11 +141,11 @@ export function KpiCard({
           ) : (
             <div className="mt-3 h-1.5" aria-hidden />
           )}
-          <div className="mt-2 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-1 text-[12.5px]">
+          <p className="mt-2 min-h-5 text-pretty text-[12.5px] leading-5 text-muted tabular-nums">
             {caption ? (
-              <span className="text-muted tabular-nums">{caption}</span>
+              caption
             ) : TARGETED.has(kpi.key) && canSetTarget ? (
-              <span className="text-muted">
+              <>
                 No target ·{" "}
                 <Link
                   href={setTargetHref}
@@ -148,16 +153,14 @@ export function KpiCard({
                 >
                   Set target
                 </Link>
-              </span>
-            ) : TARGETED.has(kpi.key) ? (
-              <span className="text-muted">No target set</span>
-            ) : (
-              <span className="text-muted">
-                {kpi.status === "unknown" ? "Not judged against a target" : ""}
-              </span>
-            )}
+              </>
+            ) : kpi.status === "unknown" ? (
+              "No target"
+            ) : null}
+          </p>
+          <div className="flex items-baseline justify-between gap-x-3 text-[12.5px] leading-5">
             <span
-              className={`tabular-nums ${
+              className={`min-w-0 tabular-nums ${
                 good === null
                   ? "text-muted"
                   : good
@@ -166,18 +169,27 @@ export function KpiCard({
               }`}
               title="Change against the comparison period"
             >
-              {delta.direction === "none"
-                ? delta.text
-                : `${delta.text} vs prior`}
+              {delta.direction === "none" ? (
+                delta.text
+              ) : (
+                <>
+                  {delta.text}
+                  <span className="max-sm:sr-only"> vs prior</span>
+                </>
+              )}
             </span>
+            {kpi.status !== "unknown" ? (
+              <span
+                className={`inline-flex shrink-0 items-center gap-1.5 font-medium ${TONE_TEXT[tone]}`}
+              >
+                <span
+                  aria-hidden
+                  className={`size-1.5 rounded-full ${TONE_BAR[tone]}`}
+                />
+                {STATUS_LABEL[kpi.status]}
+              </span>
+            ) : null}
           </div>
-          {kpi.status !== "unknown" ? (
-            <span
-              className={`mt-1 block text-[11px] font-semibold uppercase tracking-wider ${TONE_TEXT[tone]}`}
-            >
-              {STATUS_LABEL[kpi.status]}
-            </span>
-          ) : null}
         </div>
       )}
     </article>
@@ -195,10 +207,31 @@ export function gridColumns(count: number) {
 export function KpiGrid({
   kpis,
   canSetTarget = true,
+  strip = false,
+  label,
 }: {
   kpis: Kpi[];
   canSetTarget?: boolean;
+  /** One surface split by hairlines instead of a field of separate cards. */
+  strip?: boolean;
+  label?: string;
 }) {
+  if (strip && kpis.length === 4)
+    return (
+      <section
+        aria-label={label}
+        className={[
+          "grid grid-cols-1 rounded-2xl border border-border bg-surface min-[380px]:grid-cols-2 lg:grid-cols-4",
+          "[&>*]:border-border [&>*:not(:first-child)]:border-t",
+          "min-[380px]:[&>*:nth-child(2)]:border-t-0 min-[380px]:[&>*:nth-child(even)]:border-l",
+          "lg:[&>*]:border-t-0! lg:[&>*:not(:first-child)]:border-l",
+        ].join(" ")}
+      >
+        {kpis.map((kpi) => (
+          <KpiCard key={kpi.key} kpi={kpi} canSetTarget={canSetTarget} flat />
+        ))}
+      </section>
+    );
   return (
     <div
       className={`grid grid-cols-1 gap-3 min-[380px]:grid-cols-2 ${gridColumns(kpis.length)} ${kpis.length % 2 ? "min-[380px]:max-md:[&>*:last-child]:col-span-2" : ""}`}

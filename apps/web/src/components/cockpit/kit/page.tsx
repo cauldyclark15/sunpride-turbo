@@ -87,19 +87,21 @@ export function CockpitPage({
             </p>
           ) : null}
           {header ? <FreshnessNote freshness={header.freshness} /> : null}
-          {actions}
-          {header ? (
-            <button
-              type="button"
-              className="ck-noprint rounded-lg border border-border px-3 py-1 text-[13px]"
-              onClick={() =>
-                downloadCurrentWorkbook(header.period, exportQuery)
-              }
-              title="Exports the main report. Other panels have their own Excel links."
-            >
-              Download Excel
-            </button>
-          ) : null}
+          <div className="flex flex-wrap items-center gap-2 empty:hidden">
+            {actions}
+            {header ? (
+              <button
+                type="button"
+                className="ck-noprint rounded-lg border border-border px-3 py-1 text-[13px] hover:bg-default-soft"
+                onClick={() =>
+                  downloadCurrentWorkbook(header.period, exportQuery)
+                }
+                title="Exports the main report. Other panels have their own Excel links."
+              >
+                Download Excel
+              </button>
+            ) : null}
+          </div>
         </div>
       </header>
       {bar}
