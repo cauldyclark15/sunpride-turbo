@@ -318,6 +318,24 @@ class VanRepository private constructor(private val context: Context, private va
     }
     suspend fun completeSale(request: com.sunpride.van.pos.CheckoutRequest, expectedTotalMinor: Long): SaleReceipt =
         withContext(Dispatchers.IO) { store().commitSale(request,expectedTotalMinor).also { schedule() } }
+    /** F-110: retire answers independently of a same-account/scope renewal. */
+    fun fiscalLifetime():()->Boolean {
+        val st=current.value;val epoch=st?.authorizationEpoch();val session=sessionKey()
+        return {st!=null&&st===current.value&&epoch==st.authorizationEpoch()&&session==sessionKey()&&auth.isSignedIn}
+    }
+    suspend fun fiscalRequest(path:String,body:JSONObject):JSONObject=withContext(Dispatchers.IO){
+        require(path in listOf("overrides/request","overrides/status"))
+        val st=store();val valid=fiscalLifetime();check(valid()&&st===current.value&&st.canSync()){"Sync the current account before requesting approval"}
+        try{api.request("/api/v1/fiscal/$path",body).also{check(valid()){"Approval session changed"}}}
+        catch(error:Exception){
+            if(valid() && (error is AuthFailure && error.kind==AuthFailure.Kind.REFUSED || error is NativeApiFailure && error.code=="authority_changed")){
+                com.sunpride.integrity.RemoteErasure.recordingLock.withLock{
+                    if(valid()&&st===current.value)runCatching{st.hold()} // latch precedes fallible durable hold
+                }
+            }
+            throw error
+        }
+    }
     suspend fun voidSale(saleId: String, reason: String?, note: String?, code: String?): com.sunpride.van.pos.SaleVoidResult =
         withContext(Dispatchers.IO) { store().voidSale(saleId,reason,note,code).also { schedule() } }
     /** VAN-012: credit sold here per customer and references already used, so Checkout warns before the store refuses. */

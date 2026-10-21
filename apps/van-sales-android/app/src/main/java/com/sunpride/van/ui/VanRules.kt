@@ -99,6 +99,11 @@ object VanRules {
             com.sunpride.van.pos.CheckoutProblem.CREDIT_LIMIT_EXCEEDED -> "This sale is more than the customer's credit left. Take cash or another payment, or ask the office."
             com.sunpride.van.pos.CheckoutProblem.CASH_COUNTED -> "The cash for this trip is already counted. No more sales on this trip."
             com.sunpride.van.pos.CheckoutProblem.STOCK_COUNTED -> "Truck stock is already counted. No more stock changes on this trip."
+            com.sunpride.van.pos.CheckoutProblem.DISCOUNT_INVALID -> "A discount exceeds its line or basket. Check the amounts."
+            com.sunpride.van.pos.CheckoutProblem.DISCOUNT_REASON_REQUIRED -> "Give a reason for the manual discount (300 characters at most)."
+            com.sunpride.van.pos.CheckoutProblem.DISCOUNT_POLICY_NOT_READY -> "Download an effective discount authority rule for this customer and amount. Ask the office if none is set."
+            com.sunpride.van.pos.CheckoutProblem.DISCOUNT_APPROVAL_REQUIRED -> "This discount needs a second person. Request approval before completing the sale."
+            com.sunpride.van.pos.CheckoutProblem.DISCOUNT_APPROVAL_INVALID -> "Approval no longer matches this sale or has expired. Check the cart and request approval again."
         }
     }
     /** Payment state in plain words (VAN-012); [dueDate] only for credit. */

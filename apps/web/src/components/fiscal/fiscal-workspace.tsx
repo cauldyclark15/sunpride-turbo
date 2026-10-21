@@ -5,6 +5,7 @@ import { mutate, useApi, useLive } from "../../lib/api";
 import { Panel } from "../cockpit/kit";
 import { FiscalAudit } from "./audit";
 import { FiscalPosting, type FiscalSapPosting } from "./posting";
+import { ApprovalGrant, OverrideFacts } from "./override-facts";
 import {
   authorityMinor,
   authorityPeso,
@@ -190,6 +191,7 @@ export function FiscalWorkspace({
   );
   useLive(["fiscal"], [["fiscal"]]);
   const [message, setMessage] = useState("");
+  const [approvalGrant, setApprovalGrant] = useState<string | null>(null);
   const [selected, setSelected] = useState<string | null>(null);
   const [editingRule, setEditingRule] = useState<Row | null>(null);
   useEffect(() => {
@@ -201,6 +203,7 @@ export function FiscalWorkspace({
   const data = result.data;
   async function command(path: string, body: Record<string, unknown>) {
     setMessage("");
+    setApprovalGrant(null);
     for (const key of [
       "effectiveFrom",
       "effectiveTo",
@@ -220,10 +223,17 @@ export function FiscalWorkspace({
         delete body.ownAmount;
         delete body.approverGroup;
       }
-      await mutate(`/api/v1/fiscal/${path}`, body, {
-        invalidate: [["fiscal"]],
-      });
+      if (path === "overrides/decide")
+        body.offline = body.offline === "true" || body.offline === true;
+      const saved = await mutate<{ offlineGrant?: string }>(
+        `/api/v1/fiscal/${path}`,
+        body,
+        {
+          invalidate: [["fiscal"]],
+        },
+      );
       setMessage("Saved. The register has been updated.");
+      if (saved?.offlineGrant) setApprovalGrant(saved.offlineGrant);
       await result.refetch();
     } catch (error) {
       setMessage(
@@ -308,6 +318,7 @@ export function FiscalWorkspace({
           it.
         </p>
       ) : null}
+      {approvalGrant ? <ApprovalGrant grant={approvalGrant} /> : null}
       {!moneyOnly ? (
         <Panel
           title="Overrides to decide"
@@ -335,6 +346,7 @@ export function FiscalWorkspace({
                       ? "Second approval required"
                       : "Within own limit; reason recorded"}
                   </p>
+                  <OverrideFacts value={r.facts} />
                   {data.canDecide ? (
                     <CommandForm
                       title="Decision"
@@ -348,6 +360,19 @@ export function FiscalWorkspace({
                           ],
                         },
                         { name: "reason", label: "Decision reason" },
+                        {
+                          name: "offline",
+                          label: "Use while offline",
+                          value: "false",
+                          options: [
+                            { id: "false", label: "Online approval only" },
+                            {
+                              id: "true",
+                              label:
+                                "Issue exact-cart offline code (policy must allow)",
+                            },
+                          ],
+                        },
                       ]}
                       onSubmit={(b) =>
                         command("overrides/decide", { ...b, id: r.id })

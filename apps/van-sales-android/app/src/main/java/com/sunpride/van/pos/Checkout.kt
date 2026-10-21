@@ -37,7 +37,8 @@ data class QuotedPayment(val method: PaymentMethod, val amountMinor: Long, val t
     val reference: String?, val state: PaymentState, val dueDate: String?)
 
 /** What the seller is about to sell. [saleId] is a UUID-v4 made when the cart opens; it makes Complete sale safe to tap twice. */
-data class CheckoutRequest(val saleId: String, val customerId: String?, val lines: List<CartLine>, val payment: PaymentInput)
+data class CheckoutRequest(val saleId: String, val customerId: String?, val lines: List<CartLine>, val payment: PaymentInput,
+    val manualDiscount:ManualDiscountInput? = null)
 
 enum class CheckoutProblem {
     TRIP_NOT_SELLING, NO_CUSTOMER, UNKNOWN_CUSTOMER, EMPTY_CART, TOO_MANY_LINES, DUPLICATE_PRODUCT,
@@ -45,6 +46,7 @@ enum class CheckoutProblem {
     TOTAL_TOO_LARGE, CREDIT_TERMS_UNAVAILABLE, CASH_MISSING, CASH_SHORT, PRICES_CHANGED,
     UNKNOWN_PAYMENT_METHOD, REFERENCE_MISSING, REFERENCE_INVALID, REFERENCE_ALREADY_USED, CREDIT_LIMIT_EXCEEDED,
     PROMOTION_CONFLICT, PROMOTION_NEEDS_OFFICE,
+    DISCOUNT_INVALID,DISCOUNT_REASON_REQUIRED,DISCOUNT_POLICY_NOT_READY,DISCOUNT_APPROVAL_REQUIRED,DISCOUNT_APPROVAL_INVALID,
     /** VAN-022: the trip's cash is already counted, so it sells nothing more. */
     CASH_COUNTED,
     /** VAN-023: the approved physical stock count freezes every stock-changing action. */
@@ -62,7 +64,7 @@ data class CheckoutIssue(val problem: CheckoutProblem, val productId: String? = 
 data class QuotedLine(val lineNumber: Int, val product: Product, val quantityBase: Long, val unitPriceMinor: Long,
     val totalMinor: Long, val priceListIds: List<String>, val paidBase: Long = quantityBase, val freeBase: Long = 0L,
     val grossMinor: Long = totalMinor, val discountMinor: Long = 0L, val priceListId: String? = null,
-    val priceListCode: String? = null, val promotion: QuotedPromotion? = null)
+    val priceListCode: String? = null, val promotion: QuotedPromotion? = null,val manualDiscountMinor:Long = 0L)
 
 /** [tenderedMinor]/[changeMinor] are the cash handed over and change (non-cash: the amount and zero). */
 data class CheckoutQuote(val lines: List<QuotedLine>, val currency: String, val totalMinor: Long,
@@ -82,7 +84,7 @@ data class CheckoutContext(val tripSelling: Boolean, val customers: List<Custome
     val stock: List<TruckStock>, val prices: List<PriceLine>, val policy: VanPolicy?, val now: Long,
     val serviceDate: String? = null, val creditUsedMinor: Map<String,Long> = emptyMap(), val usedReferences: Set<String> = emptySet(),
     val cashCounted: Boolean = false, val promotions: List<com.sunpride.van.data.Promotion> = emptyList(),
-    val stockCounted: Boolean = false)
+    val stockCounted: Boolean = false,val previewOnly:Boolean = false)
 
 class CheckoutRefused(val issues: List<CheckoutIssue>) : IllegalStateException("Checkout refused")
 
@@ -149,6 +151,10 @@ object CheckoutRules {
                 matching.map { it.priceListId }.distinct().sorted(),line.paidBase,line.freeBase,gross,discount,
                 price?.priceListId,price?.priceListCode,line.promotion)
         }
+        runCatching { ManualDiscounts.apply(quoted,request.manualDiscount) }.onSuccess { adjusted->quoted.clear();quoted.addAll(adjusted) }
+            .onFailure { issues+=CheckoutIssue(CheckoutProblem.DISCOUNT_INVALID) }
+        if(!runCatching{ManualDiscounts.amount(quoted)<=MAX_MINOR}.getOrDefault(false))issues+=CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE)
+        if(!context.previewOnly)ManualDiscounts.authorize(request,quoted,context)?.let{issues+=CheckoutIssue(it)}
         if (currencies.size > 1) issues += CheckoutIssue(CheckoutProblem.MIXED_CURRENCY)
         val total = runCatching { quoted.fold(0L) { sum, line -> Math.addExact(sum,line.totalMinor) } }.getOrElse {
             issues += CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE); 0L
@@ -202,7 +208,7 @@ object CheckoutRules {
     /** The cart's lines and total alone, whatever payment the seller picks next (shown before the payment is entered). */
     fun cartQuote(request: CheckoutRequest, context: CheckoutContext): CheckoutQuote? =
         evaluate(request.copy(payment = PaymentInput(PaymentMethod.CASH.code,MAX_MINOR)),
-            context.copy(policy = context.policy?.copy(paymentMethods = PaymentMethod.CASH_ONLY))).quote
+            context.copy(policy = context.policy?.copy(paymentMethods = PaymentMethod.CASH_ONLY),previewOnly=true)).quote
 
     /** Credit the customer can still take on this phone (office-available minus unacknowledged credit sold here); null without terms. */
     fun creditLeft(customer: Customer, context: CheckoutContext): Long? = customer.credit?.takeIf { !customer.localOnly }?.let {

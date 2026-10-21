@@ -5,6 +5,8 @@ import {
   issuanceGate,
 } from "./series.js";
 import { integer, refuse, safeNumber, uuid } from "../van/model.js";
+import { authorityContext } from "./authority.js";
+import { roleHas } from "../../core/capabilities.js";
 /** F-108/F-109: inclusive VAT, exact half-up centavos; the frozen registration owns the rate.
  * @param {string} total @param {number} bps */
 export function taxSnapshot(total, bps) {
@@ -60,8 +62,8 @@ export async function invoiceForSale(db, actor, trip, p, receipt, deviceId) {
   return document;
 }
 /** F-019 bootstrap carries already reserved ranges. Repeat download never resets the phone counter.
- * @param {any} db @param {any} actor @param {any} trip @param {string} deviceId */
-export async function fiscalBundle(db, actor, trip, deviceId) {
+ * @param {any} db @param {any} actor @param {any} trip @param {string} deviceId @param {Record<string,string|undefined>} [env] */
+export async function fiscalBundle(db, actor, trip, deviceId, env) {
   const candidates =
     await db`select s.*,r.document_type from fiscal_series s join fiscal_registrations r on r.id=s.registration_id
     where r.org_unit_id=${trip.org_unit_id} and (s.vehicle_id is null or s.vehicle_id=${trip.vehicle_id}) and s.effective_from<=now() and (s.effective_to is null or s.effective_to>now())
@@ -101,5 +103,12 @@ export async function fiscalBundle(db, actor, trip, deviceId) {
         }),
       );
   }
-  return { required: true, ranges };
+  return {
+    required: true,
+    ranges,
+    ...(env &&
+    (roleHas(actor.role, "order.create") || roleHas(actor.role, "order.encode"))
+      ? { authority: await authorityContext(db, actor, trip.org_unit_id, env) }
+      : {}),
+  };
 }

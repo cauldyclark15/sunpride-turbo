@@ -9,7 +9,127 @@ import { currentActor } from "../van/access.js";
 import { actorFor } from "../../core/context.js";
 import { uuid, text, choice, integer, refuse } from "../van/model.js";
 import { instant } from "./series.js";
+import { ApiError } from "../../core/errors.js";
+import {
+  offlineApprovalGrant,
+  offlineApprovalKey,
+  verifyOfflineApprovalGrant,
+} from "./offline-grants.js";
 export const OVERRIDE_KINDS = ["price", "credit", "stock", "discount", "void"];
+/** @param {any} db @param {any} actor @param {any} input */
+async function liveRequestRule(db, actor, input) {
+  try {
+    return await authorityRule(db, actor, input);
+  } catch (error) {
+    if (
+      error instanceof ApiError &&
+      error.status !== 401 &&
+      error.status !== 403
+    )
+      throw new ApiError("authority_changed", 409, error.message);
+    throw error;
+  }
+}
+/** F-110/F-511: one scoped, effective matrix for native previews; transaction enforcement stays here.
+ * @param {any} db @param {any} actor @param {string} orgUnitId @param {Record<string,string|undefined>} env */
+export async function authorityContext(db, actor, orgUnitId, env) {
+  actor = await currentActor(db, actor);
+  await requireCapability(
+    { db, actor },
+    roleHas(actor.role, "order.create") ? "order.create" : "order.encode",
+    uuid(orgUnitId),
+  );
+  const rules =
+    await db`select * from fiscal_authority_rules where org_unit_id=${orgUnitId} and role=${actor.role} and effective_from<=now() and (effective_to is null or effective_to>now()) order by kind,channel,min_centavos limit 201`;
+  if (rules.length > 200)
+    refuse("Authority matrix is too large; narrow the active rules");
+  return {
+    profileId: actor.profileId,
+    orgUnitId,
+    role: actor.role,
+    verification: offlineApprovalKey(env),
+    rules: rules.map((/** @type {any} */ r) => ({
+      id: r.id,
+      kind: r.kind,
+      channel: r.channel,
+      minMinor: String(r.min_centavos),
+      maxMinor: String(r.max_centavos),
+      selfLimitMinor: String(r.self_limit_centavos),
+      offlineAllowed: r.offline_allowed,
+      effectiveFrom: new Date(r.effective_from).getTime(),
+      effectiveTo: r.effective_to ? new Date(r.effective_to).getTime() : null,
+      sample: r.sample,
+    })),
+  };
+}
+/** F-110/F-124: requester can collect a verified approval; no second approval engine or secret key.
+ * @param {any} db @param {any} actor @param {string} id @param {Record<string,string|undefined>} env */
+export async function readOverride(db, actor, id, env) {
+  actor = await currentActor(db, actor);
+  const [r] =
+    await db`select * from fiscal_override_requests where id=${uuid(id)} and requester_id=${actor.profileId}`;
+  if (!r) refuse("Override request was not found");
+  const rule = await liveRequestRule(db, actor, {
+    orgUnitId: r.org_unit_id,
+    kind: r.kind,
+    channel: r.channel,
+    amountCentavos: String(r.amount_centavos),
+  });
+  if (rule.id !== r.rule_id)
+    throw new ApiError(
+      "authority_changed",
+      409,
+      "Discount authority changed; sync before requesting again",
+    );
+  if (new Date(r.expires_at).getTime() <= Date.now())
+    throw new ApiError(
+      "approval_expired",
+      409,
+      "This approval expired; request it again",
+    );
+  const events =
+    await db`select * from fiscal_override_events where request_id=${r.id}`;
+  const status = events.some((/** @type {any} */ e) => e.kind === "consumed")
+    ? "consumed"
+    : events.some((/** @type {any} */ e) => e.kind === "rejected")
+      ? "rejected"
+      : r.requires_second
+        ? "pending"
+        : "within_own_limit";
+  const approval = events.find((/** @type {any} */ e) => e.kind === "approved");
+  if (!approval || status === "consumed" || status === "rejected")
+    return { id: r.id, status, grant: null };
+  const [profile] =
+    await db`select user_id from profiles where id=${approval.actor_profile_id}`;
+  const approver = profile
+    ? await currentActor(db, await actorFor(db, profile.user_id))
+    : null;
+  if (
+    !approver ||
+    approver.profileId === actor.profileId ||
+    !rule.approver_roles.includes(approver.role)
+  )
+    throw new ApiError(
+      "approval_withdrawn",
+      409,
+      "The approver is no longer authorized",
+    );
+  await requireCapability(
+    { db, actor: approver },
+    "order.approve",
+    r.org_unit_id,
+  );
+  return {
+    id: r.id,
+    status: "approved",
+    grant: offlineApprovalGrant(
+      env,
+      r,
+      approver.profileId,
+      rule.offline_allowed && approval.code_hash ? "offline" : "live",
+    ),
+  };
+}
 /** F-124/F-511. No ambiguous or absent rule can grant authority. @param {any} db @param {any} actor @param {any} p */
 export async function authorityRule(db, actor, p) {
   await requireCapability(
@@ -32,14 +152,19 @@ export async function authorityRule(db, actor, p) {
  * @param {any} db @param {any} actor @param {any} p */
 export async function requestOverride(db, actor, p) {
   actor = await currentActor(db, actor);
-  const rule = await authorityRule(db, actor, p),
+  if (
+    p.expectedRequesterId !== undefined &&
+    p.expectedRequesterId !== actor.profileId
+  )
+    refuse("The approval account changed");
+  const rule = await liveRequestRule(db, actor, p),
     id = uuid(p.id);
   const reason = text(p.reason, 300, true);
   if (
     !p.facts ||
     typeof p.facts !== "object" ||
     Array.isArray(p.facts) ||
-    canonicalJson(p.facts).length > 10000
+    canonicalJson(p.facts).length > 100000
   )
     refuse("Supply bounded original and proposed facts");
   const factsHash = sha256Hex(canonicalJson(p.facts));
@@ -63,8 +188,8 @@ export async function requestOverride(db, actor, p) {
    values(${id},${rule.id},${p.orgUnitId},${actor.profileId},${p.kind},${p.channel},${p.amountCentavos},${p.facts},${factsHash},${reason},${second},${new Date(Date.now() + 86400000)})`;
   return { id, requiresSecond: second };
 }
-/** @param {any} db @param {any} actor @param {any} p */
-export async function decideOverride(db, actor, p) {
+/** @param {any} db @param {any} actor @param {any} p @param {Record<string,string|undefined>} [env] */
+export async function decideOverride(db, actor, p, env) {
   actor = await currentActor(db, actor);
   const [r] =
     await db`select * from fiscal_override_requests where id=${uuid(p.id)} for update`;
@@ -92,11 +217,18 @@ export async function decideOverride(db, actor, p) {
   if (p.offline === true && !code)
     refuse("This policy does not permit offline pre-authorization");
   await db`insert into fiscal_override_events(request_id,kind,actor_profile_id,reason,code_hash) values(${r.id},${kind},${actor.profileId},${reason},${code ? sha256Hex(code) : null})`;
-  return { id: r.id, decision: kind, offlineCode: code };
+  return {
+    id: r.id,
+    decision: kind,
+    offlineCode: code,
+    ...(code && env
+      ? { offlineGrant: offlineApprovalGrant(env, r, actor.profileId) }
+      : {}),
+  };
 }
 /** F-511 point-of-transaction enforcement. Only exact approved facts may be consumed, once.
- * @param {any} db @param {any} actor @param {any} p */
-export async function enforceAuthority(db, actor, p) {
+ * @param {any} db @param {any} actor @param {any} p @param {Record<string,string|undefined>} [env] */
+export async function enforceAuthority(db, actor, p, env = process.env) {
   actor = await currentActor(db, actor);
   const rule = await authorityRule(db, actor, p);
   const [r] =
@@ -110,6 +242,7 @@ export async function enforceAuthority(db, actor, p) {
     r.channel !== p.channel ||
     BigInt(r.amount_centavos) !== integer(p.amountCentavos) ||
     r.facts_hash !== sha256Hex(canonicalJson(p.facts)) ||
+    (p.reason !== undefined && text(p.reason, 300, true) !== r.reason) ||
     new Date(r.expires_at).getTime() <= Date.now()
   )
     refuse("Request an override for these exact transaction facts");
@@ -141,11 +274,31 @@ export async function enforceAuthority(db, actor, p) {
       "order.approve",
       r.org_unit_id,
     );
+    const portable =
+      typeof p.offlineCode === "string" &&
+      p.offlineCode.startsWith("SP-APPROVAL1.")
+        ? verifyOfflineApprovalGrant(env, p.offlineCode)
+        : null;
+    if (
+      portable &&
+      (portable.requestId !== r.id ||
+        portable.ruleId !== r.rule_id ||
+        portable.factsHash !== r.facts_hash ||
+        portable.reasonHash !== sha256Hex(r.reason) ||
+        portable.requesterId !== actor.profileId ||
+        portable.approverId !== approval.actor_profile_id ||
+        portable.orgUnitId !== r.org_unit_id ||
+        portable.kind !== r.kind ||
+        portable.channel !== r.channel ||
+        portable.amountCentavos !== String(r.amount_centavos) ||
+        portable.expiresAt > new Date(r.expires_at).getTime())
+    )
+      refuse("Offline approval does not match this transaction");
     if (
       p.offlineCode &&
-      (!rule.offline_allowed ||
-        !approval.code_hash ||
-        !safeEqual(sha256Hex(p.offlineCode), approval.code_hash))
+      ((portable?.mode !== "live" &&
+        (!rule.offline_allowed || !approval.code_hash)) ||
+        (!portable && !safeEqual(sha256Hex(p.offlineCode), approval.code_hash)))
     )
       refuse("Offline authorization code is invalid");
   }

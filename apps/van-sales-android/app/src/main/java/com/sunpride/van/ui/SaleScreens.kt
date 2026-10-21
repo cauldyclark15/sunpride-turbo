@@ -27,7 +27,8 @@ import com.sunpride.van.pos.*
 @Composable fun SaleScreen(c: VanController) {
     val draft = c.sale
     var editing by remember { mutableStateOf<Product?>(null) }
-    val quote = remember(c.prices,c.promotions,c.stock,c.customers,draft) { c.cartQuote() }
+    var discounting by remember { mutableStateOf(false) }
+    val quote = remember(c.prices,c.promotions,c.stock,c.customers,c.policy,draft) { c.cartQuote() }
     val priced = draft?.lines?.map { line ->
         val product = c.products.firstOrNull { it.productId == line.productId }
         Triple(line,product,quote?.lines?.firstOrNull { it.product.productId == line.productId })
@@ -77,12 +78,15 @@ import com.sunpride.van.pos.*
             }
         }
         SecondaryButton("Add product",c::pickProduct,Modifier.testTag("sale-add-product"),!c.busy)
+        SecondaryButton("Line & basket discounts",{discounting=true},Modifier.testTag("sale-discounts"),!c.busy&&draft.lines.isNotEmpty())
+        quote?.takeIf{ManualDiscounts.amount(it.lines)>0L}?.let{DiscountApprovalCard(c,it)}
         SecondaryButton("Cancel sale",c::cancelSale,Modifier.testTag("sale-cancel"),!c.busy)
     }
     editing?.let { product ->
         QuantityDialog(product,draft?.lines?.firstOrNull { it.productId == product.productId }?.quantityBase,allowZero = true,
             title = "Change quantity",onSave = { c.setSaleLine(product.productId,it); editing = null },onClose = { editing = null })
     }
+    if(discounting)DiscountDialog(c){discounting=false}
 }
 
 @Composable fun CheckoutScreen(c: VanController) {
@@ -93,9 +97,17 @@ import com.sunpride.van.pos.*
     var reference by remember { mutableStateOf("") }
     // Credit sold here and references already used (VAN-012); the store re-checks both while saving.
     LaunchedEffect(c.sale?.saleId) { c.refreshPaymentFacts() }
+    var approvalExpiryTick by remember { mutableIntStateOf(0) }
+    val approvalToken=c.sale?.manualDiscount?.approval
+    LaunchedEffect(approvalToken){
+        if(approvalToken!=null){
+            val expires=runCatching{org.json.JSONObject(java.util.Base64.getUrlDecoder().decode(approvalToken.split('.')[1]).toString(Charsets.UTF_8)).getLong("expiresAt")}.getOrNull()
+            if(expires!=null){kotlinx.coroutines.delay((expires-System.currentTimeMillis()).coerceIn(0L,86_400_000L)+1);approvalExpiryTick++}
+        }
+    }
     val payment = PaymentInput(method.code,if (method.kind == PaymentKind.CASH) VanRules.parseMoney(cash) else null,
         reference.takeIf { method.referenceRequired })
-    val result = remember(c.sale,c.products,c.stock,c.prices,c.customers,c.policy,c.trip,c.paymentFacts,payment) { c.quote(payment) }
+    val result = remember(c.sale,c.products,c.stock,c.prices,c.customers,c.policy,c.trip,c.paymentFacts,payment,approvalExpiryTick) { c.quote(payment) }
     // Totals come from the cart alone, so the seller sees the amount due before entering the payment.
     val due = remember(c.sale,c.products,c.stock,c.prices,c.customers,c.policy,c.trip) { c.cartQuote() }
     val quote = result?.quote
@@ -123,6 +135,7 @@ import com.sunpride.van.pos.*
                         }
                         line.priceListCode?.let { Text("Price: $it",style = MaterialTheme.typography.bodyMedium,color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         line.promotion?.let { p -> Text("${p.name}${if (line.discountMinor > 0) " · discount ${PosMoney.format(line.discountMinor,q.currency)}" else ""}",style = MaterialTheme.typography.bodyMedium) }
+                        if(line.manualDiscountMinor>0L)Text("Manual reduction ${PosMoney.format(line.manualDiscountMinor,q.currency)}",style=MaterialTheme.typography.bodyMedium)
                         if (line.freeBase > 0L) Text("Free ${line.product.displayQuantity(line.freeBase)} ${line.product.uomCode}",style = MaterialTheme.typography.bodyMedium)
                     }
                 }

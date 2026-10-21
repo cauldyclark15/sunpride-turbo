@@ -328,6 +328,11 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
                 .apply { pay.reference?.let { put("reference",it) } }
                 .apply { pay.dueDate?.let { put("dueDate",it) } })
             .put("deviceTime",context.now)
+            .apply { if(s.startsWith("v2|")&&com.sunpride.van.pos.ManualDiscounts.amount(quote.lines)>0L){
+                put("authorityVersion",2).put("overrideId",request.manualDiscount?.requestId?:request.saleId)
+                    .put("discountReason",com.sunpride.van.pos.ManualDiscounts.reason(request.manualDiscount))
+                request.manualDiscount?.approval?.let{put("offlineCode",it)}
+            } }
             .apply { fiscal?.let { put("fiscal",JSONObject().put("allocationId",it.allocationId).put("serial",it.serial.toString())) } }
         VanCallStore(this@RoomVanStore).bindAdapter(payload,customer.outletId,listOf("order_build","discount","invoice","payment"))
         RouteOpsStore(this).prepare(payload)

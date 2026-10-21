@@ -18,6 +18,8 @@ import {
   decideOverride,
   saveRule,
   enforceAuthority,
+  authorityContext,
+  readOverride,
 } from "./authority.js";
 export { allocateDocumentNumber } from "./series.js";
 export { requestOverride } from "./authority.js";
@@ -56,7 +58,11 @@ export function install(router, ctx) {
       /** @type {any} */ p,
     ) => allocateDocumentNumber(db, { ...p, actor }),
     "overrides/request": requestOverride,
-    "overrides/decide": decideOverride,
+    "overrides/decide": (
+      /** @type {any} */ db,
+      /** @type {any} */ actor,
+      /** @type {any} */ p,
+    ) => decideOverride(db, actor, p, ctx.env),
     "authority/save": saveRule,
     "documents/event": documentEvent,
     "documents/spoil": async (
@@ -70,13 +76,18 @@ export function install(router, ctx) {
         serial: p.serial,
         reason: text(p.reason, 300, true),
       };
-      await enforceAuthority(db, checked.actor, {
-        ...p,
-        kind: "void",
-        amountCentavos: "0",
-        facts,
-        operationId: uuid(p.requestKey),
-      });
+      await enforceAuthority(
+        db,
+        checked.actor,
+        {
+          ...p,
+          kind: "void",
+          amountCentavos: "0",
+          facts,
+          operationId: uuid(p.requestKey),
+        },
+        ctx.env,
+      );
       const d = await issueDocument(db, {
         ...p,
         actor: checked.actor,
@@ -107,6 +118,20 @@ export function install(router, ctx) {
       ctx.publish("analytics");
       return result;
     });
+  router.get("/api/v1/fiscal/authority/context", async (/** @type {any} */ c) =>
+    tx(c.db, async (db) => {
+      const actor = await currentActor(db, c.actor);
+      return authorityContext(db, actor, actor.orgUnitId, ctx.env);
+    }),
+  );
+  router.get("/api/v1/fiscal/overrides/status", async (/** @type {any} */ c) =>
+    tx(c.db, (db) =>
+      readOverride(db, c.actor, c.url.searchParams.get("id"), ctx.env),
+    ),
+  );
+  router.post("/api/v1/fiscal/overrides/status", async (/** @type {any} */ c) =>
+    tx(c.db, (db) => readOverride(db, c.actor, c.body.id, ctx.env)),
+  );
   router.get("/api/v1/fiscal/register", async (/** @type {any} */ c) =>
     tx(c.db, async (db) => {
       const actor = await currentActor(db, c.actor);

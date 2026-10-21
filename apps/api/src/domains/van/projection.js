@@ -346,6 +346,9 @@ export async function bundle(ctx, env) {
     );
     const routeOps = await routeBundle(db, trip);
     const tripPolicy = policy(env, trip.id);
+    const customerChannels = customers.length
+      ? await db`select id,channel from outlets where id in ${db(customers.map((c) => c.outletId))}`
+      : [];
     if (routeOps) {
       tripPolicy.tripClose = {
         ...tripPolicy.tripClose,
@@ -360,7 +363,12 @@ export async function bundle(ctx, env) {
       policy: {
         ...tripPolicy,
         paymentMethods: await tenderPolicy(db, trip.org_unit_id),
-        fiscal: await fiscalBundle(db, actor, trip, device.id),
+        fiscal: {
+          ...(await fiscalBundle(db, actor, trip, device.id, env)),
+          customerChannels: Object.fromEntries(
+            customerChannels.map((/** @type {any} */ c) => [c.id, c.channel]),
+          ),
+        },
         ...(routeOps ? { operationsVersion: 1 } : {}),
       },
       ...(routeOps ? { vanOps: routeOps } : {}),
