@@ -387,7 +387,7 @@ export async function storePage(ctx, p, s) {
     const w = week(dateOf(r.service_date));
     weekly.set(w, (weekly.get(w) ?? 0) + Number(r.sales_centavos));
   }
-  const context = await outletContext(db, p, s, store);
+  const context = await outletContext(db, p, s, store, ctx);
   context.coverage = {
     planned: visitFacts.planned.length,
     visited: visits.filter((/** @type {any} */ v) => v.onPlan && v.closed)

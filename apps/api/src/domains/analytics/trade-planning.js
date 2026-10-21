@@ -9,6 +9,7 @@ import { ApiError } from "../../core/errors.js";
 import { sha256Hex } from "../../core/util.js";
 import { dateOf, addDays, kpi, pct, scopeFor, periodFor } from "./measures.js";
 import { availabilityModel } from "./availability-adapter.js";
+import { feedCoverage } from "../distributors/analytics.js";
 
 /** F-603 SEAM(DISTRIBUTOR/SAP): source-line commercial replica reader, never a transaction writer.
  * Current outlet ownership is checked independently of historical source dimensions.
@@ -16,11 +17,12 @@ import { availabilityModel } from "./availability-adapter.js";
  * @param {any} db @param {any} p @param {any} s */
 export async function readTradeInputs(db, p, s) {
   if (s.ownProfileId) return [];
-  return db`select f.*,pr.code product_code,pr.name product_name,pr.quantity_scale canonical_quantity_scale,coalesce(f.quantity_scale,pr.quantity_scale) source_quantity_scale,
+  const facts =
+    await db`select f.*,pr.code product_code,pr.name product_name,pr.quantity_scale canonical_quantity_scale,coalesce(f.quantity_scale,pr.quantity_scale) source_quantity_scale,
     u.code base_uom,o.name outlet_name,o.territory_id,o.territory_name,
     coalesce(pack.numerator/pack.denominator,1) case_units,
     pack.numerator is not null case_known
-    from analytics_trade_inputs f join products pr on pr.id=f.product_id and pr.deleted_at is null
+    from analytics_trade_sources f join products pr on pr.id=f.product_id and pr.deleted_at is null
     left join units_of_measure u on u.id=pr.base_uom_id
     left join lateral(select c.numerator::numeric,c.denominator::numeric from uom_conversions c join units_of_measure unit on unit.id=c.from_uom_id where c.product_id=pr.id and c.to_uom_id=pr.base_uom_id and upper(unit.code) in ('CS','CASE','CASES') and c.active and c.deleted_at is null and c.effective_from<=f.source_effective_at and (c.effective_to is null or c.effective_to>f.source_effective_at) order by c.effective_from desc limit 1) pack on true
     left join analytics_store_scope o on o.id=f.outlet_id
@@ -28,6 +30,31 @@ export async function readTradeInputs(db, p, s) {
     and (f.outlet_id is null or o.owner_unit_id in ${db(s.ids.length ? s.ids : [null])})
     and f.service_date between ${p.from} and ${p.to}
     and (${p.channel}::text is null or coalesce(f.channel,o.channel)=${p.channel})`;
+  const coverage = new Map();
+  for (const f of facts) {
+    if (
+      ![
+        "distributor_primary_movements",
+        "distributor_secondary_current",
+        "distributor_stock_lines",
+      ].includes(f.source_system)
+    )
+      continue;
+    if (!coverage.has(f.distributor_key))
+      coverage.set(
+        f.distributor_key,
+        await feedCoverage({ db }, f.distributor_key, p.from, p.to),
+      );
+    const feed = coverage.get(f.distributor_key);
+    f.feed_complete =
+      f.kind === "primary"
+        ? feed.primaryComplete
+        : f.kind === "secondary"
+          ? feed.secondaryComplete
+          : true;
+    f.lineage = { ...f.lineage, feedCoverage: feed };
+  }
+  return facts;
 }
 /** @param {any[]} facts @param {number} days */
 export function tradeRows(facts, days) {
@@ -87,6 +114,11 @@ export function tradeRows(facts, days) {
       g.caseUnits = null;
     if (f.kind === "primary" || f.kind === "secondary") {
       g[f.kind + "Seen"] = true;
+      if (f.feed_complete === false) {
+        g[f.kind + "QuantityKnown"] = false;
+        g[f.kind + "Known"] = false;
+        g[f.kind + "CasesKnown"] = false;
+      }
       if (qty === null) g[f.kind + "QuantityKnown"] = false;
       else g[f.kind + "Base"] += qty;
       if (cases === null) g[f.kind + "CasesKnown"] = false;

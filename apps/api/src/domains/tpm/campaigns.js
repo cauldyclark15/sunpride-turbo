@@ -87,7 +87,7 @@ export async function saveCampaign(c, b) {
     await c.db`update campaign_versions set effective_to=least(effective_to,${from}),updated_at=now() where id=${old.id}`;
   }
   const [spent] =
-    await c.db`select coalesce(sum(amount_centavos),0) as n from campaign_commitments where campaign_id=${master.id}`;
+    await c.db`select coalesce(sum(amount_centavos),0) as n from campaign_commitment_balances where campaign_id=${master.id}`;
   if (budget < Number(spent.n))
     fail("Budget cannot be below existing commitments");
   const [row] =
@@ -122,7 +122,7 @@ export async function commitBudget(c, b) {
     return { id: existing.id };
   }
   const [sum] =
-    await c.db`select coalesce(sum(amount_centavos),0) as n from campaign_commitments where campaign_id=${v.campaign_id}`;
+    await c.db`select coalesce(sum(amount_centavos),0) as n from campaign_commitment_balances where campaign_id=${v.campaign_id}`;
   const [future] =
     await c.db`select min(budget_centavos) as cap from campaign_versions where campaign_id=${v.campaign_id} and status='active' and effective_to>${new Date(c.now)}`;
   const cap =
@@ -141,7 +141,7 @@ export function installCampaigns(router) {
   router.get("/api/v1/tpm/campaigns", async (/** @type {any} */ c) => {
     await office(c);
     const rows = bounded(
-      await c.db`select v.*,m.code,(select coalesce(sum(amount_centavos),0) from campaign_commitments where campaign_id=m.id) as committed from campaign_versions v join campaigns m on m.id=v.campaign_id where m.organization_id='sunpride' order by m.code,v.version desc limit 501`,
+      await c.db`select v.*,m.code,(select coalesce(sum(amount_centavos),0) from campaign_commitment_balances where campaign_id=m.id) as committed from campaign_versions v join campaigns m on m.id=v.campaign_id where m.organization_id='sunpride' order by m.code,v.version desc limit 501`,
     );
     return { rows: rows.map(campaignView) };
   });

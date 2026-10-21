@@ -111,6 +111,20 @@ export async function reverseOrder(c, orderId) {
     });
     await changed(c, "earning.reversed", e.id);
   }
+  // F-501: both immediate discounts and deferred rebates reserved campaign spend.
+  // Voiding releases the remaining commitment without erasing the original reservation.
+  const commitments =
+    await c.db`select b.* from campaign_commitment_balances b where source_key like ${"earned:order:" + orderId + ":promotion:%"} and amount_centavos>0 order by campaign_id,id`;
+  for (const b of commitments) {
+    await c.db`select id from campaigns where id=${b.campaign_id} for update`;
+    const [remaining] =
+      await c.db`select amount_centavos from campaign_commitment_balances where id=${b.id}`;
+    if (BigInt(remaining.amount_centavos) <= 0n) continue;
+    const [release] =
+      await c.db`insert into campaign_commitment_releases(commitment_id,source_key,amount_centavos,reason,actor_subject)
+      values(${b.id},${"void:" + orderId + ":" + b.id},${remaining.amount_centavos},'Canonical order void',${c.actor.subject}) on conflict(source_key) do nothing returning id`;
+    if (release) await changed(c, "budget.released", release.id);
+  }
 }
 /** F-504/F-507 trusted SAP inbox seam only (not an office mark-posted HTTP endpoint).
  * @param {any} db @param {{instructionId:string,status:'acknowledged'|'rejected',sapDocument?:string,sourceEventId:string}} ack @param {Record<string,string|undefined>} [env] */

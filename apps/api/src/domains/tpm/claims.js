@@ -47,7 +47,7 @@ export async function readEvidence(c, kind, id) {
   if (kind === "checklist") {
     const [r] =
       await c.db`select e.*,a.device_time as execution_at,v.id as campaign_version_id from merchandising_compliance_checks e join merchandising_audits a on a.id=e.audit_id and a.deleted_at is null join campaigns m on m.code=e.program_ref and m.organization_id=e.organization_id join campaign_versions v on v.campaign_id=m.id and v.effective_from<=a.device_time and v.effective_to>a.device_time where e.id=${id} and e.organization_id='sunpride' and e.deleted_at is null and e.finding='compliant' and e.kind='promotion'`;
-    if (!r) return null;
+    if (!r) return seams.readEvidence(c, kind, id);
     return {
       kind,
       sourceId: id,

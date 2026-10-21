@@ -36,7 +36,7 @@ export function installWorkspace(router) {
     const now = new Date(c.now);
     const [campaigns] =
       await c.db`select coalesce(sum(v.budget_centavos),0) as budget,
-      coalesce(sum((select coalesce(sum(amount_centavos),0) from campaign_commitments where campaign_id=v.campaign_id)),0) as committed
+      coalesce(sum((select coalesce(sum(amount_centavos),0) from campaign_commitment_balances where campaign_id=v.campaign_id)),0) as committed
       from campaign_versions v where v.status='active' and v.effective_from<=${now} and v.effective_to>${now}`;
     const [claims] =
       await c.db`select count(*) filter(where status in ('submitted','needs_evidence'))::integer as awaiting,

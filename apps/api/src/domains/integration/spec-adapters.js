@@ -11,6 +11,8 @@ import {
 } from "../distributors/model.js";
 import { office } from "../tpm/common.js";
 import { acknowledgeRetailAction } from "../retail/sap.js";
+import { executionEvidence } from "../tpm/evidence-sources.js";
+import { authorize as authorizeAgency } from "../partners/model.js";
 
 /** F-504/F-507: the SAP outbox owns delivery; the TPM instruction is its source, not another transport.
  * @param {any} db @param {any} i @param {Record<string,string|undefined>} [env] @returns {Promise<{postingId:string}|null>} */
@@ -180,6 +182,10 @@ export async function acknowledgeSpecPosting(db, row, result, env = undefined) {
 /** F-505: effective partner grants, including office scope, precede every claimant read/write.
  * @param {any} c @param {string} type @param {string} id */
 export async function authorizeClaimant(c, type, id) {
+  if (type === "agency") {
+    await authorizeAgency(c, id, "billing");
+    return;
+  }
   if (type === "distributor") {
     const [exists] =
       await c.db`select id from distributors where id::text=${id}`;
@@ -210,7 +216,7 @@ export async function readEligibilityFacts(c, q) {
 /** F-506: uploaded documents prove identity/digest only, never a payable amount.
  * @param {any} c @param {string} kind @param {string} id @returns {Promise<any>} */
 export async function readPartnerEvidence(c, kind, id) {
-  if (kind !== "source_document") return null;
+  if (kind !== "source_document") return executionEvidence(c, kind, id);
   const [r] = await c.db`select * from distributor_documents where id=${id}`;
   if (!r) return null;
   await authorize(c, r.distributor_id, "claim");
