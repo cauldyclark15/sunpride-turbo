@@ -14,6 +14,7 @@ import type { TripSettlement, TripsDay } from "./model";
 import { CashHandIn } from "./cash-hand-in";
 import { frozenQuantity } from "./format";
 import { RouteOperationsReview } from "./route-operations";
+import { ReturnPickupReview } from "./return-pickups";
 import { SuggestedLoad } from "./suggested-load";
 import { VanTripPlanning } from "./trip-planning";
 
@@ -162,6 +163,7 @@ export function VanTripDetail({ trip }: { trip: TripSettlement }) {
       <SuggestedLoad key={trip.tripId} trip={trip} />
       <section aria-label="Stock settlement" className="overflow-auto">
         <RouteOperationsReview trip={trip} />
+        <ReturnPickupReview tripId={trip.tripId} />
         <h3 className="mb-2 font-medium">
           Opening load + reloads → net sales and returns → closing count →
           warehouse
@@ -587,7 +589,10 @@ export function VanTripsWorkspace({
             </div>
           </header>
           {permissions.can("van.manage") && (
-            <VanTripPlanning date={date} onPlanned={(id) => navigate(date, id)} />
+            <VanTripPlanning
+              date={date}
+              onPlanned={(id) => navigate(date, id)}
+            />
           )}
           {day.error ? (
             <p role="alert">

@@ -84,7 +84,9 @@ class ReturnStore(private val store: RoomVanStore) {
         val context = context()
         val result = ReturnRules.evaluate(request, context)
         if (!result.ok) throw ReturnRefused(result.issues)
-        val quote = checkNotNull(result.quote)
+        val captured=checkNotNull(result.quote)
+        val custodyOnly=RouteOpsStore(store).version()==1&&captured.approvalRequired
+        val quote=if(custodyOnly)captured.heldCapture() else captured
         val t = checkNotNull(dao.trip(s, d))
         if(RouteOpsStore(store).version()==1) ReturnEvidence.validate(request)
         val customer = context.customers.single { it.outletId == request.customerId }
@@ -125,6 +127,7 @@ class ReturnStore(private val store: RoomVanStore) {
             else JSONObject().put("outletId", customer.outletId)
         val payload = JSONObject().put("tripId", t.tripId).put("returnId", request.returnId).put("returnNumber", id.receiptNumber)
             .put("customer", customerJson).put("customerName", customer.name).put("status", status)
+            .apply{if(custodyOnly)put("custodyOnly",true)}
             .put("approval", JSONObject().put("required", quote.approvalRequired).put("reasons", JSONArray(quote.approvalReasons.map { it.wire })))
             .put("lines", JSONArray(quote.lines.map { line ->
                 // The product and unit as they were when the return was saved, so a later bootstrap that renames a

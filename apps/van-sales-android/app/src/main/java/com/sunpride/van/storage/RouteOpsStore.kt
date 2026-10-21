@@ -130,7 +130,9 @@ class RouteOpsStore(private val store: RoomVanStore) {
         val custody=containerPosition()
         check(custody.all {!it.isNull("quantity")}) {"Physically count each configured container type first"}
         val empties=JSONArray(custody.map {JSONObject().put("typeCode",it.getString("typeCode")).put("quantity",it.getString("quantity"))})
-        append("unload.record",JSONObject().put("lines",lines).put("empties",empties))
+        val pickups=dao.outboxRows(s,d).filter{it.tripId==t.tripId&&it.kind==RETURN_KIND}.map{JSONObject(it.operationJson).getJSONObject("payload")}
+            .filter{it.optBoolean("custodyOnly")&&VanBootstrapCodec.objects(it.getJSONArray("lines")).any{l->l.getString("disposition")!="disposed_at_outlet"}}.map{it.getString("returnId")}
+        append("unload.record",JSONObject().put("lines",lines).put("empties",empties).put("pendingPickups",JSONArray(pickups)))
     }
     suspend fun receiveReload(requestId: String): String = store.db.withTransaction {
         val t=checkNotNull(dao.trip(s,d));check(dao.stockReconciliation(s,d,t.tripId)==null && dao.cashReconciliation(s,d,t.tripId)==null)

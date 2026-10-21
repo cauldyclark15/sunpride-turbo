@@ -4,6 +4,7 @@ import { planningChoices } from "./planning.js";
 import { decideObservation } from "./route-evidence.js";
 import { decideSettlement, decideVariance } from "./settlement.js";
 import { reloadAction } from "./reloads.js";
+import { pickupQueue, reviewPickup } from "./pickups.js";
 import { suggestLoad, applySuggestion } from "./load-suggestions.js";
 import { join } from "node:path";
 import { filesDir } from "../../core/media.js";
@@ -108,6 +109,15 @@ export function install(router, ctx) {
       ),
     ),
   );
+  router.get("/api/v1/van/return-pickups", (/** @type {any} */ c) =>
+    tx(c.db, async (db) =>
+      pickupQueue(
+        db,
+        await currentActor(db, c.actor),
+        c.url.searchParams.get("tripId"),
+      ),
+    ),
+  );
   router.get("/api/v1/van/damage", damageReview);
   router.get("/api/v1/van/damage-photo", async (/** @type {any} */ request) => {
     const row = await tx(request.db, async (db) => {
@@ -140,6 +150,7 @@ export function install(router, ctx) {
   });
   /** @type {Array<[string,string,(db:any,actor:any,p:any)=>Promise<any>]>} */
   const commands = [
+    ["pickups/decide", "van.stock.approve", reviewPickup],
     ["policies/set", "van.manage", setRoutePolicy],
     ["observations/decide", "van.stock.approve", decideObservation],
     ["settlements/decide", "van.stock.approve", decideSettlement],

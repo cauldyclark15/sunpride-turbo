@@ -107,6 +107,8 @@ data class QuotedReturnLine(val lineNumber: Int, val product: Product, val unit:
 /** [approvalReasons] is empty when the return needs no approval. */
 data class ReturnQuote(val lines: List<QuotedReturnLine>, val sale: SoldSale?, val approvalReasons: List<ReturnApprovalReason>, val note: String?) {
     val approvalRequired: Boolean get() = approvalReasons.isNotEmpty()
+    /** F-113: unresolved pickups are physical custody, not owned damaged inventory. */
+    fun heldCapture():ReturnQuote=copy(lines=lines.map{it.copy(stockEffect=ReturnStockEffect.NONE)})
     /** Truck stock movement per product and status: what the ledger records (positive, base units). */
     val stockChanges: Map<Pair<String, ReturnStockEffect>, Long> get() = lines.filter { it.stockEffect != ReturnStockEffect.NONE }
         .groupBy { it.product.productId to it.stockEffect }.mapValues { (_, l) -> l.fold(0L) { sum, line -> Math.addExact(sum, line.quantityBase) } }

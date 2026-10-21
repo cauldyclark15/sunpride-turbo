@@ -12,6 +12,7 @@ import { enforceAuthority } from "../fiscal/authority.js";
 import { enforceDiscount, saleDiscountFacts } from "../fiscal/discounts.js";
 import { collectionTaxReference } from "../fiscal/taxes.js";
 import { validateSaleSchemes } from "./schemes.js";
+import { capturePickup } from "./pickups.js";
 import { configuredTender } from "../fiscal/tenders.js";
 import { requireAvailability } from "../availability/callflow.js";
 import { postMovement } from "../inventory/posting.js";
@@ -870,6 +871,12 @@ async function customerReturn(db, trip, actor, p, opId) {
       refuse("Return identifier was reused", "idempotency_conflict");
     return { entityId: id };
   }
+  if (
+    !p.originalSale ||
+    p.approval?.required === true ||
+    p.lines?.some((/** @type {any} */ l) => l.approvalRequired === true)
+  )
+    return capturePickup(db, trip, actor, p);
   const saleId = uuid(p.originalSale?.saleId);
   const [s] =
     await db`select * from van_sales where id=${saleId} and trip_id=${trip.id} for update`;

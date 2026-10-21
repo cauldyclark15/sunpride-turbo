@@ -105,6 +105,7 @@ import org.json.JSONObject
         }
         SectionCard("Unload and complete locally") {
             Text("Count cash and final stock first. Save the unload manifest, then open Close trip. The warehouse independently checks the received stock.")
+            Text("Keep unlinked or unapproved pickup bags separate. They travel on the custody manifest, not in owned or sellable stock; the office checks each bag before financial credit.")
             PrimaryBottomButton("Save unload manifest",{save {c.repository.recordUnload()}},!busy && !c.tripClosed && c.stockCounted,"save-unload")
             SecondaryButton("Close trip locally",{c.open(Page.CLOSE_TRIP)},enabled=!busy && c.stockCounted && c.cashCounted)
         }

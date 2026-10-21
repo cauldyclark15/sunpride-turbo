@@ -13,6 +13,7 @@ import { uuid, text, choice, rows, integer, refuse } from "./model.js";
 import { postMovement } from "../inventory/posting.js";
 import { vanContainerBalances, containerHistory } from "./container-custody.js";
 import { stopFacts } from "./callflow-config.js";
+import { pickupManifest } from "./pickups.js";
 
 export const ROUTE_OPS = [
   "temperature.record",
@@ -210,7 +211,21 @@ export async function recordRouteEvidence(db, trip, actor, device, p, op) {
         ...l,
         product: frozenProduct(await productFor(db, l.productId)),
       });
-    facts = { lines: frozen, empties, note: text(p.note) };
+    const pickups = await pickupManifest(db, trip.id),
+      supplied = p.pendingPickups ?? [];
+    if (
+      !Array.isArray(supplied) ||
+      new Set(supplied).size !== supplied.length ||
+      supplied.length !== pickups.length ||
+      pickups.some((/** @type {string} */ id) => !supplied.includes(id))
+    )
+      refuse("Include each held pickup bag in the unload manifest");
+    facts = {
+      lines: frozen,
+      empties,
+      pendingPickups: pickups,
+      note: text(p.note),
+    };
   } else if (op.opType === "reload.request") {
     kind = "reload_request";
     const lines = rows(p.lines),

@@ -136,7 +136,8 @@ export async function enqueueVanInvoice(db, trip, saleId) {
   // F-108: retained pre-fiscal invoices may lack a trustworthy frozen payload.
   // Do not reconstruct them from live masters. Dependent payments remain queued
   // behind the unresolved invoice effect for supervised reconciliation.
-  if (!Array.isArray(receipt?.lines) || !Number.isSafeInteger(receipt.soldAt)) return null;
+  if (!Array.isArray(receipt?.lines) || !Number.isSafeInteger(receipt.soldAt))
+    return null;
   return enqueueSapPosting(db, {
     kind: "invoice",
     sourceType: "van_sale",
@@ -215,7 +216,7 @@ export async function enqueueVanCreditMemo(db, trip, id) {
   const rows =
     await db`select l.*,p.code from van_return_lines l join products p on p.id=l.product_id where return_id=${id} order by ordinal`;
   const [sale] = r.sale_id
-    ? await db`select customer_code from van_sales where id=${r.sale_id}`
+    ? await db`select customer_code,receipt from van_sales where id=${r.sale_id}`
     : [];
   return enqueueSapPosting(db, {
     kind: "credit_memo",
@@ -232,9 +233,18 @@ export async function enqueueVanCreditMemo(db, trip, id) {
       occurredAt: new Date(r.created_at).getTime(),
       lines: rows.map((/** @type {any} */ l) =>
         line({
-          productCode: l.code,
+          productCode:
+            sale?.receipt?.lines?.find(
+              (/** @type {any} */ x) => x.productId === l.product_id,
+            )?.code ??
+            l.facts.product?.code ??
+            l.code,
           uom:
-            l.facts.uom ?? l.facts.uomCode ?? l.facts.product?.baseUom ?? "PC",
+            l.facts.uom ??
+            l.facts.uomCode ??
+            l.facts.product?.uomCode ??
+            l.facts.product?.baseUom ??
+            "PC",
           quantityBase: l.quantity_base,
           lotId: l.facts.lotId,
         }),

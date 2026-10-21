@@ -236,6 +236,14 @@ export async function decideSettlement(db, actor, p) {
   if (decision === "approved") {
     if (
       (
+        await db`select 1 from van_returns r where r.trip_id=${trip.id} and r.custody_only and not exists(select 1 from van_return_reviews d where d.return_id=r.id and d.kind in ('warehouse_received','returned_to_outlet','disposal_verified')) limit 1`
+      ).length
+    )
+      refuse(
+        "Independently confirm held pickup custody before settlement sign-off",
+      );
+    if (
+      (
         await db`select 1 from inventory_balances where location_id=${trip.truck_location_id} and physical_base<>0 and deleted_at is null`
       ).length
     )
