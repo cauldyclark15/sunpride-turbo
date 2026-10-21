@@ -14,6 +14,9 @@ import {
 } from "../visits/shared.js";
 import { bounded, dateOf, midnight } from "../fieldsync/model.js";
 import { releasesAt, outletAt, audit } from "./masters.js";
+import { campaignPlanning } from "./campaigns.js";
+import { activePromotions } from "../orders/pricing.js";
+import { readEligibilityFacts } from "../integration/spec-adapters.js";
 import {
   VERSION,
   checklist,
@@ -113,8 +116,13 @@ export async function callSnapshot(ctx, outletId, day, persist = true) {
   const history = allHistory.filter(
     (/** @type {any} */ h) => h.outlet_id === outletId,
   );
-  const promotions =
-    await ctx.db`select * from suggested_order_promotions where organization_id='sunpride' and deleted_at is null and effective_from<=${new Date(at)} and (effective_to is null or effective_to>${new Date(at)})`;
+  const promotions = await activePromotions(ctx.db, "sunpride", at);
+  const campaignFacts = {
+    ...(await readEligibilityFacts(ctx, { outletId, at })),
+    outletId,
+    channelKey: outlet.channel,
+    territoryId: outlet.territory_id ?? null,
+  };
   const required = msl?.payload.lines ?? [];
   const allIds = [
     ...new Set([
@@ -147,12 +155,13 @@ export async function callSnapshot(ctx, outletId, day, persist = true) {
         ? observations.find((/** @type {any} */ o) => o.productId === p.id)
         : null;
     const h = history.filter((/** @type {any} */ h) => h.product_id === p.id);
-    const uplift = Math.max(
-      0,
-      ...promotions
-        .filter((/** @type {any} */ r) => r.product_id === p.id)
-        .map((/** @type {any} */ r) => Number(r.uplift_pct)),
+    const campaigns = campaignPlanning(
+      promotions,
+      campaignFacts,
+      p.id,
+      outlet.is_sample === true,
     );
+    const uplift = Math.max(0, ...campaigns.map((r) => r.upliftPct));
     const recommendation = policy
       ? suggest(
           {
@@ -191,7 +200,11 @@ export async function callSnapshot(ctx, outletId, day, persist = true) {
       barcodes: p.barcodes,
       required: !!l,
       minimumBase: l?.minimumBase ?? 1,
-      objective: f?.objective ?? null,
+      objective:
+        [f?.objective, ...campaigns.map((r) => r.objective)]
+          .filter(Boolean)
+          .join("; ") || null,
+      campaigns,
       ...recommendation,
     });
   }
