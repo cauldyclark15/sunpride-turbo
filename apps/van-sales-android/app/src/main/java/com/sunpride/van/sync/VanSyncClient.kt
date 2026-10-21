@@ -59,6 +59,7 @@ class LiveVanTransport(private val environment: AppEnvironment, private val auth
 class VanSyncClient(private val transport: VanTransport, private val signer: DeviceSigner, private val deviceId: String,
     private val identity: NativeIdentity, private val clock: () -> Long = System::currentTimeMillis) : VanGateway {
     private var tripId: String? = null
+    private var storeRegisterId: String? = null
     override suspend fun bootstrap(): String = withContext(Dispatchers.IO) {
         val day = LocalDate.now(ZoneId.of("Asia/Manila")).toString()
         // The server deliberately refuses van deltas. A complete, bounded snapshot is required every cycle.
@@ -68,6 +69,7 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
         val response = JSONObject(send(PULL,request.toString().toByteArray()))
         val local = V2VanCodec.snapshot(response,identity,clock())
         tripId = local.optJSONObject("trip")?.getString("tripId")
+        storeRegisterId = local.getJSONObject("policy").optJSONObject("storePos")?.takeIf {it.getString("mode")=="store"}?.optString("registerId")
         local.toString()
     }
     override suspend fun push(operations: List<OutboxRow>): List<PushResult> = withContext(Dispatchers.IO) {
@@ -91,7 +93,7 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
     }
     override suspend fun evidence(sha256: String, jpeg: ByteArray): Unit = withContext(Dispatchers.IO) {
         require(sha256 == hex(sha256(jpeg)))
-        val claim = envelope().put("purpose","truck-damage").put("ownerId",checkNotNull(tripId))
+        val claim = envelope().put("purpose",if(storeRegisterId!=null)"bank-deposit" else "truck-damage").put("ownerId",checkNotNull(storeRegisterId?:tripId))
             .put("mime","image/jpeg").put("size",jpeg.size).put("sha256",sha256)
         val o = JSONObject(send(CLAIMS,claim.toString().toByteArray()))
         require(o.getInt("version") == 2)
