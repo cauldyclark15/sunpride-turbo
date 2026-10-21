@@ -11,17 +11,6 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
   useSearchParams: () => new URLSearchParams(state.search),
 }));
-vi.mock("convex/react", () => ({
-  useQuery: () => undefined,
-  useMutation: () => vi.fn(),
-  useAction: () => vi.fn(),
-  usePaginatedQuery: () => ({
-    results: [],
-    status: "LoadingFirstPage",
-    loadMore: vi.fn(),
-  }),
-  useConvex: () => ({}),
-}));
 vi.mock("../lib/auth/session", () => ({
   useSession: () => ({ profile: state.profile }),
 }));

@@ -1,6 +1,6 @@
 # Suggested order (ICO) engine v1
 
-ANA-009 · SP-0068. Code: `packages/backend/convex/analytics/suggested_order_model.ts` (rules),
+ANA-009 · SP-0068. Code: `apps/api/src/domains/analytics/index.js` (rules),
 `analytics/suggested_orders.ts` (reads and API), web panel
 `apps/web/src/components/analytics/suggested-order.tsx` (under Reports → Customer execution).
 

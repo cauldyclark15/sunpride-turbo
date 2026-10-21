@@ -243,7 +243,7 @@ final class LiveV2GuideUITests: XCTestCase {
             if confirm.waitForExistence(timeout: 5) { confirm.tap() }
             XCTAssertTrue(email.waitForExistence(timeout: 20))
         }
-        XCTAssertFalse(beta.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] 'convex' OR label CONTAINS[c] 'configuration'")).firstMatch.exists)
+        XCTAssertFalse(beta.staticTexts.containing(NSPredicate(format: "label CONTAINS[c] 'configuration'")).firstMatch.exists)
         Thread.sleep(forTimeInterval: 1)
         let image = XCTAttachment(screenshot: beta.screenshot()); image.name = "01-beta-sign-in"; image.lifetime = .keepAlways; add(image)
         email.tap(); email.typeText(login.email)

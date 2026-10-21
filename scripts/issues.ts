@@ -14,7 +14,7 @@
  *
  * Every write is attributed to --actor (default "Agent"). Calls the v2 HTTP API.
  * SUNPRIDE_API_URL defaults to http://127.0.0.1:4310. The optional bearer is read
- * from ~/.sunpride-keys/v2-issues-token; no Convex configuration is used.
+ * from ~/.sunpride-keys/v2-issues-token; the Bun API authorizes each request.
  */
 import { readFileSync, existsSync } from "node:fs";
 import { join } from "node:path";

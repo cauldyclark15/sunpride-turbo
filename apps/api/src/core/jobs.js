@@ -1,5 +1,5 @@
 /**
- * In-process scheduler (replaces Convex crons) plus the durable `jobs` table worker.
+ * In-process scheduler plus the durable `jobs` table worker.
  *
  * - `every(ms, name, fn)` / `daily('HH:MM', 'Asia/Manila', name, fn)`: recurring work. Each run
  *   holds a Postgres advisory lock named after the job, so several API processes never run the

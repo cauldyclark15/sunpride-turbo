@@ -8,18 +8,62 @@
  */
 
 export const ORG_UNIT_STATUS = /** @type {const} */ (["active", "inactive"]);
-export const POSITION_CATEGORY = /** @type {const} */ (["leadership", "supervisory", "specialist", "field", "support"]);
-export const POSITION_STANDARD_PRODUCTIVE_CALL_RULE = /** @type {const} */ (["any_listed_activity", "truck_seller"]);
-export const PROFILE_ROLE = /** @type {const} */ (["super_admin", "admin", "operations", "manager", "approver", "sales", "analyst", "viewer"]);
+export const POSITION_CATEGORY = /** @type {const} */ ([
+  "leadership",
+  "supervisory",
+  "specialist",
+  "field",
+  "support",
+]);
+export const POSITION_STANDARD_PRODUCTIVE_CALL_RULE = /** @type {const} */ ([
+  "any_listed_activity",
+  "truck_seller",
+]);
+export const PROFILE_ROLE = /** @type {const} */ ([
+  "super_admin",
+  "admin",
+  "operations",
+  "manager",
+  "approver",
+  "sales",
+  "analyst",
+  "viewer",
+]);
 export const PROFILE_STATUS = /** @type {const} */ (["active", "disabled"]);
-export const PROFILE_EMPLOYMENT_TYPE = /** @type {const} */ (["sfi_employee", "adp_personnel", "third_party"]);
-export const ACCESS_INVITATION_ROLE = /** @type {const} */ (["super_admin", "admin", "operations", "manager", "approver", "sales", "analyst", "viewer"]);
-export const ACCESS_INVITATION_STATUS = /** @type {const} */ (["pending", "accepted", "revoked"]);
-export const EMPLOYEE_ASSIGNMENT_ROLE = /** @type {const} */ (["super_admin", "admin", "operations", "manager", "approver", "sales", "analyst", "viewer"]);
+export const PROFILE_EMPLOYMENT_TYPE = /** @type {const} */ ([
+  "sfi_employee",
+  "adp_personnel",
+  "third_party",
+]);
+export const ACCESS_INVITATION_ROLE = /** @type {const} */ ([
+  "super_admin",
+  "admin",
+  "operations",
+  "manager",
+  "approver",
+  "sales",
+  "analyst",
+  "viewer",
+]);
+export const ACCESS_INVITATION_STATUS = /** @type {const} */ ([
+  "pending",
+  "accepted",
+  "revoked",
+]);
+export const EMPLOYEE_ASSIGNMENT_ROLE = /** @type {const} */ ([
+  "super_admin",
+  "admin",
+  "operations",
+  "manager",
+  "approver",
+  "sales",
+  "analyst",
+  "viewer",
+]);
 export const TEAM_STATUS = /** @type {const} */ (["active", "inactive"]);
 
 /**
- * `org_unit_types` (Convex `orgUnitTypes`)
+ * `org_unit_types`
  * @typedef {Object} OrgUnitTypeRow
  * @property {string} id
  * @property {string} organizationId
@@ -32,7 +76,7 @@ export const TEAM_STATUS = /** @type {const} */ (["active", "inactive"]);
  */
 
 /**
- * `org_units` (Convex `orgUnits`)
+ * `org_units`
  * @typedef {Object} OrgUnitRow
  * @property {string} id
  * @property {string} organizationId
@@ -51,7 +95,7 @@ export const TEAM_STATUS = /** @type {const} */ (["active", "inactive"]);
  */
 
 /**
- * `org_unit_parent_edges` (Convex `orgUnitParentEdges`)
+ * `org_unit_parent_edges`
  * @typedef {Object} OrgUnitParentEdgeRow
  * @property {string} id
  * @property {string} unitId
@@ -67,7 +111,7 @@ export const TEAM_STATUS = /** @type {const} */ (["active", "inactive"]);
  */
 
 /**
- * `positions` (Convex `positions`)
+ * `positions`
  * @typedef {Object} PositionRow
  * @property {string} id
  * @property {string} organizationId
@@ -80,7 +124,7 @@ export const TEAM_STATUS = /** @type {const} */ (["active", "inactive"]);
  */
 
 /**
- * `position_standards` (Convex `positionStandards`)
+ * `position_standards`
  * @typedef {Object} PositionStandardRow
  * @property {string} id
  * @property {string} organizationId
@@ -102,7 +146,7 @@ export const TEAM_STATUS = /** @type {const} */ (["active", "inactive"]);
  */
 
 /**
- * `profiles` (Convex `profiles`)
+ * `profiles`
  * @typedef {Object} ProfileRow
  * @property {string} id
  * @property {string | null} userId
@@ -125,7 +169,7 @@ export const TEAM_STATUS = /** @type {const} */ (["active", "inactive"]);
  */
 
 /**
- * `access_invitations` (Convex `accessInvitations`)
+ * `access_invitations`
  * @typedef {Object} AccessInvitationRow
  * @property {string} id
  * @property {string} email
@@ -142,7 +186,7 @@ export const TEAM_STATUS = /** @type {const} */ (["active", "inactive"]);
  */
 
 /**
- * `employee_assignments` (Convex `employeeAssignments`)
+ * `employee_assignments`
  * @typedef {Object} EmployeeAssignmentRow
  * @property {string} id
  * @property {string} profileId
@@ -161,7 +205,7 @@ export const TEAM_STATUS = /** @type {const} */ (["active", "inactive"]);
  */
 
 /**
- * `teams` (Convex `teams`)
+ * `teams`
  * @typedef {Object} TeamRow
  * @property {string} id
  * @property {string} code
@@ -177,7 +221,7 @@ export const TEAM_STATUS = /** @type {const} */ (["active", "inactive"]);
  */
 
 /**
- * `team_memberships` (Convex `teamMemberships`)
+ * `team_memberships`
  * @typedef {Object} TeamMembershipRow
  * @property {string} id
  * @property {string} teamId
@@ -191,7 +235,7 @@ export const TEAM_STATUS = /** @type {const} */ (["active", "inactive"]);
  */
 
 /**
- * `audit_logs` (Convex `auditLogs`)
+ * `audit_logs`
  * @typedef {Object} AuditLogRow
  * @property {string} id
  * @property {string} subject

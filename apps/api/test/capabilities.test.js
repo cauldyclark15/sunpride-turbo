@@ -1,6 +1,5 @@
+import BASE_CAPABILITIES from "./fixtures/base-capabilities.json";
 import { describe, expect, test } from "bun:test";
-import { existsSync } from "node:fs";
-import { resolve } from "node:path";
 import {
   CAPABILITIES,
   ROLES,
@@ -160,25 +159,9 @@ describe("capability table", () => {
       expect(rolesOf(cap)).toEqual(roles);
   });
 
-  test("matches the Convex source while it still exists", async () => {
-    const src = resolve(
-      import.meta.dir,
-      "../../../packages/backend/convex/lib/capabilities.ts",
-    );
-    if (!existsSync(src)) return;
-    const text = await Bun.file(src).text();
-    const block = text.slice(
-      text.indexOf("export const CAPABILITIES = {"),
-      text.indexOf("} as const satisfies"),
-    );
-    /** @type {Record<string, string[]>} */
-    const parsed = {};
-    for (const m of block.matchAll(/"([a-zA-Z.]+)":\s*\[([^\]]*)\]/g))
-      parsed[/** @type {string} */ (m[1])] = [
-        .../** @type {string} */ (m[2]).matchAll(/"([a-z_]+)"/g),
-      ].map((x) => /** @type {string} */ (x[1]));
-    expect(Object.keys(parsed).length).toBe(51);
-    for (const [cap, roles] of Object.entries(parsed))
+  test("retains all 51 frozen baseline grants on the v2 capability gate", () => {
+    expect(Object.keys(BASE_CAPABILITIES).length).toBe(51);
+    for (const [cap, roles] of Object.entries(BASE_CAPABILITIES))
       expect(rolesOf(cap)).toEqual(roles);
   });
 

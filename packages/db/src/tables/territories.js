@@ -8,11 +8,14 @@
  */
 
 export const TERRITORY_STATUS = /** @type {const} */ (["active", "inactive"]);
-export const TERRITORY_SALESPEOPLE_KIND = /** @type {const} */ (["primary", "secondary"]);
+export const TERRITORY_SALESPEOPLE_KIND = /** @type {const} */ ([
+  "primary",
+  "secondary",
+]);
 export const ROUTE_STATUS = /** @type {const} */ (["active", "inactive"]);
 
 /**
- * `territories` (Convex `territories`)
+ * `territories`
  * @typedef {Object} TerritoryRow
  * @property {string} id
  * @property {string} organizationId
@@ -31,7 +34,7 @@ export const ROUTE_STATUS = /** @type {const} */ (["active", "inactive"]);
  */
 
 /**
- * `territory_ownerships` (Convex `territoryOwnerships`)
+ * `territory_ownerships`
  * @typedef {Object} TerritoryOwnershipRow
  * @property {string} id
  * @property {string} territoryId
@@ -47,7 +50,7 @@ export const ROUTE_STATUS = /** @type {const} */ (["active", "inactive"]);
  */
 
 /**
- * `territory_salespeople` (Convex `territorySalespeople`)
+ * `territory_salespeople`
  * @typedef {Object} TerritorySalespeopleRow
  * @property {string} id
  * @property {string} territoryId
@@ -64,7 +67,7 @@ export const ROUTE_STATUS = /** @type {const} */ (["active", "inactive"]);
  */
 
 /**
- * `routes` (Convex `routes`)
+ * `routes`
  * @typedef {Object} RouteRow
  * @property {string} id
  * @property {string} organizationId
@@ -83,7 +86,7 @@ export const ROUTE_STATUS = /** @type {const} */ (["active", "inactive"]);
  */
 
 /**
- * `route_territories` (Convex `routeTerritories`)
+ * `route_territories`
  * @typedef {Object} RouteTerritoryRow
  * @property {string} id
  * @property {string} routeId
@@ -99,7 +102,7 @@ export const ROUTE_STATUS = /** @type {const} */ (["active", "inactive"]);
  */
 
 /**
- * `route_salespeople` (Convex `routeSalespeople`)
+ * `route_salespeople`
  * @typedef {Object} RouteSalespeopleRow
  * @property {string} id
  * @property {string} routeId

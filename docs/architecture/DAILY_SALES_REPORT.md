@@ -2,7 +2,7 @@
 
 The DSR is generated from what the field already records. Nobody re-keys it.
 
-- Backend: `packages/backend/convex/dsr/report.ts` (`dsr.report.day`, `dsr.report.salesmen`), rules in `dsr/model.ts`.
+- Backend: `apps/api/src/domains/fieldreports/index.js` (`dsr.report.day`, `dsr.report.salesmen`), rules in `dsr/model.ts`.
 - Web: Field → **Daily sales report** (`/daily-sales`). On-screen sheet, CSV export, and an A4 landscape print view with signature lines.
 
 ## Who sees what

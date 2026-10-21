@@ -1,6 +1,6 @@
 # Supervisor productivity dashboard (`ANA-003`)
 
-Where: web **Supervision → Productivity** tab. Backend: `packages/backend/convex/analytics/productivity.ts` (`roster`, `person`); pure rules in `analytics/productivity_model.ts`, mirrored by `apps/web/src/lib/supervisor-productivity.ts` (a test keeps them equal).
+Where: web **Supervision → Productivity** tab. Backend: `apps/api/src/domains/analytics/index.js` (`roster`, `person`); pure rules in `analytics/productivity_model.ts`, mirrored by `apps/web/src/lib/supervisor-productivity.ts` (a test keeps them equal).
 
 Who: supervision readers (`people.read` + `visit.read`) who also hold `report.read` — super admin, admin, manager, analyst, viewer — inside their own organizational scope, never wider. Field `sales` never sees it.
 

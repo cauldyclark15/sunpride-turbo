@@ -58,4 +58,4 @@ Real MSL families/precedence, channel/sub-channel/class taxonomy and the validat
 
 ## iOS parity later — F-212–F-219
 
-iOS is paused and unchanged. It will need the shared snapshot DTO, call-step checklist/scan, explicit interval counts, encrypted atomic checklist/proposal/draft queue, completeness guard, new event kinds and the same backend reasons. No Convex code/config was added.
+iOS is paused and unchanged. It will need the shared snapshot DTO, call-step checklist/scan, explicit interval counts, encrypted atomic checklist/proposal/draft queue, completeness guard, new event kinds and the same backend reasons. No paused iOS runtime/config changes were added.

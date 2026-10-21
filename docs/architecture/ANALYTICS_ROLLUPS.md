@@ -1,6 +1,6 @@
 # Territory, customer and SKU daily rollups (`CVX-032`)
 
-Backend: `packages/backend/convex/analytics/rollups.ts` (writer, hooks, readers) and `analytics/rollups_model.ts` (pure counting rules). Tests: `analytics/rollups.test.ts`. Consumers: the territory, customer and SKU dashboards (`ANA-004`, `ANA-005`, `ANA-006`) and the admin report pack. The per-person daily rollup is `CVX-031` (separate).
+Backend: `apps/api/src/domains/analytics/index.js` (writer, hooks, readers) and `analytics/rollups_model.ts` (pure counting rules). Tests: `analytics/rollups.test.ts`. Consumers: the territory, customer and SKU dashboards (`ANA-004`, `ANA-005`, `ANA-006`) and the admin report pack. The per-person daily rollup is `CVX-031` (separate).
 
 ## Tables
 
@@ -32,11 +32,7 @@ Every order write (`domains/orders` create/decide, `inventory/pos` sale/void/ret
 
 Run once per source (pages of 25, self-scheduling, safe to repeat):
 
-```bash
-bunx convex run analytics/rollups:backfill '{"source":"order"}'
-bunx convex run analytics/rollups:backfill '{"source":"visit"}'
-bunx convex run analytics/rollups:backfill '{"source":"planned"}'
-```
+Use the idempotent PostgreSQL sample seed in `packages/db/seed/run.js` on an isolated database; never reset a shared database. Current command shapes are documented in the owning API domain.
 
 Re-run after changing `ROLLUP_VERSION` (any counting-rule change). A nightly reconcile cron is recommended (`CVX-034`) but not added here.
 

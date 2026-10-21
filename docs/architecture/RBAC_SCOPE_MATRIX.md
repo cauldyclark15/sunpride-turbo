@@ -1,6 +1,6 @@
 # Role, capability and organizational scope matrix (ARCH-019)
 
-Decision baseline, not a claim that every endpoint enforces it today. Sources: ADR-005, ADR-009, ADR-011; `packages/backend/convex/lib/capabilities.ts:22-78,88-125`; blueprint §§41–42. The memo requires an approved monthly MCP for per-diem entitlement (§II), work-with supervision (§III), and reports/claims (§V). Approval-chain specifics remain **Provisional — pending Client question 5**. Positions such as CDM, DS and KAS are data, never new app roles (ADR-009).
+Decision baseline, not a claim that every endpoint enforces it today. Sources: ADR-005, ADR-009, ADR-011; `apps/api/src/core/capabilities.js`; blueprint §§41–42. The memo requires an approved monthly MCP for per-diem entitlement (§II), work-with supervision (§III), and reports/claims (§V). Approval-chain specifics remain **Provisional — pending Client question 5**. Positions such as CDM, DS and KAS are data, never new app roles (ADR-009).
 
 ## Scope key
 

@@ -45,4 +45,4 @@ never rewrite history; a change forces phones to download a fresh day.
 `visits/activity_rules:current({ asOf? })` lists what is in effect.
 
 Until Sunpride confirms a list, every intent uses the provisional defaults in
-`packages/backend/convex/visits/activity_rules.ts` (`DEFAULT_ACTIVITY_RULES`).
+`apps/api/src/domains/visits/rules.js` (`DEFAULT_ACTIVITY_RULES`).

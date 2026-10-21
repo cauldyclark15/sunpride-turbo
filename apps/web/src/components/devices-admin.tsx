@@ -33,7 +33,7 @@ type DeviceMutations = {
   ) => Promise<unknown>;
 };
 
-/** Reason codes mirror `convex/mobile/devices.ts`; the server stays authoritative. */
+/** Reason codes mirror `apps/api/src/core/devices.js`; the server stays authoritative. */
 export const deviceReasons: Record<
   DeviceAction,
   { id: string; label: string }[]

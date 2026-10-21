@@ -1,5 +1,5 @@
 -- 0117_issues: Issue board.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: issues, issue_comments, issue_attachments, issue_activity, issue_counters.
 
 -- issues

@@ -23,7 +23,7 @@ approved. Issue: SP-0114 (tracker VAN-020).
 | Photo size          | A complete baseline JPEG, 16–4096 px a side, at most 90 KB after the handheld compresses it     | `VAN_DAMAGE_POLICY.photoMaxBytes`        |
 | Who approves        | Manager or approver in the trip's unit (super admin anywhere); never the person who recorded it | capability `van.damage.approve`          |
 
-All four sit in `packages/backend/convex/van/model.ts` and reach the handheld in the bootstrap
+All four sit in `apps/api/src/domains/van/model.js` and reach the handheld in the bootstrap
 policy, so a change needs no app release.
 
 ## Stock and audit trail

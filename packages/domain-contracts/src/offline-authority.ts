@@ -420,7 +420,7 @@ export const OFFLINE_AUTHORITY_MATRIX: readonly OfflineAuthorityRule[] = [
   vanSnapshot(
     "load",
     "server_workflow",
-    "Load sheet status; posting happens only in Convex postMovement.",
+    "Load sheet status; posting happens only in the API inventory postMovement transaction.",
   ),
   vanSnapshot(
     "truckStock",

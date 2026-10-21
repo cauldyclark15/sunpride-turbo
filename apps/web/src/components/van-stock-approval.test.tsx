@@ -2,7 +2,14 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { normalizeCountCode as backendNormalize } from "../../../../packages/backend/convex/van/stock_count";
+import { readFileSync } from "node:fs";
+const approvalSource = readFileSync(
+  new URL("../../../api/src/domains/van/approvals.js", import.meta.url),
+  "utf8",
+);
+const stockCodePattern = approvalSource.match(
+  /!\/([^/]+)\/\.test\(p\.countCode\)/,
+)?.[1];
 import {
   groupedCountCode,
   normalizeCountCode,
@@ -45,8 +52,12 @@ describe("van stock count approval (VAN-023)", () => {
       "7ACD-2B0F-A14",
       "7ACD-2B0F-A14G",
       "",
-    ])
-      expect(normalizeCountCode(input)).toBe(backendNormalize(input));
+    ]) {
+      const normalized = normalizeCountCode(input);
+      expect(stockCodePattern).toBe("^[0-9A-F]{12}$");
+      const accepted = new RegExp(stockCodePattern!).test(normalized ?? input);
+      expect(accepted).toBe(normalized !== null);
+    }
     expect(groupedCountCode("7ACD2B0FA14F")).toBe("7ACD-2B0F-A14F");
   });
 

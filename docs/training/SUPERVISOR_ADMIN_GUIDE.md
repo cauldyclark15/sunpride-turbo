@@ -355,17 +355,20 @@ Each row shows the problem, the date and a suggested fix. To fix:
 
 Common suggested fixes:
 
+The fixes below are suggested actions, not literal button labels. The current review message is **Review the outlet setup before approval** or **Revise this dated slot before approval**.
+
+
 | Suggested fix shown                                       | What to do                                                          |
 | --------------------------------------------------------- | ------------------------------------------------------------------- |
-| **Reactivate or remove the draft visit**                  | Store is inactive or missing: reactivate it or remove it from plan. |
-| **Repair the local customer link or reactivate customer** | Fix the store's customer link (section 12).                         |
-| **Correct overlapping or missing territory assignment**   | Assign the store to exactly one territory for that date.            |
-| **Align draft route and outlet assignment**               | The store is on a different route than planned.                     |
-| **Move slot into plan period**                            | A visit date is outside the plan month.                             |
-| **Edit draft cadence dates**                              | A custom frequency has no valid dates.                              |
-| **Request and verify an outlet pin**                      | Advisory: the store has no verified GPS pin.                        |
-| **Review both verified pins**                             | Advisory: two stores share the same pin.                            |
-| **Optionally assign an ordered route**                    | Advisory: the store is in a territory but on no route.              |
+| Reactivate or remove the draft visit                  | Store is inactive or missing: reactivate it or remove it from plan. |
+| Repair the local customer link or reactivate customer | Fix the store's customer link (section 12).                         |
+| Correct overlapping or missing territory assignment   | Assign the store to exactly one territory for that date.            |
+| Align draft route and outlet assignment               | The store is on a different route than planned.                     |
+| Move slot into plan period                            | A visit date is outside the plan month.                             |
+| Edit draft cadence dates                              | A custom frequency has no valid dates.                              |
+| Request and verify an outlet pin                      | Advisory: the store has no verified GPS pin.                        |
+| Review both verified pins                             | Advisory: two stores share the same pin.                            |
+| Optionally assign an ordered route                    | Advisory: the store is in a territory but on no route.              |
 
 An approved or active plan is not re-checked against today's data; it stays as signed.
 
@@ -484,11 +487,11 @@ is advisory only; it does not block check-in.
 On an opened route:
 
 - **move** puts it in a **Destination territory** from a date. If you see
-  **Move requires outlet reassignment first**, reassign its stores first (section 12.3).
+  Move requires outlet reassignment first, reassign its stores first (section 12.3).
 - **assign** gives it a **Salesperson** (tick **Primary owner** for the main one).
 - **edit**, **duplicate** and **deactivate** are also available.
 
-If you see **Revise the approved coverage plan first**, an approved MCP uses this route or
+If you see Revise the approved coverage plan first, an approved MCP uses this route or
 store. Revise that plan (section 6.2) before the change.
 
 ## 12. Outlets, GPS pins and route order
@@ -750,8 +753,8 @@ PO under Commercial › **Outside-call POs**, and the salesperson records the ac
 | A new person sees nothing after signing in            | Assign their unit in Admin › **People** (section 10.2).                      |
 | **Review** tab is missing                             | Only Sales managers and Super admins approve plans.                          |
 | Approve is disabled on a plan                         | You prepared or submitted it, it is your own, or it has blocking exceptions. |
-| **Revise the approved coverage plan first**           | Revise the MCP that uses that store/route, then make the change.             |
-| **Move requires outlet reassignment first**           | Reassign the route's stores first, then move the route.                      |
+| Revise the approved coverage plan first           | Revise the MCP that uses that store/route, then make the change.             |
+| Move requires outlet reassignment first           | Reassign the route's stores first, then move the route.                      |
 | A store is missing from the coverage map              | It has no verified pin. Propose and verify one (section 12.2).               |
 | Imported visits do not show as ticks in the plan grid | Check them in **Calendar** or **Dated slots**; see section 20.               |
 | A phone cannot sync after being found                 | It may be revoked (permanent). Enrol it again as a new phone.                |

@@ -10,7 +10,7 @@
 export const FIELD_DAY_REPORT_KIND = /** @type {const} */ (["dar", "roar"]);
 
 /**
- * `field_day_reports` (Convex `fieldDayReports`)
+ * `field_day_reports`
  * @typedef {Object} FieldDayReportRow
  * @property {string} id
  * @property {string} organizationId

@@ -671,10 +671,10 @@ describe("coverage review", () => {
 describe("approval signature label", () => {
   it("shows version and hash, never the approver token", () => {
     const label = signatureLabel(
-      "vn7plan:1:https://example.convex.site|k17subject:1790360100000:abcdef0123456789",
+      "vn7plan:1:https://identity.example.test|k17subject:1790360100000:abcdef0123456789",
     );
     expect(label).toBe("v1 · abcdef012345");
-    expect(label).not.toMatch(/\||convex\.site|Former user/);
+    expect(label).not.toMatch(/\||identity\.example\.test|Former user/);
   });
 
   it("falls back for an unexpected shape", () => {

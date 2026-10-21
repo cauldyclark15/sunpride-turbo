@@ -7,9 +7,8 @@
  * bigint/numeric come back as string from Bun.sql.
  */
 
-
 /**
- * `call_sheet_accounts` (Convex `callSheetAccounts`)
+ * `call_sheet_accounts`
  * @typedef {Object} CallSheetAccountRow
  * @property {string} id
  * @property {string} organizationId
@@ -33,7 +32,7 @@
  */
 
 /**
- * `call_sheet_account_lines` (Convex `callSheetAccounts`, child of `call_sheet_accounts`)
+ * `call_sheet_account_lines` (child of `call_sheet_accounts`)
  * @typedef {Object} CallSheetAccountLineRow
  * @property {string} id
  * @property {string} callSheetAccountId
@@ -47,7 +46,7 @@
  */
 
 /**
- * `call_sheet_account_revisions` (Convex `callSheetAccountRevisions`)
+ * `call_sheet_account_revisions`
  * @typedef {Object} CallSheetAccountRevisionRow
  * @property {string} id
  * @property {string} organizationId
@@ -62,7 +61,7 @@
  */
 
 /**
- * `call_sheet_account_revision_products` (Convex `callSheetAccountRevisions`, child of `call_sheet_account_revisions`)
+ * `call_sheet_account_revision_products` (child of `call_sheet_account_revisions`)
  * @typedef {Object} CallSheetAccountRevisionProductRow
  * @property {string} id
  * @property {string} callSheetAccountRevisionId
@@ -75,7 +74,7 @@
  */
 
 /**
- * `call_sheet_entries` (Convex `callSheetEntries`)
+ * `call_sheet_entries`
  * @typedef {Object} CallSheetEntryRow
  * @property {string} id
  * @property {string} organizationId

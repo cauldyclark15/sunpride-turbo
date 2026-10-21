@@ -1,8 +1,5 @@
 import { describe, expect, it } from "vitest";
-import {
-  PRODUCTIVE_ACTIVITY_CODES,
-  PRODUCTIVE_ACTIVITY_LABELS,
-} from "../../../../packages/backend/convex/sfa/productive_call";
+import { PRODUCTIVE_CODES } from "../../../api/src/domains/visits/productive.js";
 import {
   activityFieldsFromForm,
   encodeFieldsFromForm,
@@ -26,9 +23,18 @@ const form = (values: Record<string, string | string[]>) => ({
 describe("outside-call PO form rules (CALL-09)", () => {
   it("mirrors the backend productive-activity labels exactly", () => {
     expect(Object.keys(OUTSIDE_CALL_ACTIVITY_LABELS)).toEqual([
-      ...PRODUCTIVE_ACTIVITY_CODES,
+      ...PRODUCTIVE_CODES,
     ]);
-    expect(OUTSIDE_CALL_ACTIVITY_LABELS).toEqual(PRODUCTIVE_ACTIVITY_LABELS);
+    expect(OUTSIDE_CALL_ACTIVITY_LABELS).toEqual({
+      purchase_order: "Purchase order",
+      merchandising: "Merchandising (display, price tags)",
+      inventory_retrieval: "Inventory retrieval",
+      suggested_order: "Suggested order (ICO)",
+      negotiation: "Negotiation leading to sales or uplift",
+      bad_order_pickup: "Bad order (BO) pickup",
+      collection: "Collection",
+      meeting: "Meeting",
+    });
   });
 
   it("uses the Manila calendar day", () => {

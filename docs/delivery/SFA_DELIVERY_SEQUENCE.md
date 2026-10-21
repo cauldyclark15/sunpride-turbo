@@ -29,7 +29,7 @@ Owned by jc and Sunpride; runs alongside every group. Answers turn provisional d
 Commit the built-but-uncommitted foundation and close what it already delivers. Exit: the uncommitted foundation is merged green; issues it delivers are closed.
 
 1. `DEV-001` Land the SFA foundation vertical slice (currently uncommitted)
-2. `CVX-001` Review and preserve existing Convex authority boundaries
+2. `CVX-001` Review and preserve existing Bun API authority boundaries
 3. `WEB-001` Review existing Next.js management shell
 4. `SAP-001` Audit existing Bun SAP connector
 5. `SFD-003` Approve SFA-first product and UOM baseline
@@ -243,7 +243,7 @@ Product/UOM/customer/price/promo/credit sync from SAP; field orders posted to SA
 
 Hardening, security and UAT, guides, then the controlled Cebu field pilot. Exit: field-sales UAT passed and the Cebu field pilot run.
 
-1. `CVX-035` Add Convex domain and sync test suite
+1. `CVX-035` Add Bun API domain and sync test suite
 2. `QSR-004` Verify duplicate-prevention invariants
 3. `QSR-006` Perform role/scope authorization matrix testing
 4. `QSR-007` Verify device revocation and lost-device behavior

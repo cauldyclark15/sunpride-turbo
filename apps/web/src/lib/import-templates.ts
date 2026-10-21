@@ -63,7 +63,7 @@ export const IMPORT_TEMPLATES: Record<
 
 /**
  * Idempotency key per chunk. The server treats it as an opaque unique string, so this only
- * has to be stable and unique — the shape matches `chunkKey` in convex/imports/shared.ts
+ * has to be stable and unique — the run and chunk identity is checked by the API import domain
  * to keep the two readable side by side.
  */
 export function chunkKeyFor(

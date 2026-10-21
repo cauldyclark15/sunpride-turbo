@@ -7,14 +7,41 @@
  * bigint/numeric come back as string from Bun.sql.
  */
 
-export const MERCHANDISING_AUDIT_SOURCE = /** @type {const} */ (["mobile", "web"]);
-export const MERCHANDISING_AVAILABILITY_STATUS = /** @type {const} */ (["available", "low_stock", "out_of_stock", "not_carried"]);
-export const MERCHANDISING_COMPLIANCE_CHECK_KIND = /** @type {const} */ (["display", "price_tag", "promotion", "freezer_placement", "shelf_share", "product_freshness"]);
-export const MERCHANDISING_COMPLIANCE_CHECK_FINDING = /** @type {const} */ (["compliant", "non_compliant", "not_present", "not_applicable"]);
-export const COMPETITOR_OBSERVATION_KIND = /** @type {const} */ (["price", "promotion", "display", "new_product", "stock_level", "other"]);
+export const MERCHANDISING_AUDIT_SOURCE = /** @type {const} */ ([
+  "mobile",
+  "web",
+]);
+export const MERCHANDISING_AVAILABILITY_STATUS = /** @type {const} */ ([
+  "available",
+  "low_stock",
+  "out_of_stock",
+  "not_carried",
+]);
+export const MERCHANDISING_COMPLIANCE_CHECK_KIND = /** @type {const} */ ([
+  "display",
+  "price_tag",
+  "promotion",
+  "freezer_placement",
+  "shelf_share",
+  "product_freshness",
+]);
+export const MERCHANDISING_COMPLIANCE_CHECK_FINDING = /** @type {const} */ ([
+  "compliant",
+  "non_compliant",
+  "not_present",
+  "not_applicable",
+]);
+export const COMPETITOR_OBSERVATION_KIND = /** @type {const} */ ([
+  "price",
+  "promotion",
+  "display",
+  "new_product",
+  "stock_level",
+  "other",
+]);
 
 /**
- * `outlet_assortments` (Convex `outletAssortments`)
+ * `outlet_assortments`
  * @typedef {Object} OutletAssortmentRow
  * @property {string} id
  * @property {string} organizationId
@@ -30,7 +57,7 @@ export const COMPETITOR_OBSERVATION_KIND = /** @type {const} */ (["price", "prom
  */
 
 /**
- * `outlet_assortment_products` (Convex `outletAssortments`, child of `outlet_assortments`)
+ * `outlet_assortment_products` (child of `outlet_assortments`)
  * @typedef {Object} OutletAssortmentProductRow
  * @property {string} id
  * @property {string} outletAssortmentId
@@ -43,7 +70,7 @@ export const COMPETITOR_OBSERVATION_KIND = /** @type {const} */ (["price", "prom
  */
 
 /**
- * `merchandising_audits` (Convex `merchandisingAudits`)
+ * `merchandising_audits`
  * @typedef {Object} MerchandisingAuditRow
  * @property {string} id
  * @property {string} organizationId
@@ -70,7 +97,7 @@ export const COMPETITOR_OBSERVATION_KIND = /** @type {const} */ (["price", "prom
  */
 
 /**
- * `merchandising_audit_missing_products` (Convex `merchandisingAudits`, child of `merchandising_audits`)
+ * `merchandising_audit_missing_products` (child of `merchandising_audits`)
  * @typedef {Object} MerchandisingAuditMissingProductRow
  * @property {string} id
  * @property {string} merchandisingAuditId
@@ -83,7 +110,7 @@ export const COMPETITOR_OBSERVATION_KIND = /** @type {const} */ (["price", "prom
  */
 
 /**
- * `merchandising_audit_evidence` (Convex `merchandisingAudits`, child of `merchandising_audits`)
+ * `merchandising_audit_evidence` (child of `merchandising_audits`)
  * @typedef {Object} MerchandisingAuditEvidenceRow
  * @property {string} id
  * @property {string} merchandisingAuditId
@@ -96,7 +123,7 @@ export const COMPETITOR_OBSERVATION_KIND = /** @type {const} */ (["price", "prom
  */
 
 /**
- * `merchandising_availability` (Convex `merchandisingAvailability`)
+ * `merchandising_availability`
  * @typedef {Object} MerchandisingAvailabilityRow
  * @property {string} id
  * @property {string} organizationId
@@ -116,7 +143,7 @@ export const COMPETITOR_OBSERVATION_KIND = /** @type {const} */ (["price", "prom
  */
 
 /**
- * `merchandising_availability_evidence` (Convex `merchandisingAvailability`, child of `merchandising_availability`)
+ * `merchandising_availability_evidence` (child of `merchandising_availability`)
  * @typedef {Object} MerchandisingAvailabilityEvidenceRow
  * @property {string} id
  * @property {string} merchandisingAvailabilityId
@@ -129,7 +156,7 @@ export const COMPETITOR_OBSERVATION_KIND = /** @type {const} */ (["price", "prom
  */
 
 /**
- * `merchandising_compliance_checks` (Convex `merchandisingComplianceChecks`)
+ * `merchandising_compliance_checks`
  * @typedef {Object} MerchandisingComplianceCheckRow
  * @property {string} id
  * @property {string} organizationId
@@ -149,7 +176,7 @@ export const COMPETITOR_OBSERVATION_KIND = /** @type {const} */ (["price", "prom
  */
 
 /**
- * `merchandising_compliance_check_evidence` (Convex `merchandisingComplianceChecks`, child of `merchandising_compliance_checks`)
+ * `merchandising_compliance_check_evidence` (child of `merchandising_compliance_checks`)
  * @typedef {Object} MerchandisingComplianceCheckEvidenceRow
  * @property {string} id
  * @property {string} merchandisingComplianceCheckId
@@ -162,7 +189,7 @@ export const COMPETITOR_OBSERVATION_KIND = /** @type {const} */ (["price", "prom
  */
 
 /**
- * `competitor_observations` (Convex `competitorObservations`)
+ * `competitor_observations`
  * @typedef {Object} CompetitorObservationRow
  * @property {string} id
  * @property {string} organizationId
@@ -183,7 +210,7 @@ export const COMPETITOR_OBSERVATION_KIND = /** @type {const} */ (["price", "prom
  */
 
 /**
- * `competitor_observation_evidence` (Convex `competitorObservations`, child of `competitor_observations`)
+ * `competitor_observation_evidence` (child of `competitor_observations`)
  * @typedef {Object} CompetitorObservationEvidenceRow
  * @property {string} id
  * @property {string} competitorObservationId

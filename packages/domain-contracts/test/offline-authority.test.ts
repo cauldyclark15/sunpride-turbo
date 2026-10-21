@@ -34,15 +34,8 @@ const ENVELOPE = new Set([
 ]);
 const backend = (path: string) =>
   Bun.file(
-    new URL(`../../backend/convex/${path}`, import.meta.url).pathname,
+    new URL(`../../../apps/api/src/${path}`, import.meta.url).pathname,
   ).text();
-const quotedSet = (source: string, name: string): string[] => {
-  const match = new RegExp(`const ${name} = new Set\\(\\[([^\\]]*)\\]`).exec(
-    source,
-  );
-  if (!match) throw new Error(`${name} not found`);
-  return [...match[1]!.matchAll(/"([a-z_.A-Z]+)"/g)].map((m) => m[1]!);
-};
 
 const mobilePushKinds = (
   at(
@@ -101,28 +94,27 @@ describe("offline authority matrix coverage", () => {
     expect(push("van-v1")).toEqual([...vanPushKinds].sort());
   });
 
-  test("classifies every pull entity the backend writes or projects", async () => {
-    const written = new Set<string>();
-    for (const file of [
-      "visits/events.ts",
-      "outlets/assignments.ts",
-      "coverage/activation.ts",
-      "mobile/pull.ts",
-      "mobile/reference.ts",
-    ]) {
-      const source = await backend(file);
-      for (const m of source.matchAll(/entity(?:: | === )"([a-zA-Z]+)"/g))
-        written.add(m[1]!);
-    }
-    // visits/events.ts takes the entity from its caller ("visit" | "activity").
-    for (const m of (await backend("visits/events.ts")).matchAll(
-      /"(visit|activity)"/g,
-    ))
-      written.add(m[1]!);
-    const classified = OFFLINE_AUTHORITY_MATRIX.filter(
-      (r) => r.surface === "mobile-v1" && r.channel === "pull",
-    ).map((r) => r.entity);
-    expect([...written].sort()).toEqual(classified.sort());
+  test("classifies the v2 field projection entities and retains every frozen v1 delta rule", async () => {
+    const source = await backend("domains/fieldsync/projections.js");
+    const block = /entities: \[([^\]]+)\]/.exec(source)?.[1];
+    expect(block).toBeDefined();
+    const entities = [...block!.matchAll(/"([a-z.]+)"/g)].map((m) => m[1]!);
+    expect(entities).toEqual([
+      "visit",
+      "activity",
+      "inventory",
+      "field.manifest",
+    ]);
+    for (const entity of entities.filter((e) => e !== "field.manifest"))
+      expect(authorityRule("mobile-v1", "pull", entity)?.writer).toBe("server");
+    for (const entity of ["coveragePlan", "outletAssignment"])
+      expect(authorityRule("mobile-v1", "pull", entity)?.stale).toBe(
+        "rebootstrap",
+      );
+    expect(authorityRule("mobile-v1", "pull", "product")?.stale).toBe(
+      "higher_revision_wins",
+    );
+    expect(source).toContain('entity === "field.manifest"');
   });
 
   test("every outcome code on both wires has exactly one remediation per level", () => {
@@ -211,19 +203,45 @@ describe("offline authority matrix coverage", () => {
     }
   });
 
-  test("every business code and reason the backend can return is covered", async () => {
-    const mobileHttp = await backend("mobile/http_handlers.ts");
-    for (const code of quotedSet(mobileHttp, "businessCodes")) {
-      const covered = !!outcomeRule("mobile-v1", "result", code);
-      expect({ code, covered }).toEqual({ code, covered: true });
+  test("classifies every v2 business refusal using the frozen remediation semantics", async () => {
+    const source = await backend("core/sync.js");
+    const block = /OP_CODES = Object.freeze\(\[([^\]]+)\]/.exec(source)?.[1];
+    expect(block).toBeDefined();
+    const codes = [...block!.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]!);
+    expect(codes).toEqual([
+      "invalid_request",
+      "invalid_plan",
+      "out_of_scope",
+      "dependency_missing",
+      "invalid_transition",
+      "call_open",
+      "mcp_order",
+      "wrong_date",
+      "idempotency_conflict",
+      "evidence_pending_review",
+      "unsupported_operation",
+      "load_not_posted",
+      "stock_conflict",
+      "mock_location_refused",
+    ]);
+    // Semantic equivalences, not a claim that v1 parses a v2 response envelope.
+    const equivalents: Record<string, string> = {
+      invalid_transition: "conflict",
+      idempotency_conflict: "conflict",
+      stock_conflict: "conflict",
+      mock_location_refused: "evidence_pending_review",
+    };
+    for (const code of codes) {
+      const frozen = equivalents[code] ?? code;
+      expect(
+        outcomeRule("mobile-v1", "result", frozen) ??
+          outcomeRule("van-v1", "result", frozen) ??
+          outcomeRule("mobile-v1", "reason", frozen),
+      ).toBeDefined();
     }
-    for (const reason of quotedSet(mobileHttp, "reasonCodes"))
+    for (const reason of ["call_open", "mcp_order", "wrong_date"])
       expect(outcomeRule("mobile-v1", "reason", reason)).toBeDefined();
-    for (const code of quotedSet(
-      await backend("van/http_handlers.ts"),
-      "businessCodes",
-    ))
-      expect(outcomeRule("van-v1", "result", code)).toBeDefined();
+    expect(outcomeRule("mobile-v1", "result", "invalid_plan")).toBeDefined();
   });
 });
 
@@ -314,18 +332,20 @@ describe("offline authority invariants", () => {
     );
   });
 
-  test("policy limits match the backend constants", async () => {
-    const policy = await backend("visits/policy.ts");
-    expect(policy).toContain("maxDeviceSkewMs: 24 * 60 * 60_000");
-    expect(policy).toContain(
-      `lateWindowDays: ${OFFLINE_POLICY.lateWindowDays}`,
-    );
+  test("retains the frozen policy bounds and checks the independent v2 limits", async () => {
+    const shared = await backend("domains/visits/shared.js");
+    const commands = await backend("domains/visits/commands.js");
+    const sync = await backend("core/sync.js");
     expect(OFFLINE_POLICY.maxDeviceClockAheadMs).toBe(24 * 60 * 60_000);
-    const pull = await backend("mobile/pull.ts");
-    expect(pull).toContain(`limit > ${OFFLINE_POLICY.pull.maxChangesPerPage}`);
-    const push = await backend("mobile/push.ts");
-    expect(push).toContain(
-      `dependencies.length > ${OFFLINE_POLICY.push.maxDependsOn}`,
+    expect(OFFLINE_POLICY.lateWindowDays).toBe(7);
+    expect(shared).toContain("now + DAY");
+    expect(commands).toContain("ctx.now - 7 * DAY");
+    expect(sync).toContain(
+      `MAX_DELTA_LIMIT = ${OFFLINE_POLICY.pull.maxChangesPerPage}`,
     );
+    expect(sync).toContain(`MAX_OPS = ${OFFLINE_POLICY.push.maxDependsOn}`);
+    // v2 location batches/dependencies have a separately bounded larger budget.
+    expect(sync).toContain("MAX_LOCATION_OPS = 100");
+    expect(sync).toContain("op.dependsOn.length <= MAX_LOCATION_OPS");
   });
 });

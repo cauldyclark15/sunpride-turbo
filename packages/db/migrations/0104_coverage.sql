@@ -1,5 +1,5 @@
 -- 0104_coverage: Coverage plans (MCP), slots, planned visits.
--- Generated from packages/backend/convex/schema.ts (via the v2 backend inventory).
+-- Domain baseline; typed row definitions live in packages/db/src/tables/.
 -- Tables: coverage_plans, coverage_plan_territories, coverage_assignments, coverage_plan_outlets, coverage_plan_slots, position_routine_templates, position_routine_template_activities, planned_visits, supervisor_away_periods, coverage_audit_events.
 
 -- coveragePlans [synced]

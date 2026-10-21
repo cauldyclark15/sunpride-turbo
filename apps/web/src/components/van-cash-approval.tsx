@@ -8,7 +8,7 @@ import type { CashCode, CashCodeInput } from "./van/model";
 import { useState, type FormEvent } from "react";
 import { pesosToCentavos } from "./van-void-approval";
 
-/** Mirrors `CASH_VARIANCE_REASONS` in `convex/van/model.ts` (parity-tested). */
+/** Mirrors `CASH_VARIANCE_REASONS` in `apps/api/src/domains/van/model.js` (parity-tested). */
 export const VAN_CASH_VARIANCE_REASONS = [
   { code: "counting_error", label: "Counting error" },
   { code: "change_error", label: "Wrong change given" },

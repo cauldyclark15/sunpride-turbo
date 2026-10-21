@@ -1,7 +1,7 @@
 # Live map (SP-0135)
 
 Field → **Live map** shows where field agents and van-sales trucks are right now, and one
-person's route for a day. It updates in real time (Convex subscriptions); nobody refreshes
+person's route for a day. It updates in real time (API reads with `/ws` invalidation); nobody refreshes
 the page.
 
 ## What it shows
@@ -54,14 +54,9 @@ Both are build-time variables (rebuild the web app after changing them).
 
 ## Where the positions come from
 
-The phones send batches of positions to the backend:
+Phones queue `location.record` operations through `POST /api/sync/push`, with protocol v2 and the same bound-device request proof used for ordinary sync. The old v1 JSON fixtures remain test artifacts, not live endpoints. Field and van domain writers reauthorize their own operating scope/trip.
 
-- Field apps: `POST /mobile/v1/location` (type `location.request`).
-- Van POS: `POST /van/v1/location` (type `van.location.request`, every position carries the trip).
-- Contract: `packages/domain-contracts/schemas/{mobile,van}-v1.schema.json`, fixtures
-  `fixtures/{mobile,van}-v1/location-*.json`.
-
-Rules (our defaults, `packages/backend/convex/location/model.ts`):
+Rules (our defaults, `apps/api/src/domains/fieldsync/location.js`):
 
 - Tracking only during work. Field: from the day's first check-in or Start day until End day
   or sign-out, and never after the 10 PM Manila close (the server refuses positions recorded
@@ -82,15 +77,4 @@ does it in SP-0136: `apps/field-android/docs/LIVE_LOCATION.md`.
 
 ## Sample data (beta)
 
-Until real phones send positions, the beta can show made-up trails for the sample sales
-tester (Rhea Santos, field app) and the van tester's truck (SMP-TRK-01) around their Cebu
-routes. They are marked sample and the map says so.
-
-```bash
-cd packages/backend
-bunx convex run beta/sample_live_map:seed '{}'    # today's trails (replaces earlier sample)
-bunx convex run beta/sample_live_map:clear '{}'   # remove; repeat until isDone
-```
-
-Only testers who have signed up get a trail. Clear the live-map sample before running
-`beta/sample:reset`.
+Marked demo positions come from the PostgreSQL seed in `packages/db/seed`. Supply the authorized lane database URL privately and run `bun packages/db/seed/run.js`. Never reset a shared/live database. See `docs/runbooks/BETA_SAMPLE_DATA.md`; sample trails are explicitly invented, not real phone evidence.

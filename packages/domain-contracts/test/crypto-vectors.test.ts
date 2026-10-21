@@ -1,9 +1,8 @@
 import { describe, expect, test } from "bun:test";
 import fixture from "../fixtures/mobile-v1/crypto/request-proof.json";
 
-// Mirrors backend/convex/mobile/http_handlers.ts:91-97, 365-398 and
-// backend/convex/mobile/device_auth.ts:29-68, 174-209. No server imports in
-// domain-contracts: Convex server modules must not ship with native fixtures.
+// Frozen P-256 protocol vectors, shared with apps/api/src/core/devices.js.
+// Server implementation modules must not ship with native fixtures.
 const encoder = new TextEncoder();
 const digestHex = async (bytes: Uint8Array) =>
   Array.from(

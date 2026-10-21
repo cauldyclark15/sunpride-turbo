@@ -1,7 +1,7 @@
-# Sunpride Field PWA
+# Retired field pilot
 
-> **Frozen.** The field PWA is cancelled (ADR-004). No feature work is accepted here; native Android field and van-sales applications replace it. This app stays in the repository as the reference implementation of the offline outbox, sequencing, and conflict policy (ADR-002) until the Android application reaches pilot acceptance, after which it is removed (`QSR-023`).
+This React/Vite package now displays a retirement notice instead of opening the old field routes. Use the Android field/van apps for selling and the installable office app in `apps/web` for management.
 
-React + Vite + TypeScript field application with Better Auth, Convex realtime data, Dexie IndexedDB persistence, a transactional outbox, explicit synchronization/conflict states, and a generated service worker.
+The old IndexedDB database and its tests remain so existing unsent evidence is not silently erased. The notice does not sign in, create orders, upload old operations, or clear browser storage. Recovery requires supervised reconciliation before recapture. The retired routes were Today, new order, order queue, truck stock, catalog, sync, sign-in and registration.
 
-Run from the repository root with `bun run dev:pwa`. Production output is `dist/`.
+No backend configuration is needed. `bun run typecheck`, `bun run test`, `bun run lint` and `bun run build` still verify this package. The active office service worker belongs to `apps/web` and is unchanged.
