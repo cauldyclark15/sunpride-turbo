@@ -15,7 +15,10 @@ export function vanContainerBalances(events) {
         BigInt(r.quantity) +
           (f.action === "receive" ? 1n : -1n) * BigInt(f.quantity),
       );
-    if (r.quantity !== null && f.action === "warehouse_receive")
+    if (
+      r.quantity !== null &&
+      ["warehouse_receive", "write_off"].includes(f.action)
+    )
       r.quantity = String(BigInt(r.quantity) - BigInt(f.quantity));
     balances.set(f.typeCode, r);
   }
@@ -35,7 +38,22 @@ export async function containerHistory(db, vehicleId) {
       "Container custody needs an office archive before download",
       "invalid_request",
     );
+  const changes =
+    await db`select c.id,d.created_at,c.kind,c.facts from van_reconciliation_changes c join van_reconciliation_decisions d on d.change_id=c.id and d.decision='approved' join van_trips t on t.id=c.trip_id where t.vehicle_id=${vehicleId} and c.kind in ('unload_remainder','empties_loss') order by d.created_at,c.id limit 10001`;
+  if (changes.length > 10000)
+    refuse("Container correction history exceeds the supported bound");
   const result = [...events];
+  for (const c of changes)
+    for (const e of c.facts.empties ?? [])
+      result.push({
+        id: c.id + ":" + e.typeCode,
+        outlet_id: null,
+        captured_at: c.created_at,
+        facts: {
+          ...e,
+          action: c.kind === "empties_loss" ? "write_off" : "warehouse_receive",
+        },
+      });
   for (const r of receipts)
     for (const e of r.facts.empties ?? [])
       result.push({

@@ -20,7 +20,7 @@ export async function enqueueApprovedVanSettlement(db, settlementId) {
     ? []
     : await db`select e.event_id from integration_events e where e.event_type<>'settlement' and (
    e.payload->'document'->'facts'->>'tripId'=${s.trip_id}::text or
-   e.source_type='movement' and e.movement_id in(select m.id from inventory_movements m where m.source_document_id=${s.trip_id} or m.source_document_id in(select id::text from van_trip_observations where trip_id=${s.trip_id}) or m.source_document_id in(select id::text from van_sales where trip_id=${s.trip_id}) or m.source_document_id in(select id::text from van_returns where trip_id=${s.trip_id}))) order by e.event_id`;
+   e.source_type='movement' and e.movement_id in(select m.id from inventory_movements m where m.source_document_id=${s.trip_id} or m.source_document_id in(select id::text from van_trip_observations where trip_id=${s.trip_id}) or m.source_document_id in(select id::text from van_sales where trip_id=${s.trip_id}) or m.source_document_id in(select id::text from van_returns where trip_id=${s.trip_id}) or m.id in(select d.movement_id from van_reconciliation_changes c join van_reconciliation_decisions d on d.change_id=c.id and d.decision='approved' where c.trip_id=${s.trip_id}))) order by e.event_id`;
   const result = await enqueueSapPosting(db, {
     kind: "settlement",
     sourceType: "van_settlement",

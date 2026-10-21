@@ -3,6 +3,11 @@ import { forbidden, invalid } from "../../core/errors.js";
 import { tripFor, notSelf } from "./access.js";
 import { audit, assertTruckStock, expectedStock } from "./facts.js";
 import { routePolicy } from "./route-policy.js";
+import {
+  effectiveCash,
+  unloadBasis,
+  approvedCorrections,
+} from "./corrections.js";
 import { requireTemperature } from "./route-evidence.js";
 import { uuid, text, refuse, safeNumber } from "./model.js";
 import { enqueueApprovedVanSettlement } from "../integration/settlement-adapter.js";
@@ -234,6 +239,18 @@ export async function decideSettlement(db, actor, p) {
   if (!["approved", "rejected"].includes(decision))
     throw invalid("Choose approve or reject");
   if (decision === "approved") {
+    const changes = await approvedCorrections(db, trip.id);
+    if (
+      changes.some(
+        (/** @type {any} */ c) =>
+          !(s.facts.corrections ?? []).some(
+            (/** @type {any} */ x) => x.id === c.id,
+          ),
+      )
+    )
+      refuse(
+        "Return the stale settlement for correction and prepare a new frozen version before sign-off",
+      );
     if (
       (
         await db`select 1 from van_returns r where r.trip_id=${trip.id} and r.custody_only and not exists(select 1 from van_return_reviews d where d.return_id=r.id and d.kind in ('warehouse_received','returned_to_outlet','disposal_verified')) limit 1`
@@ -256,13 +273,24 @@ export async function decideSettlement(db, actor, p) {
       refuse("Resolve the variance escalation first");
     const [received] =
       await db`select facts from van_observation_decisions where observation_id=${s.facts.unloadId} and decision='received'`;
-    if (!received || received.facts.discrepancy)
-      refuse("Warehouse receipt must reconcile before approval");
-    const [cash] =
-      await db`select r.amount_centavos,c.declared_centavos from van_cash_remittances r join van_cash_counts c on c.trip_id=r.trip_id where r.trip_id=${trip.id}`;
+    if (!received) refuse("Warehouse receipt must reconcile before approval");
+    if (received.facts.discrepancy) {
+      const remaining = await unloadBasis(db, trip.id);
+      if (
+        remaining.lines.some(
+          (/** @type {any} */ l) => BigInt(l.quantityBase) !== 0n,
+        ) ||
+        remaining.empties.some(
+          (/** @type {any} */ e) => BigInt(e.quantity) !== 0n,
+        )
+      )
+        refuse("Warehouse receipt must reconcile before approval");
+    }
+    const cash = await effectiveCash(db, trip.id);
     if (
-      !cash ||
-      BigInt(cash.amount_centavos) !== BigInt(cash.declared_centavos)
+      cash.receivedMinor === null ||
+      cash.declaredMinor === null ||
+      BigInt(cash.receivedMinor) !== BigInt(cash.declaredMinor)
     )
       refuse("Confirm the counted cash at the office before approval");
     if (

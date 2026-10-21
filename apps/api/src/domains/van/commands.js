@@ -1,5 +1,6 @@
 import { tx } from "@sunpride/db/client";
 import { routePolicy } from "./route-policy.js";
+import { effectiveCash } from "./corrections.js";
 import { enqueue } from "../../core/jobs.js";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { invalid, ApiError } from "../../core/errors.js";
@@ -370,7 +371,7 @@ export async function remitCash(db, actor, p) {
     await db`select * from van_cash_counts where trip_id=${trip.id}`;
   if (!count) refuse("The seller must count cash first");
   const amount = integer(p.amountMinor);
-  if (amount !== BigInt(count.declared_centavos))
+  if (amount !== BigInt((await effectiveCash(db, trip.id)).declaredMinor))
     refuse(
       "Received cash must match the declared count; reconcile a changed count before hand-in",
       "stock_conflict",

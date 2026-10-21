@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { effectiveCash } from "./corrections.js";
 import { routeBundle, routeNextAction } from "./route-read.js";
 import { ApiError } from "../../core/errors.js";
 import { scopeFilterForActor } from "../org/scope.js";
@@ -110,6 +111,7 @@ export async function tripDetail(db, actor, tripId) {
     await db`select id,actor_name,kind,details,created_at from van_audit_events where trip_id=${tripId} order by created_at,id`;
   const [remittance] =
     await db`select * from van_cash_remittances where trip_id=${tripId}`;
+  const correctedCash = await effectiveCash(db, tripId);
   const expected = await cashExpectation(db, tripId),
     netSales = sales
       .filter((s) => !s.void_id)
@@ -165,16 +167,24 @@ export async function tripDetail(db, actor, tripId) {
           )
           .reduce((a, p) => a + BigInt(p.amount_centavos), 0n),
       ),
-      declaredCentavos: cash ? safeNumber(cash.declared_centavos) : null,
-      remittedCentavos: remittance
-        ? safeNumber(remittance.amount_centavos)
-        : null,
+      declaredCentavos:
+        correctedCash.declaredMinor === null
+          ? null
+          : safeNumber(BigInt(correctedCash.declaredMinor)),
+      remittedCentavos:
+        correctedCash.receivedMinor === null
+          ? null
+          : safeNumber(BigInt(correctedCash.receivedMinor)),
       receivedBy: remittance?.received_by_name ?? null,
       receivedAt: ms(remittance?.created_at),
-      countVarianceCentavos: cash ? safeNumber(cash.variance_centavos) : null,
-      varianceCentavos: remittance
-        ? safeNumber(BigInt(remittance.amount_centavos) - expected)
-        : null,
+      countVarianceCentavos:
+        correctedCash.declaredMinor === null
+          ? null
+          : safeNumber(BigInt(correctedCash.declaredMinor) - expected),
+      varianceCentavos:
+        correctedCash.receivedMinor === null
+          ? null
+          : safeNumber(BigInt(correctedCash.receivedMinor) - expected),
       reason: cash?.facts.reasonCode ?? null,
       approvedBy: cash?.approved_by ?? null,
       countedAt: ms(cash?.created_at),

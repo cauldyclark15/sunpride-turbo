@@ -15,6 +15,7 @@ import { CashHandIn } from "./cash-hand-in";
 import { frozenQuantity } from "./format";
 import { RouteOperationsReview } from "./route-operations";
 import { ReturnPickupReview } from "./return-pickups";
+import { ReconciliationCorrections } from "./reconciliation-corrections";
 import { SuggestedLoad } from "./suggested-load";
 import { VanTripPlanning } from "./trip-planning";
 
@@ -164,6 +165,7 @@ export function VanTripDetail({ trip }: { trip: TripSettlement }) {
       <section aria-label="Stock settlement" className="overflow-auto">
         <RouteOperationsReview trip={trip} />
         <ReturnPickupReview tripId={trip.tripId} />
+        <ReconciliationCorrections trip={trip} />
         <h3 className="mb-2 font-medium">
           Opening load + reloads → net sales and returns → closing count →
           warehouse
