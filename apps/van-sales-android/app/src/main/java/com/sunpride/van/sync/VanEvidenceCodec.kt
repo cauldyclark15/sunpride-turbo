@@ -9,7 +9,7 @@ import org.json.JSONObject
 import java.util.Base64
 
 fun damagePhotoSha(row: OutboxRow): String? {
-    if (row.kind !in setOf("truck.damage","call.step","delivery.confirm")) return null
+    if (row.kind !in setOf("truck.damage","call.step","delivery.confirm","store.deposit")) return null
     val p=JSONObject(row.operationJson).getJSONObject("payload")
     if (row.kind == "call.step" && p.optString("adapter") != "evidence") return null
     return p.optString("photoSha256").takeIf { it.isNotEmpty() }

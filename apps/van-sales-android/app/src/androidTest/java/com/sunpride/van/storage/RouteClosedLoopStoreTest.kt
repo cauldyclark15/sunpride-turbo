@@ -43,6 +43,8 @@ class RouteClosedLoopStoreTest {
             .put("policies",JSONObject().put("cold_chain",JSONObject().put("intervalMinutes",60).put("bands",JSONArray().put(JSONObject().put("productId",JSONObject.NULL).put("label","SAMPLE frozen").put("minDeciC",-250).put("maxDeciC",-180))))
                 .put("returnables",JSONObject().put("items",JSONArray().put(JSONObject().put("code","crate").put("label","Sample crate"))))
                 .put("return_reasons",JSONObject().put("items",JSONArray().put(JSONObject().put("code","damaged").put("label","Damaged"))))))
+        // F-R01 regression gate: retain the real fiscal precondition, never bypass issuance.
+        FiscalFixture.add(o,scope.deviceId)
         return o.toString()
     }
     @Test fun F104_legacySaleAndReturnKeepTheirOriginalWireFields()=runBlocking {

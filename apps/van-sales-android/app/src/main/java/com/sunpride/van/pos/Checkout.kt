@@ -82,7 +82,7 @@ data class CheckoutContext(val tripSelling: Boolean, val customers: List<Custome
     val stock: List<TruckStock>, val prices: List<PriceLine>, val policy: VanPolicy?, val now: Long,
     val serviceDate: String? = null, val creditUsedMinor: Map<String,Long> = emptyMap(), val usedReferences: Set<String> = emptySet(),
     val cashCounted: Boolean = false, val promotions: List<com.sunpride.van.data.Promotion> = emptyList(),
-    val stockCounted: Boolean = false)
+    val stockCounted: Boolean = false, val governedPromotionsJson: String? = null)
 
 class CheckoutRefused(val issues: List<CheckoutIssue>) : IllegalStateException("Checkout refused")
 
@@ -112,7 +112,7 @@ object CheckoutRules {
         val products = context.products.associateBy { it.productId }
         val available = context.stock.associate { it.productId to it.availableBase }
         val customer = context.customers.firstOrNull { it.outletId == request.customerId }
-        val promotionResult = customer?.let { PromotionEngine.apply(request.lines,it,products,context.prices,context.promotions,context.now) }
+        val promotionResult = customer?.let { if(context.governedPromotionsJson!=null) PromotionEngine.applyGoverned(request.lines,it,products,context.prices,context.governedPromotionsJson,context.now) else PromotionEngine.apply(request.lines,it,products,context.prices,context.promotions,context.now) }
             ?: PromotionResult(emptyList(),emptyList())
         issues += promotionResult.issues
         val needsOfficeProducts = promotionResult.issues.filter { it.problem == CheckoutProblem.PROMOTION_NEEDS_OFFICE }
@@ -128,13 +128,13 @@ object CheckoutRules {
             if (price == null && line.productId !in needsOfficeProducts) {
                 issues += CheckoutIssue(CheckoutProblem.UNPRICED,line.productId); return@forEachIndexed
             }
-            if (price != null && lineTotal(price.unitPriceMinor,line.quantityBase,product.quantityScale) == null)
+            if (context.governedPromotionsJson==null && price != null && lineTotal(price.unitPriceMinor,line.quantityBase,product.quantityScale) == null)
                 issues += CheckoutIssue(CheckoutProblem.PRICE_NOT_EXACT,line.productId)
         }
         promotionResult.lines.forEach { line ->
             val price = line.price
             if (line.paidBase > 0L && price == null) return@forEach
-            val gross = if (line.paidBase == 0L) 0L else lineTotal(checkNotNull(price).unitPriceMinor,line.paidBase,line.product.quantityScale)
+            val gross = if(context.governedPromotionsJson!=null) line.grossMinor else if (line.paidBase == 0L) 0L else lineTotal(checkNotNull(price).unitPriceMinor,line.paidBase,line.product.quantityScale)
             if (gross == null) { issues += CheckoutIssue(CheckoutProblem.PRICE_NOT_EXACT,line.product.productId); return@forEach }
             val discount = minOf(line.discountMinor,gross)
             val total = Math.subtractExact(gross,discount)
@@ -148,6 +148,12 @@ object CheckoutRules {
             quoted += QuotedLine(line.lineNumber,line.product,quantity,price?.unitPriceMinor ?: 0L,total,
                 matching.map { it.priceListId }.distinct().sorted(),line.paidBase,line.freeBase,gross,discount,
                 price?.priceListId,price?.priceListCode,line.promotion)
+        }
+        if(context.governedPromotionsJson!=null && context.policy?.allowNegativeStock!=true) {
+            quoted.groupBy {it.product.productId}.forEach {(id,lines)->
+                val required=lines.fold(BigInteger.ZERO){n,l->n+BigInteger.valueOf(l.quantityBase)}
+                if(required>BigInteger.valueOf(available[id]?:0L))issues+=CheckoutIssue(CheckoutProblem.INSUFFICIENT_STOCK,id)
+            }
         }
         if (currencies.size > 1) issues += CheckoutIssue(CheckoutProblem.MIXED_CURRENCY)
         val total = runCatching { quoted.fold(0L) { sum, line -> Math.addExact(sum,line.totalMinor) } }.getOrElse {

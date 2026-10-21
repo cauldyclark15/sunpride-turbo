@@ -67,6 +67,7 @@ import java.time.format.DateTimeFormatter
         ListRow("Sync & posting","What is on this phone, with the office and in SAP","open-sync",onClick = { c.open(Page.SYNC) })
         val context = LocalContext.current
         c.features.reportIssueUrl?.let { url -> ListRow("Report an issue","Tell the Sunpride team what went wrong","report-issue",onClick = { openLink(context,url) }) }
+        ListRow("POS mode","Van or Store · set by the office","open-pos-mode",onClick = { c.open(Page.POS_MODE) })
         ListRow("Account","Password and sign out","open-account",onClick = { c.open(Page.ACCOUNT) })
         SecondaryButton("Sign out",c::signOut,Modifier.testTag("sign-out"),!c.busy)
     }

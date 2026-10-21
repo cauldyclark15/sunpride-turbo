@@ -1,3 +1,4 @@
+import { modeAt } from "../storepos/model.js";
 import { bindCreditDecision } from "../integration/credit.js";
 import { configureSap } from "../integration/transport.js";
 import {
@@ -245,6 +246,8 @@ async function dispatchOperation(ctx, env) {
     ctx.actor,
     ctx.device.id,
   );
+  if ((await modeAt(db, device.id))?.mode === "store")
+    refuse("Switch this handheld to Van mode before van operations");
   await db`select set_config('sunpride.actor',${actor.userId},true)`;
   const trip = await tripFor(db, actor, uuid(p.tripId), "van.operate", true);
   if (
@@ -404,80 +407,82 @@ async function dispatchOperation(ctx, env) {
       case "return.record":
         result = await customerReturn(db, trip, actor, p, op.clientOpId);
         break;
-    case "payment.record": {
-      await assertNotCounted(db, trip.id);
-      if (trip.status !== "active") refuse("Trip is not on the road");
-      const saleId = uuid(p.saleId);
-      const [s] =
-        await db`select * from van_sales where id=${saleId} and trip_id=${trip.id} for update`;
-      if (!s || s.receipt.payment.kind !== "credit")
-        refuse("Choose a credit sale from this trip", "invalid_request");
-      const [voided] =
-        await db`select 1 from van_sale_voids where sale_id=${saleId} limit 1`;
-      if (voided) refuse("A void invoice cannot receive a collection");
-      const amount = integer(p.amountMinor, true),
-        method = choice(
-          p.method,
-          PAYMENT_METHODS.filter((m) => m.kind !== "credit").map((m) => m.code),
+      case "payment.record": {
+        await assertNotCounted(db, trip.id);
+        if (trip.status !== "active") refuse("Trip is not on the road");
+        const saleId = uuid(p.saleId);
+        const [s] =
+          await db`select * from van_sales where id=${saleId} and trip_id=${trip.id} for update`;
+        if (!s || s.receipt.payment.kind !== "credit")
+          refuse("Choose a credit sale from this trip", "invalid_request");
+        const [voided] =
+          await db`select 1 from van_sale_voids where sale_id=${saleId} limit 1`;
+        if (voided) refuse("A void invoice cannot receive a collection");
+        const amount = integer(p.amountMinor, true),
+          method = choice(
+            p.method,
+            PAYMENT_METHODS.filter((m) => m.kind !== "credit").map(
+              (m) => m.code,
+            ),
+          );
+        const [r] =
+          await db`select coalesce(sum(v.amount_centavos),0)::text as paid from van_payments v left join fiscal_tender_confirmations c on c.payment_id=v.id where v.sale_id=${saleId} and v.kind='collection' and c.decision is distinct from 'rejected'`;
+        if (BigInt(r.paid) + amount > BigInt(s.total_centavos))
+          refuse(
+            "Collection exceeds the remaining credit sale",
+            "invalid_request",
+          );
+        const tender = await configuredTender(
+          db,
+          trip.org_unit_id,
+          { ...p, method },
+          Number(p.deviceTime),
         );
-      const [r] =
-        await db`select coalesce(sum(v.amount_centavos),0)::text as paid from van_payments v left join fiscal_tender_confirmations c on c.payment_id=v.id where v.sale_id=${saleId} and v.kind='collection' and c.decision is distinct from 'rejected'`;
-      if (BigInt(r.paid) + amount > BigInt(s.total_centavos))
-        refuse(
-          "Collection exceeds the remaining credit sale",
-          "invalid_request",
-        );
-      const tender = await configuredTender(
-        db,
-        trip.org_unit_id,
-        { ...p, method },
-        Number(p.deviceTime),
-      );
-      const id = await payment(
-        db,
-        trip,
-        { ...p, method },
-        "collection",
-        saleId,
-      );
-      if (!p.fiscal)
-        refuse("Download an Official Receipt range before collecting");
-      const [registration] =
-        await db`select r.*,a.registration_snapshot from fiscal_allocations a join fiscal_series s on s.id=a.series_id join fiscal_registrations r on r.id=s.registration_id where a.id=${uuid(p.fiscal.allocationId)}`;
-      if (!registration || registration.org_unit_id !== trip.org_unit_id)
-        refuse("Collection range belongs to another branch");
-      const document = await issueDocument(db, {
-        actor,
-        deviceId: device.id,
-        vehicleId: trip.vehicle_id,
-        allocationId: p.fiscal.allocationId,
-        serial: p.fiscal.serial,
-        documentType: "official_receipt",
-        sourceType: "van_collection",
-        sourceId: id,
-        at: p.deviceTime,
-        snapshot: {
+        const id = await payment(
+          db,
+          trip,
+          { ...p, method },
+          "collection",
           saleId,
-          invoiceNumber: s.receipt_number,
-          payment: {
-            method,
-            label: tender.label,
-            referenceLabel: tender.referenceLabel ?? null,
-            reference: text(p.reference, 100),
-            amountMinor: String(amount),
-            status: method === "cash" ? "recorded" : "awaiting_confirmation",
+        );
+        if (!p.fiscal)
+          refuse("Download an Official Receipt range before collecting");
+        const [registration] =
+          await db`select r.*,a.registration_snapshot from fiscal_allocations a join fiscal_series s on s.id=a.series_id join fiscal_registrations r on r.id=s.registration_id where a.id=${uuid(p.fiscal.allocationId)}`;
+        if (!registration || registration.org_unit_id !== trip.org_unit_id)
+          refuse("Collection range belongs to another branch");
+        const document = await issueDocument(db, {
+          actor,
+          deviceId: device.id,
+          vehicleId: trip.vehicle_id,
+          allocationId: p.fiscal.allocationId,
+          serial: p.fiscal.serial,
+          documentType: "official_receipt",
+          sourceType: "van_collection",
+          sourceId: id,
+          at: p.deviceTime,
+          snapshot: {
+            saleId,
+            invoiceNumber: s.receipt_number,
+            payment: {
+              method,
+              label: tender.label,
+              referenceLabel: tender.referenceLabel ?? null,
+              reference: text(p.reference, 100),
+              amountMinor: String(amount),
+              status: method === "cash" ? "recorded" : "awaiting_confirmation",
+            },
+            totalMinor: String(amount),
+            tax: taxSnapshot(
+              String(amount),
+              registration.registration_snapshot?.taxBasisPoints,
+            ),
           },
-          totalMinor: String(amount),
-          tax: taxSnapshot(
-            String(amount),
-            registration.registration_snapshot?.taxBasisPoints,
-          ),
-        },
-      });
-      await enqueueSapPosting(db, document);
-      result = { entityId: id };
-      break;
-    }
+        });
+        await enqueueSapPosting(db, document);
+        result = { entityId: id };
+        break;
+      }
       case "reload.receive":
         result = await receiveReload(db, trip, actor, p, op.clientOpId);
         break;

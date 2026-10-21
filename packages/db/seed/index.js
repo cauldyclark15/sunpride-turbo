@@ -12,6 +12,7 @@ import { ensureIntegrityFleet } from "./integrity-fleet.js";
 import { appendVanOpsPolicies, seedVanOps } from "./vanops.js";
 import { towerSamples, extendTowerSamples } from "./tower.js";
 import { ensureRetailSamples } from "./retail.js";
+import { ensureStorePosSamples } from "./storepos.js";
 export { resetDemo } from "./store.js";
 
 /** @param {{anchorDate?:string,days?:number}} [options] @param {string[]} [hashes] */
@@ -117,10 +118,17 @@ export function generateDemo(
  * @param {any} db @param {any} summary */
 async function retailSummary(db, summary) {
   await ensureRetailSamples(db);
+  await ensureStorePosSamples(db);
   // F-020 F-310: the original audit manifest is immutable. Derive the additive
   // inventory from ownership markers on every replay instead of rewriting it.
-  const counts = await db`select table_name,count(*)::int as n from sample_data_rows where batch=${BATCH} group by table_name`;
-  return { ...summary, rows: Object.fromEntries(counts.map((/** @type {any} */ r) => [r.table_name, r.n])) };
+  const counts =
+    await db`select table_name,count(*)::int as n from sample_data_rows where batch=${BATCH} group by table_name`;
+  return {
+    ...summary,
+    rows: Object.fromEntries(
+      counts.map((/** @type {any} */ r) => [r.table_name, r.n]),
+    ),
+  };
 }
 /**
  * Seed the deterministic demo in one transaction. Identity hashes are intentionally salted

@@ -85,6 +85,8 @@ internal class RetailRoomFixture : AutoCloseable {
         o.put("_v2",JSONObject().put("subject",scope.fullAuthSubject).put("scopeFingerprint","fingerprint-$suffix")
             .put("epoch","retail-epoch").put("cursor","retail-cursor").put("leaseExpiresAt",Long.MAX_VALUE)
             .put("cacheExpiresAt",Long.MAX_VALUE).put("availability",JSONArray().put(retailJson())))
+        // F-R01 regression gate: the merged fiscal authority requires an explicit sample range.
+        FiscalFixture.add(o,scope.deviceId)
         return o.toString()
     }
     fun ready()=runBlocking { store.replaceBootstrap(snapshot()); Unit }

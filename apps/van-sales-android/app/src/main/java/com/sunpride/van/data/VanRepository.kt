@@ -45,6 +45,47 @@ class VanRepository private constructor(private val context: Context, private va
     private val enrollment = MutableStateFlow<EnrollmentState>(EnrollmentState.SignedOut)
     val sessionState: StateFlow<SessionState> = session.asStateFlow()
     val enrollmentState: StateFlow<EnrollmentState> = enrollment.asStateFlow()
+    val storePos: Flow<com.sunpride.van.storepos.StorePosState> = visible.flatMapLatest { it?.let { st -> com.sunpride.van.storepos.StorePosStore(st).state } ?: flowOf(com.sunpride.van.storepos.StorePosState(null,null,0,0)) }
+    suspend fun openStoreShift(floatCentavos: Long) = withContext(Dispatchers.IO) { com.sunpride.van.storepos.StorePosStore(store()).open(floatCentavos).also { schedule() } }
+    suspend fun closeStoreShift(countCentavos: Long) = withContext(Dispatchers.IO) { com.sunpride.van.storepos.StorePosStore(store()).close(countCentavos).also { schedule() } }
+    suspend fun storeAction(kind:String,payload:JSONObject):String = withContext(Dispatchers.IO) { com.sunpride.van.storepos.StoreTransactions(store()).action(kind,payload).also {schedule()} }
+    suspend fun storeSale(id:String,lines:List<com.sunpride.van.pos.CartLine>,tenders:List<com.sunpride.van.storepos.StoreTransactions.Tender>,total:Long,phone:String?,pin:String?,points:Long):JSONObject = withContext(Dispatchers.IO) {
+        com.sunpride.van.storepos.StoreCheckout.customerLock.withLock {
+            com.sunpride.van.storepos.StoreTransactions(store()).sale(id,lines,tenders,total,phone,pin,points).also {schedule()}
+        }
+    }
+    suspend fun storePrint(id:String):com.sunpride.van.printing.ReceiptDocument = withContext(Dispatchers.IO) {com.sunpride.van.storepos.StoreTransactions(store()).reservePrint(id).also {schedule()}}
+    suspend fun storeLookup(phone:String):JSONObject? = withContext(Dispatchers.IO) {
+        com.sunpride.van.storepos.StoreCheckout.customerLock.withLock {
+            val st=store();check(st.canSync());val epoch=st.authorizationEpoch()
+            check(st.db.rows().outboxRows(st.scope.fullAuthSubject,st.scope.deviceId).none {row->
+                row.kind=="store.sale"&&row.status in setOf("pending","sending")&&JSONObject(row.operationJson).getJSONObject("payload").optString("redeemPoints","0").toLong()>0
+            }) {"Sync saved points sales before refreshing the balance"}
+            val normalized=com.sunpride.van.storepos.StoreCheckout.normalizePhone(phone)
+            val result=api.request("/api/v1/storepos/customers/lookup?phone="+java.net.URLEncoder.encode(normalized,"UTF-8")).optJSONObject("customer")
+            result?.put("lookupId",java.util.UUID.randomUUID().toString())
+            st.db.withTransaction {
+                check(current.value===st && st.authorizationEpoch()==epoch && st.canSync())
+                val meta=checkNotNull(st.db.rows().meta(st.scope.fullAuthSubject,st.scope.deviceId));val policy=JSONObject(checkNotNull(meta.policyJson))
+                policy.getJSONObject("storePos").put("customerLookup",result?:JSONObject.NULL)
+                st.db.rows().insertSyncMeta(meta.copy(policyJson=policy.toString()))
+            }
+            result
+        }
+    }
+    suspend fun switchPosMode(mode:String,pin:String) = withContext(Dispatchers.IO) {
+        val st=store();check(st.canSync());check(st.db.rows().outboxRows(st.scope.fullAuthSubject,st.scope.deviceId).none {it.status in setOf("pending","sending")}) {"Sync saved work before switching mode"}
+        api.request("/api/v1/storepos/mode/switch",JSONObject().put("deviceId",st.scope.deviceId).put("mode",mode).put("pin",pin))
+        syncNow()
+    }
+    suspend fun saveDepositPhoto(capture:com.sunpride.van.evidence.DamageCapture):String = withContext(Dispatchers.IO) {
+        com.sunpride.integrity.RemoteErasure.recordingLock.withLock {
+            val st=store();check(st.canSync())
+            val bytes=com.sunpride.van.evidence.DamagePhotoEncoder.compress(capture,90000)
+            check(st===current.value && st.canSync())
+            photoFiles(st.scope).save(bytes,90000).sha256
+        }
+    }
     val currentTrip: Flow<Trip?> = visible.flatMapLatest { it?.trip ?: flowOf(null) }
     val load: Flow<Load?> = visible.flatMapLatest { it?.load ?: flowOf(null) }
     val loadLines: Flow<List<LoadLine>> = load.map { it?.lines ?: emptyList() }

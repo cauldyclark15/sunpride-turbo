@@ -26,14 +26,14 @@ import java.util.concurrent.atomic.AtomicBoolean
 internal fun executionPhotoPermissionsGranted(camera: Boolean, fineLocation: Boolean, requireLocation: Boolean) =
     camera && (!requireLocation || fineLocation)
 
-@Composable fun DamageCameraScreen(onCaptured: (DamageCapture) -> Unit, onClose: () -> Unit, requireLocation: Boolean = true) {
+@Composable fun DamageCameraScreen(onCaptured: (DamageCapture) -> Unit, onClose: () -> Unit, requireLocation: Boolean = true, title: String = "Damage photo", instructions: String? = null) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
     fun granted(permission: String) = ContextCompat.checkSelfPermission(context,permission) == PackageManager.PERMISSION_GRANTED
     fun allowed() = executionPhotoPermissionsGranted(granted(Manifest.permission.CAMERA),granted(Manifest.permission.ACCESS_FINE_LOCATION),requireLocation)
     val required = remember(requireLocation) { if (requireLocation) arrayOf(Manifest.permission.CAMERA,Manifest.permission.ACCESS_COARSE_LOCATION,Manifest.permission.ACCESS_FINE_LOCATION) else arrayOf(Manifest.permission.CAMERA) }
     var permitted by remember(requireLocation) { mutableStateOf(allowed()) }
-    var message by remember { mutableStateOf(if (requireLocation) "Show the damaged goods clearly. Precise location stamps this photo; your trip-sharing choice is unchanged." else "Show the damaged goods clearly — SAMPLE practice capture") }
+    var message by remember { mutableStateOf(instructions ?: if (requireLocation) "Show the damaged goods clearly. Precise location stamps this photo; your trip-sharing choice is unchanged." else "Show the damaged goods clearly — SAMPLE practice capture") }
     var ready by remember { mutableStateOf(false) }
     var capturing by remember { mutableStateOf(false) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -62,7 +62,7 @@ internal fun executionPhotoPermissionsGranted(camera: Boolean, fineLocation: Boo
         onDispose { disposed.set(true); alive.set(false); ready = false; provider?.unbind(preview,capture) }
     }
     Column(Modifier.fillMaxSize().safeDrawingPadding().padding(16.dp),verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Damage photo",style = MaterialTheme.typography.titleLarge)
+        Text(title,style = MaterialTheme.typography.titleLarge)
         Text(message)
         if (permitted) AndroidView(factory = { view },modifier = Modifier.fillMaxWidth().weight(1f))
         else { Spacer(Modifier.weight(1f)); SecondaryButton(if (requireLocation) "Allow camera & location" else "Allow camera",{ permission.launch(required) }) }

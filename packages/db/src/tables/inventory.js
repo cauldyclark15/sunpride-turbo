@@ -17,6 +17,7 @@ export const INVENTORY_LOCATION_TYPE = /** @type {const} */ ([
   "in_transit",
   "returns",
   "virtual_boundary",
+  "store",
 ]);
 export const PRODUCT_INVENTORY_POLICY_TRACKING_MODE = /** @type {const} */ ([
   "none",
@@ -323,7 +324,7 @@ export const INVENTORY_RECONCILIATION_DIFFERENCE_RESOLUTION_STATUS =
  * @property {string | null} parentLocationId
  * @property {string} code
  * @property {string} name
- * @property {"warehouse" | "zone" | "bin" | "production" | "wip" | "truck" | "in_transit" | "returns" | "virtual_boundary"} type
+ * @property {"warehouse" | "zone" | "bin" | "production" | "wip" | "truck" | "in_transit" | "returns" | "virtual_boundary" | "store"} type
  * @property {boolean} active
  * @property {boolean} allowsPicking
  * @property {boolean} allowsReceiving
