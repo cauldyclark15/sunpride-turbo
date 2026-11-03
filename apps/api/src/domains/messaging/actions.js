@@ -148,7 +148,15 @@ export function installActions(router) {
   for (const method of ["PATCH", "DELETE"])
     route(method, "/messages/:id", async (c) => {
       const row = await M.write(c.db, async (db) => {
-        const m = await M.messageAccess(db, c.actor, c.params.id);
+        // Moderation is the contract's explicit write-only admin exception.
+        // GET, PATCH, search, attachments and subscriptions still require membership.
+        const m =
+          method === "DELETE" && c.actor.capabilities.has("messaging.admin")
+            ? (
+                await db`select * from chat_messages where id=${M.uuid(c.params.id)}`
+              )[0]
+            : await M.messageAccess(db, c.actor, c.params.id);
+        if (!m) throw notFound();
         if (
           m.author_user_id !== c.actor.userId &&
           (method === "PATCH" || !c.actor.capabilities.has("messaging.admin"))

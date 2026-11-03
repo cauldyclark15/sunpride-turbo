@@ -590,6 +590,40 @@ test("durable link jobs extract three URLs, cache previews and keep network inje
     ),
   ).toBe(true);
 });
+test("admin may moderate any message without gaining conversation read access", async () => {
+  const privateDm = await request(1, "/conversations", "POST", {
+    kind: "dm",
+    user_ids: [people[2].id],
+  });
+  const message = await request(
+    1,
+    `/conversations/${privateDm.body.id}/messages`,
+    "POST",
+    { client_msg_id: "moderation", body: "Moderate this message" },
+  );
+  expect(message.status).toBe(201);
+  expect((await request(0, `/conversations/${privateDm.body.id}`)).status).toBe(
+    404,
+  );
+  expect(
+    (await request(0, `/conversations/${privateDm.body.id}/messages`)).status,
+  ).toBe(404);
+  expect(
+    (
+      await request(0, `/messages/${message.body.id}`, "PATCH", {
+        body: "No edit authority",
+      })
+    ).status,
+  ).toBe(404);
+  const removed = await request(0, `/messages/${message.body.id}`, "DELETE");
+  expect(removed.status).toBe(200);
+  expect(removed.body.deleted).toBe(true);
+  expect(removed.body.body).toBe("");
+  expect(removed.body.attachments).toEqual([]);
+  expect((await request(0, `/conversations/${privateDm.body.id}`)).status).toBe(
+    404,
+  );
+});
 test("AI tokens are hashed, chat-only, membership-gated, and revoked on disable", async () => {
   expect(
     (
