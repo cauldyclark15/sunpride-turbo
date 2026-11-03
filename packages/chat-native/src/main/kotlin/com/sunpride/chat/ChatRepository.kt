@@ -29,6 +29,8 @@ class ChatRepository(
     private val io: CoroutineDispatcher = Dispatchers.IO,
     initialMeIds: Set<String> = emptySet(),
     private val persistMeIds: (Set<String>) -> Unit = {},
+    /** False once this account's chat is retired (sign-out, another account): no more polling or sending. */
+    private val isActive: () -> Boolean = { true },
 ) {
     private val _conversations = MutableStateFlow(ConversationsState(items = cache.conversations(), loaded = false))
     val conversations: StateFlow<ConversationsState> = _conversations.asStateFlow()
@@ -168,6 +170,7 @@ class ChatRepository(
 
     /** Queue a message and try to send it now. Returns at once with the queued entry; the screen shows it as sending. */
     suspend fun send(conversationId: String, body: String, parentId: String?, attachments: List<LocalAttachment> = emptyList()): PendingSend {
+        if (!isActive()) throw ChatException.SessionExpired()
         val p = withContext(io) { outbox.enqueue(conversationId, body, parentId, attachments) }
         republishPending(conversationId)
         flushOutbox(force = true)
@@ -175,7 +178,9 @@ class ChatRepository(
     }
 
     suspend fun flushOutbox(force: Boolean = false) {
+        if (!isActive()) return
         flushLock.withLock {
+            if (!isActive()) return
             val r = withContext(io) { runCatching { outbox.flush(force) }.getOrNull() } ?: return
             for ((p, message) in r.sent) {
                 // A message I sent names me exactly; remember it so "mine" is right even if /api/me used another id.
@@ -282,11 +287,13 @@ class ChatRepository(
 
     /** One refresh round: unsent messages, the list, the badge and the open conversation. Never throws. */
     suspend fun tick(openConversation: String?, openThreadParent: String? = null) {
+        if (!isActive()) return
         ensureMe()
         flushOutbox(force = false)
+        if (!isActive()) return
         refreshConversations()
         refreshUnread()
-        if (openConversation != null) {
+        if (openConversation != null && isActive()) {
             refresh(openConversation, null)
             if (openThreadParent != null) refresh(openConversation, openThreadParent)
         }

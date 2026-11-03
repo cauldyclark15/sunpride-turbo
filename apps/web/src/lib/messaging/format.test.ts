@@ -6,6 +6,7 @@ import {
   dayLabel,
   formatBytes,
   groupConversations,
+  previewImageSrc,
 } from "./format";
 import { unreadBadgeText } from "./nav-badge";
 
@@ -61,5 +62,15 @@ describe("sidebar", () => {
     expect(unreadBadgeText({ me: { id: ME.id, display_name: ME.display_name }, total: 0, mentions: 0, conversations: [] })).toBeUndefined();
     expect(unreadBadgeText({ me: { id: ME.id, display_name: ME.display_name }, total: 4, mentions: 0, conversations: [] })).toBe("4");
     expect(unreadBadgeText({ me: { id: ME.id, display_name: ME.display_name }, total: 140, mentions: 2, conversations: [] })).toBe("@ 99+");
+  });
+});
+
+describe("previewImageSrc (SP-0148)", () => {
+  it("keeps only same-origin paths", () => {
+    expect(previewImageSrc(null)).toBeNull();
+    expect(previewImageSrc("https://images.example/a.png")).toBeNull();
+    expect(previewImageSrc("//evil.example/a.png")).toBeNull();
+    expect(previewImageSrc("/\\evil.example/a.png")).toBeNull();
+    expect(previewImageSrc("/api/v1/x")).toBe("/api/v1/x");
   });
 });

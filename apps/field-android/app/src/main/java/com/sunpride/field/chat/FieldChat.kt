@@ -17,7 +17,10 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.sunpride.chat.AccountTokenGuard
+import com.sunpride.chat.ChatAccount
 import com.sunpride.chat.ChatEnvironment
+import com.sunpride.chat.ChatServices
 import com.sunpride.chat.ChatSession
 import com.sunpride.chat.ChatUnreadScheduler
 import com.sunpride.chat.UnreadCheck
@@ -29,6 +32,7 @@ import com.sunpride.field.BuildConfig
 import com.sunpride.field.auth.AuthClient
 import com.sunpride.field.auth.AuthFailure
 import com.sunpride.field.auth.NativeApi
+import com.sunpride.field.auth.SessionVault
 import com.sunpride.field.auth.SessionVaults
 import com.sunpride.field.auth.defaultHttpClient
 import com.sunpride.field.device.KeystoreDeviceKey
@@ -43,22 +47,42 @@ import kotlinx.coroutines.withContext
  */
 object FieldChat {
     private var auth: AuthClient? = null
+    private var vault: SessionVault? = null
+    private var guard: AccountTokenGuard? = null
 
     @Synchronized private fun auth(context: Context): AuthClient = auth ?: run {
         val app = context.applicationContext
-        AuthClient(AppEnvironment(BuildConfig.SUNPRIDE_API_ORIGIN), SessionVaults.app(app), signer = { KeystoreDeviceKey.loadOrCreate(app) }).also { auth = it }
+        val v = SessionVaults.app(app)
+        vault = v
+        AuthClient(AppEnvironment(BuildConfig.SUNPRIDE_API_ORIGIN), v, signer = { KeystoreDeviceKey.loadOrCreate(app) }).also { client ->
+            auth = client
+            guard = AccountTokenGuard({ account() }, client::invalidateAccessToken)
+        }
     }
+
+    /** SP-0148: the signed-in session, as a one-way id; chat state belongs to exactly this account. */
+    private fun account(): String? = ChatAccount.of(runCatching { vault?.readSession() }.getOrNull())
 
     fun session(context: Context): ChatSession {
         val client = auth(context)
+        val tokens = checkNotNull(guard)
         return object : ChatSession {
             override val origin = BuildConfig.SUNPRIDE_API_ORIGIN.trimEnd('/')
             override val appHeader = NativeApi.APP
-            override fun accessToken(forceRefresh: Boolean): String =
+            // A token cached for the previous person is dropped as soon as another session is stored.
+            override fun accessToken(forceRefresh: Boolean): String = tokens.token {
                 try { client.accessToken(forceRefresh) } catch (e: AuthFailure) { throw chatFailureForAuthKind(e.kind.name) }
+            }
             override fun invalidate() = client.invalidateAccessToken()
             override fun extraHeaders(): Map<String, String> = client.deviceKeyId()?.let { mapOf("X-Device-Key-Id" to it) }.orEmpty()
+            override fun account(): String? = FieldChat.account()
         }
+    }
+
+    /** SP-0148: the app signed out. Polling and sending stop and this phone's saved chat is deleted. */
+    fun signOut(context: Context) {
+        synchronized(this) { guard?.reset() }
+        ChatServices.signOut(context.applicationContext)
     }
 
     /** SP-0147: Messages draws its own top bar, so the app's bar is hidden there (one bar on screen, never two). */

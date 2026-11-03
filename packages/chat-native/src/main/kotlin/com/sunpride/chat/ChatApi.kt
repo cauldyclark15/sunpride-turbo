@@ -23,6 +23,35 @@ interface ChatSession {
     fun accessToken(forceRefresh: Boolean): String
     fun invalidate()
     fun extraHeaders(): Map<String, String> = emptyMap()
+    /**
+     * Who is signed in, as a stable non-secret id of the stored session ([ChatAccount.of]); null when signed out.
+     * It changes whenever another session (another person) signs in, and chat state is keyed by it.
+     */
+    fun account(): String?
+}
+
+object ChatAccount {
+    /** A one-way id for a stored `sps_` session: never the token itself, and never reversible to it. */
+    fun of(storedSession: String?): String? = storedSession?.takeIf { it.startsWith("sps_") }
+        ?.let { Hashes.sha256Hex("sunpride-chat-account|$it".toByteArray()).take(32) }
+}
+
+/**
+ * For host adapters that keep their own auth client: drops that client's cached access token whenever the
+ * signed-in account changes, so a token minted for the previous person is never sent for the next one.
+ */
+class AccountTokenGuard(private val account: () -> String?, private val invalidate: () -> Unit) {
+    private var seen: String? = null
+    private var primed = false
+    fun <T> token(fetch: () -> T): T {
+        synchronized(this) {
+            val now = account()
+            if (!primed || now != seen) { invalidate(); seen = now; primed = true }
+        }
+        return fetch()
+    }
+    /** Sign-out: the next token is fetched fresh whatever happens. */
+    @Synchronized fun reset() { primed = false; invalidate() }
 }
 
 sealed class ChatException(message: String, cause: Throwable? = null) : Exception(message, cause) {
@@ -54,8 +83,12 @@ object ChatErrors {
     }
 }
 
-/** All the messaging routes (under /api/v1/messaging) the screens use. Blocking; callers run it off the main thread. */
-class ChatApi(private val session: ChatSession, private val http: OkHttpClient) {
+/**
+ * All the messaging routes (under /api/v1/messaging) the screens use. Blocking; callers run it off the main thread.
+ * With an [account], every authorized call first checks that account is still the one signed in, and refuses
+ * ([ChatException.SessionExpired]) otherwise: an old account's outbox is never sent with a new account's bearer.
+ */
+class ChatApi(private val session: ChatSession, private val http: OkHttpClient, private val account: String? = null) {
     private val base = session.origin.trimEnd('/')
     private val originUrl: HttpUrl? = base.toHttpUrlOrNull()
 
@@ -190,9 +223,14 @@ class ChatApi(private val session: ChatSession, private val http: OkHttpClient) 
     private fun sameOrigin(url: HttpUrl) = originUrl != null && url.host == originUrl.host && url.port == originUrl.port && url.scheme == originUrl.scheme
     private fun authorize(b: Request.Builder, url: HttpUrl, forceRefresh: Boolean = false) {
         if (!sameOrigin(url)) return
-        b.header("Authorization", "Bearer " + session.accessToken(forceRefresh)).header("X-App", session.appHeader)
+        stillSignedIn()
+        val token = session.accessToken(forceRefresh)
+        stillSignedIn()   // again: the account may have changed while the token was fetched
+        b.header("Authorization", "Bearer $token").header("X-App", session.appHeader)
         session.extraHeaders().forEach { (k, v) -> b.header(k, v) }
     }
+
+    private fun stillSignedIn() { if (account != null && session.account() != account) throw ChatException.SessionExpired() }
 
     private fun request(method: String, path: String, body: JSONObject?, query: List<Pair<String, String?>> = emptyList()): Pair<Int, Any> {
         val builder = (base + API + path).toHttpUrlOrNull()?.newBuilder() ?: throw ChatException.Api(400, "invalid", "bad origin")

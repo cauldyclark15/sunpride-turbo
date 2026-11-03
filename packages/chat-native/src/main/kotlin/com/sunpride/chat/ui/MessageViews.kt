@@ -194,7 +194,7 @@ internal fun RefCard(chip: Segment.ObjectChip, onClick: (Segment.ObjectChip) -> 
 @Composable
 internal fun LinkCard(p: LinkPreview) {
     val uri = LocalUriHandler.current
-    val image = rememberRemoteImage(p.imageUrl, 480)
+    val image = rememberRemoteImage(com.sunpride.chat.ChatFormat.previewImage(p.imageUrl), 480)
     val safe = p.url.startsWith("https://") || p.url.startsWith("http://")
     Column(Modifier.width(260.dp).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.surface)
         .clickable(enabled = safe) { runCatching { uri.openUri(p.url) } }.padding(10.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {

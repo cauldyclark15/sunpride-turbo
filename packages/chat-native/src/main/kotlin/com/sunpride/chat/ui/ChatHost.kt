@@ -137,10 +137,13 @@ fun ChatHost(env: ChatEnvironment, onClose: () -> Unit, modifier: Modifier = Mod
         val parts = top.split(":")
         val conv = if (parts[0] == "conv" || parts[0] == "thread") parts.getOrNull(1) else null
         val parent = if (parts[0] == "thread") parts.getOrNull(2) else null
-        while (true) {
+        while (rt.active) {
             rt.repository.tick(conv, parent)
             delay(5_000)
         }
+        // Signed out, or another account signed in: drop this person's chat and open the current one's.
+        runtime = null
+        attempt++
     }
 
     Column(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding()) {

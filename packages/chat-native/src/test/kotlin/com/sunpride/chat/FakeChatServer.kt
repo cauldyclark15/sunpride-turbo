@@ -152,4 +152,5 @@ class TestSession(override val origin: String) : ChatSession {
     var invalidated = 0
     override fun accessToken(forceRefresh: Boolean): String { if (forceRefresh) forced++; return if (forceRefresh) "spa_fresh" else "spa_token" }
     override fun invalidate() { invalidated++ }
+    override fun account(): String? = "test-account"
 }

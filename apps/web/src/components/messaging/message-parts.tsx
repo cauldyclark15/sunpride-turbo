@@ -3,7 +3,7 @@
 import { WorkspaceIcon } from "@sunpride/ui";
 import { useState } from "react";
 import { useEscape } from "../../lib/messaging/escape";
-import { formatBytes } from "../../lib/messaging/format";
+import { formatBytes, previewImageSrc } from "../../lib/messaging/format";
 import type { Attachment, LinkPreview, Reaction } from "../../lib/messaging/types";
 import { IconButton, ModalFrame } from "./primitives";
 
@@ -129,10 +129,10 @@ export function LinkPreviewCard({ link }: { link: LinkPreview }) {
           </span>
         ) : null}
       </span>
-      {link.image_url ? (
-        // eslint-disable-next-line @next/next/no-img-element -- remote preview image.
+      {previewImageSrc(link.image_url) ? (
+        // eslint-disable-next-line @next/next/no-img-element -- same-origin preview image.
         <img
-          src={link.image_url}
+          src={previewImageSrc(link.image_url) ?? undefined}
           alt=""
           loading="lazy"
           referrerPolicy="no-referrer"

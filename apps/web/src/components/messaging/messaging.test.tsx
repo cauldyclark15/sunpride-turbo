@@ -269,3 +269,28 @@ describe("every panel closes with a close control and with Escape", () => {
     expect(html).toContain(">AI<");
   });
 });
+
+describe("SP-0148 link preview images", () => {
+  it("never loads a remote og:image, only a same-origin picture", async () => {
+    const { LinkPreviewCard } = await import("./message-parts");
+    const { LINK } = await import("../../lib/messaging/fixtures");
+    for (const image_url of [
+      null,
+      "https://images.example/pixel.png",
+      "http://10.0.0.1/admin",
+      "//evil.example/x.png",
+    ]) {
+      const html = renderToStaticMarkup(
+        createElement(LinkPreviewCard, { link: { ...LINK, image_url } }),
+      );
+      expect(html).toContain("Q3 retail report");
+      expect(html).not.toContain("<img");
+    }
+    const own = renderToStaticMarkup(
+      createElement(LinkPreviewCard, {
+        link: { ...LINK, image_url: "/api/v1/messaging/previews/abc/image" },
+      }),
+    );
+    expect(own).toContain('src="/api/v1/messaging/previews/abc/image"');
+  });
+});

@@ -110,7 +110,8 @@ export const LINK: LinkPreview = {
   url: "https://example.com/report",
   title: "Q3 retail report",
   description: "Shelf share across Metro Manila.",
-  image_url: "https://example.com/og.png",
+  // SP-0148: the API never sends remote og:image URLs.
+  image_url: null,
   site_name: "Example",
   status: "ready",
 };

@@ -192,3 +192,14 @@ export function initials(name: string): string {
 export function badgeCount(count: number): string {
   return count > 99 ? "99+" : String(count);
 }
+
+/**
+ * SP-0148: a link preview image is shown only when it is served by our own API (a same-origin path).
+ * A remote `og:image` would be fetched by the browser outside the server's pinned, redirect-checked
+ * fetcher, so it is never loaded; the card shows without a picture instead.
+ */
+export function previewImageSrc(url: string | null | undefined): string | null {
+  if (!url || !url.startsWith("/") || url.startsWith("//") || url.includes("\\"))
+    return null;
+  return url;
+}

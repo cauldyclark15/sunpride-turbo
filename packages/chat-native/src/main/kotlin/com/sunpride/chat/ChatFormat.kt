@@ -8,6 +8,12 @@ import java.util.Locale
 
 /** Times and names in plain words. Pure, so it is unit-tested with a fixed zone and clock. */
 object ChatFormat {
+    /**
+     * SP-0148: a link preview picture is loaded only from our own API (a same-origin path). A remote `og:image`
+     * would be fetched by the phone outside the server's pinned, redirect-checked fetcher, so it is never loaded.
+     */
+    fun previewImage(url: String?): String? = url?.takeIf { it.startsWith("/") && !it.startsWith("//") && '\\' !in it }
+
     fun timeOfDay(ms: Long, zone: ZoneId = ZoneId.systemDefault(), locale: Locale = Locale.getDefault()): String =
         DateTimeFormatter.ofPattern("h:mm a", locale).withZone(zone).format(Instant.ofEpochMilli(ms))
 

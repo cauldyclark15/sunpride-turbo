@@ -106,6 +106,8 @@ object UnreadCheck {
     }
 
     fun rememberMe(context: Context, ids: Set<String>) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().putStringSet("me", ids).apply() }
+    /** Another account (or nobody) is signed in: forget who "me" was and the last counts seen. */
+    fun forget(context: Context) { context.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit().clear().apply() }
 
     private fun canNotify(context: Context): Boolean =
         (Build.VERSION.SDK_INT < 33 || ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) &&

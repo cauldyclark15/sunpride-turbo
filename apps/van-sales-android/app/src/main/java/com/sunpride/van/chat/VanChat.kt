@@ -14,7 +14,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
+import com.sunpride.chat.AccountTokenGuard
+import com.sunpride.chat.ChatAccount
 import com.sunpride.chat.ChatEnvironment
+import com.sunpride.chat.ChatServices
 import com.sunpride.chat.ChatSession
 import com.sunpride.chat.ChatUnreadScheduler
 import com.sunpride.chat.UnreadCheck
@@ -47,25 +50,46 @@ object VanChat {
     /** Whether the Messages screen is showing (Home opens it; VanApp draws it). */
     var open by mutableStateOf(false)
 
+    private var vault: KeystoreSessionVault? = null
+    private var guard: AccountTokenGuard? = null
+
     @Synchronized private fun auth(context: Context): AuthClient = auth ?: run {
         val app = context.applicationContext
-        AuthClient(AppEnvironment(BuildConfig.API_ORIGIN), KeystoreSessionVault(app), deviceKey = {
+        val v = KeystoreSessionVault(app)
+        vault = v
+        AuthClient(AppEnvironment(BuildConfig.API_ORIGIN), v, deviceKey = {
             val key = KeystoreDeviceKey.loadOrCreate(app, KeystoreDeviceKey.DEFAULT_ALIAS)
             JSONObject().put("keyId", hex(sha256(key.publicKeySpki))).put("publicKeySpki", key.publicKeyBase64)
-        }).also { auth = it }
+        }).also { client ->
+            auth = client
+            guard = AccountTokenGuard({ account() }, client::invalidateAccessToken)
+        }
+    }
+
+    /** SP-0148: the signed-in session, as a one-way id; chat state belongs to exactly this account. */
+    private fun account(): String? = ChatAccount.of(runCatching { vault?.readSession() }.getOrNull())
+
+    /** SP-0148: the app signed out. Polling and sending stop and this phone's saved chat is deleted. */
+    fun signOut(context: Context) {
+        synchronized(this) { guard?.reset() }
+        ChatServices.signOut(context.applicationContext)
     }
 
     fun session(context: Context): ChatSession {
         val client = auth(context)
+        val tokens = checkNotNull(guard)
         val app = context.applicationContext
         val keyId by lazy { runCatching { hex(sha256(KeystoreDeviceKey.loadOrCreate(app, KeystoreDeviceKey.DEFAULT_ALIAS).publicKeySpki)) }.getOrNull() }
         return object : ChatSession {
             override val origin = BuildConfig.API_ORIGIN.trimEnd('/')
             override val appHeader = RestDeviceApi.APP
-            override fun accessToken(forceRefresh: Boolean): String =
+            // A token cached for the previous person is dropped as soon as another session is stored.
+            override fun accessToken(forceRefresh: Boolean): String = tokens.token {
                 try { client.accessToken(forceRefresh) } catch (e: AuthFailure) { throw chatFailureForAuthKind(e.kind.name) }
+            }
             override fun invalidate() = client.invalidateAccessToken()
             override fun extraHeaders(): Map<String, String> = keyId?.let { mapOf("X-Device-Key-Id" to it) }.orEmpty()
+            override fun account(): String? = VanChat.account()
         }
     }
 
