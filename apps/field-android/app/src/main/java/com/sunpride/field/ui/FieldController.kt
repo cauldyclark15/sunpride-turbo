@@ -1035,6 +1035,8 @@ class LiveFieldBackend(
         signOutNow()
     }
     private fun signOutNow(): Unit {
+        // SP-0148: chat stops polling/sending and its saved messages, outbox and pictures go with the session.
+        runCatching { com.sunpride.field.chat.FieldChat.signOut(context) }
         retireSuggestions()
         signOutTeardown(
         // QSR-010: sign-out leaves only held, encrypted unsent evidence; no cached plan, customers,

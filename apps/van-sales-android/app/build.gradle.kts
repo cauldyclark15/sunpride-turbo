@@ -105,6 +105,9 @@ android {
     sourceSets.getByName("main").resources.srcDir(prepareNativeSchemes)
     sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/callflow-native/src/main/kotlin"))
     sourceSets.getByName("test").java.srcDir(rootProject.file("../../packages/callflow-native/src/test/kotlin"))
+    // SP-0146 v2 messaging: one chat implementation (Compose UI, outbox, cache) for both Android products.
+    sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/chat-native/src/main/kotlin"))
+    sourceSets.getByName("test").java.srcDir(rootProject.file("../../packages/chat-native/src/test/kotlin"))
     // F-616: one catalogue and scanner implementation for both Android products.
     sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/native-catalogue/src/main/java"))
     sourceSets.getByName("main").assets.srcDir(rootProject.file("../api/assets"))

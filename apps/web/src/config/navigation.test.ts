@@ -1,11 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { canAccessWebModule } from "../lib/module-access";
+import { APP_ROLES, canAccessWebModule } from "../lib/module-access";
 import {
   LEGACY_REDIRECTS,
   OWNER_PAGES,
   getWebNavigation,
+  isWebModuleSlug,
   primaryIdFor,
 } from "./navigation";
+import { phoneTitleFor } from "./phone-tabs";
 
 const navFor = (role: string, pathname = "/today") =>
   getWebNavigation(pathname, (slug) => canAccessWebModule(slug, role));
@@ -65,6 +67,27 @@ describe("v2 navigation", () => {
     expect(primaryIdFor("/today")).toBe("today");
     expect(primaryIdFor("/coverage-people/agent")).toBe("coverage-people");
     expect(primaryIdFor("/stores/store")).toBe("stores");
+  });
+
+  it("every internal role sees Messages (messaging.use); partners never do", () => {
+    for (const role of APP_ROLES) {
+      expect(labels(role)).toContain("Messages");
+      expect(canAccessWebModule("messages", role)).toBe(true);
+    }
+    expect(canAccessWebModule("messages", "distributor")).toBe(false);
+    expect(isWebModuleSlug("messages")).toBe(true);
+    expect(primaryIdFor("/messages")).toBe("messages");
+    expect(phoneTitleFor("/messages")).toBe("Messages");
+  });
+
+  it("carries the unread badge onto the Messages item", () => {
+    const items = getWebNavigation(
+      "/today",
+      (slug) => canAccessWebModule(slug, "sales"),
+      { messages: "@ 3" },
+    ).navGroups.flatMap((group) => group.items);
+    expect(items.find((item) => item.id === "messages")?.badge).toBe("@ 3");
+    expect(items.find((item) => item.id === "today")?.badge).toBeUndefined();
   });
 
   it("keeps the old Home and Reports as redirects", () => {

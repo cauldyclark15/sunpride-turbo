@@ -28,6 +28,11 @@
             android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/app_update_paths" />
         </provider>
+        <!-- SP-0146 messaging: camera photos to send, and received files handed to a viewer app. Cache folders only. -->
+        <provider android:name="com.sunpride.chat.ChatFileProvider" android:authorities="${applicationId}.chat"
+            android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/chat_file_paths" />
+        </provider>
         <!-- SP-0126: launches on the logo splash; MainActivity restores Theme.SunprideField. -->
         <activity android:name=".MainActivity" android:exported="true"
             android:theme="@style/Theme.SunprideField.Starting">

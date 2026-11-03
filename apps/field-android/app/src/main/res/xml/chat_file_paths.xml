@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- SP-0146 messaging: only the chat camera and chat download cache folders are shareable, never databases or evidence. -->
+<paths xmlns:android="http://schemas.android.com/apk/res/android">
+    <cache-path name="chat_camera" path="chat-camera/" />
+    <cache-path name="chat_files" path="chat-files/" />
+</paths>

@@ -143,7 +143,7 @@ export function createApp(opts) {
       server = Bun.serve({
         port: o.port ?? 4310,
         hostname: o.hostname ?? "127.0.0.1",
-        maxRequestBodySize: 16 * 1024 * 1024,
+        maxRequestBodySize: 25 * 1024 * 1024,
         fetch: (req, srv) => fetch(req, srv),
         websocket: /** @type {any} */ (realtime.websocket),
       });

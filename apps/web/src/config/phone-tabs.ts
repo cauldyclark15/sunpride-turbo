@@ -63,6 +63,7 @@ const TITLE_LABELS: Record<string, string> = {
 const OTHER_TITLES: Record<string, string> = {
   account: "Account",
   issues: "Issues",
+  messages: "Messages",
   "live-map": "Live map",
   help: "Help",
 };

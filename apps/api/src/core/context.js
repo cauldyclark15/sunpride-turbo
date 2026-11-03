@@ -94,6 +94,38 @@ export async function resolveAuth(db, req) {
       if (row) via = "cookie";
     }
   }
+  // Agent credentials intentionally share the spa_ prefix with access tokens.
+  // Only fall back after the existing session/access path failed, and never
+  // authenticate an agent on a non-chat HTTP route.
+  if (
+    !row &&
+    bearer?.startsWith("spa_") &&
+    (new URL(req.url).pathname.startsWith("/api/v1/messaging/") ||
+      new URL(req.url).pathname === "/ws")
+  ) {
+    const [agent] =
+      await db`select a.user_id,a.display_name,p.id as profile_id,u.email
+      from chat_agents a join users u on u.id=a.user_id join profiles p on p.user_id=u.id
+      where a.token_hash=${sha256Hex(bearer)} and a.disabled_at is null and u.disabled_at is null
+        and p.status='active' and p.deleted_at is null`;
+    if (agent)
+      return {
+        user: { id: agent.user_id, email: String(agent.email) },
+        session: null,
+        via: null,
+        accessExpiresAt: null,
+        actor: {
+          userId: agent.user_id,
+          profileId: agent.profile_id,
+          role: "chat_agent",
+          orgUnitId: null,
+          capabilities: new Set(["messaging.use"]),
+          subject: agent.user_id,
+          name: agent.display_name,
+          scopeEpoch: null,
+        },
+      };
+  }
   if (!row)
     return {
       user: null,

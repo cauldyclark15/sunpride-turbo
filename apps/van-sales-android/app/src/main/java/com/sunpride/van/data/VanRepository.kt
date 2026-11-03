@@ -344,6 +344,8 @@ class VanRepository private constructor(private val context: Context, private va
             try { current.value?.hold() } finally {
                 current.value = null; gateway = null; enrollment.value = EnrollmentState.SignedOut; session.value = SessionState()
                 if(stubMode != null) vault.wipe() else auth.signOut()
+                // SP-0148: chat stops polling/sending and its saved messages, outbox and pictures go too.
+                runCatching { com.sunpride.van.chat.VanChat.signOut(context) }
             }; Unit
         }
     }
