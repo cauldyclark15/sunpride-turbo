@@ -30,6 +30,23 @@ export const MEDIA_PURPOSES = Object.freeze([
 export const MEDIA_MIMES = Object.freeze(["image/jpeg"]);
 export const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
 export const UPLOAD_TTL_MS = 10 * 60 * 1000;
+// Chat claims are authenticated by the messaging domain, never the device-evidence
+// claim route above. They share this uploader and the same content-addressed store.
+export const MESSAGING_MIMES = Object.freeze([
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  "text/csv",
+  "text/plain",
+  "application/zip",
+]);
+export const MESSAGING_MAX_BYTES = 25 * 1024 * 1024;
+export const MESSAGING_THUMB_MAX_BYTES = 1024 * 1024;
 
 /** @param {Record<string,string|undefined>} env */
 export function filesDir(env) {
@@ -38,7 +55,7 @@ export function filesDir(env) {
 }
 
 /** @param {import('./context.js').Ctx} ctx */
-function publicOrigin(ctx) {
+export function publicOrigin(ctx) {
   if (ctx.env.PUBLIC_ORIGIN) return ctx.env.PUBLIC_ORIGIN.replace(/\/$/, "");
   const proto = ctx.req.headers.get("x-forwarded-proto");
   const host =
@@ -112,7 +129,7 @@ async function claim(ctx) {
 }
 
 /** @param {import('./context.js').Ctx} ctx */
-async function upload(ctx) {
+export async function upload(ctx) {
   ctx.v2 = true;
   const uploadId = ctx.params.uploadId;
   if (!isUuid(uploadId)) throw invalid("Invalid upload id");
