@@ -1,5 +1,12 @@
 # Offline and poor-network chaos scenarios
 
+For SP-0089, use the [current real-phone preparation packet](SP_0089_REAL_PHONE_BAD_NETWORK.md)
+and its [unexecuted result sheet](SP_0089_BAD_NETWORK_RESULTS.csv). Neither phone has
+been tested by that lane. The historical findings and capability notes below are
+not current release evidence: iPhone photo capture now exists in source, visit access
+uses the returned day-close expiry rather than a fixed 24-hour lease, and permanent
+revocation must not be followed by re-enrollment as an outbox-recovery shortcut.
+
 This catalogue retains the business faults and manual route checks. It is not a current release execution report or an assertion that every named native case has run. The API is Bun/PostgreSQL with `/api/sync`; iOS is paused and must not be run for this cleanup.
 
 Current server verification sources are `apps/api/test/sync.test.js`, `fieldsync.test.js`, `visits.test.js`, `van.test.js` and `vanops.test.js`, run file-isolated with `SP_LANE=<lane> bun run test`. Android JVM tests exercise retained local state/transport boundaries; only the assigned real-device route can prove process death, encrypted persistence, camera/printer and SIM-removed operation. Record exact test names/counts and logs for each candidate rather than reusing removed server test claims.

@@ -1,0 +1,17 @@
+platform,step,result,execution_record,phone_evidence,office_evidence,defect_or_blocker,notes
+Android,D1,NOT_RUN,,,,Lane prohibits phone use,Preparation only
+Android,D2,NOT_RUN,,,,Lane prohibits phone use,Preparation only
+Android,D3,NOT_RUN,,,,Lane prohibits phone use,Preparation only
+Android,D4,NOT_RUN,,,,Lane prohibits phone use,Preparation only
+Android,D5,NOT_RUN,,,,Lane prohibits phone use,Real elapsed offline interval over 24 hours required
+Android,D6,NOT_RUN,,,,Dedicated test revocation needs jc approval,Run last and retain unsent evidence
+Android,D7,NOT_RUN,,,,Lane prohibits phone use,Preparation only
+Android,D8,NOT_RUN,,,,Lane prohibits phone use,Physical photo upload and retention proof required
+iPhone,D1,NOT_RUN,,,,Lane prohibits phone use and iPhone testing is paused,Preparation only
+iPhone,D2,NOT_RUN,,,,Lane prohibits phone use and iPhone testing is paused,Preparation only
+iPhone,D3,NOT_RUN,,,,Lane prohibits phone use and iPhone testing is paused,Preparation only
+iPhone,D4,NOT_RUN,,,,Lane prohibits phone use and iPhone testing is paused,Preparation only
+iPhone,D5,NOT_RUN,,,,Lane prohibits phone use and iPhone testing is paused,Real elapsed offline interval over 24 hours required
+iPhone,D6,NOT_RUN,,,,Dedicated test revocation and iPhone run need jc approval,Run last and retain unsent evidence
+iPhone,D7,NOT_RUN,,,,Lane prohibits phone use and iPhone testing is paused,Preparation only
+iPhone,D8,NOT_RUN,,,,Lane prohibits phone use and iPhone testing is paused,Photo capture exists in source but installed capability is unverified
