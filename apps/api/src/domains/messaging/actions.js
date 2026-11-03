@@ -2,6 +2,34 @@ import { forbidden, notFound } from "../../core/errors.js";
 import * as M from "./model.js";
 import { saveMentions } from "./tokens.js";
 import { saveLinks } from "./previews.js";
+import { takeOrThrow } from "../../core/rate.js";
+/** Edits re-run mention/link fan-out, so they share the send budget's shape. */
+const EDIT_RATE = { limit: 30, windowMs: 60000 };
+/** Search hits with their conversation, hydrating each conversation once per page.
+ * @param {any} db @param {any} actor @param {any[]} rows */
+export async function searchItems(db, actor, rows) {
+  /** @type {Map<string, Promise<{id:string,title:string,kind:string}>>} */
+  const conversations = new Map();
+  /** @param {string} id */
+  const conversation = (id) => {
+    let p = conversations.get(id);
+    if (!p) {
+      p = (async () => {
+        const conv = await M.member(db, actor, id),
+          view = await M.renderConversation(db, actor, conv);
+        return { id: conv.id, title: view.title, kind: conv.kind };
+      })();
+      conversations.set(id, p);
+    }
+    return p;
+  };
+  return Promise.all(
+    rows.map(async (/** @type {any} */ r) => ({
+      ...(await M.renderMessage(db, actor, r)),
+      conversation: await conversation(r.conversation_id),
+    })),
+  );
+}
 /** @param {any} v @param {any} a */
 function manage(v, a) {
   if (
@@ -147,6 +175,10 @@ export function installActions(router) {
   });
   for (const method of ["PATCH", "DELETE"])
     route(method, "/messages/:id", async (c) => {
+      // Spend the edit budget before taking the chat write lock, so a flood of edits is
+      // refused without queueing behind (or in front of) other conversations' writes.
+      if (method === "PATCH")
+        await takeOrThrow(c.db, `messaging.edit:${c.actor.userId}`, EDIT_RATE);
       const row = await M.write(c.db, async (db) => {
         // Moderation is the contract's explicit write-only admin exception.
         // GET, PATCH, search, attachments and subscriptions still require membership.
@@ -232,16 +264,7 @@ export function installActions(router) {
    and (${cur?.at ?? null}::timestamptz is null or (m.created_at,m.id)<(${cur?.at ?? null}::timestamptz,${cur?.id ?? null}::uuid)) order by m.created_at desc,m.id desc limit 51`;
     const page = rows.slice(0, 50),
       last = page.at(-1);
-    const items = await Promise.all(
-      page.map(async (/** @type {any} */ r) => {
-        const conv = await M.member(c.db, c.actor, r.conversation_id),
-          view = await M.renderConversation(c.db, c.actor, conv);
-        return {
-          ...(await M.renderMessage(c.db, c.actor, r)),
-          conversation: { id: conv.id, title: view.title, kind: conv.kind },
-        };
-      }),
-    );
+    const items = await searchItems(c.db, c.actor, page);
     return {
       items,
       next_cursor:

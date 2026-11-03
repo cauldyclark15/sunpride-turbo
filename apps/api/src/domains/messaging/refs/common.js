@@ -249,18 +249,39 @@ export async function resolveType(db, actor, ids, type) {
   }
   return result;
 }
-/** Search uses the SAME resolver and scope checks, continuing past restricted batches.
- * @param {any} db @param {any} actor @param {string} q @param {number} limit @param {string} type */
-export async function searchType(db, actor, q, limit, type) {
+/** Most candidate rows one search call may resolve (scope checks are per row). */
+export const SEARCH_BUDGET = 200;
+/** Search uses the SAME resolver and scope checks, continuing past restricted batches,
+ * but within a candidate budget: `limit=1` can never walk a whole table. Pass one
+ * `budget` object to share it across the types of one request.
+ * @param {any} db @param {any} actor @param {string} q @param {number} limit @param {string} type
+ * @param {{left:number}} [budget] */
+export async function searchType(
+  db,
+  actor,
+  q,
+  limit,
+  type,
+  budget = { left: SEARCH_BUDGET },
+) {
   const c = config[type];
   if (!c) throw invalid("Unknown reference type");
+  // A type the actor can never read costs nothing.
+  if (!actor.capabilities.has(c.cap)) return [];
   const result = [];
   let after = "00000000-0000-0000-0000-000000000000";
-  for (;;) {
+  while (budget.left > 0) {
+    const take = Math.min(100, budget.left);
     const rows =
       type === "user"
-        ? await db`select u.id from users u join profiles p on p.user_id=u.id where u.id>${after} and strpos(lower(p.name),lower(${q}))>0 order by u.id limit 100`
-        : await db`select id from ${db(c.table)} where id>${after} and strpos(lower(concat_ws(' ',${db(c.title)},${db(c.subtitle)})),lower(${q}))>0 order by id limit 100`;
+        ? // The resolver's own eligibility filter, pushed into SQL.
+          await db`select u.id from users u join profiles p on p.user_id=u.id left join chat_agents a on a.user_id=u.id
+          where u.id>${after} and strpos(lower(p.name),lower(${q}))>0 and u.disabled_at is null and p.status='active' and p.deleted_at is null
+          and (a.user_id is null or a.disabled_at is null)
+          and p.role in ('super_admin','admin','operations','manager','approver','sales','analyst','viewer')
+          and not exists(select 1 from distributor_users d where d.profile_id=p.id) order by u.id limit ${take}`
+        : await db`select id from ${db(c.table)} where id>${after} and strpos(lower(concat_ws(' ',${db(c.title)},${db(c.subtitle)})),lower(${q}))>0 order by id limit ${take}`;
+    budget.left -= rows.length;
     const entries = await resolveType(
       db,
       actor,
@@ -268,7 +289,7 @@ export async function searchType(db, actor, q, limit, type) {
       type,
     );
     result.push(...entries.filter((r) => r.access === "ok"));
-    if (result.length >= limit || rows.length < 100) break;
+    if (result.length >= limit || rows.length < take) break;
     after = rows.at(-1).id;
   }
   return result.slice(0, limit);

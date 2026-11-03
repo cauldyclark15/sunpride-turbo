@@ -11,6 +11,7 @@ import {
   upload,
 } from "../../core/media.js";
 import { randomToken, sha256Hex, HEX64_RE } from "../../core/util.js";
+import { contentMatches } from "./content.js";
 import {
   gate,
   invalid,
@@ -25,7 +26,7 @@ import {
 async function access(db, actor, id) {
   uuid(id);
   const [a] =
-    await db`select a.*,m.conversation_id,m.deleted_at,f.path,f.status from chat_attachments a join files f on f.id=a.blob_id left join chat_messages m on m.id=a.message_id where a.id=${id}`;
+    await db`select a.*,m.conversation_id,m.deleted_at,f.path,f.status,f.upload_token_hash from chat_attachments a join files f on f.id=a.blob_id left join chat_messages m on m.id=a.message_id where a.id=${id}`;
   if (!a) throw notFound();
   if (a.message_id) {
     await messageAccess(db, actor, a.message_id);
@@ -43,13 +44,15 @@ export async function bindAttachments(db, row, ids) {
       a.role !== "file" ||
       a.message_id ||
       a.uploader_user_id !== row.author_user_id ||
-      a.status !== "stored"
+      a.status !== "stored" ||
+      // Still holding its upload link: the finish step (content check) has not run.
+      a.upload_token_hash
     )
       throw invalid("Attachment is not ready or not yours");
     const thumbs =
-      await db`select a.*,f.status from chat_attachments a join files f on f.id=a.blob_id where of_attachment_id=${id}`;
+      await db`select a.*,f.status,f.upload_token_hash from chat_attachments a join files f on f.id=a.blob_id where of_attachment_id=${id}`;
     for (const t of thumbs)
-      if (t.status !== "stored" || !t.width || !t.height)
+      if (t.status !== "stored" || t.upload_token_hash || !t.width || !t.height)
         throw invalid("Thumbnail is not ready");
     await db`update chat_attachments set message_id=${row.id} where id=${id} or of_attachment_id=${id}`;
     await db`update files set upload_token_hash=null,upload_expires_at=null where id in(select blob_id from chat_attachments where id=${id} or of_attachment_id=${id})`;
@@ -167,10 +170,23 @@ export function installAttachments(router) {
       } finally {
         c.v2 = false;
       }
-      // Finish under the same mutation boundary as send: thumbnail checks, then the
-      // link is spent (single use) before anything can bind the attachment.
+      // Check that the bytes really are the declared type, outside the lock (the path is
+      // content-addressed by the claimed digest, so it cannot change underneath us).
+      const [stored] =
+        await c.db`select path from files where id=${a.blob_id} and status='stored'`;
+      const matches =
+        a.role === "thumb" ||
+        (!!stored?.path &&
+          (await contentMatches(join(filesDir(c.env), stored.path), a.mime)));
+      // Finish under the same mutation boundary as send: content and thumbnail checks,
+      // then the link is spent (single use). Binding requires a spent link, so nothing
+      // can bind bytes that have not passed these checks.
       return write(c.db, async (db) => {
         const row = await current(db);
+        if (!matches) {
+          await db`update files set status='pending',path=null,stored_at=null,upload_token_hash=null,upload_expires_at=null where id=${row.blob_id}`;
+          return { refusal: "File content does not match its type" };
+        }
         if (row.role === "thumb") {
           let decoded = null;
           try {

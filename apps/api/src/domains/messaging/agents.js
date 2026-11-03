@@ -1,7 +1,11 @@
 import { resolveAuth } from "../../core/context.js";
-import { conflict, notFound } from "../../core/errors.js";
+import { ApiError, conflict, notFound } from "../../core/errors.js";
 import { randomToken, sha256Hex } from "../../core/util.js";
 import * as M from "./model.js";
+/** Open long-polls one identity may hold at once (per API process). */
+export const MAX_POLLS = 3;
+/** @type {Map<string, number>} */
+const polls = new Map();
 /** @param {import('../../core/router.js').Router} router */
 export function installAgents(router) {
   router.post("/api/v1/messaging/agents", async (c) => {
@@ -77,6 +81,31 @@ export function installAgents(router) {
         !/^\d{1,18}$/.test(String(cur.seq)))
     )
       throw M.invalid("Invalid event cursor");
+    const open = polls.get(a.userId) ?? 0;
+    if (open >= MAX_POLLS)
+      throw new ApiError("rate_limited", 429, "Too many open event polls", true, {
+        action: "retry",
+        retryAfterMs: 1000,
+      });
+    polls.set(a.userId, open + 1);
+    try {
+      return await poll(c, a, cur, wait);
+    } finally {
+      const left = (polls.get(a.userId) ?? 1) - 1;
+      if (left > 0) polls.set(a.userId, left);
+      else polls.delete(a.userId);
+    }
+  });
+}
+/** @param {any} c @param {any} a @param {any} cur @param {number} wait */
+async function poll(c, a, cur, wait) {
+    const signal = c.req.signal;
+    /** Resolves when the client goes away, so its permit is released promptly. */
+    const gone = new Promise((resolve) =>
+      signal.aborted
+        ? resolve(undefined)
+        : signal.addEventListener("abort", () => resolve(undefined), { once: true }),
+    );
     let seq = cur?.seq ?? "0";
     const deadline = Date.now() + wait * 1000;
     c.server?.timeout?.(c.req, wait + 5);
@@ -114,9 +143,11 @@ export function installAgents(router) {
       }
       // The global writer lock guarantees no earlier event can commit after max.
       seq = max.id;
-      if (Date.now() >= deadline || c.req.signal.aborted)
+      if (Date.now() >= deadline || signal.aborted)
         return { events: [], cursor: M.cursor({ v: 1, user: a.userId, seq }) };
-      await Bun.sleep(Math.min(250, Math.max(1, deadline - Date.now())));
+      await Promise.race([
+        Bun.sleep(Math.min(250, Math.max(1, deadline - Date.now()))),
+        gone,
+      ]);
     }
-  });
 }

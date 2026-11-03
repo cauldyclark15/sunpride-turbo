@@ -8,6 +8,7 @@ import {
   resolveType,
   searchType,
   thumbBlob,
+  SEARCH_BUDGET,
 } from "./refs/common.js";
 /** @param {import('../../core/router.js').Router} router */
 export function installDirectory(router) {
@@ -32,9 +33,15 @@ export function installDirectory(router) {
     );
     if (wanted.some((t) => !types.includes(t)))
       throw invalid("Unknown reference type");
+    // Each readable type gets its own candidate budget, so one call does at most
+    // types × SEARCH_BUDGET row checks however large or restricted the tables are.
     const result = [];
-    for (const t of new Set(wanted))
-      result.push(...(await searchType(c.db, a, q, limit, t)));
+    for (const t of new Set(wanted)) {
+      if (result.length >= limit) break;
+      result.push(
+        ...(await searchType(c.db, a, q, limit, t, { left: SEARCH_BUDGET })),
+      );
+    }
     return result.slice(0, limit);
   });
   router.post("/api/v1/messaging/refs/resolve", async (c) => {

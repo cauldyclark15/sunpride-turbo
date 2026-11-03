@@ -259,16 +259,9 @@ export async function fetchPreview(raw, io = {}) {
             chunks.push(r.value);
           }
           const html = Buffer.concat(chunks).toString("utf8");
-          const result = metadata(html, url);
-          // A malicious page must not hand the clients a private-network image URL.
-          if (result.image_url) {
-            try {
-              await target(new URL(result.image_url), io);
-            } catch {
-              result.image_url = null;
-            }
-          }
-          return result;
+          // `og:image` is never passed on: clients would fetch it themselves, outside
+          // this pinned, redirect-checked fetcher (DNS rebinding, private redirects).
+          return { ...metadata(html, url), image_url: null };
         }
       })(),
     ]);
@@ -323,5 +316,6 @@ export function installPreviews(platform, io = {}) {
 }
 /** @param {any} db @param {string} id */
 export async function links(db, id) {
-  return db`select p.url,p.title,p.description,p.image_url,p.site_name,p.status from chat_message_links l join chat_link_previews p on p.url_hash=l.url_hash where l.message_id=${id} order by l.position`;
+  // image_url stays null even for rows cached by older code (see fetchPreview).
+  return db`select p.url,p.title,p.description,null::text as image_url,p.site_name,p.status from chat_message_links l join chat_link_previews p on p.url_hash=l.url_hash where l.message_id=${id} order by l.position`;
 }
