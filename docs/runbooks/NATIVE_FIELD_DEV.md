@@ -24,4 +24,6 @@ Sign-out and device/scope withdrawal lock cached authority independently of fall
 
 Run unit/lint/assemble in each Android project using Android Studio's JBR. Real-device tests require the project's authorized phone wrapper and machine-wide lock; never run an all-device connected task. Build success is not physical-route, battery, camera, receipt or release proof. Do not use a personal phone or emulator as a substitute for the assigned field/van hardware.
 
+The [iOS pilot device checklist (SP-0001)](../qa/IOS_PILOT_DEVICE_CHECKS.md) separates file-protection inspection, forced handler diagnostics, natural OS delivery and native crash collection. It is preparation only: iOS remains paused until jc authorizes a device verification window.
+
 Server checks are the isolated `apps/api` suites, with real throwaway PostgreSQL databases selected by `SP_LANE`. See [backend tests](../architecture/BACKEND_TEST_SUITE.md), [ADR-021](../decisions/ADR-021-MOBILE-SYNC-GATEWAY.md), and [release and cutover](../spec/release-and-cutover.md).
