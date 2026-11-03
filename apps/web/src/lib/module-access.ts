@@ -204,6 +204,12 @@ export const MODULE_ROLES = {
   agencies: integrationReaders, // partner evidence requires integration.read and agency scope
 } as const satisfies Record<PageSlug, readonly AppRole[]>;
 
+/**
+ * MESSAGING_V2 `messaging.use`: every internal role. Partners never see
+ * messaging (the distributor branch below returns before this is read).
+ */
+export const MESSAGING_ROLES = allReaders;
+
 /** Old slugs that redirect; access follows their destination. */
 const ALIASES: Record<string, PageSlug> = {
   dashboard: "today",
@@ -225,6 +231,9 @@ export function canAccessWebModule(
     return (ISSUE_PANEL_ROLES["issues.read"] as readonly string[]).includes(
       role,
     );
+  // Messaging has its own `/messages` route rather than a `[module]` slug.
+  if (slug === "messages")
+    return (MESSAGING_ROLES as readonly string[]).includes(role);
   const page = Object.hasOwn(ALIASES, slug) ? ALIASES[slug]! : slug;
   if (!Object.hasOwn(MODULE_ROLES, page)) return false;
   return (MODULE_ROLES[page as PageSlug] as readonly string[]).includes(role);

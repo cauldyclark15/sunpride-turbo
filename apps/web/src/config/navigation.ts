@@ -1,4 +1,8 @@
-import type { WorkspaceModuleTab, WorkspaceNavGroup } from "@sunpride/ui";
+import type {
+  WorkspaceModuleTab,
+  WorkspaceNavGroup,
+  WorkspaceNavItem,
+} from "@sunpride/ui";
 import { isModuleHiddenForBeta } from "./beta";
 
 /**
@@ -80,6 +84,7 @@ export function isWebModuleSlug(slug: string): boolean {
   return (
     slug === "account" ||
     slug === "distributor" ||
+    slug === "messages" ||
     isWorkspaceSlug(slug) ||
     isOwnerSlug(slug) ||
     Object.hasOwn(LEGACY_REDIRECTS, slug)
@@ -132,6 +137,7 @@ const moduleTabs: Record<string, WorkspaceModuleTab[]> = {
 const tailItems: WorkspaceNavGroup["items"] = [
   { id: "live-map", label: "Live map", href: "/live-map", icon: "mobile" },
   { id: "work", label: "Work", href: "/orders", icon: "board" },
+  { id: "messages", label: "Messages", href: "/messages", icon: "comment" },
   { id: "issues", label: "Issues", href: "/issues", icon: "issues" },
   { id: "setup", label: "Setup", href: "/admin", icon: "admin" },
 ];
@@ -144,6 +150,7 @@ export function primaryIdFor(pathname: string): string {
   if (isOwnerSlug(segment)) return segment;
   if (segment === "live-map") return "live-map";
   if (segment === "issues") return "issues";
+  if (segment === "messages") return "messages";
   for (const [group, tabs] of Object.entries(moduleTabs))
     if (tabs.some((tab) => tab.href === `/${segment}`)) return group;
   return "today";
@@ -167,19 +174,26 @@ function slugOf(href: string) {
 export function getWebNavigation(
   pathname: string,
   canOpen: (slug: string) => boolean = () => true,
+  badges: Partial<Record<string, WorkspaceNavItem["badge"]>> = {},
 ) {
+  const navGroups = navigationForRole(
+    [
+      { id: "owner", items: [...OWNER_PAGES] },
+      { id: "more", items: tailItems },
+    ],
+    canOpen,
+  ).map((group) => ({
+    ...group,
+    items: group.items.map((item) =>
+      badges[item.id] ? { ...item, badge: badges[item.id] } : item,
+    ),
+  }));
   return {
     activePrimaryId: primaryIdFor(pathname),
     moduleTabs: getWebModuleTabs(pathname).filter((tab) =>
       canOpen(slugOf(tab.href)),
     ),
-    navGroups: navigationForRole(
-      [
-        { id: "owner", items: [...OWNER_PAGES] },
-        { id: "more", items: tailItems },
-      ],
-      canOpen,
-    ),
+    navGroups,
   };
 }
 
