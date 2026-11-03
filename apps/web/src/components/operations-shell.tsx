@@ -9,6 +9,8 @@ import { getWebNavigation } from "@/config/navigation";
 import { phoneTabsFor, phoneTitleFor } from "@/config/phone-tabs";
 import { useSession } from "@/lib/auth/session";
 import { canAccessWebModule } from "@/lib/module-access";
+import { useMessagingUnread } from "@/lib/messaging/hooks";
+import { unreadBadgeText } from "@/lib/messaging/nav-badge";
 import {
   AreaPendingNotice,
   BetaBar,
@@ -27,8 +29,15 @@ export function OperationsShell({ children }: { children: ReactNode }) {
       router.replace("/agency");
   }, [agency, pathname, router]);
   const canSeeIssues = canAccessWebModule("issues", current?.role);
-  const navigation = getWebNavigation(pathname, (slug) =>
-    canAccessWebModule(slug, current?.role),
+  const unread = useMessagingUnread(
+    !agency && canAccessWebModule("messages", current?.role)
+      ? current?.subject
+      : null,
+  );
+  const navigation = getWebNavigation(
+    pathname,
+    (slug) => canAccessWebModule(slug, current?.role),
+    { messages: unreadBadgeText(unread) },
   );
 
   const phone = phoneTabsFor(current?.role, navigation.navGroups);
