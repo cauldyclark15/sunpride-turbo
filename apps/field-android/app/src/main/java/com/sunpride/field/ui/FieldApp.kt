@@ -342,6 +342,13 @@ fun FieldApp(
                     com.sunpride.field.census.CensusScreen(backend, location, { page = "home" }, modifier)
                 }
                 ready && page == "workforce" -> com.sunpride.field.ui.workforce.WorkforceScreen(controller,location,modifier)
+                // SP-0146 v2 messaging: the shared chat module; Back inside it steps back, Back on its list returns here.
+                ready && page == "messages" -> com.sunpride.field.chat.FieldMessages(modifier, onClose = { page = "home" },
+                    openHref = { href ->
+                        Regex("^/stores/([^/?#]+)").find(href)?.groupValues?.get(1)
+                            ?.takeIf { id -> controller.today.customers.any { it.outletId == id } }
+                            ?.let { id -> customerId = id; page = "customer"; true } ?: false
+                    })
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = "home" },
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
                 controller.diagnostic != null && visits && ready && controller.photoCaptureOpen ->
@@ -381,6 +388,7 @@ fun FieldApp(
                     onCatalogue = { page = "catalogue" },
                     onTeam = if (FieldFeature.TEAM in features) ({ page = "team" }) else null,
                     workDay = {
+                        com.sunpride.field.chat.FieldMessagesEntry { page = "messages" }
                         SectionCard("Field forms") {
                             Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                                 Text("Attendance and new prospects work offline.",style=MaterialTheme.typography.bodyMedium)

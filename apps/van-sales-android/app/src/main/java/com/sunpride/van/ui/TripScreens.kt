@@ -65,6 +65,7 @@ import java.time.format.DateTimeFormatter
                 "open-close-trip",enabled = closable && !c.busy,onClick = { c.open(Page.CLOSE_TRIP) })
         }
         ListRow("Sync & posting","What is on this phone, with the office and in SAP","open-sync",onClick = { c.open(Page.SYNC) })
+        if (!c.fixtureMode) com.sunpride.van.chat.VanMessagesEntry() // SP-0146 v2 messaging (not in practice-data mode)
         val context = LocalContext.current
         c.features.reportIssueUrl?.let { url -> ListRow("Report an issue","Tell the Sunpride team what went wrong","report-issue",onClick = { openLink(context,url) }) }
         ListRow("POS mode","Van or Store · set by the office","open-pos-mode",onClick = { c.open(Page.POS_MODE) })

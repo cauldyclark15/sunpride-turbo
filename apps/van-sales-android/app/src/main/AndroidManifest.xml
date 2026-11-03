@@ -38,6 +38,11 @@
             android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/app_update_paths" />
         </provider>
+        <!-- SP-0146 messaging: camera photos to send, and received files handed to a viewer app. Cache folders only. -->
+        <provider android:name="com.sunpride.chat.ChatFileProvider" android:authorities="${applicationId}.chat"
+            android:exported="false" android:grantUriPermissions="true">
+            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/chat_file_paths" />
+        </provider>
         <activity android:name=".MainActivity" android:exported="true"
             android:screenOrientation="portrait" android:windowSoftInputMode="adjustResize"
             tools:ignore="DiscouragedApi,LockedOrientationActivity">
