@@ -37,7 +37,10 @@ Sunpride Turbo ships four user-facing products on one Bun API backend:
   waiting on a "native platform ADR" — this is it.
 - iOS distribution adds an Apple Developer account, signing identities and TestFlight/MDM to the
   release plan; these are owner actions and money decisions, raised when the iOS app reaches its
-  first build.
+  first build. The [iOS distribution approach (SP-0013)](../runbooks/IOS_DISTRIBUTION.md) defines
+  invitation-only TestFlight for an authorized pilot and a private Custom App through Apple
+  Business for production, not Enterprise Program signing. Defining this plan does not authorize
+  publication or resume the paused iOS workstream.
 - Scope of the field MVP roughly doubles on the client side. Sequencing (which platform pilots
   first) is a delivery decision, not an architecture one, and is tracked in the issue tracker.
 - `docs/architecture/SYSTEM.md` and the root README still describe the PWA as the field app; they

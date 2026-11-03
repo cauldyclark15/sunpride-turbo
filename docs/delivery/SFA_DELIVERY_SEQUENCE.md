@@ -174,7 +174,7 @@ iOS and Android built side by side: project, sign-in, device, local DB, sync, di
 20. `AND-021` Implement WorkManager background synchronization
 21. `IOS-022` Add iOS structured logging and crash diagnostics
 22. `AND-022` Add Android structured logging and crash diagnostics
-23. `QSR-021` Define iOS enterprise distribution approach
+23. `QSR-021` Define iOS enterprise distribution approach — [SP-0013 release design](../runbooks/IOS_DISTRIBUTION.md) (defined; publication and live-device acceptance remain separate)
 24. `QSR-022` Define Android managed distribution approach
 25. `SFD-008` Approve offline authority and conflict matrix
 26. `SFD-018` Expose scoped product and inventory revisions through mobile sync
