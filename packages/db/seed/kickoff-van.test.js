@@ -448,7 +448,7 @@ test("the generated trip: the phone's own load.confirm posts the stock, trip.sta
       (/** @type {any} */ r) => r.documentType === "official_receipt",
     ),
   ).toBeTruthy();
-  expect(range.nextSerial).toBe("1");
+  expect(range?.nextSerial).toBe("1");
   /** @type {any} */ (globalThis).__kv = { trip, range, bundle };
 });
 
@@ -490,7 +490,7 @@ test("sale -> cash/stock count -> unload -> trip.close through the real van oper
     provider: "gps",
     mockSignal: false,
   });
-  await send("call.start", (at) => ({
+  await send("call.start", (/** @type {number} */ at) => ({
     clientCallId,
     outletId: outlet.id,
     flowDefinitionId: flow.definition.id,
@@ -508,7 +508,7 @@ test("sale -> cash/stock count -> unload -> trip.close through the real van oper
     })
   ).unitPriceCentavos;
   const qty = 2,
-    total = String(BigInt(price) * BigInt(qty));
+    total = String(BigInt(price ?? 0) * BigInt(qty));
   const lot = (
     await h.db`select l.id,l.lot_number,l.expires_at,l.quality_status from inventory_lot_balances b join inventory_lots l on l.id=b.lot_id where b.location_id=${trip.truck_location_id} and b.product_id=${first.id} and b.physical_base>0 and b.stock_status='available' limit 1`
   )[0];
@@ -561,7 +561,7 @@ test("sale -> cash/stock count -> unload -> trip.close through the real van oper
       await h.db`select physical_base::text q from inventory_balances where location_id=${trip.truck_location_id} and product_id=${first.id}`
     )[0].q,
   ).toBe("22");
-  await send("call.close", (at) => ({
+  await send("call.close", (/** @type {number} */ at) => ({
     clientCallId,
     location: fix(at),
     shortCallReason: "Demo drop-off, short dwell",
@@ -812,7 +812,9 @@ test("office receipt, cash hand-in and independent settlement approval close the
     await h.db`select total_centavos::text t,trip_id from van_sales where id=${saleId}`;
   expect(sale.t).toBe(total);
   expect(
-    await h.db`select method,kind,amount_centavos::text a from van_payments where trip_id=${tripId}`,
+    /** @type {unknown} */ (
+      await h.db`select method,kind,amount_centavos::text a from van_payments where trip_id=${tripId}`
+    ),
   ).toEqual([{ method: "cash", kind: "sale", a: total }]);
   const [remit] =
     await h.db`select amount_centavos::text a,received_by,reference from van_cash_remittances where trip_id=${tripId}`;
