@@ -1,15 +1,18 @@
 import { releasesAt } from "./masters.js";
 import { resolveSet, stocking } from "./rules.js";
 import { bounded, midnight } from "../fieldsync/model.js";
+import { isUuid } from "../../core/util.js";
 
 /** F-212/F-316: score the exact frozen checklist, not the superseded merchandising form.
  * An explicit incomplete new checklist supersedes an older complete one.
  * @param {any} db @param {any} visit */
 export async function callAvailability(db, visit) {
-  const [check] =
-    await db`select * from availability_checks where outlet_id=${visit.outlet_id}
+  // Persisted legacy call IDs are text; only canonical UUIDs can match call_key.
+  const [check] = isUuid(visit.client_visit_id)
+    ? await db`select * from availability_checks where outlet_id=${visit.outlet_id}
     and profile_id=${visit.assignee_profile_id} and call_key=${visit.client_visit_id}
-    and device_time>=${visit.checked_in_at} order by device_time desc,id desc limit 1`;
+    and device_time>=${visit.checked_in_at} order by device_time desc,id desc limit 1`
+    : [];
   if (check)
     return check.complete &&
       check.required_count > 0 &&

@@ -3,7 +3,7 @@ import { activePromotions } from "../tpm/active.js";
 import { evaluateSchemes as applyPromotions } from "../tpm/engine.js";
 import { eligibilityFacts } from "../tpm/campaigns.js";
 import { nativePromotions, schemeAccountKey } from "../tpm/native-context.js";
-import { productFor } from "./facts.js";
+import { productFor, stockBearing } from "./facts.js";
 import { integer, safeNumber, refuse, extend, rows, uuid } from "./model.js";
 import {
   authorityRule,
@@ -35,7 +35,7 @@ export async function quoteVanSchemes(db, trip, actor, env, p, customer) {
   const ids = await db`select distinct product_id from (
     select l.product_id from van_trip_load_lines l join van_trip_loads h on h.id=l.load_id
     where h.trip_id=${trip.id} and h.status<>'cancelled' and h.deleted_at is null and l.deleted_at is null
-    union select product_id from inventory_balances where location_id=${trip.truck_location_id} and deleted_at is null
+    union select product_id from inventory_balances where location_id=${trip.truck_location_id} and deleted_at is null and ${stockBearing(db)}
   ) products limit 501`;
   if (ids.length > 500) refuse("Narrow the trip catalog", "invalid_request");
   const products = new Map();

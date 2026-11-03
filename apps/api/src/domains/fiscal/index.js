@@ -4,6 +4,7 @@ import { recordChange } from "../../core/sync.js";
 import { currentActor, currentDeviceActor } from "../van/access.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { uuid, refuse, text, date } from "../van/model.js";
+import { audit as vanAudit } from "../van/facts.js";
 import {
   saveRegistration,
   createSeries,
@@ -25,6 +26,28 @@ import { installCommercial } from "./commercial.js";
 export { allocateDocumentNumber } from "./series.js";
 export { requestOverride } from "./authority.js";
 
+/** The phone lists every applied trip operation in its `trip.close` manifest, including `fiscal.print` (ReceiptPrintStore),
+ * but a print journal row carries no trip. File one operation-keyed audit row under the trip of the PERSISTED source
+ * sale/collection (never the payload's `tripId`), in the op's transaction and only after `documentEvent` passed its
+ * authorization. A source without a trip, or on a trip of another seller or device, is journaled but never filed here.
+ * @param {any} c @param {any} actor @param {{sourceType:string,sourceId:string}} source @param {string} eventId */
+async function auditTripPrint(c, actor, { sourceType, sourceId }, eventId) {
+  const [trip] =
+    sourceType === "van_collection"
+      ? await c.db`select t.* from van_payments p join van_trips t on t.id=p.trip_id where p.id=${sourceId} and p.kind='collection'`
+      : await c.db`select t.* from van_sales s join van_trips t on t.id=s.trip_id where s.id=${sourceId}`;
+  if (
+    !trip ||
+    trip.salesperson_profile_id !== actor.profileId ||
+    trip.salesperson_subject !== actor.subject ||
+    trip.started_device_id !== c.device.id
+  )
+    return;
+  await vanAudit(c.db, trip, actor, c.op.opType, eventId, {
+    clientOpId: c.op.clientOpId,
+  });
+}
+
 /** F-018/F-019/F-020/F-124/F-511. @param {any} router @param {any} ctx */
 export function install(router, ctx) {
   installCommercial(router);
@@ -45,6 +68,7 @@ export function install(router, ctx) {
       documentId: d.id,
       requestKey: c.op.clientOpId,
     });
+    await auditTripPrint(c, actor, { sourceType, sourceId }, result.id);
     c.publish("fiscal");
     return { entityId: result.id };
   });

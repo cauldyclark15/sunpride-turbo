@@ -15,6 +15,7 @@ import {
   date,
 } from "../visits/shared.js";
 import { currentDeviceActor, tripFor, outletFor } from "../van/access.js";
+import { audit as vanAudit } from "../van/facts.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { damagePhoto } from "../van/media.js";
 import {
@@ -207,6 +208,7 @@ async function vanCall(ctx) {
       },
     );
     if (!call) throw invalid("Publish a van call flow first");
+    await auditTripOp(ctx, trip, actor, call.id);
     return { entityId: call.id };
   }
   const call = await ownedCall(ctx, { clientCallId: uuid(p.clientCallId) });
@@ -240,7 +242,18 @@ async function vanCall(ctx) {
       ctx.reject("invalid_request");
     await advance(ctx, call, p.adapter, entityId);
   }
+  await auditTripOp(ctx, trip, actor, call.id);
   return { entityId: call.id };
+}
+/** The phone's trip.close manifest lists every APPLIED trip operation. A repeated step is a semantic no-op in the engine
+ * (no step event), so each accepted van call op owns its own operation-keyed audit row, written in the same transaction
+ * as the op and only after every check above passed (a rejected/refused op rolls back and leaves nothing). The trip comes
+ * from the trusted, already scope-checked trip row, never from the payload alone.
+ * @param {any} ctx @param {any} trip @param {any} actor @param {string} callId */
+async function auditTripOp(ctx, trip, actor, callId) {
+  await vanAudit(ctx.db, trip, actor, ctx.op.opType, callId, {
+    clientOpId: ctx.op.clientOpId,
+  });
 }
 /** @param {any} ctx @param {any} trip @param {string} entityId */
 export async function vanAdapter(ctx, trip, entityId) {

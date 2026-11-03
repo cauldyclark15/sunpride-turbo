@@ -10,3 +10,19 @@
 # Readable crash stack traces in Play/OS reports: keep line numbers, hide source file names.
 -keepattributes SourceFile,LineNumberTable
 -renamesourcefileattribute SourceFile
+
+# Rhino 1.9.1 (scheme engine, packages/native-promotions) references java.beans only in
+# JavaToJSONConverters' default converter for wrapped *Java objects* inside JSON.stringify.
+# java.beans does not exist on Android, and NativeSchemes never exposes Java objects to the script
+# (initSafeStandardObjects, ClassShutter denies everything, input/output are plain JSON strings),
+# so that path is unreachable. Exact classes only; any other missing class still fails the build.
+-dontwarn java.beans.BeanDescriptor
+-dontwarn java.beans.BeanInfo
+-dontwarn java.beans.IntrospectionException
+-dontwarn java.beans.Introspector
+-dontwarn java.beans.PropertyDescriptor
+
+# Rhino loads its regex engine via ServiceLoader.load(<non-constant Class>) from
+# META-INF/services/org.mozilla.javascript.RegExpLoader. R8 can't see that statically and would
+# drop the implementation, silently breaking JS regular expressions in the scheme engine.
+-keep class org.mozilla.javascript.regexp.RegExpLoaderImpl { <init>(); }

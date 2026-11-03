@@ -17,7 +17,7 @@ import { creditRequestsForTrip } from "../integration/credit-exceptions.js";
 import { nativeSchemeContext } from "../tpm/native-context.js";
 import { masterId } from "../integration/replicas.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
-import { productFor } from "./facts.js";
+import { productFor, stockBearing } from "./facts.js";
 import { catalogueMetadata } from "../masters/catalogue.js";
 import { approvalKey } from "./approvals.js";
 import {
@@ -189,8 +189,12 @@ export async function bundle(ctx, env) {
     /** @type {any[]} */ const lines = load
       ? await db`select l.*,p.name from van_trip_load_lines l join products p on p.id=l.product_id where l.load_id=${load.id} and l.deleted_at is null order by l.line_number`
       : [];
+    // Only truck rows holding stock in some status, or for a planned load line, reference a product. A historical
+    // all-zero row owes the phone nothing; counting it would multiply every outlet by dead products (still bounded below).
+    const loadProductIds = new Set(lines.map((l) => l.product_id));
     /** @type {any[]} */ const balances = complete(
-      await db`select * from inventory_balances where location_id=${trip.truck_location_id} and deleted_at is null order by product_id limit 501`,
+      await db`select * from inventory_balances where location_id=${trip.truck_location_id} and deleted_at is null
+        and (${stockBearing(db)} ${loadProductIds.size ? db`or product_id in ${db([...loadProductIds])}` : db``}) order by product_id limit 501`,
       500,
     );
     const productIds = [

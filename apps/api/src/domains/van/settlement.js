@@ -28,6 +28,18 @@ export async function enqueueSapPosting(db, input) {
   return posting;
 }
 
+/** Every trip operation the phone's close manifest must list. Van, availability, call-flow and delivery commands are audited
+ * per operation (`clientOpId`); the call-step union also covers calls recorded before call ops were audited. The adapter
+ * whitelist excludes `system_day_boundary`, whose operation key is ANOTHER call's start op.
+ * @param {any} db @param {string} tripId @returns {Promise<{id:string}[]>} */
+export async function tripOperationIds(db, tripId) {
+  return db`select distinct id from (
+      select details->>'clientOpId' as id from van_audit_events where trip_id=${tripId} and details ? 'clientOpId'
+      union
+      select e.operation_key::text as id from call_step_events e join call_executions c on c.id=e.call_id
+        where c.trip_id=${tripId} and e.adapter in ('check_in','stock_check','note','evidence','check_out')
+    ) k`;
+}
 /** F-117/F-123 frozen, versioned submission, not a warehouse receipt or supervisor approval.
  * @param {any} db @param {any} trip @param {any} actor @param {any} p
  */
@@ -61,8 +73,7 @@ export async function submitSettlement(db, trip, actor, p) {
     refuse("Review the cash and stock differences");
   if (!Array.isArray(p.operations) || p.operations.length > 5000)
     throw invalid("Include the trip operation manifest");
-  const known =
-    await db`select details->>'clientOpId' as id from van_audit_events where trip_id=${trip.id} and details ? 'clientOpId'`;
+  const known = await tripOperationIds(db, trip.id);
   const manifest = new Set(
     p.operations.map((/** @type {any} */ o) => uuid(o.clientRequestId)),
   );
@@ -160,8 +171,11 @@ export async function submitSettlement(db, trip, actor, p) {
     endOdometerKm: p.endOdometerKm,
     note: text(p.note),
   };
-  const hash = sha256Hex(canonicalJson(facts));
-  await db`insert into van_settlements(id,trip_id,version,content_hash,facts,submitted_by,captured_at) values(${id},${trip.id},${(prior?.version ?? 0) + 1},${hash},${facts},${actor.profileId},${new Date(at)})`;
+  // Hash exactly what is stored. Raw row objects carry Date columns (the count lines' created_at/updated_at) that the
+  // canonical form hashes as `{}` but jsonb persists as ISO text, so the SAP adapter's digest check could never match.
+  const frozen = JSON.parse(JSON.stringify(facts));
+  const hash = sha256Hex(canonicalJson(frozen));
+  await db`insert into van_settlements(id,trip_id,version,content_hash,facts,submitted_by,captured_at) values(${id},${trip.id},${(prior?.version ?? 0) + 1},${hash},${frozen},${actor.profileId},${new Date(at)})`;
   if (breach)
     await db`insert into van_variance_cases(settlement_id,policy_id,sales_centavos,variance_centavos,tolerance_basis_points,level,due_at) values(${id},${policy.id},${sales.total},${variance === null ? null : String(variance)},${tolerance},'supervisor',now()+${policy.facts.escalateAfterHours}*interval '1 hour')`;
   await db`update van_trips set status='closing',locally_completed_at=${new Date(at)},end_odometer_km=${p.endOdometerKm},updated_at=now() where id=${trip.id}`;

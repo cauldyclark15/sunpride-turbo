@@ -1,6 +1,7 @@
 import { tx } from "@sunpride/db/client";
 import { currentDeviceActor, tripFor, outletFor } from "../van/access.js";
 import { damagePhoto } from "../van/media.js";
+import { audit as vanAudit } from "../van/facts.js";
 import {
   ownedCall,
   advance,
@@ -86,6 +87,15 @@ export function validateDeliveryLines(expected, captured, reasons) {
     };
   });
 }
+/** The phone's trip.close manifest lists every APPLIED trip operation, so each accepted delivery op owns an
+ * operation-keyed audit row. The trip is the one already derived from the drop's released run (driverDrop), never the
+ * payload. Written in the op's own transaction, after every check passed: a rejected op rolls back and leaves nothing.
+ * @param {any} ctx @param {any} trip @param {any} actor @param {string} kind @param {string} entityId */
+async function auditDeliveryOp(ctx, trip, actor, kind, entityId) {
+  await vanAudit(ctx.db, trip, actor, kind, entityId, {
+    clientOpId: ctx.op.clientOpId,
+  });
+}
 /** F-303 F-304 adapter: immutable proof advances the configured delivery_confirm step in the ONE engine.
  * @param {any} ctx */
 export async function recordProof(ctx) {
@@ -124,6 +134,8 @@ export async function recordProof(ctx) {
   if (prior) {
     if (prior.payload_hash !== hash)
       throw new OpRejected("idempotency_conflict");
+    // Same proof under another op id: no second business effect, but that applied receipt must still be in the manifest.
+    await auditDeliveryOp(ctx, trip, actor, "delivery.confirm", prior.id);
     return { entityId: prior.id };
   }
   if (drop.status !== "scheduled") throw new OpRejected("invalid_transition");
@@ -202,6 +214,7 @@ export async function recordProof(ctx) {
     entityId: proof.id,
     details: { variance },
   });
+  await auditDeliveryOp(ctx, trip, actor, "delivery.confirm", proof.id);
   await ctx.change("delivery", drop.id, `unit:${drop.org_unit_id}`);
   ctx.publish("delivery");
   return { entityId: proof.id };
@@ -210,7 +223,7 @@ export async function recordProof(ctx) {
  * @param {any} ctx */
 export async function recordTiming(ctx) {
   const p = ctx.payload,
-    { drop } = await driverDrop(ctx, p.dropId),
+    { drop, trip, actor } = await driverDrop(ctx, p.dropId),
     at = p.deviceTime;
   if (
     !Number.isSafeInteger(at) ||
@@ -250,6 +263,7 @@ export async function recordTiming(ctx) {
       throw new OpRejected("invalid_transition");
     await ctx.db`update delivery_drops set departed_at=${new Date(at)} where id=${drop.id}`;
   } else throw invalid("Choose arrival, unloading or departure");
+  await auditDeliveryOp(ctx, trip, actor, "delivery.timing", drop.id);
   await ctx.change("delivery", drop.id, `unit:${drop.org_unit_id}`);
   ctx.publish("delivery");
   return { entityId: drop.id };

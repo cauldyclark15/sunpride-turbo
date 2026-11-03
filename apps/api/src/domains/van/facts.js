@@ -37,6 +37,13 @@ export async function productFor(db, id, at = Date.now()) {
     (p.base_code === "EA" ? BigInt(p.scale) : 0n);
   return { ...p, factors, caseBase, pieceBase, quantityScale: BigInt(p.scale) };
 }
+/** A truck `inventory_balances` row where EVERY quantity column is zero/null is a historical footprint (stock once
+ * moved through) that owes the phone nothing; a row where ANY quantity is non-zero (physical, available, reserved,
+ * held, quarantined, damaged, expired, rejected, WIP or in transit) must be counted, returned or reconciled, so its
+ * product stays in the catalogue. Superset of what `assertTruckStock` and kickoff `truck_holds_stock` read.
+ * SQL predicate over unaliased inventory_balances columns. @param {any} db */
+export const stockBearing = (db) =>
+  db`(coalesce(physical_base,0)<>0 or coalesce(available_stock_base,0)<>0 or coalesce(reserved_base,0)<>0 or coalesce(available_base,0)<>0 or coalesce(quality_hold_base,0)<>0 or coalesce(quarantine_base,0)<>0 or coalesce(damaged_base,0)<>0 or coalesce(expired_base,0)<>0 or coalesce(rejected_base,0)<>0 or coalesce(wip_base,0)<>0 or coalesce(in_transit_base,0)<>0)`;
 /** @param {any} p */
 export const frozenProduct = (p) => ({
   productId: p.id,
