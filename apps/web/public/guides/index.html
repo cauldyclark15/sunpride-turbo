@@ -1,0 +1,1020 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex, nofollow">
+  <title>Sunpride guides</title>
+  <meta name="description" content="How to use the Sunpride web app, the Sunpride Field and Sunpride Van Sales phone apps, Live map, Messages, the issue tracker and Setup.">
+  <link rel="icon" href="../icon-192.png">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+  <a class="skip" href="#content">Skip to content</a>
+
+  <header class="topbar">
+    <button class="menu-btn" id="menu-btn" type="button" aria-label="Open the page list">&#9776;</button>
+    <a class="brand" href="#welcome" aria-label="Sunpride guides, start page">
+      <img src="img/sunpride-logo.jpg" alt="Sunpride logo">
+      <span class="word">Sunpride <small>guides</small></span>
+    </a>
+    <div class="search" role="search">
+      <input id="search" type="search" placeholder="Search the guides" aria-label="Search the guides" autocomplete="off">
+      <div class="results" id="results" role="listbox"></div>
+    </div>
+  </header>
+
+  <div class="shell">
+    <aside class="sidebar" id="sidebar" aria-label="Guide pages">
+      <nav id="nav" aria-label="Pages"></nav>
+      <p class="nav-empty" id="nav-empty">No page matches. Clear the search to see them all.</p>
+      <p class="beta-note">Sample data is shown in the screenshots. Your company&rsquo;s figures will differ.</p>
+    </aside>
+    <div class="scrim" id="scrim"></div>
+
+    <main class="content" id="content">
+
+      <!-- ===================== START HERE ===================== -->
+
+      <section class="page" id="p-welcome" data-group="Start here" data-title="Welcome" data-keywords="introduction start overview apps web field van sales access invitations">
+        <div class="doc">
+          <p class="crumb">Start here</p>
+          <h1>Welcome to Sunpride</h1>
+          <p class="lede">This guide walks you through the Sunpride apps during testing: the web app for the office, and two phone apps for the field and the van. Each page shows the real screens, followed by the steps to get things done.</p>
+
+          <h2>The three apps</h2>
+          <p>Pick the app that matches your job. Your administrator decides which pages you can open, so you may see fewer pages than the guide describes.</p>
+          <div class="cards">
+            <a class="card" href="#today">
+              <span class="ico">W</span>
+              <strong>Sunpride web app</strong>
+              <span>For office staff, managers and administrators. Open it in any desktop browser at <code>sunpride.cauldnclark.com</code>.</span>
+              <em>Start with Today &rarr;</em>
+            </a>
+            <a class="card" href="#field-app">
+              <span class="ico">F</span>
+              <strong>Sunpride Field</strong>
+              <span>The Android app for sales agents: the day&rsquo;s stores, visits, orders, products, outlet census and offline work.</span>
+              <em>Read the Field guide &rarr;</em>
+            </a>
+            <a class="card" href="#van-app">
+              <span class="ico">V</span>
+              <strong>Sunpride Van Sales</strong>
+              <span>The Android point-of-sale app for van sellers: loading the truck, selling, receipts, cash and closing the trip.</span>
+              <em>Read the Van Sales guide &rarr;</em>
+            </a>
+          </div>
+
+          <h2>When testing starts</h2>
+          <p>Invitations start to go out <strong>Monday, 9 November 2026</strong>, by email. The web address stays the same for the whole testing period.</p>
+          <div class="callout note">
+            <span class="label">Before you start</span>
+            Follow the steps on <a href="#get-started">Sign in and install</a>. Phone apps are installed from a shared folder, not the Play Store.
+          </div>
+
+          <h2>How to tell us what does not work</h2>
+          <p>The web app has a <strong>Report an issue</strong> button at the top of every page, and the Van Sales app has one on its home screen. Describe what you did and what went wrong. The <a href="#issues">issue tracker</a> page explains what makes a good report.</p>
+        </div>
+      </section>
+
+      <section class="page" id="p-get-started" data-group="Start here" data-title="Sign in and install" data-keywords="invitation email create account password role sign in install google drive play store update android">
+        <div class="doc">
+          <p class="crumb">Start here</p>
+          <h1>Sign in and install</h1>
+          <p class="lede">You need an invitation email, one account, and (for the phone apps) the install folder link. You only do this once; after that you sign in as usual.</p>
+
+          <h2>Sign in to the web app</h2>
+          <ol class="steps">
+            <li><strong>Watch for the invitation email</strong>Invitations start on Monday, 9 November 2026. The email comes from the Sunpride team.</li>
+            <li><strong>Open the link in the email</strong>It takes you to the sign-in page at <code>sunpride.cauldnclark.com</code>.</li>
+            <li><strong>Choose Create account</strong>Use the <em>same email address</em> the invitation was sent to. Choose a password of 8 to 128 characters.</li>
+            <li><strong>Sign in</strong>Enter your email and password on the sign-in page. Next time, go straight to the address and sign in.</li>
+            <li><strong>Check what you can see</strong>Your role decides which pages open. The side menu only lists the pages you can use.</li>
+          </ol>
+          <div class="callout warning">
+            <span class="label">Use the invitation email address</span>
+            If you sign up with a different address, the invitation will not match and you will not see your pages. Ask your administrator to send the invitation again to the right address.
+          </div>
+
+          <h2>Install the phone apps</h2>
+          <p>During testing, the Sunpride Field and Sunpride Van Sales apps are shared through a Google Drive folder called <strong>sunpride_apps</strong>. The link to that folder is sent to you in <strong>Messages</strong>. It is not on the Play Store.</p>
+          <ol class="steps">
+            <li><strong>Open the link from Messages</strong>Tap the link on your phone and open the folder.</li>
+            <li><strong>Download the app you need</strong>Field for sales agents, Van Sales for van sellers.</li>
+            <li><strong>Allow the install when Android asks</strong>Android may ask permission to install from this source. Allow it, then tap Install.</li>
+            <li><strong>Open the app and sign in</strong>Use the same email and password as the web app.</li>
+          </ol>
+
+          <h2>Updates</h2>
+          <p>When a new version is ready, two things happen. You get a <strong>System</strong> message in Messages with the download link, and an <strong>Update available</strong> bar appears in the app.</p>
+          <ul>
+            <li>Install the new version <strong>over</strong> the current app, not after removing it.</li>
+            <li>Your saved work stays on the phone. You do not need to sign out or sync first, but finish any open visit or sale before you install.</li>
+          </ul>
+          <div class="callout tip">
+            <span class="label">Where to see your version</span>
+            In the Field app, open <strong>Account</strong> from the top right. It shows your phone model, Android version and the app version. Include these in any issue you report.
+          </div>
+
+          <h2>Your role</h2>
+          <p>Your administrator sets a role for each person. Roles decide what you can open and change. If a page shows <em>Access denied</em> or says your role cannot open it, ask your administrator rather than trying again.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Role</th><th>Typical use</th></tr></thead>
+              <tbody>
+                <tr><td>Administrator</td><td>Full access, including Setup.</td></tr>
+                <tr><td>Sales manager</td><td>Team views: coverage, supervision and the team&rsquo;s daily reports.</td></tr>
+                <tr><td>Operations</td><td>Office operations, as your administrator sets them up.</td></tr>
+                <tr><td>Approver</td><td>Approves the requests sent to them.</td></tr>
+                <tr><td>Sales</td><td>Field and van sellers. Works in the phone apps; the web app shows their own work.</td></tr>
+                <tr><td>Analyst or viewer</td><td>Reads the numbers and reports. A viewer has read-only access.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== WEB APP: OWNER QUESTIONS ===================== -->
+
+      <section class="page" id="p-today" data-group="Web app" data-title="Today" data-keywords="today home dashboard needs me urgent field right now sales today target coverage collections vans out">
+        <div class="doc">
+          <p class="crumb">Web app</p>
+          <h1>Today</h1>
+          <p class="lede">The first page after you sign in. It answers two questions: how are we doing right now, and what needs me?</p>
+
+          <figure class="shot">
+            <img src="img/web-today.webp" alt="The Today page of the web app: filters at the top, four headline figures, a Needs you now list and a field table" loading="lazy" width="1440" height="900">
+            <figcaption>Today, with sample data. Your figures will differ. The &ldquo;No target&rdquo; labels appear until targets are set.</figcaption>
+          </figure>
+
+          <h2>What the page shows</h2>
+          <ul>
+            <li><strong>Header.</strong> The date, when the figures were last updated, and how many phones have not synced recently.</li>
+            <li><strong>Filters.</strong> Pick a day or period (Today, Yesterday, and more), a company, area or branch, and a channel such as General trade or Key accounts.</li>
+            <li><strong>Headline figures.</strong> Sales today, month-to-date sales, what is still needed to reach the month&rsquo;s target, and how much is needed each selling day.</li>
+            <li><strong>Needs you now.</strong> The most urgent items, with who owns each one. Open all of them in <a href="#decide">Decide</a>.</li>
+            <li><strong>Sales vs target by channel.</strong> The selected day against its daily target, with the last 14 days in a table.</li>
+            <li><strong>Field right now.</strong> Each person&rsquo;s status: <span class="chip">No plan</span> <span class="chip">Not started</span> <span class="chip">In a call</span> <span class="chip">Done</span> <span class="chip">Idle</span>, plus their last check-in, stops, productive calls and sales.</li>
+          </ul>
+
+          <h2>Common tasks</h2>
+          <ol class="steps">
+            <li><strong>Check the month</strong>Read the month-to-date figure against its target. If it says &ldquo;No target&rdquo;, the target has not been set yet (see <a href="#sales">Sales &amp; targets</a>).</li>
+            <li><strong>Work the Needs you now list</strong>Select <em>Review</em> on an item to see the evidence and the next action. Items marked <em>Urgent</em> come first.</li>
+            <li><strong>Find someone who has not started</strong>In Field right now, filter the table to <em>Not started</em> or <em>No plan</em>, then open the person to see their day.</li>
+            <li><strong>Save the numbers</strong>Choose <em>Download Excel</em> at the top right to take the table into a spreadsheet.</li>
+          </ol>
+          <div class="callout note">
+            <span class="label">Why a figure may be zero</span>
+            A phone that has not synced will not show its sales yet. Check the &ldquo;phones not synced&rdquo; line in the header before you act on a zero.
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="p-sales" data-group="Web app" data-title="Sales &amp; targets" data-keywords="sales targets attainment orders drop size buying accounts running total primary secondary distributor sell-in offtake order to posting territory channel">
+        <div class="doc">
+          <p class="crumb">Web app</p>
+          <h1>Sales &amp; targets</h1>
+          <p class="lede">Are we on target, and where are we behind? This page shows sales against target for any period, and drills down from the whole company to a single seller.</p>
+
+          <figure class="shot">
+            <img src="img/web-sales.webp" alt="The Sales and targets page with period tabs, headline sales figures, a running total chart and a territory table" loading="lazy" width="1440" height="900">
+            <figcaption>Sales &amp; targets with sample data. Sales show &#8369;0 here because the sample period has no recorded sales.</figcaption>
+          </figure>
+
+          <h2>What the page shows</h2>
+          <ul>
+            <li><strong>Period tabs.</strong> Today, This week, Month to date, Last month, or a custom range. Compare against the prior period or last year.</li>
+            <li><strong>Headline figures.</strong> Sales, the target for the period, attainment, what is still needed this month, and the amount needed each selling day.</li>
+            <li><strong>Order figures.</strong> Orders, drop size, lines per order and the number of unique buying accounts.</li>
+            <li><strong>Running total.</strong> Cumulative sales against target through the month, with the prior period alongside.</li>
+            <li><strong>From order to posting.</strong> How much of the sales is <em>booked</em>, <em>approved</em> (passed the credit and price checks) and <em>posted</em> (sent on to SAP).</li>
+            <li><strong>Sales by territory.</strong> The rows behind first. Group by channel, territory, agent, category, product or store.</li>
+            <li><strong>Primary versus secondary.</strong> Shipments to distributors against retailer offtake. This section is marked as sample data until real source data is connected.</li>
+          </ul>
+
+          <h2>Set a target</h2>
+          <ol class="steps">
+            <li><strong>Open the Set targets tab</strong>It sits above the figures at the top of the page.</li>
+            <li><strong>Choose the period and who the target is for</strong>Enter the goal for each.</li>
+            <li><strong>Save</strong>The page refreshes. Targets appear against the figures straight away.</li>
+          </ol>
+          <div class="callout tip">
+            <span class="label">Read the balance, not only the total</span>
+            &ldquo;Balance to sell this month&rdquo; and &ldquo;Needed each selling day&rdquo; tell you whether the rest of the month is realistic. Use them to decide where to focus next week.
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="p-coverage" data-group="Web app" data-title="Coverage &amp; people" data-keywords="coverage plans call sheets supervision DSR DAR ROAR daily sales report daily activity report team visits planned calls journey plan MCP work with per diem territory">
+        <div class="doc">
+          <p class="crumb">Web app</p>
+          <h1>Coverage &amp; people</h1>
+          <p class="lede">Did my people do the plan? This is where you check planned calls, the team&rsquo;s day, and the daily reports that come from the field.</p>
+
+          <figure class="shot">
+            <img src="img/web-coverage-people.webp" alt="Coverage and people page: plan adherence for four weeks, coverage measures and a table of who is in the field" loading="lazy" width="1440" height="900">
+            <figcaption>Coverage &amp; people with sample data. Plan adherence is the share of planned calls that were closed.</figcaption>
+          </figure>
+
+          <h2>What the page shows</h2>
+          <ul>
+            <li><strong>Plan adherence.</strong> Planned calls closed, by week, over the last four weeks. Unplanned calls never raise this figure.</li>
+            <li><strong>Coverage measures.</strong> Missed stops, off-plan visits, productive calls, time in market, order strike rate, lines per call, and how many stores are covered and billed.</li>
+            <li><strong>Distribution measures.</strong> Numeric and weighted distribution and on-shelf availability, where the data is set up.</li>
+          </ul>
+
+          <h2>The pages in this group</h2>
+          <p>Use the tabs across the top of the Work pages to move between them. Each one is listed below.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Page</th><th>Use it to</th></tr></thead>
+              <tbody>
+                <tr><td><a href="#coverage/coverage-plans">Coverage plans</a></td><td>See who has submitted, approved or started a monthly plan, and approve them.</td></tr>
+                <tr><td><a href="#coverage/coverage-plans">Call sheets</a></td><td>Open one account&rsquo;s monthly call sheet, by name or outlet code.</td></tr>
+                <tr><td><a href="#coverage/coverage-plans">Supervision</a></td><td>See the team&rsquo;s day, what is overdue and who has not sent a daily activity report.</td></tr>
+                <tr><td><a href="#coverage/coverage-plans">DSR</a></td><td>Read one seller&rsquo;s daily sales report, or the whole team&rsquo;s.</td></tr>
+                <tr><td><a href="#coverage/coverage-plans">DAR / ROAR</a></td><td>Read a daily activity report, and see which team submissions are missing.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2 id="coverage-plans">Coverage plans</h2>
+          <p>A coverage plan is each person&rsquo;s monthly route of stores and calls. The page shows the month&rsquo;s commitments: how many people are ready, and who still needs a plan.</p>
+          <figure class="shot">
+            <img src="img/web-coverage-plans.webp" alt="Coverage plans page showing commitments for the month, plan status counts and a list of people who need action" loading="lazy" width="1440" height="900">
+            <figcaption>Coverage plans with sample data. Statuses run from Not started and Draft to Submitted, Approved and Active.</figcaption>
+          </figure>
+          <ol class="steps">
+            <li><strong>Check who needs action</strong>The &ldquo;Who needs action&rdquo; table lists each person with their plan status, deadline and the next action, such as <em>Start plan</em>.</li>
+            <li><strong>Approve a submitted plan</strong>Open the person&rsquo;s plan. Check the calls and the stores, then approve it before the deadline shown.</li>
+            <li><strong>Adjust the next beat</strong>Journey plans and territory rebalancing are in the same Work menu, if you need to move stores between people.</li>
+          </ol>
+
+          <h2>Supervision</h2>
+          <p>Supervision is the team&rsquo;s day in one table: planned, visited and productive calls today, the week against the prior week, work-with sessions, open actions, per diem and whether the daily activity report is in.</p>
+          <figure class="shot">
+            <img src="img/web-supervision.webp" alt="Supervision page with a team table of planned, visited and productive calls and open actions" loading="lazy" width="1440" height="900">
+            <figcaption>Supervision with sample data. Exceptions are listed first.</figcaption>
+          </figure>
+          <ul>
+            <li>Use the <strong>Date</strong>, <strong>Unit</strong> and <strong>Channel</strong> filters to narrow the team.</li>
+            <li>Tick <strong>My team only</strong> to hide people outside your reporting line.</li>
+            <li>Choose <strong>Export CSV</strong> to take the table into a spreadsheet, or <strong>Print / Save PDF</strong> to keep a copy.</li>
+          </ul>
+
+          <h2>Call sheets</h2>
+          <ol class="steps">
+            <li><strong>Pick an account</strong>Search by name, or type the outlet code.</li>
+            <li><strong>Read the month</strong>The sheet lists each visit planned for the month. Use Previous and Next to move through the list of accounts.</li>
+          </ol>
+          <figure class="shot">
+            <img src="img/web-call-sheets.webp" alt="Call sheets page with a list of accounts and a search box" loading="lazy" width="1440" height="900">
+            <figcaption>Call sheets: choose an account to open its monthly sheet.</figcaption>
+          </figure>
+
+          <h2>DSR: daily sales report</h2>
+          <p>Choose a date and a salesman to see that person&rsquo;s daily sales report. Choose <em>Whole team</em> to see everyone for the day.</p>
+          <figure class="shot">
+            <img src="img/web-dsr.webp" alt="Daily sales report page with date, salesman picker and the team list" loading="lazy" width="1440" height="900">
+            <figcaption>DSR: pick a salesman, or switch to the whole team.</figcaption>
+          </figure>
+
+          <h2>DAR / ROAR: daily activity report</h2>
+          <p>Each seller&rsquo;s daily activity report is due at <strong>10 PM</strong>. The page has two tabs:</p>
+          <ul>
+            <li><strong>My DAR</strong> shows your own report for the chosen day: calls, productive calls, stores not visited, work-with sessions and whether the report is submitted.</li>
+            <li><strong>Team submissions</strong> shows who has submitted and who has not.</li>
+          </ul>
+          <figure class="shot">
+            <img src="img/web-dar-roar.webp" alt="Daily activity report page showing calls, productive calls, not visited stores and submission status" loading="lazy" width="1440" height="900">
+            <figcaption>DAR with sample data. Use Print / Save PDF to keep a copy.</figcaption>
+          </figure>
+          <div class="callout note">
+            <span class="label">Who can see what</span>
+            The team submissions view is for people who manage a team. Everyone else sees their own report.
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="p-stores" data-group="Web app" data-title="Stores" data-keywords="stores distribution buying stores dormant new lost store universe store list store page gaps open balance">
+        <div class="doc">
+          <p class="crumb">Web app</p>
+          <h1>Stores</h1>
+          <p class="lede">Where is distribution weak? This page shows every store, whether it is buying, and what has changed since the prior period.</p>
+
+          <figure class="shot">
+            <img src="img/web-stores.webp" alt="Stores page with distribution figures, a buying stores chart and a list of stores with their status" loading="lazy" width="1440" height="900">
+            <figcaption>Stores with sample data. Most sample stores are dormant because the sample period has few orders.</figcaption>
+          </figure>
+
+          <h2>What the page shows</h2>
+          <ul>
+            <li><strong>Distribution figures.</strong> The store universe, active buying stores, unique buying accounts, new and lost stores, and dormant stores.</li>
+            <li><strong>Buying stores by week.</strong> How many different stores ordered each week.</li>
+            <li><strong>Store list.</strong> Filter to <em>All</em>, <em>Buying</em>, <em>Dormant</em>, <em>New</em>, <em>Lost</em> or <em>Never bought</em>. Each row shows the status, sales, change against the prior period, when the store last ordered and was last visited, products bought, gaps and open balance.</li>
+          </ul>
+
+          <h2>Find a store that has gone quiet</h2>
+          <ol class="steps">
+            <li><strong>Filter to Dormant</strong>Pick the period first, then choose <em>Dormant</em>.</li>
+            <li><strong>Look at the Last order column</strong>It shows how long each store has been quiet.</li>
+            <li><strong>Open the store</strong>Click the row for everything about the store: its visits, orders and balance.</li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="page" id="p-stock" data-group="Web app" data-title="Products &amp; stock" data-keywords="products stock inventory on hand value days of cover low stock near expiry depot truck location watch bad orders stock count">
+        <div class="doc">
+          <p class="crumb">Web app</p>
+          <h1>Products &amp; stock</h1>
+          <p class="lede">Is the right stock in the right place? This page shows what is on hand, where it is, and how many days it will last.</p>
+
+          <figure class="shot">
+            <img src="img/web-stock.webp" alt="Products and stock page with stock figures, a location list and a product table with status" loading="lazy" width="1440" height="900">
+            <figcaption>Products &amp; stock with sample data. Quantities are shown as cases and pieces.</figcaption>
+          </figure>
+
+          <h2>What the page shows</h2>
+          <ul>
+            <li><strong>Figures.</strong> Stock value, SKUs out at the depot, low stock, days of cover, near-expiry stock and bad orders.</li>
+            <li><strong>Where the stock is.</strong> Each depot and truck, with its value and cases. Trucks without a valuation show <em>Not valued</em>.</li>
+            <li><strong>Every product.</strong> On hand, value, how many a day sell, days of cover, stocking and buying reach, and a status. A product marked <em>Watch</em> needs a look; <em>On track</em> needs nothing.</li>
+          </ul>
+
+          <h2>Check one product</h2>
+          <ol class="steps">
+            <li><strong>Search</strong>Use the product table. Stock exceptions are listed first.</li>
+            <li><strong>Read the cover</strong>Days of cover tells you when the product runs out at the current sales rate.</li>
+            <li><strong>Find the stock</strong>Check the location list to see whether the stock is at the depot or on a truck.</li>
+          </ol>
+          <div class="callout note">
+            <span class="label">A dash in days of cover</span>
+            A dash means the figure has not been measured yet. It is not zero.
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="p-vans" data-group="Web app" data-title="Vans &amp; cash" data-keywords="vans trucks van trips cash expected remitted variance stock variance loaded sold returned settlement van sales">
+        <div class="doc">
+          <p class="crumb">Web app</p>
+          <h1>Vans &amp; cash</h1>
+          <p class="lede">Is every truck&rsquo;s stock and money accounted for? This page follows each van trip from loading to the cash handed in.</p>
+
+          <figure class="shot">
+            <img src="img/web-vans.webp" alt="Vans and cash page with trip count, van sales, cash expected and remitted, and the trips table" loading="lazy" width="1440" height="900">
+            <figcaption>Vans &amp; cash with sample data. No trips were made on the sample day shown.</figcaption>
+          </figure>
+
+          <h2>What the page shows</h2>
+          <ul>
+            <li><strong>Figures.</strong> Trips out, van sales, cash expected, cash remitted, cash variance and stock variance.</li>
+            <li><strong>Trips table.</strong> Each trip, loaded, sold and returned, with cash expected against cash remitted. Differences are highlighted.</li>
+          </ul>
+
+          <h2>Check a trip that does not balance</h2>
+          <ol class="steps">
+            <li><strong>Find the highlighted trip</strong>Differences are shown in colour.</li>
+            <li><strong>Compare the stock</strong>Set the stock loaded, sold, returned and counted at close side by side.</li>
+            <li><strong>Compare the cash</strong>Expected cash against cash remitted. Until the trip is settled, the figure shows as <em>Pending trip settlement</em>.</li>
+          </ol>
+          <div class="callout warning">
+            <span class="label">Pending means not finished</span>
+            Cash and stock variances stay pending until the van trip is settled. Do not treat a pending figure as a shortage.
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="p-money" data-group="Web app" data-title="Money" data-keywords="money collections receivables accounts receivable overdue aging credit breach held orders van money tender cash on account bank cleared">
+        <div class="doc">
+          <p class="crumb">Web app</p>
+          <h1>Money</h1>
+          <p class="lede">Are we collecting? This page shows what customers owe, how old it is, and the money captured on the vans.</p>
+
+          <figure class="shot">
+            <img src="img/web-money.webp" alt="Money page with collection figures, an ageing bar for receivables and a list of accounts with balances" loading="lazy" width="1440" height="900">
+            <figcaption>Money with sample data. Choose a branch and a service date to narrow the lists.</figcaption>
+          </figure>
+
+          <h2>What the page shows</h2>
+          <ul>
+            <li><strong>Figures.</strong> Collections today and this month, accounts receivable, overdue receivables, credit breaches and held orders.</li>
+            <li><strong>How old the money owed is.</strong> Open balances by days past the due date: not yet due, 1&ndash;30, 31&ndash;60, 61&ndash;90 and over 90.</li>
+            <li><strong>Accounts.</strong> The oldest balances first, with the credit limit, the last payment and a status.</li>
+            <li><strong>Van money by tender.</strong> Cash and on-account amounts captured on the vans. These are captured amounts, not bank-cleared money. Non-cash items need separate confirmation.</li>
+          </ul>
+          <div class="callout note">
+            <span class="label">Long lists</span>
+            When a view has more than 500 records it shows a partial list. Narrow it by branch and date to review individual entries.
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="p-decide" data-group="Web app" data-title="Decide" data-keywords="decide approvals approve order approval MCP approval talk sheet overdue new store urgent soon waiting">
+        <div class="doc">
+          <p class="crumb">Web app</p>
+          <h1>Decide</h1>
+          <p class="lede">What do I need to decide? Everything waiting for a decision, most urgent first.</p>
+
+          <figure class="shot">
+            <img src="img/web-decide.webp" alt="Decide page listing items waiting for a decision with urgency labels and Review buttons" loading="lazy" width="1440" height="900">
+            <figcaption>Decide with sample data. Items are grouped by kind and urgency.</figcaption>
+          </figure>
+
+          <h2>The kinds of item</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Kind</th><th>What you decide</th></tr></thead>
+              <tbody>
+                <tr><td>Order approval</td><td>An order that is waiting to be approved or held.</td></tr>
+                <tr><td>MCP approval</td><td>A signed monthly commitment for a person&rsquo;s coverage plan.</td></tr>
+                <tr><td>Talk Sheet overdue</td><td>An action agreed with a store that is past its date.</td></tr>
+                <tr><td>New store</td><td>A new outlet waiting to be added to the approved list.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2>Decide an item</h2>
+          <ol class="steps">
+            <li><strong>Start with Urgent</strong>Items are marked <em>Urgent</em>, <em>Soon</em> or <em>When you can</em>.</li>
+            <li><strong>Select Review</strong>Read the evidence and the action that resolves the item. For an order, check the customer&rsquo;s credit and the prices first.</li>
+            <li><strong>Choose the action the item asks for</strong>Then the item is decided.</li>
+          </ol>
+          <div class="callout tip">
+            <span class="label">Not sure?</span>
+            Leave the item in the list and add a comment on it, rather than guessing. The owner will see your question.
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="p-orders" data-group="Web app" data-title="Orders" data-keywords="orders booked approved posted fulfilled rejected voided credit hold missing prices outside-call PO encode order stage channel salesperson">
+        <div class="doc">
+          <p class="crumb">Web app &middot; Work</p>
+          <h1>Orders</h1>
+          <p class="lede">Move booked orders forward. Approval holds and missing prices come first.</p>
+
+          <figure class="shot">
+            <img src="img/web-orders.webp" alt="Orders page with commercial control figures, a booked trend and an order list with stage filters" loading="lazy" width="1440" height="900">
+            <figcaption>Orders with sample data. Captured orders are not invoiced revenue.</figcaption>
+          </figure>
+
+          <h2>Stages</h2>
+          <p>Each order moves through these stages. Use the <em>Stage</em> filter to see one at a time.</p>
+          <p><span class="chip">Draft</span> <span class="chip">Booked</span> <span class="chip">Approved</span> <span class="chip">Posted</span> <span class="chip">Fulfilled</span> <span class="chip red">Rejected</span> <span class="chip">Voided</span></p>
+
+          <h2>Clear the approval queue</h2>
+          <ol class="steps">
+            <li><strong>Filter to Booked</strong>These are the orders waiting for a decision.</li>
+            <li><strong>Fix missing prices first</strong>A missing price is unknown, not free. Set the price in <a href="#setup-data">Master data &amp; prices</a>, then approve.</li>
+            <li><strong>Check the customer</strong>Open the order to see credit exposure. Over-credit orders are highlighted.</li>
+            <li><strong>Approve or reject</strong>Decide the order from its review page.</li>
+          </ol>
+          <div class="callout note">
+            <span class="label">Outside-call purchase orders</span>
+            Use <em>Encode an outside-call PO</em> to type in an order that came by phone or from an outside call.
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="p-more-work" data-group="Web app" data-title="Other work pages" data-keywords="distributors claims finance modern trade training inventory imports outside-call van trips retail execution agency work billing approvals workflows">
+        <div class="doc">
+          <p class="crumb">Web app &middot; Work</p>
+          <h1>Other work pages</h1>
+          <p class="lede">The Work menu holds more pages than the ones in this guide. Each one follows the same pattern: a question at the top, figures, and a list that puts exceptions first.</p>
+
+          <figure class="shot">
+            <img src="img/web-distributors.webp" alt="Distributors page with a partner scorecard, secondary sales against target and what needs attention" loading="lazy" width="1440" height="900">
+            <figcaption>Distributors with sample data. The scorecard shows what needs attention for each partner.</figcaption>
+          </figure>
+
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Page</th><th>What it is for</th></tr></thead>
+              <tbody>
+                <tr><td>Distributors</td><td>Each distributor&rsquo;s primary orders, stock, secondary sales, claims, documents and a partner scorecard.</td></tr>
+                <tr><td>Claims &amp; Finance</td><td>Trade-spend claims: what needs evidence, what is ready for approval, and what SAP has settled. A claim is not complete until the SAP acknowledgement arrives.</td></tr>
+                <tr><td>Modern trade</td><td>Purchase orders from retail chains. Upload a CSV, a structured email or a scan; scans need a manual check. Review exceptions before confirming.</td></tr>
+                <tr><td>Approvals</td><td>Requests waiting for an approver. Open to approver roles; if you cannot open it, ask your administrator.</td></tr>
+                <tr><td>Training</td><td>Training records for the team.</td></tr>
+                <tr><td>Inventory</td><td>Stock movements and counts for each location.</td></tr>
+                <tr><td>Imports</td><td>Loading the first set of data, such as customers, routes, products, prices and stock. See <a href="#setup-data">Master data &amp; prices</a>.</td></tr>
+                <tr><td>Outside-call POs</td><td>Purchase orders taken on outside calls.</td></tr>
+                <tr><td>Van trips</td><td>Each van trip from loading to close.</td></tr>
+                <tr><td>Retail execution</td><td>Shelf and in-store checks by the field team.</td></tr>
+                <tr><td>Agency work &amp; billing</td><td>Work done by agencies and what is billed for it.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== PHONE APPS ===================== -->
+
+      <section class="page" id="p-field-app" data-group="Phone apps" data-title="Sunpride Field" data-keywords="field app android sales agent today visits check in call order census customers attendance collector agenda offline sync messages account update work day location sales targets">
+        <div class="doc">
+          <p class="crumb">Phone apps</p>
+          <h1>Sunpride Field</h1>
+          <p class="lede">The app a sales agent carries through the day. It works offline: you plan the day, visit stores, take orders and capture new outlets, and everything waits safely on the phone until it can be sent.</p>
+
+          <div class="phones">
+            <figure class="phone">
+              <img src="img/field-today.webp" alt="Sunpride Field home screen showing the Today heading, the Messages card, field forms and the work day card" loading="lazy" width="720" height="1600">
+              <figcaption>Home screen: Messages, field forms and the work day.</figcaption>
+            </figure>
+            <figure class="phone">
+              <img src="img/field-sales.webp" alt="Sunpride Field sales section showing monthly targets, sales value, buying stores, distribution points, calls and MSL compliance" loading="lazy" width="720" height="1600">
+              <figcaption>Sales targets, further down the same screen.</figcaption>
+            </figure>
+          </div>
+
+          <h2>Your day, step by step</h2>
+          <ol class="steps">
+            <li><strong>Sign in</strong>Use your email and password. If the phone is not recognised, ask your administrator to add it.</li>
+            <li><strong>Start your day</strong>Tap <em>Start day</em> in the Work day card. Location sharing starts with it and runs until your day ends at the 10 PM close.</li>
+            <li><strong>Check your stops</strong>Under <em>Visits</em> you see today&rsquo;s stores, in the order planned. Open the next one from the list.</li>
+            <li><strong>Visit and check in</strong>At the store, check in. The app records where you are. If the check-in is refused, turn off any fake-location app and try again.</li>
+            <li><strong>Record the visit</strong>Choose the outcome (completed, productive or not productive, with a reason), add photos, activities and any notes. Finish the call before you open the next store.</li>
+            <li><strong>Take an order</strong>Open a new order from the visit. Search the store&rsquo;s products by name, code or barcode, and review before you send.</li>
+            <li><strong>End your day</strong>Tap End day in the Work day card. Location sharing stops and you can review what is still waiting.</li>
+          </ol>
+
+          <h2>Home screen</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Card</th><th>What it does</th></tr></thead>
+              <tbody>
+                <tr><td>Messages</td><td>Opens your conversations with the office, your team and AI users.</td></tr>
+                <tr><td>Field forms</td><td>Attendance and new prospects. Works offline.</td></tr>
+                <tr><td>Work day</td><td>Start day and End day, and the close time.</td></tr>
+                <tr><td>Products</td><td>The product catalogue. Search, scan and read saved product details offline.</td></tr>
+                <tr><td>Outlet universe</td><td>Capture a new store with its GPS point and a storefront photo, offline.</td></tr>
+                <tr><td>Customers</td><td>Your saved outlets. Search by name, code or address.</td></tr>
+                <tr><td>Visits</td><td>Today&rsquo;s visits, with a count.</td></tr>
+                <tr><td>Sales</td><td>Your targets and what you have sold, for today and the month.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2>Attendance, prospects and the collector agenda</h2>
+          <div class="phones">
+            <figure class="phone">
+              <img src="img/field-attendance.webp" alt="Attendance and prospects screen with clock in and clock out buttons" loading="lazy" width="720" height="1600">
+              <figcaption>Attendance &amp; prospects.</figcaption>
+            </figure>
+            <figure class="phone">
+              <img src="img/field-collector.webp" alt="Collector agenda screen listing assigned collection stops and a refresh button" loading="lazy" width="720" height="1600">
+              <figcaption>Collector agenda.</figcaption>
+            </figure>
+          </div>
+          <ul>
+            <li><strong>Clock in and clock out</strong> capture one location and one photo. They do not start location sharing.</li>
+            <li><strong>Prospects</strong> capture a storefront, its location and the office&rsquo;s KYC form. The office reviews duplicates before a prospect joins the approved list.</li>
+            <li><strong>Collector agenda</strong> lists your assigned collection stops. Refresh the route when you have a signal. Recording a promise or a cheque here does not reduce the balance in SAP or confirm that money has cleared.</li>
+          </ul>
+
+          <h2>Outlet census</h2>
+          <p>Use the census to add a store that is not yet in the system. Connect once to download your census batch, then capture offline: store name, address, owner, channel, GPS and a storefront photo. The office checks it before it is added.</p>
+          <div class="phones">
+            <figure class="phone">
+              <img src="img/field-census.webp" alt="Outlet census form with batch, store name, address, owner contact and channel fields" loading="lazy" width="720" height="1600">
+              <figcaption>Outlet census form.</figcaption>
+            </figure>
+          </div>
+
+          <h2>Products and customers</h2>
+          <div class="phones">
+            <figure class="phone">
+              <img src="img/field-catalogue.webp" alt="Product catalogue screen with a search box and product list" loading="lazy" width="720" height="1600">
+              <figcaption>Product catalogue.</figcaption>
+            </figure>
+            <figure class="phone">
+              <img src="img/field-customers.webp" alt="Customers screen listing saved outlets with their codes and addresses" loading="lazy" width="720" height="1600">
+              <figcaption>Customers saved on this phone.</figcaption>
+            </figure>
+          </div>
+          <div class="callout tip">
+            <span class="label">Search works without signal</span>
+            The catalogue and your saved customers are on the phone. Search them any time, and open a product to read its details.
+          </div>
+
+          <h2>Messages</h2>
+          <p>The Messages card on Home opens your conversations. Direct messages, groups and channels work as they do on the web. See <a href="#messages">Messages</a> for mentions and tags.</p>
+          <div class="phones">
+            <figure class="phone">
+              <img src="img/field-messages-list.webp" alt="Messages list with direct message conversations and a search bar" loading="lazy" width="720" height="1600">
+              <figcaption>Your conversations.</figcaption>
+            </figure>
+            <figure class="phone">
+              <img src="img/field-message-thread.webp" alt="A direct message conversation with an @mention" loading="lazy" width="720" height="1600">
+              <figcaption>A direct message, with an @mention.</figcaption>
+            </figure>
+          </div>
+
+          <h2>Sync and offline work</h2>
+          <p>Everything you record is saved on the phone first. The Sync screen tells you what is still waiting, when the last sync happened, and whether the office has your day.</p>
+          <div class="phones">
+            <figure class="phone">
+              <img src="img/field-sync.webp" alt="Sync status screen with the status, last sync time, day close time and a Sync now button" loading="lazy" width="720" height="1600">
+              <figcaption>Sync status.</figcaption>
+            </figure>
+          </div>
+          <ul>
+            <li>The home screen shows the state in the pill at the top: <em>Day closed &middot; sync for access</em> means you need to sync before you can use the day&rsquo;s work.</li>
+            <li>Sync before 10 PM so the office receives your day. Connect to a signal and tap <em>Sync now</em>.</li>
+            <li>Never remove the app or clear its data while work is waiting. Your saved work would be lost.</li>
+          </ul>
+
+          <h2>Account and updates</h2>
+          <div class="phones">
+            <figure class="phone">
+              <img src="img/field-account.webp" alt="Account screen with phone model, Android version, app version and a Check app updates button" loading="lazy" width="720" height="1600">
+              <figcaption>Account, with the app version.</figcaption>
+            </figure>
+          </div>
+          <p>Use <em>Check app updates</em> to look for a new version. Install it over the current app. Choose <em>Sign out</em> only at the end of your testing, because it signs you out on this phone.</p>
+
+          <figure class="shot placeholder">
+            <img src="img/placeholder-phone.svg" alt="Placeholder: the store visit, check-in and order screens are not captured yet" loading="lazy" width="720" height="1600" style="max-width:280px;margin:0 auto">
+            <figcaption><span class="placeholder-note">Placeholder.</span> The store visit, check-in and order screens open during a work day. They are not shown here so that no real visit or order is created while the guide is written. The steps above describe them.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <section class="page" id="p-van-app" data-group="Phone apps" data-title="Sunpride Van Sales" data-keywords="van sales point of sale pos van trip load check receipt cash close trip stock count returns printer bluetooth discount void odometer customer scan barcode">
+        <div class="doc">
+          <p class="crumb">Phone apps</p>
+          <h1>Sunpride Van Sales</h1>
+          <p class="lede">The point-of-sale app for van sellers. You start the trip with the truck&rsquo;s load, sell from the van, print receipts, count the cash, and close the trip. Everything is saved on the phone until it is sent to the office.</p>
+
+          <div class="phones">
+            <figure class="phone">
+              <img src="img/van-home.webp" alt="Sunpride Van Sales home screen with the Today heading, a message that no trip is assigned, and rows for Sync and posting, Messages, Report an issue and POS mode" loading="lazy" width="720" height="1440">
+              <figcaption>The home screen. A trip appears here once your supervisor assigns one.</figcaption>
+            </figure>
+            <figure class="phone">
+              <img src="img/van-pos-mode.webp" alt="POS mode screen showing the handheld set to Van, with a note that only the office can change it" loading="lazy" width="720" height="1440">
+              <figcaption>POS mode: set by the office.</figcaption>
+            </figure>
+          </div>
+
+          <h2>A trip, step by step</h2>
+          <ol class="steps">
+            <li><strong>Check the handheld</strong>Your supervisor adds the phone the first time. Sign in with your email and password. If the phone says it is not recognised, ask your supervisor to re-add it; your saved work is not deleted.</li>
+            <li><strong>Start the trip and enter the odometer</strong>Type the starting odometer in kilometres. It is required.</li>
+            <li><strong>Confirm the load</strong>Check what is on the truck against the load sheet. Scan each product&rsquo;s barcode to count it, or count by hand and tell the office about any difference.</li>
+            <li><strong>Open the cashier session</strong>Enter the opening float. Sales can only be made with an open session.</li>
+            <li><strong>Sell</strong>Choose the customer, then add products. Scan a barcode or search the product name. Use the discount only with the manager&rsquo;s PIN.</li>
+            <li><strong>Take payment and print the receipt</strong>Enter the cash received; the app works out the change. Print the receipt, or a copy if the customer needs one.</li>
+            <li><strong>Cancel a sale if needed</strong>Use <em>Cancel sale</em> for a sale you do not want to complete. A void prints a void slip.</li>
+            <li><strong>Return to the office at the end</strong>Count the stock on the truck, count the cash in a blind count, enter the closing odometer and close the trip.</li>
+          </ol>
+          <div class="callout warning">
+            <span class="label">Once the trip is closed</span>
+            The trip takes no more sales or voids. Hand the cash and the truck to the office. Receipts can still be reprinted from the trip&rsquo;s receipts list.
+          </div>
+
+          <h2>Selling</h2>
+          <p>Each sale starts with a customer. Then add the products they are buying, with the quantity and the selling unit. The total shows at the bottom before you take payment.</p>
+          <ul>
+            <li><strong>Find a product</strong> by name, or scan its barcode with the phone camera or a scanner.</li>
+            <li><strong>Prices</strong> come from the office. A price exception needs the manager&rsquo;s PIN.</li>
+            <li><strong>Payment</strong> can be cash, or on account for customers who have an account.</li>
+            <li><strong>Phone lookup</strong> finds a customer by phone number, if the customer has a loyalty account.</li>
+          </ul>
+
+          <h2>Cash and closing</h2>
+          <ul>
+            <li><strong>Blind cash count.</strong> Count the bills and coins from today&rsquo;s sales, not your change fund. You enter the total without seeing the expected cash.</li>
+            <li><strong>Cash deposit.</strong> Record what you hand to the cashier.</li>
+            <li><strong>Stock count.</strong> Count what is on the truck. Give a reason for any difference from what the system expects.</li>
+          </ul>
+
+          <h2>Printing and scanning</h2>
+          <p>Use <em>Printer &amp; scanner</em> to pair a Bluetooth printer. Use <em>Check the printer and paper</em> before a busy route. If the printer is not ready, the receipt waits and is printed later from the receipts list.</p>
+
+          <h2>Sync and posting</h2>
+          <div class="phones">
+            <figure class="phone">
+              <img src="img/van-sync.webp" alt="Sync and posting screen showing what is on the phone, what the office has received, and the SAP posting count" loading="lazy" width="720" height="1440">
+              <figcaption>Sync &amp; posting.</figcaption>
+            </figure>
+          </div>
+          <ul>
+            <li><strong>On this phone</strong> shows what has not yet reached the office.</li>
+            <li><strong>Office</strong> shows what the office has received, and whether the last sync finished.</li>
+            <li><strong>SAP</strong> shows what is not yet posted to SAP. <em>Received by the office</em> does not mean <em>posted to SAP</em>.</li>
+          </ul>
+
+          <h2>Messages and reporting an issue</h2>
+          <div class="phones">
+            <figure class="phone">
+              <img src="img/van-messages-list.webp" alt="Messages list with direct messages from the office and team" loading="lazy" width="720" height="1440">
+              <figcaption>Messages.</figcaption>
+            </figure>
+            <figure class="phone">
+              <img src="img/van-chat.webp" alt="A direct message with an @mention and a tagged store card" loading="lazy" width="720" height="1440">
+              <figcaption>A conversation with a mention and a tagged store.</figcaption>
+            </figure>
+          </div>
+          <p><em>Report an issue</em> opens the Sunpride issue form in the phone&rsquo;s browser. Describe what you did, what happened and what you expected, and attach a screenshot. See <a href="#issues">Issue tracker</a>.</p>
+
+          <figure class="shot placeholder">
+            <img src="img/placeholder-phone.svg" alt="Placeholder: the selling, receipt, cash and close-trip screens are not captured yet" loading="lazy" width="720" height="1440" style="max-width:280px;margin:0 auto">
+            <figcaption><span class="placeholder-note">Placeholder.</span> The selling, receipt, cash and close-trip screens appear once a trip is assigned to this phone. The test phone had no trip for the day, so they are described from the app rather than shown.</figcaption>
+          </figure>
+        </div>
+      </section>
+
+      <!-- ===================== TOGETHER ===================== -->
+
+      <section class="page" id="p-live-map" data-group="Together" data-title="Live map" data-keywords="live map location tracking agents trucks moving stationary at store stale offline check in trail day route check-in map area status">
+        <div class="doc">
+          <p class="crumb">Together</p>
+          <h1>Live map</h1>
+          <p class="lede">Where is everyone right now? The map shows the agents and trucks that are sharing their location, what they are doing, and whether they have checked in.</p>
+
+          <figure class="shot">
+            <img src="img/web-live-map.webp" alt="Live map page: a check-in summary above a map of Cebu with filters for area, status and people, and a legend" loading="lazy" width="1440" height="900">
+            <figcaption>Live map with sample data. With no one sharing location, the counts show zero.</figcaption>
+          </figure>
+
+          <h2>When location is shared</h2>
+          <p>Location is shared only during a work day. It starts with <em>Start day</em> or the first check-in and stops when the day ends at the 10 PM close. A truck&rsquo;s location is shared while its trip is active. If someone turns location off, the map shows them as <em>location off</em>.</p>
+          <div class="callout note">
+            <span class="label">How long positions are kept</span>
+            Positions are kept for 90 days and then deleted automatically.
+          </div>
+
+          <h2>Reading the map</h2>
+          <ul>
+            <li><strong>Area.</strong> Everyone in scope, or one area or branch.</li>
+            <li><strong>Show.</strong> Agents, trucks, or both.</li>
+            <li><strong>Status.</strong> <em>Moving</em>, <em>Stationary</em>, <em>At store</em>, <em>Stale</em> (no recent update) or <em>Offline</em>. Tick <em>Needs a check-in</em> to see people who have not checked in.</li>
+            <li><strong>Search.</strong> A name or a plate number.</li>
+            <li><strong>Legend.</strong> A circle is an agent, a filled square is a truck, and an outlined square is a store.</li>
+          </ul>
+          <p>The top card summarises the day: visits against planned stops, productive calls, and visits on the prior day. &ldquo;Idle&rdquo; is a 45-minute prompt to check in. It is not a finding about performance.</p>
+
+          <h2>See one person&rsquo;s day</h2>
+          <ol class="steps">
+            <li><strong>Pick a person or a truck</strong>Select it in the list or on the map.</li>
+            <li><strong>Read the day trail</strong>The route travelled, the store visits and the times they happened.</li>
+            <li><strong>Check the gaps</strong>A long gap with no movement, or a planned store with no visit, is the thing to ask about.</li>
+          </ol>
+        </div>
+      </section>
+
+      <section class="page" id="p-messages" data-group="Together" data-title="Messages" data-keywords="messages chat direct message group channel mention @ tag # outlet product customer issue order visit territory route van trip attach photo document link system announcement">
+        <div class="doc">
+          <p class="crumb">Together</p>
+          <h1>Messages</h1>
+          <p class="lede">Talk with colleagues, start a group, and point to the right thing by tagging a store, a product, an order or an issue. Messages work the same way on the web and both phone apps.</p>
+
+          <figure class="shot">
+            <img src="img/web-messages.webp" alt="Messages page on the web with an empty conversation list, channels, direct messages and groups" loading="lazy" width="1440" height="900">
+            <figcaption>Messages on the web. A new account starts with no conversations.</figcaption>
+          </figure>
+
+          <h2>Conversations</h2>
+          <ul>
+            <li><strong>Direct messages</strong> are one-to-one. Use <em>New message</em> to start one.</li>
+            <li><strong>Groups</strong> are for a small set of people. Choose <em>New group</em> and pick the people.
+            <li><strong>Channels</strong> are open to anyone who joins. Use <em>Browse channels</em> and choose <em>Join</em>.</li>
+          </ul>
+
+          <h2>Mention and tag</h2>
+          <p>Type <kbd>@</kbd> to mention a person. Type <kbd>#</kbd> to tag an item. A tag shows a small preview card, so the reader can see the store or order without leaving the chat.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Type <kbd>#</kbd> then</th><th>Tags</th></tr></thead>
+              <tbody>
+                <tr><td>Outlet</td><td>A store.</td></tr>
+                <tr><td>Product</td><td>A product.</td></tr>
+                <tr><td>Customer</td><td>A customer.</td></tr>
+                <tr><td>Order</td><td>An order.</td></tr>
+                <tr><td>Visit</td><td>A store visit.</td></tr>
+                <tr><td>Issue</td><td>An issue in the tracker.</td></tr>
+                <tr><td>Territory or route</td><td>An area or a route.</td></tr>
+                <tr><td>Van trip</td><td>A van trip.</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <div class="callout tip">
+            <span class="label">Keyboard tips</span>
+            Press <kbd>Enter</kbd> to send. Press <kbd>Shift</kbd>+<kbd>Enter</kbd> for a new line.
+          </div>
+
+          <h2>Photos, documents and links</h2>
+          <p>Choose <em>Attach or tag</em> (the <strong>+</strong> button) to add a photo, a document or a link. Use this for a shelf photo, a delivery note or a price list you want the team to see.</p>
+
+          <h2>On the phones</h2>
+          <p>Open <em>Messages</em> from the Field home screen or the Van Sales home screen. Search, open a conversation, and use the same <kbd>@</kbd> and <kbd>#</kbd> tags. Use <em>Conversation details</em> to see who is in a group.</p>
+          <div class="phones">
+            <figure class="phone">
+              <img src="img/field-messages-list.webp" alt="Field phone messages list" loading="lazy" width="720" height="1600">
+              <figcaption>Field app: conversations.</figcaption>
+            </figure>
+            <figure class="phone">
+              <img src="img/van-chat.webp" alt="Van Sales phone conversation with a mention and a tagged store" loading="lazy" width="720" height="1440">
+              <figcaption>Van Sales app: a mention and a tagged store.</figcaption>
+            </figure>
+          </div>
+
+          <h2>System messages</h2>
+          <p>Messages from the Sunpride team about the apps appear as <strong>System</strong> messages. Updates arrive this way, with the download link. Read them, because they tell you what has changed.</p>
+        </div>
+      </section>
+
+      <section class="page" id="p-issues" data-group="Together" data-title="Issue tracker" data-keywords="issues tracker report bug file issue screenshot steps reproduce expected actual status backlog in progress ready for retest done awaiting client response needs fix priority area assignee">
+        <div class="doc">
+          <p class="crumb">Together</p>
+          <h1>Issue tracker</h1>
+          <p class="lede">Found something that does not work? File it here. A good report gets fixed the first time, and every report is followed until it is done.</p>
+
+          <figure class="shot">
+            <img src="img/web-issues.webp" alt="Issues board with summary figures for high-priority blockers, unowned issues and ready-to-test issues, with area, status and priority filters" loading="lazy" width="1440" height="900">
+            <figcaption>The issue board. Use the filters to see what is open in your area.</figcaption>
+          </figure>
+
+          <h2>Who files issues</h2>
+          <p>A small, named group of testers from Sunpride files issues. If you are not sure whether you should, ask your administrator. On the web, file from the <strong>Report an issue</strong> button at the top of any page; on the Van Sales app, use the Report an issue row on the home screen.</p>
+          <div class="callout note">
+            <span class="label">Field staff see their own issues</span>
+            If you are a sales user, the board shows the issues you filed. Other people&rsquo;s issues are not listed for you.
+          </div>
+
+          <h2>How to file a good issue</h2>
+          <p>A good report answers four questions. Write them in the boxes on the form.</p>
+          <ol class="steps">
+            <li><strong>What did you do?</strong>The steps, one per line. Start from the page you were on, for example &ldquo;Opened Orders, filtered to Booked, tapped Approve.&rdquo;</li>
+            <li><strong>What did you expect?</strong>In a sentence. &ldquo;I expected the order to move to Approved.&rdquo;</li>
+            <li><strong>What actually happened?</strong>Say what you saw, including any message on the screen. Copy the exact words if you can.</li>
+            <li><strong>Attach a screenshot</strong>Up to five files. Images up to 10 MB each. Add a short note if the screenshot needs explaining.</li>
+          </ol>
+          <div class="callout tip">
+            <span class="label">Take a screenshot</span>
+            On Windows, press Windows + Shift + S. On a Mac, press Command + Shift + 4. On an Android phone, press Power and Volume down together. Attach it to the issue.
+          </div>
+          <figure class="shot">
+            <img src="img/web-issue-form.webp" alt="New issue form with title, description, steps to reproduce, actual and expected behaviour, attachments and area, priority and assignee fields" loading="lazy" width="1440" height="900">
+            <figcaption>The new issue form. Fields marked with a star are required. Your name, the time and the issue number are recorded automatically.</figcaption>
+          </figure>
+          <div class="callout note">
+            <span class="label">Also useful</span>
+            Say which phone or browser you used, and for a phone app, the app version from its Account screen.
+          </div>
+
+          <h2>What the statuses mean</h2>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Status</th><th>What it means</th></tr></thead>
+              <tbody>
+                <tr><td>Backlog</td><td>Filed and waiting to be picked up.</td></tr>
+                <tr><td>In progress</td><td>Someone is working on it.</td></tr>
+                <tr><td>In QA</td><td>Being checked.</td></tr>
+                <tr><td>Needs fix</td><td>Something still needs changing.</td></tr>
+                <tr><td>Awaiting client response</td><td>We need an answer from you. Reply in the comments.</td></tr>
+                <tr><td>Ready for retest</td><td>A fix is published. Please test it and tell us the result.</td></tr>
+                <tr><td>Done</td><td>Confirmed fixed.</td></tr>
+              </tbody>
+            </table>
+          </div>
+
+          <h2>Retest a fix</h2>
+          <ol class="steps">
+            <li><strong>Open issues in Ready for retest</strong>Filter the board to that status.</li>
+            <li><strong>Try the same steps again</strong>Use the steps from the original report, on the same kind of phone or browser.</li>
+            <li><strong>Mark it Done if it works</strong>Choose Done on the issue.</li>
+            <li><strong>Comment if it is still broken</strong>Add a comment saying what you saw this time.</li>
+          </ol>
+
+          <h2>Follow an issue</h2>
+          <p>Open any issue to see its status, its owner, the comments and the attachments. Add a comment or another screenshot at any time. The top of the board shows the high-priority blockers and any issue with no owner.</p>
+          <div class="callout note">
+            <span class="label">Mark a problem as urgent only when work stops</span>
+            Choose <em>Critical</em> only if you cannot do your job. Otherwise choose High, Medium or Low.
+          </div>
+        </div>
+      </section>
+
+      <!-- ===================== SETUP ===================== -->
+
+      <section class="page" id="p-setup-people" data-group="Setup" data-title="Setup: people and invitations" data-keywords="setup admin people invitations invite person role administrator sales manager phones devices revoke suspend reinstate territories routes outlets assignments health organization">
+        <div class="doc">
+          <p class="crumb">Setup</p>
+          <h1>Setup: people and invitations</h1>
+          <p class="lede">For administrators. This is where you invite people, set their roles, and manage the phones they sign in on. Setup is only visible to administrators.</p>
+
+          <figure class="shot">
+            <img src="img/web-setup.webp" alt="Administration page with setup health counts and the list of setup sections on the left" loading="lazy" width="1440" height="900">
+            <figcaption>Setup with sample data. The health counts show what must be fixed before the team starts its routes.</figcaption>
+          </figure>
+
+          <h2>Setup health</h2>
+          <p>Setup health lists the gaps that would stop the team from working: people without a unit, outlets without a route, routes without a salesperson, products without a price, and stores without a verified location. The goal is zero in every line. Select <em>Review and fix</em> to go to the item.</p>
+
+          <h2>Invite someone</h2>
+          <ol class="steps">
+            <li><strong>Open People, then Invitations</strong>Use the search box to find an invitation that already exists.</li>
+            <li><strong>Fill in Invite person</strong>Full name, email, role, position and organisational unit. Use the work email the person will sign up with.</li>
+            <li><strong>Send the invitation</strong>Choose <em>Send invitation</em>. The page confirms with &ldquo;Invitation sent&rdquo;.</li>
+            <li><strong>Check the person signs up</strong>They follow the steps on <a href="#get-started">Sign in and install</a>.</li>
+          </ol>
+          <div class="callout warning">
+            <span class="label">Use the same address</span>
+            The person must create their account with the email the invitation was sent to. A different address will not match.
+          </div>
+
+          <h2>Roles</h2>
+          <p>Each person has one role. Choose the role that matches the job; the role decides which pages they can open and what they can change. The list is shown in the <em>Role</em> field of Invite person. A super administrator is shown as <em>Super admin</em>.</p>
+          <p>Use <em>Revoke access</em> on an invitation or a person to stop their access.</p>
+
+          <h2>Phones</h2>
+          <p>Every phone that signs in is listed under <em>Phones</em>. For each phone you can see its status, the person it belongs to, when it last signed in and its visit activity.</p>
+          <ul>
+            <li><strong>Suspend phone</strong> stops the phone for now. You can bring it back with <em>Reinstate phone</em>.</li>
+            <li><strong>Revoke phone</strong> removes the phone&rsquo;s access. Choose the reason: for example, <em>Replaced by a new phone</em>, <em>Stolen</em>, <em>Suspected compromise</em>, or <em>Employee transferred</em>. A revoked phone must be added again before it can sign in.</li>
+          </ul>
+          <div class="callout warning">
+            <span class="label">Check before you revoke</span>
+            Revoking a phone is permanent. Work that was on that phone and not yet sent may not reach the office. Ask the person to sync first, or suspend the phone instead.
+          </div>
+
+          <h2>Organisation, territories and routes</h2>
+          <p>The rest of the Setup page holds the structure behind the numbers: the organisation, people&rsquo;s teams, territories, routes, outlets and assignments. Changes here affect the numbers on every page, so check with the Sunpride team first.</p>
+          <div class="table-wrap">
+            <table>
+              <thead><tr><th>Section</th><th>What it holds</th></tr></thead>
+              <tbody>
+                <tr><td>Organization, People, Teams</td><td>Units, people and their teams.</td></tr>
+                <tr><td>Invitations</td><td>Invitations sent and their status.</td></tr>
+                <tr><td>Territories, Routes, Outlets, Assignments</td><td>Where stores are and who visits them.</td></tr>
+                <tr><td>Trade Marketing</td><td>Trade marketing setup.</td></tr>
+                <tr><td>Phones, Call flows</td><td>Phones that sign in, and the set-up for each kind of call.</td></tr>
+                <tr><td>Field masters, Fiscal &amp; authority, Fleet &amp; integrity</td><td>Reference lists, fiscal and approval settings, and fleet and integrity checks.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </section>
+
+      <section class="page" id="p-setup-data" data-group="Setup" data-title="Setup: master data and prices" data-keywords="master data products customers stores prices price list channel imports cutover opening stock stock count route plans sales targets integration SAP programme">
+        <div class="doc">
+          <p class="crumb">Setup</p>
+          <h1>Setup: master data and prices</h1>
+          <p class="lede">For administrators. The products, customers, stores and prices the team sells with. Nothing sells correctly until these are right.</p>
+
+          <figure class="shot">
+            <img src="img/web-master-data.webp" alt="Master data page listing products with pack sizes, categories, status and next action" loading="lazy" width="1440" height="900">
+            <figcaption>Master data: products, with the pack size and what is still needed.</figcaption>
+          </figure>
+
+          <h2>Products, customers and stores</h2>
+          <p>Each product needs its name, code, pack size (for example, <em>1 case = 12 pieces</em>) and category. A product marked <em>Governed price required</em> still needs a price from a price list.</p>
+          <ol class="steps">
+            <li><strong>Open Master data</strong>Choose Products, Customers or Stores.</li>
+            <li><strong>Search or filter</strong>Use the search box, or filter by category.</li>
+            <li><strong>Fix the next action</strong>Open the row to edit it. Export the list with <em>Export CSV</em> to check it in a spreadsheet.</li>
+          </ol>
+
+          <h2>Prices</h2>
+          <p>Prices are set by channel: General trade, Public market, Supermarkets, Key accounts and the distributors. Each price list has a start date, so a new price takes effect on the day you choose.</p>
+          <figure class="shot">
+            <img src="img/web-prices.webp" alt="Prices page with the selling readiness figure and the channel price lists" loading="lazy" width="1440" height="900">
+            <figcaption>Prices by channel. The readiness figure should reach 100% before the team starts selling.</figcaption>
+          </figure>
+          <div class="callout warning">
+            <span class="label">A missing price means unknown, not free</span>
+            If a product has no price, the order cannot be approved. Set the price before the team starts selling it.
+          </div>
+
+          <h2>Imports</h2>
+          <p>Use Imports to load the first set of data in bulk: customers, the outlet list, routes, the open receivables, products, prices, opening stock, a stock count, adjustments, route plans and sales targets. Each file is checked first.</p>
+          <figure class="shot">
+            <img src="img/web-imports.webp" alt="Imports page listing the kinds of file that can be loaded, with a validation-only note" loading="lazy" width="1440" height="900">
+            <figcaption>Imports. Some imports only check the file for now; the note on each one says so.</figcaption>
+          </figure>
+          <ol class="steps">
+            <li><strong>Choose what to load</strong>Start with the file that needs attention.</li>
+            <li><strong>Check the validation</strong>Read any warnings before you continue.</li>
+            <li><strong>Submit</strong>Where submission is connected, confirm to load the data. Where it says validation only, the file is checked and nothing is saved yet.</li>
+          </ol>
+
+          <h2>Integration and Programme</h2>
+          <p><strong>Integration</strong> shows what has been sent to SAP and what is stuck: records that failed, are waiting in the queue, or need a decision. SAP stays the financial record. Only administrators should act on a failed record, and the fix is made at the source, not by retyping the document.</p>
+          <p><strong>Programme</strong> is the Phase 1 tracker: which agreed features are built, partly built, being changed, or not built yet, and which ones wait on a decision from Sunpride.</p>
+          <div class="callout note">
+            <span class="label">Ask first</span>
+            If a number on Integration or Programme looks wrong, add an issue in the <a href="#issues">issue tracker</a> rather than changing it yourself.
+          </div>
+        </div>
+      </section>
+
+    </main>
+
+    <aside class="toc" id="toc" aria-label="On this page"></aside>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>

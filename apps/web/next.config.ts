@@ -34,6 +34,11 @@ export default function nextConfig(phase: string): NextConfig {
     async headers() {
       return [
         {
+          // The guides are a static site that is updated in place: always revalidate.
+          source: "/guides/:path*",
+          headers: [{ key: "Cache-Control", value: "no-cache" }],
+        },
+        {
           // The PWA guide: the worker itself is never cached, so updates land.
           source: "/sw.js",
           headers: [
@@ -57,6 +62,8 @@ export default function nextConfig(phase: string): NextConfig {
       // Kick-off presentation: a static deck in public/kickoff, outside the sign-in gate.
       return [
         { source: "/kickoff", destination: "/kickoff/index.html", permanent: false },
+        // User guides: a static site in public/guides, outside the sign-in gate.
+        { source: "/guides", destination: "/guides/index.html", permanent: false },
       ];
     },
     async rewrites() {
