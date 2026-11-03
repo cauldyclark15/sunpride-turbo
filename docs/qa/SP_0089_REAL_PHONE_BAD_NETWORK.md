@@ -53,8 +53,8 @@ The authorized tester completes these before disconnecting either phone:
    notes and photos. Redact names, contacts, coordinates and account identifiers. Never
    record passwords, tokens, request signatures, public/private keys or raw DB exports.
 
-This lane's reservation is API `5010`, web `5011`, database `sunpride_lane_sp89`.
-All lane-local services must stay within the reserved `5010..5019` range.
+This lane's reservation is API `5020`, web `5021`, database `sunpride_lane_sp89`.
+All lane-local services must stay within the reserved `5020..5029` range.
 No service or fixture was started here. A future tester must verify the phones can
 reach the approved test origin without repointing the live site or exposing a new
 public endpoint. A phone's loopback address is not the Mac. The existing showcase
