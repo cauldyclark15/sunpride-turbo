@@ -1,0 +1,10 @@
+run_id,mode,manila_service_date,api_web_source_sha,apk_version,apk_sha256,trip_reference,checkpoint_id,result,observer,observed_at,expected_result,actual_result,evidence_reference,defect_reference,scope_exception_and_reviewer,follow_up_owner
+,,,,,,,PILOT-01,NOT_RUN,,,,,,,,
+,,,,,,,PILOT-02,NOT_RUN,,,,,,,,
+,,,,,,,PILOT-03,NOT_RUN,,,,,,,,
+,,,,,,,PILOT-04,NOT_RUN,,,,,,,,
+,,,,,,,PILOT-05,NOT_RUN,,,,,,,,
+,,,,,,,PILOT-06,NOT_RUN,,,,,,,,
+,,,,,,,PILOT-07,NOT_RUN,,,,,,,,
+,,,,,,,PILOT-08,NOT_RUN,,,,,,,,
+,,,,,,,PILOT-09,NOT_RUN,,,,,,,,

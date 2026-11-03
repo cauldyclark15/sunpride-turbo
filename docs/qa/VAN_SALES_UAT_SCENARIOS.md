@@ -2,6 +2,8 @@
 
 Tracker: SP-0120 (QSR-002), milestone `16 · Van POS pilot (Cebu)`.
 
+For the actual field run, use the [controlled Cebu pilot plan and evidence sheets](../runbooks/CEBU_VAN_SALES_PILOT.md) (SP-0122). This scenario inventory is not a completed UAT or pilot report. Legacy phone-only upload, missing-screen and close-order statements below require reconciliation with the accepted v2 release before execution; do not use them to waive missing office stock/cash evidence. Sample or mock results never prove a live Cebu run.
+
 This is the user acceptance test (UAT) script for the van-sales pilot on the Senraise H10P
 handheld (`apps/van-sales-android`). It walks one van day end to end: the office plans the
 trip and its load sheet, the seller checks the load and starts the trip, sells offline,
