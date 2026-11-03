@@ -53,6 +53,12 @@ export default function nextConfig(phase: string): NextConfig {
         },
       ];
     },
+    async redirects() {
+      // Kick-off presentation: a static deck in public/kickoff, outside the sign-in gate.
+      return [
+        { source: "/kickoff", destination: "/kickoff/index.html", permanent: false },
+      ];
+    },
     async rewrites() {
       if (!proxyApi) return [];
       return [

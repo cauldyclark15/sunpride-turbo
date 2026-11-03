@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Sunpride — Project Kick-Off</title>
+<style>
+  :root { --red:#ee1c25; --ink:#111; --mute:#6b6b6b; --line:#e7e7e7; --bg:#fff; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  html,body { height:100%; background:var(--bg); color:var(--ink);
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif; overflow:hidden; }
+  .slide { position:absolute; inset:0; padding:8vh 9vw; display:flex; flex-direction:column; justify-content:center;
+    opacity:0; pointer-events:none; transform:translateY(12px); transition:opacity .35s ease, transform .35s ease; }
+  .slide.on { opacity:1; pointer-events:auto; transform:none; }
+  .bar { position:fixed; top:0; left:0; height:4px; background:var(--red); transition:width .35s ease; }
+  header.top { position:fixed; top:3.2vh; left:9vw; right:9vw; display:flex; justify-content:space-between; align-items:center;
+    font-size:13px; letter-spacing:.14em; text-transform:uppercase; color:var(--mute); z-index:2; }
+  header.top img { height:28px; }
+  footer.foot { position:fixed; bottom:3.2vh; left:9vw; right:9vw; display:flex; justify-content:space-between;
+    font-size:13px; color:var(--mute); letter-spacing:.06em; }
+  .kicker { color:var(--red); font-size:14px; font-weight:700; letter-spacing:.2em; text-transform:uppercase; margin-bottom:2.4vh; }
+  h1 { font-size:clamp(44px,7vw,104px); line-height:1; font-weight:800; letter-spacing:-.03em; }
+  h2 { font-size:clamp(34px,4.6vw,66px); line-height:1.05; font-weight:800; letter-spacing:-.025em; margin-bottom:4vh; }
+  h1 em, h2 em { font-style:normal; color:var(--red); }
+  p.lead { font-size:clamp(18px,1.7vw,26px); color:var(--mute); max-width:46ch; margin-top:3vh; line-height:1.4; }
+  ul.list { list-style:none; display:grid; gap:2.2vh; max-width:60ch; }
+  ul.list li { font-size:clamp(18px,1.75vw,27px); line-height:1.35; padding-left:1.4em; position:relative; }
+  ul.list li::before { content:""; position:absolute; left:0; top:.55em; width:.5em; height:.5em; background:var(--red); }
+  ul.list li span { color:var(--mute); }
+  .grid { display:grid; grid-template-columns:repeat(3,1fr); gap:2.4vw; }
+  .grid.two { grid-template-columns:repeat(2,1fr); }
+  .card { border-top:3px solid var(--ink); padding-top:2.2vh; }
+  .card.red { border-color:var(--red); }
+  .card h3 { font-size:clamp(20px,1.9vw,30px); font-weight:800; margin-bottom:1.4vh; letter-spacing:-.01em; }
+  .card p { font-size:clamp(15px,1.3vw,20px); color:var(--mute); line-height:1.45; }
+  .num { font-size:clamp(14px,1vw,16px); font-weight:700; color:var(--red); letter-spacing:.14em; margin-bottom:1vh; }
+  .url { display:inline-block; margin-top:3vh; font-size:clamp(22px,2.6vw,40px); font-weight:800; color:var(--ink);
+    text-decoration:none; border-bottom:4px solid var(--red); padding-bottom:.2em; }
+  .demo { display:inline-flex; gap:.6em; align-items:center; margin-top:4vh; font-size:14px; font-weight:700;
+    letter-spacing:.18em; text-transform:uppercase; color:#fff; background:var(--ink); padding:.9em 1.3em; align-self:flex-start; }
+  .demo::before { content:""; width:.6em; height:.6em; border-radius:50%; background:var(--red); }
+  .steps { counter-reset:s; list-style:none; display:grid; gap:2.4vh; max-width:62ch; }
+  .steps li { counter-increment:s; font-size:clamp(18px,1.75vw,27px); line-height:1.35; position:relative; padding-left:2.2em; }
+  .steps li::before { content:counter(s,decimal-leading-zero); color:var(--red); font-weight:800; position:absolute; left:0; top:0; }
+  .split { display:grid; grid-template-columns:1.1fr 1fr; gap:6vw; align-items:center; }
+  .big-red { background:var(--red); color:#fff; }
+  .big-red .kicker, .big-red p.lead { color:rgba(255,255,255,.85); }
+  .big-red h1 em, .big-red h2 em { color:#fff; text-decoration:underline; text-underline-offset:.12em; }
+  .hint { position:fixed; bottom:3.2vh; left:50%; transform:translateX(-50%); font-size:12px; color:var(--mute); letter-spacing:.1em; }
+  body.dark-slide header.top, body.dark-slide footer.foot, body.dark-slide .hint { color:rgba(255,255,255,.8); }
+  body.dark-slide header.top img { background:#fff; padding:4px 8px; height:36px; }
+</style>
+</head>
+<body>
+<div class="bar" id="bar"></div>
+<header class="top"><img src="sunpride-logo.jpg" alt="Sunpride"><span>Project Kick-Off · 6 Nov 2026</span></header>
+
+<!-- 1 -->
+<section class="slide big-red">
+  <div class="kicker">Project Kick-Off</div>
+  <h1>Sunpride<br>goes <em>hands-on.</em></h1>
+  <p class="lead">A lot of groundwork is already in place. Today we'd like to walk you through it and get you set up to start using the apps.</p>
+</section>
+
+<!-- 2 -->
+<section class="slide">
+  <div class="kicker">Today</div>
+  <h2>Agenda</h2>
+  <ol class="steps">
+    <li>Where we are</li>
+    <li>What we have: web app and the two phone apps</li>
+    <li>Messages: how we'll talk from now on</li>
+    <li>Getting access and installing the apps</li>
+    <li>Reporting issues: who, where, how</li>
+    <li>How we work back and forth, and next steps</li>
+  </ol>
+</section>
+
+<!-- 3 -->
+<section class="slide">
+  <div class="kicker">01 · Where we are</div>
+  <h2>Built. Tested. <em>Ready for you.</em></h2>
+  <ul class="list">
+    <li>Web app is live and in use by our test team</li>
+    <li>Field and Van Sales apps run on real Android devices</li>
+    <li>Built-in Messages for team chat</li>
+    <li>Our own issue board, so feedback goes straight to the team</li>
+    <li>Next step: <span>real Sunpride users on real work</span></li>
+  </ul>
+</section>
+
+<!-- 4 -->
+<section class="slide">
+  <div class="kicker">02 · What we have</div>
+  <h2>One system, three apps.</h2>
+  <div class="grid">
+    <div class="card red"><div class="num">WEB</div><h3>Sunpride Web</h3><p>Office, managers and admins. Customers, items, orders, reports, users, Messages and Issues.</p></div>
+    <div class="card"><div class="num">ANDROID</div><h3>Sunpride Field</h3><p>For sales agents in the field. Store visits, orders, suggested orders and Messages.</p></div>
+    <div class="card"><div class="num">ANDROID · POS</div><h3>Sunpride Van Sales</h3><p>For van sellers. Selling from the van, receipts, stock and Messages.</p></div>
+  </div>
+  <div class="demo">Live demo: web app</div>
+</section>
+
+<!-- 5 -->
+<section class="slide">
+  <div class="kicker">02 · On the devices</div>
+  <h2>Same data, <em>everywhere.</em></h2>
+  <ul class="list">
+    <li>An order from the field shows on the web right away</li>
+    <li>Apps keep working with weak signal and sync when back online</li>
+    <li>Each person sees only what their role allows</li>
+  </ul>
+  <div class="demo">Live demo: Field and Van Sales apps</div>
+</section>
+
+<!-- 6 -->
+<section class="slide">
+  <div class="split">
+    <div>
+      <div class="kicker">03 · Messages</div>
+      <h2>We talk inside the app.</h2>
+      <p class="lead" style="margin-top:0">Messages is our main channel between Sunpride and the dev team. It's on the web and on both phone apps.</p>
+    </div>
+    <ul class="list">
+      <li>Direct messages and group chats</li>
+      <li>@mention people</li>
+      <li>Tag stores, items, orders and issues, with a preview</li>
+      <li>Send photos, documents and links</li>
+      <li>App updates are announced here by <span>"System"</span></li>
+    </ul>
+  </div>
+  <div class="demo">Live demo: send a message</div>
+</section>
+
+<!-- 7 -->
+<section class="slide">
+  <div class="kicker">04 · Access</div>
+  <h2>The web app</h2>
+  <p class="lead" style="margin-top:0">During testing, the address stays the same. Bookmark it.</p>
+  <a class="url" href="https://sunpride.cauldnclark.com" target="_blank">sunpride.cauldnclark.com</a>
+  <ol class="steps" style="margin-top:5vh">
+    <li>Invitations go out starting <b>Monday, November 9</b>. Check your email</li>
+    <li>Open the link and choose <b>Create account</b> with that same email</li>
+    <li>Sign in. Your role decides what you see</li>
+  </ol>
+</section>
+
+<!-- 8 -->
+<section class="slide">
+  <div class="kicker">04 · Access</div>
+  <h2>The phone apps</h2>
+  <p class="lead" style="margin-top:0;max-width:40ch">For now, the apps come from a shared <b>Google Drive</b> folder, not the Play Store.</p>
+  <ol class="steps" style="margin-top:4vh">
+    <li>Open the <b>sunpride_apps</b> Drive link we'll send you in Messages</li>
+    <li>Download <b>Field</b> (sales agents) or <b>Van Sales</b> (van sellers)</li>
+    <li>Allow the install when Android asks</li>
+    <li>Sign in with your Sunpride account</li>
+  </ol>
+</section>
+
+<!-- 9 -->
+<section class="slide">
+  <div class="kicker">04 · Updates</div>
+  <h2>When a new version is ready</h2>
+  <ul class="list">
+    <li><span>"System"</span> sends you a message with the download link</li>
+    <li>The app shows an <b>Update available</b> bar</li>
+    <li>Download it and install it over the current app. <span>Your saved work stays.</span></li>
+    <li>Settings shows your installed and latest versions</li>
+  </ul>
+</section>
+
+<!-- 10 -->
+<section class="slide">
+  <div class="kicker">05 · Issues</div>
+  <h2>A small group <em>files the issues.</em></h2>
+  <div class="grid two">
+    <div class="card red"><h3>Who</h3><p>A few named people from Sunpride, so reports stay clear and nothing is duplicated. Everyone else tells them, or posts in Messages.</p></div>
+    <div class="card"><h3>Where</h3><p>The Issues page in the web app. One place for every report.</p></div>
+    <div class="card"><h3>What to include</h3><p>What you did, what you expected, what happened, and a screenshot.</p></div>
+    <div class="card"><h3>After a fix</h3><p>It comes back as <b>Ready for retest</b>. Mark it Done, or comment if it's still broken.</p></div>
+  </div>
+</section>
+
+<!-- 11 -->
+<section class="slide">
+  <div class="kicker">06 · How we work</div>
+  <h2>Short loops, <em>fast fixes.</em></h2>
+  <ol class="steps">
+    <li>You use the apps on real work</li>
+    <li>You report it as an issue or in Messages</li>
+    <li>We fix it and ship it to the same web address or a new app version</li>
+    <li>You retest, then confirm or comment</li>
+  </ol>
+  <p class="lead">Questions come both ways. We'll ask in comments when we need detail.</p>
+</section>
+
+<!-- 12 -->
+<section class="slide">
+  <div class="kicker">Next steps</div>
+  <h2>Starting today</h2>
+  <div class="grid">
+    <div class="card red"><div class="num">SUNPRIDE</div><h3>Name the issue reporters</h3><p>Send us the list of users and roles to invite.</p></div>
+    <div class="card"><div class="num">DEV TEAM</div><h3>Send invitations</h3><p>Starting Monday, November 9: we create the accounts and share the Drive link.</p></div>
+    <div class="card"><div class="num">EVERYONE</div><h3>Sign in and say hi</h3><p>Send your first message in Messages.</p></div>
+  </div>
+</section>
+
+<!-- 13 -->
+<section class="slide big-red">
+  <div class="kicker">Thank you</div>
+  <h1>Questions?</h1>
+  <p class="lead">sunpride.cauldnclark.com · Messages · Issues</p>
+</section>
+
+<footer class="foot"><span>Sunpride</span><span id="count"></span></footer>
+<div class="hint">← → to navigate · F for fullscreen</div>
+
+<script>
+  const slides=[...document.querySelectorAll('.slide')];
+  let i=Math.max(0,Math.min(slides.length-1,(parseInt(location.hash.slice(1))||1)-1));
+  function show(n){
+    i=Math.max(0,Math.min(slides.length-1,n));
+    slides.forEach((s,k)=>s.classList.toggle('on',k===i));
+    document.body.classList.toggle('dark-slide',slides[i].classList.contains('big-red'));
+    document.getElementById('bar').style.width=((i+1)/slides.length*100)+'%';
+    document.getElementById('count').textContent=String(i+1).padStart(2,'0')+' / '+String(slides.length).padStart(2,'0');
+    history.replaceState(null,'','#'+(i+1));
+  }
+  addEventListener('keydown',e=>{
+    if(['ArrowRight','PageDown',' ','Enter'].includes(e.key)){e.preventDefault();show(i+1);}
+    else if(['ArrowLeft','PageUp','Backspace'].includes(e.key)){e.preventDefault();show(i-1);}
+    else if(e.key==='Home')show(0); else if(e.key==='End')show(slides.length-1);
+    else if(e.key.toLowerCase()==='f'){document.fullscreenElement?document.exitFullscreen():document.documentElement.requestFullscreen();}
+  });
+  addEventListener('click',e=>{ if(e.target.closest('a'))return; show(e.clientX>innerWidth/2?i+1:i-1); });
+  show(i);
+</script>
+</body>
+</html>
