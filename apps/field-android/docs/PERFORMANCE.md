@@ -125,18 +125,17 @@ an app that was _not_ set to No restrictions. The steps are below.
 
 ## Battery and data: one real day (SP-0142)
 
-Charge the Redmi to 100 %, install the release build (`perf` or beta), sign in, follow the battery guide,
-turn battery saver on, unplug, then:
+**Still not measured.** Use the [v2 carried-day procedure](../../../docs/qa/REDMI_CARRIED_DAY.md)
+and its [blank evidence record](../../../docs/qa/templates/REDMI_CARRIED_DAY_RECORD.md).
+They cover a real 10-hour shift, 15-minute battery observations, Android per-app data counters,
+the assigned device's v2 location evidence, and the End day boundary. The proposed targets come
+from [F-025](../../../docs/spec/nfr-baseline.md), not the older budgets above.
 
-```bash
-PKG=com.sunpride.field.dev.perf apps/field-android/scripts/measure-day.sh start   # then Start day
-# ... carry the phone through a normal work day ...
-PKG=com.sunpride.field.dev.perf apps/field-android/scripts/measure-day.sh stop    # before charging
-```
-
-`stop` prints the app's battery share, the phone's total drain and the app's data (background /
-on-screen, Wi-Fi / mobile). Read the location trail for the day (web live map, or `locationPings` for
-the device) and record the largest gap. Record all of it here with the date and battery-saver setting.
+The historical `measure-day.sh` start/stop helper is not a full-day collector: it resets battery
+statistics, has no periodic sampler or lock acquisition, and its counter parser needs validation
+on the measured Android version. Do not extrapolate its short-run output into a carried-day pass.
+jc must assign a carrier/date and a separately authorized device session; preparation-only lanes
+must not touch a phone. The earlier measurements on this page remain historical evidence only.
 
 ## What changed
 
