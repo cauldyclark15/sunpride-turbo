@@ -24,6 +24,9 @@ const A = [
 ];
 /** Independent copy of backend inventory §3 "Full capability grants" (51 rows). */
 const EXPECTED = {
+  "messaging.use": A,
+  "messaging.admin": ["super_admin", "admin"],
+  "collections.capture": ["super_admin", "manager", "sales"],
   "integrity.read": ["super_admin", "admin", "manager", "analyst"],
   "integrity.review": ["super_admin", "admin", "manager"],
   "admin.manage": ["super_admin", "admin"],
@@ -149,8 +152,8 @@ async function outcome(p) {
 }
 
 describe("capability table", () => {
-  test("F-209/F-210/F-222/F-613/F-615 62 grants, 8 roles, exact baseline plus workforce inventory", () => {
-    expect(Object.keys(CAPABILITIES).length).toBe(62);
+  test("F-209/F-210/F-222/F-613/F-615 and messaging: 65 grants, 8 roles", () => {
+    expect(Object.keys(CAPABILITIES).length).toBe(65);
     expect(/** @type {string[]} */ ([...ROLES])).toEqual(A);
     expect(Object.keys(CAPABILITIES).sort()).toEqual(
       Object.keys(EXPECTED).sort(),
@@ -165,9 +168,13 @@ describe("capability table", () => {
       expect(rolesOf(cap)).toEqual(roles);
   });
 
-  test("analyst holds only read capabilities plus tester feedback", () => {
+  test("analyst holds read capabilities plus tester feedback and messaging", () => {
     for (const cap of capabilitiesFor("analyst"))
-      expect(isReadOnlyCapability(cap) || cap === "issues.write").toBe(true);
+      expect(
+        isReadOnlyCapability(cap) ||
+          cap === "issues.write" ||
+          cap === "messaging.use",
+      ).toBe(true);
   });
 });
 
@@ -185,7 +192,7 @@ describe("requireCapability matrix", () => {
         }).toEqual({ cap, role, got: want });
         checked++;
       }
-    expect(checked).toBe(62 * 8);
+    expect(checked).toBe(65 * 8);
   });
 
   test("every grant × role with an out-of-scope target: only super_admin and analyst bypass", async () => {
