@@ -2,7 +2,7 @@
 
 ## F-006: controlled Android update channel
 
-This is our side-loaded-app distribution design, not a claim about Sunpride's MDM deployment. It extends the two existing Android packages; it does not create another app or an automatic installer.
+This is our side-loaded-app distribution design, not a claim about Sunpride's MDM deployment. It extends the two existing Android packages; it does not create another app or an automatic installer. [ADR-023: Android managed distribution](../decisions/ADR-023-ANDROID-MANAGED-DISTRIBUTION.md) defines how this beta channel relates to the recommended private Managed Google Play/EMM production route, including signing continuity, first install, recovery and rollout evidence.
 
 1. Build/sign the accepted APK through the existing Android release process, incrementing its version code. Do not export its signing keys.
 2. On the API host, stage that existing artifact with `cd apps/api && bun scripts/stage-app-release.js /absolute/path/to/signed.apk`.

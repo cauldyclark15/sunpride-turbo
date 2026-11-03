@@ -36,8 +36,9 @@ A phone above the floor is fine. A phone below it is not supported, because the 
 
 ## F-021.4 Device management (MDM)
 
-- Enrol every device in an Android Enterprise MDM (for example Google's own Android management, or the vendor's tool for the handhelds) **before** it reaches the user.
-- Policies: screen lock required; install only from the managed store; our two apps pushed and kept updated by MDM; developer options and USB debugging off; remote lock and wipe on.
+- Production recommendation: enrol company devices in an Android Enterprise EMM/MDM **before** issue to users, then distribute the two apps privately through Managed Google Play. Confirm actual model/Google-services compatibility first; incompatible handhelds need a proven OEM/EMM-managed APK alternative, not an assumed managed store. Google's Android Management API is not a turnkey in-house MDM.
+- Policies: screen lock required; approved managed app sources only; centrally assigned apps and updates; developer options and USB debugging off; remote lock and wipe configured through the EMM. These are proposed fleet policies, not a claim that they are deployed.
+- [ADR-023: Android managed distribution](../decisions/ADR-023-ANDROID-MANAGED-DISTRIBUTION.md) defines package/signing ownership, the current signed-APK beta path (not silent/managed installation), rollout, recovery and the evidence needed before claiming production management. No paid account or device reset is authorized by that decision.
 - The apps add their own protection on top: one registered device per user, refusal of rooted or tampered phones, fake-GPS detection, and the office can suspend or remove a device (F-007, F-024).
 - The MDM status of each device is imported into the fleet register so the office sees, in one place, who has which device and whether it is healthy.
 

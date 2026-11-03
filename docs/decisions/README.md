@@ -27,6 +27,10 @@ Accepted decisions take precedence over the [SFA platform blueprint](../architec
 | [ADR-021](ADR-021-MOBILE-SYNC-GATEWAY.md)                   | Versioned mobile sync gateway over the Bun HTTP API                     | Status: accepted (2026-09-25, JC lead) — provisional items marked inline                                                                                                      | Native apps use versioned Bun HTTP bootstrap, cursor-based delta pull and idempotent device-authenticated operation push instead of reactive domain subscriptions for offline sync. | ARCH-025                                                                           |
 | [ADR-022](ADR-022-OFFLINE-AUTHORITY-AND-CONFLICT-MATRIX.md) | Offline authority and conflict matrix                                      | Status: accepted (2026-10-07, Turbo default per jc) — provisional until Sunpride signs off                                                                                    | Classify every synchronized entity as server read-only, server workflow, append-only event or device draft, with server-decided order and review-held conflicts, enforced by a contract test. | SFD-008                                                                            |
 
+## Distribution
+
+- [ADR-023: Android managed distribution](ADR-023-ANDROID-MANAGED-DISTRIBUTION.md) (SP-0012 / QSR-022) — production private Managed Google Play through Sunpride's EMM, the existing signed-APK beta path, signing/package continuity and the unperformed fleet-activation checklist. This is our engineering default, not proof of an enrolled fleet.
+
 ## ARCH-025 coverage
 
 | Acceptance topic       | Decision record / companion                                                                                                                             |
