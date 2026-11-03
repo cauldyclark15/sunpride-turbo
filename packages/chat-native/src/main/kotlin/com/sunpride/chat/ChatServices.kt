@@ -40,7 +40,9 @@ object ChatServices {
         val storedIds = stored?.optJSONArray("ids")?.let { a -> (0 until a.length()).map { a.getString(it) }.toSet() } ?: emptySet()
         var dirName = stored?.optString("dir")?.takeIf { it.isNotEmpty() }
         val api = ChatApi(env.session, env.http)
-        val fresh = runCatching { api.myIds() }.getOrDefault(emptySet())
+        // `GET /unread` `me` is the canonical chat id; the `/api/me` ids stay as the fallback.
+        val canonical = runCatching { api.unread().me?.id }.getOrNull()
+        val fresh = listOfNotNull(canonical).toSet() + runCatching { api.myIds() }.getOrDefault(emptySet())
         var ids = storedIds
         if (fresh.isNotEmpty()) {
             if (storedIds.isNotEmpty() && storedIds.intersect(fresh).isEmpty()) {

@@ -173,6 +173,18 @@ describe("messages page", () => {
     expect(phonePane(null, { kind: "search" })).toBe("panel");
     expect(chatSelf({ subject: ME.id, name: "Maria" })?.id).toBe(ME.id);
   });
+
+  it("takes the caller's identity from GET /unread `me`, falling back to the profile", () => {
+    const canonical = { id: "c0ffee00-0000-4000-8000-000000000001", display_name: "Maria Santos" };
+    expect(chatSelf({ subject: ME.id, name: "Maria" }, canonical)).toEqual({
+      id: canonical.id,
+      display_name: "Maria Santos",
+      avatar_url: null,
+      is_agent: false,
+    });
+    expect(chatSelf(null, canonical)?.id).toBe(canonical.id);
+    expect(chatSelf({ subject: ME.id, name: "Maria" }, null)?.id).toBe(ME.id);
+  });
 });
 
 describe("composer", () => {

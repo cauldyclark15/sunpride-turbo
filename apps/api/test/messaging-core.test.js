@@ -1,5 +1,6 @@
 import { beforeAll, afterAll, test, expect } from "bun:test";
 import { startHarness } from "./harness.js";
+import { tx } from "@sunpride/db/client";
 import { install } from "../src/domains/messaging/index.js";
 import { sha256Hex } from "../src/core/util.js";
 import { canSubscribe } from "../src/core/hooks.js";
@@ -40,8 +41,10 @@ beforeAll(async () => {
     ],
   });
   h.setHooks({
+    // Like the real org hook, load the profile inside its own transaction, so a
+    // caller that holds a chat transaction (the upload path) is exercised for real.
     loadProfile: async (db, user) => {
-      const [p] = await db`select * from profiles where user_id=${user}`;
+      const [p] = await tx(db, (t) => t`select * from profiles where user_id=${user}`);
       return p
         ? {
             id: p.id,
@@ -293,7 +296,7 @@ test("attachments reuse core blobs, check digests, bind once, and deny every non
         body: bytes,
       })
     ).status,
-  ).toBe(404);
+  ).toBe(401);
   expect(
     (
       await request(0, `/conversations/${dm.id}/messages`, "POST", {
@@ -341,6 +344,100 @@ test("attachments reuse core blobs, check digests, bind once, and deny every non
       })
     ).status,
   ).toBe(400);
+});
+test("upload link is its own single-use capability, bound to the uploader", async () => {
+  const bytes = new TextEncoder().encode("Capability upload");
+  /** @param {number} who */
+  const claimAs = async (who) =>
+    (
+      await request(who, "/attachments/claim", "POST", {
+        name: "cap.txt",
+        mime: "text/plain",
+        bytes: bytes.length,
+        sha256: sha256Hex(bytes),
+        role: "file",
+      })
+    ).body;
+  /** @param {string} url */
+  const put = (url) =>
+    fetch(url, {
+      method: "PUT",
+      headers: { "content-type": "text/plain" },
+      body: bytes,
+    });
+  const a = await claimAs(0);
+  expect(new URL(a.upload_url).searchParams.get("token")).toMatch(/^spu_/);
+  // Plain PUT: no cookie, no bearer. The URL carries the capability.
+  const wrong = new URL(a.upload_url);
+  wrong.searchParams.set("token", "spu_wrong");
+  const refused = await put(wrong.toString());
+  expect(refused.status).toBe(401);
+  expect((await refused.json()).error.code).toBe("upload_unauthorized");
+  expect((await put(a.upload_url.split("?")[0])).status).toBe(401);
+  expect((await put(a.upload_url)).status).toBe(200);
+  expect((await put(a.upload_url)).status).toBe(401);
+  const late = await claimAs(0);
+  await h.db`update files set upload_expires_at=now()-interval '1 second' where id=(select blob_id from chat_attachments where id=${late.attachment_id})`;
+  expect((await put(late.upload_url)).status).toBe(401);
+  // Person 1 shares the DM with person 0 but cannot send person 0's upload.
+  const stolen = await request(1, `/conversations/${dm.id}/messages`, "POST", {
+    client_msg_id: "stolen-attachment",
+    body: "",
+    attachment_ids: [a.attachment_id],
+  });
+  expect(stolen.status).toBe(404);
+  const [unbound] =
+    await h.db`select message_id from chat_attachments where id=${a.attachment_id}`;
+  expect(unbound.message_id).toBeNull();
+  const own = await request(0, `/conversations/${dm.id}/messages`, "POST", {
+    client_msg_id: "capability-attachment",
+    body: "",
+    attachment_ids: [a.attachment_id],
+  });
+  expect(own.status).toBe(201);
+  expect(own.body.attachments.map((/** @type {any} */ x) => x.id)).toEqual([
+    a.attachment_id,
+  ]);
+});
+test("unread names the caller; last_message is a MessageLite; user mentions resolve as refs", async () => {
+  const unread = await request(1, "/unread");
+  expect(unread.status).toBe(200);
+  expect(unread.body.me).toEqual({ id: people[1].id, display_name: "Person 1" });
+  const body = `Ask <@user:${people[2].id}> and <@user:${people[1].id}> <@user:${people[2].id}> <!channel>`;
+  const m = await request(0, `/conversations/${dm.id}/messages`, "POST", {
+    client_msg_id: "user-refs",
+    body,
+  });
+  expect(m.status).toBe(201);
+  const users = m.body.refs.filter((/** @type {any} */ r) => r.type === "user");
+  // Person 2 is not a member of this DM; the name still resolves, once.
+  expect(users.map((/** @type {any} */ r) => [r.id, r.title, r.access])).toEqual([
+    [people[2].id, "Person 2", "ok"],
+    [people[1].id, "Person 1", "ok"],
+  ]);
+  const listed = (await request(1, "/conversations")).body.items.find(
+    (/** @type {any} */ c) => c.id === dm.id,
+  );
+  expect(Object.keys(listed.last_message).sort()).toEqual([
+    "author",
+    "body",
+    "created_at",
+    "deleted",
+    "id",
+    "seq",
+  ]);
+  expect(listed.last_message).toEqual({
+    id: m.body.id,
+    seq: m.body.seq,
+    author: m.body.author,
+    body,
+    created_at: m.body.created_at,
+    deleted: false,
+  });
+  const latest = await request(1, `/conversations/${dm.id}/messages`);
+  const seqs = latest.body.items.map((/** @type {any} */ x) => x.seq);
+  expect(seqs).toEqual([...seqs].sort((x, y) => x - y));
+  expect(seqs.at(-1)).toBe(m.body.seq);
 });
 test("25 MB file boundary is supported by the streaming uploader", async () => {
   const bytes = new Uint8Array(25 * 1024 * 1024);

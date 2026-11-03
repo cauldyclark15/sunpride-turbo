@@ -82,6 +82,8 @@ function ConversationRow({
   const title = conversationTitle(conversation, me.id);
   const others = otherMembers(conversation, me.id);
   const unread = conversation.unread_count > 0 && !conversation.muted;
+  // MessageLite carries no refs or attachments: names come from the members
+  // preview, and an empty body means the message was files only.
   const preview = conversation.last_message
     ? plainText(conversation.last_message.body, {
         user: (id) =>
@@ -89,7 +91,7 @@ function ConversationRow({
             (member) => member.id === id,
           )?.display_name,
         ref: () => undefined,
-      })
+      }).trim() || "Sent an attachment"
     : "";
   const lead =
     conversation.last_message && conversation.kind !== "dm"

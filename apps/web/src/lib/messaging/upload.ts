@@ -127,12 +127,30 @@ export type PutBytes = (
   onProgress: (fraction: number) => void,
 ) => Promise<void>;
 
+/**
+ * The web reaches the API through its own origin (`/api/*`), so an absolute
+ * `upload_url` for an API path is sent to the same path here. The URL carries
+ * its own single-use upload token; no cookie or bearer is needed.
+ */
+export function sameOriginUploadUrl(url: string, origin?: string): string {
+  const base =
+    origin ?? (typeof window === "undefined" ? undefined : window.location.origin);
+  if (!base) return url;
+  try {
+    const parsed = new URL(url, base);
+    return parsed.pathname.startsWith("/api/")
+      ? `${parsed.pathname}${parsed.search}`
+      : url;
+  } catch {
+    return url;
+  }
+}
+
 /** `PUT upload_url` with the raw bytes, reporting progress (XHR has upload events). */
 export const putWithProgress: PutBytes = (url, body, mime, onProgress) =>
   new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open("PUT", url);
-    xhr.withCredentials = true;
+    xhr.open("PUT", sameOriginUploadUrl(url));
     xhr.setRequestHeader("Content-Type", mime);
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) onProgress(event.loaded / event.total);

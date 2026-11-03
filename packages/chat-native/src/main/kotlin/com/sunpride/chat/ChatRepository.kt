@@ -94,7 +94,10 @@ class ChatRepository(
     // ---------- who am I ----------
     suspend fun ensureMe() {
         if (_me.value.isNotEmpty()) return
-        runCatching { call { api.myIds() } }.getOrNull()?.takeIf { it.isNotEmpty() }?.let { setMe(it) }
+        // `/unread` names the caller exactly; `/api/me` ids remain the fallback.
+        val canonical = runCatching { call { api.unread() } }.getOrNull()?.me?.id
+        val ids = (listOfNotNull(canonical) + (runCatching { call { api.myIds() } }.getOrNull() ?: emptySet())).toSet()
+        if (ids.isNotEmpty()) setMe(ids)
     }
     private fun setMe(ids: Set<String>) { _me.value = ids; runCatching { persistMeIds(ids) } }
     fun isMine(m: ChatMessage) = m.author.id in _me.value
@@ -118,7 +121,10 @@ class ChatRepository(
         }
     }
     suspend fun refreshUnread() {
-        runCatching { call { api.unread() } }.getOrNull()?.let { _unread.value = it }
+        runCatching { call { api.unread() } }.getOrNull()?.let { u ->
+            _unread.value = u
+            u.me?.let { me -> if (me.id !in _me.value) setMe(_me.value + me.id) }
+        }
     }
     fun conversationById(id: String): Conversation? = _conversations.value.items.firstOrNull { it.id == id }
     private fun upsertConversation(c: Conversation) {
@@ -227,7 +233,7 @@ class ChatRepository(
         cache.putConversations(_conversations.value.items)
         _unread.update { u ->
             val gone = u.conversations.firstOrNull { it.id == conversationId }
-            if (gone == null) u else UnreadSummary(maxOf(0, u.total - gone.unreadCount), maxOf(0, u.mentions - gone.mentionCount), u.conversations.filter { it.id != conversationId })
+            if (gone == null) u else UnreadSummary(maxOf(0, u.total - gone.unreadCount), maxOf(0, u.mentions - gone.mentionCount), u.conversations.filter { it.id != conversationId }, u.me)
         }
     }
 

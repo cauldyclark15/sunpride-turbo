@@ -58,12 +58,16 @@ export function messagingClient(transport: Transport = {}) {
         "DELETE",
         `/conversations/${id(conversationId)}/members/${id(userId)}`,
       ),
+    /** Public channels the caller has not joined: a bare list, no paging. */
     browseChannels: (q?: string) =>
-      get<Conversation[] | { items: Conversation[] }>("/channels/browse", {
+      get<Conversation[]>("/channels/browse", {
         q: q || undefined,
       }),
     joinChannel: (conversationId: string) =>
-      send<Conversation>("POST", `/conversations/${id(conversationId)}/join`),
+      send<ConversationDetail>(
+        "POST",
+        `/conversations/${id(conversationId)}/join`,
+      ),
 
     listMessages: (
       conversationId: string,
@@ -134,12 +138,11 @@ export function messagingClient(transport: Transport = {}) {
 
 export type MessagingClient = ReturnType<typeof messagingClient>;
 
-/** `/channels/browse` returns a list; accept a paged wrapper too. */
+/** `/channels/browse` returns a bare list. */
 export function browseItems(
-  result: Conversation[] | { items: Conversation[] } | null | undefined,
+  result: Conversation[] | null | undefined,
 ): Conversation[] {
-  if (!result) return [];
-  return Array.isArray(result) ? result : (result.items ?? []);
+  return Array.isArray(result) ? result : [];
 }
 
 /** Stable id for an idempotent send (`client_msg_id`). */

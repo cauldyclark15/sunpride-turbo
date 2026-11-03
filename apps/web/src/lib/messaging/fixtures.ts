@@ -210,6 +210,7 @@ export const CONVERSATIONS: Conversation[] = [
       author: BEN,
       body: MESSAGES[4]!.body,
       created_at: MESSAGES[4]!.created_at,
+      deleted: false,
     },
   }),
   conversation({
@@ -226,6 +227,7 @@ export const CONVERSATIONS: Conversation[] = [
       author: ANA,
       body: `Can you visit <#outlet:${OUTLET_REF.id}>?`,
       created_at: "2026-11-03T01:40:00.000Z",
+      deleted: false,
     },
   }),
   conversation({
@@ -256,6 +258,7 @@ export const CHANNEL_DETAIL: ConversationDetail = {
 };
 
 export const UNREAD: UnreadSummary = {
+  me: { id: ME.id, display_name: ME.display_name },
   total: 3,
   mentions: 1,
   conversations: [

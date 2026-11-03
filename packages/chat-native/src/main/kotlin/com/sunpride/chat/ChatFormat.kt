@@ -73,9 +73,11 @@ object ChatFormat {
     fun lastLine(c: Conversation, meIds: Set<String>): String {
         val m = c.lastMessage ?: return "No messages yet"
         if (m.deleted) return "This message was deleted"
-        val text = ChatTokens.plain(m.body, m.refs).replace('\n', ' ').trim()
+        // MessageLite has no refs: name mentioned people from the members preview and the author.
+        val people = (c.membersPreview + listOfNotNull(m.author)).associate { it.id to it.displayName }
+        val text = ChatTokens.plain(m.body, emptyList(), people).replace('\n', ' ').trim()
         val who = m.author?.let { if (it.id in meIds) "You" else it.displayName.substringBefore(' ') }
-        val body = text.ifEmpty { if (m.hasAttachments) "Sent an attachment" else "" }
+        val body = text.ifEmpty { "Sent an attachment" }
         return if (c.isDm && who != "You" || who == null) body else "$who: $body"
     }
 }

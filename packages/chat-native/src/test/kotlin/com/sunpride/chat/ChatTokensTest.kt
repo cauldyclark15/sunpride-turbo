@@ -126,9 +126,22 @@ class ChatFormatTest {
     }
 
     @Test fun `last line never shows tokens`() {
-        val last = Fx.message("m1", 1, "see <#outlet:o-1>").also { it.put("refs", JSONArray().put(JSONObject().put("type", "outlet").put("id", "o-1").put("title", "Main Street Store").put("access", "ok"))) }
+        // MessageLite carries no refs: people come from the members preview, objects show their type word.
+        val last = Fx.lite(Fx.message("m1", 1, "see <#outlet:o-1> with <@user:${Fx.MARIA}>"))
         val c = Conversation.from(Fx.conversation(kind = "group", last = last))
-        assertEquals("Maria: see Main Street Store", ChatFormat.lastLine(c, setOf(Fx.ME)))
+        assertEquals("Maria: see Store with @Maria Santos", ChatFormat.lastLine(c, setOf(Fx.ME)))
+        val files = Conversation.from(Fx.conversation(kind = "group", last = Fx.lite(Fx.message("m2", 2, ""))))
+        assertEquals("Maria: Sent an attachment", ChatFormat.lastLine(files, setOf(Fx.ME)))
+        val gone = Conversation.from(Fx.conversation(last = Fx.lite(Fx.message("m3", 3, "").put("deleted", true))))
+        assertEquals("This message was deleted", ChatFormat.lastLine(gone, setOf(Fx.ME)))
+    }
+
+    @Test fun `MessageLite reads exactly the API's last_message fields`() {
+        val o = Fx.lite(Fx.message("m1", 4, "hi"))
+        assertEquals(listOf("author", "body", "created_at", "deleted", "id", "seq"), o.keys().asSequence().toList().sorted())
+        val m = MessageLite.from(o)
+        assertEquals(MessageLite("m1", 4, UserLite(Fx.MARIA, "Maria Santos", null, false), "hi", false, "2026-11-03T01:00:00.000Z"), m)
+        assertEquals(m, MessageLite.from(m.toJson()))
     }
 }
 
@@ -164,5 +177,18 @@ class MessageLayoutTest {
         val rows = MessageLayout.build(listOf(m("a", 1, Fx.ME, "2026-11-03T11:59:00Z")), listOf(p2, p1), me, null, now, zone)
         assertEquals(listOf("c1", "c2"), rows.filterIsInstance<ChatRow.Sending>().map { it.send.clientMsgId })
         assertFalse(rows.filterIsInstance<ChatRow.Sending>().first().showHeader)
+    }
+}
+
+class ChatLaunchTest {
+    @Test fun `a notification tap opens only a conversation id, once`() {
+        assertFalse(ChatLaunch.accept("not-a-conversation"))
+        assertFalse(ChatLaunch.accept(null))
+        assertTrue(ChatLaunch.accept(Fx.CONV))
+        assertEquals(Fx.CONV, ChatLaunch.pending.value)
+        ChatLaunch.clear("bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb")
+        assertEquals(Fx.CONV, ChatLaunch.pending.value)
+        ChatLaunch.clear(Fx.CONV)
+        assertNull(ChatLaunch.pending.value)
     }
 }

@@ -14,6 +14,7 @@ import {
   useConversation,
   useConversations,
   useMessagingLive,
+  useMessagingUnread,
 } from "../../lib/messaging/hooks";
 import type { Conversation, Message, SearchHit, UserLite } from "../../lib/messaging/types";
 import { useMessagingActions } from "./actions";
@@ -28,10 +29,21 @@ export type RightPanel =
   | { kind: "search" }
   | null;
 
-/** The person signed in, as the chat sees them (`users.id` is the profile subject). */
+/**
+ * The person signed in, as the chat sees them. `GET /unread` names the caller
+ * (`me`) and is canonical; until it loads, `users.id` is the profile subject.
+ */
 export function chatSelf(
   profile: { subject: string; name: string } | null | undefined,
+  canonical?: { id: string; display_name: string } | null,
 ): UserLite | null {
+  if (canonical?.id)
+    return {
+      id: canonical.id,
+      display_name: canonical.display_name || profile?.name || "You",
+      avatar_url: null,
+      is_agent: false,
+    };
   if (!profile) return null;
   return {
     id: profile.subject,
@@ -90,8 +102,10 @@ export function MessagesPage({
 }) {
   const session = useSession();
   const permissions = usePermissions();
-  const me = chatSelf(session.profile);
   const allowed = canAccessWebModule("messages", session.profile?.role);
+  const fallbackMe = chatSelf(session.profile);
+  const unread = useMessagingUnread(allowed ? fallbackMe?.id : null);
+  const me = chatSelf(session.profile, unread?.me);
   const canModerate =
     permissions.can("messaging.admin") ||
     MODERATOR_ROLES.has(session.profile?.role ?? "");

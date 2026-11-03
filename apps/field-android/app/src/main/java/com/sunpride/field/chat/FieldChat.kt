@@ -61,17 +61,23 @@ object FieldChat {
         }
     }
 
+    /** SP-0147: Messages draws its own top bar, so the app's bar is hidden there (one bar on screen, never two). */
+    fun appBarVisible(ready: Boolean, page: String): Boolean = !(ready && page == "messages")
+
     fun environment(context: Context, openHref: (String) -> Boolean = { false }) =
         ChatEnvironment(context.applicationContext, session(context), defaultHttpClient(), openHref)
 }
 
-/** Messages page. [openHref] opens an object in the app when it has a screen for it (a store, today). */
+/**
+ * Messages page. [openHref] opens an object in the app when it has a screen for it (a store, today);
+ * [openConversation] is the conversation a notification tap asked for, if any.
+ */
 @Composable
-fun FieldMessages(modifier: Modifier, onClose: () -> Unit, openHref: (String) -> Boolean) {
+fun FieldMessages(modifier: Modifier, openConversation: String?, onClose: () -> Unit, openHref: (String) -> Boolean) {
     val ctx = LocalContext.current
     val latest by rememberUpdatedState(openHref)
     val env = remember { FieldChat.environment(ctx) { latest(it) } }
-    ChatHost(env, onClose, modifier)
+    ChatHost(env, onClose, modifier, startConversationId = openConversation)
 }
 
 /** The one Messages entry on Today: a card with an unread count, and the 15-minute background check. */

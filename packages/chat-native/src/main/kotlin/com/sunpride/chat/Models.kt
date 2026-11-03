@@ -38,17 +38,17 @@ data class Member(val user: UserLite, val role: String, val lastReadSeq: Long) {
     companion object { fun from(o: JSONObject) = Member(UserLite.from(o), o.str("role") ?: "member", o.optLong("last_read_seq", 0)) }
 }
 
-/** The contract leaves MessageLite open; read the fields every Message carries and tolerate the rest. */
+/**
+ * A conversation row's `last_message`, exactly as the API sends it: `{id, seq, author, body, created_at, deleted}`.
+ * No refs or attachments; a deleted message has an empty body, and a live empty body means files only.
+ */
 data class MessageLite(val id: String?, val seq: Long?, val author: UserLite?, val body: String, val deleted: Boolean,
-    val createdAt: String?, val hasAttachments: Boolean = false, val refs: List<RefEntry> = emptyList()) {
+    val createdAt: String?) {
     fun toJson(): JSONObject = JSONObject().putNullable("id", id).putNullable("seq", seq).putNullable("author", author?.toJson())
-        .put("body", body).put("deleted", deleted).putNullable("created_at", createdAt)
-        .put("attachments", JSONArray().apply { if (hasAttachments) put(JSONObject()) })
-        .put("refs", JSONArray(refs.map { it.toJson() }))
+        .put("body", body).putNullable("created_at", createdAt).put("deleted", deleted)
     companion object {
         fun from(o: JSONObject) = MessageLite(o.str("id"), o.long("seq"), o.obj("author")?.let(UserLite::from),
-            o.str("body") ?: "", o.optBoolean("deleted", false), o.str("created_at"),
-            o.arr("attachments").length() > 0, o.arr("refs").mapObjects(RefEntry::from))
+            o.str("body") ?: "", o.optBoolean("deleted", false), o.str("created_at"))
     }
 }
 
@@ -151,11 +151,14 @@ data class ConversationPage(val items: List<Conversation>, val nextCursor: Strin
 data class SearchHit(val message: ChatMessage, val conversationId: String, val conversationTitle: String?, val conversationKind: String?)
 data class SearchPage(val items: List<SearchHit>, val nextCursor: String?)
 data class UnreadConversation(val id: String, val unreadCount: Int, val mentionCount: Int)
-data class UnreadSummary(val total: Int, val mentions: Int, val conversations: List<UnreadConversation>) {
+/** `GET /unread` `me`: the caller's own chat identity (`users.id`), the canonical "me". */
+data class ChatMe(val id: String, val displayName: String)
+data class UnreadSummary(val total: Int, val mentions: Int, val conversations: List<UnreadConversation>, val me: ChatMe? = null) {
     companion object {
         val NONE = UnreadSummary(0, 0, emptyList())
         fun from(o: JSONObject) = UnreadSummary(o.optInt("total", 0), o.optInt("mentions", 0),
-            o.arr("conversations").mapObjects { UnreadConversation(it.getString("id"), it.optInt("unread_count", 0), it.optInt("mention_count", 0)) })
+            o.arr("conversations").mapObjects { UnreadConversation(it.getString("id"), it.optInt("unread_count", 0), it.optInt("mention_count", 0)) },
+            o.obj("me")?.let { m -> m.str("id")?.takeIf { it.isNotBlank() }?.let { ChatMe(it, m.str("display_name") ?: "") } })
     }
 }
 data class ClaimedUpload(val attachmentId: String, val uploadUrl: String, val expiresAt: String?)

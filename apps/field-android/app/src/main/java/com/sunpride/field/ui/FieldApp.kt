@@ -230,6 +230,9 @@ fun FieldApp(
         }
     }
     androidx.activity.compose.BackHandler(enabled = backStep != BackStep.Exit, onBack = goBack)
+    // SP-0147: a chat notification tap opens Messages at its conversation once the app is ready.
+    val chatTap = com.sunpride.chat.ui.rememberChatLaunch()
+    LaunchedEffect(chatTap, ready) { if (ready && chatTap != null) page = "messages" }
     // Opening the app (or coming back from Settings with permission) restarts a running day's service.
     LaunchedEffect(workDayHost, dayView?.started, dayView?.locationAllowed) {
         if (dayView?.started == true && dayView.locationAllowed) dayAction { h, t -> h.resume(t) }
@@ -237,7 +240,8 @@ fun FieldApp(
     MaterialTheme(colorScheme = if (dark) SunprideTokens.darkColors else SunprideTokens.lightColors,
         shapes = SunprideTokens.shapes, typography = SunprideTokens.typography) {
         Scaffold(contentWindowInsets = WindowInsets.safeDrawing, containerColor = MaterialTheme.colorScheme.background, topBar = {
-            Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp, modifier = Modifier.statusBarsPadding()) {
+            // SP-0147: Messages draws its own top bar (title, back, actions), so the app's bar steps aside there.
+            if (com.sunpride.field.chat.FieldChat.appBarVisible(ready, page)) Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp, modifier = Modifier.statusBarsPadding()) {
                 Column {
                 Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 20.dp),
                     horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
@@ -343,7 +347,7 @@ fun FieldApp(
                 }
                 ready && page == "workforce" -> com.sunpride.field.ui.workforce.WorkforceScreen(controller,location,modifier)
                 // SP-0146 v2 messaging: the shared chat module; Back inside it steps back, Back on its list returns here.
-                ready && page == "messages" -> com.sunpride.field.chat.FieldMessages(modifier, onClose = { page = "home" },
+                ready && page == "messages" -> com.sunpride.field.chat.FieldMessages(modifier, chatTap, onClose = { page = "home" },
                     openHref = { href ->
                         Regex("^/stores/([^/?#]+)").find(href)?.groupValues?.get(1)
                             ?.takeIf { id -> controller.today.customers.any { it.outletId == id } }

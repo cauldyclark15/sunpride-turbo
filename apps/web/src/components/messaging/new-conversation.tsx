@@ -225,7 +225,7 @@ export function BrowseChannelsDialog({
 }) {
   const [query, setQuery] = useState("");
   const [error, setError] = useState("");
-  const result = useApi<Conversation[] | { items: Conversation[] }>(
+  const result = useApi<Conversation[]>(
     ["messaging", "browse", query],
     ({ signal }) =>
     messagingClient({ signal }).browseChannels(query),

@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -74,6 +75,22 @@ fun rememberChatUnread(env: ChatEnvironment): Int {
  * The whole Messages experience. [onClose] runs when Back is pressed on the conversation list, so the host app
  * returns to where it was. Inside, Back steps back one screen; every sheet and viewer closes with Back too.
  */
+/**
+ * The conversation a notification tap asked to open, or null. Reads the host activity's launch intent and every
+ * later intent (the tap reuses the running screen), so the host only has to show Messages when this is non-null.
+ */
+@Composable
+fun rememberChatLaunch(): String? {
+    val activity = androidx.activity.compose.LocalActivity.current as? androidx.activity.ComponentActivity
+    DisposableEffect(activity) {
+        com.sunpride.chat.ChatLaunch.offer(activity?.intent)
+        val listener = androidx.core.util.Consumer<android.content.Intent> { com.sunpride.chat.ChatLaunch.offer(it) }
+        activity?.addOnNewIntentListener(listener)
+        onDispose { activity?.removeOnNewIntentListener(listener) }
+    }
+    return com.sunpride.chat.ChatLaunch.pending.collectAsState().value
+}
+
 @Composable
 fun ChatHost(env: ChatEnvironment, onClose: () -> Unit, modifier: Modifier = Modifier, startConversationId: String? = null) {
     val ctx = LocalContext.current
@@ -95,6 +112,12 @@ fun ChatHost(env: ChatEnvironment, onClose: () -> Unit, modifier: Modifier = Mod
     var detailsFor by remember { mutableStateOf<String?>(null) }
 
     BackHandler(enabled = true) { if (stack.size > 1) pop() else onClose() }
+    // A notification tap while Messages is already showing opens that conversation over the list.
+    LaunchedEffect(startConversationId) {
+        val id = startConversationId ?: return@LaunchedEffect
+        if (stackText.split("|").last() != "conv:$id") stackText = "list|conv:$id"
+        com.sunpride.chat.ChatLaunch.clear(id)
+    }
 
     val askNotifications = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
     LaunchedEffect(Unit) {

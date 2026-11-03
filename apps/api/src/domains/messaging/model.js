@@ -101,6 +101,9 @@ export async function event(db, type, conv, message = null) {
  * @param {any} db @param {(db:any)=>Promise<any>} fn */
 export const write = (db, fn) =>
   db.begin(async (/** @type {any} */ t) => {
+    // Mark the handle as a transaction so platform `tx()` callers inside (for
+    // example the org profile loader) nest as savepoints instead of failing.
+    t.__inTx = true;
     await t`select pg_advisory_xact_lock(hashtext('sunpride:messaging:write'))`;
     return fn(t);
   });
@@ -147,6 +150,21 @@ export function pageCursor(value) {
   uuid(cur.id);
   return cur;
 }
+const USER_TOKEN =
+  /<@user:([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})>/g;
+/** `MessageLite`: the conversation row's `last_message`. Exactly
+ * `{id, seq, author, body, created_at, deleted}`; a deleted body is empty.
+ * @param {any} db @param {any} row */
+export async function renderMessageLite(db, row) {
+  return {
+    id: row.id,
+    seq: Number(row.seq),
+    author: await userLite(db, row.author_user_id),
+    body: row.deleted_at ? "" : row.body,
+    created_at: iso(row.created_at),
+    deleted: !!row.deleted_at,
+  };
+}
 /** @param {any} db @param {any} actor @param {any} row */
 export async function renderMessage(db, actor, row) {
   const mentions = row.deleted_at
@@ -155,13 +173,22 @@ export async function renderMessage(db, actor, row) {
   const reactions = row.deleted_at
     ? []
     : await db`select emoji,count(*)::int as count,bool_or(user_id=${actor.userId}) as mine from chat_reactions where message_id=${row.id} group by emoji order by emoji`;
-  const refs = await resolveRefs(
-    db,
-    actor,
-    mentions
+  // Object tags first (as stored), then one resolved `user` entry for every
+  // `<@user:…>` in the body, so readers can name people outside the conversation.
+  // `<!channel>` fan-out rows are notifications, not body tokens, so they add no refs.
+  const users = row.deleted_at
+    ? []
+    : [
+        ...new Set(
+          [...String(row.body).matchAll(USER_TOKEN)].map((m) => String(m[1])),
+        ),
+      ];
+  const refs = await resolveRefs(db, actor, [
+    ...mentions
       .filter((/** @type {any} */ r) => r.kind === "object")
       .map((/** @type {any} */ r) => ({ type: r.ref_type, id: r.ref_id })),
-  );
+    ...users.map((id) => ({ type: "user", id })),
+  ]);
   return {
     id: row.id,
     conversation_id: row.conversation_id,
@@ -214,7 +241,7 @@ export async function renderConversation(db, actor, c, detail = false) {
     member_count: members.length,
     unread_count: counts[0]?.unread_count ?? 0,
     mention_count: counts[0]?.mention_count ?? 0,
-    last_message: last ? await renderMessage(db, actor, last) : null,
+    last_message: last ? await renderMessageLite(db, last) : null,
     muted: c.muted ?? false,
     updated_at: iso(c.updated_at),
   };

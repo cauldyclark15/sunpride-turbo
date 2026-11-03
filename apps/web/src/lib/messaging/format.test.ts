@@ -58,8 +58,8 @@ describe("sidebar", () => {
   it("formats sizes and the nav badge", () => {
     expect(formatBytes(512)).toBe("512 B");
     expect(formatBytes(2_621_440)).toBe("2.5 MB");
-    expect(unreadBadgeText({ total: 0, mentions: 0, conversations: [] })).toBeUndefined();
-    expect(unreadBadgeText({ total: 4, mentions: 0, conversations: [] })).toBe("4");
-    expect(unreadBadgeText({ total: 140, mentions: 2, conversations: [] })).toBe("@ 99+");
+    expect(unreadBadgeText({ me: { id: ME.id, display_name: ME.display_name }, total: 0, mentions: 0, conversations: [] })).toBeUndefined();
+    expect(unreadBadgeText({ me: { id: ME.id, display_name: ME.display_name }, total: 4, mentions: 0, conversations: [] })).toBe("4");
+    expect(unreadBadgeText({ me: { id: ME.id, display_name: ME.display_name }, total: 140, mentions: 2, conversations: [] })).toBe("@ 99+");
   });
 });

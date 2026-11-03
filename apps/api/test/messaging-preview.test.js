@@ -1,6 +1,7 @@
 import { test, expect } from "bun:test";
 import {
   fetchPreview,
+  pinnedFetch,
   publicAddress,
 } from "../src/domains/messaging/previews.js";
 /** @param {string} html */
@@ -125,3 +126,26 @@ test("preview enforces five-second total deadline including injected DNS", async
     }),
   ).rejects.toThrow("Preview timed out");
 }, 7000);
+test("the real transport connects to the pinned, already-checked address (never a second lookup)", async () => {
+  // The host name below does not resolve to this machine; only the pinned address can reach it.
+  const server = Bun.serve({
+    port: 0,
+    hostname: "127.0.0.1",
+    fetch: (req) =>
+      new Response(
+        `<title>Pinned ${new URL(req.url).hostname}</title>`,
+        { headers: { "content-type": "text/html" } },
+      ),
+  });
+  try {
+    const res = await pinnedFetch(
+      new URL(`http://pinned-preview.example:${server.port}/`),
+      { address: "127.0.0.1", family: 4 },
+      AbortSignal.timeout(5000),
+    );
+    expect(res.status).toBe(200);
+    expect(await res.text()).toBe("<title>Pinned pinned-preview.example</title>");
+  } finally {
+    server.stop(true);
+  }
+});

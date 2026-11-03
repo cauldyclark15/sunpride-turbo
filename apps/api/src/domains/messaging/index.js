@@ -246,7 +246,10 @@ export function install(router, platform) {
   });
   route("GET", "/unread", async (c) => {
     const conversations = await M.unreadCounts(c.db, c.actor.userId);
+    const self = await M.userLite(c.db, c.actor.userId);
     return {
+      // The canonical chat identity of the caller (`users.id`), for clients.
+      me: { id: self.id, display_name: self.display_name },
       total: conversations.reduce(
         (/** @type {number} */ n, /** @type {any} */ r) => n + r.unread_count,
         0,

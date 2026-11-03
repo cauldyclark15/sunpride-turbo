@@ -66,7 +66,16 @@ class ChatContractTest {
         val body = sent("POST /api/v1/messaging/attachments/claim")!!
         assertEquals("photo.jpg", body.getString("name")); assertEquals("file", body.getString("role")); assertEquals(40, body.getLong("bytes")); assertFalse(body.has("of_attachment_id"))
         assertTrue(fake.bodies.last { it.first.endsWith("/attachments/claim") }.second.contains("\"of_attachment_id\":\"${c.attachmentId}\""))
-        assertTrue(fake.requests.contains("PUT /uploads/${c.attachmentId}")); assertEquals("att-2", t.attachmentId)
+        val put = fake.requests.indexOf("PUT /uploads/${c.attachmentId}?token=spu_${c.attachmentId}")
+        assertTrue(put >= 0); assertEquals("att-2", t.attachmentId)
+        assertNull("a plain PUT: the upload link carries its own token", fake.bearersSeen[put])
+    }
+
+    @Test fun `a refused upload link is an upload failure, not a signed-out session`() {
+        val c = api.claim("photo.jpg", "image/jpeg", 40, "abc", "file", null)
+        fake.refuseUploads = true
+        try { api.upload(c.uploadUrl, ByteArray(40), "image/jpeg"); fail() }
+        catch (e: ChatException) { assertTrue(e is ChatException.Api); assertEquals(401, (e as ChatException.Api).status) }
     }
 
     @Test fun `directory refs unread and search parse as the contract shapes`() {
@@ -78,6 +87,7 @@ class ChatContractTest {
         assertTrue(api.resolveRefs(listOf("outlet" to "o-1")).isEmpty())
         assertEquals(1, sent("POST /api/v1/messaging/refs/resolve")!!.getJSONArray("refs").length())
         val u = api.unread(); assertEquals(2, u.total); assertEquals(1, u.mentions); assertEquals(Fx.CONV, u.conversations[0].id)
+        assertEquals(ChatMe(Fx.ME, "Me Myself"), u.me)
         val s = api.search("route"); assertEquals("hit-1", s.items[0].message.id); assertEquals("sales-cebu", s.items[0].conversationTitle); assertEquals("c2", s.nextCursor)
     }
 

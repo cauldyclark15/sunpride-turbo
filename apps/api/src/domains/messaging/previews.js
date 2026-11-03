@@ -71,7 +71,7 @@ async function target(url, io) {
 /** Connect to the checked IP, not a second resolver lookup. Disable proxy/connection
  * reuse; TLS still verifies the original URL hostname. Return a capped plain response.
  * @param {URL} url @param {{address:string,family:number}} address @param {AbortSignal} signal */
-function pinnedFetch(url, address, signal) {
+export function pinnedFetch(url, address, signal) {
   return new Promise((resolve, reject) => {
     const req = (url.protocol === "https:" ? https : http).request(
       url,
@@ -84,8 +84,12 @@ function pinnedFetch(url, address, signal) {
           "accept-encoding": "identity",
           "user-agent": "SunprideLinkPreview/1.0",
         },
-        lookup: (_host, _options, cb) =>
-          cb(null, address.address, address.family),
+        // Bun (and Node with `all`) asks for the list form; answer both forms
+        // with the one checked address.
+        lookup: (/** @type {any} */ _host, /** @type {any} */ options, /** @type {any} */ cb) =>
+          options?.all
+            ? cb(null, [{ address: address.address, family: address.family }])
+            : cb(null, address.address, address.family),
       },
       (res) => {
         const status = res.statusCode ?? 500;

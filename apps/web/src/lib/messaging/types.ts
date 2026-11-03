@@ -85,12 +85,14 @@ export type Message = {
   created_at: string;
 };
 
-/** `last_message` in a conversation row; the contract names it MessageLite. */
+/**
+ * `last_message` in a conversation row (MessageLite), exactly as the API sends
+ * it: no refs or attachments, and a deleted message has an empty body.
+ */
 export type MessageLite = Pick<
   Message,
-  "id" | "seq" | "author" | "body" | "created_at"
-> &
-  Partial<Pick<Message, "deleted" | "conversation_id">>;
+  "id" | "seq" | "author" | "body" | "created_at" | "deleted"
+>;
 
 export type Conversation = {
   id: string;
@@ -117,6 +119,8 @@ export type ConversationPage = {
 export type MessagePage = { items: Message[]; has_more: boolean };
 
 export type UnreadSummary = {
+  /** The caller's own chat identity (`users.id`); the canonical "me". */
+  me: { id: string; display_name: string };
   total: number;
   mentions: number;
   conversations: { id: string; unread_count: number; mention_count: number }[];

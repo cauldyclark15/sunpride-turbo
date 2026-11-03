@@ -27,6 +27,10 @@ object Fx {
         .put("attachments", JSONArray()).put("refs", refs).put("mentions_me", false).put("reactions", JSONArray())
         .put("links", JSONArray()).put("edited", false).put("deleted", false).put("created_at", at)
 
+    /** `last_message` exactly as the API sends it (MessageLite). */
+    fun lite(m: JSONObject) = JSONObject().put("id", m.get("id")).put("seq", m.get("seq")).put("author", m.get("author"))
+        .put("body", m.get("body")).put("created_at", m.get("created_at")).put("deleted", m.optBoolean("deleted", false))
+
     fun conversation(id: String = CONV, kind: String = "dm", title: String? = null, unread: Int = 0, last: JSONObject? = null) = JSONObject()
         .put("id", id).put("kind", kind).put("title", title ?: JSONObject.NULL).put("topic", JSONObject.NULL).put("is_private", false)
         .put("members_preview", JSONArray().put(user(ME, "Me Myself")).put(user(MARIA, "Maria Santos")))
@@ -43,6 +47,7 @@ class FakeChatServer : AutoCloseable {
     @Volatile var down = false
     @Volatile var rejectBodies = emptySet<String>()   // bodies answered with 422 invalid
     @Volatile var authFailuresLeft = 0
+    @Volatile var refuseUploads = false
     @Volatile var bearersSeen = java.util.concurrent.CopyOnWriteArrayList<String?>()
     val sent = java.util.concurrent.CopyOnWriteArrayList<JSONObject>()           // distinct messages created
     private val byClientId = HashMap<String, JSONObject>()
@@ -78,7 +83,7 @@ class FakeChatServer : AutoCloseable {
         when {
             path == "/api/me" -> return json(200, JSONObject().put("version", 2).put("profile", JSONObject().put("id", "profile-1").put("subject", Fx.ME)))
             path == "/api/v1/messaging/conversations" && r.method == "GET" ->
-                return json(200, JSONObject().put("items", JSONArray().put(Fx.conversation(unread = 2, last = messages.lastOrNull()))).put("next_cursor", JSONObject.NULL))
+                return json(200, JSONObject().put("items", JSONArray().put(Fx.conversation(unread = 2, last = messages.lastOrNull()?.let(Fx::lite)))).put("next_cursor", JSONObject.NULL))
             path == "/api/v1/messaging/conversations" && r.method == "POST" -> return json(201, Fx.conversation())
             path.startsWith("/api/v1/messaging/messages/") && r.method == "PATCH" -> return json(200, Fx.message("m-edited", 9, JSONObject(r.body.readUtf8()).getString("body")).put("edited", true))
             path.endsWith("/read") && r.method == "POST" -> return json(200, JSONObject().put("ok", true))
@@ -89,7 +94,7 @@ class FakeChatServer : AutoCloseable {
             path == "/api/v1/messaging/search" -> return json(200, JSONObject().put("items", JSONArray().put(Fx.message("hit-1", 4, "route plan", conv = Fx.CONV)
                 .put("conversation", JSONObject().put("id", Fx.CONV).put("title", "sales-cebu").put("kind", "channel")))).put("next_cursor", "c2"))
             path == "/api/v1/messaging/unread" ->
-                return json(200, JSONObject().put("total", 2).put("mentions", 1).put("conversations", JSONArray().put(JSONObject().put("id", Fx.CONV).put("unread_count", 2).put("mention_count", 1))))
+                return json(200, JSONObject().put("me", JSONObject().put("id", Fx.ME).put("display_name", "Me Myself")).put("total", 2).put("mentions", 1).put("conversations", JSONArray().put(JSONObject().put("id", Fx.CONV).put("unread_count", 2).put("mention_count", 1))))
             m != null && r.method == "GET" -> {
                 val q = r.requestUrl!!
                 val limit = q.queryParameter("limit")?.toInt() ?: 50
@@ -121,9 +126,15 @@ class FakeChatServer : AutoCloseable {
                 val body = JSONObject(r.body.readUtf8())
                 val id = "att-${++attachmentCounter}"
                 uploads.add("claim:" + body.getString("role") + ":" + id)
-                return json(200, JSONObject().put("attachment_id", id).put("upload_url", "/uploads/$id").put("expires_at", "2026-11-03T02:00:00.000Z"))
+                return json(200, JSONObject().put("attachment_id", id).put("upload_url", "/uploads/$id?token=spu_$id").put("expires_at", "2026-11-03T02:00:00.000Z"))
             }
-            path.startsWith("/uploads/") && r.method == "PUT" -> { uploads.add("put:" + path.removePrefix("/uploads/") + ":" + r.body.size); return MockResponse().setResponseCode(204) }
+            path.startsWith("/uploads/") && r.method == "PUT" -> {
+                // Like the API: the URL's own single-use token is the only credential.
+                val id = path.removePrefix("/uploads/")
+                if (refuseUploads || r.requestUrl?.queryParameter("token") != "spu_$id")
+                    return json(401, JSONObject().put("error", JSONObject().put("code", "upload_unauthorized").put("message", "Upload link expired or invalid")))
+                uploads.add("put:" + id + ":" + r.body.size); return MockResponse().setResponseCode(204)
+            }
         }
         if (r.method in setOf("PATCH", "DELETE", "POST") && path.startsWith("/api/v1/messaging/") && !path.startsWith("/api/v1/messaging/attachments/")) return json(200, JSONObject().put("ok", true))
         return json(404, JSONObject().put("error", JSONObject().put("code", "not_found").put("message", "No such thing")))

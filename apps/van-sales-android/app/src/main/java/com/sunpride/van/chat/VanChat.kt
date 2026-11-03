@@ -74,11 +74,20 @@ object VanChat {
 
 /** The Messages screen, drawn over the van app's home while [VanChat.open] is true. */
 @Composable
-fun VanMessages() {
+fun VanMessages(openConversation: String? = null) {
     val ctx = LocalContext.current
     val env = remember { VanChat.environment(ctx) }
     DisposableEffect(Unit) { onDispose { VanChat.open = false } }
-    ChatHost(env, onClose = { VanChat.open = false }, modifier = Modifier.systemBarsPadding().imePadding())
+    ChatHost(env, onClose = { VanChat.open = false }, modifier = Modifier.systemBarsPadding().imePadding(),
+        startConversationId = openConversation)
+}
+
+/** SP-0147: a chat notification tap opens Messages at its conversation. Returns that conversation, or null. */
+@Composable
+fun rememberVanChatLaunch(): String? {
+    val tap = com.sunpride.chat.ui.rememberChatLaunch()
+    LaunchedEffect(tap) { if (tap != null) VanChat.open = true }
+    return tap
 }
 
 /** The one Messages entry on Today: a row with an unread count, and the 15-minute background check. */

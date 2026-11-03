@@ -105,12 +105,17 @@ class ChatApi(private val session: ChatSession, private val http: OkHttpClient) 
         val o = post("/attachments/claim", body)
         return ClaimedUpload(o.getString("attachment_id"), o.getString("upload_url"), o.str("expires_at"))
     }
-    /** `PUT upload_url` with the raw bytes. The bearer goes only to our own origin. */
+    /**
+     * `PUT upload_url` with the raw bytes: a plain PUT. The URL carries its own single-use upload token, so no
+     * bearer is sent, and a refused link (401) is an upload failure, never a signed-out session.
+     */
     fun upload(uploadUrl: String, bytes: ByteArray, mime: String) {
         val url = absolute(uploadUrl)
         val media = mime.toMediaTypeOrNull()
-        val req = Request.Builder().url(url).put(bytes.toRequestBody(media)).apply { authorize(this, url) }.build()
-        execute(req, retryAuth = sameOrigin(url)) { code, _ -> if (code !in 200..299) throw failure(code, "") }
+        val req = Request.Builder().url(url).put(bytes.toRequestBody(media)).build()
+        try {
+            http.newCall(req).execute().use { r -> if (r.code !in 200..299) throw failure(r.code, r.body?.string().orEmpty()) }
+        } catch (e: IOException) { throw ChatException.Offline(e) }
     }
     /** Image/file bytes for an attachment, link image or avatar. Third-party hosts get no credentials. */
     fun download(url: String, maxBytes: Long = 30L * 1024 * 1024): ByteArray {

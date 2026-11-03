@@ -1,11 +1,17 @@
 import { describe, expect, it, vi } from "vitest";
 import { createActions } from "../../components/messaging/actions";
-import { messagingClient } from "./client";
+import { browseItems, messagingClient } from "./client";
 import { EscapeStack } from "./escape";
 import { CHANNEL_ID, CONVERSATIONS, ME, MESSAGES, UNREAD, message } from "./fixtures";
 import { liveRegistrations, messagingKeys } from "./hooks";
 import { Outbox, withPending } from "./outbox";
-import { thumbnailSize, attachmentError, attachmentMime, uploadAttachment } from "./upload";
+import {
+  thumbnailSize,
+  attachmentError,
+  attachmentMime,
+  sameOriginUploadUrl,
+  uploadAttachment,
+} from "./upload";
 
 type Call = { url: string; method: string; body: unknown };
 
@@ -138,6 +144,35 @@ describe("attachments", () => {
       { url: "/up/1t", mime: "image/jpeg" },
     ]);
     expect(progress.at(-1)).toBe(1);
+  });
+});
+
+describe("API shapes the web reads", () => {
+  it("reads `me` from /unread and the bare /channels/browse list", () => {
+    expect(UNREAD.me.id).toBe(ME.id);
+    expect(browseItems([CONVERSATIONS[0]!])).toEqual([CONVERSATIONS[0]]);
+    expect(browseItems(null)).toEqual([]);
+    for (const c of CONVERSATIONS)
+      if (c.last_message)
+        expect(Object.keys(c.last_message).sort()).toEqual([
+          "author",
+          "body",
+          "created_at",
+          "deleted",
+          "id",
+          "seq",
+        ]);
+  });
+
+  it("PUTs the capability upload URL on the web's own origin", () => {
+    const url =
+      "http://127.0.0.1:4310/api/v1/messaging/attachments/a1/upload?token=spu_x";
+    expect(sameOriginUploadUrl(url, "https://sunpride.example")).toBe(
+      "/api/v1/messaging/attachments/a1/upload?token=spu_x",
+    );
+    expect(sameOriginUploadUrl("https://cdn.example/x", "https://sunpride.example")).toBe(
+      "https://cdn.example/x",
+    );
   });
 });
 

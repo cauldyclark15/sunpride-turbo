@@ -239,6 +239,12 @@ class ChatRepositoryTest {
         assertEquals(1, r.state(Fx.CONV).value.messages.count { it.body == "on my way" })
     }
 
+    @Test fun `unread names me canonically`() = runBlocking {
+        val r = repo(me = emptySet())
+        r.refreshUnread()
+        assertTrue(Fx.ME in r.myIds.value)
+    }
+
     @Test fun `my own id is learned from a message I sent`() = runBlocking {
         val r = repo(me = emptySet())
         r.send(Fx.CONV, "hi", null)

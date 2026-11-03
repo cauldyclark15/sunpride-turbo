@@ -19,6 +19,39 @@ import androidx.work.WorkManager
 import okhttp3.OkHttpClient
 import java.util.concurrent.TimeUnit
 
+/**
+ * A notification tap carries the conversation to open ([EXTRA_CONVERSATION]). The host app's activity hands its
+ * intents to [offer] (see `rememberChatLaunch`), and the app opens Messages at [pending].
+ */
+object ChatLaunch {
+    const val EXTRA_CONVERSATION = "com.sunpride.chat.CONVERSATION_ID"
+    private val UUID = Regex("^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+    private val _pending = kotlinx.coroutines.flow.MutableStateFlow<String?>(null)
+    val pending: kotlinx.coroutines.flow.StateFlow<String?> = _pending
+
+    /** Accepts a conversation id from a tap; anything that is not a conversation id is ignored. */
+    fun accept(conversationId: String?): Boolean {
+        val id = conversationId?.takeIf { UUID.matches(it) } ?: return false
+        _pending.value = id
+        return true
+    }
+    /** Reads, then removes, the extra so a rotation or relaunch does not reopen the same conversation. */
+    fun offer(intent: android.content.Intent?) {
+        val id = intent?.getStringExtra(EXTRA_CONVERSATION) ?: return
+        intent.removeExtra(EXTRA_CONVERSATION)
+        accept(id)
+    }
+    /** The conversation was opened. */
+    fun clear(conversationId: String) { _pending.compareAndSet(conversationId, null) }
+
+    /** The app's launch intent, reusing the running screen, with the conversation to open. */
+    fun tapIntent(context: Context, conversationId: String): android.content.Intent? =
+        context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
+            putExtra(EXTRA_CONVERSATION, conversationId)
+            addFlags(android.content.Intent.FLAG_ACTIVITY_SINGLE_TOP or android.content.Intent.FLAG_ACTIVITY_CLEAR_TOP)
+        }
+}
+
 data class NotifyItem(val conversationId: String, val title: String, val text: String, val mention: Boolean)
 
 /** Decides which unread changes deserve a notification: new mentions, and new messages in a direct chat. */
@@ -84,8 +117,9 @@ object UnreadCheck {
         val nm = context.getSystemService(NotificationManager::class.java)
         if (Build.VERSION.SDK_INT >= 26) nm.createNotificationChannel(NotificationChannel(CHANNEL, "Messages", NotificationManager.IMPORTANCE_DEFAULT)
             .apply { description = "Mentions and direct messages" })
-        val launch = context.packageManager.getLaunchIntentForPackage(context.packageName)
-        val tap = launch?.let { PendingIntent.getActivity(context, 0, it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) }
+        // One PendingIntent per conversation, so each notification opens its own conversation.
+        val launch = ChatLaunch.tapIntent(context, item.conversationId)
+        val tap = launch?.let { PendingIntent.getActivity(context, item.conversationId.hashCode(), it, PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT) }
         val n = NotificationCompat.Builder(context, CHANNEL).setSmallIcon(android.R.drawable.sym_action_chat)
             .setContentTitle(item.title).setContentText(item.text).setStyle(NotificationCompat.BigTextStyle().bigText(item.text))
             .setAutoCancel(true).setContentIntent(tap).setCategory(NotificationCompat.CATEGORY_MESSAGE).build()
