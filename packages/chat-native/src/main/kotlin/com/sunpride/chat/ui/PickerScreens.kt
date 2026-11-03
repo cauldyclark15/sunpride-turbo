@@ -23,6 +23,12 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.material3.Icon
+import androidx.compose.material3.TextField
+import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
@@ -99,12 +105,13 @@ internal fun NewChatScreen(onBack: () -> Unit, onCreated: (String) -> Unit) {
         ChatTopBar("New conversation", onBack)
         Row(Modifier.padding(horizontal = 12.dp, vertical = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             listOf("Direct message", "Group", "Channel").forEachIndexed { i, label ->
-                FilterChip(selected = mode == i, onClick = { mode = i; q = ""; problem = null }, label = { Text(label) })
+                FilterChip(selected = mode == i, onClick = { mode = i; q = ""; problem = null }, label = { Text(label) },
+                    colors = FilterChipDefaults.filterChipColors(selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), selectedLabelColor = MaterialTheme.colorScheme.primary))
             }
         }
         problem?.let { Banner(it, error = true) }
         if (mode == 1 || mode == 0) {
-            OutlinedTextField(q, { q = it }, Modifier.fillMaxWidth().padding(horizontal = 12.dp), singleLine = true, label = { Text("Search people") })
+            PillSearchField(q, { q = it }, "Search people", Modifier.padding(horizontal = 12.dp))
             if (mode == 1) {
                 if (picked.isNotEmpty()) Text("Added: " + picked.joinToString(", ") { it.displayName } + "  (tap a name below to remove)", Modifier.padding(12.dp), style = MaterialTheme.typography.bodySmall)
                 OutlinedTextField(title, { title = it.take(80) }, Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 4.dp), singleLine = true, label = { Text("Group name (optional)") })
@@ -118,7 +125,7 @@ internal fun NewChatScreen(onBack: () -> Unit, onCreated: (String) -> Unit) {
                         Avatar(u, 40.dp)
                         Column(Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) { Text(u.displayName, style = MaterialTheme.typography.bodyLarge); if (u.isAgent) { Spacer(Modifier.width(6.dp)); AiBadge() } }
-                            (u.roleLabel ?: if (u.isAgent) "AI user" else null)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            (u.roleLabel?.replaceFirstChar { it.uppercase() } ?: if (u.isAgent) "AI user" else null)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                         if (mode == 1) Text(if (on) "✓" else "", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                     }
@@ -155,6 +162,20 @@ internal fun NewChatScreen(onBack: () -> Unit, onCreated: (String) -> Unit) {
     }
 }
 
+/** A rounded search box with a magnifier, like the one on the conversation list. */
+@Composable
+internal fun PillSearchField(value: String, onChange: (String) -> Unit, hint: String, modifier: Modifier = Modifier, autoFocus: Boolean = false) {
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+    LaunchedEffect(Unit) { if (autoFocus) { delay(100); runCatching { focus.requestFocus() } } }
+    TextField(value, onChange, modifier.fillMaxWidth().focusRequester(focus), singleLine = true, placeholder = { Text(hint, maxLines = 1) },
+        leadingIcon = { Icon(ChatIcons.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant) },
+        trailingIcon = if (value.isNotEmpty()) ({ ChatIconButton(ChatIcons.Close, "Clear search", { onChange("") }, tint = MaterialTheme.colorScheme.onSurfaceVariant) }) else null,
+        shape = RoundedCornerShape(28.dp),
+        colors = TextFieldDefaults.colors(
+            focusedContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f), unfocusedContainerColor = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f),
+            focusedIndicatorColor = Color.Transparent, unfocusedIndicatorColor = Color.Transparent))
+}
+
 @Composable
 internal fun SearchScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
     val repo = LocalChat.current.repository
@@ -173,7 +194,7 @@ internal fun SearchScreen(onBack: () -> Unit, onOpen: (String) -> Unit) {
     }
     Column(Modifier.fillMaxSize()) {
         ChatTopBar("Search messages", onBack)
-        OutlinedTextField(q, { q = it }, Modifier.fillMaxWidth().padding(12.dp), singleLine = true, label = { Text("Search what people wrote") })
+        PillSearchField(q, { q = it }, "Search what people wrote", Modifier.padding(12.dp), autoFocus = true)
         problem?.let { Banner(it, error = true) }
         LazyColumn(Modifier.fillMaxSize()) {
             items(hits, key = { it.message.id }) { h ->
@@ -210,9 +231,13 @@ internal fun DetailsSheet(conversationId: String, onDismiss: () -> Unit, onLeft:
     var detail by remember { mutableStateOf<ConversationDetail?>(null) }
     var confirm by remember { mutableStateOf(false) }
     LaunchedEffect(conversationId) { detail = runCatching { repo.detail(conversationId) }.getOrNull() }
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = MaterialTheme.colorScheme.surface) {
         Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            Text(conv?.let { ChatFormat.title(it, me) } ?: "Conversation", style = MaterialTheme.typography.titleLarge)
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                ConversationAvatar(conv, me, 48.dp, conv?.let { ChatFormat.title(it, me) } ?: "Conversation")
+                Text(conv?.let { ChatFormat.title(it, me) } ?: "Conversation", Modifier.weight(1f), style = MaterialTheme.typography.titleLarge, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                ChatIconButton(ChatIcons.Close, "Close", onDismiss, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
             conv?.topic?.takeIf { it.isNotBlank() }?.let { Text(it, style = MaterialTheme.typography.bodyMedium) }
             if (conv != null) Row(verticalAlignment = Alignment.CenterVertically) {
                 Column(Modifier.weight(1f)) { Text("Mute notifications"); Text("You'll still see it in your list", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
@@ -232,7 +257,6 @@ internal fun DetailsSheet(conversationId: String, onDismiss: () -> Unit, onLeft:
                 if (detail == null) Text("Loading people…", style = MaterialTheme.typography.bodySmall)
             }
             if (conv != null && !conv.isDm) OutlinedButton(onClick = { confirm = true }, modifier = Modifier.fillMaxWidth()) { Text(if (conv.isChannel) "Leave channel" else "Leave group", color = MaterialTheme.colorScheme.error) }
-            TextButton(onClick = onDismiss, modifier = Modifier.align(Alignment.End)) { Text("Close") }
         }
     }
     if (confirm) AlertDialog(onDismissRequest = { confirm = false }, title = { Text("Leave this conversation?") }, text = { Text("You will stop getting its messages.") },

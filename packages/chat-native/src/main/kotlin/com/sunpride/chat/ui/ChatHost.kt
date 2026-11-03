@@ -146,7 +146,7 @@ fun ChatHost(env: ChatEnvironment, onClose: () -> Unit, modifier: Modifier = Mod
         attempt++
     }
 
-    Column(modifier.fillMaxSize().background(MaterialTheme.colorScheme.background).imePadding()) {
+    Column(modifier.fillMaxSize().background(MaterialTheme.colorScheme.surface).imePadding()) {
         val rt = runtime
         when {
             rt == null && !failed -> {

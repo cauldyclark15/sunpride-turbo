@@ -16,15 +16,34 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.clickable
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilterChipDefaults
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -101,6 +120,11 @@ internal fun ChatComposer(
     var dismissedAt by remember(draftKey) { mutableStateOf(-1) }
     var menu by remember { mutableStateOf(false) }
     var busy by remember { mutableStateOf(false) }
+    val focus = remember { FocusRequester() }
+    val keyboard = LocalSoftwareKeyboardController.current
+    var focusTick by remember { mutableStateOf(0) }
+    // After "Mention person" or "Tag item" in the sheet, put the cursor back in the box with the keyboard up.
+    LaunchedEffect(focusTick) { if (focusTick > 0) { delay(150); runCatching { focus.requestFocus() }; keyboard?.show() } }
 
     fun update(v: TextFieldValue) {
         draft = draft.withText(v.text); value = v
@@ -150,49 +174,106 @@ internal fun ChatComposer(
 
     // Back closes the suggestion list first, then cancels an edit, before it leaves the screen.
     androidx.activity.compose.BackHandler(enabled = panel != null || editing != null) { if (panel != null) dismissedAt = panel.start else onCancelEdit() }
+    fun takePhoto() {
+        if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) launchCamera() else cameraPermission.launch(Manifest.permission.CAMERA)
+    }
     Column(Modifier.fillMaxWidth()) {
-        if (panel != null) SuggestionPanel(panel, allowChannelMention,
+        if (panel != null) SuggestionPanel(panel, allowChannelMention, Modifier.weight(1f, fill = false),
             onUser = { u -> val (d, c) = draft.insert(panel, "@" + u.displayName, ChatTokens.userToken(u.id)); draft = d; value = TextFieldValue(d.text, TextRange(c)); rt.drafts[draftKey] = d },
             onRef = { r -> val (d, c) = draft.insert(panel, r.title, ChatTokens.objectToken(r.type, r.id)); draft = d; value = TextFieldValue(d.text, TextRange(c)); rt.drafts[draftKey] = d },
             onChannel = { val (d, c) = draft.insert(panel, "@channel", ChatTokens.CHANNEL); draft = d; value = TextFieldValue(d.text, TextRange(c)); rt.drafts[draftKey] = d },
             onDismiss = { dismissedAt = panel.start })
-        Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 3.dp) {
-            Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp)) {
-                if (editing != null) Row(verticalAlignment = Alignment.CenterVertically) {
+        Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 2.dp) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp)) {
+                if (editing != null) Row(Modifier.padding(start = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                     Text("Editing message", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
-                    TextButton(onClick = onCancelEdit) { Text("Cancel") }
+                    ChatIconButton(ChatIcons.Close, "Cancel editing", onCancelEdit, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
-                if (attachments.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(bottom = 6.dp)) {
+                if (attachments.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 6.dp)) {
                     items(attachments, key = { it.path }) { a -> StagedAttachment(a) { attachments = attachments - a; runCatching { File(a.path).delete(); a.thumbPath?.let { File(it).delete() } } } }
                 }
-                Row(verticalAlignment = Alignment.Bottom) {
-                    if (editing == null) {
-                        TextButton(onClick = { menu = true }, enabled = !busy, modifier = Modifier.semantics { contentDescription = "Attach a photo or file" }) { Text("＋", style = MaterialTheme.typography.titleLarge) }
-                        DropdownMenu(expanded = menu, onDismissRequest = { menu = false }) {
-                            DropdownMenuItem(text = { Text("Take a photo") }, onClick = {
-                                menu = false
-                                if (ContextCompat.checkSelfPermission(ctx, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) launchCamera() else cameraPermission.launch(Manifest.permission.CAMERA)
-                            })
-                            DropdownMenuItem(text = { Text("Choose photos") }, onClick = { menu = false; photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) })
-                            DropdownMenuItem(text = { Text("Attach a document") }, onClick = { menu = false; documents.launch(AttachmentRules.OPEN_DOCUMENT_TYPES) })
-                        }
-                    }
-                    TextButton(onClick = { update(insertChar(value, '@')) }, modifier = Modifier.semantics { contentDescription = "Mention a person" }) { Text("@", style = MaterialTheme.typography.titleMedium) }
-                    TextButton(onClick = { update(insertChar(value, '#')) }, modifier = Modifier.semantics { contentDescription = "Tag a store, item or order" }) { Text("#", style = MaterialTheme.typography.titleMedium) }
-                    OutlinedTextField(value = value, onValueChange = { update(it) }, modifier = Modifier.weight(1f), maxLines = 5,
-                        placeholder = { Text(placeholder) }, visualTransformation = LabelHighlight(draft.labels(), MaterialTheme.colorScheme.primary))
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
+                    if (editing == null) ChatIconButton(ChatIcons.Add, "Attach or tag", { menu = true }, enabled = !busy, tint = MaterialTheme.colorScheme.primary)
+                    else Spacer(Modifier.width(8.dp))
+                    MessageField(value, { update(it) }, placeholder, LabelHighlight(draft.labels(), MaterialTheme.colorScheme.primary), Modifier.weight(1f).padding(horizontal = 4.dp).focusRequester(focus))
                     val body = draft.toBody()
                     val canSend = (draft.hasContent() || attachments.isNotEmpty()) && body.length <= ChatTokens.MAX_BODY && !busy
-                    TextButton(onClick = {
+                    SendButton(editing != null, canSend) {
                         onSend(body, attachments)
                         draft = ComposerDraft(); value = TextFieldValue(""); attachments = emptyList(); rt.drafts.remove(draftKey)
-                    }, enabled = canSend, modifier = Modifier.semantics { contentDescription = if (editing != null) "Save changes" else "Send" }) {
-                        Text(if (editing != null) "Save" else "Send", style = MaterialTheme.typography.titleSmall)
                     }
                 }
                 if (draft.toBody().length > ChatTokens.MAX_BODY - 500) Text("${draft.toBody().length} / ${ChatTokens.MAX_BODY}", style = MaterialTheme.typography.labelSmall,
-                    color = if (draft.toBody().length > ChatTokens.MAX_BODY) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 16.dp))
+                    color = if (draft.toBody().length > ChatTokens.MAX_BODY) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 64.dp, top = 2.dp))
             }
+        }
+    }
+    if (menu) AttachSheet(onDismiss = { menu = false },
+        onPhoto = { menu = false; photos.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
+        onCamera = { menu = false; takePhoto() },
+        onDocument = { menu = false; documents.launch(AttachmentRules.OPEN_DOCUMENT_TYPES) },
+        onMention = { menu = false; dismissedAt = -1; update(insertChar(value, '@')); focusTick++ },
+        onTag = { menu = false; dismissedAt = -1; update(insertChar(value, '#')); focusTick++ })
+}
+
+/** A rounded text pill that takes the rest of the row: one-line hint, grows to five lines. */
+@Composable
+private fun MessageField(value: TextFieldValue, onChange: (TextFieldValue) -> Unit, placeholder: String, transform: VisualTransformation, modifier: Modifier) {
+    val style = MaterialTheme.typography.bodyLarge.copy(color = MaterialTheme.colorScheme.onSurface)
+    BasicTextField(value = value, onValueChange = onChange, modifier = modifier.heightIn(min = 48.dp).semantics { contentDescription = placeholder },
+        textStyle = style, maxLines = 5, visualTransformation = transform, cursorBrush = SolidColor(MaterialTheme.colorScheme.primary),
+        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
+        decorationBox = { inner ->
+            Box(Modifier.clip(RoundedCornerShape(24.dp)).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f))
+                .heightIn(min = 48.dp).padding(horizontal = 16.dp, vertical = 12.dp), contentAlignment = Alignment.CenterStart) {
+                if (value.text.isEmpty()) Text(placeholder, style = style, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                inner()
+            }
+        })
+}
+
+/** A round send (or save) button; grey and inert until there is something to send. */
+@Composable
+private fun SendButton(editing: Boolean, enabled: Boolean, onClick: () -> Unit) {
+    val bg = if (enabled) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+    val fg = if (enabled) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.38f)
+    Box(Modifier.size(48.dp).clip(CircleShape).background(bg)
+        .clickable(enabled = enabled, role = Role.Button, onClickLabel = if (editing) "Save changes" else "Send", onClick = onClick)
+        .semantics { contentDescription = if (editing) "Save changes" else "Send" }, contentAlignment = Alignment.Center) {
+        Icon(if (editing) ChatIcons.Check else ChatIcons.Send, contentDescription = null, tint = fg, modifier = Modifier.size(22.dp).padding(start = if (editing) 0.dp else 2.dp))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AttachSheet(onDismiss: () -> Unit, onPhoto: () -> Unit, onCamera: () -> Unit, onDocument: () -> Unit, onMention: () -> Unit, onTag: () -> Unit) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
+        containerColor = MaterialTheme.colorScheme.surface) {
+        Column(Modifier.fillMaxWidth().padding(bottom = 16.dp).navigationBarsPadding()) {
+            Row(Modifier.fillMaxWidth().padding(start = 24.dp, end = 8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Add to message", Modifier.weight(1f), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
+                ChatIconButton(ChatIcons.Close, "Close", onDismiss, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            AttachRow(ChatIcons.Photo, "Photo", "Choose from your gallery", onPhoto)
+            AttachRow(ChatIcons.Camera, "Camera", "Take a new photo", onCamera)
+            AttachRow(ChatIcons.Document, "Document", "PDF, Word, Excel or other file", onDocument)
+            HorizontalDivider(Modifier.padding(horizontal = 24.dp, vertical = 4.dp), color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
+            AttachRow(ChatIcons.Mention, "Mention person", "Type @ and a name", onMention)
+            AttachRow(ChatIcons.Tag, "Tag item", "A store, product, order or visit", onTag)
+        }
+    }
+}
+
+@Composable
+private fun AttachRow(icon: ImageVector, title: String, subtitle: String, onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 64.dp).padding(horizontal = 24.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+        Box(Modifier.size(44.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)), contentAlignment = Alignment.Center) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(22.dp))
+        }
+        Column(Modifier.weight(1f)) {
+            Text(title, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
+            Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
     }
 }
@@ -206,7 +287,7 @@ private fun insertChar(v: TextFieldValue, c: Char): TextFieldValue {
 
 /** Matching people (after @) or objects with thumbnails (after #), above the keyboard. */
 @Composable
-private fun SuggestionPanel(trigger: ComposerDraft.Trigger, allowChannel: Boolean, onUser: (UserLite) -> Unit, onRef: (RefEntry) -> Unit, onChannel: () -> Unit, onDismiss: () -> Unit) {
+private fun SuggestionPanel(trigger: ComposerDraft.Trigger, allowChannel: Boolean, modifier: Modifier, onUser: (UserLite) -> Unit, onRef: (RefEntry) -> Unit, onChannel: () -> Unit, onDismiss: () -> Unit) {
     val repo = LocalChat.current.repository
     var people by remember { mutableStateOf(emptyList<UserLite>()) }
     var refs by remember { mutableStateOf(emptyList<RefEntry>()) }
@@ -222,21 +303,23 @@ private fun SuggestionPanel(trigger: ComposerDraft.Trigger, allowChannel: Boolea
         } catch (e: com.sunpride.chat.ChatException) { problem = ChatErrors.words(e) }
         loading = false
     }
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 6.dp, shadowElevation = 4.dp) {
+    // Shrinks to the space left above the message box, so the box stays on screen with the keyboard up.
+    Surface(modifier, color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp) {
         Column {
+            HorizontalDivider(color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f))
             Row(Modifier.fillMaxWidth().padding(start = 16.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text(if (trigger.char == '@') "Mention a person" else "Tag a store, item, order…", Modifier.weight(1f), style = MaterialTheme.typography.labelLarge)
-                TextButton(onClick = onDismiss) { Text("Close") }
+                ChatIconButton(ChatIcons.Close, "Close suggestions", onDismiss, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (trigger.char == '#') LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(horizontal = 12.dp)) {
-                item { FilterChip(selected = typeFilter == null, onClick = { typeFilter = null }, label = { Text("All") }) }
-                items(ChatTokens.OBJECT_TYPES) { t -> FilterChip(selected = typeFilter == t, onClick = { typeFilter = t }, label = { Text(ChatTokens.typeLabel(t)) }) }
+                item { FilterChip(selected = typeFilter == null, onClick = { typeFilter = null }, label = { Text("All") }, colors = chipColors()) }
+                items(ChatTokens.OBJECT_TYPES) { t -> FilterChip(selected = typeFilter == t, onClick = { typeFilter = t }, label = { Text(ChatTokens.typeLabel(t)) }, colors = chipColors()) }
             }
-            LazyColumn(Modifier.heightIn(max = 260.dp)) {
+            LazyColumn(Modifier.weight(1f, fill = false).heightIn(max = 280.dp)) {
                 if (trigger.char == '@' && allowChannel && "channel".startsWith(trigger.query.lowercase()))
-                    item { SuggestionRow(onChannel, { Text("📣") }, "@channel", "Notify everyone in this conversation") }
+                    item { SuggestionRow(onChannel, { ConversationAvatar(null, emptySet(), 36.dp, "@") }, "@channel", "Notify everyone in this conversation") }
                 if (trigger.char == '@') items(people, key = { it.id }) { u ->
-                    SuggestionRow({ onUser(u) }, { Avatar(u, 36.dp) }, u.displayName, u.roleLabel ?: if (u.isAgent) "AI user" else null, ai = u.isAgent)
+                    SuggestionRow({ onUser(u) }, { Avatar(u, 36.dp) }, u.displayName, u.roleLabel?.replaceFirstChar { it.uppercase() } ?: if (u.isAgent) "AI user" else null, ai = u.isAgent)
                 } else items(refs, key = { it.type + it.id }) { r ->
                     SuggestionRow({ onRef(r) }, { RefThumb(r, r.type, 40.dp) }, r.title, listOfNotNull(ChatTokens.typeLabel(r.type), r.subtitle).joinToString(" · "))
                 }
@@ -247,14 +330,17 @@ private fun SuggestionPanel(trigger: ComposerDraft.Trigger, allowChannel: Boolea
                     else if (empty) Text("No matches", Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
                 }
             }
-            HorizontalDivider()
         }
     }
 }
 
 @Composable
+private fun chipColors() = FilterChipDefaults.filterChipColors(
+    selectedContainerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f), selectedLabelColor = MaterialTheme.colorScheme.primary)
+
+@Composable
 private fun SuggestionRow(onClick: () -> Unit, lead: @Composable () -> Unit, title: String, subtitle: String?, ai: Boolean = false) {
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 56.dp).padding(horizontal = 16.dp, vertical = 8.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         lead()
         Column(Modifier.weight(1f)) {

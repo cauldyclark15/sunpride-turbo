@@ -5,6 +5,19 @@ import android.content.ClipboardManager
 import android.content.Context
 import android.widget.Toast
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material3.Button
+import androidx.compose.material3.Icon
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -65,55 +78,81 @@ internal fun ConversationListScreen(onClose: () -> Unit, onOpen: (String) -> Uni
     val me by repo.myIds.collectAsState()
     val unread by repo.unread.collectAsState()
     val now = System.currentTimeMillis()
-    Column(Modifier.fillMaxSize()) {
-        ChatTopBar("Messages", onClose, subtitle = if (unread.total > 0) "${unread.total} unread" else null, actions = {
-            TextButton(onClick = onSearch) { Text("Search") }
-            TextButton(onClick = onNew) { Text("New") }
-        })
-        if (state.offline) Banner("You're offline. Showing your saved conversations.")
-        state.error?.let { Banner(it, error = true) }
-        if (state.items.isEmpty()) {
-            Box(Modifier.fillMaxSize().padding(32.dp), contentAlignment = Alignment.Center) {
-                Text(if (!state.loaded) "Loading your conversations…" else "No conversations yet.\nTap New to message a person, a group or a channel.",
-                    style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            }
-        } else LazyColumn(Modifier.fillMaxSize()) {
-            ConversationSection.entries.forEach { section ->
-                val items = state.items.filter { ChatFormat.sectionOf(it, me) == section }
-                if (items.isNotEmpty()) {
-                    item(key = "h-${section.name}") {
-                        Text(section.title, Modifier.fillMaxWidth().padding(start = 16.dp, top = 14.dp, bottom = 4.dp), style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary, fontWeight = FontWeight.Bold)
+    Box(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize()) {
+            ChatTopBar("Messages", onClose, subtitle = if (unread.total > 0) "${unread.total} unread" else null)
+            SearchEntry(onSearch)
+            if (state.offline) Banner("You're offline. Showing your saved conversations.")
+            state.error?.let { Banner(it, error = true) }
+            if (state.items.isEmpty()) {
+                Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (state.loaded) EmptyIcon()
+                    Text(if (!state.loaded) "Loading your conversations…" else "No conversations yet", Modifier.padding(top = 16.dp),
+                        style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
+                    if (state.loaded) Text("Tap the pencil to message a person, a group or a channel.", Modifier.padding(top = 4.dp),
+                        style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
+                }
+            } else LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = 96.dp)) {
+                ConversationSection.entries.forEach { section ->
+                    val items = state.items.filter { ChatFormat.sectionOf(it, me) == section }
+                    if (items.isNotEmpty()) {
+                        item(key = "h-${section.name}") {
+                            Text(section.title.uppercase(), Modifier.fillMaxWidth().padding(start = 16.dp, top = 16.dp, bottom = 4.dp), style = MaterialTheme.typography.labelMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = FontWeight.SemiBold, letterSpacing = 0.8.sp)
+                        }
+                        items(items, key = { it.id }) { c -> ConversationRow(c, me, now) { onOpen(c.id) } }
                     }
-                    items(items, key = { it.id }) { c -> ConversationRow(c, me, now) { onOpen(c.id) } }
                 }
             }
         }
+        FloatingActionButton(onClick = onNew, modifier = Modifier.align(Alignment.BottomEnd).navigationBarsPadding().padding(16.dp),
+            containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary) {
+            Icon(ChatIcons.NewChat, contentDescription = "New conversation")
+        }
+    }
+}
+
+/** Looks like a search box; opens the message search. */
+@Composable
+private fun SearchEntry(onClick: () -> Unit) {
+    Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp).clip(RoundedCornerShape(24.dp))
+        .background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)).clickable(onClickLabel = "Search messages", onClick = onClick)
+        .heightIn(min = 48.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Icon(ChatIcons.Search, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(22.dp))
+        Text("Search messages", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1)
+    }
+}
+
+@Composable
+internal fun EmptyIcon() {
+    Box(Modifier.size(72.dp).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f)), contentAlignment = Alignment.Center) {
+        Icon(ChatIcons.Chat, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(34.dp))
     }
 }
 
 @Composable
 private fun ConversationRow(c: Conversation, me: Set<String>, now: Long, onClick: () -> Unit) {
     val title = ChatFormat.title(c, me)
-    val other = c.membersPreview.firstOrNull { it.id !in me }
     val unread = c.unreadCount > 0
-    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        if (c.isDm) Avatar(other, 44.dp) else Avatar(null, 44.dp, label = if (c.isChannel) "#" else title)
-        Column(Modifier.weight(1f)) {
+    Row(Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 72.dp).padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+        ConversationAvatar(c, me, 48.dp, title)
+        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = if (unread) FontWeight.Bold else FontWeight.Medium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+              Row(Modifier.weight(1f), verticalAlignment = Alignment.CenterVertically) {
+                Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = if (unread) FontWeight.Bold else FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.weight(1f, fill = false))
                 if (c.hasAgent && c.isDm) { Spacer(Modifier.width(6.dp)); AiBadge() }
-                if (c.muted) Text("  🔕", style = MaterialTheme.typography.labelSmall)
-                if (c.isChannel && c.isPrivate) Text("  🔒", style = MaterialTheme.typography.labelSmall)
+                if (c.isChannel && c.isPrivate) { Spacer(Modifier.width(4.dp)); Icon(ChatIcons.Lock, contentDescription = "Private", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp)) }
+                if (c.muted) { Spacer(Modifier.width(4.dp)); Icon(ChatIcons.Muted, contentDescription = "Muted", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(14.dp)) }
+              }
+                Spacer(Modifier.width(8.dp))
+                Text(ChatFormat.listTime(com.sunpride.chat.parseIsoMillis(c.lastMessage?.createdAt ?: c.updatedAt), now), style = MaterialTheme.typography.labelSmall,
+                    color = if (unread) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (unread) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
             }
-            Text(ChatFormat.lastLine(c, me), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                color = if (unread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (unread) FontWeight.Medium else FontWeight.Normal)
-        }
-        Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(4.dp)) {
-            Text(ChatFormat.listTime(com.sunpride.chat.parseIsoMillis(c.lastMessage?.createdAt ?: c.updatedAt), now), style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text(ChatFormat.lastLine(c, me).replace('\n', ' '), Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    color = if (unread) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant, fontWeight = if (unread) FontWeight.Medium else FontWeight.Normal)
                 if (c.mentionCount > 0) CountBadge(c.mentionCount, mention = true)
                 if (c.unreadCount > 0) CountBadge(c.unreadCount)
             }
@@ -175,29 +214,54 @@ internal fun ConversationScreen(
         )
     }
 
-    val title = if (parentId != null) "Thread" else conv?.let { ChatFormat.title(it, me) } ?: "Conversation"
+    val convTitle = conv?.let { ChatFormat.title(it, me) } ?: "Conversation"
+    val title = if (parentId != null) "Thread" else convTitle
     val subtitle = when {
-        parentId != null -> conv?.let { ChatFormat.title(it, me) }
-        conv?.isChannel == true -> conv.topic?.takeIf { it.isNotBlank() } ?: "${conv.memberCount} members"
-        conv != null && !conv.isDm -> "${conv.memberCount} people"
-        conv?.hasAgent == true -> "AI user"
-        else -> null
+        parentId != null -> convTitle
+        conv == null -> null
+        conv.isChannel -> conv.topic?.takeIf { it.isNotBlank() } ?: ("Channel · " + if (conv.memberCount == 1) "1 member" else "${conv.memberCount} members")
+        !conv.isDm -> "Group · ${conv.memberCount} people"
+        conv.membersPreview.any { it.isAgent && it.id !in me } -> "AI user"
+        else -> "Direct message"
+    }
+    // "Say hello to Ana": the other person's first name in a DM.
+    val firstName = conv?.takeIf { it.isDm }?.membersPreview?.firstOrNull { it.id !in me }?.displayName?.let(::firstNameOf)
+    // The time sits under the last bubble of each run, so a run of quick messages shows it once.
+    val timeShownOn = remember(rows) {
+        rows.indices.filter { i ->
+            val r = rows[i] as? ChatRow.Msg ?: return@filter false
+            val next = rows.getOrNull(i + 1)
+            next !is ChatRow.Msg || next.showHeader || next.mine != r.mine || next.message.author.id != r.message.author.id
+        }.map { rows[it].key }.toSet()
     }
     Column(Modifier.fillMaxSize()) {
-        ChatTopBar(title, onBack, subtitle, actions = { if (parentId == null) TextButton(onClick = onDetails) { Text("Details") } })
+        ChatTopBar(title, onBack, subtitle,
+            leading = if (parentId == null) ({ ConversationAvatar(conv, me, 40.dp, convTitle) }) else null,
+            onTitleClick = if (parentId == null) onDetails else null,
+            actions = { if (parentId == null) ChatIconButton(ChatIcons.Info, "Conversation details", onDetails, tint = MaterialTheme.colorScheme.onSurfaceVariant) })
         if (st.offline) Banner("You're offline. Showing saved messages${if (st.pending.isNotEmpty()) "; your unsent messages will go when you're back online" else ""}.")
         st.error?.let { Banner(it, error = true) }
         Box(Modifier.weight(1f).fillMaxWidth()) {
             if (st.messages.isEmpty() && st.pending.isEmpty() && parent == null) {
-                Text(if (!st.loaded) "Loading messages…" else if (parentId != null) "No replies yet." else "No messages yet. Say hello!", Modifier.align(Alignment.Center).padding(24.dp),
-                    style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                // Sits just above the message box, where the first message will appear.
+                Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().padding(horizontal = 32.dp, vertical = 28.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                    if (!st.loaded) Text("Loading messages…", style = MaterialTheme.typography.bodyLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    else {
+                        EmptyIcon()
+                        Text(if (parentId != null) "No replies yet" else "No messages yet", Modifier.padding(top = 14.dp), style = MaterialTheme.typography.titleMedium,
+                            color = MaterialTheme.colorScheme.onSurface, textAlign = TextAlign.Center)
+                        Text(when { parentId != null -> "Reply to start the thread"; firstName != null -> "Say hello to $firstName"; else -> "Start the conversation" },
+                            Modifier.padding(top = 4.dp), style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                }
             }
-            LazyColumn(Modifier.fillMaxSize(), state = listState, reverseLayout = true) {
+            LazyColumn(Modifier.fillMaxSize(), state = listState, reverseLayout = true, contentPadding = PaddingValues(top = 4.dp, bottom = 8.dp)) {
                 items(reversed, key = { it.key }) { row ->
                     when (row) {
                         is ChatRow.Day -> DayRow(row.label)
                         is ChatRow.UnreadDivider -> UnreadRow(row.count)
-                        is ChatRow.Msg -> MessageRowView(row, me, handlers, showThreadLink = parentId == null)
+                        is ChatRow.Msg -> MessageRowView(row, me, handlers, showThreadLink = parentId == null, showTime = row.key in timeShownOn)
                         is ChatRow.Sending -> SendingRowView(row, handlers)
                     }
                 }
@@ -218,7 +282,7 @@ internal fun ConversationScreen(
         Box(Modifier.navigationBarsPadding()) {
             ChatComposer(
                 draftKey = repoKey(conversationId, parentId), editing = editing,
-                placeholder = when { parentId != null -> "Reply in thread"; conv?.isDm == true -> "Message ${ChatFormat.title(conv, me)}"; conv != null -> "Message ${ChatFormat.title(conv, me)}"; else -> "Message" },
+                placeholder = if (parentId != null) "Reply" else "Message",
                 allowChannelMention = conv?.isDm != true,
                 onSend = { body, atts ->
                     val e = editing
@@ -231,7 +295,7 @@ internal fun ConversationScreen(
 
     actions?.let { m ->
         val sheet = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-        ModalBottomSheet(onDismissRequest = { actions = null }, sheetState = sheet) {
+        ModalBottomSheet(onDismissRequest = { actions = null }, sheetState = sheet, containerColor = MaterialTheme.colorScheme.surface) {
             Column(Modifier.padding(bottom = 24.dp).navigationBarsPadding()) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
                     QUICK_REACTIONS.forEach { e -> TextButton(onClick = { actions = null; handlers.onReact(m, e) }) { Text(e, style = MaterialTheme.typography.headlineSmall) } }
@@ -257,11 +321,18 @@ internal fun ConversationScreen(
     chip?.let { c -> ObjectSheet(c, env.openHref) { chip = null } }
 }
 
+/** "Ana Reyes" → "Ana"; trial accounts named "Sample Ana Reyes" give "Ana" too. */
+internal fun firstNameOf(displayName: String): String? {
+    val words = displayName.trim().split(Regex("\\s+")).filter { it.isNotBlank() }
+    val start = if (words.size > 1 && words[0].equals("Sample", ignoreCase = true)) 1 else 0
+    return words.getOrNull(start)
+}
+
 private fun repoKey(conversationId: String, parentId: String?) = if (parentId == null) conversationId else "$conversationId#$parentId"
 
 @Composable
 internal fun SheetAction(label: String, danger: Boolean = false, onClick: () -> Unit) {
-    Text(label, Modifier.fillMaxWidth().clickable(onClick = onClick).padding(horizontal = 24.dp, vertical = 14.dp), style = MaterialTheme.typography.bodyLarge,
+    Text(label, Modifier.fillMaxWidth().clickable(onClick = onClick).heightIn(min = 52.dp).padding(horizontal = 24.dp, vertical = 14.dp), style = MaterialTheme.typography.bodyLarge,
         color = if (danger) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurface)
 }
 
@@ -270,15 +341,16 @@ internal fun SheetAction(label: String, danger: Boolean = false, onClick: () -> 
 @Composable
 internal fun ObjectSheet(chip: Segment.ObjectChip, openHref: (String) -> Boolean, onDismiss: () -> Unit) {
     val ctx = LocalContext.current
-    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+    ModalBottomSheet(onDismissRequest = onDismiss, sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true), containerColor = MaterialTheme.colorScheme.surface) {
         Column(Modifier.padding(horizontal = 20.dp).padding(bottom = 24.dp).navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
                 RefThumb(chip.entry, chip.type, 64.dp)
                 Column(Modifier.weight(1f)) {
-                    Text(chip.label, style = MaterialTheme.typography.titleMedium)
+                    Text(chip.label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                     Text(ChatTokens.typeLabel(chip.type), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.primary)
                     chip.entry?.subtitle?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                 }
+                ChatIconButton(ChatIcons.Close, "Close", onDismiss, tint = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             val entry = chip.entry
             when {
@@ -286,10 +358,10 @@ internal fun ObjectSheet(chip: Segment.ObjectChip, openHref: (String) -> Boolean
                 entry.restricted -> Text("You don't have access to this item.", style = MaterialTheme.typography.bodyMedium)
                 entry.missing -> Text("This item has been removed.", style = MaterialTheme.typography.bodyMedium)
                 entry.href != null -> {
-                    TextButton(onClick = { if (openHref(entry.href)) onDismiss() else toast(ctx, "Open ${chip.label} in the Sunpride web app.") }) { Text("Open") }
+                    Button(onClick = { if (openHref(entry.href)) onDismiss() else toast(ctx, "Open ${chip.label} in the Sunpride web app.") },
+                        modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp)) { Text("Open") }
                 }
             }
-            TextButton(onClick = onDismiss) { Text("Close") }
         }
     }
 }

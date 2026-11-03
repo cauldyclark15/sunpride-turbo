@@ -19,11 +19,11 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
@@ -33,10 +33,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.TextLinkStyles
@@ -53,6 +52,7 @@ import com.sunpride.chat.ChatEnvironment
 import com.sunpride.chat.ChatFormat
 import com.sunpride.chat.ChatRuntime
 import com.sunpride.chat.ChatTokens
+import com.sunpride.chat.Conversation
 import com.sunpride.chat.RefEntry
 import com.sunpride.chat.Segment
 import com.sunpride.chat.UserLite
@@ -87,8 +87,8 @@ internal fun Avatar(user: UserLite?, size: Dp = 36.dp, label: String? = null, mo
 
 @Composable
 internal fun AiBadge(modifier: Modifier = Modifier) {
-    Text("AI", modifier = modifier.clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.tertiaryContainer).padding(horizontal = 5.dp, vertical = 1.dp),
-        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onTertiaryContainer, fontWeight = FontWeight.Bold)
+    Text("AI", modifier = modifier.clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)).padding(horizontal = 5.dp, vertical = 1.dp),
+        style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
 }
 
 @Composable
@@ -96,26 +96,49 @@ internal fun CountBadge(count: Int, mention: Boolean = false, modifier: Modifier
     if (count <= 0 && !mention) return
     val bg = if (mention) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.primary
     val fg = if (mention) MaterialTheme.colorScheme.onError else MaterialTheme.colorScheme.onPrimary
-    Box(modifier.heightIn(min = 20.dp).widthIn(min = 20.dp).clip(CircleShape).background(bg).padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
+    Box(modifier.heightIn(min = 22.dp).widthIn(min = 22.dp).clip(CircleShape).background(bg).padding(horizontal = 6.dp), contentAlignment = Alignment.Center) {
         Text(if (mention && count <= 1) "@" else if (count > 99) "99+" else count.toString(), color = fg, style = MaterialTheme.typography.labelSmall, fontWeight = FontWeight.Bold)
+    }
+}
+
+/** A 48dp icon tap target with a spoken label. */
+@Composable
+internal fun ChatIconButton(icon: ImageVector, label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
+    tint: Color = MaterialTheme.colorScheme.onSurface) {
+    IconButton(onClick = onClick, enabled = enabled, modifier = modifier.size(48.dp)) {
+        Icon(icon, contentDescription = label, tint = if (enabled) tint else tint.copy(alpha = 0.38f), modifier = Modifier.size(24.dp))
+    }
+}
+
+/** The round picture for a conversation: the other person in a DM, a # for a channel, people for a group. */
+@Composable
+internal fun ConversationAvatar(c: Conversation?, meIds: Set<String>, size: Dp, title: String) {
+    when {
+        c == null -> Avatar(null, size, label = title)
+        c.isDm -> Avatar(c.membersPreview.firstOrNull { it.id !in meIds } ?: c.membersPreview.firstOrNull(), size, label = title)
+        else -> Box(Modifier.size(size).clip(CircleShape).background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)), contentAlignment = Alignment.Center) {
+            if (c.isChannel) Text("#", color = MaterialTheme.colorScheme.primary, fontSize = (size.value * 0.46f).sp, fontWeight = FontWeight.Bold)
+            else Icon(ChatIcons.Group, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(size * 0.55f))
+        }
     }
 }
 
 /** Every screen has a visible way back; the phone's Back key does the same (see ChatHost). */
 @Composable
-internal fun ChatTopBar(title: String, onBack: (() -> Unit)?, subtitle: String? = null, actions: @Composable RowScope.() -> Unit = {}) {
-    Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 2.dp) {
-        Column {
-            Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
-                if (onBack != null) TextButton(onClick = onBack, modifier = Modifier.semantics { contentDescription = "Back" }) { Text("‹ Back") }
-                else Spacer(Modifier.width(12.dp))
-                Column(Modifier.weight(1f).padding(horizontal = 4.dp)) {
-                    Text(title, style = MaterialTheme.typography.titleMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+internal fun ChatTopBar(title: String, onBack: (() -> Unit)?, subtitle: String? = null, leading: (@Composable () -> Unit)? = null,
+    onTitleClick: (() -> Unit)? = null, actions: @Composable RowScope.() -> Unit = {}) {
+    Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 1.dp) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+            if (onBack != null) ChatIconButton(ChatIcons.Back, "Back", onBack) else Spacer(Modifier.width(12.dp))
+            val titleMod = Modifier.weight(1f).heightIn(min = 48.dp).let { if (onTitleClick != null) it.clip(RoundedCornerShape(8.dp)).clickable(onClick = onTitleClick) else it }
+            Row(titleMod.padding(horizontal = 4.dp), verticalAlignment = Alignment.CenterVertically) {
+                if (leading != null) { leading(); Spacer(Modifier.width(12.dp)) }
+                Column(Modifier.weight(1f)) {
+                    Text(title, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
-                actions()
             }
-            HorizontalDivider()
+            actions()
         }
     }
 }
@@ -144,16 +167,18 @@ internal fun RefThumb(entry: RefEntry?, type: String, size: Dp = 40.dp) {
 
 /** Rich message text: names and objects as chips, web links tappable, never a raw token. */
 @Composable
-internal fun MessageText(body: String, refs: List<RefEntry>, meIds: Set<String>, color: Color, onChip: (Segment.ObjectChip) -> Unit, modifier: Modifier = Modifier) {
-    val primary = MaterialTheme.colorScheme.primary
-    val chipBg = MaterialTheme.colorScheme.primary.copy(alpha = 0.14f)
-    val objBg = MaterialTheme.colorScheme.secondary.copy(alpha = 0.16f)
-    val text = androidx.compose.runtime.remember(body, refs, meIds, color) {
+internal fun MessageText(body: String, refs: List<RefEntry>, meIds: Set<String>, color: Color, onChip: (Segment.ObjectChip) -> Unit, modifier: Modifier = Modifier,
+    onAccent: Boolean = false) {
+    // On my own (accent) bubble, names and links use the bubble's text colour so they stay readable.
+    val primary = if (onAccent) color else MaterialTheme.colorScheme.primary
+    val chipBg = if (onAccent) color.copy(alpha = 0.22f) else MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)
+    val objBg = if (onAccent) color.copy(alpha = 0.18f) else MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)
+    val text = androidx.compose.runtime.remember(body, refs, meIds, color, onAccent) {
         buildAnnotatedString {
             for (seg in ChatTokens.parse(body, refs)) when (seg) {
                 is Segment.Text -> appendWithLinks(seg.text, primary)
-                is Segment.UserMention -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = primary, background = chipBg)) { append(" @${seg.label} ") }
-                Segment.Channel -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = primary, background = chipBg)) { append(" @channel ") }
+                is Segment.UserMention -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = primary, background = chipBg)) { append("@${seg.label}") }
+                Segment.Channel -> withStyle(SpanStyle(fontWeight = FontWeight.SemiBold, color = primary, background = chipBg)) { append("@channel") }
                 is Segment.ObjectChip -> withLink(LinkAnnotation.Clickable("ref:${seg.type}:${seg.id}",
                     TextLinkStyles(SpanStyle(fontWeight = FontWeight.Medium, color = color, background = objBg))) { onChip(seg) }) { append(" ${typeGlyph(seg.type)} ${seg.label} ") }
             }
@@ -178,7 +203,8 @@ private fun AnnotatedString.Builder.appendWithLinks(text: String, linkColor: Col
 @Composable
 internal fun CardRow(onClick: (() -> Unit)?, modifier: Modifier = Modifier, content: @Composable RowScope.() -> Unit) {
     val shape = RoundedCornerShape(12.dp)
-    val base = modifier.fillMaxWidth().clip(shape).border(BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant), shape)
-    Row((if (onClick != null) base.clickable(onClick = onClick) else base).padding(10.dp), verticalAlignment = Alignment.CenterVertically,
+    val base = modifier.fillMaxWidth().clip(shape).background(MaterialTheme.colorScheme.surface)
+        .border(BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.10f)), shape)
+    Row((if (onClick != null) base.clickable(onClick = onClick) else base).heightIn(min = 56.dp).padding(10.dp), verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(10.dp), content = content)
 }
