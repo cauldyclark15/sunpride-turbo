@@ -39,6 +39,11 @@ export default function nextConfig(phase: string): NextConfig {
           headers: [{ key: "Cache-Control", value: "no-cache" }],
         },
         {
+          // The system flow page is updated in place: always revalidate.
+          source: "/flow/:path*",
+          headers: [{ key: "Cache-Control", value: "no-cache" }],
+        },
+        {
           // The PWA guide: the worker itself is never cached, so updates land.
           source: "/sw.js",
           headers: [
@@ -64,6 +69,8 @@ export default function nextConfig(phase: string): NextConfig {
         { source: "/kickoff", destination: "/kickoff/index.html", permanent: false },
         // User guides: a static site in public/guides, outside the sign-in gate.
         { source: "/guides", destination: "/guides/index.html", permanent: false },
+        // System flow diagrams: a static page in public/flow, outside the sign-in gate.
+        { source: "/flow", destination: "/flow/index.html", permanent: false },
       ];
     },
     async rewrites() {

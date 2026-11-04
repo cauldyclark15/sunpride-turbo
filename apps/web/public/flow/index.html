@@ -1,0 +1,318 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Sunpride — How the system works</title>
+<!--
+  HOW TO UPDATE THIS PAGE
+  Each diagram is plain text inside a <pre class="mermaid"> block (Mermaid syntax: https://mermaid.js.org).
+  Edit the text, save, deploy. Boxes: A["Label"]. Arrows: A, two dashes, then a greater-than sign, then B.
+  Labelled arrow: put  -- "text"  before the arrow. Copy an existing line to be safe.
+  Notes under each diagram are normal HTML in <ul class="notes">.
+-->
+<style>
+  :root { --red:#ee1c25; --ink:#111; --mute:#6b6b6b; --line:#e7e7e7; }
+  * { box-sizing:border-box; margin:0; padding:0; }
+  body { font-family:Inter,-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif; color:var(--ink); background:#fff; }
+  header { position:sticky; top:0; background:#fff; border-bottom:1px solid var(--line); z-index:5; }
+  .bar { display:flex; align-items:center; gap:16px; padding:14px 5vw; }
+  .bar img { height:30px; }
+  .bar h1 { font-size:18px; font-weight:800; letter-spacing:-.01em; }
+  .bar span { color:var(--mute); font-size:13px; margin-left:auto; }
+  nav { display:flex; gap:4px; padding:0 5vw; overflow-x:auto; }
+  nav a { padding:10px 12px; font-size:14px; font-weight:600; color:var(--mute); text-decoration:none; border-bottom:3px solid transparent; white-space:nowrap; }
+  nav a:hover, nav a.on { color:var(--ink); border-color:var(--red); }
+  main { padding:4vh 5vw 10vh; max-width:1400px; margin:0 auto; }
+  section { padding:5vh 0; border-bottom:1px solid var(--line); scroll-margin-top:110px; }
+  .kicker { color:var(--red); font-size:12px; font-weight:700; letter-spacing:.2em; text-transform:uppercase; margin-bottom:8px; }
+  h2 { font-size:clamp(26px,3vw,40px); font-weight:800; letter-spacing:-.02em; margin-bottom:10px; }
+  p.lead { color:var(--mute); font-size:17px; max-width:70ch; line-height:1.5; margin-bottom:24px; }
+  .diagram { border:1px solid var(--line); border-radius:10px; padding:24px; overflow-x:auto; background:#fcfcfc; }
+  .diagram svg { max-width:100%; height:auto; }
+  ul.notes { list-style:none; margin-top:20px; display:grid; grid-template-columns:repeat(auto-fit,minmax(280px,1fr)); gap:14px 32px; }
+  ul.notes li { font-size:15px; line-height:1.45; padding-left:1.2em; position:relative; }
+  ul.notes li::before { content:""; position:absolute; left:0; top:.5em; width:.45em; height:.45em; background:var(--red); }
+  ul.notes b { font-weight:700; }
+  .legend { display:flex; flex-wrap:wrap; gap:18px; font-size:13px; color:var(--mute); margin-top:14px; }
+  .legend i { display:inline-block; width:14px; height:14px; border-radius:3px; vertical-align:-2px; margin-right:6px; border:1.5px solid #111; }
+  footer { padding:4vh 5vw; color:var(--mute); font-size:13px; }
+  @media print { header { position:static; } section { page-break-inside:avoid; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="bar">
+    <img src="/kickoff/sunpride-logo.jpg" alt="Sunpride" />
+    <h1>How the system works</h1>
+    <span>Updated 5 Nov 2026</span>
+  </div>
+  <nav id="nav">
+    <a href="#big-picture">1 · Big picture</a>
+    <a href="#people">2 · Who uses what</a>
+    <a href="#day">3 · A sales day</a>
+    <a href="#order">4 · Order to SAP</a>
+    <a href="#van">5 · Van stock &amp; cash</a>
+    <a href="#sync">6 · Offline &amp; sync</a>
+    <a href="#hosting">7 · Where it runs</a>
+    <a href="#changes">8 · How changes ship</a>
+  </nav>
+</header>
+
+<main>
+
+<!-- 1 ─────────────────────────────────────────────────────────── -->
+<section id="big-picture">
+  <div class="kicker">01 · Big picture</div>
+  <h2>One system, three apps, one database.</h2>
+  <p class="lead">Every app talks to the same Sunpride server. The server keeps one database and is the only thing that talks to SAP.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  subgraph People["People"]
+    OFF["Office, managers, admins"]
+    AG["Sales agents"]
+    VS["Van sellers"]
+  end
+  subgraph Apps["Apps"]
+    WEB["Sunpride Web<br/>(browser / installable)"]
+    FLD["Sunpride Field<br/>(Android)"]
+    VAN["Sunpride Van Sales<br/>(Android POS + printer)"]
+  end
+  subgraph Server["Sunpride server"]
+    API["Sunpride API<br/>rules, permissions, sync, chat"]
+    DB[("Database<br/>customers, items, orders,<br/>stock, visits, messages")]
+    JOBS["Background jobs<br/>reminders, reports, SAP queue"]
+  end
+  SAP[("SAP<br/>prices, credit, stock value,<br/>invoices &amp; accounting")]
+
+  OFF --> WEB
+  AG --> FLD
+  VS --> VAN
+  WEB -- "live" --> API
+  FLD -- "sync when online" --> API
+  VAN -- "sync when online" --> API
+  API <--> DB
+  JOBS <--> DB
+  JOBS -- "send orders, get masters" --> SAP
+
+  classDef red fill:#fff,stroke:#ee1c25,stroke-width:2px;
+  class API,DB red;
+  </pre></div>
+  <ul class="notes">
+    <li><b>SAP stays the master</b> for prices, credit, stock value and accounting. Sunpride keeps a copy and sends work back.</li>
+    <li><b>Phones work offline.</b> They save everything locally and send it when signal returns.</li>
+    <li><b>Same data everywhere.</b> An order from the field shows on the web as soon as the phone syncs.</li>
+    <li><b>Today SAP is a test copy.</b> The live SAP connection comes at cutover.</li>
+  </ul>
+</section>
+
+<!-- 2 ─────────────────────────────────────────────────────────── -->
+<section id="people">
+  <div class="kicker">02 · Who uses what</div>
+  <h2>Each role sees only its own work.</h2>
+  <p class="lead">Your role and your area (team, territory, distributor) decide what you can see and do. The server checks this on every action.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart TB
+  ADM["Admin"] --> W1["Users, invites, roles<br/>Master data, settings"]
+  MGR["Sales manager / supervisor"] --> W2["Coverage plans &amp; approvals<br/>Today board, DAR / ROAR<br/>Analytics, stores, agencies"]
+  OFFC["Office staff"] --> W3["Orders, money, stock<br/>Customers &amp; items<br/>Imports"]
+  AGT["Sales agent"] --> F1["Field app: today's calls,<br/>store visit, census, orders,<br/>suggested order, collections"]
+  VSL["Van seller"] --> V1["Van app: load, sell,<br/>receipt, returns, count,<br/>end-of-day settlement"]
+  ALL["Everyone"] --> M1["Messages (chat)<br/>Issues (selected people)"]
+
+  W1 & W2 & W3 --> WEB["Sunpride Web"]
+  F1 --> FLD["Field app"]
+  V1 --> VAN["Van Sales app"]
+  M1 --> WEB & FLD & VAN
+  </pre></div>
+</section>
+
+<!-- 3 ─────────────────────────────────────────────────────────── -->
+<section id="day">
+  <div class="kicker">03 · A sales day</div>
+  <h2>From the monthly plan to the daily report.</h2>
+  <p class="lead">The plan is made on the web, the work happens on the phones, and the results come back to the managers the same day.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart TB
+  subgraph PLAN["Plan · on the web"]
+    direction LR
+    A["1 · Coverage plan<br/>agent picks stores<br/>for the month"] --> B{"2 · Manager<br/>approves?"}
+    B -- "no, fix" --> A
+  end
+  subgraph FIELD["Work · on the phone"]
+    direction LR
+    C["3 · Call sheet<br/>today's stores"] --> D["4 · Store visit<br/>check-in with location"]
+    D --> E["5 · In the store<br/>census, shelf, stock,<br/>promotions"]
+    E --> F["6 · Suggested order<br/>from stock + history"]
+    F --> G["7 · Order / collection<br/>saved on the phone"]
+    G --> H["8 · Check-out<br/>next store"]
+  end
+  subgraph REVIEW["Review · on the web"]
+    direction LR
+    I["9 · Sync<br/>work sent to server"] --> J["10 · Today board<br/>DAR / ROAR, missed calls,<br/>who needs a check"]
+    J --> K["11 · Analytics<br/>coverage, sales, trends"]
+  end
+  B -- "yes" --> C
+  H -. "next store" .-> D
+  H --> I
+  </pre></div>
+  <ul class="notes">
+    <li><b>Productive call</b> = a planned visit that really happened, with location evidence.</li>
+    <li><b>Managers see gaps</b>: who hasn't committed a plan, who is late, which calls were missed.</li>
+    <li><b>Messages</b> run alongside all of this for questions and updates.</li>
+  </ul>
+</section>
+
+<!-- 4 ─────────────────────────────────────────────────────────── -->
+<section id="order">
+  <div class="kicker">04 · Order to SAP</div>
+  <h2>An order's journey.</h2>
+  <p class="lead">A phone order is "pending" until the server and SAP accept it. Nothing is final just because the phone printed it.</p>
+  <div class="diagram"><pre class="mermaid">
+sequenceDiagram
+  autonumber
+  participant P as Phone (Field / Van)
+  participant S as Sunpride server
+  participant D as Database
+  participant Q as SAP queue
+  participant SAP as SAP
+  P->>P: Save order locally (pending)
+  P->>S: Sync when online
+  S->>S: Check role, area, prices, credit
+  S->>D: Save order + stock movement + audit (all or nothing)
+  S-->>P: Accepted / held for review
+  D->>Q: Add to SAP queue
+  Q->>SAP: Send order
+  SAP-->>Q: Accepted, invoice / posting number
+  Q->>D: Mark posted
+  D-->>P: Status update on next sync
+  Note over S,SAP: If SAP is down, the queue keeps retrying. Sales don't stop.
+  </pre></div>
+</section>
+
+<!-- 5 ─────────────────────────────────────────────────────────── -->
+<section id="van">
+  <div class="kicker">05 · Van stock &amp; cash</div>
+  <h2>Every truck's stock and money accounted for.</h2>
+  <p class="lead">Stock only moves through one ledger. Each step is a movement from one place to another, so the books always balance.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  DEP[("Depot / warehouse")] -- "Load" --> TRK[("Truck stock")]
+  TRK -- "Sale + receipt" --> CUS["Customer"]
+  CUS -- "Return" --> TRK
+  TRK -- "Damage" --> DMG[("Damaged")]
+  TRK -- "Unload / leftover" --> DEP
+  TRK --> CNT["End-of-day count"]
+  CNT --> SET{"Settlement<br/>stock + cash match?"}
+  SET -- "yes" --> OK["Day closed"]
+  SET -- "no" --> VAR["Variance for review"]
+
+  classDef red fill:#fff,stroke:#ee1c25,stroke-width:2px;
+  class TRK,SET red;
+  </pre></div>
+  <ul class="notes">
+    <li><b>Voids and returns</b> reverse the original movement; nothing is deleted.</li>
+    <li><b>Receipts</b> from the van printer are local until SAP posts the real invoice.</li>
+  </ul>
+</section>
+
+<!-- 6 ─────────────────────────────────────────────────────────── -->
+<section id="sync">
+  <div class="kicker">06 · Offline &amp; sync</div>
+  <h2>Phones keep working with no signal.</h2>
+  <p class="lead">Each phone has its own locked local database and an outbox. Sync sends the outbox and pulls what changed.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  subgraph Phone["Phone"]
+    UI["App screens"] --> LDB[("Encrypted local data")]
+    UI --> OUT["Outbox<br/>(work waiting to send)"]
+  end
+  OUT -- "Push: send work" --> SYN["Server sync"]
+  SYN -- "Pull: changes for<br/>my role and area" --> LDB
+  SYN --> CHK{"Valid and<br/>allowed?"}
+  CHK -- "yes" --> ACC["Accepted"]
+  CHK -- "no" --> HLD["Held / needs review<br/>shown on the phone"]
+  SYN -. "live nudge" .-> WEB["Web pages refresh"]
+  </pre></div>
+  <ul class="notes">
+    <li><b>Sending twice is safe.</b> The same work is never saved twice.</li>
+    <li><b>Lost access</b> clears old data from the phone; it never comes back by itself.</li>
+    <li><b>Phone sign-in</b> is tied to the device, so a stolen password alone isn't enough.</li>
+  </ul>
+</section>
+
+<!-- 7 ─────────────────────────────────────────────────────────── -->
+<section id="hosting">
+  <div class="kicker">07 · Where it runs (testing period)</div>
+  <h2>One address, protected by Cloudflare.</h2>
+  <p class="lead">During testing everything runs on our server and is reached through sunpride.cauldnclark.com.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  U["Users<br/>browser + phones"] --> CF["Cloudflare<br/>sunpride.cauldnclark.com<br/>(secure connection)"]
+  CF -- "/api, /sync, /ws" --> API["Sunpride API"]
+  CF -- "all other pages" --> WEB["Sunpride Web"]
+  WEB --> API
+  API --> DB[("Database")]
+  API --> FILES[("Photos &amp; files")]
+  API --> SAPM["SAP (test copy)"]
+  API --> MAIL["Email<br/>invites, alerts"]
+  DRV["Google Drive<br/>sunpride_apps"] --> U
+  </pre></div>
+  <ul class="notes">
+    <li><b>Phone apps</b> are installed from the shared Drive folder, not the Play Store, for now.</li>
+    <li><b>New app versions</b> are announced in Messages by "System", with an Update bar in the app.</li>
+  </ul>
+</section>
+
+<!-- 8 ─────────────────────────────────────────────────────────── -->
+<section id="changes">
+  <div class="kicker">08 · How changes ship</div>
+  <h2>From an issue to an update on your phone.</h2>
+  <p class="lead">Feedback goes into the built-in Issues board. The dev team picks it up, fixes, tests and releases, then asks you to retest.</p>
+  <div class="diagram"><pre class="mermaid">
+flowchart LR
+  R["Sunpride reporter<br/>files an issue"] --> BL["Backlog"]
+  BL --> DEV["Being worked on<br/>dev team"]
+  DEV --> TST["Tested by the team<br/>web + real phones"]
+  TST --> LIVE["Released<br/>web: right away<br/>phones: new app version"]
+  LIVE --> RT["Ready for retest"]
+  RT --> Q{"Reporter<br/>confirms?"}
+  Q -- "yes" --> DONE["Done"]
+  Q -- "no, comment" --> NF["Needs fix"] --> DEV
+  DEV -. "question" .-> WAIT["Waiting on Sunpride"] -. "answer" .-> DEV
+  LIVE -. "app update" .-> SYS["System message<br/>with download link"]
+  </pre></div>
+</section>
+
+</main>
+<footer>Sunpride · How the system works · edit <code>apps/web/public/flow/index.html</code> to update.</footer>
+
+<script type="module">
+  import mermaid from "https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs";
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: "base",
+    flowchart: { curve: "basis", padding: 14, htmlLabels: true },
+    themeVariables: {
+      fontFamily: "Inter, -apple-system, Segoe UI, Helvetica, Arial, sans-serif",
+      fontSize: "15px",
+      primaryColor: "#ffffff",
+      primaryBorderColor: "#111111",
+      primaryTextColor: "#111111",
+      lineColor: "#555555",
+      clusterBkg: "#f6f6f6",
+      clusterBorder: "#dddddd",
+      actorBkg: "#ffffff",
+      actorBorder: "#111111",
+      noteBkgColor: "#fff3f3",
+      noteBorderColor: "#ee1c25",
+    },
+  });
+  const links = [...document.querySelectorAll("#nav a")];
+  const io = new IntersectionObserver((es) => es.forEach((e) => {
+    if (e.isIntersecting) links.forEach((a) => a.classList.toggle("on", a.getAttribute("href") === "#" + e.target.id));
+  }), { rootMargin: "-40% 0px -55% 0px" });
+  document.querySelectorAll("section").forEach((s) => io.observe(s));
+</script>
+</body>
+</html>
