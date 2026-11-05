@@ -49,6 +49,23 @@
   .hint { position:fixed; bottom:3.2vh; left:50%; transform:translateX(-50%); font-size:12px; color:var(--mute); letter-spacing:.1em; }
   body.dark-slide header.top, body.dark-slide footer.foot, body.dark-slide .hint { color:rgba(255,255,255,.8); }
   body.dark-slide header.top img { background:#fff; padding:4px 8px; height:36px; }
+  /* Approach slides: tailoring loop + feedback chips */
+  .loopwrap { display:grid; grid-template-columns:1fr 1.05fr; gap:5vw; align-items:center; }
+  .loop { position:relative; width:min(46vh,40vw); aspect-ratio:1; justify-self:center; }
+  .loop svg { position:absolute; inset:0; width:100%; height:100%; overflow:visible; }
+  .loop .node { position:absolute; transform:translate(-50%,-50%); background:#fff; padding:.5em .9em; text-align:center;
+    font-size:clamp(15px,1.45vw,22px); font-weight:800; letter-spacing:-.01em; white-space:nowrap; }
+  .loop .node small { display:block; font-size:.72em; font-weight:600; color:var(--mute); letter-spacing:.02em; margin-top:.2em; }
+  .loop .core { position:absolute; inset:0; display:flex; align-items:center; justify-content:center; text-align:center;
+    font-size:clamp(13px,1.1vw,16px); font-weight:700; letter-spacing:.18em; text-transform:uppercase; color:var(--red); }
+  .chips { display:flex; flex-wrap:wrap; gap:1.6vh 1vw; max-width:min(1100px,82vw); }
+  .chip { font-size:clamp(17px,1.6vw,25px); font-weight:700; padding:.55em 1em; border:2px solid var(--ink); border-radius:999px; }
+  .chip.red { border-color:var(--red); color:var(--red); }
+  .chip.ghost { border-style:dashed; border-color:#bbb; color:var(--mute); font-weight:600; }
+  .channels { display:flex; gap:3vw; margin-top:6vh; align-items:center; }
+  .channels .ch { display:flex; align-items:center; gap:.7em; font-size:clamp(18px,1.7vw,26px); font-weight:800; }
+  .channels .ch i { width:.55em; height:.55em; background:var(--red); display:inline-block; }
+  .channels .arrow { color:var(--mute); font-size:clamp(14px,1.2vw,18px); letter-spacing:.14em; text-transform:uppercase; font-weight:700; }
 </style>
 </head>
 <body>
@@ -67,7 +84,7 @@
   <div class="kicker">Today</div>
   <h2>Agenda</h2>
   <ol class="steps">
-    <li>Where we are</li>
+    <li>Where we are, and our approach: early access</li>
     <li>What we have: web app and the two phone apps</li>
     <li>Messages: how we'll talk from now on</li>
     <li>Getting access and installing the apps</li>
@@ -87,6 +104,51 @@
     <li>Our own issue board, so feedback goes straight to the team</li>
     <li>Next step: <span>real Sunpride users on real work</span></li>
   </ul>
+</section>
+
+<!-- 3a · Approach -->
+<section class="slide">
+  <div class="loopwrap">
+    <div>
+      <div class="kicker">01 · Our approach</div>
+      <h2>Early access.<br><em>Built around you.</em></h2>
+      <p class="lead" style="margin-top:0">You get in early. We shape the system to how Sunpride really works.</p>
+    </div>
+    <div class="loop" aria-label="Use, find gaps, tell us, we tailor, repeat">
+      <svg viewBox="0 0 100 100" aria-hidden="true">
+        <defs><marker id="ah" viewBox="0 0 10 10" refX="5" refY="5" markerWidth="4.5" markerHeight="4.5" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="#ee1c25"/></marker></defs>
+        <path d="M 71.0 13.6 A 42 42 0 0 1 86.4 29.0" fill="none" stroke="#ee1c25" stroke-width="1.8" marker-end="url(#ah)"/>
+        <path d="M 86.4 71.0 A 42 42 0 0 1 71.0 86.4" fill="none" stroke="#ee1c25" stroke-width="1.8" marker-end="url(#ah)"/>
+        <path d="M 29.0 86.4 A 42 42 0 0 1 13.6 71.0" fill="none" stroke="#ee1c25" stroke-width="1.8" marker-end="url(#ah)"/>
+        <path d="M 13.6 29.0 A 42 42 0 0 1 29.0 13.6" fill="none" stroke="#ee1c25" stroke-width="1.8" marker-end="url(#ah)"/>
+      </svg>
+      <div class="node" style="left:50%;top:8%">Use it<small>on real work</small></div>
+      <div class="node" style="left:92%;top:50%">Spot gaps<small>what's missing</small></div>
+      <div class="node" style="left:50%;top:92%">Tell us<small>Issues · Messages</small></div>
+      <div class="node" style="left:8%;top:50%">We tailor<small>and ship</small></div>
+      <div class="core">Repeat</div>
+    </div>
+  </div>
+</section>
+
+<!-- 3b · What to report -->
+<section class="slide">
+  <div class="kicker">01 · Our approach</div>
+  <h2>Missing something? <em>Tell us.</em></h2>
+  <div class="chips">
+    <span class="chip">Functions</span>
+    <span class="chip">Screens &amp; usability</span>
+    <span class="chip">Reports</span>
+    <span class="chip">Dashboards</span>
+    <span class="chip">Printable PDFs</span>
+    <span class="chip">CSV exports</span>
+    <span class="chip ghost">and more</span>
+  </div>
+  <div class="channels">
+    <span class="ch"><i></i>Issues page</span>
+    <span class="arrow">or</span>
+    <span class="ch"><i></i>Messages, in every app</span>
+  </div>
 </section>
 
 <!-- 4 -->
