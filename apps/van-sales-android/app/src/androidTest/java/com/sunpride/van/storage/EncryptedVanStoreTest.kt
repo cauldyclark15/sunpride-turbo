@@ -162,6 +162,17 @@ class EncryptedVanStoreTest {
         VanSync(store,uncertain).syncNow(); assertEquals(46L,store.stock().first { it.productId==product }.availableBase)
         assertEquals(2L,store.stock().first { it.productId==product }.damagedBase); assertTrue(store.pending().isEmpty()); Unit
     }
+    /** IP-P0 (SPEC 6.7): the opening float rides inside the saved trip.start operation as integer centavos. */
+    @Test fun tripStartCarriesTheOpeningFloatAsAnIntegerAndRefusesOutOfRange() = runBlocking {
+        val backend=FakeVanBackend(); store.replaceBootstrap(backend.bootstrap())
+        store.confirmLoad(listOf(LoadActual(1,48),LoadActual(2,24))); VanSync(store,backend).syncNow()
+        assertTrue(runCatching { store.startTrip(true,true,null,null,null,null,-1L) }.isFailure)
+        assertTrue(runCatching { store.startTrip(true,true,null,null,null,null,10_000_001L) }.isFailure)
+        assertTrue(store.pending().none { it.kind=="trip.start" })
+        store.startTrip(true,true,null,null,null,null,200_000L)
+        val payload=org.json.JSONObject(store.pending().single { it.kind=="trip.start" }.operationJson).getJSONObject("payload")
+        assertEquals(200_000L,payload.getLong("openingFloatCentavos")); assertTrue(payload.get("openingFloatCentavos") is Number); Unit
+    }
     private fun governedFixture(): String = InstrumentationRegistry.getInstrumentation().context.assets
         .open("bootstrap-response.json").bufferedReader().use { it.readText() }
     @Test fun bootstrapStoresGovernedPricesAndMissingFeedClearsOnlyOwnScope() = runBlocking {

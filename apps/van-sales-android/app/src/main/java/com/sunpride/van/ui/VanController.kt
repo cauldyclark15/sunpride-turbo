@@ -360,10 +360,10 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun syncNow() = command("Sync finished. Check the waiting and review counts.",failure = { rememberSyncFailure(syncMessage(it)) }) { repository.syncNow() }
     // Pending state is read from the store (VanRules.status), never from a stale one-off message.
     fun confirmLoad(lines: List<LoadActual>) = command { repository.confirmLoad(lines) }
-    fun startTrip(truck: Boolean, route: Boolean, driver: String, helper: String, odometer: Double?, note: String) {
+    fun startTrip(truck: Boolean, route: Boolean, driver: String, helper: String, odometer: Double?, note: String, openingFloatCentavos: Long = 0L) {
         val start: suspend () -> Unit = {
             check(VanRules.canStart(trip,truck,route))
-            repository.startTrip(truck,route,driver.takeIf { it.isNotBlank() },helper.takeIf { it.isNotBlank() },odometer,note.takeIf { it.isNotBlank() })
+            repository.startTrip(truck,route,driver.takeIf { it.isNotBlank() },helper.takeIf { it.isNotBlank() },odometer,note.takeIf { it.isNotBlank() },openingFloatCentavos)
             page = Page.HOME
             refreshSharing()
         }

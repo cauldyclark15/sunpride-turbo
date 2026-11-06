@@ -57,6 +57,10 @@ class CashReconciliationStore(private val store: RoomVanStore) {
         }
     }
 
+    /** The opening float saved with this trip's start (0 when the trip was started elsewhere or before floats existed). */
+    suspend fun openingFloat(tripId: String): Long = dao.outboxRows(s, d).filter { it.tripId == tripId && it.kind == "trip.start" && it.status in setOf("pending", "sending", "done") }
+        .maxByOrNull { it.createdAt }?.let { JSONObject(it.operationJson).getJSONObject("payload").optLong(OpeningFloat.FIELD, 0L) }?.takeIf { it in 0..OpeningFloat.MAX_CENTAVOS } ?: 0L
+
     /** True once this trip's cash is counted on this phone; selling and voiding then stop. */
     suspend fun counted(tripId: String): Boolean = dao.cashReconciliation(s, d, tripId) != null
 
@@ -64,7 +68,7 @@ class CashReconciliationStore(private val store: RoomVanStore) {
         val t = dao.trip(s, d) ?: return@withTransaction null
         val saved = dao.cashReconciliation(s, d, t.tripId)
         CashSummary(t.tripId, t.tripNumber, store.canSync() && countable(t) && saved == null,
-            CashReconciliationRules.expectation(payments(t.tripId)), saved?.result(t.tripNumber, false))
+            CashReconciliationRules.expectation(payments(t.tripId), openingFloat(t.tripId)), saved?.result(t.tripNumber, false))
     }
 
     /**
@@ -84,7 +88,7 @@ class CashReconciliationStore(private val store: RoomVanStore) {
         }
         require(CashReconciliationRules.validId(request.reconciliationId)) { "Reconciliation ID must be a UUID-v4" }
         if (!countable(t)) throw CashRefused(CashProblem.NOT_ON_ROUTE)
-        val expectation = CashReconciliationRules.expectation(payments(t.tripId))
+        val expectation = CashReconciliationRules.expectation(payments(t.tripId), openingFloat(t.tripId))
         if (expectation.expectedMinor != request.expectedMinor) throw CashRefused(CashProblem.EXPECTED_CHANGED)
         val declared = CashReconciliationRules.declared(request.counts) ?: throw CashRefused(CashProblem.COUNT_INVALID)
         val authorized = CashReconciliationRules.authorize(policy(), t.tripId, expectation.expectedMinor, declared,

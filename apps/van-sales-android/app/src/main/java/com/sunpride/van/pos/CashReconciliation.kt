@@ -49,7 +49,9 @@ data class TripPayment(val saleId: String, val receiptNumber: String, val method
 data class MethodTotal(val code: String, val label: String, val kind: PaymentKind, val count: Int, val amountMinor: Long)
 /** [expectedMinor] is the cash the seller should hand in; [voidedSales] were left out. */
 data class CashExpectation(val currency: String, val expectedMinor: Long, val cashSales: Int, val voidedSales: Int,
-    val others: List<MethodTotal>)
+    val others: List<MethodTotal>,
+    /** IP-P0 (SPEC 6.7): the opening float and cash refunds that are part of [expectedMinor]. */
+    val openingFloatMinor: Long = 0L, val cashRefundsMinor: Long = 0L)
 
 enum class CashProblem { NOT_ON_ROUTE, HELD, ALREADY_COUNTED, EXPECTED_CHANGED, COUNT_INVALID, MIXED_CURRENCY,
     REASON_REQUIRED, NOTE_REQUIRED, NOTE_INVALID, APPROVAL_UNAVAILABLE, CODE_REQUIRED, CODE_WRONG }
@@ -70,7 +72,8 @@ object CashReconciliationRules {
     fun validId(id: String): Boolean = uuidV4.matches(id)
 
     /** Adds up the trip's payments. All sales on a van are in one currency; mixed currencies cannot be counted. */
-    fun expectation(payments: List<TripPayment>): CashExpectation {
+    fun expectation(payments: List<TripPayment>, openingFloatMinor: Long = 0L, cashRefundsMinor: Long = 0L): CashExpectation {
+        require(openingFloatMinor in 0..OpeningFloat.MAX_CENTAVOS && cashRefundsMinor >= 0)
         val currencies = payments.map { it.currency }.toSet()
         if (currencies.size > 1) throw CashRefused(CashProblem.MIXED_CURRENCY)
         val live = payments.filterNot { it.voided }
@@ -78,8 +81,10 @@ object CashReconciliationRules {
         val others = live.filter { it.kind != PaymentKind.CASH }.groupBy { it.methodCode }.map { (code, rows) ->
             MethodTotal(code, rows.first().methodLabel, rows.first().kind, rows.size, rows.fold(0L) { a, r -> Math.addExact(a, r.amountMinor) })
         }.sortedWith(compareBy<MethodTotal> { it.kind != PaymentKind.OTHER }.thenBy { it.label })
-        return CashExpectation(currencies.singleOrNull() ?: "PHP", cash.fold(0L) { a, r -> Math.addExact(a, r.amountMinor) },
-            cash.size, payments.count { it.voided }, others)
+        // Expected cash = opening float + cash sales + cash collections - cash refunds (collections arrive as cash payments).
+        val inBag = Math.subtractExact(Math.addExact(openingFloatMinor, cash.fold(0L) { a, r -> Math.addExact(a, r.amountMinor) }), cashRefundsMinor)
+        return CashExpectation(currencies.singleOrNull() ?: "PHP", inBag,
+            cash.size, payments.count { it.voided }, others, openingFloatMinor, cashRefundsMinor)
     }
 
     /** Total counted in centavos, or null when a value is not a known denomination or a count is out of range. */

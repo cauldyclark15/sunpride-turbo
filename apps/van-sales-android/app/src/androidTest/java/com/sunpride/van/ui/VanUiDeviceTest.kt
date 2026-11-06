@@ -74,7 +74,7 @@ class VanUiDeviceTest {
         open(Page.START)
         rule.onNodeWithTag("confirm-truck").performClick()
         rule.onNodeWithTag("confirm-route").performClick()
-        rule.onNodeWithTag("start-trip").performClick()
+        typeOpeningFloat(rule,"2000"); rule.onNodeWithTag("start-trip").performClick()
         rule.waitUntil(10_000) { c.trip?.startPending == true && !c.busy }
         sync(); rule.waitUntil(10_000) { c.trip?.status == "active" }
     }
@@ -166,7 +166,7 @@ class VanUiDeviceTest {
         assertEquals("short_loaded",load.lines.first().pendingReason)
         assertTrue(runBlocking { c.repository.syncStatus.first { it.queued > 0 } }.queued > 0)
         sync(); rule.waitUntil(10_000) { c.load?.status == "discrepancy" }
-        rule.onNodeWithTag("message").assertTextEquals("Waiting for supervisor approval")
+        rule.onNodeWithTag("message").assertTextEquals("Load difference sent to your supervisor. You will be told here when it is decided.")
         assertEquals("loading",runBlocking { c.repository.currentTrip.first() }!!.status)
     }
     @Test fun startRequiresLoadedTripAndBothChecks() {
@@ -183,6 +183,8 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("confirm-truck").performClick()
         rule.onNodeWithTag("start-trip").assertIsNotEnabled()
         rule.onNodeWithTag("confirm-route").performClick()
+        rule.onNodeWithTag("start-trip").assertIsNotEnabled()   // the opening float is still to be typed
+        typeOpeningFloat(rule,"2000")
         rule.onNodeWithTag("start-trip").assertIsEnabled()
         assertPrimaryClearance(rule,"start-trip")
         rule.onNodeWithTag("start-trip").performClick()
@@ -865,7 +867,7 @@ class VanUiDeviceTest {
         open(Page.START); captureVanScreenshot(rule,"11-start-trip-unconfirmed","start-trip")
         rule.onNodeWithTag("confirm-truck").performClick(); rule.onNodeWithTag("confirm-route").performClick()
         captureVanScreenshot(rule,"12-start-trip-confirmed","start-trip")
-        rule.onNodeWithTag("start-trip").performClick()
+        typeOpeningFloat(rule,"2000"); rule.onNodeWithTag("start-trip").performClick()
         rule.waitUntil(10_000) { c.trip?.startPending == true && !c.busy }
         sync(); rule.waitUntil(10_000) { c.trip?.status == "active" }
         captureVanScreenshot(rule,"13-home-on-route","home-primary")

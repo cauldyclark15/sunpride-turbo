@@ -360,8 +360,8 @@ class VanRepository private constructor(private val context: Context, private va
     }
     private fun store(): RoomVanStore { check(session.value.signedIn && vault.readSession() != null); return checkNotNull(current.value) { "Sign in and register this phone" } }
     private fun schedule() { if (scheduleWork) runCatching { SyncWork.enqueue(context,stubMode != null) }.onFailure { com.sunpride.van.diagnostics.SafeLog.event(context,"sync_retry") } }
-    suspend fun startTrip(vehicleConfirmed: Boolean, routeConfirmed: Boolean, driverName: String? = null, helperName: String? = null, odometerKm: Double? = null, note: String? = null): String {
-        val id = store().startTrip(vehicleConfirmed,routeConfirmed,driverName,helperName,odometerKm,note); schedule(); return id
+    suspend fun startTrip(vehicleConfirmed: Boolean, routeConfirmed: Boolean, driverName: String? = null, helperName: String? = null, odometerKm: Double? = null, note: String? = null, openingFloatCentavos: Long = 0L): String {
+        val id = store().startTrip(vehicleConfirmed,routeConfirmed,driverName,helperName,odometerKm,note,openingFloatCentavos); schedule(); return id
     }
     suspend fun confirmLoad(lines: List<LoadActual>): String { val id = store().confirmLoad(lines); schedule(); return id }
     /** F-114/F-115/F-116/F-121 use the same scoped store and background sync as sales. */
