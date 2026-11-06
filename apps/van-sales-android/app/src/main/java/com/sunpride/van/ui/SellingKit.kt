@@ -125,8 +125,8 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
             Surface(Modifier.heightIn(min = Touch).clip(CircleShape).clickable { onSelect(name) }.testTag("chip-$name"), shape = CircleShape,
                 color = if (on) Look.barInk else Look.sheet,
                 border = BorderStroke(1.5.dp, if (on) Look.barInk else Look.hairline)) {
-                Row(Modifier.padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text(name, fontWeight = FontWeight.Bold, fontSize = 16.sp, color = if (on) Color.White else Look.ink)
+                Row(Modifier.padding(horizontal = 16.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Text(name, fontWeight = FontWeight.Bold, fontSize = 15.sp, color = if (on) Color.White else Look.ink)
                     Text("$count", fontWeight = FontWeight.Bold, fontSize = 14.sp, color = if (on) Color(0xFFFFD7D2) else Look.muted)
                 }
             }
@@ -138,20 +138,24 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
  * The floating dark bar that is on every selling screen: "n items selected", what is in it, the total in big type, and the round Charge
  * button (one tap to payment). Tapping the left side opens the cart.
  */
-@Composable fun CartBar(itemCount: Int, totalLabel: String, chargeEnabled: Boolean, onOpen: () -> Unit, onCharge: () -> Unit, modifier: Modifier = Modifier, summary: String? = null) {
+@Composable fun CartBar(itemCount: Int, totalLabel: String, chargeEnabled: Boolean, onOpen: () -> Unit, onCharge: () -> Unit, modifier: Modifier = Modifier, summary: String? = null,
+    /** IP-LOOK polish: "2 products · 3 pcs"; null falls back to the line count. */
+    countLabel: String? = null) {
     Box(modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 12.dp, vertical = 10.dp)) {
         Row(Modifier.fillMaxWidth().floatingBar().padding(start = 20.dp, end = 8.dp, top = 8.dp, bottom = 8.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             Column(Modifier.weight(1f).heightIn(min = 56.dp).clickable(onClick = onOpen).testTag("cart-bar"), verticalArrangement = Arrangement.Center) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text("$itemCount ${if (itemCount == 1) "item" else "items"} selected", color = SunprideTokens.barText, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, modifier = Modifier.testTag("cart-bar-count"))
-                    if (!summary.isNullOrBlank()) Text(summary, Modifier.weight(1f, fill = false), color = Color(0xFFD4D4D8), fontSize = 13.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(countLabel ?: "$itemCount ${if (itemCount == 1) "item" else "items"}", color = SunprideTokens.barText, fontSize = 14.sp, fontWeight = FontWeight.Bold, maxLines = 1, softWrap = false, modifier = Modifier.testTag("cart-bar-count"))
                 }
                 FitText(totalLabel, 30.sp, minSize = 20.sp, color = Color.White, tag = "cart-bar-total")
             }
-            Box(Modifier.size(60.dp).clip(CircleShape).background(if (chargeEnabled) Look.gradient else Brush.linearGradient(listOf(Color(0xFF3A3A3A), Color(0xFF3A3A3A))))
+            // IP-LOOK polish: the bag button now carries its word, "Checkout" (one tap to Payment, as before).
+            Row(Modifier.height(56.dp).clip(CircleShape).background(if (chargeEnabled) Look.gradient else Brush.linearGradient(listOf(Color(0xFF3A3A3A), Color(0xFF3A3A3A))))
                 .border(1.5.dp, Color.White.copy(alpha = if (chargeEnabled) 0.4f else 0.15f), CircleShape)
-                .clickable(enabled = chargeEnabled, onClick = onCharge, role = Role.Button).semantics { contentDescription = "Charge" }.testTag("checkout"), contentAlignment = Alignment.Center) {
-                Glyph(GlyphKind.BAG, if (chargeEnabled) Color.White else Color(0xFFD0D0D0), 28.dp)
+                .clickable(enabled = chargeEnabled, onClick = onCharge, role = Role.Button).semantics { contentDescription = "Checkout" }.testTag("checkout")
+                .padding(start = 16.dp, end = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                Text("Checkout", color = if (chargeEnabled) Color.White else Color(0xFFD0D0D0), fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, softWrap = false)
+                Glyph(GlyphKind.BAG, if (chargeEnabled) Color.White else Color(0xFFD0D0D0), 26.dp)
             }
         }
     }
@@ -221,36 +225,37 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
     }
 
     val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-    val summary = remember(rows) { rows.mapNotNull { it.product?.name }.joinToString(", ") }
+    val countLabel = CartCount.label(lines) { id -> byId[id]?.product ?: scanProducts.firstOrNull { it.productId == id } }
     Box(Modifier.fillMaxSize().background(Look.canvas).imePadding()) {
         Column(Modifier.fillMaxSize()) {
-            LookHeader {
+            LookHeader(bottomOverlap = 20.dp) {
+                // IP-LOOK polish: one 48dp row (back, small avatar, name, one role/place line) instead of three text lines.
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     Box(Modifier.size(48.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f)).clickable(onClick = onBack, role = Role.Button).testTag("back")
                         .semantics { contentDescription = "Back" }, contentAlignment = Alignment.Center) { Glyph(GlyphKind.BACK, Color.White, 22.dp) }
-                    Avatar(cashierName ?: title, size = 48.dp)
+                    Avatar(cashierName ?: title, size = 40.dp)
                     Column(Modifier.weight(1f)) {
-                        Text(cashierName ?: title, color = Color.White, fontSize = 20.sp, lineHeight = 24.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        Text(cashierName ?: title, color = Color.White, fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.testTag("cashier-name"))
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (cashierName != null) Text("$roleLabel · ", color = Color.White, fontSize = 14.sp, maxLines = 1, softWrap = false)
-                            Text(title, color = Color.White, fontSize = 14.sp, maxLines = 1, softWrap = false, modifier = Modifier.testTag("screen-title"))
+                            if (cashierName != null) Text("$roleLabel · ", color = Color.White, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, softWrap = false)
+                            Text(title, color = Color.White, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, softWrap = false, modifier = Modifier.testTag("screen-title"))
+                            subtitle?.let { Text(" · $it", color = Color.White, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).testTag("sale-customer")) }
                         }
-                        subtitle?.let { Text(it, color = Color.White, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("sale-customer")) }
                     }
                 }
             }
-            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Surface(Modifier.weight(1f).heightIn(min = 56.dp).clip(CircleShape).clickable { paletteOpen = true }.testTag("sale-add-product"), shape = CircleShape,
+                    Surface(Modifier.weight(1f).heightIn(min = 48.dp).clip(CircleShape).clickable { paletteOpen = true }.testTag("sale-add-product"), shape = CircleShape,
                         color = Look.sheet, border = BorderStroke(1.5.dp, Look.hairline), shadowElevation = 2.dp) {
                         Row(Modifier.padding(horizontal = 18.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             Glyph(GlyphKind.SEARCH, Look.muted, 22.dp)
-                            Text("Scan or search a product", fontSize = 17.sp, color = Look.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                            Text("Scan or search a product", fontSize = 16.sp, color = Look.muted, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
                         }
                     }
-                    Box(Modifier.size(56.dp).clip(CircleShape).background(Look.gradient).border(1.5.dp, Color.White.copy(alpha = 0.5f), CircleShape).clickable(role = Role.Button) { camera = true }
-                        .testTag("scan-camera").semantics { contentDescription = "Scan with camera" }, contentAlignment = Alignment.Center) { Glyph(GlyphKind.CAMERA, Color.White, 26.dp) }
+                    Box(Modifier.size(48.dp).clip(CircleShape).background(Look.gradient).border(1.5.dp, Color.White.copy(alpha = 0.5f), CircleShape).clickable(role = Role.Button) { camera = true }
+                        .testTag("scan-camera").semantics { contentDescription = "Scan with camera" }, contentAlignment = Alignment.Center) { Glyph(GlyphKind.CAMERA, Color.White, 24.dp) }
                 }
                 banner?.let { b ->
                     Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp).semantics { liveRegion = LiveRegionMode.Polite }.testTag("scan-toast"), shape = RoundedCornerShape(16.dp),
@@ -259,8 +264,8 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
                     }
                 } ?: message?.let { Text(it, Modifier.padding(horizontal = 20.dp).testTag("message"), fontSize = 14.sp, lineHeight = 18.sp, color = Look.ink, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                 CategoryChips(categories, category) { category = it }
-                LazyVerticalGrid(GridCells.Fixed(2), Modifier.fillMaxSize().testTag("product-grid"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 104.dp + navInset),
-                    horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                LazyVerticalGrid(GridCells.Fixed(2), Modifier.fillMaxSize().testTag("product-grid"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 88.dp + navInset),
+                    horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     header?.let { h -> item(span = { GridItemSpan(maxLineSpan) }) { h() } }
                     if (shown.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
                         Text(if (all.isEmpty()) "No products on this ${place.noun} yet. Sync first." else "No products in this group.", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("no-products"))
@@ -276,7 +281,7 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
                 }
             }
         }
-        CartBar(lines.size, totalLabel, chargeEnabled && !busy, onOpen = { onCartOpen(true) }, onCharge = onCharge, Modifier.align(Alignment.BottomCenter), summary = summary)
+        CartBar(lines.size, totalLabel, chargeEnabled && !busy, onOpen = { onCartOpen(true) }, onCharge = onCharge, Modifier.align(Alignment.BottomCenter), countLabel = countLabel)
     }
 
     if (paletteOpen) SearchPalette(search, lines, touched, onTap = { addUnits(it, it.quantityScale, null) }, query = paletteQuery, onQuery = { paletteQuery = it },
@@ -290,7 +295,7 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
                 else say(SellingCart.refusalText(outcome) ?: "Cannot set this.", true)
             }, onClose = { keypadFor = null })
     }
-    if (cartOpen) CartSheet(title = cartTitle, rows = rows, totalLabel = totalLabel, itemCount = lines.size, chargeEnabled = chargeEnabled && !busy,
+    if (cartOpen) CartSheet(title = cartTitle, rows = rows, totalLabel = totalLabel, itemCount = lines.size, countLabel = countLabel, chargeEnabled = chargeEnabled && !busy,
         onSetLine = { id, base -> onSetLine(id, base) },
         onKeypad = { id -> keypadFor = scanProducts.firstOrNull { it.productId == id } },
         onCharge = onCharge, onClose = { onCartOpen(false) }, extras = cartExtras,
@@ -383,7 +388,7 @@ internal fun highlight(text: String, query: String): AnnotatedString {
 }
 
 /** The cart (Itemcount pattern 5): steppers, tap the quantity for a keypad, cases and pieces, line totals, Remove, footer total and Charge. */
-@Composable private fun CartSheet(title: String, rows: List<CartRowUi>, totalLabel: String, itemCount: Int, chargeEnabled: Boolean,
+@Composable private fun CartSheet(title: String, rows: List<CartRowUi>, totalLabel: String, itemCount: Int, countLabel: String, chargeEnabled: Boolean,
     onSetLine: (String, Long) -> Unit, onKeypad: (String) -> Unit, onCharge: () -> Unit, onClose: () -> Unit, extras: @Composable ColumnScope.() -> Unit,
     banner: Pair<String, Boolean>?, onClear: () -> Unit) {
     var confirmClear by remember { mutableStateOf(false) }
@@ -391,7 +396,7 @@ internal fun highlight(text: String, query: String): AnnotatedString {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.widthIn(min = 72.dp)) {
                 Text("Total", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Look.ink)
-                Text("$itemCount ${if (itemCount == 1) "item" else "items"}", fontSize = 14.sp, color = Look.muted)
+                Text(countLabel, fontSize = 14.sp, color = Look.muted, maxLines = 1)
             }
             FitText(totalLabel, 44.sp, Modifier.weight(1f), minSize = 24.sp, color = Look.ink, textAlign = TextAlign.End, tag = "cart-total")
         }

@@ -550,7 +550,7 @@ class VanUiDeviceTest {
         rule.waitUntil(10_000) { c.page == Page.SALE && c.retailLoaded }
         scanBroadcast("4800000000017")
         rule.waitUntil(5_000) { c.sale?.lines?.singleOrNull()?.quantityBase == 1L }
-        rule.onNodeWithTag("cart-bar-count",useUnmergedTree = true).assertTextContains("1 item",substring = true)
+        rule.onNodeWithTag("cart-bar-count",useUnmergedTree = true).assertTextContains("1 product",substring = true)
         var taps = 0
         fun tap(tag: String) { rule.onNodeWithTag(tag).performScrollTo().performClick(); taps++ }
         tap("checkout"); tap("pay-exact")
