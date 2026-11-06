@@ -96,17 +96,19 @@ import androidx.compose.runtime.saveable.rememberSaveable
     val methods = c.paymentMethods
     val cashMethod = methods.firstOrNull { it.kind == PaymentKind.CASH }
     val otherMethods = methods.filter { it.kind != PaymentKind.CASH }
+    // IP-INT3: the office takes cash plus a non-credit tender; credit stays a whole-sale choice (collections and aging follow the sale).
+    val splitMethods = otherMethods.filter { it.kind != PaymentKind.CREDIT }
     // IP-HH2: cash plus one more tender, only when the office's server says it takes a split sale.
-    val splitAvailable = c.policy?.splitTender == true && cashMethod != null && otherMethods.isNotEmpty()
+    val splitAvailable = c.policy?.splitTender == true && cashMethod != null && splitMethods.isNotEmpty()
     var methodCode by remember { mutableStateOf(methods.firstOrNull { it.kind == PaymentKind.CASH }?.code ?: methods.first().code) }
     val splitOn = splitAvailable && methodCode == SPLIT_ID
     val method = methods.firstOrNull { it.code == methodCode } ?: methods.first()
     var tendered by remember { mutableStateOf<Long?>(null) }
     var reference by remember { mutableStateOf("") }
-    var splitCode by remember { mutableStateOf(otherMethods.firstOrNull()?.code) }
+    var splitCode by remember { mutableStateOf(splitMethods.firstOrNull()?.code) }
     var splitText by remember { mutableStateOf("") }
     var splitRef by remember { mutableStateOf("") }
-    val splitMethod = otherMethods.firstOrNull { it.code == splitCode }
+    val splitMethod = splitMethods.firstOrNull { it.code == splitCode }
     val splitMinor = VanRules.parseMoney(splitText)
     // Credit sold here and references already used (VAN-012); the store re-checks both while saving.
     LaunchedEffect(c.sale?.saleId) { c.refreshPaymentFacts() }
@@ -152,7 +154,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
         onPay = { quote?.let { c.completeSale(payment,it.totalMinor,splitPayment) } }, onBack = c::back, message = c.message) {
         draft.claim?.let { claim -> ClaimSummary(claim,due?.legal,preview,null) }
         if (splitOn) SectionCard("Second tender") {
-            otherMethods.forEach { m ->
+            splitMethods.forEach { m ->
                 val on = m.code == splitCode
                 OutlinedButton({ splitCode = m.code },Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("split-method-${m.code}"),shape = SunprideTokens.shapes.small,
                     colors = if (on) ButtonDefaults.outlinedButtonColors(containerColor = SunprideTokens.barInk,contentColor = androidx.compose.ui.graphics.Color.White) else ButtonDefaults.outlinedButtonColors()) { Text(m.label) }

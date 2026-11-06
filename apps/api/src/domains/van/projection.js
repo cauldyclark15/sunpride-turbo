@@ -197,7 +197,11 @@ export async function bundle(ctx, env) {
         ...policy(env, null),
         ...(storePos ? { storePos } : {}),
         ...(handheld
-          ? { handheld: await handheldInfo(db, actor, device, null) }
+          ? {
+              handheld: await handheldInfo(db, actor, device, null),
+              // IP-INT3: the van sale takes cash plus one other tender (`payment.parts` / `payments[]`).
+              splitTender: true,
+            }
           : {}),
       },
       trip: null,
@@ -492,7 +496,10 @@ export async function bundle(ctx, env) {
         ...tripPolicy,
         ...(storePos ? { storePos } : {}),
         ...(handheld
-          ? { handheld: await handheldInfo(db, actor, device, trip) }
+          ? {
+              handheld: await handheldInfo(db, actor, device, trip),
+              splitTender: true,
+            }
           : {}),
         paymentMethods: await tenderPolicy(db, trip.org_unit_id),
         fiscal: {

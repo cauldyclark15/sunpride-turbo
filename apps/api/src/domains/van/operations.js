@@ -21,6 +21,12 @@ import { collectionTaxReference } from "../fiscal/taxes.js";
 import { validateSaleSchemes } from "./schemes.js";
 import { capturePickup } from "./pickups.js";
 import { configuredTender } from "../fiscal/tenders.js";
+import {
+  paymentParts,
+  singlePaymentOf,
+  splitSalePayment,
+  tendersOfParts,
+} from "./split-tender.js";
 import { requireAvailability } from "../availability/callflow.js";
 import { postMovement } from "../inventory/posting.js";
 import { resolvePrice } from "../orders/pricing.js";
@@ -792,17 +798,26 @@ async function sale(db, trip, actor, p, opId, env) {
       },
       env,
     );
-  const pay = p.payment;
-  if (!pay || integer(pay.amountMinor) !== total)
-    refuse("Payment must match the sale total", "invalid_request");
-  const method = await configuredTender(db, trip.org_unit_id, p.payment, at);
-  if (!method || pay.kind !== method.kind)
-    refuse("Payment method is invalid", "invalid_request");
-  if (method.referenceRequired) text(pay.reference, 100, true);
-  if (method.kind === "cash") {
-    const tender = integer(pay.tenderedMinor);
-    if (tender < total || integer(pay.changeMinor) !== tender - total)
-      refuse("Cash and change do not reconcile", "invalid_request");
+  // IP-INT3: cash plus one other tender (`payment.parts` from the phone, `payments[]` from the office shape).
+  const split = await splitSalePayment(db, trip, p, total, at);
+  const pay = split ? split.pay : singlePaymentOf(p);
+  const method = split
+    ? split.method
+    : await (async () => {
+        if (!pay || integer(pay.amountMinor) !== total)
+          refuse("Payment must match the sale total", "invalid_request");
+        const m = await configuredTender(db, trip.org_unit_id, pay, at);
+        if (!m || pay.kind !== m.kind)
+          refuse("Payment method is invalid", "invalid_request");
+        return m;
+      })();
+  if (!split) {
+    if (method.referenceRequired) text(pay.reference, 100, true);
+    if (method.kind === "cash") {
+      const tender = integer(pay.tenderedMinor);
+      if (tender < total || integer(pay.changeMinor) !== tender - total)
+        refuse("Cash and change do not reconcile", "invalid_request");
+    }
   }
   let creditDecisionId = null;
   if (method.kind === "credit") {
@@ -914,6 +929,7 @@ async function sale(db, trip, actor, p, opId, env) {
     lines: quoted,
     schemes,
     payment: { ...pay, label: method.label },
+    ...(split ? { tenders: tendersOfParts(split.parts) } : {}),
     soldAt: at,
     ...vanLegal.receiptExtras,
     ...(commercial
@@ -960,7 +976,9 @@ async function sale(db, trip, actor, p, opId, env) {
   await enqueueVanInvoice(db, trip, saleId);
   for (const l of quoted)
     await db`insert into van_sale_lines(sale_id,ordinal,product_id,quantity_base,total_centavos,facts) values(${saleId},${l.lineNumber},${l.productId},${l.quantityBase},${l.totalMinor},${l})`;
-  await payment(db, trip, pay, "sale", saleId);
+  // One van_payments row per part: only the cash row counts toward the cash the seller must hand in.
+  for (const part of paymentParts(pay))
+    await payment(db, trip, part, "sale", saleId);
   const movementId = await movement(
     db,
     trip,
@@ -1056,7 +1074,8 @@ async function voidSale(db, trip, actor, env, p, opId) {
     })),
   );
   await enqueueVanVoidCreditMemo(db, trip, v.id);
-  await payment(db, trip, s.receipt.payment, "void_refund", id);
+  for (const part of paymentParts(s.receipt.payment))
+    await payment(db, trip, part, "void_refund", id);
   const [fiscal] =
     await db`select id from fiscal_documents where source_type='van_sale' and source_id=${id}`;
   if (fiscal)
@@ -1287,7 +1306,10 @@ async function customerReturn(db, trip, actor, env, p, opId) {
       s.receipt.payment.kind === "credit"
     )
       refuse("Refund exceeds the paid returned goods", "invalid_request");
-    choice(p.refund.method, [s.receipt.payment.method]);
+    choice(
+      p.refund.method,
+      paymentParts(s.receipt.payment).map((/** @type {any} */ x) => x.method),
+    );
     await payment(db, trip, p.refund, "refund", saleId, id);
   }
   await enqueueVanCreditMemo(db, trip, id);

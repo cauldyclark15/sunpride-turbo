@@ -338,7 +338,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
                 .put("unitPriceMinor",it.unitPriceMinor.toString()).put("grossMinor",it.grossMinor.toString()).put("discountMinor",it.discountMinor.toString()).put("totalMinor",it.totalMinor.toString())
                 .put("priceListIds",JSONArray(it.priceListIds)).put("priceSource",it.priceListId?.let { id -> JSONObject().put("priceListId",id).put("priceListCode",it.priceListCode ?: JSONObject.NULL) } ?: JSONObject.NULL)
                 .put("promotion",it.promotion?.let { p -> JSONObject().put("promotionId",p.promotionId).put("code",p.code).put("kind",p.kind) } ?: JSONObject.NULL) }))
-            .put("payment",if (split != null) splitPaymentJson(quote.totalMinor,split) else JSONObject().put("method",pay.method.code).put("kind",pay.method.kind.wire).put("status",pay.state.wire)
+            .put("payment",if (split != null) com.sunpride.van.pos.SplitTenders.paymentJson(quote.totalMinor,split) else JSONObject().put("method",pay.method.code).put("kind",pay.method.kind.wire).put("status",pay.state.wire)
                 .put("amountMinor",pay.amountMinor.toString())
                 .apply { pay.tenderedMinor?.let { put("tenderedMinor",it.toString()).put("changeMinor",pay.changeMinor.toString()) } }
                 .apply { pay.reference?.let { put("reference",it) } }
@@ -372,13 +372,6 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         db.receiptPrints().insertSaleReceipt(SaleReceiptRow(s,d,request.saleId,FrozenReceipts.encode(receipt,currentReceiptHeader(dao,s,d,dao.trip(s,d)))))
         receipt
     }
-    /** IP-HH2: the wire shape of a sale paid with cash plus one more tender (the server must support `payment.parts`; see the lane report). */
-    private fun splitPaymentJson(total: Long, split: com.sunpride.van.pos.QuotedSplit): JSONObject = JSONObject().put("split",true).put("method","split").put("kind","split")
-        .put("status",split.other.state.wire).put("amountMinor",total.toString())
-        .put("parts",JSONArray(split.parts.map { part -> JSONObject().put("method",part.method.code).put("kind",part.method.kind.wire).put("status",part.state.wire)
-            .put("amountMinor",part.amountMinor.toString())
-            .apply { part.tenderedMinor?.let { put("tenderedMinor",it.toString()).put("changeMinor",part.changeMinor.toString()) } }
-            .apply { part.reference?.let { put("reference",it) } }.apply { part.dueDate?.let { put("dueDate",it) } } }))
     /** IP-HH2: the claim and the split tender go on the frozen receipt so the print and every reprint show the discount and payment lines. */
     private fun receiptExtras(fiscalJson: String, claim: com.sunpride.van.selling.DiscountClaim?, legal: com.sunpride.van.selling.LegalCart?, split: com.sunpride.van.pos.QuotedSplit?): String {
         if (claim == null && split == null) return fiscalJson

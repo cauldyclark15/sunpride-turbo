@@ -1,6 +1,8 @@
 package com.sunpride.van.pos
 
 import com.sunpride.van.data.PaymentKind
+import org.json.JSONArray
+import org.json.JSONObject
 
 /**
  * IP-HH2: a sale paid with cash plus ONE more tender (GCash, check, bank, or the customer's credit as the office allows).
@@ -30,4 +32,12 @@ object SplitTenders {
         val due = totalMinor - other
         return SplitView(totalMinor, other, due, cashHandedMinor, maxOf(0L, due - cashHandedMinor), maxOf(0L, cashHandedMinor - due))
     }
+
+    /** The wire shape of a sale paid with cash plus one more tender: `payment` of `sale.record`. The server reads `payment.parts` (IP-INT3). */
+    fun paymentJson(total: Long, split: QuotedSplit): JSONObject = JSONObject().put("split",true).put("method","split").put("kind","split")
+        .put("status",split.other.state.wire).put("amountMinor",total.toString())
+        .put("parts",JSONArray(split.parts.map { part -> JSONObject().put("method",part.method.code).put("kind",part.method.kind.wire).put("status",part.state.wire)
+            .put("amountMinor",part.amountMinor.toString())
+            .apply { part.tenderedMinor?.let { put("tenderedMinor",it.toString()).put("changeMinor",part.changeMinor.toString()) } }
+            .apply { part.reference?.let { put("reference",it) } }.apply { part.dueDate?.let { put("dueDate",it) } } }))
 }
