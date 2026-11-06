@@ -10,6 +10,7 @@ import {
   operationsSectionFor,
   operationsSubFor,
   slugOf,
+  visibleOperationsSubs,
   type OperationsSection,
 } from "@/config/navigation";
 import { useSession } from "@/lib/auth/session";
@@ -61,11 +62,9 @@ const SubTabs = ({
   pathname: string;
   role: string;
 }) => {
-  const subs = section.subs.filter(
-    (sub) =>
-      canAccessWebModule(slugOf(sub.href), role) &&
-      (sub.id !== "plan" || COUNT_PLANNERS.has(role)),
-  );
+  const subs = visibleOperationsSubs(section, (slug) =>
+    canAccessWebModule(slug, role),
+  ).filter((sub) => sub.id !== "plan" || COUNT_PLANNERS.has(role));
   const current = operationsSubFor(pathname);
   if (subs.length < 2) return null;
   return (

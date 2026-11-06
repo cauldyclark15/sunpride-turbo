@@ -51,6 +51,8 @@ export const OPERATIONS_SECTIONS = [
       },
       { id: "expiry", label: "Expiry", href: "/operations/stock/expiry" },
       { id: "tools", label: "All inventory tools", href: "/inventory" },
+      // IP-INT3FIX: roles without the Van day verb (sales, analyst, viewer) read trips from here; see `visibleOperationsSubs`.
+      { id: "van-trips", label: "Van trips", href: "/van-trips" },
     ],
   },
   {
@@ -361,6 +363,25 @@ const MOVED_UNDER: Record<string, OperationsSection["id"]> = {
   "van-trips": "van-day",
   workflows: "decide",
 };
+
+/**
+ * The screens of a verb this role sees: each must be openable for the role. The stock verb's own `van-trips` link exists only
+ * for roles that do not have the Van day verb (everyone else already has Trips under it), so nobody sees it twice.
+ */
+export function visibleOperationsSubs(
+  section: OperationsSection,
+  canOpen: (slug: string) => boolean,
+) {
+  return section.subs.filter(
+    (sub) =>
+      canOpen(slugOf(sub.href)) &&
+      !(
+        section.id === "stock" &&
+        sub.id === "van-trips" &&
+        canOpen("ops-van-day")
+      ),
+  );
+}
 
 /** The Operations verb a pathname belongs to, or null outside Operations. */
 export function operationsSectionFor(pathname: string): OperationsSection | null {

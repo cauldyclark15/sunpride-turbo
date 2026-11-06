@@ -10,6 +10,7 @@ import {
   operationsSectionFor,
   operationsSubFor,
   primaryIdFor,
+  visibleOperationsSubs,
 } from "./navigation";
 import { phoneTitleFor } from "./phone-tabs";
 
@@ -221,5 +222,23 @@ describe("Operations: verbs first (IP-NAV)", () => {
     expect(operationsSubFor("/operations/stock/bad-orders")?.id).toBe("bad-orders");
     expect(operationsSubFor("/operations/stock")?.id).toBe("on-hand");
     expect(operationsSubFor("/van-trips")?.id).toBe("trips");
+  });
+
+  it("IP-INT3FIX: every role that may read trips has a link to /van-trips in Operations, and nobody sees it twice", () => {
+    for (const role of APP_ROLES) {
+      const canOpen = (slug: string) => canAccessWebModule(slug, role);
+      const links = OPERATIONS_SECTIONS.filter((s) => canOpen(s.access)).flatMap(
+        (s) =>
+          visibleOperationsSubs(s, canOpen)
+            .filter((sub) => sub.href === "/van-trips")
+            .map(() => s.id),
+      );
+      expect(links, role).toHaveLength(1);
+    }
+    const canOpen = (slug: string) => canAccessWebModule(slug, "sales");
+    expect(canOpen("ops-van-day")).toBe(false);
+    expect(
+      visibleOperationsSubs(OPERATIONS_SECTIONS[0], canOpen).map((s) => s.id),
+    ).toContain("van-trips");
   });
 });
