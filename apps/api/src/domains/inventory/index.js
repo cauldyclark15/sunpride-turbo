@@ -7,6 +7,8 @@ import { installValuationRoutes } from "./valuation.js";
 import { installCommandExtensions } from "./extensions.js";
 import { installReasonRoutes } from "./reasons.js";
 import { installToleranceRoutes } from "./tolerances.js";
+import { installTransferRoutes } from "./transfers.js";
+import { installReceivingRoutes } from "./receiving.js";
 import { lots, policies } from "./reference.js";
 import {
   catalog,
@@ -51,6 +53,8 @@ export function install(router, core) {
   installValuationRoutes(router);
   installDispositionRoutes(router);
   installIntegrityRoutes(router, core);
+  installTransferRoutes(router);
+  installReceivingRoutes(router);
   for (const kind of [
     "receipts",
     "transfers",

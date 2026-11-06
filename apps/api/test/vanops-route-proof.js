@@ -323,21 +323,52 @@ export async function exerciseRoute(
   });
   expect(
     (
-      await h.db`select physical_base::text as quantity from inventory_lot_balances where lot_id=${lotA} and location_id=${truck} and stock_status='in_transit'`
+      await h.db`select physical_base::text as quantity from inventory_lot_balances where lot_id=${lotA} and stock_status='in_transit' and location_id<>${truck}`
     )[0].quantity,
   ).toBe("12");
+  // In-transit stock sits in the depot's In transit place, never on the truck (SPEC 3.1).
+  expect(
+    (
+      await h.db`select 1 from inventory_lot_balances where lot_id=${lotA} and location_id=${truck} and stock_status='in_transit' and physical_base<>0`
+    ).length,
+  ).toBe(0);
   const [dispatch] =
     await h.db`select facts from van_reload_events where request_id=${reload.payload.observationId} and kind='dispatched'`;
+  // SPEC 5.6: the seller counts 10 good + 2 damaged. That is accepted as a variance on the reload document;
+  // it does not block the trip (v1 refused anything but the exact dispatched batches).
   await send("reload.receive", {
     requestId: reload.payload.observationId,
-    lines: dispatch.facts.lines,
-    note: "Scanned exact physical batches",
+    lines: dispatch.facts.lines.map(
+      (/** @type {any} */ l, /** @type {number} */ i) => ({
+        productId: l.productId,
+        lotId: l.lotId,
+        receivedGoodBase: String(Number(l.quantityBase) - (i === 0 ? 2 : 0)),
+        receivedDamagedBase: String(i === 0 ? 2 : 0),
+        reasonCode: "DMG-TRANSIT",
+        photoCount: 1,
+      }),
+    ),
+    note: "Two pieces crushed in the crate",
   });
   expect(
     (
       await h.db`select physical_base::text as quantity from inventory_lot_balances where lot_id=${lotA} and location_id=${truck} and stock_status='available'`
     )[0].quantity,
-  ).toBe("12");
+  ).toBe("10");
+  expect(
+    (
+      await h.db`select physical_base::text as quantity from inventory_lot_balances where lot_id=${lotA} and location_id=${truck} and stock_status='damaged'`
+    )[0].quantity,
+  ).toBe("3"); // 1 damaged on the route + the 2 crushed in the reload
+  expect(
+    (
+      await h.db`select type,status,variance_status from stock_transfers where source_ref=${`van_reload:${reload.payload.observationId}`}`
+    )[0],
+  ).toMatchObject({
+    type: "van_reload",
+    status: "closed",
+    variance_status: "auto_accepted",
+  });
   await send("stop.record", {
     observationId: crypto.randomUUID(),
     stopId,
@@ -422,6 +453,12 @@ export async function exerciseRoute(
     expect(response.status).toBe(200);
     return body;
   }
+  // The clerk counts one piece MORE of the first available batch (over is allowed), and that batch was recalled
+  // meanwhile: it is received into On hold instead of being refused.
+  const overLine = unloadLines.find(
+    (/** @type {any} */ l) => l.status === "available" && l.lotId,
+  );
+  await h.db`insert into inventory_lot_holds(lot_id,source_type,source_id,actor_subject) values(${overLine.lotId},'retail_recall',${crypto.randomUUID()},'test')`;
   await office("observations/decide", {
     observationId: unload.payload.observationId,
     decision: "received",
@@ -429,11 +466,24 @@ export async function exerciseRoute(
       productId: l.productId,
       lotId: l.lotId,
       status: l.status,
-      receivedBase: l.quantityBase,
+      receivedBase:
+        l === overLine ? String(Number(l.quantityBase) + 1) : l.quantityBase,
+      ...(l === overLine ? { reason: "Clerk counted one more" } : {}),
     })),
     empties: [{ typeCode: "crate", quantity: "11" }],
     note: "Sample warehouse physical receipt",
   });
+  expect(
+    Number(
+      (
+        await h.db`select quality_hold_base::text as q from inventory_balances where location_id=${depot} and product_id=${overLine.productId}`
+      )[0].q,
+    ),
+  ).toBe(Number(overLine.quantityBase));
+  const [loadIn] =
+    await h.db`select t.type,t.status,t.variance_status,t.transfer_number,(select sum(over_base) from stock_transfer_allocations where transfer_id=t.id)::int as over from stock_transfers t where t.source_ref like 'van_load_in:%' and t.source_location_id=${truck}`;
+  expect(loadIn).toMatchObject({ type: "van_load_in", over: 1 });
+  expect(loadIn.transfer_number).toMatch(/^LIN-/);
   await office("cash/remit", { amountMinor: total, reference: "SAMPLE-CASH" });
   const [settlement] =
     await h.db`select * from van_settlements where trip_id=${tripId}`;
@@ -534,7 +584,7 @@ export async function exerciseRoute(
     (
       await h.db`select expected_base::text as quantity,lot_id from van_trip_load_lines where load_id=${load.loadId}`
     )[0],
-  ).toMatchObject({ quantity: String(quantity), lot_id: lotA });
+  ).toMatchObject({ quantity: String(quantity), lot_id: lotB }); // batch A was recalled above, so it is not suggested
   return {
     tripId,
     returnId: returned.payload.returnId,

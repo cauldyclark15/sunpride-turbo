@@ -1,8 +1,54 @@
-import { postMovement } from "../inventory/posting.js";
+import { document } from "../inventory/common.js";
+import {
+  approveTransfer,
+  createTransfer,
+  dispatchTransfer,
+  receiveTransfer,
+} from "../inventory/transfers.js";
 import { tripFor, notSelf } from "./access.js";
 import { productFor, explainStock, audit, assertNotCounted } from "./facts.js";
 import { uuid, text, choice, refuse } from "./model.js";
 import { canonicalJson } from "../../core/util.js";
+
+/** The reload is one movement document (type van reload): approve reserves at the depot, dispatch moves it to the
+ * depot's In transit location (never "in transit on the truck"), and the seller's receipt posts good / damaged / short.
+ * @param {any} db @param {any} actor @param {number} [now] */
+const docContext = (db, actor, now = Date.now()) => ({
+  db,
+  actor,
+  now,
+  trusted: true,
+});
+
+/** Make (or find) the movement document behind a reload request. Reloads approved before documents existed get theirs here.
+ * @param {any} db @param {any} actor @param {any} trip @param {any} request @param {string} idemKey */
+async function reloadDocument(db, actor, trip, request, idemKey) {
+  const [existing] =
+    await db`select id from stock_transfers where organization_id=${trip.organization_id} and source_ref=${`van_reload:${request.id}`} and status<>'cancelled' limit 1`;
+  if (existing) return document(db, "stock_transfers", existing.id);
+  const [seller] =
+    await db`select user_id from profiles where id=${request.recorded_by}`;
+  const [vehicle] =
+    await db`select plate_number from vehicles where id=${trip.vehicle_id}`;
+  const c = docContext(db, actor);
+  const made = await createTransfer(c, {
+    type: "van_reload",
+    sourceLocationId: trip.source_location_id,
+    destinationLocationId: trip.truck_location_id,
+    lines: request.facts.lines.map((/** @type {any} */ l) => ({
+      productId: l.productId,
+      quantityBase: Number(l.quantityBase),
+    })),
+    note: request.facts.note ?? null,
+    sourceRef: `van_reload:${request.id}`,
+    requestedBy: seller?.user_id ?? null,
+    driverName: trip.driver_name ?? null,
+    vehiclePlate: vehicle?.plate_number ?? null,
+  });
+  const row = await document(db, "stock_transfers", made.id);
+  await approveTransfer(c, { idempotencyKey: idemKey }, row);
+  return document(db, "stock_transfers", made.id);
+}
 
 /** F-121 office approval and dispatch have separate immutable events. @param {any} db @param {any} actor @param {any} p */
 export async function reloadAction(db, actor, p) {
@@ -28,7 +74,15 @@ export async function reloadAction(db, actor, p) {
   )
     refuse("This reload transition is already recorded");
   let movementId = null,
-    lines = [];
+    lines = [],
+    transferId = null,
+    transferNumber = null;
+  const idemKey = `van:reload:${request.id}`;
+  if (kind === "approved") {
+    const row = await reloadDocument(db, actor, trip, request, idemKey);
+    transferId = row.id;
+    transferNumber = row.transfer_number;
+  }
   if (kind === "dispatched") {
     if (
       !(
@@ -36,31 +90,15 @@ export async function reloadAction(db, actor, p) {
       ).length
     )
       refuse("Approve this reload before dispatch");
-    const input = [];
-    for (const l of request.facts.lines) {
-      const product = await productFor(db, l.productId);
-      input.push({
-        productId: product.id,
-        fromLocationId: trip.source_location_id,
-        toLocationId: trip.truck_location_id,
-        fromStockStatus: "available",
-        toStockStatus: "in_transit",
-        quantityBase: Number(l.quantityBase),
-        uom: product.base_code,
-      });
-    }
-    const movement = await postMovement(db, {
-      kind: "transfer_ship",
-      sourceType: "van_reload",
-      sourceId: request.id,
-      idempotencyKey: `van:reload:ship:${request.id}`,
-      occurredAt: Date.now(),
-      organizationId: trip.organization_id,
-      actor: { profileId: actor.profileId, userId: actor.userId },
-      authorizedLocations: [trip.source_location_id, trip.truck_location_id],
-      lines: input,
-    });
-    movementId = movement.movementId;
+    const row = await reloadDocument(db, actor, trip, request, idemKey);
+    transferId = row.id;
+    transferNumber = row.transfer_number;
+    const sent = await dispatchTransfer(
+      docContext(db, actor),
+      { idempotencyKey: idemKey },
+      row,
+    );
+    movementId = sent.movementId;
     const allocations =
       await db`select a.product_id as "productId",a.lot_id as "lotId",a.quantity_base::text as "quantityBase",l.lot_number as batch,l.expires_at as expiry,l.quality_status as "qualityStatus" from inventory_allocations a left join inventory_lots l on l.id=a.lot_id where a.movement_id=${movementId} order by a.allocation_sequence`;
     lines = allocations.length
@@ -79,12 +117,21 @@ export async function reloadAction(db, actor, p) {
           qualityStatus: "released",
         }));
   }
-  await db`insert into van_reload_events(request_id,kind,facts,actor_profile_id,movement_id) values(${request.id},${kind},${{ note, lines }},${actor.profileId},${movementId})`;
+  await db`insert into van_reload_events(request_id,kind,facts,actor_profile_id,movement_id) values(${request.id},${kind},${{ note, lines, transferId, transferNumber }},${actor.profileId},${movementId})`;
   await audit(db, trip, actor, `van.reload.${kind}`, request.id, { note });
-  return { tripId: trip.id, requestId: request.id, movementId };
+  return {
+    tripId: trip.id,
+    requestId: request.id,
+    movementId,
+    transferId,
+    transferNumber,
+  };
 }
 
-/** F-121 receipt requires the exact independently dispatched batches; a request never adds sellable stock.
+/** The seller counts what arrived: good, damaged, or missing, by batch. Anything short or damaged is a variance on the same
+ * document (it does not block the trip), instead of the old "scan the exact dispatched batches" rule.
+ * Lines: `[{productId, lotId, receivedGoodBase?, receivedDamagedBase?, reasonCode?, photoCount?}]`; the v1 shape
+ * (the dispatched lines echoed back) still means everything arrived good.
  * @param {any} db @param {any} trip @param {any} actor @param {any} p @param {string} opId
  */
 export async function receiveReload(db, trip, actor, p, opId) {
@@ -99,46 +146,63 @@ export async function receiveReload(db, trip, actor, p, opId) {
     ).length
   )
     refuse("Download an unreceived dispatch before receiving reload stock");
-  if (canonicalJson(p.lines) !== canonicalJson(dispatch.facts.lines))
-    refuse(
-      "Scan the exact dispatched batches and quantities",
-      "stock_conflict",
+  const [request] =
+    await db`select * from van_trip_observations where id=${id}`;
+  const row = await reloadDocument(
+    db,
+    actor,
+    trip,
+    request,
+    `van:reload:${id}`,
+  );
+  const legacy = canonicalJson(p.lines) === canonicalJson(dispatch.facts.lines);
+  const given = Array.isArray(p.lines) ? p.lines : [];
+  if (!legacy && !given.length) refuse("Count what arrived on each line");
+  const transferLines =
+    await db`select * from stock_transfer_lines where transfer_id=${row.id}`;
+  /** @type {any[]} */ const receive = [];
+  for (const l of legacy ? dispatch.facts.lines : given) {
+    const line = transferLines.find(
+      (/** @type {any} */ t) => t.product_id === l.productId,
     );
-  const lines = [];
-  for (const l of dispatch.facts.lines) {
-    const product = await productFor(db, l.productId);
-    lines.push({
-      productId: l.productId,
-      fromLocationId: trip.truck_location_id,
-      toLocationId: trip.truck_location_id,
-      fromStockStatus: "in_transit",
-      toStockStatus: "available",
-      quantityBase: Number(l.quantityBase),
-      uom: product.base_code,
-      lotId: l.lotId,
+    if (!line) refuse("That product was not on this reload", "stock_conflict");
+    receive.push({
+      lineId: line.id,
+      batchId: l.lotId ?? undefined,
+      receivedGoodBase: legacy
+        ? Number(l.quantityBase)
+        : Number(l.receivedGoodBase ?? 0),
+      receivedDamagedBase: legacy ? 0 : Number(l.receivedDamagedBase ?? 0),
+      reasonCode: l.reasonCode,
+      photoCount: l.photoCount,
+      note: l.note,
     });
   }
-  const posted = await postMovement(db, {
-    kind: "transfer_receive",
-    sourceType: "van_reload",
-    sourceId: id,
-    idempotencyKey: `van:${opId}`,
-    occurredAt: p.deviceTime,
-    organizationId: trip.organization_id,
-    actor: { profileId: actor.profileId, userId: actor.userId },
-    authorizedLocations: [trip.truck_location_id],
-    lines,
-  });
-  await db`insert into van_reload_events(request_id,kind,facts,actor_profile_id,movement_id) values(${id},'received',${{ lines: dispatch.facts.lines, note: text(p.note) }},${actor.profileId},${posted.movementId})`;
-  await explainStock(
-    db,
-    trip,
-    id,
-    "reload",
-    lines.map((l) => ({
-      productId: l.productId,
-      delta: BigInt(l.quantityBase),
-    })),
+  const at = Number.isSafeInteger(p.deviceTime) ? p.deviceTime : Date.now();
+  const result = await receiveTransfer(
+    docContext(db, actor, at),
+    {
+      idempotencyKey: `van:${opId}`,
+      lines: receive,
+      final: true,
+      note: p.note ? String(p.note) : undefined,
+    },
+    row,
+    { authorized: [row.in_transit_location_id, trip.truck_location_id] },
   );
-  return { entityId: id, movementId: posted.movementId };
+  const got =
+    await db`select product_id,sum(received_good_base)::text as good,sum(received_damaged_base)::text as damaged,sum(received_hold_base)::text as hold from stock_transfer_allocations where transfer_id=${row.id} group by product_id`;
+  /** @type {any[]} */ const explained = [];
+  for (const g of got) {
+    for (const [status, qty] of /** @type {Array<[string,string]>} */ ([
+      ["available", g.good],
+      ["damaged", g.damaged],
+      ["quality_hold", g.hold],
+    ]))
+      if (BigInt(qty) > 0n)
+        explained.push({ productId: g.product_id, status, delta: BigInt(qty) });
+  }
+  await db`insert into van_reload_events(request_id,kind,facts,actor_profile_id,movement_id) values(${id},'received',${{ lines: dispatch.facts.lines, received: receive, note: text(p.note), transferId: row.id, transferStatus: result.status, varianceStatus: result.varianceStatus }},${actor.profileId},${result.movementId})`;
+  await explainStock(db, trip, id, "reload", explained);
+  return { entityId: id, movementId: result.movementId };
 }
