@@ -80,12 +80,16 @@ import { saleLots } from "./lots.js";
 import { validateReturnEvidence } from "./return-evidence.js";
 import { receiveReload } from "./reloads.js";
 import { validateBatchCount } from "./batch-count.js";
+import { acceptLoad, assertLegacyLoad } from "./loadout.js";
+import { crewGuard, recordCrewAction, switchCrew } from "./roster.js";
 
 export const VAN_OPS = [
   ...ROUTE_OPS,
   "reload.receive",
   "trip.start",
   "load.confirm",
+  "load.accept",
+  "crew.switch",
   "truck.damage",
   "sale.record",
   "sale.void",
@@ -290,7 +294,13 @@ async function dispatchOperation(ctx, env) {
       "invalid_request",
     );
   if (
-    !["load.confirm", "trip.start", "temperature.record"].includes(op.opType) &&
+    ![
+      "load.confirm",
+      "load.accept",
+      "crew.switch",
+      "trip.start",
+      "temperature.record",
+    ].includes(op.opType) &&
     !["active", "closing", "reconciling", "review_required"].includes(
       trip.status,
     )
@@ -313,6 +323,7 @@ async function dispatchOperation(ctx, env) {
     if (prior.length)
       refuse("This trip already has a count", "idempotency_conflict");
   }
+  await crewGuard(db, device, op.opType, op.clientTime); // IP-VANDAY: a helper cannot void or close the trip
   /** @type {any} */ let result;
   if (ROUTE_OPS.includes(op.opType)) {
     if (op.opType !== "temperature.record" || trip.status !== "loading") {
@@ -346,6 +357,7 @@ async function dispatchOperation(ctx, env) {
           await db`select * from van_trip_loads where id=${uuid(p.loadId)} and trip_id=${trip.id} and deleted_at is null for update`;
         if (!load || load.status !== "planned" || trip.status !== "loading")
           refuse("Load cannot be confirmed now");
+        assertLegacyLoad(load);
         /** @type {any[]} */ const lines =
           await db`select * from van_trip_load_lines where load_id=${load.id} and deleted_at is null order by line_number`;
         const supplied = rows(p.lines);
@@ -371,6 +383,26 @@ async function dispatchOperation(ctx, env) {
         } else result = await finishLoad(db, trip, actor);
         break;
       }
+      // IP-VANDAY: the seller's count of a dispatched load (short/over per line), and a change of person on the phone.
+      case "load.accept":
+        if (trip.status !== "loading")
+          refuse("There is no dispatched load to accept", "invalid_request");
+        result = await acceptLoad(db, trip, actor, device, p, op);
+        break;
+      case "crew.switch":
+        result = await switchCrew(db, {
+          deviceId: device.id,
+          trip,
+          toProfileId: uuid(p.toProfileId),
+          method: "pin_offline",
+          pinId: p.pinId,
+          proof: p.proof,
+          at: op.clientTime,
+          clientOpId: op.clientOpId,
+          recordedBy: actor.subject,
+        });
+        result.entityId = result.sessionId;
+        break;
       case "truck.damage": {
         if (trip.status !== "active")
           refuse("Start the trip before recording damage");
@@ -510,6 +542,7 @@ async function dispatchOperation(ctx, env) {
       default:
         refuse("Unsupported operation", "unsupported_operation");
     }
+  await recordCrewAction(db, trip, device, op);
   await vanAdapter(ctx, trip, result.entityId);
   await audit(db, trip, actor, op.opType, result.entityId, {
     clientOpId: op.clientOpId,

@@ -20,6 +20,7 @@ import { currentDeviceActor, tripFor, outletFor } from "./access.js";
 import { productFor, stockBearing } from "./facts.js";
 import { catalogueMetadata } from "../masters/catalogue.js";
 import { approvalKey } from "./approvals.js";
+import { vanDayBundle } from "./dayboard.js";
 import {
   date,
   today,
@@ -129,6 +130,8 @@ export function vanProjection(env) {
         // IP-P0: the van app that can read the handheld card, the trip float and the recount note says so.
         // Older apps validate the frozen v1 trip/load/policy strictly and never ask.
         ...(p.handheld === true ? { handheld: true } : {}),
+        // IP-VANDAY: roster, crew on this phone and the suggested/dispatched load; older apps never ask.
+        ...(p.vanDay === true ? { vanDay: true } : {}),
       };
     },
     snapshot,
@@ -209,7 +212,14 @@ export async function bundle(ctx, env) {
       availability: [],
       deliveryDrops: [],
     };
-    if (storePos?.mode === "store" || !trips.length) return empty;
+    if (storePos?.mode === "store" || !trips.length) {
+      if (ctx.params.vanDay === true && storePos?.mode !== "store")
+        return {
+          ...empty,
+          vanDay: await vanDayBundle(db, actor, device, null, serviceDate),
+        };
+      return empty;
+    }
     const trip = await tripFor(db, actor, trips[0].id, "van.operate");
     if (trip.started_device_id && trip.started_device_id !== device.id)
       throw new ApiError(
@@ -576,6 +586,9 @@ export async function bundle(ctx, env) {
       ),
       deliveryDrops: await deliveryBundle(db, actor, trip),
       promotions: schemes.promotions,
+      ...(ctx.params.vanDay === true
+        ? { vanDay: await vanDayBundle(db, actor, device, trip, serviceDate) }
+        : {}),
     };
   });
 }

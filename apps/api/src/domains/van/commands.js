@@ -23,6 +23,11 @@ import {
 } from "./facts.js";
 import { finishLoad, movement, statusLine } from "./operations.js";
 import {
+  cancelPlanForTrip,
+  decideLoadDocument,
+  supersedePlan,
+} from "./loadout.js";
+import {
   issueApproval,
   approvalCodeFor,
   approvalKey,
@@ -95,9 +100,9 @@ export async function command(ctx, installCtx, action, capability, fn) {
     const stored = { ...result };
     delete stored.code;
     await db`insert into van_web_commands(actor_profile_id,idempotency_key,payload_hash,result) values(${actor.profileId},${key},${hash},${stored})`;
-    if (result.tripId) {
-      const [trip] =
-        await db`select * from van_trips where id=${result.tripId}`;
+    // IP-VANDAY: a bulk command (approve a whole day) names its trips in `tripIds`.
+    for (const tripId of result.tripId ? [result.tripId] : (result.tripIds ?? [])) {
+      const [trip] = await db`select * from van_trips where id=${tripId}`;
       await enqueue(db, {
         kind: "van.refresh",
         key: `van:${trip.org_unit_id}:${dayString(trip.service_date)}`,
@@ -249,6 +254,7 @@ export async function planLoad(db, actor, p) {
   const trip = await tripFor(db, actor, p.tripId, "van.manage", true);
   if (trip.status !== "planned") refuse("Issue one load before departure");
   await locationFor(db, actor, trip.source_location_id, "van.manage");
+  await supersedePlan(db, trip.id); // IP-VANDAY: a hand-made load replaces the suggestion
   const [load] =
     await db`insert into van_trip_loads(organization_id,trip_id,load_number,status,created_by) values(${trip.organization_id},${trip.id},1,'planned',${actor.subject}) returning id`;
   const seen = new Set();
@@ -281,6 +287,13 @@ export async function approveLoad(db, actor, p) {
     await db`select * from van_trip_loads where trip_id=${trip.id} and status='discrepancy' for update`;
   if (!load || trip.status !== "loading" || load.confirmed_by === actor.subject)
     refuse("No load can be approved by this person");
+  // IP-VANDAY: a load that has a movement document is decided on the document (the count is posted by it).
+  if (load.stock_transfer_id)
+    return {
+      ...(await decideLoadDocument(db, actor, trip, load, /** @type {any} */ (decision), note, p)),
+      tripId: trip.id,
+      decision,
+    };
   if (decision === "reject") {
     await db`update van_trip_loads set status='planned',approved_by=null,approved_at=null,approval_note=${note},updated_at=now() where id=${load.id}`;
     await audit(db, trip, actor, "van.load.rejected", load.id, { note });
@@ -296,6 +309,7 @@ export async function cancelTrip(db, actor, p) {
   const trip = await tripFor(db, actor, p.tripId, "van.manage", true);
   if (!["planned", "loading"].includes(trip.status))
     refuse("Only an unloaded trip can be cancelled");
+  await cancelPlanForTrip(db, actor, trip); // IP-VANDAY: frees the reserved stock
   await db`update van_trip_loads set status='cancelled' where trip_id=${trip.id}`;
   await db`update van_trips set status='cancelled',cancelled_at=now(),cancel_reason=${text(p.reason, 200, true)} where id=${trip.id}`;
   await audit(db, trip, actor, "van.trip.cancelled", trip.id, {
