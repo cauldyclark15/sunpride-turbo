@@ -133,4 +133,29 @@ describe("migrate", () => {
         db`insert into embeddings (owner_table, owner_id, model, dims, embedding) values ('x', ${owner}, 'm', 4, '[1,2,3]')`)(),
     ).rejects.toThrow();
   });
+  test("IP-INT3 0786: a database made before 0107 was reworded (convex_* columns) is renamed in place, and a current one is left alone", async () => {
+    const cols = async () =>
+      (
+        await db`select table_name||'.'||column_name as c from information_schema.columns where table_schema='public' and table_name in ('inventory_reconciliation_runs','inventory_reconciliation_differences') and (column_name like 'convex%' or column_name like 'operational%') order by 1`
+      ).map((/** @type {any} */ r) => r.c);
+    await migrate(db, MIGRATIONS_DIR);
+    expect(await cols()).toEqual([
+      "inventory_reconciliation_differences.operational_base",
+      "inventory_reconciliation_runs.operational_cutoff",
+    ]);
+    // a database created from the old wording
+    await db`alter table inventory_reconciliation_runs rename column operational_cutoff to convex_cutoff`;
+    await db`alter table inventory_reconciliation_differences rename column operational_base to convex_base`;
+    await db`delete from schema_migrations where name='0786_reconciliation_column_names.sql'`;
+    const applied = await migrate(db, MIGRATIONS_DIR);
+    expect(applied).toEqual(["0786_reconciliation_column_names.sql"]);
+    expect(await cols()).toEqual([
+      "inventory_reconciliation_differences.operational_base",
+      "inventory_reconciliation_runs.operational_cutoff",
+    ]);
+    // running its body again on a current database changes nothing
+    await db`delete from schema_migrations where name='0786_reconciliation_column_names.sql'`;
+    expect(await migrate(db, MIGRATIONS_DIR)).toEqual(["0786_reconciliation_column_names.sql"]);
+    expect(await cols()).toHaveLength(2);
+  });
 });
