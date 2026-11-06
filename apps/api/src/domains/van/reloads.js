@@ -1,4 +1,5 @@
 import { document } from "../inventory/common.js";
+import { postMovement } from "../inventory/posting.js";
 import {
   approveTransfer,
   createTransfer,
@@ -148,6 +149,10 @@ export async function receiveReload(db, trip, actor, p, opId) {
     refuse("Download an unreceived dispatch before receiving reload stock");
   const [request] =
     await db`select * from van_trip_observations where id=${id}`;
+  // IP-INT2FIX: a reload dispatched by the old code (stock moved depot -> truck "in transit", no document) is received the
+  // old way, straight from the truck's in-transit stock. Building a document now would reserve depot stock a second time.
+  if (await isLegacyDispatch(db, trip, request, dispatch))
+    return receiveLegacyReload(db, trip, actor, p, opId, dispatch);
   const row = await reloadDocument(
     db,
     actor,
@@ -205,4 +210,82 @@ export async function receiveReload(db, trip, actor, p, opId) {
   await db`insert into van_reload_events(request_id,kind,facts,actor_profile_id,movement_id) values(${id},'received',${{ lines: dispatch.facts.lines, received: receive, note: text(p.note), transferId: row.id, transferStatus: result.status, varianceStatus: result.varianceStatus }},${actor.profileId},${result.movementId})`;
   await explainStock(db, trip, id, "reload", explained);
   return { entityId: id, movementId: result.movementId };
+}
+
+/** Dispatched before movement documents existed: the event has a movement but no document, and no document was made since.
+ * @param {any} db @param {any} trip @param {any} request @param {any} dispatch */
+async function isLegacyDispatch(db, trip, request, dispatch) {
+  if (!dispatch.movement_id || dispatch.facts?.transferId) return false;
+  const [doc] =
+    await db`select id from stock_transfers where organization_id=${trip.organization_id} and source_ref=${`van_reload:${request.id}`} and status<>'cancelled' limit 1`;
+  return !doc;
+}
+
+/** The pre-document receipt: good pieces become available, damaged ones damaged, both from the truck's in-transit stock.
+ * A short count cannot be recorded without a document, so it is refused in plain words and the stock stays in transit.
+ * @param {any} db @param {any} trip @param {any} actor @param {any} p @param {string} opId @param {any} dispatch */
+async function receiveLegacyReload(db, trip, actor, p, opId, dispatch) {
+  const id = uuid(p.requestId);
+  const sent = /** @type {any[]} */ (dispatch.facts.lines);
+  const echo = canonicalJson(p.lines) === canonicalJson(sent);
+  const given = Array.isArray(p.lines) ? p.lines : [];
+  if (!echo && !given.length) refuse("Count what arrived on each line");
+  /** @type {any[]} */ const lines = [];
+  /** @type {any[]} */ const explained = [];
+  for (const l of sent) {
+    const found = echo
+      ? l
+      : given.find(
+          (/** @type {any} */ g) =>
+            g.productId === l.productId &&
+            (g.lotId ?? null) === (l.lotId ?? null),
+        );
+    if (!found) refuse("Count every product that was sent on this reload");
+    const total = Number(l.quantityBase);
+    const good = echo ? total : Number(found.receivedGoodBase ?? 0);
+    const damaged = echo ? 0 : Number(found.receivedDamagedBase ?? 0);
+    if (
+      !Number.isInteger(good) ||
+      !Number.isInteger(damaged) ||
+      good < 0 ||
+      damaged < 0 ||
+      good + damaged !== total
+    )
+      refuse(
+        "This reload was sent before the update, so it has to be received in full. Count the good and damaged pieces so they add up to what was sent, or ask the office.",
+        "stock_conflict",
+      );
+    const product = await productFor(db, l.productId);
+    for (const [qty, status] of /** @type {Array<[number,string]>} */ ([
+      [good, "available"],
+      [damaged, "damaged"],
+    ]))
+      if (qty > 0) {
+        lines.push({
+          productId: l.productId,
+          fromLocationId: trip.truck_location_id,
+          toLocationId: trip.truck_location_id,
+          fromStockStatus: "in_transit",
+          toStockStatus: status,
+          quantityBase: qty,
+          uom: product.base_code,
+          lotId: l.lotId,
+        });
+        explained.push({ productId: l.productId, status, delta: BigInt(qty) });
+      }
+  }
+  const posted = await postMovement(db, {
+    kind: "transfer_receive",
+    sourceType: "van_reload",
+    sourceId: id,
+    idempotencyKey: `van:${opId}`,
+    occurredAt: Number.isSafeInteger(p.deviceTime) ? p.deviceTime : Date.now(),
+    organizationId: trip.organization_id,
+    actor: { profileId: actor.profileId, userId: actor.userId },
+    authorizedLocations: [trip.truck_location_id],
+    lines,
+  });
+  await db`insert into van_reload_events(request_id,kind,facts,actor_profile_id,movement_id) values(${id},'received',${{ lines: sent, note: text(p.note), legacy: true }},${actor.profileId},${posted.movementId})`;
+  await explainStock(db, trip, id, "reload", explained);
+  return { entityId: id, movementId: posted.movementId };
 }
