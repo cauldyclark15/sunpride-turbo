@@ -722,6 +722,166 @@ export async function receiveTransfer(c, b, row, opts = {}) {
   return settle(c, b, row, { final: b.final === true, movementId });
 }
 
+/**
+ * IP-INT3FIX: the receiver's new TOTAL count of a document that was sent back for a recount (`variance_status='recount'`).
+ * The ordinary receive only ever adds. A recount answers "how many are there really": the totals replace what was recorded,
+ * so a miscounted damaged or over quantity can go down, not only up.
+ *  - pieces newly found, up to what was sent, are received from In transit (as good or damaged);
+ *  - damaged pieces now counted good move Damaged -> Available on the receiving side (one status change), and good pieces
+ *    now counted damaged move the other way;
+ *  - "over" is only a record (it is not in the ledger until someone resolves it), so it is simply set to the new figure;
+ *  - a total smaller than what is already in stock is refused: that needs the office (it would un-receive stock).
+ * Lines not mentioned stay as they are. Returns the receive result plus `deltas` (product, status, signed pieces) so the
+ * van can keep its expected truck stock in step.
+ * @param {Ctx} c @param {any} b `{idempotencyKey, lines:[{lineId, batchId?, receivedGoodBase, receivedDamagedBase, reasonCode?, note?, photoCount?}], note?}`
+ * @param {any} row @param {{authorized?:string[]}} [opts]
+ */
+export async function recountReceive(c, b, row, opts = {}) {
+  if (row.variance_status !== "recount")
+    invalid("This document is not waiting for a recount");
+  const lines = await linesOf(c.db, row.id);
+  const allocs = await allocationsOf(c.db, row.id);
+  if (!Array.isArray(b.lines) || !b.lines.length || b.lines.length > 300)
+    invalid("Count what arrived on each line");
+  /** @type {MovementLine[]} */ const receipts = [];
+  /** @type {MovementLine[]} */ const changes = [];
+  /** @type {Array<{productId:string,status:string,delta:bigint}>} */ const deltas = [];
+  const seen = new Set();
+  for (const l of b.lines) {
+    const line = lines.find((/** @type {any} */ x) => x.id === l.lineId);
+    if (!line) invalid("That line is not on this document");
+    const mine = allocs.filter(
+      (/** @type {any} */ a) => a.transfer_line_id === line.id,
+    );
+    const a = l.batchId
+      ? mine.find((/** @type {any} */ x) => x.lot_id === l.batchId)
+      : mine.length === 1
+        ? mine[0]
+        : null;
+    if (!a)
+      invalid(
+        l.batchId
+          ? "That batch was not on this document"
+          : "Choose the batch for this line",
+      );
+    if (seen.has(a.id)) invalid("A line is counted twice");
+    seen.add(a.id);
+    const good = integer(l.receivedGoodBase ?? 0, "Good quantity", 0);
+    const damaged = integer(l.receivedDamagedBase ?? 0, "Damaged quantity", 0);
+    const held = heldLot(a);
+    const goodStatus = held ? "quality_hold" : "available";
+    const curGood = Number(held ? a.received_hold_base : a.received_good_base);
+    const curDmg = Number(a.received_damaged_base);
+    const otherHold = held ? 0 : Number(a.received_hold_base);
+    const sentBase = Number(a.dispatched_base);
+    const had = curGood + curDmg + otherHold;
+    const total = good + damaged + otherHold;
+    const postedNew = Math.min(total, sentBase);
+    if (postedNew < had)
+      invalid(
+        `Count at least ${had}: that much is already in stock. A smaller count needs the office`,
+      );
+    const dmgNew = Math.min(damaged, postedNew - otherHold);
+    const goodNew = postedNew - otherHold - dmgNew;
+    const fresh = postedNew - had;
+    const dd = dmgNew - curDmg;
+    const dmgFromTransit = dd > 0 ? Math.min(dd, fresh) : 0;
+    const goodFromTransit = fresh - dmgFromTransit;
+    let reason = a.damage_reason_code ?? null;
+    if (dd > 0) {
+      if (!l.reasonCode && !reason)
+        invalid("Choose a reason for the damaged items");
+      if (l.reasonCode) {
+        const r = await requireReason(c.db, ORGANIZATION, l.reasonCode, {
+          direction: "out",
+          note: l.note,
+          photoCount: Number(l.photoCount ?? 0),
+        });
+        reason = r.code;
+      }
+    }
+    const base = {
+      productId: a.product_id,
+      uom: "base",
+      unitCostMinor: Number(a.unit_cost_minor),
+      ...(a.lot_id ? { lotId: a.lot_id } : {}),
+    };
+    const fromTransit = {
+      ...base,
+      fromLocationId: row.in_transit_location_id,
+      toLocationId: row.destination_location_id,
+      fromStockStatus: "in_transit",
+    };
+    if (goodFromTransit > 0)
+      receipts.push({
+        ...fromTransit,
+        quantityBase: goodFromTransit,
+        toStockStatus: goodStatus,
+      });
+    if (dmgFromTransit > 0)
+      receipts.push({
+        ...fromTransit,
+        quantityBase: dmgFromTransit,
+        toStockStatus: "damaged",
+      });
+    const at = row.destination_location_id;
+    if (dd < 0)
+      changes.push({
+        ...base,
+        fromLocationId: at,
+        toLocationId: at,
+        fromStockStatus: "damaged",
+        toStockStatus: goodStatus,
+        quantityBase: -dd,
+      });
+    if (dd > dmgFromTransit)
+      changes.push({
+        ...base,
+        fromLocationId: at,
+        toLocationId: at,
+        fromStockStatus: goodStatus,
+        toStockStatus: "damaged",
+        quantityBase: dd - dmgFromTransit,
+      });
+    const dGood = goodNew - curGood;
+    if (dGood && !held)
+      deltas.push({
+        productId: a.product_id,
+        status: "available",
+        delta: BigInt(dGood),
+      });
+    if (dd)
+      deltas.push({
+        productId: a.product_id,
+        status: "damaged",
+        delta: BigInt(dd),
+      });
+    await c.db`update stock_transfer_allocations set
+      received_good_base=${held ? Number(a.received_good_base) : goodNew},
+      received_hold_base=${held ? goodNew : otherHold},
+      received_damaged_base=${dmgNew},
+      over_base=${total - postedNew},
+      damage_reason_code=coalesce(${reason},damage_reason_code) where id=${a.id}`;
+    if (reason && dd > 0)
+      await c.db`update stock_transfer_lines set reason_code=${reason},note=coalesce(${l.note ?? null},note) where id=${a.transfer_line_id}`;
+  }
+  const authorized = opts.authorized ?? [
+    row.in_transit_location_id,
+    row.destination_location_id,
+  ];
+  let movementId = null;
+  if (receipts.length)
+    movementId = (
+      await move(c, b, "recv", "transfer_receive", "stock_transfer", row.id, receipts, authorized)
+    ).movementId;
+  if (changes.length)
+    await move(c, b, "recount", "status_change", "stock_transfer", row.id, changes, authorized);
+  await c.db`update stock_transfers set received_by=${c.actor.userId},first_received_at=coalesce(first_received_at,now()),receipt_movement_id=coalesce(${movementId},receipt_movement_id) where id=${row.id}`;
+  await refreshLines(c, row.id);
+  const result = await settle(c, b, row, { final: true, movementId });
+  return { ...result, deltas };
+}
+
 /** Decide where the document stands after a receipt: partial, received, closed by tolerance, or needing a decision.
  * @param {Ctx} c @param {any} b @param {any} row @param {{final:boolean, movementId?:string|null}} o */
 async function settle(c, b, row, o) {

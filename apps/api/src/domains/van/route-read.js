@@ -90,6 +90,18 @@ export async function routeBundle(db, trip) {
   const settlements = await settlementVersions(db, trip.id);
   const reloads =
     await db`select o.id,o.facts,coalesce((select jsonb_agg(jsonb_build_object('kind',e.kind,'facts',e.facts) order by e.created_at,e.id) from van_reload_events e where e.request_id=o.id),'[]') as events from van_trip_observations o where o.trip_id=${trip.id} and o.kind='reload_request' order by o.captured_at,o.id`;
+  // IP-INT3FIX: a reload difference the office sent back for a recount shows as "still to receive" on the phone, so the
+  // seller counts again (the phone offers its receive button while no 'received' event is shown).
+  if (reloads.length) {
+    const open = new Set(
+      (
+        await db`select source_ref from stock_transfers where source_ref in ${db(reloads.map((/** @type {any} */ r) => `van_reload:${r.id}`))} and variance_status='recount' and status<>'cancelled'`
+      ).map((/** @type {any} */ d) => d.source_ref),
+    );
+    for (const r of reloads)
+      if (open.has(`van_reload:${r.id}`))
+        r.events = r.events.filter((/** @type {any} */ e) => e.kind !== "received");
+  }
   const [posting] =
     await db`select case when e.status='dead_letter' then 'refused' else r.status end as status,r.acknowledgement from van_sap_requests r left join integration_events e on e.id=r.integration_event_id where r.source_id=${settlements.versions[0]?.id ?? null} and r.kind='van_settlement'`;
   return {

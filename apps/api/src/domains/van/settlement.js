@@ -3,6 +3,7 @@ import { forbidden, invalid } from "../../core/errors.js";
 import { tripFor, notSelf } from "./access.js";
 import { audit, assertTruckStock, expectedStock } from "./facts.js";
 import { routePolicy } from "./route-policy.js";
+import { reloadsOutForRecount } from "./reloads.js";
 import {
   effectiveCash,
   unloadBasis,
@@ -109,6 +110,10 @@ export async function submitSettlement(db, trip, actor, p) {
     ).length
   )
     refuse("Receive all dispatched reload stock before completing the trip");
+  if (await reloadsOutForRecount(db, trip.id))
+    refuse(
+      "The office asked for a recount of a reload. Count it again before completing the trip",
+    );
   const [prior] =
     await db`select s.*,d.decision from van_settlements s left join van_settlement_decisions d on d.settlement_id=s.id where s.trip_id=${trip.id} order by s.version desc limit 1`;
   if (prior && prior.decision !== "rejected")
