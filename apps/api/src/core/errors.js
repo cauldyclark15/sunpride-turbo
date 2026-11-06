@@ -1,3 +1,7 @@
+/** A handheld whose only registration for this person was removed. */
+export const NOT_SET_UP_MESSAGE =
+  "This handheld is not set up for you. Ask your supervisor to hand it over.";
+
 /** Whole-request API error. `action` and `retryAfterMs` feed the v2 native envelope (D2). */
 export class ApiError extends Error {
   /**

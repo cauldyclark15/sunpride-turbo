@@ -12,7 +12,13 @@ import {
   readCookie,
   sessionByToken,
 } from "./context.js";
-import { ApiError, forbidden, invalid, unauthenticated } from "./errors.js";
+import {
+  ApiError,
+  NOT_SET_UP_MESSAGE,
+  forbidden,
+  invalid,
+  unauthenticated,
+} from "./errors.js";
 import { isEmailInvited, loadProfile } from "./hooks.js";
 import {
   SIGNIN_POLICY,
@@ -24,6 +30,12 @@ import {
 import { reply } from "./router.js";
 import { scopeOf } from "./scope.js";
 import { HEX64_RE, isPlainObject, randomToken, sha256Hex } from "./util.js";
+
+/** The one row that speaks for a handheld key: a live (active) row beats a newer revoked, suspended or pending one,
+ * so an old removed row never overrules the person's current registration. SQL ordering fragment.
+ * @param {any} db */
+const deviceRank = (db) =>
+  db`case status when 'active' then 0 when 'suspended' then 1 when 'pending' then 2 else 3 end`;
 
 export const SESSION_TTL_MS = 7 * 24 * 60 * 60 * 1000;
 export const ACCESS_TTL_MS = 15 * 60 * 1000;
@@ -226,7 +238,7 @@ export function installAuth(router) {
       const profile = await loadProfile(ctx.db, user.id);
       if (profile) {
         const [device] =
-          await ctx.db`select * from registered_devices where profile_id=${profile.id} and key_id=${deviceKeyId} and app=${app} and status<>'revoked' order by created_at desc limit 1`;
+          await ctx.db`select * from registered_devices where profile_id=${profile.id} and key_id=${deviceKeyId} and app=${app} and status<>'revoked' order by ${deviceRank(ctx.db)}, created_at desc limit 1`;
         if (device) {
           await recordDeviceAssessment(ctx.db, device, body.integrity);
           if (!(await nativeControl(ctx.db, profile.id, deviceKeyId, app))) {
@@ -285,7 +297,7 @@ export function installAuth(router) {
       const profile = await loadProfile(ctx.db, row.user_id);
       if (profile && row.device_key_id) {
         const [device] =
-          await ctx.db`select * from registered_devices where profile_id=${profile.id} and key_id=${row.device_key_id} and app=${row.app} order by created_at desc limit 1`;
+          await ctx.db`select * from registered_devices where profile_id=${profile.id} and key_id=${row.device_key_id} and app=${row.app} order by ${deviceRank(ctx.db)}, created_at desc limit 1`;
         if (device) {
           await recordDeviceAssessment(ctx.db, device, body.integrity);
           if (
@@ -296,8 +308,10 @@ export function installAuth(router) {
               row.app,
             ))
           ) {
+            if (device.status === "revoked")
+              throw forbidden(NOT_SET_UP_MESSAGE, "device_not_set_up_for_you");
             if (device.status !== "active")
-              throw forbidden("Phone is no longer active", "device_revoked");
+              throw forbidden("Phone is paused", "device_suspended");
             await requireDeviceIntegrity(ctx.db, device);
           }
         }
@@ -436,7 +450,7 @@ async function nativeMe(ctx) {
     const rows = await ctx.db`
       select id, status, bound_subject, credential_id, app from registered_devices
       where profile_id = ${actor.profileId} and key_id = ${keyId} and app = ${app}
-      order by case status when 'active' then 0 when 'suspended' then 1 else 2 end, created_at desc limit 1`;
+      order by ${deviceRank(ctx.db)}, created_at desc limit 1`;
     const d = rows[0];
     if (d)
       device = {

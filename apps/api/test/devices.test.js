@@ -228,7 +228,7 @@ describe("signed request proof", () => {
     });
     await h.db`update registered_devices set status = 'revoked' where id = ${d.deviceId}`;
     const rev = await challenge(h, d.access, d.deviceId);
-    expect(rev.body.error.code).toBe("device_revoked");
+    expect(rev.body.error.code).toBe("device_not_set_up_for_you");
   });
 
   test("scope change after enrolment withdraws the device", async () => {
@@ -256,5 +256,95 @@ describe("signed request proof", () => {
     }
     expect(statuses).toContain(429);
     expect(statuses.filter((s) => s === 401).length).toBeLessThanOrEqual(10);
+  });
+});
+
+describe("an old removed phone row never overrules the current one", () => {
+  /** @param {string} access @param {string} keyId */
+  const me = async (access, keyId) =>
+    /** @type {any} */ (
+      await (
+        await h.fetch("/api/me", {
+          headers: {
+            authorization: `Bearer ${access}`,
+            "x-app": "field-android",
+            "x-device-key-id": keyId,
+          },
+        })
+      ).json()
+    );
+  /** @param {string} sessionToken @param {string} keyId */
+  const refresh = (sessionToken, keyId) =>
+    h.fetch("/api/auth/refresh", {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        authorization: `Bearer ${sessionToken}`,
+      },
+      body: JSON.stringify({
+        version: 2,
+        app: "field-android",
+        deviceKeyId: keyId,
+        integrity: { rooted: false, tampered: false, source: "TEST fixture" },
+      }),
+    });
+  /** @param {string} profileId @param {any} key @param {string} status @param {string|null} orgUnitId */
+  const extraRow = (profileId, key, status, orgUnitId) =>
+    h.db`insert into registered_devices (profile_id, app, platform, inventory_tag, public_key_spki, key_id, org_unit_id, status, created_at)
+      values (${profileId}, 'field-android', 'android', ${`TAG-${crypto.randomUUID().slice(0, 8)}`}, ${key.publicKeySpki}, ${key.keyId}, ${orgUnitId}, ${status}, now() + interval '1 hour')`;
+
+  test("newer revoked and suspended rows lose to the live row on /api/me and refresh", async () => {
+    const userId = await createUser(h, "live1@example.com", "device password");
+    const profile = profiles.set(userId, { role: "sales" });
+    const key = await deviceKey();
+    const liveId = await registerDevice(h, {
+      profileId: profile.id,
+      orgUnitId: profile.orgUnitId,
+      key,
+    });
+    const { body: tokens } = await nativeSignIn(
+      h,
+      "live1@example.com",
+      "device password",
+      "field-android",
+      { keyId: key.keyId, publicKeySpki: key.publicKeySpki },
+    );
+    await extraRow(profile.id, key, "revoked", profile.orgUnitId);
+    await extraRow(profile.id, key, "suspended", profile.orgUnitId);
+
+    const body = await me(tokens.accessToken, key.keyId);
+    expect(body.device).toMatchObject({ id: liveId, status: "active" });
+    const ok = await refresh(tokens.sessionToken, key.keyId);
+    expect(ok.status).toBe(200);
+  });
+
+  test("when the only row is removed the handheld is refused with the plain not-set-up code", async () => {
+    const userId = await createUser(h, "gone1@example.com", "device password");
+    const profile = profiles.set(userId, { role: "sales" });
+    const key = await deviceKey();
+    const deviceId = await registerDevice(h, {
+      profileId: profile.id,
+      orgUnitId: profile.orgUnitId,
+      key,
+    });
+    const { body: tokens } = await nativeSignIn(
+      h,
+      "gone1@example.com",
+      "device password",
+      "field-android",
+      { keyId: key.keyId, publicKeySpki: key.publicKeySpki },
+    );
+    await h.db`update registered_devices set status='revoked' where id=${deviceId}`;
+
+    const body = await me(tokens.accessToken, key.keyId);
+    expect(body.device).toMatchObject({ id: deviceId, status: "revoked" });
+    const refused = await refresh(tokens.sessionToken, key.keyId);
+    expect(refused.status).toBe(403);
+    expect(/** @type {any} */ (await refused.json()).error.code).toBe(
+      "device_not_set_up_for_you",
+    );
+    const ch = await challenge(h, tokens.accessToken, deviceId);
+    expect(ch.res.status).toBe(403);
+    expect(ch.body.error.code).toBe("device_not_set_up_for_you");
   });
 });
