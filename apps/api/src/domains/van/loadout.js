@@ -9,6 +9,7 @@ import {
   pickTransfer,
   receiveTransfer,
   resolveVariance,
+  resolveVarianceByAgreement,
 } from "../inventory/transfers.js";
 import { toleranceFor, withinTolerance } from "../inventory/tolerances.js";
 import { ORGANIZATION } from "../inventory/common.js";
@@ -363,24 +364,39 @@ async function postCounted(db, o) {
     await closeTransfer(cs, { idempotencyKey: `${key}:close` }, fresh);
   } else if (fresh.status === "review_needed") {
     const short = sent.some((/** @type {any} */ a) => counts.get(keyOf(a)).base < Number(a.dispatched_base));
-    // Supervisor: the deciding person. Agreed: the clerk who recounted signs, because the seller counted the same
-    // (both signatures are in van_load_counts). The document's "sender and receiver may not resolve" rule exists so nobody
-    // clears their own difference alone; here two people agreed, so the check is waived on this in-memory copy of the row.
-    const resolver = how === "supervisor" ? o.supervisor : o.clerk;
-    await resolveVariance(
-      ctxFor(db, resolver),
-      {
-        idempotencyKey: `${key}:resolve`,
+    // Supervisor: the deciding person, a third party to the clerk and the seller (the document refuses its own sender and receiver).
+    // Agreed: the clerk and the seller counted the same on their own devices; transfers.js proves that (two different people,
+    // the seller received it, same numbers, equal to what was received) and records both signatures. Nobody's check is skipped.
+    if (how === "supervisor")
+      await resolveVariance(
+        ctxFor(db, o.supervisor),
+        {
+          idempotencyKey: `${key}:resolve`,
+          chargeTo: o.chargeTo ?? "dispatch_side",
+          shortReasonCode: "SHORT-PICK",
+          overReasonCode: "FOUND",
+          note: o.note ?? "Decided by the supervisor",
+        },
+        fresh,
+      );
+    else {
+      const clerkCounts = o.clerkCounts ?? counts;
+      await resolveVarianceByAgreement(db, ORGANIZATION, doc.id, {
+        clerkId: o.clerk.userId,
+        sellerId: seller.userId,
+        lines: sent.map((/** @type {any} */ a) => ({
+          productId: a.product_id,
+          lotId: a.lot_id,
+          sellerBase: counts.get(keyOf(a)).base,
+          clerkBase: clerkCounts.get(keyOf(a)).base,
+        })),
         chargeTo: o.chargeTo ?? "dispatch_side",
         shortReasonCode: "SHORT-PICK",
         overReasonCode: "FOUND",
-        note:
-          how === "supervisor"
-            ? (o.note ?? "Decided by the supervisor")
-            : "Clerk and seller counted the same on their own devices",
-      },
-      how === "supervisor" ? fresh : { ...fresh, shipped_by: null, received_by: null },
-    );
+        note: "Clerk and seller counted the same on their own devices",
+        idempotencyKey: `${key}:resolve`,
+      });
+    }
     void short;
   }
   fresh = await docRow(db, doc.id);
@@ -477,7 +493,7 @@ export async function recountLoad(db, actor, p) {
     await audit(db, trip, actor, "van.load.disputed", plan.id);
     return { tripId: trip.id, state: "disputed" };
   }
-  const done = await postCounted(db, { trip, plan, doc, counts: sellerCounts, how: "both_agreed", round: seller.round, clerk: { userId: actor.userId, profileId: actor.profileId } });
+  const done = await postCounted(db, { trip, plan, doc, counts: sellerCounts, how: "both_agreed", round: seller.round, clerk: { userId: actor.userId, profileId: actor.profileId }, clerkCounts: counts });
   await audit(db, trip, actor, "van.load.agreed", plan.id);
   return { tripId: trip.id, state: "accepted", agreement: "both_agreed", ...done };
 }

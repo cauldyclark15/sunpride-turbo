@@ -466,7 +466,7 @@ describe("load-out on the movement document", () => {
     expect(twice.body.results[0].status).toBe("rejected");
 
     const agree = await web(clerk, "loads/recount", { tripId: sc.tripId, agree: true });
-    expect(agree.status).toBe(200);
+    expect(agree.status, JSON.stringify(agree.body)).toBe(200);
     expect(agree.body).toMatchObject({ state: "accepted", agreement: "both_agreed" });
     const plan = await planOf(sc.tripId);
     expect(plan).toMatchObject({ state: "accepted", agreement: "both_agreed" });
