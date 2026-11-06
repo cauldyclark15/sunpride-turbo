@@ -391,7 +391,7 @@ const ymd = (/** @type {any} */ v) =>
   String(v?.toISOString?.() ?? v).slice(0, 10);
 
 test(
-  "P2-1: a supervisor proof older than 24 hours is refused, a fresh one is honoured",
+  "P2-1 (a): a supervisor proof older than 24 hours is refused, a fresh one is honoured",
   async () => {
     // the PIN has been valid for days, so the only thing that can refuse the proof is its age
     await h.db`update store_supervisor_pins set effective_from=now()-interval '10 days' where profile_id=${sup.profile.id} and effective_to is null`;
@@ -681,7 +681,7 @@ test(
 );
 
 test(
-  "P2-2: counts already running at deploy finish under the old rules; planned v2 counts are left alone",
+  "P2-5 (b): counts already running at deploy finish under the old rules; planned v2 counts are left alone",
   async () => {
     const mk = async (
       /** @type {string} */ n,
@@ -712,7 +712,7 @@ test(
 );
 
 test(
-  "P2-3: a default stock band for manager and admin is seeded, labelled, and safe to run again",
+  "P2 (c): a default stock band for manager and admin is seeded, labelled, and safe to run again",
   async () => {
     const sql = migrationSql("0773_default_stock_bands.sql");
     await h.db.unsafe(sql);
@@ -739,7 +739,7 @@ test(
 );
 
 test(
-  "P2-5: inside a command that holds the org lock, postings take no per-row locks",
+  "P2-4 (e): inside a command that holds the org lock, postings take no per-row locks",
   async () => {
     const lines = Array.from({ length: 300 }, () => ({
       productId: crypto.randomUUID(),
