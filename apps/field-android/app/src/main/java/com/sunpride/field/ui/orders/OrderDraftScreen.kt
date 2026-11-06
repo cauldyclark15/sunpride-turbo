@@ -75,7 +75,7 @@ fun OrderDraftScreen(visit: VisitDisplay, sheet: CallSheet, controller: FieldCon
     val stale = draft?.let { OrderDraftRules.staleLines(it, sheet, terms) }.orEmpty()
     val changedPrices = draft != null && (stale.isNotEmpty() || draft.priceList != terms?.priceList)
     val results = OrderCatalog.search(catalog, query)
-    Column(modifier.fillMaxSize().imePadding().padding(horizontal = 20.dp, vertical = 16.dp)) {
+    Column(modifier.fillMaxSize().imePadding().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         LazyColumn(Modifier.weight(1f).testTag("order-products"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Text(if (draft == null) "New order" else "Order draft", style = MaterialTheme.typography.headlineMedium,

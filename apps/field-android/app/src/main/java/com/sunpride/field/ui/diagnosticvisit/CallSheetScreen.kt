@@ -52,7 +52,7 @@ fun CallSheetScreen(sheet: CallSheet, controller: FieldController, modifier: Mod
         intent.kind == "visit.activity" &&
             JSONObject(intent.serializedOperation).getJSONObject("payload").getJSONObject("activity").optString("kind") == "call_sheet"
     }
-    Column(modifier.fillMaxSize().imePadding().padding(horizontal = 20.dp, vertical = 16.dp)) {
+    Column(modifier.fillMaxSize().imePadding().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         LazyColumn(Modifier.weight(1f).testTag("call-sheet-products"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             item {
                 Text("Call sheet", style = MaterialTheme.typography.headlineMedium)

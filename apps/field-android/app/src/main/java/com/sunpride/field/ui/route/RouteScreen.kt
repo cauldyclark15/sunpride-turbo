@@ -36,7 +36,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.sunpride.field.ui.IconTile
+import com.sunpride.field.ui.GlyphKind
+import com.sunpride.field.ui.Look
+import com.sunpride.field.ui.PrimaryBottomButton
 import com.sunpride.field.ui.SecondaryButton
+import com.sunpride.field.ui.TonalButton
+import com.sunpride.field.ui.today.ProgressBar
 import com.sunpride.field.ui.SunprideTokens
 import com.sunpride.field.ui.TodayData
 import com.sunpride.field.ui.VisitDisplay
@@ -91,26 +96,29 @@ fun RouteScreen(
     LaunchedEffect(Unit) { if (permitted()) locate() }
     val route = remember(data.visits, position) { DailyRoutes.build(data.visits, position) }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
-        .padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(listOfNotNull(
-            if (route.stops.isEmpty()) "No stops today" else "${route.done} of ${route.stops.size} done",
-            "Saved on this phone".takeIf { offline || data.stale },
-        ).joinToString(" · "), style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.testTag("route-summary"))
+        .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Text(listOfNotNull(
+                if (route.stops.isEmpty()) "No stops today" else "${route.done} of ${route.stops.size} done",
+                "Saved on this phone".takeIf { offline || data.stale },
+            ).joinToString(" · "), style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.testTag("route-summary"))
+            if (route.stops.isNotEmpty()) ProgressBar(route.done.toFloat() / route.stops.size)
+        }
         if (route.stops.any { it.visit.latitude != null } && position == null) Row(
             Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(if (locating) "Finding your location…" else if (located) "Location unavailable" else "Distance needs location",
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.weight(1f).testTag("route-location"))
-            SecondaryButton("Show distance", {
+            TonalButton("Show distance", {
                 if (permitted()) scope.launch { locate() } else launcher.launch(Manifest.permission.ACCESS_FINE_LOCATION)
             }, Modifier.testTag("route-locate"), enabled = !locating)
         }
         if (navigationError) Text("No maps app on this phone", color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("route-navigation-error"))
-        if (route.stops.isEmpty()) Text("Sync to download today's plan", style = MaterialTheme.typography.bodyMedium,
-            modifier = Modifier.testTag("route-empty"))
+        if (route.stops.isEmpty()) com.sunpride.field.ui.EmptyState("Sync to download today's plan",
+            "Your stops, in visiting order, appear here with directions.", GlyphKind.ROUTE, Modifier.testTag("route-empty"))
         route.stops.forEach { stop ->
             val key = stop.visit.plannedVisitId ?: "${stop.number}"
             StopCard(stop, expanded == key, onToggle = { expanded = if (expanded == key) null else key },
@@ -128,13 +136,13 @@ private fun StopCard(stop: RouteStop, expanded: Boolean, onToggle: () -> Unit, o
     val emphasis = stop.state == StopState.NEXT || stop.state == StopState.IN_PROGRESS
     Surface(Modifier.fillMaxWidth().testTag("route-stop"), shape = SunprideTokens.shapes.large,
         color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = if (emphasis) 0.7f else 0.28f))) {
+        border = BorderStroke(if (emphasis) 1.5.dp else 1.dp, if (emphasis) Look.accent else Look.hairline)) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             Row(Modifier.fillMaxWidth().semantics(mergeDescendants = true) {}.testTag("route-stop-summary"),
                 verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                IconTile("${stop.number}")
+                IconTile("${stop.number}", emphasis)
                 Column(Modifier.weight(1f)) {
-                    Text(visit.outlet, style = MaterialTheme.typography.titleSmall, maxLines = 1,
+                    Text(visit.outlet, style = MaterialTheme.typography.titleSmall, maxLines = 2,
                         overflow = TextOverflow.Ellipsis)
                     Text(listOfNotNull(stop.state.label,
                         stop.distanceMeters?.let { DailyRoutes.formatDistance(it) },
@@ -142,7 +150,7 @@ private fun StopCard(stop: RouteStop, expanded: Boolean, onToggle: () -> Unit, o
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = if (emphasis) FontWeight.SemiBold else FontWeight.Normal,
                         color = if (stop.state == StopState.REVIEW) MaterialTheme.colorScheme.error
-                            else MaterialTheme.colorScheme.onSurfaceVariant)
+                            else if (emphasis) Look.accent else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             visit.address?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = if (expanded) 4 else 1,
@@ -175,22 +183,25 @@ private fun StopCard(stop: RouteStop, expanded: Boolean, onToggle: () -> Unit, o
                 else if (visit.latitude == null) Fact("Location", "Address only, no verified pin")
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                SecondaryButton("Navigate", { stop.navigationUri?.let(onNavigate) },
-                    Modifier.weight(1f).testTag("route-navigate"), enabled = stop.navigationUri != null)
-                SecondaryButton(if (expanded) "Hide details" else "Customer", onToggle,
+                TonalButton("Navigate", { stop.navigationUri?.let(onNavigate) },
+                    Modifier.weight(1f).testTag("route-navigate"), enabled = stop.navigationUri != null, glyph = GlyphKind.NAVIGATE)
+                SecondaryButton(if (expanded) "Hide details" else "Details", onToggle,
                     Modifier.weight(1f).testTag("route-customer-toggle"))
             }
-            if (expanded && onVisit != null) SecondaryButton(
+            if (onVisit != null && emphasis && !expanded) PrimaryBottomButton(
+                if (stop.state == StopState.IN_PROGRESS) "Continue visit" else "Start visit", { onVisit(visit) },
+                Modifier.testTag("route-start-visit"))
+            if (expanded && onVisit != null) PrimaryBottomButton(
                 if (stop.state == StopState.IN_PROGRESS) "Continue visit" else "Open visit", { onVisit(visit) },
-                Modifier.fillMaxWidth().testTag("route-open-visit"))
+                Modifier.testTag("route-open-visit"))
         }
     }
 }
 
 @Composable
 private fun Fact(label: String, value: String) {
-    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-        Text(label, style = MaterialTheme.typography.bodySmall)
-        Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text(label, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+        Text(value, style = MaterialTheme.typography.bodySmall, modifier = Modifier.weight(1.3f))
     }
 }

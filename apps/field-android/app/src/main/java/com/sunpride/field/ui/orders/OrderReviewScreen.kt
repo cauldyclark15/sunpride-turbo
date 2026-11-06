@@ -38,7 +38,7 @@ fun OrderReviewScreen(visit: VisitDisplay, controller: FieldController, modifier
     val totals = OrderSubmission.totals(draft)
     val checks = controller.orderChecks
     val sent = draft.submittedRequestId != null
-    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
+    Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(if (sent) "Order" else "Review order", style = MaterialTheme.typography.headlineMedium,
@@ -97,9 +97,11 @@ fun OrderReviewScreen(visit: VisitDisplay, controller: FieldController, modifier
                                 else if (check.label == "Prices") "order-price-check"
                                 else if (check.warning) "order-check-warning" else if (check.ok) "order-check-ok" else "order-check-problem"),
                             horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(if (check.warning || !check.ok) "!" else if (check.blocking ||
-                                check.label == "Within the store's credit limit") "✓" else "i",
-                                color = if (check.warning || !check.ok) MaterialTheme.colorScheme.error else MaterialTheme.colorScheme.onSurfaceVariant)
+                            val bad = check.warning || !check.ok
+                            val pass = !bad && (check.blocking || check.label == "Within the store's credit limit")
+                            com.sunpride.field.ui.Glyph(if (pass) com.sunpride.field.ui.GlyphKind.CHECK else com.sunpride.field.ui.GlyphKind.INFO,
+                                if (bad) MaterialTheme.colorScheme.error else if (pass) com.sunpride.field.ui.Look.text(com.sunpride.field.ui.Look.Tone.GOOD)
+                                else MaterialTheme.colorScheme.onSurfaceVariant, 20.dp, Modifier.padding(top = 2.dp))
                             Column(Modifier.weight(1f)) {
                                 if (check.warning) Text("Warning · approval needed", style = MaterialTheme.typography.labelSmall)
                                 Text(check.label, style = MaterialTheme.typography.bodyMedium)

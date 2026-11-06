@@ -44,7 +44,6 @@ object JointCallDraft {
  LaunchedEffect(life,refresh,c.today.lastSynced){val before=life;loading=true;val next=try{withContext(Dispatchers.IO){c.domainForms("jointcall",refresh>0)}}catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;null};if(before==c.sapMasterLifetime())data=next;loading=false}
  fun rows(a:JSONArray?)=a?.let{(0 until it.length()).map(it::getJSONObject)}.orEmpty()
  Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("joint-call-form"),verticalArrangement=Arrangement.spacedBy(10.dp)){
-  Text("Work-With & coaching",style=MaterialTheme.typography.headlineSmall)
   Text("Save on this phone while offline. Upload uses the office's existing session, observation and follow-up rules.")
   OutlinedButton({refresh++},enabled=!loading&&!c.busy){Text(if(loading)"Refreshing…"else"Refresh authorized forms")}
   c.error?.let{Text(it)}

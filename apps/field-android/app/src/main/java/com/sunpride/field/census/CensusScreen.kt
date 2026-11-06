@@ -83,9 +83,8 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
             finally { busy = false }
         }
     }
-    Column(modifier.fillMaxSize().padding(20.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text("Outlet census", style = MaterialTheme.typography.titleLarge)
             Text(message, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("census-message"))
             CensusPicker("Census batch", choices("batches"), batch, { batch = it }, "census-batch")
             OutlinedTextField(name, { name = it }, label = { Text("Store name") }, modifier = Modifier.fillMaxWidth().testTag("census-name"))
@@ -122,7 +121,6 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
                 Text("Saved census captures", style = MaterialTheme.typography.titleMedium)
                 history.takeLast(20).reversed().forEach { (store, state) -> Text("$store · ${if (state == "done") "Sent for review" else if (state == "review") "Needs review" else "Saved on phone"}", modifier = Modifier.testTag("census-saved")) }
             }
-            TextButton(onClick = onBack) { Text("Back to Today") }
             Spacer(Modifier.height(16.dp))
         }
         PrimaryBottomButton("Save census offline", ::save, Modifier.fillMaxWidth().testTag("census-save"), !busy && config != null && !camera)

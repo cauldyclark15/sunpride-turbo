@@ -63,7 +63,6 @@ object CollectorDraft {
  fun send(payload:JSONObject){scope.launch{c.queueDomain("collections.capture",payload,UUID.randomUUID().toString()).join();message=if(c.error==null)"Saved on this phone, awaiting office acknowledgement."else c.error;data=withContext(Dispatchers.IO){c.domainForms("collections",false)}}}
  fun attempt(block:()->Unit){try{message=null;block()}catch(e:IllegalArgumentException){message=e.message}catch(e:IllegalStateException){message=e.message}}
  Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("collector-agenda"),verticalArrangement=Arrangement.spacedBy(10.dp)){
-  Text("Collector agenda",style=MaterialTheme.typography.headlineSmall)
   Text("Your assigned collection stops. Promises and cheque evidence do not reduce SAP AR or certify bank clearance.")
   OutlinedButton({refresh++},enabled=!loading&&!c.busy){Text(if(loading)"Refreshing…"else"Refresh assigned route")}
   c.error?.let{Text(it)};message?.let{Text(it)}

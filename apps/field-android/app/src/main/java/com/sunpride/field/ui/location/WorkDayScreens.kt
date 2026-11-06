@@ -94,7 +94,7 @@ fun WorkDayCard(view: WorkDayView, busy: Boolean, onStart: () -> Unit, onEnd: ()
  */
 @Composable
 fun LocationConsentScreen(onAgree: () -> Unit, onDecline: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
+    Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("Share your location during work", style = MaterialTheme.typography.headlineMedium,
@@ -130,7 +130,7 @@ private fun ConsentSection(title: String, body: String) {
 /** Android 10+: "Allow all the time" is optional and explained before Android's own Settings page. */
 @Composable
 fun BackgroundLocationScreen(onOpenSettings: () -> Unit, onSkip: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
+    Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("Keep sharing when the app is closed", style = MaterialTheme.typography.headlineMedium,
@@ -156,7 +156,7 @@ fun BackgroundLocationScreen(onOpenSettings: () -> Unit, onSkip: () -> Unit, mod
 @Composable
 fun BatteryGuideScreen(view: com.sunpride.field.location.BatteryGuideView, onBattery: () -> Unit,
     onAutostart: () -> Unit, onDone: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
+    Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("Keep sharing on all day", style = MaterialTheme.typography.headlineMedium,

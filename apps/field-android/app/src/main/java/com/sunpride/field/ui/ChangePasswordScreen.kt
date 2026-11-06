@@ -46,9 +46,9 @@ fun ChangePasswordScreen(busy: Boolean, message: String?, changed: Boolean,
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
+    Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("Change password", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.testTag("change-password-title"))
+            Text("Choose a new password", style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("change-password-title"))
             if (!changed) {
                 Text("Use at least 8 characters. This phone stays signed in. Other devices will need your new password.",
                     style = MaterialTheme.typography.bodyMedium)
