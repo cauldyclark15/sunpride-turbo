@@ -41,6 +41,34 @@ import {
   csv,
 } from "./queries.js";
 import { uuid } from "./model.js";
+import {
+  bindDevice,
+  crewSessionCommand,
+  verifyCrewPinOnline,
+  handoverTrip,
+  listRosters,
+  saveRoster,
+  setCrewPin,
+  setTripCrew,
+  tripCrewDetail,
+  unbindDevice,
+} from "./roster.js";
+import {
+  copyTrips,
+  generateCommand,
+  installNightly,
+  saveMustCarry,
+} from "./nightly.js";
+import {
+  amendLoad,
+  approvePlans,
+  copyYesterday,
+  dispatchLoad,
+  editPlan,
+  pickLoad,
+  recountLoad,
+} from "./loadout.js";
+import { dayBoard, pickList, planDetail } from "./dayboard.js";
 
 /** @param {any} router @param {any} ctx */
 export function install(router, ctx) {
@@ -139,6 +167,25 @@ export function install(router, ctx) {
       ),
     ),
   );
+  // IP-VANDAY: the day board, the suggested/approved load, the pick list, the roster and the crew.
+  router.get("/api/v1/van/day-board", dayBoard);
+  router.get("/api/v1/van/loads/plan", planDetail);
+  router.get("/api/v1/van/loads/pick-list", pickList);
+  router.get("/api/v1/van/rosters", (/** @type {any} */ c) =>
+    tx(c.db, async (db) =>
+      listRosters(db, await currentActor(db, c.actor), {
+        unitId: c.url.searchParams.get("unitId"),
+        day: c.url.searchParams.get("date"),
+        vehicleId: c.url.searchParams.get("vehicleId"),
+      }),
+    ),
+  );
+  router.get("/api/v1/van/crew", (/** @type {any} */ c) =>
+    tx(c.db, async (db) =>
+      tripCrewDetail(db, await currentActor(db, c.actor), c.url.searchParams.get("tripId")),
+    ),
+  );
+  installNightly(ctx);
   router.get("/api/v1/van/damage", damageReview);
   router.get("/api/v1/van/load-differences", loadDifferences);
   router.get("/api/v1/van/damage-photo", async (/** @type {any} */ request) => {
@@ -191,7 +238,34 @@ export function install(router, ctx) {
     ["damage/decide", "van.damage.approve", decideDamage],
     ["credit/set", "van.manage", setCreditTerms],
     ["cash/remit", "van.cash.approve", remitCash],
+    // IP-VANDAY
+    ["rosters/save", "van.manage", saveRoster],
+    ["must-carry/save", "van.manage", saveMustCarry],
+    ["trips/generate", "van.manage", generateCommand],
+    ["trips/copy", "van.manage", copyTrips],
+    ["trips/crew", "van.manage", setTripCrew],
+    ["trips/handover", "van.load.approve", handoverTrip],
+    ["devices/bind", "van.manage", bindDevice],
+    ["devices/unbind", "van.manage", unbindDevice],
+    ["crew/pin", "van.manage", setCrewPin],
+    ["loads/edit", "van.manage", editPlan],
+    ["loads/copy", "van.manage", copyYesterday],
+    ["loads/approve-plan", "van.manage", approvePlans],
+    ["loads/amend", "van.manage", amendLoad],
+    ["loads/pick", "inventory.write", pickLoad],
+    ["loads/dispatch", "inventory.write", dispatchLoad],
+    ["loads/recount", "inventory.write", recountLoad],
   ];
+  // IP-VANDAY: the person on the phone takes over with their own PIN. The PIN is checked on the pool before the command's transaction.
+  router.post("/api/v1/van/crew-sessions", async (/** @type {any} */ request) => {
+    const body = request.body ?? {};
+    const needsPin = body.office !== true;
+    await requireCapability(request, "van.read"); // never let a stranger spend someone's PIN tries
+    if (needsPin) await verifyCrewPinOnline(request.db, uuid(body.toProfileId), body.pin);
+    return command(request, ctx, "crew-sessions", "van.read", (db, actor, p) =>
+      crewSessionCommand(db, actor, p, needsPin),
+    );
+  });
   for (const [action, cap, fn] of commands) {
     router.post(`/api/v1/van/${action}`, (/** @type {any} */ request) =>
       command(request, ctx, action, cap, fn),
