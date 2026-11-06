@@ -190,7 +190,7 @@ const tripOf = async (/** @type {string} */ tripId) => (await h.db`select * from
 beforeAll(async () => {
   h = await startHarness({ installers: [installInventory, installVan] });
   const profiles = profileStore(h);
-  await h.db`insert into org_units(id,organization_id,code,name,type_code,status,effective_from) values(${unit},'sunpride','VD-ROOT','Van day test','national','active',now()-interval '1 day')`;
+  await h.db`insert into org_units(id,organization_id,code,name,type_code,status,effective_from) values(${unit},'sunpride','SUNPRIDE','Van day test','national','active',now()-interval '1 day')`;
   who = await boundDevice(h, profiles, { app: "van-android", orgUnitId: unit });
   who.profile.name = "Sam Seller";
   await persist(who);
@@ -542,5 +542,150 @@ describe("load-out on the movement document", () => {
     expect(c.status).toBe(200);
     expect((await stock(prodA.id, depot)).reserved - before.reserved).toBe(0);
     expect((await h.db`select state from van_planned_loads where trip_id=${sc.tripId}`)[0].state).toBe("cancelled");
+  });
+});
+
+/** The key the phone derives from a PIN, and the proof it signs the switch with. @param {string} pin @param {string} salt */
+const keyOf = (pin, salt) => pbkdf2Sync(pin, salt, 160000, 32, "sha256").toString("hex");
+/** An offline `crew.switch` op, signed the way the phone signs it. @param {string} tripId @param {string} toProfileId @param {string} pin */
+async function switchOp(tripId, toProfileId, pin) {
+  const [k] = await h.db`select id,pin_salt from van_crew_pins where profile_id=${toProfileId} and effective_to is null`;
+  const o = op("crew.switch", { tripId, toProfileId, pinId: k.id, proof: "" });
+  o.payload.proof = crewProof(keyOf(pin, k.pin_salt), { deviceId: who.deviceId, tripId, toProfileId, pinId: k.id, at: o.clientTime });
+  return o;
+}
+
+describe("crew on the truck's phone", () => {
+  it("a helper takes over the phone with their own PIN: no revocation, no 'Phone removed', who-is-on-it is recorded, and a helper cannot close the trip", async () => {
+    const sc = await scenario();
+    await toDispatched(sc.tripId);
+    const loadId = await loadIdOf(sc.tripId);
+    expect((await push([op("load.accept", { tripId: sc.tripId, loadId, lines: [{ productId: prodA.id, actualBase: "24" }] }), op("trip.start", { tripId: sc.tripId, vehicleConfirmed: true, routeConfirmed: true })])).body.results.map((/** @type {any} */ r) => r.status)).toEqual(["applied", "applied"]);
+    // The office gives each person their own PIN (6-12 digits); a short one is refused in plain words.
+    expect(msg(await web(boss, "crew/pin", { profileId: helper.profileId, pin: "1234" }))).toBe("Use a PIN of 6 to 12 digits");
+    expect((await web(boss, "crew/pin", { profileId: helper.profileId, pin: "482915" })).status).toBe(200);
+    expect((await web(boss, "crew/pin", { profileId: who.profile.id, pin: "730216" })).status).toBe(200);
+    const [before] = await h.db`select status,profile_id,bound_subject,credential_id from registered_devices where id=${who.deviceId}`;
+
+    const toHelper = await switchOp(sc.tripId, helper.profileId, "482915");
+    expect((await push([toHelper])).body.results[0].status).toBe("applied");
+    const [live] = await h.db`select s.profile_id,s.role,s.method,s.ended_at from van_crew_sessions s where s.device_id=${who.deviceId} and s.ended_at is null`;
+    expect(live).toMatchObject({ profile_id: helper.profileId, role: "helper", method: "pin_offline" });
+    // The phone itself is exactly as it was: same owner, still active, still bound. Nothing was revoked.
+    const [after] = await h.db`select status,profile_id,bound_subject,credential_id from registered_devices where id=${who.deviceId}`;
+    expect(after).toEqual(before);
+    expect(after.status).toBe("active");
+    const b = await pull(true); // and it still downloads its bundle
+    expect(b.vanDay.crew.onDevice).toMatchObject({ name: "Hana Helper", role: "helper" });
+    expect(b.vanDay.crew.members.find((/** @type {any} */ m) => m.role === "helper").pinId).toBeTruthy();
+    expect(b.vanDay.crew.members.find((/** @type {any} */ m) => m.role === "helper").hash).toMatch(/^[a-f0-9]{64}$/);
+
+    // A wrong PIN proof, and a person who is not on this trip's crew, are refused.
+    const [k] = await h.db`select id,pin_salt from van_crew_pins where profile_id=${helper.profileId} and effective_to is null`;
+    const bad = op("crew.switch", { tripId: sc.tripId, toProfileId: helper.profileId, pinId: k.id, proof: "a".repeat(64) });
+    expect((await push([bad])).body.results[0].status).toBe("rejected");
+    expect((await push([op("crew.switch", { tripId: sc.tripId, toProfileId: helper2.profileId, pinId: k.id, proof: "a".repeat(64) })])).body.results[0].status).toBe("rejected");
+
+    // Helpers sell and collect but do not close the trip.
+    const closing = await push([op("trip.close", { tripId: sc.tripId })]);
+    expect(closing.body.results[0].status).toBe("rejected");
+
+    // Back to the seller. The person whose PIN signs a switch is the one acting: the helper took the phone, then the seller took it back.
+    const back = await switchOp(sc.tripId, who.profile.id, "730216");
+    expect((await push([back])).body.results[0].status).toBe("applied");
+    const acts = await h.db`select a.op_type,a.profile_id from van_crew_actions a where a.trip_id=${sc.tripId} and a.op_type='crew.switch' order by a.occurred_at`;
+    expect(acts.map((/** @type {any} */ a) => a.profile_id)).toEqual([helper.profileId, who.profile.id]);
+    const history = await read(boss, `crew?tripId=${sc.tripId}`);
+    expect(history.body.sessions.map((/** @type {any} */ s) => s.name)).toEqual(["Hana Helper", "Sam Seller"]);
+    expect(history.body.crew.map((/** @type {any} */ c) => [c.role, c.hasPin])).toEqual([["seller", true], ["helper", true]]);
+    expect((await tripOf(sc.tripId)).salesperson_profile_id).toBe(who.profile.id); // the seller stays accountable
+    // Same op again is a replay, not a second session.
+    expect((await push([back])).body.results[0].status).toBe("duplicate");
+  });
+
+  it("online PINs: right PIN switches, five wrong ones lock that person for ten minutes, and strangers cannot spend tries", async () => {
+    const { verifyCrewPinOnline } = await import("../src/domains/van/roster.js");
+    expect(await verifyCrewPinOnline(h.db, helper.profileId, "482915")).toBe(true);
+    for (let i = 0; i < 5; i++)
+      await expect(verifyCrewPinOnline(h.db, helper.profileId, "000000")).rejects.toThrow("That PIN was not accepted");
+    await expect(verifyCrewPinOnline(h.db, helper.profileId, "482915")).rejects.toThrow("Too many wrong PINs");
+    await h.db`delete from van_crew_pin_attempts where profile_id=${helper.profileId}`;
+    // The route needs a signed-in person before it counts a try.
+    const res = await h.fetch("/api/v1/van/crew-sessions", { method: "POST", headers: { "content-type": "application/json", "idempotency-key": "k1" }, body: JSON.stringify({ toProfileId: helper.profileId, pin: "000000" }) });
+    expect(res.status).toBe(401);
+    expect((await h.db`select count(*)::int as n from van_crew_pin_attempts where profile_id=${helper.profileId}`)[0].n).toBe(0);
+    // Someone who is not the phone's owner cannot take it over from their own login; the office can.
+    const sc = await scenario();
+    const mine = await web(helper, "crew-sessions", { deviceId: who.deviceId, tripId: sc.tripId, toProfileId: helper.profileId, pin: "482915" });
+    expect(mine.status).toBe(403);
+    const office = await web(boss, "crew-sessions", { deviceId: who.deviceId, tripId: sc.tripId, toProfileId: helper.profileId, office: true });
+    expect(office.status).toBe(200);
+    expect((await h.db`select profile_id,method from van_crew_sessions where device_id=${who.deviceId} and ended_at is null`)[0]).toMatchObject({ profile_id: helper.profileId, method: "office" });
+    const [d] = await h.db`select status from registered_devices where id=${who.deviceId}`;
+    expect(d.status).toBe("active");
+  });
+
+  it("a phone belongs to a truck: bind, replace, unbind, and the bundle names the truck; the crew switch needs no new binding", async () => {
+    const sc = await scenario();
+    const sc2 = await scenario();
+    const noDevice = await web(boss, "devices/bind", { vehicleId: sc.vehicleId, deviceId: crypto.randomUUID() });
+    expect(noDevice.status).toBe(422);
+    expect(msg(noDevice)).toBe("Choose a van phone that is set up and working");
+    expect((await web(boss, "devices/bind", { vehicleId: sc.vehicleId, deviceId: who.deviceId })).status).toBe(200);
+    expect((await pull(true)).vanDay.device.vehicle).toMatchObject({ vehicleId: sc.vehicleId });
+    expect((await web(boss, "devices/bind", { vehicleId: sc.vehicleId, deviceId: who.deviceId })).body.unchanged).toBe(true);
+    expect((await web(boss, "devices/bind", { vehicleId: sc2.vehicleId, deviceId: who.deviceId })).status).toBe(200);
+    expect((await h.db`select vehicle_id from van_device_bindings where device_id=${who.deviceId} and released_at is null`).map((/** @type {any} */ r) => r.vehicle_id)).toEqual([sc2.vehicleId]);
+    expect((await web(boss, "devices/unbind", { deviceId: who.deviceId })).status).toBe(200);
+    expect((await pull(true)).vanDay.device.vehicle).toBeNull();
+    expect(msg(await web(boss, "devices/unbind", { deviceId: who.deviceId }))).toBe("That phone is not on a truck");
+  });
+
+  it("a supervisor hands the trip to another person: the new seller is accountable, the old phone's operations are refused", async () => {
+    const sc = await scenario();
+    await toDispatched(sc.tripId);
+    const loadId = await loadIdOf(sc.tripId);
+    await push([op("load.accept", { tripId: sc.tripId, loadId, lines: [{ productId: prodA.id, actualBase: "24" }] }), op("trip.start", { tripId: sc.tripId, vehicleConfirmed: true, routeConfirmed: true })]);
+    expect((await web(helper, "trips/handover", { tripId: sc.tripId, toProfileId: helper2.profileId, reason: "Sick" })).status).toBe(403);
+    const done = await web(boss, "trips/handover", { tripId: sc.tripId, toProfileId: helper2.profileId, reason: "Seller is sick" });
+    expect(done.status).toBe(200);
+    expect((await tripOf(sc.tripId)).salesperson_profile_id).toBe(helper2.profileId);
+    expect((await h.db`select profile_id,role from van_trip_crew where trip_id=${sc.tripId} and ended_at is null order by role`).map((/** @type {any} */ c) => `${c.role}`)).toContain("seller");
+    const blocked = await push([op("crew.switch", { tripId: sc.tripId, toProfileId: helper.profileId, pinId: crypto.randomUUID(), proof: "a".repeat(64) })]);
+    expect(blocked.res.status !== 200 || blocked.body.results[0].status === "rejected").toBe(true); // the old phone is not this trip's phone any more
+    expect((await h.db`select details from van_audit_events where trip_id=${sc.tripId} and kind='van.trip.handed_over'`)).toHaveLength(1);
+  });
+});
+
+describe("the van day board", () => {
+  it("shows every rostered truck with load status, trip status, cash and one primary action, in plain words", async () => {
+    const sc = await scenario();
+    // A second rostered truck with no trip yet.
+    const [truck] = await h.db`insert into inventory_locations (organization_id,org_unit_id,site_code,code,name,type,active,allows_picking,allows_receiving,allows_sale,allows_production) values ('sunpride',${unit},'CEBU','TRK-BRD','Truck B','truck',true,false,true,true,false) returning id`;
+    const [v] = await h.db`insert into vehicles(organization_id,org_unit_id,vehicle_code,plate_number,name,truck_location_id,home_location_id,status,created_by) values('sunpride',${unit},'VANBRD','BRD 777','Van B',${truck.id},${depot},'active','fixture') returning id`;
+    expect((await web(boss, "rosters/save", { vehicleId: v.id, routeId: routeB, sellerProfileId: helper2.profileId, weekdays: [1, 2, 3, 4, 5, 6, 7], effectiveFrom: today() })).status).toBe(200);
+    const row = async () => (await read(boss, `day-board?date=${today()}`)).body;
+    const find = (/** @type {any} */ b) => b.rows.find((/** @type {any} */ r) => r.tripId === sc.tripId);
+    let b = await row();
+    expect(b.rows.find((/** @type {any} */ r) => r.vehicleCode === "VANBRD")).toMatchObject({ trip: { label: "No trip yet" }, primary: { kind: "plan_trip", label: "Plan trip" } });
+    expect(b.summary.text).toMatch(/^\d+ trips planned, \d+ need attention$/);
+    expect(find(b)).toMatchObject({ load: { state: "suggested", label: "Suggested", products: 1, totalBase: 24 }, trip: { label: "Planned", stage: "planned" }, primary: { kind: "approve_load" }, sellerName: "Sam Seller" });
+    await web(boss, "loads/approve-plan", { tripIds: [sc.tripId] });
+    expect(find(await row())).toMatchObject({ load: { state: "approved" }, primary: { kind: "pick", label: "Start picking" } });
+    await web(clerk, "loads/pick", { tripId: sc.tripId });
+    expect(find(await row()).primary.kind).toBe("dispatch");
+    await web(clerk, "loads/dispatch", { tripId: sc.tripId });
+    expect(find(await row())).toMatchObject({ load: { state: "dispatched", number: expect.stringMatching(/^LOAD-/) }, primary: { kind: "wait_seller", enabled: false } });
+    const loadId = await loadIdOf(sc.tripId);
+    await push([op("load.accept", { tripId: sc.tripId, loadId, lines: [{ productId: prodA.id, actualBase: "24" }] })]);
+    expect(find(await row())).toMatchObject({ load: { state: "accepted", label: "Accepted" }, trip: { label: "Loaded", stage: "loaded" }, primary: { kind: "wait_start" } });
+    await push([op("trip.start", { tripId: sc.tripId, vehicleConfirmed: true, routeConfirmed: true, openingFloatCentavos: 200000 })]);
+    const on = find(await row());
+    expect(on).toMatchObject({ trip: { label: "On route", stage: "on_route" }, primary: { kind: "view_trip" }, cash: { expectedCentavos: 200000, salesCentavos: 0 }, settlement: { label: "Not yet" } });
+    expect(on.crew.map((/** @type {any} */ c) => c.role)).toEqual(["seller", "helper"]);
+    // A sales person may read the board but not plan from it.
+    const hb = await read(helper, `day-board?date=${today()}`);
+    expect(hb.status).toBe(200);
+    expect((await web(helper, "trips/generate", { date: today() })).status).toBe(403);
   });
 });

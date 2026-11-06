@@ -483,7 +483,7 @@ export async function handoverTrip(db, actor, p) {
     const person = await crewPerson(db, p.toProfileId, "the new seller");
     if (
       (
-        await db`select 1 from van_trips where salesperson_profile_id=${person.id} and service_date=${trip.service_date} and id<>${trip.id} and status not in ('cancelled','closed') and deleted_at is null`
+        await db`select 1 from van_trips where salesperson_profile_id=${person.id} and service_date=${dayString(trip.service_date)}::date and id<>${trip.id} and status not in ('cancelled','closed') and deleted_at is null`
       ).length
     )
       refuse(`${person.name} already has another trip that day`);
