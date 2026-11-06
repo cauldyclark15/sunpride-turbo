@@ -145,15 +145,39 @@ function push(operations) {
 }
 /** @type {any} */ let trip;
 /** @type {any} */ let load;
+/** @type {string} */ let lastConfirmId = "";
 async function confirmShort() {
-  const r = await push([
-    op("load.confirm", {
-      tripId: trip.tripId,
-      loadId: load.loadId,
-      lines: [{ lineNumber: 1, actualBase: "40", reason: "short_loaded" }],
-    }),
-  ]);
+  const confirm = op("load.confirm", {
+    tripId: trip.tripId,
+    loadId: load.loadId,
+    lines: [{ lineNumber: 1, actualBase: "40", reason: "short_loaded" }],
+  });
+  lastConfirmId = confirm.clientOpId;
+  const r = await push([confirm]);
   expect(r.body.results[0].status).toBe("applied");
+}
+/** The seller's phone pulls its bundle; `handheld` is the negotiated v2 extension. @param {boolean} handheld */
+async function pullBundle(handheld) {
+  const r = await signedPost(h, who, "/api/sync/pull", {
+    version: 2,
+    app: "van-android",
+    deviceId: who.deviceId,
+    since: null,
+    pageCursor: null,
+    scopes: [
+      {
+        scopeId: unit,
+        projection: "van.bundle",
+        params: {
+          serviceDate: today(),
+          ...(handheld ? { handheld: true } : {}),
+        },
+      },
+    ],
+    limit: 100,
+  });
+  expect(r.res.status).toBe(200);
+  return /** @type {any} */ (r.body.bundles[0].data);
 }
 
 test("a short load waits in the list with cases, pieces and pesos; reject needs a reason and sends it back to the seller", async () => {
@@ -216,6 +240,38 @@ test("a short load waits in the list with cases, pieces and pesos; reject needs 
     approval_note: "Recount the second pallet",
   });
   expect((await differences()).body.items).toEqual([]);
+});
+
+test("IP-P0 fix: after a reject the seller's bundle says planned, names the count the office sent back and why, so the phone can recount", async () => {
+  const b = await pullBundle(true);
+  expect(b.load.status).toBe("planned");
+  expect(b.load.confirmRequestId).toBe(lastConfirmId);
+  expect(b.load.rejectionNote).toBe("Recount the second pallet");
+  // An older phone validates the frozen v1 load strictly: it must not see the new keys.
+  const old = await pullBundle(false);
+  expect(old.load.status).toBe("planned");
+  expect(Object.keys(old.load).sort()).toEqual(["lines", "loadId", "status"]);
+  // The recount is a fresh load.confirm and the server takes it.
+  await confirmShort();
+  const [row] =
+    await h.db`select status,confirm_request_id from van_trip_loads where id=${load.loadId}`;
+  expect(row).toMatchObject({
+    status: "discrepancy",
+    confirm_request_id: lastConfirmId,
+  });
+  const again = await pullBundle(true);
+  expect(again.load.status).toBe("discrepancy");
+  expect(again.load.rejectionNote).toBeNull();
+  // Put it back so the next test starts from the rejected state it expects.
+  const back = await web("loads/approve", {
+    tripId: trip.tripId,
+    decision: "reject",
+    note: "Count it once more",
+  });
+  expect(back.status).toBe(200);
+  const second = await pullBundle(true);
+  expect(second.load.confirmRequestId).toBe(lastConfirmId);
+  expect(second.load.rejectionNote).toBe("Count it once more");
 });
 
 test("a supervisor in scope approves the counted load once; the posted quantity is what the seller counted", async () => {

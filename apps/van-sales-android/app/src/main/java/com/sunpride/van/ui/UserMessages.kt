@@ -69,6 +69,10 @@ object UserMessages {
     fun loadDifferenceSent(supervisorName: String?): String =
         if (supervisorName.isNullOrBlank()) LOAD_DIFFERENCE_SENT else LOAD_DIFFERENCE_SENT.replace("your supervisor", supervisorName.trim())
 
+    /** IP-P0: shown on the load screen when the office sent the count back. */
+    fun recountAsked(reason: String?): String =
+        reason?.trim()?.takeIf { it.isNotEmpty() }?.let { "Office asked for a recount: $it" } ?: "Office asked for a recount."
+
     fun forCode(code: String?): String? = code?.let { byCode[it] }
     fun forText(text: String?): String? {
         val t = text?.lowercase() ?: return null

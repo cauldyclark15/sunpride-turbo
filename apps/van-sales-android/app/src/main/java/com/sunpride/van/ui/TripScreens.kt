@@ -7,6 +7,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -131,6 +132,8 @@ private data class LoadDraft(val quantity: String, val reason: String?)
         enabled = if (editable) valid else !c.busy,
         onAction = { if (editable) c.confirmLoad(lines.map { line -> val draft = drafts[line.lineNumber]!!; LoadActual(line.lineNumber,VanRules.parseQuantity(draft.quantity,line.quantityScale)!!,draft.reason.takeIf { VanRules.reasonRequired(line.expectedBase,VanRules.parseQuantity(draft.quantity,line.quantityScale)) }) }) else c.syncNow() },
         message = sent ?: c.message) {
+        if (load?.status == "planned" && load.confirmRequestId != null && !load.confirmPending)
+            Text(UserMessages.recountAsked(load.rejectionNote),style = MaterialTheme.typography.bodyLarge,fontWeight = FontWeight.SemiBold,modifier = Modifier.testTag("recount-asked"))
         Text("Count what is on the truck. Give a reason for any difference.",style = MaterialTheme.typography.bodyMedium)
         if (lines.isEmpty() && c.onHold) Text("Your trip is paused until the office confirms this phone. Tap Sync now. Your saved work is kept here.",modifier = Modifier.testTag("on-hold"))
         else if (lines.isEmpty()) NoTripPanel(c,"No load sheet","no-load-sheet")

@@ -275,3 +275,72 @@ test("out-of-range opening cash is refused in plain words, with the machine code
   expect(openingFloat({ a: "5", b: 5 }, "a", "b")).toBe(5n);
   expect(() => openingFloat({ a: "5", b: 6 }, "a", "b")).toThrow("twice");
 });
+
+/** The seller's phone pulls its bundle; `handheld` is the negotiated v2 extension. @param {boolean} handheld */
+async function pullBundle(handheld) {
+  const r = await signedPost(h, who, "/api/sync/pull", {
+    version: 2,
+    app: "van-android",
+    deviceId: who.deviceId,
+    since: null,
+    pageCursor: null,
+    scopes: [
+      {
+        scopeId: unit,
+        projection: "van.bundle",
+        params: {
+          serviceDate: today(),
+          ...(handheld ? { handheld: true } : {}),
+        },
+      },
+    ],
+    limit: 100,
+  });
+  expect(r.res.status).toBe(200);
+  return /** @type {any} */ (r.body.bundles[0].data);
+}
+
+test("IP-P0 fix: the bundle carries the trip's opening float and the handheld card; an older phone gets neither", async () => {
+  await h.db`update employee_assignments set supervisor_id=${manager.profile.id} where profile_id=${who.profile.id}`;
+  const { trip, start } = await startTrip(250000);
+  expect((await push([start])).body.results[0].status).toBe("applied");
+  const [veh] =
+    await h.db`select v.vehicle_code,v.plate_number from van_trips t join vehicles v on v.id=t.vehicle_id where t.id=${trip.tripId}`;
+
+  const b = await pullBundle(true);
+  expect(b.trip.tripId).toBe(trip.tripId);
+  expect(b.trip.openingFloatCentavos).toBe(250000);
+  expect(b.policy.handheld).toEqual({
+    vehicleCode: veh.vehicle_code,
+    plateNumber: veh.plate_number,
+    supervisorName: "Supervisor",
+    supervisorPhone: null,
+  });
+
+  // Frozen v1 trip and policy are validated strictly by older phones: nothing new unless asked for.
+  const old = await pullBundle(false);
+  expect(old.trip.openingFloatCentavos).toBeUndefined();
+  expect(old.policy.handheld).toBeUndefined();
+
+  // No trip today: the card still names the van this handheld last drove and the supervisor.
+  await h.db`update van_trips set service_date=service_date-1 where salesperson_profile_id=${who.profile.id}`;
+  const none = await pullBundle(true);
+  expect(none.trip).toBeNull();
+  expect(none.policy.handheld).toEqual({
+    vehicleCode: veh.vehicle_code,
+    plateNumber: veh.plate_number,
+    supervisorName: "Supervisor",
+    supervisorPhone: null,
+  });
+
+  // A seller nobody supervises, on a handheld that never drove: unknown parts are null, not invented.
+  await h.db`update employee_assignments set supervisor_id=null where profile_id=${who.profile.id}`;
+  await h.db`update van_trips set status='cancelled' where salesperson_profile_id=${who.profile.id}`;
+  const bare = await pullBundle(true);
+  expect(bare.policy.handheld).toEqual({
+    vehicleCode: null,
+    plateNumber: null,
+    supervisorName: null,
+    supervisorPhone: null,
+  });
+});

@@ -58,6 +58,26 @@ class VanBootstrapCodecTest {
         val h = VanBootstrapCodec.decode(o.toString()).policy.handheld!!
         assertEquals("ABC-1234",h.vanLabel); assertEquals("Juan Dela Cruz",h.supervisorName); assertEquals("0917 123 4567",h.supervisorPhone); assertNull(h.vehicleCode)
     }
+    @Test fun unknownHandheldPartsAreNullNotTheWordNull() {
+        val o = JSONObject(fixture())
+        o.getJSONObject("policy").put("handheld",JSONObject().put("vehicleCode",JSONObject.NULL).put("plateNumber","ABC-1234").put("supervisorName",JSONObject.NULL).put("supervisorPhone",JSONObject.NULL))
+        val h = VanBootstrapCodec.decode(o.toString()).policy.handheld!!
+        assertNull(h.vehicleCode); assertNull(h.supervisorName); assertNull(h.supervisorPhone); assertEquals("ABC-1234",h.plateNumber)
+    }
+    @Test fun tripFloatAndRecountFactsRideTheBundleAndStayOutOfTheFrozenValidator() {
+        val plain = VanBootstrapCodec.decode(fixture())
+        assertNull(plain.trip!!.openingFloatCentavos); assertNull(plain.load!!.confirmRequestId); assertNull(plain.load.rejectionNote)
+        val o = JSONObject(fixture())
+        o.getJSONObject("trip").put("openingFloatCentavos",250_000)
+        o.getJSONObject("load").put("status","planned").put("confirmRequestId","req-1").put("rejectionNote","Recount the second pallet")
+        val b = VanBootstrapCodec.decode(o.toString())
+        assertEquals(250_000L,b.trip!!.openingFloatCentavos)
+        assertEquals("req-1",b.load!!.confirmRequestId); assertEquals("Recount the second pallet",b.load.rejectionNote)
+        o.getJSONObject("load").put("rejectionNote",JSONObject.NULL)
+        assertNull(VanBootstrapCodec.decode(o.toString()).load!!.rejectionNote)
+        o.getJSONObject("trip").put("openingFloatCentavos",10_000_001)
+        assertTrue("a float over the cap is not a bundle we trust",runCatching { VanBootstrapCodec.decode(o.toString()) }.isFailure)
+    }
     @Test fun wireCopyMatchesCommittedAuthority() {
         assertEquals(JSONObject(fixture("van-v1.schema.json")).toString(),JSONObject(VanWireSchema.SCHEMA).toString())
     }

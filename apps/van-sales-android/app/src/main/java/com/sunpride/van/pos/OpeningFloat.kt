@@ -26,5 +26,11 @@ object OpeningFloat {
         ?.takeIf { it in 0..MAX_CENTAVOS }
     /** "₱2,000" for display; empty input reads as "₱0". */
     fun display(typed: String): String = "₱" + String.format(java.util.Locale.US, "%,d", typed.toLongOrNull() ?: 0L)
+    /**
+     * Which float expected cash starts from. Once the office's bundle shows the trip started, its float is the truth
+     * (a replaced phone or cleared data has no saved start); until then the start saved on this phone is.
+     */
+    fun resolve(bundleFloat: Long?, bundleStarted: Boolean, savedStartFloat: Long?): Long =
+        (if (bundleStarted && bundleFloat != null) bundleFloat else savedStartFloat ?: bundleFloat)?.takeIf { it in 0..MAX_CENTAVOS } ?: 0L
     fun valid(centavos: Long?): Boolean = centavos != null && centavos in 0..MAX_CENTAVOS
 }

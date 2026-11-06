@@ -50,12 +50,16 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     val load: Flow<Load?> = combine(dao.observeTrip(s,d),dao.observeLoadLine(s,d),dao.observeOutbox(s,d)) { trips,lines,ops ->
         val t = trips.singleOrNull()
         t?.loadId?.let { id ->
+            val review = runCatching { JSONObject(t.json).optJSONObject("_loadReview") }.getOrNull()
+            val serverConfirm = review?.takeIf { !it.isNull("confirmRequestId") }?.getString("confirmRequestId")
             val queued = ops.lastOrNull { it.kind == "load.confirm" && it.tripId == t.tripId && it.status in setOf("pending","sending") }
+            // A count the office already has, not yet answered by a bundle, also keeps the button away on a planned load.
+            val waiting = t.loadStatus == "planned" && LoadRecount.waitingForOffice(ops.filter { it.kind == "load.confirm" && it.tripId == t.tripId }.map { ConfirmFact(it.clientRequestId,it.status,it.createdAt) },serverConfirm)
             val pending = queued?.let { VanBootstrapCodec.objects(JSONObject(it.operationJson).getJSONObject("payload").getJSONArray("lines")).associateBy { it.getInt("lineNumber") } } ?: emptyMap()
             Load(id,t.loadStatus!!,lines.filter { it.loadId == id }.sortedBy { it.lineNumber }.map { row ->
                 val p = pending[row.lineNumber]
                 VanBootstrapCodec.line(JSONObject(row.json)).copy(pendingActualBase = p?.getString("actualBase")?.toLong(),pendingReason = p?.optString("reason")?.takeIf { it.isNotBlank() })
-            },queued != null)
+            },queued != null || waiting,serverConfirm,review?.takeIf { t.loadStatus == "planned" && !it.isNull("rejectionNote") }?.getString("rejectionNote"))
         }
     }
     // Damage history travels with this trip's existing encrypted JSON row; no Room schema change.
@@ -174,7 +178,9 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     }
     suspend fun confirmLoad(lines: List<LoadActual>): String = db.withTransaction {
         val t = writable(); check(t.status == "loading" && t.loadStatus == "planned") { "Load cannot be confirmed" }
-        check(dao.outboxRows(s,d).none { it.tripId == t.tripId && it.kind == "load.confirm" && it.status in setOf("pending","sending","done") })
+        // IP-P0: a count the office sent back for a recount is answered; only an unanswered one blocks a new count.
+        val serverConfirm = JSONObject(t.json).optJSONObject("_loadReview")?.takeIf { !it.isNull("confirmRequestId") }?.getString("confirmRequestId")
+        check(LoadRecount.mayConfirm(dao.outboxRows(s,d).filter { it.tripId == t.tripId && it.kind == "load.confirm" }.map { ConfirmFact(it.clientRequestId,it.status,it.createdAt) },serverConfirm)) { "Your count is already sent to the office" }
         val sheet = dao.loadlineRows(s,d).filter { it.loadId == t.loadId }
         require(lines.isNotEmpty() && lines.size == sheet.size && lines.map { it.lineNumber }.toSet() == sheet.map { it.lineNumber }.toSet())
         val policy = VanBootstrapCodec.policy(JSONObject(dao.meta(s,d)!!.policyJson!!))
@@ -585,7 +591,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         dao.clearPriceListLine(s,d)
         dao.clearPromotion(s,d)
         b.trip?.let { t -> dao.insertTrip(TripRow(s,d,t.tripId,t.tripNumber,t.status,t.serviceDate,o.getJSONObject("trip").put("_damageRecords",o.optJSONArray("damageRecords") ?: JSONArray())
-            .put("_availability",grant?.optJSONArray("availability") ?: JSONArray()).put("_vanOps",o.optJSONObject("vanOps")?:JSONObject.NULL).put("_deliveries",grant?.optJSONArray("deliveryDrops") ?: JSONArray()).put("_callFlows",grant?.optJSONObject("callFlows") ?: JSONObject()).put("_serverCalls",grant?.optJSONArray("callFlowCalls") ?: JSONArray()).toString(),b.load?.loadId,b.load?.status)) }
+            .put("_availability",grant?.optJSONArray("availability") ?: JSONArray()).put("_vanOps",o.optJSONObject("vanOps")?:JSONObject.NULL).put("_deliveries",grant?.optJSONArray("deliveryDrops") ?: JSONArray()).put("_loadReview",o.optJSONObject("load")?.let { JSONObject().put("confirmRequestId",if (it.isNull("confirmRequestId")) JSONObject.NULL else it.getString("confirmRequestId")).put("rejectionNote",if (it.isNull("rejectionNote")) JSONObject.NULL else it.getString("rejectionNote")) } ?: JSONObject.NULL).put("_callFlows",grant?.optJSONObject("callFlows") ?: JSONObject()).put("_serverCalls",grant?.optJSONArray("callFlowCalls") ?: JSONArray()).toString(),b.load?.loadId,b.load?.status)) }
         b.load?.let { l -> VanBootstrapCodec.objects(o.getJSONObject("load").getJSONArray("lines")).forEach { line ->
             val parsed = VanBootstrapCodec.line(line)
             dao.insertLoadLine(LoadLineRow(s,d,l.loadId,parsed.lineNumber,parsed.productId,parsed.expectedBase,parsed.actualBase,line.toString()))

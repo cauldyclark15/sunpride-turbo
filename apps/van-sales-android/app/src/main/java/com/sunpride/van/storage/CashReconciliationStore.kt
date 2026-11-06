@@ -58,8 +58,14 @@ class CashReconciliationStore(private val store: RoomVanStore) {
     }
 
     /** The opening float saved with this trip's start (0 when the trip was started elsewhere or before floats existed). */
-    suspend fun openingFloat(tripId: String): Long = dao.outboxRows(s, d).filter { it.tripId == tripId && it.kind == "trip.start" && it.status in setOf("pending", "sending", "done") }
-        .maxByOrNull { it.createdAt }?.let { JSONObject(it.operationJson).getJSONObject("payload").optLong(OpeningFloat.FIELD, 0L) }?.takeIf { it in 0..OpeningFloat.MAX_CENTAVOS } ?: 0L
+    suspend fun openingFloat(tripId: String): Long {
+        val saved = dao.outboxRows(s, d).filter { it.tripId == tripId && it.kind == "trip.start" && it.status in setOf("pending", "sending", "done") }
+            .maxByOrNull { it.createdAt }?.let { JSONObject(it.operationJson).getJSONObject("payload").optLong(OpeningFloat.FIELD, 0L) }
+        // IP-P0: the office's bundle carries the float, so a replaced phone computes the same expected cash.
+        val bundle = dao.trip(s, d)?.takeIf { it.tripId == tripId }?.let { JSONObject(it.json) }
+        val fromBundle = bundle?.takeIf { it.has(OpeningFloat.FIELD) && !it.isNull(OpeningFloat.FIELD) }?.getLong(OpeningFloat.FIELD)
+        return OpeningFloat.resolve(fromBundle, bundle != null && !bundle.isNull("startedAt"), saved)
+    }
 
     /** True once this trip's cash is counted on this phone; selling and voiding then stop. */
     suspend fun counted(tripId: String): Boolean = dao.cashReconciliation(s, d, tripId) != null

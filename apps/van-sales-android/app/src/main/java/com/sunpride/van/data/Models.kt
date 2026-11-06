@@ -53,14 +53,18 @@ data class Route(val routeId: String, val code: String, val name: String)
 data class Trip(val tripId: String, val tripNumber: String, val status: String, val serviceDate: String,
     val vehicle: Vehicle?, val route: Route?, val driverName: String?, val helperName: String?,
     val truckLocationId: String, val routeSessionId: String?, val startedAt: Long?,
-    val startPending: Boolean = false) {
+    val startPending: Boolean = false,
+    /** IP-P0: the cash the seller started the trip with, as the office has it (null from an older server). */
+    val openingFloatCentavos: Long? = null) {
     val statusLabel: String get() = if (startPending) "Starting… waiting for sync" else status
 }
 data class LoadLine(val lineNumber: Int, val productId: String, val productCode: String,
     val productName: String, val uomCode: String, val quantityScale: Long, val lotNumber: String?,
     val expectedBase: Long, val actualBase: Long?, val discrepancyReason: String?,
     val pendingActualBase: Long? = null, val pendingReason: String? = null)
-data class Load(val loadId: String, val status: String, val lines: List<LoadLine>, val confirmPending: Boolean = false)
+data class Load(val loadId: String, val status: String, val lines: List<LoadLine>, val confirmPending: Boolean = false,
+    /** IP-P0: the count the office last saw, and why it sent that count back for a recount (null when it did not). */
+    val confirmRequestId: String? = null, val rejectionNote: String? = null)
 /**
  * VAN-009: the unit one barcode scans into. [baseQuantity] is the base quantity of ONE scan
  * (e.g. a 24-piece case = 24 × quantityScale); null when the office has no exact conversion, so

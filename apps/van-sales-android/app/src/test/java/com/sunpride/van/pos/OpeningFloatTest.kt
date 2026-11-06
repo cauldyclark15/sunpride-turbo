@@ -32,6 +32,17 @@ class OpeningFloatTest {
         assertNull(OpeningFloat.centavos("100001")); assertNull(OpeningFloat.centavos("12a")); assertFalse(OpeningFloat.valid(10_000_001L))
         assertEquals("abc",OpeningFloat.press("abc","x"))
     }
+    @Test fun theFloatTheOfficeHoldsBeatsTheSavedStartOnceTheTripIsStarted() {
+        // A replaced phone has no saved start: the bundle's float is the truth.
+        assertEquals(250_000L,OpeningFloat.resolve(250_000L,true,null))
+        assertEquals(250_000L,OpeningFloat.resolve(250_000L,true,100_000L))
+        // Before the office has seen the start, the start saved on this phone is.
+        assertEquals(100_000L,OpeningFloat.resolve(0L,false,100_000L))
+        // An older server sends none: the saved start, else zero.
+        assertEquals(100_000L,OpeningFloat.resolve(null,true,100_000L))
+        assertEquals(0L,OpeningFloat.resolve(null,false,null))
+        assertEquals("a float outside the cap is never trusted",0L,OpeningFloat.resolve(10_000_001L,true,null))
+    }
     @Test fun capMessageNamesTheSameRangeTheOfficeEnforces() {
         assertEquals("Opening float must be between ₱0 and ₱100,000",OpeningFloat.CAP_MESSAGE)
         assertEquals(10_000_000L,OpeningFloat.MAX_CENTAVOS)

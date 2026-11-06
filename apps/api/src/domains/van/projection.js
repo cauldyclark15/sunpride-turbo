@@ -67,6 +67,34 @@ export function policy(env, tripId) {
     tripClose: CLOSE_POLICY,
   };
 }
+/**
+ * IP-P0 (SPEC 5.3): who this handheld is for, so "No trip for today" can name the van and the supervisor.
+ * The van is today's trip, else the last trip this handheld or seller drove. The supervisor is the seller's current
+ * employee-assignment supervisor, else the profile's supervisor. Unknown parts are null. No phone number is held
+ * for staff yet, so `supervisorPhone` stays null until the office keeps one.
+ * @param {any} db @param {any} actor @param {any} device @param {any} [trip]
+ */
+export async function handheldInfo(db, actor, device, trip) {
+  const [vehicle] = trip
+    ? await db`select vehicle_code,plate_number from vehicles where id=${trip.vehicle_id}`
+    : await db`select v.vehicle_code,v.plate_number from van_trips t join vehicles v on v.id=t.vehicle_id
+        where t.deleted_at is null and t.status<>'cancelled' and (t.started_device_id=${device.id} or t.salesperson_profile_id=${actor.profileId})
+        order by t.service_date desc,t.created_at desc limit 1`;
+  const [assigned] =
+    await db`select p.name from employee_assignments a join profiles p on p.id=a.supervisor_id
+    where a.profile_id=${actor.profileId} and a.deleted_at is null and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now())
+      and p.deleted_at is null and p.status='active' limit 1`;
+  const [named] = assigned
+    ? []
+    : await db`select s.name from profiles p join profiles s on s.auth_subject=p.supervisor_subject
+        where p.id=${actor.profileId} and s.deleted_at is null and s.status='active' limit 1`;
+  return {
+    vehicleCode: vehicle?.vehicle_code ?? null,
+    plateNumber: vehicle?.plate_number ?? null,
+    supervisorName: (assigned ?? named)?.name ?? null,
+    supervisorPhone: null,
+  };
+}
 /** @param {any[]} rows @param {number} bound */
 function complete(rows, bound) {
   if (rows.length > bound)
@@ -98,6 +126,9 @@ export function vanProjection(env) {
         ...(p.catalogue === true ? { catalogue: true } : {}),
         ...(p.schemeEngine === 1 ? { schemeEngine: 1 } : {}),
         ...(p.posMode === true ? { posMode: true } : {}),
+        // IP-P0: the van app that can read the handheld card, the trip float and the recount note says so.
+        // Older apps validate the frozen v1 trip/load/policy strictly and never ask.
+        ...(p.handheld === true ? { handheld: true } : {}),
       };
     },
     snapshot,
@@ -155,10 +186,17 @@ export async function bundle(ctx, env) {
         409,
         "More than one trip needs office reconciliation",
       );
+    const handheld = ctx.params.handheld === true;
     const empty = {
       serviceDate,
       seller: { profileId: actor.profileId, name: actor.name },
-      policy: { ...policy(env, null), ...(storePos ? { storePos } : {}) },
+      policy: {
+        ...policy(env, null),
+        ...(storePos ? { storePos } : {}),
+        ...(handheld
+          ? { handheld: await handheldInfo(db, actor, device, null) }
+          : {}),
+      },
       trip: null,
       load: null,
       truckStock: [],
@@ -438,6 +476,9 @@ export async function bundle(ctx, env) {
       policy: {
         ...tripPolicy,
         ...(storePos ? { storePos } : {}),
+        ...(handheld
+          ? { handheld: await handheldInfo(db, actor, device, trip) }
+          : {}),
         paymentMethods: await tenderPolicy(db, trip.org_unit_id),
         fiscal: {
           ...(await fiscalBundle(db, actor, trip, device.id, env)),
@@ -475,11 +516,24 @@ export async function bundle(ctx, env) {
         truckLocationId: trip.truck_location_id,
         routeSessionId: trip.route_session_id,
         startedAt: trip.started_at ? new Date(trip.started_at).getTime() : null,
+        ...(handheld
+          ? { openingFloatCentavos: Number(trip.opening_float_centavos ?? 0) }
+          : {}),
       },
       load: load
         ? {
             loadId: load.id,
             status: load.status,
+            // The count the office saw last and, when it sent that count back, why: the phone recounts.
+            ...(handheld
+              ? {
+                  confirmRequestId: load.confirm_request_id ?? null,
+                  rejectionNote:
+                    load.status === "planned" && load.confirm_request_id
+                      ? (load.approval_note ?? null)
+                      : null,
+                }
+              : {}),
             lines: lines.map((l) => ({
               lineNumber: l.line_number,
               productId: l.product_id,

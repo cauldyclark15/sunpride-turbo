@@ -112,6 +112,24 @@ class EncryptedVanStoreTest {
         assertEquals(47L,store.stock().first { it.productId==product }.availableBase)
         assertEquals(2,db.rows().stockmovementRows(scope.fullAuthSubject,scope.deviceId).size); Unit
     }
+    /** IP-P0: the office sends a counted load back; the seller sees why and can count again, but not twice at once. */
+    @Test fun loadSentBackForRecountCanBeCountedAgain() = runBlocking {
+        store.replaceBootstrap(fixture(active=false,available=0))
+        val first=store.confirmLoad(listOf(LoadActual(1,47,"short_loaded"),LoadActual(2,24)))
+        val row=store.pending().single(); store.recordResult(row,PushResult(row.kind,first,"accepted",PushAck("load",null,at+20)))
+        // Acknowledged but the office's bundle does not show it yet: a second count is refused.
+        assertTrue(runCatching { runBlocking { store.confirmLoad(listOf(LoadActual(1,48),LoadActual(2,24))) } }.isFailure)
+        // The office sent it back: planned again, naming the count and the reason.
+        val back=JSONObject(fixture(active=false,available=0,serverTime=at+30))
+        back.getJSONObject("load").put("confirmRequestId",first).put("rejectionNote","Recount the second pallet")
+        store.replaceBootstrap(back.toString())
+        val shown=store.load.first()!!
+        assertEquals("planned",shown.status); assertFalse(shown.confirmPending); assertEquals("Recount the second pallet",shown.rejectionNote)
+        val second=store.confirmLoad(listOf(LoadActual(1,48),LoadActual(2,24)))
+        assertNotEquals(first,second); assertTrue(store.load.first()!!.confirmPending)
+        // The second count is now on the phone: a third is refused until the office answers it.
+        assertTrue(runCatching { runBlocking { store.confirmLoad(listOf(LoadActual(1,48),LoadActual(2,24))) } }.isFailure); Unit
+    }
     @Test fun bootstrapPreservesOutboxSalesWalkInsAndScopes() = runBlocking {
         store.replaceBootstrap(fixture()); val id=store.recordDamage(product,1,"expired",null); store.addWalkInCustomer("Walk in","cash buyer")
         db.rows().insertSale(SaleRow(scope.fullAuthSubject,scope.deviceId,"sale","trip","receipt","key","customer","saved",createdAt=1))

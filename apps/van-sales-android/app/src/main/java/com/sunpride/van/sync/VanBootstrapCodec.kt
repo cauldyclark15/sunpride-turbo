@@ -24,7 +24,7 @@ object VanBootstrapCodec {
             it.getBoolean("requireUploadsSent"),it.getBoolean("exceptionsNeedReview")) },o.optInt("operationsVersion",0),o.optJSONObject("fiscal")?.toString(),o.optJSONObject("schemes")?.toString(),
         handheld = o.optJSONObject("handheld")?.let { h -> HandheldInfo(clean(h,"vehicleCode",40),clean(h,"plateNumber",40),clean(h,"supervisorName",80),clean(h,"supervisorPhone",30)) })
     /** Optional display text: trimmed, bounded, no control characters; anything else is simply not shown. */
-    private fun clean(o: JSONObject, key: String, max: Int): String? = o.optString(key,"").trim().takeIf { it.isNotEmpty() && it.length <= max && it.none(Char::isISOControl) }
+    private fun clean(o: JSONObject, key: String, max: Int): String? = if (o.isNull(key)) null else o.optString(key,"").trim().takeIf { it.isNotEmpty() && it.length <= max && it.none(Char::isISOControl) }
 
     /** VAN-012: optional; a policy cached before it (or an older server) allows cash only. */
     fun paymentMethods(a: JSONArray): List<PaymentMethod> {
@@ -40,7 +40,8 @@ object VanBootstrapCodec {
         o.optJSONObject("vehicle")?.let { Vehicle(it.getString("vehicleId"), it.getString("vehicleCode"), it.getString("plateNumber"), nullable(it,"name")) },
         o.optJSONObject("route")?.let { Route(it.getString("routeId"), it.getString("code"), it.getString("name")) },
         nullable(o,"driverName"), nullable(o,"helperName"), o.getString("truckLocationId"), nullable(o,"routeSessionId"),
-        if (o.isNull("startedAt")) null else o.getLong("startedAt"))
+        if (o.isNull("startedAt")) null else o.getLong("startedAt"),
+        openingFloatCentavos = if (o.isNull(com.sunpride.van.pos.OpeningFloat.FIELD)) null else o.getLong(com.sunpride.van.pos.OpeningFloat.FIELD).also { require(it in 0..com.sunpride.van.pos.OpeningFloat.MAX_CENTAVOS) })
     fun line(o: JSONObject): LoadLine = LoadLine(o.getInt("lineNumber"), o.getString("productId"), o.getString("productCode"),
         o.getString("productName"), o.getString("uomCode"), base(o,"quantityScale"), nullable(o,"lotNumber"), base(o,"expectedBase"),
         if (o.isNull("actualBase")) null else base(o,"actualBase"), nullable(o,"discrepancyReason"))
@@ -127,6 +128,9 @@ object VanBootstrapCodec {
         legacy.getJSONObject("policy").remove("schemes")
         legacy.getJSONObject("policy").remove("storePos")
         legacy.getJSONObject("policy").remove("handheld")
+        // IP-P0: the trip float and the recount facts are negotiated v2 additions to the frozen trip and load.
+        legacy.optJSONObject("trip")?.remove(com.sunpride.van.pos.OpeningFloat.FIELD)
+        legacy.optJSONObject("load")?.let { it.remove("confirmRequestId"); it.remove("rejectionNote") }
         o.getJSONObject("policy").optJSONObject("storePos")?.let(com.sunpride.van.storepos.StorePosConfig::decode)
         VanWireSchema.validate(legacy)
         if (o.getJSONObject("policy").has("fiscal")) {
@@ -135,7 +139,8 @@ object VanBootstrapCodec {
         if (o.getString("type") != "van.bootstrap.response") throw VanWireFailure()
         val day = o.getString("serviceDate"); LocalDate.parse(day)
         val t = o.optJSONObject("trip")?.let(::trip)
-        val l = o.optJSONObject("load")?.let { Load(it.getString("loadId"), it.getString("status"), objects(it.getJSONArray("lines")).map(::line)) }
+        val l = o.optJSONObject("load")?.let { Load(it.getString("loadId"), it.getString("status"), objects(it.getJSONArray("lines")).map(::line),
+            confirmRequestId = nullable(it,"confirmRequestId"), rejectionNote = nullable(it,"rejectionNote")) }
         val ps = objects(o.getJSONArray("products")).map(::product)
         val cs = objects(o.getJSONArray("customers")).map(::customer)
         o.getJSONObject("policy").optJSONObject("schemes")?.let { s ->

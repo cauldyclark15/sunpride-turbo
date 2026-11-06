@@ -34,6 +34,11 @@ class UserMessagesTest {
         assertTrue(UserMessages.needsCall(UserMessages.forFailure(IllegalStateException("Phone removed"))))
         assertFalse(UserMessages.needsCall(UserMessages.forFailure(NativeApiFailure("rate_limited",429))))
     }
+    @Test fun recountAskedShowsTheOfficeReason() {
+        assertEquals("Office asked for a recount: Recount the second pallet",UserMessages.recountAsked("  Recount the second pallet "))
+        assertEquals("Office asked for a recount.",UserMessages.recountAsked(null))
+        assertEquals("Office asked for a recount.",UserMessages.recountAsked("  "))
+    }
     @Test fun failuresMapByTypeAndNeverEchoRawText() {
         assertEquals("Incorrect email or password.",UserMessages.forFailure(AuthFailure(AuthFailure.Kind.INVALID_CREDENTIALS)))
         assertEquals("Could not reach the office. Your work is kept here. Try again.",UserMessages.forFailure(VanSyncFailure("temporarily_unavailable",true)))
