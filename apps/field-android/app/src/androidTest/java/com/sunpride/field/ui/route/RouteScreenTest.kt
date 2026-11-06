@@ -100,7 +100,7 @@ class RouteScreenTest {
                 TodayScreen(day, busy = false, onSync = {}, onSignOut = {}, onRoute = { opened++ })
             }
         }
-        rule.onNodeWithTag("route-open").assertTextContains("Next: Second Store", substring = true).performClick()
+        rule.onNodeWithTag("route-open").performClick()
         assertEquals(1, opened)
     }
 

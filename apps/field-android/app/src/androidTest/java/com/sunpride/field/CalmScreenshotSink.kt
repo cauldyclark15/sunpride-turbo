@@ -27,7 +27,7 @@ fun captureCalmScreenshot(name: String) {
     val bytes = ByteArrayOutputStream().also { shot.compress(Bitmap.CompressFormat.PNG, 100, it) }.toByteArray()
     shot.recycle()
     val host = InstrumentationRegistry.getArguments().getString("calmScreenshotHost") ?: "10.0.2.2"
-    Socket(host, 28765).use { socket ->
+    Socket(host, InstrumentationRegistry.getArguments().getString("calmScreenshotPort")?.toInt() ?: 28765).use { socket ->
         val stream = socket.getOutputStream()
         stream.write("$name\n${bytes.size}\n".toByteArray(Charsets.UTF_8))
         stream.write(bytes)

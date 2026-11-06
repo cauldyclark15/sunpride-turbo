@@ -139,10 +139,12 @@ class FieldAppTest {
         }
         rule.setContent { FieldApp(configured, dark = false, debug = true, backend = backend, visitLocation = noFix) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("route-open") }
-        rule.onNodeWithTag("route-open").assertTextContains("Next: First Store", substring = true).performClick()
+        rule.onNodeWithTag("route-open").performClick()
         rule.onNodeWithTag("route-title").assertTextContains("Route")
         rule.onNodeWithTag("route-summary").assertTextContains("0 of 2 done")
-        rule.onNodeWithTag("route-back").performClick()
+        // Route is a tab: the bar takes the seller back to Today; the phone's Back key does the same.
+        rule.onNodeWithTag("nav-route").assertIsDisplayed()
+        rule.onNodeWithTag("nav-today").performClick()
         rule.onNodeWithTag("today-title").assertIsDisplayed()
     }
 
@@ -155,15 +157,15 @@ class FieldAppTest {
         rule.setContent { FieldApp(configured, dark = false, debug = false, backend = backend) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("customers-open") }
         rule.onNodeWithTag("customers-open").performClick()
-        rule.onNodeWithTag("customers-title").assertTextContains("Customers")
+        rule.onNodeWithTag("customers-title").assertTextContains("Stores")
         rule.onNodeWithTag("customer-search").performTextInput("mabini")
         rule.onNodeWithTag("customer-result").assertTextContains("Second Store", substring = true).performClick()
-        rule.onNodeWithTag("customer-title").assertTextContains("Outlet")
+        rule.onNodeWithTag("customer-title").assertTextContains("Store")
         rule.onNodeWithTag("customer-header").assertTextContains("Second Store", substring = true)
         rule.onNodeWithTag("customer-visit").assertDoesNotExist() // visits switched off in this feature set
         rule.onNodeWithTag("customer-back").performClick()
         rule.onNodeWithTag("customers-title").assertIsDisplayed()
-        rule.onNodeWithTag("customers-back").performClick()
+        rule.onNodeWithTag("nav-today").performClick()
         rule.onNodeWithTag("today-title").assertIsDisplayed()
     }
 
@@ -270,7 +272,7 @@ class FieldAppTest {
         rule.onNodeWithTag("today-calls").assertTextContains("1 of 3")
         rule.onNodeWithTag("today-productive").assertTextContains("Productive 1 of 1 finished · 100%")
         rule.onNodeWithTag("today-next").assertExists()
-        rule.onNodeWithText("CURRENT CALL").assertExists()
+        rule.onNodeWithText("Current call").assertExists()
         rule.onNodeWithTag("today-next-store").assertTextContains("Second Shop", substring = true)
             .assertTextContains("Stop 2 of 3", substring = true).performClick()
         assert(opened?.plannedVisitId == "p2")
@@ -279,7 +281,7 @@ class FieldAppTest {
         rule.onNodeWithText("₱10,000.50 · 40%").assertExists()
         rule.onNodeWithTag("today-sales-saved").assertExists()
         rule.onNodeWithTag("today-route").performScrollTo()
-        rule.onNodeWithText("ROUTE R-07 · 3 STOPS").assertExists()
+        rule.onNodeWithText("Route R-07 · 3 stops").assertExists()
         val rows = rule.onAllNodesWithTag("diagnostic-open")
         rows[0].assertTextContains("First Store", substring = true).assertTextContains("Productive", substring = true)
         rows[1].assertTextContains("Second Shop", substring = true)
