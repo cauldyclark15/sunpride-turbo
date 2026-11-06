@@ -24,7 +24,11 @@ import { configuredTender } from "../fiscal/tenders.js";
 import { requireAvailability } from "../availability/callflow.js";
 import { postMovement } from "../inventory/posting.js";
 import { resolvePrice } from "../orders/pricing.js";
-import { quoteVanSchemes, enforceVanSchemeAuthority } from "./commercial.js";
+import {
+  quoteVanSchemes,
+  enforceVanSchemeAuthority,
+  applyVanLegal,
+} from "./commercial.js";
 import { accrueOrder, reverseOrder } from "../tpm/finance.js";
 import { reverseReturnedVanBenefits } from "../tpm/returns.js";
 import { requestOverride as consumeApproval } from "./seams.js";
@@ -610,8 +614,10 @@ async function sale(db, trip, actor, p, opId, env) {
     )
       refuse("Discount does not match the governed scheme", "invalid_request");
     const lineTotal = gross - discount;
+    // IP-BIR: with a discount claim the phone sends the payable (after VAT removal and discount);
+    // applyVanLegal below recomputes it per line and refuses a mismatch in plain words.
     if (
-      integer(l.totalMinor) !== lineTotal ||
+      (p.discountClaim == null && integer(l.totalMinor) !== lineTotal) ||
       (l.grossMinor !== undefined && integer(l.grossMinor) !== gross)
     )
       refuse("Sale totals do not reconcile", "invalid_request");
@@ -654,6 +660,16 @@ async function sale(db, trip, actor, p, opId, env) {
         : {}),
     });
   }
+  const vanLegal = await applyVanLegal(
+    db,
+    trip,
+    customer,
+    p,
+    quoted,
+    total,
+    at,
+  );
+  total = vanLegal.total;
   safeNumber(total);
   if (quoted.some((l) => l.unitPriceMinor !== l.originalUnitPriceMinor)) {
     const o = p.priceOverride ?? {};
@@ -866,6 +882,7 @@ async function sale(db, trip, actor, p, opId, env) {
     schemes,
     payment: { ...pay, label: method.label },
     soldAt: at,
+    ...vanLegal.receiptExtras,
     ...(commercial
       ? {
           schemeEngineVersion: 1,
@@ -891,6 +908,7 @@ async function sale(db, trip, actor, p, opId, env) {
     tax: fiscal.snapshot.tax,
   });
   await db`insert into van_sales(id,trip_id,receipt_number,outlet_id,customer_code,total_centavos,discount_centavos,receipt,captured_request) values(${saleId},${trip.id},${receiptNumber},${customer.id},${customer.customerCode},${String(total)},${String(discounts)},${receipt},${p})`;
+  await vanLegal.persist(actor, saleId, fiscal.id);
   if (creditDecisionId)
     await db`update van_sales set sap_credit_decision_id=${creditDecisionId} where id=${saleId}`;
   if (commercial)

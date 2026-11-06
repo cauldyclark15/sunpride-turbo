@@ -10,6 +10,12 @@ import {
   currentFiscalActor,
   enforceAuthority,
 } from "../fiscal/authority.js";
+import {
+  prepareLegalSale,
+  resolveBuyer,
+  recordClaim,
+  privilegeLabel,
+} from "../fiscal/legal-sale.js";
 
 /** F-511 use the same effective role/channel/value band as every campaign quote.
  * Only out-of-band amounts need an exact, independently authorized override.
@@ -151,4 +157,81 @@ export async function quoteVanSchemes(db, trip, actor, env, p, customer) {
   );
   safeNumber(benefitCentavos);
   return { quote: { ...quote, pricedAt: at }, captured, benefitCentavos };
+}
+
+/**
+ * IP-BIR: legal facts for a van sale, called once right after the line loop in `sale()`.
+ * Validates and recomputes the privilege-discount claim per line (privilege.js), refuses a phone/server mismatch,
+ * rewrites each quoted line's payable total, and resolves the buyer (billing profile, overridable at the sale).
+ * Without a claim the lines and total are untouched. `quoted` lines are mutated in place.
+ * @param {any} db @param {any} trip @param {any} customer @param {any} p @param {any[]} quoted @param {bigint} total @param {number} at
+ */
+export async function applyVanLegal(db, trip, customer, p, quoted, total, at) {
+  const legalLines = quoted.map((q) => ({
+    productId: q.productId,
+    description: q.name,
+    grossCentavos: safeNumber(BigInt(q.grossMinor)),
+    promoDiscountCentavos: safeNumber(BigInt(q.discountMinor)),
+    taxTreatment: q.taxTreatment ?? null,
+    taxBasisPoints: q.taxBasisPoints ?? null,
+  }));
+  const legal = await prepareLegalSale(db, {
+    surface: "van",
+    orgUnitId: trip.org_unit_id,
+    routeId: trip.route_id ?? null,
+    payload: p,
+    at,
+    lines: legalLines,
+  });
+  const buyer = await resolveBuyer(db, {
+    outletId: customer.id,
+    override: legal.buyerOverride,
+    fallbackName: customer.name,
+    fallbackAddress: customer.address,
+  });
+  if (!legal.claim)
+    return {
+      total,
+      legal,
+      receiptExtras: { buyer },
+      persist: async () => null,
+    };
+  legal.assertMatches({
+    totalCentavos: p.totalMinor,
+    privilegeDiscountCentavos: p.discountClaim?.privilegeDiscountMinor,
+    vatRemovedCentavos: p.discountClaim?.vatRemovedMinor,
+  });
+  quoted.forEach((q, i) => {
+    const r = legal.results[i];
+    q.totalMinor = String(r.netCentavos);
+    q.privilegeType = r.privilegeType;
+    q.privilegeDiscountMinor = String(r.privilegeDiscountCentavos);
+    q.vatRemovedMinor = String(r.vatRemovedCentavos);
+    q.legal = r;
+  });
+  return {
+    total: BigInt(legal.totals.total),
+    legal,
+    receiptExtras: {
+      buyer,
+      discountClaim: {
+        type: legal.claim.type,
+        label: privilegeLabel(legal.claim.type),
+        idNumber: legal.claim.idNumber,
+        holderName: legal.claim.holderName,
+        applied: legal.totals.applied,
+      },
+    },
+    /** @param {any} actor @param {string} saleId @param {string|null} documentId */
+    persist: (actor, saleId, documentId) =>
+      recordClaim(db, {
+        sourceType: "van_sale",
+        sourceId: saleId,
+        orgUnitId: trip.org_unit_id,
+        legal,
+        claimed: p.discountClaim,
+        actorProfileId: actor.profileId,
+        documentId,
+      }),
+  };
 }
