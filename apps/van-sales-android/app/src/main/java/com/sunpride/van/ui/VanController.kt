@@ -226,7 +226,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     }
     private fun command(success: String? = null,
         /** SP-0130: sign-in and registration pass [AuthMessages] so a wrong password reads as one. */
-        failure: (Exception) -> String = { "Could not save this change. Check the details and try again." },
+        failure: (Exception) -> String = { UserMessages.forFailure(it) },
         block: suspend () -> Unit) {
         if (busy) return
         scope?.launch {
@@ -244,13 +244,9 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     }
     /** Plain words for a failed sync; saved work is never lost by a failed sync. */
     internal fun syncMessage(e: Exception): String = when (e) {
-        is com.sunpride.van.sync.VanSyncFailure -> when (e.code) {
-            "unauthorized" -> "The office did not accept this phone's work. Your work is kept here. Ask your supervisor."
-            "version_unsupported" -> "This app needs an update. Your work is kept here."
-            "temporarily_unavailable" -> "Could not reach the office. Your work is kept here. Try again."
-            else -> "The office could not take this work yet. Your work is kept here. Try again."
-        }
+        is com.sunpride.van.sync.VanSyncFailure -> UserMessages.forCode(e.code) ?: "The office could not take this work yet. Your work is kept here. Try again."
         is com.sunpride.van.auth.AuthFailure -> e.kind.message
+        is com.sunpride.van.auth.NativeApiFailure -> UserMessages.forFailure(e)
         else -> "Could not sync. Your work is kept here. Try again."
     }
     fun open(next: Page) {
@@ -301,7 +297,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
                 repository.recordCall(kind,selected.outletId,fix,options)
                 refreshCall(); message="Call saved on this phone. Sync sends it to the office."
             } catch(e: CancellationException) { throw e }
-              catch(e: com.sunpride.callflow.CallFlowRefused) { message=e.message }
+              catch(e: com.sunpride.callflow.CallFlowRefused) { message=UserMessages.forFailure(e,UserMessages.DEFAULT,passLocal=true) }
               catch(_: Exception) { message="Could not save call. Check the required fields and sync for access." }
             finally { busy=false }
         }
@@ -324,7 +320,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             busy=true; message=null
             try { repository.recordCall("call.step",selected.outletId,null,options); refreshCall(); message="Call activity saved on this phone." }
             catch(e: CancellationException) { throw e }
-            catch(e: com.sunpride.callflow.CallFlowRefused) { message=e.message }
+            catch(e: com.sunpride.callflow.CallFlowRefused) { message=UserMessages.forFailure(e,UserMessages.DEFAULT,passLocal=true) }
             catch(_: Exception) { message="Could not save stock check. Sync for access and try again." }
             finally { busy=false }
         }

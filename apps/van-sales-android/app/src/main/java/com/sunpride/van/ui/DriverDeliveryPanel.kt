@@ -85,7 +85,7 @@ import org.json.JSONObject
                 scope.launch { try {
                     c.repository.recordCall("delivery.timing",customer.outletId,null,JSONObject().put("dropId",drop.getString("dropId")).put("stage",stage).put("reason",notes))
                     drops=c.repository.deliveryDrops().filter {it.getString("outletId")==customer.outletId};message="Delivery time saved on this phone."
-                } catch(e:kotlinx.coroutines.CancellationException){throw e} catch(e:Exception){message=e.message?.takeIf{it.length<160} ?: "Could not record this delivery time."} finally {saving=false} }
+                } catch(e:kotlinx.coroutines.CancellationException){throw e} catch(e:Exception){message=UserMessages.forFailure(e,"Could not record this delivery time.",passLocal=true)} finally {saving=false} }
             },Modifier.weight(1f).testTag("delivery-timing-$stage"),!saving&&!c.busy&&ready)
         } }
         message?.let { Text(it,Modifier.testTag("delivery-message")) }
@@ -102,7 +102,7 @@ import org.json.JSONObject
                         c.repository.recordDelivery(customer.outletId,capture,fix,receiver,JSONArray().apply { signature.forEach { p->put(JSONArray().put(p.x.toDouble()).put(p.y.toDouble())) } },lines,drop.getString("dropId"))
                         drops=c.repository.deliveryDrops().filter { it.getString("outletId")==customer.outletId }
                         message="Signature and watermarked photo saved offline. Sync sends this exact proof."
-                    } catch(e:kotlinx.coroutines.CancellationException){throw e} catch(e:Exception){message=e.message?.takeIf{it.length<160} ?: "Could not save the delivery. Check quantities, signature and location."}
+                    } catch(e:kotlinx.coroutines.CancellationException){throw e} catch(e:Exception){message=UserMessages.forFailure(e,"Could not save the delivery. Check quantities, signature and location.",passLocal=true)}
                     finally {saving=false}
                 }},{camera=false})
             }

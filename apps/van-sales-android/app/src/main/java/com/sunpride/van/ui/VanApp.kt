@@ -138,10 +138,11 @@ import kotlinx.coroutines.delay
         }
         return
     }
-    ScreenFrame(if (removed) "Phone removed" else "Register phone",action = if (c.busy) "Checking…" else "Check again",
+    ScreenFrame(if (removed) "Handheld not set up" else "Register phone",action = if (c.busy) "Checking…" else "Check again",
         actionTag = "check-again",onAction = c::checkAgain,enabled = !c.busy,message = c.message) {
-        Text(if (removed) "Ask your supervisor to re-add this phone. Your saved work has not been deleted."
+        Text(if (removed) UserMessages.NOT_SET_UP + " Your saved work has not been deleted."
             else "This phone is not registered yet. Send this phone code to your supervisor.")
+        if (removed) CallSupervisorButton(c,"removed-call")
         SectionCard("Phone code") { Text(c.fingerprint, style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace, modifier = Modifier.testTag("fingerprint")) }
         if (!removed) com.sunpride.integrity.ReplacementPairing(c::replacementCode)
         if (!removed) c.publicKey?.let { key ->

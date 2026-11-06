@@ -122,7 +122,7 @@ private data class LoadDraft(val quantity: String, val reason: String?)
     }
     val sent = when {
         load?.confirmPending == true -> "Sent — waiting for sync"
-        load?.status == "discrepancy" -> "Waiting for supervisor approval"
+        load?.status == "discrepancy" -> UserMessages.loadDifferenceSent(c.policy?.handheld?.supervisorName)
         load?.status == "posted" -> "Loaded"
         else -> null
     }
