@@ -14,6 +14,7 @@ import { OverridesList, overrideCounts } from "./overrides-review";
 import { ReadingSheet, ZHistoryList } from "./reading-sheet";
 import {
   dayNextStep,
+  dayStatusWords,
   type DayDetail,
   type Movement,
   type OverrideRow,
@@ -142,6 +143,14 @@ describe("next step (queue first, one primary action)", () => {
     const ready = dayNextStep(detail());
     expect(ready).toMatchObject({ action: "z", actionLabel: "Run Z reading" });
     expect(dayNextStep(detail({ status: "z_done" })).action).toBe("none");
+  });
+  it("IP-INT2FIX: an old day closed without a Z is readable, says so, and offers no Z button", () => {
+    const old = dayNextStep(detail({ status: "closed_no_z", openSessions: 0 }));
+    expect(old.action).toBe("none");
+    expect(old.text).toContain("before Z readings");
+    expect(dayStatusWords("closed_no_z")).toBe(
+      "Closed before Z readings started",
+    );
   });
 });
 
