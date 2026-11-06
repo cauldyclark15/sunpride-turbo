@@ -52,4 +52,24 @@ class StoreClaimTest {
         assertTrue(text, text.contains("Senior citizen discount -P6.96")); assertTrue(text.contains("VAT removed P4.18"))
         assertTrue(text.contains("Senior citizen: Juan Dela Cruz")); assertTrue(text.contains("ID: SC-123456")); assertTrue(text.contains("TOTAL P27.86"))
     }
+
+    // Beta.28 device: the live store bundle carried no cash tender and no receipt numbers, and every sale ended in "Could not save this change".
+    private fun withSetup(c: StorePosConfig, methods: List<String>, invoiceRange: Boolean): StorePosConfig {
+        c.details.put("paymentMethods", JSONArray(methods.map { JSONObject().put("code", it).put("label", it).put("referenceRequired", it != "cash") }))
+        val ranges = if (invoiceRange) JSONArray().put(JSONObject().put("documentType", "sales_invoice").put("allocationId", "11111111-1111-1111-1111-111111111111")
+            .put("seriesId", "22222222-2222-2222-2222-222222222222").put("firstSerial", "1").put("lastSerial", "100").put("nextSerial", "1").put("prefix", "SMP-1")
+            .put("deviceId", "d").put("effectiveTo", JSONObject.NULL).put("registration", JSONObject().put("taxBasisPoints", 1200).put("sample", true).put("status", "sample_not_filed"))) else JSONArray()
+        c.details.put("fiscal", JSONObject().put("ranges", ranges))
+        return c
+    }
+    @Test fun aStoreWithoutCashOrReceiptNumbersSaysSoUpFrontInPlainWords() {
+        val base = { config(row("a", 3_900, "vatable")) }
+        assertEquals("No payment types are turned on for this store yet. Ask the office to set them up.", StoreCheckout.setupProblem(withSetup(base(), emptyList(), true)))
+        assertEquals("Cash is not turned on for this store yet. Ask the office.", StoreCheckout.setupProblem(withSetup(base(), listOf("gcash", "card"), true)))
+        assertEquals("This till has no receipt numbers yet. Tap Sync. If it stays, ask the office to give this handheld a receipt range.", StoreCheckout.setupProblem(withSetup(base(), listOf("cash"), false)))
+        assertNull(StoreCheckout.setupProblem(withSetup(base(), listOf("cash", "gcash", "card"), true)))
+        assertEquals(setOf("cash", "gcash"), StoreCheckout.enabledTenders(withSetup(base(), listOf("cash", "gcash"), true)))
+        // A bundle with no payment block at all is not ready either.
+        assertNotNull(StoreCheckout.setupProblem(base()))
+    }
 }

@@ -62,6 +62,21 @@ object StoreCheckout {
         val rows=objects(config.details.optJSONArray("catalogue")).filter {!it.isNull("unitPriceMinor")}
         return rows.isNotEmpty()&&rows.all {it.optString("taxTreatment").isNotBlank()}
     }
+    /** Tender codes the office has turned on for this register (the bundle's `paymentMethods`). */
+    fun enabledTenders(config: StorePosConfig): Set<String> = objects(config.details.optJSONArray("paymentMethods")).mapNotNull {it.optString("code").takeIf {c->c.isNotBlank()}}.toSet()
+    /**
+     * Beta.28 device: Payment offered Cash although the store's bundle carried no cash tender and no receipt numbers, so every sale
+     * was refused at save time. These are the two set-up gaps `StoreTransactions.sale()` stops on, said up front in plain words
+     * (null when the till can sell).
+     */
+    fun setupProblem(config: StorePosConfig): String? {
+        if(enabledTenders(config).isEmpty()) return "No payment types are turned on for this store yet. Ask the office to set them up."
+        if("cash" !in enabledTenders(config)) return "Cash is not turned on for this store yet. Ask the office."
+        val invoice=runCatching {com.sunpride.van.fiscal.FiscalNumbers.ranges(JSONObject().put("fiscal",config.details.optJSONObject("fiscal")?:JSONObject()))}.getOrNull()
+            ?.any {it.optString("documentType")=="sales_invoice"}
+        if(invoice!=true) return "This till has no receipt numbers yet. Tap Sync. If it stays, ask the office to give this handheld a receipt range."
+        return null
+    }
     fun quote(config: StorePosConfig,rows: List<OutboxRow>,lines:List<CartLine>,now:Long,claim:com.sunpride.van.selling.DiscountClaim?=null): CheckoutQuote {
         val context=context(config,rows,now)
         val request=CheckoutRequest(CheckoutRules.newSaleId(),context.customers.singleOrNull()?.outletId,lines,PaymentInput("cash",CheckoutRules.MAX_MINOR),claim=claim)

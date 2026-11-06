@@ -136,6 +136,8 @@ object QuickCash {
     fun changeMinor(totalMinor: Long, tenderedMinor: Long): Long = maxOf(0L, tenderedMinor - totalMinor)
     fun shortMinor(totalMinor: Long, tenderedMinor: Long): Long = maxOf(0L, totalMinor - tenderedMinor)
     fun canPay(totalMinor: Long, tenderedMinor: Long?): Boolean = tenderedMinor != null && tenderedMinor >= totalMinor
+    /** EXACT: the customer hands over exactly what is due, whatever bill was picked before. The screen shows this at once. */
+    fun exactTenderedMinor(cashDueMinor: Long): Long = cashDueMinor
 }
 
 /** Money text for big totals: "₱1,234.50". */

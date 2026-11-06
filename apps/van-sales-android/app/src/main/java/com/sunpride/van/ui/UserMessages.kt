@@ -65,6 +65,43 @@ object UserMessages {
         "confirm printer paper first" to "Check that the printer has paper, then try again.",
     )
 
+    const val STORE_SALE_DEFAULT = "This sale could not be saved. Tap Sync, then try again. If it keeps happening, ask the office."
+    /**
+     * Every refusal `StoreTransactions.sale()` can throw, as one cashier sentence (first fragment match wins). The raw texts are
+     * already plain, but several are developer-ish ("Tenders must equal the total"), so the cashier gets what to DO instead.
+     */
+    private val storeSale: List<Pair<String,String>> = listOf(
+        "review the refused store sale" to "An earlier sale was refused by the office. Open Review, sort it out, then sell again.",
+        "open a cashier session first" to "Open a cashier session first.",
+        "cart identifier has different content" to "This sale was already tried with other details. Start a new sale.",
+        "cannot be combined with the employee discount" to "A senior or PWD discount cannot be combined with an employee discount or points.",
+        "prices or discount changed" to "Prices or the discount changed while you were paying. Go Back, check the total and pay again.",
+        "choose how the customer pays" to "Choose how the customer pays.",
+        "each payment must be more than zero" to "Each payment must be more than ₱0.",
+        "tenders must equal the total" to "The payments do not add up to the total.",
+        "tender is not enabled" to "This payment type is not turned on for this store. Ask the office.",
+        "enter the provider reference" to "Enter the payment reference.",
+        "use the approval reference, never a card number" to "Enter the card approval reference, never the card number.",
+        "cash received is short" to "The cash received is less than the total.",
+        "look up the customer before redeeming" to "Look up the customer before using points.",
+        "not enough available points" to "The customer does not have enough points.",
+        "download an authorized document range" to "This till has no receipt numbers yet. Tap Sync. If it stays, ask the office to give this handheld a receipt range.",
+        "document range belongs to another handheld" to "The receipt numbers on this phone belong to another handheld. Tap Sync, or ask the office.",
+        "fiscal authorization expired" to "This till's receipt authorization has expired. Ask the office.",
+        "document range exhausted" to "This handheld is out of receipt numbers. Tap Sync to get more.",
+        "z closing has stopped sales" to "Z closing has stopped sales for this day.",
+        "discounts exceed this basket" to "The discounts are more than this sale.",
+        "loyalty is off" to "Points are not turned on for this store.",
+        "supervisor pin" to "The supervisor PIN was not accepted.",
+        "failed requirement" to "Check the payment and try again.",
+    )
+    /** The sentence for a failed store sale save: the sale() refusals map one by one; anything unknown is [STORE_SALE_DEFAULT]. */
+    fun forStoreSale(e: Throwable): String {
+        val t = e.message?.lowercase()
+        if (t != null && (e is IllegalStateException || e is IllegalArgumentException)) storeSale.firstOrNull { (fragment,_) -> t.contains(fragment) }?.let { return it.second }
+        return forFailure(e, STORE_SALE_DEFAULT, passLocal = true)
+    }
+
     /** "Load difference sent to Juan Dela Cruz. ..." when the supervisor's name is known. */
     fun loadDifferenceSent(supervisorName: String?): String =
         if (supervisorName.isNullOrBlank()) LOAD_DIFFERENCE_SENT else LOAD_DIFFERENCE_SENT.replace("your supervisor", supervisorName.trim())

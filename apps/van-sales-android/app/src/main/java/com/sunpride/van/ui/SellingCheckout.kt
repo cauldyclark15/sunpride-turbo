@@ -128,7 +128,7 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
                 }
             }
             if (cash && totalMinor != null) {
-                val buttons = listOf<Pair<String, () -> Unit>>("EXACT" to onExact) + QuickCash.choices(cashTotal).map { Peso.format(it).removeSuffix(".00") to { typed = ""; onTendered(it) } }
+                val buttons = listOf<Pair<String, () -> Unit>>("EXACT" to { typed = ""; other = false; onExact() }) + QuickCash.choices(cashTotal).map { Peso.format(it).removeSuffix(".00") to { typed = ""; onTendered(it) } }
                 buttons.chunked(3).forEach { rowButtons ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         rowButtons.forEach { (label, action) ->

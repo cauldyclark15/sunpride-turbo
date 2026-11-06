@@ -107,4 +107,16 @@ class SellingRulesTest {
         assertNull(com.sunpride.van.sync.VanBootstrapCodec.product(row { }).category)
         assertNull(com.sunpride.van.sync.VanBootstrapCodec.product(row { put("category", org.json.JSONObject.NULL) }).category)
     }
+
+    // Beta.28: EXACT after picking a bill left TENDERED at the bill. EXACT always means tendered = what is due, change 0.
+    @Test fun exactReplacesAPreviouslyPickedBillWithTheAmountDue() {
+        val due = 4790L
+        val pickedBill = QuickCash.choices(due).first { it == 20_000L }
+        assertEquals(15_210L, QuickCash.changeMinor(due, pickedBill))
+        val afterExact = QuickCash.exactTenderedMinor(due)
+        assertEquals(due, afterExact)
+        assertEquals(0L, QuickCash.changeMinor(due, afterExact))
+        assertEquals(0L, QuickCash.shortMinor(due, afterExact))
+        assertTrue(QuickCash.canPay(due, afterExact))
+    }
 }

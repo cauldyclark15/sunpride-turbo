@@ -85,7 +85,9 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     val splitCashTendered=VanRules.parseMoney(received)
     val tenders=total?.let{n->buildTenders(n,if(tender=="split")splitCashTendered else tenderedMinor)}
     val cashReady=when(tender){"cash"->tenderedMinor!=null&&total!=null&&tenderedMinor!!>=total;else->true}
-    val canPay=total!=null&&tenders!=null&&cashReady&&c.storePos.shift!=null&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)
+    val setupProblem=remember(config){StoreCheckout.setupProblem(config)}
+    val enabledTenders=remember(config){StoreCheckout.enabledTenders(config)}
+    val canPay=setupProblem==null&&total!=null&&tenders!=null&&cashReady&&c.storePos.shift!=null&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)
     /** One save path for Exact and the Complete button: nothing about the payload changes from the old Save sale. */
     fun pay(withTenders:List<StoreTransactions.Tender>,n:Long){
         send(SellEvent.PayTapped);savedFlag=false
@@ -123,7 +125,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
         (evaluation.exceptionOrNull() as? CheckoutRefused)?.issues?.any{it.problem==CheckoutProblem.PROMOTION_NEEDS_OFFICE}==true->"This campaign needs office finance authority before selling"
         claim!=null&&(evaluation.exceptionOrNull() as? CheckoutRefused)?.issues?.firstOrNull{it.problem in setOf(CheckoutProblem.DISCOUNT_TAX_UNKNOWN,CheckoutProblem.DISCOUNT_CLAIM_INVALID,CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL)}!=null->
             (evaluation.exceptionOrNull() as CheckoutRefused).issues.first{it.problem in setOf(CheckoutProblem.DISCOUNT_TAX_UNKNOWN,CheckoutProblem.DISCOUNT_CLAIM_INVALID,CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL)}.let{VanRules.checkoutMessage(it.problem,it.productId?.let{id->products.firstOrNull{p->p.productId==id}?.name})}
-        else->null
+        else->setupProblem
     }
     if(claiming)ClaimSheet(items=cart.map{l->l.productId to (products.firstOrNull{it.productId==l.productId}?.name?:"Item")},initial=claim,
         onApply={claim=it;employee=false;pin="";points="";claiming=false},onRemove=if(claim!=null)({claim=null;claiming=false}) else null,onClose={claiming=false})
@@ -137,15 +139,17 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
             message=c.message?:notice?:reason,busy=c.busy,cashierName=c.seller?.name,roleLabel="Cashier")
         SellStep.PAYMENT->PaymentStep(
             title="Payment",totalMinor=total,
-            choices=listOf(TenderChoice("cash","Cash",TenderKind.CASH),TenderChoice("gcash","GCash / e-wallet",TenderKind.OTHER),TenderChoice("card","Card",TenderKind.OTHER),TenderChoice("split","Split",TenderKind.OTHER)),
+            choices=listOf(TenderChoice("cash","Cash",TenderKind.CASH),TenderChoice("gcash","GCash / e-wallet",TenderKind.OTHER),TenderChoice("card","Card",TenderKind.OTHER),TenderChoice("split","Split",TenderKind.OTHER))
+                .filter{when(it.id){"split"->"cash" in enabledTenders&&"gcash" in enabledTenders;else->it.id in enabledTenders||it.id=="cash"}},
             selectedId=tender,onSelect={tender=it;tenderedMinor=null},tenderedMinor=tenderedMinor,onTendered={tenderedMinor=it},
             issues=buildList{
                 if(quote!=null&&total==null)add("Points or discounts do not match this basket.")
                 if(employee&&pin.length<6)add("Enter the supervisor PIN for the employee discount.")
                 if(!shiftOpen)add("Open a session before selling.")
+                setupProblem?.let{add(it)}
             },
-            saving=flow.saving,canPay=canPay,exactEnabled=total!=null&&tender=="cash"&&shiftOpen&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)&&buildTenders(total,total)!=null,
-            onExact={val n=total;val t=n?.let{buildTenders(it,it)};if(n!=null&&t!=null)pay(t,n)},
+            saving=flow.saving,canPay=canPay,exactEnabled=setupProblem==null&&total!=null&&tender=="cash"&&shiftOpen&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)&&buildTenders(total,total)!=null,
+            onExact={val n=total;val t=n?.let{buildTenders(it,it)};if(n!=null&&t!=null){tenderedMinor=QuickCash.exactTenderedMinor(n);pay(t,n)}},
             onPay={val n=total;val t=tenders;if(n!=null&&t!=null)pay(t,n)},onBack={send(SellEvent.BackTapped)},message=c.message?:notice){
             claim?.let{cl->ClaimSummary(cl,quote?.legal,VanController.ClaimPreview.None,{claiming=true})}
             if(claim==null){

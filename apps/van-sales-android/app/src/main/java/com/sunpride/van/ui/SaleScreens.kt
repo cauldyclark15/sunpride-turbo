@@ -19,6 +19,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.sunpride.van.data.*
 import com.sunpride.van.pos.*
 import com.sunpride.van.selling.SellingPlace
+import com.sunpride.van.selling.QuickCash
 import androidx.compose.runtime.saveable.rememberSaveable
 
 /**
@@ -151,7 +152,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
         selectedId = if (splitOn) SPLIT_ID else method.code, onSelect = { methodCode = it; tendered = null }, tenderedMinor = tendered, onTendered = { tendered = it },
         issues = issues, cashDueMinor = view?.cashDueMinor,
         saving = c.busy, canPay = !c.busy && !blocked && result?.ok == true, exactEnabled = !c.busy && !blocked && exactResult?.ok == true,
-        onExact = { val p = exactPayment; val q = exactResult?.quote; if (p != null && q != null && exactResult.ok) c.completeSale(p,q.totalMinor,splitPayment) },
+        onExact = { val p = exactPayment; val q = exactResult?.quote; if (p != null && q != null && exactResult.ok) { tendered = p.tenderedMinor?.let(QuickCash::exactTenderedMinor); c.completeSale(p,q.totalMinor,splitPayment) } },
         onPay = { quote?.let { c.completeSale(payment,it.totalMinor,splitPayment) } }, onBack = c::back, message = c.message) {
         draft.claim?.let { claim -> ClaimSummary(claim,due?.legal,preview,null) }
         if (splitOn) SectionCard("Second tender") {

@@ -62,4 +62,34 @@ class UserMessagesTest {
         assertFalse(UserMessages.isGeneric(UserMessages.STALE_COUNT))
         assertFalse(UserMessages.isGeneric(null))
     }
+
+    // Beta.28 device: a refused store sale showed the catch-all "Could not save this change" and hid the real reason.
+    @Test fun everyStoreSaleRefusalIsAClearCashierSentenceNotTheCatchAll() {
+        val refusals = listOf(
+            "Review the refused store sale before recording more", "Open a cashier session first", "Cart identifier has different content",
+            "A senior, PWD or other statutory discount cannot be combined with the employee discount or points", "Prices or discount changed",
+            "Choose how the customer pays", "Each payment must be more than zero", "Tenders must equal the total", "Tender is not enabled",
+            "Enter the provider reference", "Use the approval reference, never a card number", "Cash received is short",
+            "Look up the customer before redeeming points", "Not enough available points",
+            "Download an authorized document range before selling", "Document range belongs to another handheld", "Fiscal authorization expired",
+            "Document range exhausted; sync before issuing again", "Z closing has stopped sales for this day", "Discounts exceed this basket", "Loyalty is off",
+            "Supervisor PIN was not accepted", "Failed requirement.",
+        )
+        refusals.forEach { text ->
+            listOf<Throwable>(IllegalStateException(text), IllegalArgumentException(text)).forEach { e ->
+                val sentence = UserMessages.forStoreSale(e)
+                assertNotEquals(text, UserMessages.DEFAULT, sentence)
+                assertNotEquals(text, UserMessages.STORE_SALE_DEFAULT, sentence)
+                assertTrue(text, UserMessages.isPlainSentence(sentence))
+            }
+        }
+        assertEquals("Prices or the discount changed while you were paying. Go Back, check the total and pay again.", UserMessages.forStoreSale(IllegalStateException("Prices or discount changed")))
+        assertEquals("This till has no receipt numbers yet. Tap Sync. If it stays, ask the office to give this handheld a receipt range.", UserMessages.forStoreSale(IllegalStateException("Download an authorized document range before selling")))
+    }
+    @Test fun unknownStoreSaleFailuresStayPlainAndNeverEchoRawText() {
+        assertEquals(UserMessages.STORE_SALE_DEFAULT, UserMessages.forStoreSale(org.json.JSONException("No value for taxBasisPoints")))
+        assertEquals(UserMessages.STORE_SALE_DEFAULT, UserMessages.forStoreSale(RuntimeException("boom")))
+        assertEquals(UserMessages.STORE_SALE_DEFAULT, UserMessages.forStoreSale(IllegalStateException("java.lang.IllegalStateException at com.x.Y {id}")))
+        assertEquals("Sold out of mangoes", UserMessages.forStoreSale(IllegalStateException("Sold out of mangoes")))
+    }
 }
