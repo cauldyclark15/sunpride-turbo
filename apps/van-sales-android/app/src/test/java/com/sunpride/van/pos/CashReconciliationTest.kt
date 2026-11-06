@@ -51,6 +51,19 @@ class CashReconciliationTest {
         assertEquals(CashProblem.MIXED_CURRENCY,assertThrows(CashRefused::class.java) {
             CashReconciliationRules.expectation(listOf(pay(PaymentKind.CASH,1),pay(PaymentKind.CASH,2,currency = "USD"))) }.problem)
     }
+    @Test fun expectedCashIsFloatPlusCashSalesPlusCollectionsMinusCashRefunds() {
+        // Float ₱2,000 + sale ₱205.50 + collection ₱85.50 (collections arrive as cash payments) - refund ₱50.00; others and voids stay out.
+        val e = CashReconciliationRules.expectation(listOf(pay(PaymentKind.CASH,20550),pay(PaymentKind.CASH,8550),
+            pay(PaymentKind.CASH,99_900,voided = true),pay(PaymentKind.OTHER,12_000,code = "gcash"),pay(PaymentKind.CREDIT,50_000)),
+            openingFloatMinor = 200_000,cashRefundsMinor = 5_000)
+        assertEquals(200_000L + 20_550 + 8_550 - 5_000,e.expectedMinor); assertEquals(224_100L,e.expectedMinor)
+        assertEquals(200_000L,e.openingFloatMinor); assertEquals(5_000L,e.cashRefundsMinor); assertEquals(2,e.cashSales)
+        // A float alone is expected even with no sales; no float keeps today's number.
+        assertEquals(200_000L,CashReconciliationRules.expectation(emptyList(),openingFloatMinor = 200_000).expectedMinor)
+        assertEquals(29_100L,CashReconciliationRules.expectation(listOf(pay(PaymentKind.CASH,20550),pay(PaymentKind.CASH,8550))).expectedMinor)
+        assertThrows(IllegalArgumentException::class.java) { CashReconciliationRules.expectation(emptyList(),openingFloatMinor = 10_000_001) }
+        assertThrows(IllegalArgumentException::class.java) { CashReconciliationRules.expectation(emptyList(),openingFloatMinor = -1) }
+    }
     @Test fun declaredCashAddsKnownDenominationsAndRefusesAnythingElse() {
         assertEquals(1_234_525L,CashReconciliationRules.declared(mapOf(100_000L to 12L,10_000L to 3L,2_000L to 2L,500L to 1L,25L to 1L)))
         assertEquals(0L,CashReconciliationRules.declared(emptyMap()))

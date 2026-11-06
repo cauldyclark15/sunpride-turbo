@@ -110,12 +110,14 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         return checkNotNull(dao.trip(s,d)) { "No trip assigned" }
     }
     private fun text(value: String?, max: Int): String? = value?.trim()?.takeIf { it.isNotEmpty() }?.also { require(it.length <= max && it.none(Char::isISOControl)) }
+    private fun withoutV2Fields(op: String): String = JSONObject(op).also { it.optJSONObject("payload")?.remove(com.sunpride.van.pos.OpeningFloat.FIELD) }.toString()
     private suspend fun enqueue(kind: String, tripId: String, payload: JSONObject, metadataJson: String? = null): OutboxRow {
         val id = UUID.randomUUID().toString()
         val at = maxOf(clock(),Math.addExact(dao.latestCreatedAt(s,d) ?: 0L,1L))
         RouteOpsStore(this).prepare(payload)
         val op = JSONObject().put("kind",kind).put("clientRequestId",id).put("payload",payload).toString()
-        if (RouteOpsStore(this).version()==0) com.sunpride.van.sync.VanWireSchema.validate(JSONObject(String(VanBootstrapCodec.pushRequest(d,listOf(op)),Charsets.UTF_8)))
+        // The frozen v1 schema predates the v2 `openingFloatCentavos` field: validate everything else, send the field as saved.
+        if (RouteOpsStore(this).version()==0) com.sunpride.van.sync.VanWireSchema.validate(JSONObject(String(VanBootstrapCodec.pushRequest(d,listOf(withoutV2Fields(op))),Charsets.UTF_8)))
         val row = OutboxRow(s,d,id,tripId,kind,op,at,metadataJson)
         dao.insertOutbox(row)
         return row
@@ -152,8 +154,11 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
                 .put("orderKey",if(q>0)callKey else JSONObject.NULL))
         }
     }
-    suspend fun startTrip(vehicleConfirmed: Boolean, routeConfirmed: Boolean, driverName: String?, helperName: String?, odometerKm: Double?, note: String?): String = db.withTransaction {
+    suspend fun startTrip(vehicleConfirmed: Boolean, routeConfirmed: Boolean, driverName: String?, helperName: String?, odometerKm: Double?, note: String?,
+        /** IP-P0 (SPEC 6.7): cash the seller starts with, integer centavos 0..10_000_000; wire field `openingFloatCentavos`. */
+        openingFloatCentavos: Long = 0L): String = db.withTransaction {
         val t = writable(); require(vehicleConfirmed && routeConfirmed)
+        require(openingFloatCentavos in 0..com.sunpride.van.pos.OpeningFloat.MAX_CENTAVOS) { "Opening float must be between ₱0 and ₱100,000" }
         check(t.status == "loaded") { "Load must be posted before starting" }
         check(dao.outboxRows(s,d).none { it.tripId == t.tripId && it.kind == "trip.start" && it.status in setOf("pending","sending","done") }) { "Trip already starting" }
         require(odometerKm == null || odometerKm.isFinite() && odometerKm in 0.0..10_000_000.0)
@@ -164,6 +169,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         val p = JSONObject().put("tripId",t.tripId).put("vehicleConfirmed",true).put("routeConfirmed",true).put("deviceTime",clock())
         text(driverName,80)?.let { p.put("driverName",it) }; text(helperName,80)?.let { p.put("helperName",it) }
         odometerKm?.let { p.put("odometerKm",it) }; text(note,300)?.let { p.put("note",it) }
+        p.put(com.sunpride.van.pos.OpeningFloat.FIELD,openingFloatCentavos)
         enqueue("trip.start",t.tripId,p).clientRequestId
     }
     suspend fun confirmLoad(lines: List<LoadActual>): String = db.withTransaction {

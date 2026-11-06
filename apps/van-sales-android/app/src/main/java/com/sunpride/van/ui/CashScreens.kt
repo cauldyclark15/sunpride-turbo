@@ -50,6 +50,8 @@ import com.sunpride.van.pos.*
                 val e = summary.expectation
                 SectionCard("Expected cash") {
                     Text(PosMoney.format(e.expectedMinor,e.currency),style = MaterialTheme.typography.headlineMedium,modifier = Modifier.testTag("cash-expected"))
+                    if (e.openingFloatMinor > 0) Text("Includes your opening float ${PosMoney.format(e.openingFloatMinor,e.currency)}",
+                        style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("cash-float"))
                     Text("${e.cashSales} cash ${if (e.cashSales == 1) "sale" else "sales"} on this phone" +
                         (if (e.voidedSales > 0) " · ${e.voidedSales} voided left out" else ""),style = MaterialTheme.typography.bodyMedium)
                     if (e.others.isNotEmpty()) {

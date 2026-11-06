@@ -51,6 +51,13 @@ class VanBootstrapCodecTest {
         val o = JSONObject(fixture()); o.getJSONObject("policy").remove("damagePolicy"); o.remove("damageRecords")
         val b = VanBootstrapCodec.decode(o.toString()); assertNull(b.policy.damagePolicy); assertTrue(b.damageRecords.isEmpty())
     }
+    @Test fun handheldContactsAreOptionalAndStayOutOfTheFrozenValidator() {
+        val o = JSONObject(fixture())
+        assertNull(VanBootstrapCodec.decode(o.toString()).policy.handheld)
+        o.getJSONObject("policy").put("handheld",JSONObject().put("plateNumber","ABC-1234").put("supervisorName","Juan Dela Cruz").put("supervisorPhone","0917 123 4567").put("vehicleCode"," "))
+        val h = VanBootstrapCodec.decode(o.toString()).policy.handheld!!
+        assertEquals("ABC-1234",h.vanLabel); assertEquals("Juan Dela Cruz",h.supervisorName); assertEquals("0917 123 4567",h.supervisorPhone); assertNull(h.vehicleCode)
+    }
     @Test fun wireCopyMatchesCommittedAuthority() {
         assertEquals(JSONObject(fixture("van-v1.schema.json")).toString(),JSONObject(VanWireSchema.SCHEMA).toString())
     }

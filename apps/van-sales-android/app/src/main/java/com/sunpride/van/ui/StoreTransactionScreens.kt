@@ -8,6 +8,8 @@ import androidx.compose.ui.platform.testTag
 import com.sunpride.van.storepos.*
 import com.sunpride.van.pos.*
 import com.sunpride.van.data.Product
+import com.sunpride.van.printing.PrintOutcome
+import com.sunpride.van.printing.ReprintRules
 import com.sunpride.van.scanning.SenraiseScanner
 import com.sunpride.van.evidence.DamageCameraScreen
 import kotlinx.coroutines.launch
@@ -135,14 +137,13 @@ private fun quantity(text:String,scale:Long):Long?=runCatching{BigDecimal(text).
     }
 }
 
-/** F-R03 frozen receipt preview, manual print, and independently approved reversal requests. */
+/** F-R03 frozen receipt preview, print with "Did it print?", and independently approved reversal requests. */
 @Composable fun StoreReceiptsScreen(c:VanController){
     val config=c.storePos.config?:return
     var reason by remember{mutableStateOf("")}
-    var paperConfirmed by remember{mutableStateOf(false)}
+    var reprinting by remember{mutableStateOf<JSONObject?>(null)}
     val receipts=StoreTransactions.receipts(config,c.storePos.rows)
-    ScreenFrame("Store receipts",c::back,message=c.message){
-        SecondaryButton(if(paperConfirmed)"Paper checked · yes" else "Confirm paper is loaded",{paperConfirmed=!paperConfirmed})
+    ScreenFrame("Store receipts",c::back,message=c.message?:c.printMessage){
         LabeledField("Void / refund reason",reason,{reason=it},"store-reversal-reason",maxLength=300)
         Text("A second person approves voids and receipt-linked refunds in the office. Voids are only for the original open session; refunds return stock into quality hold.")
         receipts.forEach {r->SectionCard(r.getString("receiptNumber")){
@@ -150,13 +151,27 @@ private fun quantity(text:String,scale:Long):Long?=runCatching{BigDecimal(text).
             StoreCheckout.objects(r.getJSONArray("lines")).forEach {Text("${it.getString("description")} · ${it.get("quantity")} ${it.getString("uom")}")}
             StoreCheckout.objects(r.getJSONArray("tenders")).forEach {Text("${it.optString("label",it.getString("method"))} · ${pesos(it.getString("amountCentavos").toLong())}")}
             if(r.optJSONObject("fiscal")?.optBoolean("sample")==true)Text("Sample series · not a filed BIR PTU")
-            SecondaryButton("Print / explicit reprint",{c.printStoreReceipt(r.getString("saleId"),paperConfirmed)},enabled=!c.busy)
+            val id=r.getString("saleId");val history=c.storePrints[id].orEmpty()
+            val confirmed=history.any {it.confirmed}
+            Text(when{ReprintRules.needsConfirmation(history)->"Sent to printer · did it print?";confirmed->"Printed · ${ReprintRules.remaining(history)} reprints left";history.any {it.outcome==PrintOutcome.SKIPPED}->"Not printed · skipped, no paper";else->"Not printed"},
+                Modifier.testTag("store-print-state-$id"))
+            when{
+                ReprintRules.needsConfirmation(history)->SecondaryButton("Did it print?",{c.askDidItPrint(id,true)},Modifier.testTag("store-did-it-print"),enabled=!c.printing)
+                !confirmed->SecondaryButton(if(c.printing)"Printing…" else "Print receipt",{c.printStoreReceipt(id)},Modifier.testTag("store-print"),enabled=!c.printing)
+                ReprintRules.remaining(history)>0->SecondaryButton(if(c.printing)"Printing…" else "Reprint",{reprinting=r},Modifier.testTag("store-reprint"),enabled=!c.printing)
+                else->Text("Reprinted ${ReprintRules.MAX_REPRINTS} times. Ask the office for a copy.")
+            }
             if(r.optString("_status")!="voided"){
                 SecondaryButton("Request void before close",{c.saveStoreAction("store.void",JSONObject().put("saleId",r.getString("saleId")).put("reason",reason))},enabled=reason.isNotBlank()&&c.storePos.shift!=null&&!c.busy)
                 SecondaryButton("Request receipt refund",{c.saveStoreAction("store.refund",JSONObject().put("saleId",r.getString("saleId")).put("reason",reason))},enabled=reason.isNotBlank()&&c.storePos.shift!=null&&!c.busy)
             }else Text("Voided · retained in the immutable journal")
         }}
         if(receipts.isEmpty())Text("No store receipts saved yet.")
+    }
+    reprinting?.let {r->
+        val history=c.storePrints[r.getString("saleId")].orEmpty()
+        ReprintReasonDialog("${r.getString("receiptNumber")} · ${pesos(r.getString("totalMinor").toLong())}",ReprintRules.MAX_REPRINTS-ReprintRules.remaining(history)+1,
+            onPrint={why->c.printStoreReceipt(r.getString("saleId"),why);reprinting=null},onClose={reprinting=null})
     }
 }
 

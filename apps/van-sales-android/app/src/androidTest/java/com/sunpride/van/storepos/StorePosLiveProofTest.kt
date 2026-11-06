@@ -48,28 +48,30 @@ class StorePosLiveProofTest {
                 captureVanScreenshot(rule,"retail-live-signed-in")
             } else if(phase=="van") {
                 rule.waitUntil(20_000){!controller.storeMode}
-                rule.onNodeWithTag("store-shift").assertDoesNotExist()
+                rule.onNodeWithTag("store-open-session").assertDoesNotExist()
                 captureVanScreenshot(rule,"retail-live-back-to-van","home-primary")
             } else {
                 rule.waitUntil(20_000){controller.storeMode}
                 if(phase=="offline") {
-                    rule.onNodeWithTag("store-shift").performClick()
-                    rule.onNodeWithTag("store-cash-amount").performTextInput("1000")
-                    Espresso.closeSoftKeyboard();rule.onNodeWithTag("save-store-shift").performClick()
+                    rule.onNodeWithTag("store-open-session").performClick()
+                    rule.onNodeWithTag("store-float-amount").performTextInput("1000")
+                    Espresso.closeSoftKeyboard();rule.onNodeWithTag("save-store-open").performClick()
                     rule.waitUntil(20_000){!controller.busy && controller.storePos.shift!=null}
-                    captureVanScreenshot(rule,"retail-live-offline-open","save-store-shift")
-                    rule.onNodeWithTag("store-cash-amount").performTextReplacement("800")
+                    captureVanScreenshot(rule,"retail-live-offline-open","store-end-session")
+                    rule.onNodeWithTag("store-end-session").performScrollTo().performClick()
+                    rule.onNodeWithTag("store-end-continue").performClick()
+                    rule.onNodeWithTag("store-count-amount").performTextInput("800")
                     Espresso.closeSoftKeyboard()
-                    captureVanScreenshot(rule,"retail-live-offline-blind","save-store-shift")
-                    rule.onNodeWithTag("save-store-shift").performClick()
+                    captureVanScreenshot(rule,"retail-live-offline-blind","save-store-close")
+                    rule.onNodeWithTag("save-store-close").performClick()
                     rule.waitUntil(20_000){!controller.busy && controller.storePos.shift==null}
                     assertEquals(2,controller.storePos.queued)
-                    captureVanScreenshot(rule,"retail-live-offline-closed","store-shift")
+                    captureVanScreenshot(rule,"retail-live-offline-closed","store-open-session")
                 } else if(phase=="sync") {
                     rule.waitUntil(20_000){controller.storePos.queued==0}
                     assertEquals(0,controller.storePos.review)
-                    captureVanScreenshot(rule,"retail-live-synced","store-shift")
-                } else captureVanScreenshot(rule,"retail-live-store-mode","store-shift")
+                    captureVanScreenshot(rule,"retail-live-synced","store-open-session")
+                } else captureVanScreenshot(rule,"retail-live-store-mode","store-open-session")
             }
         } finally {rule.runOnUiThread{mounted.value=false};rule.waitForIdle();repository.close()}
     }

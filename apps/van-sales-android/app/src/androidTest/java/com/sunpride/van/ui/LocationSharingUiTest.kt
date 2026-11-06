@@ -79,7 +79,7 @@ class LocationSharingUiTest {
         rule.onNodeWithTag("location-sharing").assertDoesNotExist()
         loadAndOpenStart()
         rule.onNodeWithTag("start-location-note").assertExists()
-        rule.onNodeWithTag("start-trip").performClick()
+        typeOpeningFloat(rule,"2000"); rule.onNodeWithTag("start-trip").performClick()
         // The consent page, not the trip, comes first.
         rule.waitUntil(5_000) { c.page == Page.LOCATION_CONSENT }
         rule.onNodeWithTag("location-consent-intro").assertExists()
@@ -104,7 +104,7 @@ class LocationSharingUiTest {
         val sharing = FakeSharing()
         mount(sharing)
         loadAndOpenStart()
-        rule.onNodeWithTag("start-trip").performClick()
+        typeOpeningFloat(rule,"2000"); rule.onNodeWithTag("start-trip").performClick()
         rule.waitUntil(5_000) { c.page == Page.LOCATION_CONSENT }
         rule.onNodeWithTag("location-not-now").performScrollTo().performClick()
         rule.waitUntil(10_000) { c.trip?.startPending == true && !c.busy && c.page == Page.HOME }
@@ -128,7 +128,7 @@ class LocationSharingUiTest {
         val sharing = FakeSharing(granted = false)
         mount(sharing)
         loadAndOpenStart()
-        rule.onNodeWithTag("start-trip").performClick()
+        typeOpeningFloat(rule,"2000"); rule.onNodeWithTag("start-trip").performClick()
         rule.waitUntil(5_000) { c.page == Page.LOCATION_CONSENT }
         rule.onNodeWithTag("location-agree").performClick()
         rule.waitUntil(10_000) { c.trip?.startPending == true && !c.busy && c.page == Page.HOME }
@@ -148,7 +148,7 @@ class LocationSharingUiTest {
         rule.waitUntil(20_000) { c.initialized && !c.busy && c.trip != null && c.policy != null }
         loadAndOpenStart()
         rule.onNodeWithTag("start-location-note").assertDoesNotExist()
-        rule.onNodeWithTag("start-trip").performClick()
+        typeOpeningFloat(rule,"2000"); rule.onNodeWithTag("start-trip").performClick()
         rule.waitUntil(10_000) { c.trip?.startPending == true && !c.busy }
         assertEquals(Page.HOME,c.page)
         rule.onNodeWithTag("location-sharing").assertDoesNotExist()

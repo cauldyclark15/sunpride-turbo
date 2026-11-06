@@ -74,7 +74,7 @@ class VanUiDeviceTest {
         open(Page.START)
         rule.onNodeWithTag("confirm-truck").performClick()
         rule.onNodeWithTag("confirm-route").performClick()
-        rule.onNodeWithTag("start-trip").performClick()
+        typeOpeningFloat(rule,"2000"); rule.onNodeWithTag("start-trip").performClick()
         rule.waitUntil(10_000) { c.trip?.startPending == true && !c.busy }
         sync(); rule.waitUntil(10_000) { c.trip?.status == "active" }
     }
@@ -99,15 +99,18 @@ class VanUiDeviceTest {
         listOf("current-password","new-password","confirm-password").forEach { rule.onNodeWithTag(it).assertTextEquals(when(it) { "current-password" -> "Current password"; "new-password" -> "New password"; else -> "Confirm new password" },"") }
         rule.onNodeWithTag("change-password").assertIsNotEnabled()
     }
-    @Test fun unknownPaperNeverAutomaticallyPrintsASale() {
+    /** IP-P0: the H10P cannot report paper, so the sale prints by itself and the seller answers "Did it print?". */
+    @Test fun unknownPaperStillPrintsASaleAutomaticallyThenAsksDidItPrint() {
         val printer = com.sunpride.van.printing.FakeReceiptPrinter(com.sunpride.van.printing.PaperState.NOT_REPORTED)
         mount(printer = printer); loadAndStart()
         val juice = c.products.single { it.code == "SP-PJ-1L" }
         rule.runOnUiThread { c.startSale(c.customers.first { it.source == "route" }); c.addToSale(juice.productId,1); c.completeSale(com.sunpride.van.pos.PaymentInput("cash",10000),6850) }
         rule.waitUntil(10_000) { c.page == Page.SALE_DONE && !c.printing && c.savedSales.isNotEmpty() }
-        assertTrue(printer.documents.isEmpty())
-        rule.onNodeWithTag("print-status",useUnmergedTree = true).performScrollTo().assertTextEquals("Not printed. Check the paper, then tap Print receipt.")
-        rule.onNodeWithTag("sale-print").assertExists()
+        assertEquals(1,printer.documents.size)
+        assertFalse(printer.documents.single().isReprint)
+        rule.onNodeWithTag("print-question").assertIsDisplayed()
+        rule.onNodeWithTag("print-skip").performClick()
+        rule.waitUntil(10_000) { c.printQuestionSaleId == null && c.savedSales.single().skipped }
     }
     @Test fun signInWithPracticeInputsReachesAssignedTrip() {
         mount(restore = false)
@@ -163,7 +166,7 @@ class VanUiDeviceTest {
         assertEquals("short_loaded",load.lines.first().pendingReason)
         assertTrue(runBlocking { c.repository.syncStatus.first { it.queued > 0 } }.queued > 0)
         sync(); rule.waitUntil(10_000) { c.load?.status == "discrepancy" }
-        rule.onNodeWithTag("message").assertTextEquals("Waiting for supervisor approval")
+        rule.onNodeWithTag("message").assertTextEquals("Load difference sent to your supervisor. You will be told here when it is decided.")
         assertEquals("loading",runBlocking { c.repository.currentTrip.first() }!!.status)
     }
     @Test fun startRequiresLoadedTripAndBothChecks() {
@@ -180,6 +183,8 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("confirm-truck").performClick()
         rule.onNodeWithTag("start-trip").assertIsNotEnabled()
         rule.onNodeWithTag("confirm-route").performClick()
+        rule.onNodeWithTag("start-trip").assertIsNotEnabled()   // the opening float is still to be typed
+        typeOpeningFloat(rule,"2000")
         rule.onNodeWithTag("start-trip").assertIsEnabled()
         assertPrimaryClearance(rule,"start-trip")
         rule.onNodeWithTag("start-trip").performClick()
@@ -362,6 +367,8 @@ class VanUiDeviceTest {
         rule.waitUntil(10000) { c.savedSales.size == 1 }
         rule.onNodeWithTag("receipt-0-print").performScrollTo().performClick()
         rule.waitUntil(10000) { !c.printing && c.savedSales.single().printed && printer.documents.size == 1 }
+        rule.onNodeWithTag("print-yes").performClick()
+        rule.waitUntil(10000) { c.printQuestionSaleId == null && c.savedSales.single().confirmed }
         rule.onNodeWithTag("receipt-0-void-sale").performScrollTo().performClick()
         rule.onNodeWithTag("confirm-void").assertIsNotEnabled()
         rule.onNodeWithTag("void-reason-wrong_items").performScrollTo().performClick()
@@ -394,7 +401,7 @@ class VanUiDeviceTest {
         assertTrue(printer.documents.drop(1).all { doc -> doc.elements.filterIsInstance<com.sunpride.van.printing.ReceiptElement.Text>().any { it.text == "VOID - SALE CANCELLED" } })
         assertTrue(runBlocking { c.repository.fixtureStore().saleStockIssues() }.isEmpty())
     }
-    @Test fun saleReceiptPrintsOnceThenReprintsOnlyWithAReasonAndMarker() {
+    @Test fun saleReceiptPrintsThenAsksDidItPrintAndOnlyConfirmedPrintsAreReprints() {
         val printer = com.sunpride.van.printing.FakeReceiptPrinter()
         mount(printer = printer); loadAndStart()
         val juice = c.products.single { it.code == "SP-PJ-1L" }
@@ -416,26 +423,36 @@ class VanUiDeviceTest {
         // Saved first, then the original prints automatically, once.
         rule.waitUntil(10_000) { c.page == Page.SALE_DONE && !c.printing && printer.documents.size == 1 && c.savedSales.isNotEmpty() }
         assertFalse(printer.documents.single().isReprint)
-        rule.onNodeWithTag("print-status",useUnmergedTree = true).performScrollTo().assertTextEquals("Receipt sent to the printer. Tear it off for the customer. No paper? Load paper, then use Reprint.")
-        captureVanScreenshot(rule,"33-sale-printed","sale-done")
+        rule.onNodeWithTag("print-question").assertIsDisplayed()
+        captureVanScreenshot(rule,"33-sale-printed","print-yes")
+        // "Print again" before "Yes, printed" is still the ORIGINAL.
+        rule.onNodeWithTag("print-again").performClick()
+        rule.waitUntil(10_000) { !c.printing && printer.documents.size == 2 }
+        assertFalse(printer.documents[1].isReprint)
+        rule.waitUntil(10_000) { c.printQuestionSaleId != null }
+        rule.onNodeWithTag("print-yes").performClick()
+        rule.waitUntil(10_000) { c.printQuestionSaleId == null && c.savedSales.single().confirmed }
         rule.onNodeWithTag("sale-reprint").performScrollTo().performClick()
         rule.onNodeWithTag("confirm-reprint").assertIsNotEnabled()
         rule.onNodeWithTag("reprint-reason-customer_copy").performClick()
         rule.onNodeWithTag("confirm-reprint").assertTextEquals("Print copy 1").assertIsEnabled()
         captureVanScreenshot(rule,"34-reprint-reason","confirm-reprint")
         rule.onNodeWithTag("confirm-reprint").performClick()
-        rule.waitUntil(10_000) { !c.printing && printer.documents.size == 2 }
-        assertTrue(printer.documents[1].isReprint)
-        val lines = com.sunpride.van.printing.ReceiptLayoutFormatter().format(printer.documents[1])
+        rule.waitUntil(10_000) { !c.printing && printer.documents.size == 3 }
+        assertTrue(printer.documents[2].isReprint)
+        val lines = com.sunpride.van.printing.ReceiptLayoutFormatter().format(printer.documents[2])
             .filterIsInstance<com.sunpride.van.printing.ReceiptCommand.Line>().map { it.text }
         assertEquals("REPRINT",lines.first()); assertTrue(lines.joinToString("").contains("Reason: Customer needs another copy"))
         rule.onNodeWithTag("print-status",useUnmergedTree = true).assertTextEquals("Reprint copy 1 printed. It is marked REPRINT.")
+        rule.waitUntil(10_000) { c.printQuestionSaleId != null }
+        rule.onNodeWithTag("print-yes").performClick()
+        rule.waitUntil(10_000) { c.printQuestionSaleId == null }
         // The sale itself is unchanged: one saved sale, stock deducted once.
         assertEquals(1,c.sync.savedSales)
         rule.onNodeWithTag("sale-done").performClick()
         rule.onNodeWithTag("open-receipts").performScrollTo().performClick()
         rule.waitUntil(10_000) { c.savedSales.size == 1 }
-        rule.onNodeWithTag("receipt-0-state",useUnmergedTree = true).assertTextEquals("Sent to printer · reprinted 1× · 2 reprints left")
+        rule.onNodeWithTag("receipt-0-state",useUnmergedTree = true).assertTextEquals("Printed · reprinted 1× · 2 reprints left")
         captureVanScreenshot(rule,"35-receipts")
         // Printer reports no paper: refused before anything is recorded or printed.
         printer.paper = com.sunpride.van.printing.PaperState.OUT
@@ -443,8 +460,8 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("reprint-reason-unreadable").performClick()
         rule.onNodeWithTag("confirm-reprint").performClick()
         rule.waitUntil(10_000) { !c.printing && c.printMessage == "The printer is out of paper. Load paper, then print again." }
-        assertEquals(2,printer.documents.size)
-        rule.onNodeWithTag("receipt-0-state",useUnmergedTree = true).assertTextEquals("Sent to printer · reprinted 1× · 2 reprints left")
+        assertEquals(3,printer.documents.size)
+        rule.onNodeWithTag("receipt-0-state",useUnmergedTree = true).assertTextEquals("Printed · reprinted 1× · 2 reprints left")
     }
     // SP-0125 password eye: hidden by default, accessible label, re-hidden when the app is left or the form is sent.
     @Test fun passwordEyeShowsAndHidesAndReHidesWhenTheAppIsLeft() {
@@ -850,7 +867,7 @@ class VanUiDeviceTest {
         open(Page.START); captureVanScreenshot(rule,"11-start-trip-unconfirmed","start-trip")
         rule.onNodeWithTag("confirm-truck").performClick(); rule.onNodeWithTag("confirm-route").performClick()
         captureVanScreenshot(rule,"12-start-trip-confirmed","start-trip")
-        rule.onNodeWithTag("start-trip").performClick()
+        typeOpeningFloat(rule,"2000"); rule.onNodeWithTag("start-trip").performClick()
         rule.waitUntil(10_000) { c.trip?.startPending == true && !c.busy }
         sync(); rule.waitUntil(10_000) { c.trip?.status == "active" }
         captureVanScreenshot(rule,"13-home-on-route","home-primary")

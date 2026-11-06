@@ -67,6 +67,19 @@ class CashReconciliationStoreTest {
             buildList { while(c.moveToNext()) add((0 until c.columnCount).map { if(c.isNull(it)) null else c.getString(it) }) } } }
     }
 
+    @Test fun expectedCashIncludesTheOpeningFloatSavedWithTheTripStart() = runBlocking {
+        val tripId = db.rows().trip(s,d)!!.tripId
+        val key = UUID.randomUUID().toString()
+        val payload = JSONObject().put("tripId",tripId).put("vehicleConfirmed",true).put("routeConfirmed",true).put("deviceTime",at).put("openingFloatCentavos",200_000L)
+        db.rows().insertOutbox(OutboxRow(s,d,key,tripId,"trip.start",JSONObject().put("kind","trip.start").put("clientRequestId",key).put("payload",payload).toString(),at))
+        assertEquals(200_000L,cash.openingFloat(tripId))
+        sale(PaymentInput("cash",30_000))                      // ₱205.50 cash
+        val summary = cash.summary()!!
+        assertEquals(220_550L,summary.expectation.expectedMinor); assertEquals(200_000L,summary.expectation.openingFloatMinor)
+        // Counting the float plus the sale matches without a reason.
+        val result = cash.commit(request(mapOf(100_000L to 2L,10_000L to 2L,500L to 1L,5L to 10L),220_550))
+        assertEquals(0L,result.varianceMinor)
+    }
     @Test fun expectedCashCountsOnlyCashOfSalesNotVoidedAndAMatchingCountSavesWithoutAReason() = runBlocking {
         sale(PaymentInput("cash",30_000))                      // ₱205.50 cash, ₱94.50 change
         sale(PaymentInput("gcash",null,"GC 1"),1,6850)         // ₱68.50 GCash

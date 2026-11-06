@@ -61,10 +61,13 @@ class ReceiptPrintStoreTest {
         val flow = ReceiptPrintFlow(printer,log) { at+30 }
         assertTrue(flow.print(receipt.saleId,explicit = false) is PrintJobResult.Printed)
         assertEquals(PrintJobResult.Refused(PrintRefusal.ALREADY_PRINTED),flow.print(receipt.saleId,explicit = false))
+        // IP-P0: until "Yes, printed" the seller's re-send is still the original; the answer is stored with the attempt.
+        log.settle(receipt.saleId,PrintOutcome.CONFIRMED)
         assertEquals(PrintJobResult.Refused(PrintRefusal.REASON_REQUIRED),flow.print(receipt.saleId,explicit = true))
         repeat(ReprintRules.MAX_REPRINTS) { i ->
             val copy = flow.print(receipt.saleId,explicit = true,reasonCode = "customer_copy") as PrintJobResult.Printed
             assertEquals(i+1,copy.attempt.copyNumber)
+            log.settle(receipt.saleId,PrintOutcome.CONFIRMED)
         }
         assertEquals(PrintJobResult.Refused(PrintRefusal.LIMIT_REACHED),flow.print(receipt.saleId,true,"customer_copy"))
         assertEquals(listOf(false,true,true,true),printer.documents.map { it.isReprint })
@@ -73,7 +76,7 @@ class ReceiptPrintStoreTest {
         assertEquals(listOf("original","reprint","reprint","reprint"),rows.map { it.kind })
         assertEquals(listOf(0,1,2,3),rows.map { it.copyNumber })
         assertEquals(listOf(null,"customer_copy","customer_copy","customer_copy"),rows.map { it.reason })
-        assertTrue(rows.all { it.outcome == "printed" && it.finishedAt == at+20 })
+        assertTrue(rows.all { it.outcome == "confirmed" && it.finishedAt == at+20 })
         assertEquals(listOf(at+20,at+21,at+22,at+23),rows.map { it.startedAt })
         val list = RoomReceiptPrintLog(db,scope).savedSales().single()
         assertEquals(receipt.copy(replay = true),list.receipt)
@@ -90,12 +93,29 @@ class ReceiptPrintStoreTest {
         assertEquals(listOf("started"),db.receiptPrints().forSale(s,d,receipt.saleId).map { it.outcome })
         // App died before finish: the next automatic print must not produce a second "original".
         assertEquals(BeginPrint.Refused(PrintRefusal.ALREADY_PRINTED),RoomReceiptPrintLog(db,scope).begin(receipt.saleId,false,null))
-        val next = RoomReceiptPrintLog(db,scope).begin(receipt.saleId,true,"unreadable") as BeginPrint.Go
-        assertEquals(PrintKind.REPRINT,next.attempt.kind); assertEquals(1,next.attempt.copyNumber)
+        // The seller never said it printed, so their own "Print again" is still the original (IP-P0).
+        val next = RoomReceiptPrintLog(db,scope).begin(receipt.saleId,true,null) as BeginPrint.Go
+        assertEquals(PrintKind.ORIGINAL,next.attempt.kind); assertEquals(0,next.attempt.copyNumber)
         assertEquals("Aling Nena Store",next.receipt.customerName); assertEquals("TRIP-20261007-V014-1",next.header.tripNumber)
         log.finish(go.attempt.printId,PrintOutcome.MAYBE_PRINTED)
         assertThrows(IllegalStateException::class.java) { runBlocking { log.finish(go.attempt.printId,PrintOutcome.PRINTED) } }
         assertEquals("maybe_printed",db.receiptPrints().forSale(s,d,receipt.saleId).first().outcome)
+    }
+
+    @Test fun yesPrintedAndSkipAreStoredOnTheLatestAttemptAndSkipCountsAsUnprinted() = runBlocking {
+        val receipt = saved()
+        val log = RoomReceiptPrintLog(db,scope)
+        val flow = ReceiptPrintFlow(FakeReceiptPrinter(),log)
+        assertTrue(flow.print(receipt.saleId,explicit = false) is PrintJobResult.Printed)
+        assertTrue(log.savedSales().single().needsConfirmation)
+        log.settle(receipt.saleId,PrintOutcome.SKIPPED)
+        val skipped = log.savedSales().single()
+        assertTrue(skipped.skipped); assertFalse(skipped.printed); assertFalse(skipped.needsConfirmation)
+        // Skipped is local only: the next print is the original, then Yes printed makes the sale confirmed.
+        assertEquals(PrintKind.ORIGINAL,(flow.print(receipt.saleId,explicit = true) as PrintJobResult.Printed).attempt.kind)
+        log.settle(receipt.saleId,PrintOutcome.CONFIRMED)
+        assertEquals(listOf("skipped","confirmed"),db.receiptPrints().forSale(s,d,receipt.saleId).map { it.outcome })
+        assertTrue(log.savedSales().single().confirmed)
     }
 
     @Test fun failedBeforePaperKeepsTheOriginalAvailable() = runBlocking {
@@ -149,6 +169,7 @@ class ReceiptPrintStoreTest {
             assertEquals(ReceiptHeader("Juan Dela Cruz","TRIP-20261007-V014-1","V014 NBC 1234"),go.header)
             assertEquals(receipt.copy(replay = true),RoomReceiptPrintLog(db,scope).savedSales().single().receipt)
         }
+        RoomReceiptPrintLog(db,scope).settle(receipt.saleId,PrintOutcome.CONFIRMED)
         val copy = flow.print(receipt.saleId,explicit = true,reasonCode = "customer_copy") as PrintJobResult.Printed
         val reprint = paper(printer.documents.last())
         assertTrue(copy.attempt.kind == PrintKind.REPRINT && printer.documents.last().isReprint)

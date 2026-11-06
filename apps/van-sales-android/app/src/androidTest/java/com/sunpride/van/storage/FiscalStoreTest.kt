@@ -57,6 +57,7 @@ class FiscalStoreTest {
         val log=RoomReceiptPrintLog(db,scope,clock={at+20})
         val first=log.begin(r.saleId,false,null) as BeginPrint.Go
         log.finish(first.attempt.printId,PrintOutcome.MAYBE_PRINTED)
+        log.settle(r.saleId,PrintOutcome.CONFIRMED)
         val again=log.begin(r.saleId,true,"customer_copy") as BeginPrint.Go
         val preview=ReceiptLayoutFormatter().format(SaleReceiptDocuments.build(again.receipt,again.header,again.attempt,at+30))
             .filterIsInstance<ReceiptCommand.Line>().joinToString("\n"){it.text}

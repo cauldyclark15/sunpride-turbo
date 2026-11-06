@@ -10,7 +10,14 @@ data class VanPolicy(val allowNegativeStock: Boolean = false,
     val voidReasons: List<String> = emptyList(), val voidApproval: VoidApproval? = null,
     val cashReconciliation: CashReconciliationPolicy? = null,
     val stockReconciliation: StockReconciliationPolicy? = null,
-    val tripClose: TripClosePolicy? = null, val operationsVersion: Int = 0, val fiscalJson:String? = null,val schemesJson:String? = null)
+    val tripClose: TripClosePolicy? = null, val operationsVersion: Int = 0, val fiscalJson:String? = null,val schemesJson:String? = null,
+    /** IP-P0: who and which van this handheld belongs to, for the "No trip" screen. Absent until the office sends it. */
+    val handheld: HandheldInfo? = null)
+/** IP-P0 (SPEC 5.3): the van this handheld is bound to and the supervisor to call; every part is optional. */
+data class HandheldInfo(val vehicleCode: String? = null, val plateNumber: String? = null, val supervisorName: String? = null, val supervisorPhone: String? = null) {
+    /** "ABC-1234" when the plate is known, else the van code. */
+    val vanLabel: String? get() = plateNumber?.takeIf { it.isNotBlank() } ?: vehicleCode?.takeIf { it.isNotBlank() }
+}
 /**
  * VAN-024 what must be done before the seller closes the trip on this phone. A policy cached before VAN-024 has
  * none and then [STRICT] applies: every check on.

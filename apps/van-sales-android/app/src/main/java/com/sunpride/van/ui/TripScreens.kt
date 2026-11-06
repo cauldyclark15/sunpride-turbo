@@ -12,6 +12,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sunpride.van.data.*
+import com.sunpride.van.pos.OpeningFloat
 import com.sunpride.van.scanning.*
 import java.time.Instant
 import java.time.ZoneId
@@ -29,7 +30,7 @@ import java.time.format.DateTimeFormatter
             Text("Your trip is paused until the office confirms this phone. Tap Sync now. Your saved work is kept here.",
                 style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("on-hold"))
         } else if (trip == null) {
-            Text("No trip assigned for today. Ask your supervisor.",style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("no-trip"))
+            NoTripPanel(c,"No trip","no-trip")
         } else {
             SectionCard("Your trip") {
                 Text(trip.tripNumber,style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("trip-number"))
@@ -122,7 +123,7 @@ private data class LoadDraft(val quantity: String, val reason: String?)
     }
     val sent = when {
         load?.confirmPending == true -> "Sent — waiting for sync"
-        load?.status == "discrepancy" -> "Waiting for supervisor approval"
+        load?.status == "discrepancy" -> UserMessages.loadDifferenceSent(c.policy?.handheld?.supervisorName)
         load?.status == "posted" -> "Loaded"
         else -> null
     }
@@ -132,7 +133,7 @@ private data class LoadDraft(val quantity: String, val reason: String?)
         message = sent ?: c.message) {
         Text("Count what is on the truck. Give a reason for any difference.",style = MaterialTheme.typography.bodyMedium)
         if (lines.isEmpty() && c.onHold) Text("Your trip is paused until the office confirms this phone. Tap Sync now. Your saved work is kept here.",modifier = Modifier.testTag("on-hold"))
-        else if (lines.isEmpty()) Text("No load sheet available. Sync and ask your supervisor.")
+        else if (lines.isEmpty()) NoTripPanel(c,"No load sheet","no-load-sheet")
         lines.forEach { line ->
             val draft = drafts[line.lineNumber]!!
             val actual = VanRules.parseQuantity(draft.quantity,line.quantityScale)
@@ -171,13 +172,20 @@ private data class LoadDraft(val quantity: String, val reason: String?)
     val km = odometer.takeIf { it.isNotBlank() }?.toDoubleOrNull()
     val required=c.policy?.operationsVersion==1
     val validKm = (!required && odometer.isBlank()) || km != null && km.isFinite() && km in 0.0..10_000_000.0
+    // IP-P0 (SPEC 6.7): the cash the seller starts with, typed on a big pad. Never prefilled: type 0 if there is none.
+    var floatPesos by remember(trip?.tripId) { mutableStateOf("") }
+    val floatCentavos = OpeningFloat.centavos(floatPesos)
     ScreenFrame("Start trip",c::back,action = "Start trip",actionTag = "start-trip",
-        enabled = !c.busy && VanRules.canStart(trip,truck,route) && validKm,
-        onAction = { c.startTrip(truck,route,driver,helper,km,note) },message = c.message) {
+        enabled = !c.busy && VanRules.canStart(trip,truck,route) && validKm && OpeningFloat.valid(floatCentavos),
+        onAction = { c.startTrip(truck,route,driver,helper,km,note,checkNotNull(floatCentavos)) },message = c.message) {
         if (trip?.status != "loaded") Text("Confirm the load first",Modifier.testTag("start-blocked"))
         if (trip?.startPending == true) Text("Starting… waiting for sync")
         Confirmation(trip?.vehicle?.let { "This is truck ${it.vehicleCode} · ${it.plateNumber}" } ?: "Truck not assigned",truck,{ truck = it },"confirm-truck")
         Confirmation(trip?.route?.let { "This is the ${it.name} route" } ?: "Route not assigned",route,{ route = it },"confirm-route")
+        SectionCard("Opening float") {
+            Text("How much cash are you starting with? Type 0 if none.",style = MaterialTheme.typography.bodyLarge)
+            MoneyPad(floatPesos,"Usual: ${OpeningFloat.display(OpeningFloat.HINT_PESOS.toString())}",{ floatPesos = it },"float",enabled = !c.busy)
+        }
         LabeledField("Driver",driver,{ driver = it },"driver",maxLength = 80)
         LabeledField("Helper (optional)",helper,{ helper = it },"helper",maxLength = 80)
         LabeledField(if(required) "Opening odometer km (required)" else "Odometer km (optional)",odometer,{ odometer = it },"odometer",numeric = true,maxLength = 20)

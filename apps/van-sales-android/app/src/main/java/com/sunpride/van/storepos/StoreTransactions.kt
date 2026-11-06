@@ -85,12 +85,41 @@ class StoreTransactions(private val store:RoomVanStore) {
         receipt
     }
     suspend fun receiptRows():List<JSONObject> = receipts(sessions.writable(),dao.outboxRows(s,d))
-    suspend fun reservePrint(saleId:String):ReceiptDocument = store.db.withTransaction {
+    private val prints=store.db.receiptPrints()
+    /** IP-P0: the printed-or-not history of one store receipt, in print order (the same log table as the van). */
+    suspend fun printHistory(saleId:String):List<PrintAttempt> = prints.forSale(s,d,saleId).map {it.attempt()}
+    suspend fun printHistories():Map<String,List<PrintAttempt>> = prints.all(s,d).groupBy({it.saleId}) {it.attempt()}
+    /**
+     * Decides original or reprint with the same [ReprintRules] as the van, records `started` BEFORE the printer is
+     * called and queues the `store.print` journal. A re-send before "Yes, printed" is still the original.
+     */
+    suspend fun beginPrint(saleId:String,explicit:Boolean,reasonCode:String?):StoreBegin = store.db.withTransaction {
         val config=sessions.writable();val rows=dao.outboxRows(s,d)
-        val receipt=receipts(config,rows).single {it.getString("saleId")==saleId}
-        val copy=rows.any {it.kind=="store.print"&&JSONObject(it.operationJson).getJSONObject("payload").getString("saleId")==saleId}
-        action("store.print",JSONObject().put("saleId",saleId).put("reprint",copy).put("reason",if(copy)"Customer requested another copy" else "Original print").put("outcome","uncertain"))
-        document(receipt,copy)
+        val receipt=receipts(config,rows).singleOrNull {it.getString("saleId")==saleId} ?: return@withTransaction StoreBegin.Refused(PrintRefusal.SALE_NOT_FOUND)
+        val history=printHistory(saleId)
+        when(val decision=ReprintRules.decide(history,explicit,reasonCode)) {
+            is PrintDecision.Refused -> StoreBegin.Refused(decision.refusal)
+            is PrintDecision.Print -> {
+                val at=maxOf(store.now(),Math.addExact(history.maxOfOrNull {it.startedAt} ?: 0L,1L))
+                val row=ReceiptPrintRow(s,d,UUID.randomUUID().toString(),saleId,decision.kind.wire,decision.copyNumber,decision.reason,PrintOutcome.STARTED.wire,at)
+                prints.insert(row)
+                val reprint=decision.kind==PrintKind.REPRINT
+                action("store.print",JSONObject().put("saleId",saleId).put("reprint",reprint)
+                    .put("reason",if(reprint)(ReprintRules.reasonLabel(decision.reason) ?: "Customer requested another copy") else "Original print").put("outcome","uncertain"))
+                StoreBegin.Go(row.attempt(),document(receipt,reprint))
+            }
+        }
+    }
+    suspend fun finishPrint(printId:String,outcome:PrintOutcome) {
+        require(outcome!=PrintOutcome.STARTED)
+        check(prints.finish(s,d,printId,outcome.wire,store.now())==1) {"Print already finished"}
+    }
+    /** The seller's "Did it print?" answer for the latest sent attempt. Local only: nothing is queued. */
+    suspend fun settlePrint(saleId:String,outcome:PrintOutcome) = store.db.withTransaction {
+        require(outcome==PrintOutcome.CONFIRMED||outcome==PrintOutcome.SKIPPED)
+        val row=prints.forSale(s,d,saleId).maxByOrNull {it.startedAt} ?: return@withTransaction
+        prints.settle(s,d,row.printId,outcome.wire,store.now())
+        Unit
     }
     companion object {
         fun receipts(config:StorePosConfig,rows:List<OutboxRow>):List<JSONObject> {

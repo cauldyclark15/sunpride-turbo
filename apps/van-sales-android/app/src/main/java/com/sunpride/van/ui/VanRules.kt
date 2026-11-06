@@ -4,7 +4,7 @@ import com.sunpride.van.data.*
 import java.math.BigDecimal
 import java.math.MathContext
 
-enum class Page { HOME, LOAD, START, STOCK, STOCK_COUNT, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, CATALOGUE, SALE, CHECKOUT, SALE_DONE, RECEIPTS, RETURN, RETURN_DONE, CASH, CLOSE_TRIP, SYNC, LOCATION_CONSENT, ACCOUNT, CHANGE_PASSWORD, ROUTE_OPS, STORE_SHIFT, POS_MODE, STORE_SALE, STORE_READS, STORE_RECEIPTS, STORE_STOCK, STORE_DEPOSIT, STORE_CUSTOMERS }
+enum class Page { HOME, LOAD, START, STOCK, STOCK_COUNT, CUSTOMERS, WALK_IN, CUSTOMER, PRINTER, PRODUCTS, CATALOGUE, SALE, CHECKOUT, SALE_DONE, RECEIPTS, RETURN, RETURN_DONE, CASH, CLOSE_TRIP, SYNC, LOCATION_CONSENT, ACCOUNT, CHANGE_PASSWORD, ROUTE_OPS, STORE_OPEN, STORE_CLOSE, POS_MODE, STORE_SALE, STORE_READS, STORE_RECEIPTS, STORE_STOCK, STORE_DEPOSIT, STORE_CUSTOMERS }
 data class NextAction(val page: Page, val label: String)
 
 /** Display/validation only. The repository repeats every business check transactionally. */
@@ -251,7 +251,7 @@ object VanRules {
         is com.sunpride.van.printing.PrintJobResult.Printed ->
             if (result.attempt.kind == com.sunpride.van.printing.PrintKind.REPRINT) "Reprint copy ${result.attempt.copyNumber} printed. It is marked REPRINT."
             else if (result.attempt.kind == com.sunpride.van.printing.PrintKind.VOID) "Void slip printed. The sale is cancelled."
-            else "Receipt sent to the printer. Tear it off for the customer. No paper? Load paper, then use Reprint."
+            else "Receipt sent to the printer. Check the paper, then tell the phone if it printed."
         is com.sunpride.van.printing.PrintJobResult.Failed -> when {
             result.attempt == null -> "Printer not ready: ${com.sunpride.van.printing.PrinterWords.status(result.status)}. The sale is saved. Check the printer, then print again."
             result.mayHavePrinted && result.attempt.kind == com.sunpride.van.printing.PrintKind.VOID -> "The printer stopped during the void slip. Check the paper. Use Reprint void slip for another copy."
