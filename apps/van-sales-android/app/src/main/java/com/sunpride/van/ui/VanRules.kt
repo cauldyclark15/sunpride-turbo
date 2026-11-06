@@ -251,7 +251,7 @@ object VanRules {
         is com.sunpride.van.printing.PrintJobResult.Printed ->
             if (result.attempt.kind == com.sunpride.van.printing.PrintKind.REPRINT) "Reprint copy ${result.attempt.copyNumber} printed. It is marked REPRINT."
             else if (result.attempt.kind == com.sunpride.van.printing.PrintKind.VOID) "Void slip printed. The sale is cancelled."
-            else "Receipt sent to the printer. Tear it off for the customer. No paper? Load paper, then use Reprint."
+            else "Receipt sent to the printer. Check the paper, then tell the phone if it printed."
         is com.sunpride.van.printing.PrintJobResult.Failed -> when {
             result.attempt == null -> "Printer not ready: ${com.sunpride.van.printing.PrinterWords.status(result.status)}. The sale is saved. Check the printer, then print again."
             result.mayHavePrinted && result.attempt.kind == com.sunpride.van.printing.PrintKind.VOID -> "The printer stopped during the void slip. Check the paper. Use Reprint void slip for another copy."

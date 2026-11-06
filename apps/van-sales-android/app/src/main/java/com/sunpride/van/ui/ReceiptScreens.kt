@@ -34,7 +34,9 @@ import java.time.format.DateTimeFormatter
         Text(c.printMessage ?: when {
             saved == null -> "Getting the receipt…"
             saved.void != null -> if (saved.voidSlipPrinted) "Void slip printed." else "Void slip not printed yet."
-            saved.printed -> "Sent to the printer."
+            saved.confirmed -> "Printed."
+            saved.needsConfirmation -> "Sent to the printer. Did it print?"
+            saved.skipped -> "Not printed (skipped, no paper)."
             else -> "Not printed yet."
         },style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("print-status"))
         saved?.let { FiscalPreviewButtons(it) }
@@ -51,7 +53,10 @@ import java.time.format.DateTimeFormatter
                 { c.printReceipt(saved.receipt.saleId) },Modifier.testTag(if (saved.voidSlipPrinted) "$tag-reprint" else "$tag-print"),enabled = !c.printing)
             else Text("No more void slips on this phone. Ask the office for a copy.",modifier = Modifier.testTag("$tag-reprint-limit"))
         }
-        !saved.printed -> SecondaryButton(if (c.printing) "Printing…" else "Print receipt",{ c.printReceipt(saved.receipt.saleId) },
+        // Sent but not answered: ask "Did it print?" before anything else; a re-send stays the original.
+        saved.needsConfirmation -> SecondaryButton("Did it print?",{ c.askDidItPrint(saved.receipt.saleId,false) },
+            Modifier.testTag("$tag-did-it-print"),enabled = !c.printing)
+        !saved.confirmed -> SecondaryButton(if (c.printing) "Printing…" else "Print receipt",{ c.printReceipt(saved.receipt.saleId) },
             Modifier.testTag("$tag-print"),enabled = !c.printing)
         saved.reprintsLeft > 0 -> SecondaryButton(if (c.printing) "Printing…" else "Reprint",{ onReprint(saved) },
             Modifier.testTag("$tag-reprint"),enabled = !c.printing)
@@ -66,7 +71,7 @@ import java.time.format.DateTimeFormatter
     var collecting by remember { mutableStateOf<SavedSale?>(null) }
     val time = remember { DateTimeFormatter.ofPattern("h:mm a") }
     ScreenFrame("Receipts",c::back,message = c.message ?: c.printMessage) {
-        Text("Sales saved on this trip. A copy after the first print is marked REPRINT. Voided sales print only VOID slips.",style = MaterialTheme.typography.bodyMedium)
+        Text("Sales saved on this trip. After you confirm the first print, any further copy is marked REPRINT. Voided sales print only VOID slips.",style = MaterialTheme.typography.bodyMedium)
         if (c.savedSales.isEmpty()) Text("No sales on this trip yet.",style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("no-receipts"))
         c.savedSales.forEachIndexed { index, saved ->
             val r = saved.receipt
@@ -76,12 +81,14 @@ import java.time.format.DateTimeFormatter
                     Text(PosMoney.format(r.totalMinor,r.currency),style = MaterialTheme.typography.titleMedium,fontWeight = FontWeight.SemiBold)
                 }
                 Text(r.receiptNumber,style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("receipt-$index-number"))
-                val reprints = saved.prints.count { it.mayHaveReachedPaper && it.kind == com.sunpride.van.printing.PrintKind.REPRINT }
+                val reprints = saved.prints.count { it.confirmed && it.kind == com.sunpride.van.printing.PrintKind.REPRINT }
                 Text(when {
                     saved.void != null -> if (saved.voidSlipPrinted) "Void slip printed · ${saved.voidSlipsLeft} copies left" else "Void slip not printed"
-                    !saved.printed -> "Not printed"
-                    reprints == 0 -> "Sent to printer · ${saved.reprintsLeft} reprints left"
-                    else -> "Sent to printer · reprinted $reprints× · ${saved.reprintsLeft} reprints left"
+                    saved.needsConfirmation -> "Sent to printer · did it print?"
+                    saved.skipped -> "Not printed · skipped, no paper"
+                    !saved.confirmed -> "Not printed"
+                    reprints == 0 -> "Printed · ${saved.reprintsLeft} reprints left"
+                    else -> "Printed · reprinted $reprints× · ${saved.reprintsLeft} reprints left"
                 },style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("receipt-$index-state"))
                 saved.void?.let { Text("VOIDED · ${VoidReasons.label(it.reasonCode)}",style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.testTag("receipt-$index-void")) }
@@ -107,14 +114,17 @@ import java.time.format.DateTimeFormatter
 
 /** Reason first, then print. The copy number shown is the one that will be printed. */
 @Composable fun ReprintDialog(saved: SavedSale, onPrint: (String) -> Unit, onClose: () -> Unit) {
+    ReprintReasonDialog("${saved.receipt.customerName} · ${PosMoney.format(saved.receipt.totalMinor,saved.receipt.currency)}",
+        ReprintRules.MAX_REPRINTS - saved.reprintsLeft + 1,onPrint,onClose)
+}
+@Composable fun ReprintReasonDialog(summary: String, copy: Int, onPrint: (String) -> Unit, onClose: () -> Unit) {
     var reason by remember { mutableStateOf<String?>(null) }
-    val copy = ReprintRules.MAX_REPRINTS - saved.reprintsLeft + 1
     Dialog(onDismissRequest = onClose,properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(Modifier.fillMaxWidth().padding(16.dp).navigationBarsPadding().statusBarsPadding(),shape = SunprideTokens.shapes.large) {
             Column(Modifier.padding(16.dp),verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Reprint receipt",style = MaterialTheme.typography.titleLarge)
                 Column(Modifier.weight(1f,false).verticalScroll(rememberScrollState()),verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                    Text("${saved.receipt.customerName} · ${PosMoney.format(saved.receipt.totalMinor,saved.receipt.currency)}",style = MaterialTheme.typography.titleMedium)
+                    Text(summary,style = MaterialTheme.typography.titleMedium)
                     Text("Copy $copy of ${ReprintRules.MAX_REPRINTS}. It prints marked REPRINT. Why?",style = MaterialTheme.typography.bodyMedium)
                     ReprintRules.REASONS.forEach { option ->
                         Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).selectable(reason == option.code,onClick = { reason = option.code },role = Role.RadioButton)
@@ -126,6 +136,24 @@ import java.time.format.DateTimeFormatter
                 }
                 PrimaryBottomButton("Print copy $copy",{ reason?.let(onPrint) },enabled = reason != null,tag = "confirm-reprint")
                 SecondaryButton("Cancel",onClose,Modifier.testTag("cancel-reprint"))
+            }
+        }
+    }
+}
+
+/**
+ * IP-P0 (SPEC 6.5): the H10P cannot see paper, so after every print the seller answers. Sent again before "Yes, printed"
+ * is still the original; "Skip, no paper" records the receipt as unprinted for the office.
+ */
+@Composable fun DidItPrintSheet(c: VanController) {
+    Dialog(onDismissRequest = c::dismissPrintQuestion,properties = DialogProperties(usePlatformDefaultWidth = false)) {
+        Surface(Modifier.fillMaxWidth().padding(16.dp).navigationBarsPadding().statusBarsPadding(),shape = SunprideTokens.shapes.large) {
+            Column(Modifier.padding(16.dp),verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Text("Did it print?",style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("print-question"))
+                Text("The phone cannot see the paper. Look at the receipt. If nothing came out, print again.",style = MaterialTheme.typography.bodyLarge)
+                PrimaryBottomButton("Yes, printed",c::answerPrinted,enabled = !c.printing,tag = "print-yes")
+                SecondaryButton("Print again",c::answerPrintAgain,Modifier.testTag("print-again"),enabled = !c.printing)
+                SecondaryButton("Skip, no paper",c::answerSkipped,Modifier.testTag("print-skip"),enabled = !c.printing)
             }
         }
     }

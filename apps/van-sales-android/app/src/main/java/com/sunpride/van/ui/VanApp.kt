@@ -92,6 +92,8 @@ import kotlinx.coroutines.delay
                 Page.LOCATION_CONSENT -> LocationConsentScreen(controller)
             }
         }
+        // IP-P0: asked after every print, on whichever screen the cashier is on.
+        controller.printQuestionSaleId?.let { DidItPrintSheet(controller) }
     }
 }
 @Composable private fun SignInScreen(c: VanController) {

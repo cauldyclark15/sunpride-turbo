@@ -63,7 +63,7 @@ class ReceiptPrintingTest {
         val document = SaleReceiptDocuments.build(receipt,ReceiptHeader(null,null,null),
             PrintAttempt("print","sale",PrintKind.ORIGINAL,0,null,PrintOutcome.PRINTED,1),1L)
         val text = document.elements.filterIsInstance<ReceiptElement.Text>().joinToString("\n") { it.text }
-        assertTrue(text.contains("Promo PROMO-B10G1  -P0.00"))
+        assertTrue(text.contains("Offer PROMO-B10G1"))
         assertTrue(text.contains("Free 2 PC (PROMO-B10G1)"))
         assertTrue(text.contains("Prices: PL-ROUTE-SALES"))
     }

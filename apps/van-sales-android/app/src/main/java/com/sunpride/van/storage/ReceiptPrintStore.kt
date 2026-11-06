@@ -85,6 +85,9 @@ interface ReceiptPrintDao {
     /** Only a `started` attempt can be finished, and only once. */
     @Query("UPDATE receipt_print SET outcome=:outcome,finishedAt=:at WHERE fullAuthSubject=:subject AND deviceId=:device AND printId=:printId AND outcome='started'")
     suspend fun finish(subject: String, device: String, printId: String, outcome: String, at: Long): Int
+    /** IP-P0: the seller's "Did it print?" answer; only an attempt that was sent (or may have been) can be settled. */
+    @Query("UPDATE receipt_print SET outcome=:outcome,finishedAt=COALESCE(finishedAt,:at) WHERE fullAuthSubject=:subject AND deviceId=:device AND printId=:printId AND outcome IN ('started','printed','maybe_printed')")
+    suspend fun settle(subject: String, device: String, printId: String, outcome: String, at: Long): Int
 }
 
 /** A saved sale on the current trip, for the Receipts list. */
@@ -92,13 +95,20 @@ data class SavedSale(val receipt: SaleReceipt, val prints: List<PrintAttempt>, v
     val isCollection: Boolean get() = receipt.fiscalJson?.let {JSONObject(it).optString("documentType")=="official_receipt"} == true
     val voidSlipPrinted: Boolean get() = prints.any { it.kind == PrintKind.VOID && it.mayHaveReachedPaper }
     val voidSlipsLeft: Int get() = maxOf(0,ReprintRules.MAX_REPRINTS+1 - prints.count { it.kind == PrintKind.VOID && it.mayHaveReachedPaper })
+    /** Sent to the printer (not yet necessarily confirmed). Skipped receipts are not printed. */
     val printed: Boolean get() = prints.any { it.mayHaveReachedPaper }
+    /** The seller said "Yes, printed" at least once; only now is another copy a REPRINT. */
+    val confirmed: Boolean get() = prints.any { it.kind != PrintKind.VOID && it.confirmed }
+    /** Sent, but the seller has not answered "Did it print?" yet. */
+    val needsConfirmation: Boolean get() = void == null && ReprintRules.needsConfirmation(prints)
+    /** The seller skipped it for lack of paper and it never printed: the office sees it as unprinted. */
+    val skipped: Boolean get() = !confirmed && prints.any { it.outcome == PrintOutcome.SKIPPED }
     val reprintsLeft: Int get() = ReprintRules.remaining(prints)
 }
 
 private fun SaleVoidRow.info() = SaleVoidInfo(reasonCode,createdAt,approvalMethod == "supervisor_code")
 
-private fun ReceiptPrintRow.attempt() = PrintAttempt(printId, saleId, PrintKind.of(kind), copyNumber, reason, PrintOutcome.of(outcome), startedAt, finishedAt)
+internal fun ReceiptPrintRow.attempt() = PrintAttempt(printId, saleId, PrintKind.of(kind), copyNumber, reason, PrintOutcome.of(outcome), startedAt, finishedAt)
 
 /**
  * The scoped (full auth subject + registered device) print log. Authorization is the store scope itself: only the
@@ -138,6 +148,14 @@ class RoomReceiptPrintLog(private val db: VanDatabase, private val scope: StoreS
         val sale = printableRows().single { it.saleId == row.saleId }
         check(prints.finish(s, d, printId, outcome.wire, clock()) == 1) { "Print already finished" }
         journal(row,sale,when(outcome) { PrintOutcome.PRINTED -> "printed"; PrintOutcome.NOT_PRINTED -> "not_printed"; else -> "uncertain" })
+    }
+    override suspend fun settle(saleId: String, outcome: PrintOutcome) {
+        require(outcome == PrintOutcome.CONFIRMED || outcome == PrintOutcome.SKIPPED)
+        db.withTransaction {
+            printableRows().singleOrNull { it.saleId == saleId } ?: return@withTransaction
+            val row = prints.forSale(s, d, saleId).filter { it.kind != PrintKind.VOID.wire }.maxByOrNull { it.startedAt } ?: return@withTransaction
+            prints.settle(s, d, row.printId, outcome.wire, clock())
+        }
     }
     private suspend fun journal(row: ReceiptPrintRow, sale: SaleRow, outcome: String) {
         if (!s.startsWith("v2|") || db.receiptPrints().saleReceipt(s,d,sale.saleId)?.let { FrozenReceipts.decode(it.documentJson).first.fiscalJson } == null) return

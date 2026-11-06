@@ -112,7 +112,16 @@ class VanRepository private constructor(private val context: Context, private va
             com.sunpride.van.storepos.StoreTransactions(store()).sale(id,lines,tenders,total,phone,pin,points).also {schedule()}
         }
     }
-    suspend fun storePrint(id:String):com.sunpride.van.printing.ReceiptDocument = withContext(Dispatchers.IO) {com.sunpride.van.storepos.StoreTransactions(store()).reservePrint(id).also {schedule()}}
+    /** IP-P0: print a store receipt through the same original/reprint rule as the van. */
+    suspend fun storePrintReceipt(printer:com.sunpride.van.printing.ReceiptPrinter,saleId:String,explicit:Boolean,reasonCode:String?=null):com.sunpride.van.printing.PrintJobResult = withContext(Dispatchers.IO) {
+        val tx=com.sunpride.van.storepos.StoreTransactions(store())
+        com.sunpride.van.storepos.StorePrintFlow(printer,object:com.sunpride.van.storepos.StorePrintLog {
+            override suspend fun begin(saleId:String,explicit:Boolean,reasonCode:String?)=tx.beginPrint(saleId,explicit,reasonCode)
+            override suspend fun finish(printId:String,outcome:com.sunpride.van.printing.PrintOutcome)=tx.finishPrint(printId,outcome)
+        }).print(saleId,explicit,reasonCode).also {schedule()}
+    }
+    suspend fun storePrintHistories():Map<String,List<com.sunpride.van.printing.PrintAttempt>> = withContext(Dispatchers.IO) {com.sunpride.van.storepos.StoreTransactions(store()).printHistories()}
+    suspend fun storeSettlePrint(saleId:String,outcome:com.sunpride.van.printing.PrintOutcome) = withContext(Dispatchers.IO) {com.sunpride.van.storepos.StoreTransactions(store()).settlePrint(saleId,outcome)}
     suspend fun storeLookup(phone:String):JSONObject? = withContext(Dispatchers.IO) {
         com.sunpride.van.storepos.StoreCheckout.customerLock.withLock {
             val st=store();check(st.canSync());val epoch=st.authorizationEpoch()
@@ -485,6 +494,9 @@ class VanRepository private constructor(private val context: Context, private va
      */
     suspend fun printReceipt(printer: com.sunpride.van.printing.ReceiptPrinter, saleId: String, explicit: Boolean, reasonCode: String? = null): com.sunpride.van.printing.PrintJobResult =
         withContext(Dispatchers.IO) { val st = store(); com.sunpride.van.printing.ReceiptPrintFlow(printer,RoomReceiptPrintLog(st.db,st.scope)).print(saleId,explicit,reasonCode) }
+    /** IP-P0: the seller's answer to "Did it print?" (confirmed or skipped), recorded on the latest attempt. */
+    suspend fun settlePrint(saleId: String, outcome: com.sunpride.van.printing.PrintOutcome) =
+        withContext(Dispatchers.IO) { val st = store(); RoomReceiptPrintLog(st.db,st.scope).settle(saleId,outcome) }
     /** VAN-022: expected cash from this trip's saved sales and payments, and the saved count once there is one. */
     suspend fun cashSummary(): CashSummary? = withContext(Dispatchers.IO) { CashReconciliationStore(store()).summary() }
     /**

@@ -7,21 +7,27 @@ import kotlinx.coroutines.CancellationException
  * VAN-017 receipt printing and reprinting for sales already saved on this phone.
  *
  * Every attempt is written to the encrypted store as `started` BEFORE the printer is called, then finished as
- * printed / not printed / maybe printed. An attempt that never finished (the app died mid-print) counts as maybe
- * printed, so the next copy is always marked REPRINT. Only the first copy that may have reached paper is the
- * original; every later copy needs an explicit seller request with a reason and is limited per sale.
+ * printed / not printed / maybe printed. IP-P0 (SPEC 6.5): the handheld cannot see paper, so after each print the
+ * seller answers "Did it print?". A re-send before "Yes, printed" is still the ORIGINAL; only prints after that
+ * confirmation are REPRINTs, each needing an explicit request with a reason, limited per sale.
  */
 enum class PrintKind(val wire: String) { ORIGINAL("original"), REPRINT("reprint"), VOID("void");
     companion object { fun of(wire: String) = entries.single { it.wire == wire } } }
 
-enum class PrintOutcome(val wire: String) { STARTED("started"), PRINTED("printed"), NOT_PRINTED("not_printed"), MAYBE_PRINTED("maybe_printed");
+enum class PrintOutcome(val wire: String) { STARTED("started"), PRINTED("printed"), NOT_PRINTED("not_printed"), MAYBE_PRINTED("maybe_printed"),
+    /** The seller tapped "Yes, printed". From here on, another copy is a REPRINT. */
+    CONFIRMED("confirmed"),
+    /** The seller tapped "Skip, no paper": the receipt is recorded as unprinted for the office (local only). */
+    SKIPPED("skipped");
     companion object { fun of(wire: String) = entries.single { it.wire == wire } } }
 
 /** One recorded print of a saved sale. [copyNumber] is 0 for the original and 1.. for reprints. */
 data class PrintAttempt(val printId: String, val saleId: String, val kind: PrintKind, val copyNumber: Int, val reason: String?,
     val outcome: PrintOutcome, val startedAt: Long, val finishedAt: Long? = null) {
-    /** True unless the printer refused before any paper could move. */
-    val mayHaveReachedPaper: Boolean get() = outcome != PrintOutcome.NOT_PRINTED
+    /** True unless the printer refused before any paper could move, or the seller skipped it for lack of paper. */
+    val mayHaveReachedPaper: Boolean get() = outcome != PrintOutcome.NOT_PRINTED && outcome != PrintOutcome.SKIPPED
+    /** The seller said it printed. */
+    val confirmed: Boolean get() = outcome == PrintOutcome.CONFIRMED
 }
 
 data class ReprintReason(val code: String, val label: String)
@@ -62,16 +68,38 @@ object ReprintRules {
             if (count >= MAX_REPRINTS+1) return PrintDecision.Refused(PrintRefusal.LIMIT_REACHED)
             return PrintDecision.Print(PrintKind.VOID,count+1,null)
         }
-        val reached = history.filter { it.kind != PrintKind.VOID && it.mayHaveReachedPaper }
-        if (reached.isEmpty()) return PrintDecision.Print(PrintKind.ORIGINAL, 0, null)
+        val live = history.filter { it.kind != PrintKind.VOID }
+        val lastConfirmed = live.filter { it.confirmed }.maxByOrNull { it.startedAt }
+        if (lastConfirmed == null) {
+            // Nothing is confirmed yet: the automatic print happens once, but a seller's "Print again" is still the original.
+            if (!explicit && live.any { it.mayHaveReachedPaper }) return PrintDecision.Refused(PrintRefusal.ALREADY_PRINTED)
+            return PrintDecision.Print(PrintKind.ORIGINAL, 0, null)
+        }
         if (!explicit) return PrintDecision.Refused(PrintRefusal.ALREADY_PRINTED)
+        // A reprint that was sent but not yet confirmed is re-sent as the same copy: it does not use another reprint.
+        pendingReprint(live)?.let { return PrintDecision.Print(PrintKind.REPRINT, it.copyNumber, it.reason) }
         if (REASONS.none { it.code == reasonCode }) return PrintDecision.Refused(PrintRefusal.REASON_REQUIRED)
-        val reprints = reached.count { it.kind == PrintKind.REPRINT }
-        if (reprints >= MAX_REPRINTS) return PrintDecision.Refused(PrintRefusal.LIMIT_REACHED)
-        return PrintDecision.Print(PrintKind.REPRINT, reprints + 1, reasonCode)
+        val confirmedReprints = live.count { it.confirmed && it.kind == PrintKind.REPRINT }
+        if (confirmedReprints >= MAX_REPRINTS) return PrintDecision.Refused(PrintRefusal.LIMIT_REACHED)
+        return PrintDecision.Print(PrintKind.REPRINT, confirmedReprints + 1, reasonCode)
     }
-    fun remaining(history: List<PrintAttempt>): Int =
-        maxOf(0, MAX_REPRINTS - history.count { it.mayHaveReachedPaper && it.kind == PrintKind.REPRINT })
+    /** The latest reprint sent after the last confirmation and not yet confirmed (it may or may not be on paper). */
+    private fun pendingReprint(live: List<PrintAttempt>): PrintAttempt? {
+        val lastConfirmed = live.filter { it.confirmed }.maxByOrNull { it.startedAt } ?: return null
+        return live.filter { it.kind == PrintKind.REPRINT && it.startedAt > lastConfirmed.startedAt && it.mayHaveReachedPaper && !it.confirmed }.maxByOrNull { it.startedAt }
+    }
+    /** Reprints still available: confirmed ones and one sent-but-unconfirmed copy use up the cap. */
+    fun remaining(history: List<PrintAttempt>): Int {
+        val live = history.filter { it.kind != PrintKind.VOID }
+        val used = live.count { it.confirmed && it.kind == PrintKind.REPRINT } + if (pendingReprint(live) != null) 1 else 0
+        return maxOf(0, MAX_REPRINTS - used)
+    }
+    /** Sent to the printer but the seller has not said whether it printed. */
+    fun needsConfirmation(history: List<PrintAttempt>): Boolean {
+        val live = history.filter { it.kind != PrintKind.VOID }
+        val last = live.maxByOrNull { it.startedAt } ?: return false
+        return last.mayHaveReachedPaper && !last.confirmed
+    }
 }
 
 /** Who sold and on which trip, printed in the receipt header. */
@@ -88,6 +116,8 @@ sealed interface BeginPrint {
 interface ReceiptPrintLog {
     suspend fun begin(saleId: String, explicit: Boolean, reasonCode: String?): BeginPrint
     suspend fun finish(printId: String, outcome: PrintOutcome)
+    /** The seller's answer to "Did it print?": [PrintOutcome.CONFIRMED] or [PrintOutcome.SKIPPED] for the latest unconfirmed attempt. */
+    suspend fun settle(saleId: String, outcome: PrintOutcome) {}
 }
 
 sealed interface PrintJobResult {

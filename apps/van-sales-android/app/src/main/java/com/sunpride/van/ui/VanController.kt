@@ -53,17 +53,18 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         command("Blind count saved. The office will review any difference.") { repository.closeStoreShift(amount); storeNavEvent(StoreNavEvent.CloseSaved) }
     }
     fun saveStoreAction(kind:String,payload:org.json.JSONObject) = command("Saved securely on this phone. Sync when connected.") {repository.storeAction(kind,payload);page=Page.HOME}
-    fun saveStoreSale(id:String,lines:List<CartLine>,tenders:List<com.sunpride.van.storepos.StoreTransactions.Tender>,total:Long,phone:String?,pin:String?,points:Long) = command("Store sale saved. Preview the receipt before printing.") {
+    fun saveStoreSale(id:String,lines:List<CartLine>,tenders:List<com.sunpride.van.storepos.StoreTransactions.Tender>,total:Long,phone:String?,pin:String?,points:Long) = command("Store sale saved. Printing the receipt…") {
         repository.storeSale(id,lines,tenders,total,phone,pin,points);page=Page.STORE_RECEIPTS
+        // IP-P0 (SPEC 6.5): the invoice prints by itself; the cashier then answers "Did it print?".
+        startPrint(id,explicit=false,reason=null,store=true)
     }
     fun switchStoreMode(pin:String) = command("POS mode updated") {repository.switchPosMode(if(storeMode)"van" else "store",pin);page=Page.HOME}
-    fun printStoreReceipt(id:String,paperConfirmed:Boolean) = command {
-        val status=printer.diagnostics()
-        check(status.paper!=com.sunpride.van.printing.PaperState.OUT && (status.paper==com.sunpride.van.printing.PaperState.OK || paperConfirmed)) {"Confirm printer paper first"}
-        val document=repository.storePrint(id)
-        val result=printer.print(document)
-        message=if(result==PrintResult.Success)"Print sent. Check the paper before printing again." else "Print may be incomplete. Any further print is marked REPRINT."
-    }
+    /** Store receipts and their print history (original, reprints, confirmed or skipped), refreshed after every print. */
+    var storePrints by mutableStateOf(emptyMap<String,List<PrintAttempt>>())
+        private set
+    fun refreshStorePrints() { scope?.launch { storePrints=runCatching { repository.storePrintHistories() }.getOrElse { if(it is CancellationException) throw it; storePrints } } }
+    /** Print a store receipt again: the original if the cashier has not confirmed a print, else a REPRINT that needs [reason]. */
+    fun printStoreReceipt(id:String,reason:String?=null) = startPrint(id,explicit=true,reason=reason,store=true)
     var page by mutableStateOf(Page.HOME)
         private set
     var session by mutableStateOf(SessionState())
@@ -121,6 +122,10 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     /** Plain-words result of the latest print, shown on Sale saved and Receipts. */
     var printMessage by mutableStateOf<String?>(null)
         private set
+    /** IP-P0: the receipt whose "Did it print?" question is on screen (null = none), and whether it is a store receipt. */
+    var printQuestionSaleId by mutableStateOf<String?>(null)
+        private set
+    private var printQuestionStore by mutableStateOf(false)
     /** The latest print outcome in this session, for the printer check screen. */
     var lastPrint by mutableStateOf<LastPrint?>(null)
         private set
@@ -255,6 +260,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         if (next != Page.STORE_CLOSE) storeNav = StoreNav(next)
         page = next; message = null
         if (next == Page.RECEIPTS) { printMessage = null; refreshReceipts() }
+        if (next == Page.STORE_RECEIPTS) refreshStorePrints()
         if (next == Page.CASH) refreshCash()
         if (next == Page.STOCK_COUNT) refreshStock()
         if (next == Page.CLOSE_TRIP) refreshClose()
@@ -630,8 +636,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             val receipt = repository.completeSale(CheckoutRequest(draft.saleId,draft.customer.outletId,draft.lines,payment,draft.manualDiscount,draft.priceOverride,draft.creditOverride),expectedTotalMinor)
             lastReceipt = receipt; sale = null; page = Page.SALE_DONE; printMessage = null
             // VAN-017: the sale is saved first; the receipt prints after, and a printer problem never touches the sale.
-            if (receipt.fiscalJson == null) startPrint(receipt.saleId,explicit = false,reason = null)
-            else printMessage = "Invoice saved. Preview it before printing; confirm printer paper first."
+            startPrint(receipt.saleId,explicit = false,reason = null)
         } catch (e: CheckoutRefused) {
             message = e.issues.joinToString("\n") { issue -> VanRules.checkoutMessage(issue.problem,issue.productId?.let { id -> products.firstOrNull { it.productId == id }?.name }) }
         }
@@ -692,24 +697,57 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun refreshReceipts() {
         scope?.launch { savedSales = runCatching { repository.savedSales() }.getOrElse { if (it is CancellationException) throw it; savedSales } }
     }
-    private fun startPrint(saleId: String, explicit: Boolean, reason: String?) {
+    private fun startPrint(saleId: String, explicit: Boolean, reason: String?, store: Boolean = false) {
         if (printing) return
         val s = scope ?: return
         printing = true; printMessage = "Printing…"
         s.launch {
             try {
-                if (!explicit && printer.diagnostics().paper == PaperState.NOT_REPORTED) {
-                    printMessage = "Not printed. Check the paper, then tap Print receipt."
-                    return@launch
-                }
-                val result = repository.printReceipt(printer,saleId,explicit,reason)
+                // The H10P cannot report paper, so the print is always attempted and the seller answers "Did it print?".
+                val result = if (store) repository.storePrintReceipt(printer,saleId,explicit,reason) else repository.printReceipt(printer,saleId,explicit,reason)
                 printMessage = VanRules.printMessage(result)
                 lastPrint = LastPrint(System.currentTimeMillis(),printMessage!!,result is PrintJobResult.Printed)
+                val sent = when (result) {
+                    is PrintJobResult.Printed -> result.attempt.kind != PrintKind.VOID
+                    is PrintJobResult.Failed -> result.attempt?.let { it.kind != PrintKind.VOID && it.mayHaveReachedPaper } == true
+                    is PrintJobResult.Refused -> false
+                }
+                if (sent) { printQuestionSaleId = saleId; printQuestionStore = store }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { printMessage = "Could not print. The sale is saved. Try again." }
             finally {
                 printing = false
                 savedSales = runCatching { repository.savedSales() }.getOrDefault(savedSales)
+                if (store) storePrints = runCatching { repository.storePrintHistories() }.getOrDefault(storePrints)
+            }
+        }
+    }
+    /** "Yes, printed": from now on another copy is a REPRINT. */
+    fun answerPrinted() = settlePrintQuestion(PrintOutcome.CONFIRMED,"Printed. Thank you.")
+    /** "Skip, no paper": the receipt is recorded as unprinted for the office. */
+    fun answerSkipped() = settlePrintQuestion(PrintOutcome.SKIPPED,"Receipt skipped, no paper. The office will see it as not printed.")
+    /** "Print again": still the original, because nothing has been confirmed yet. */
+    fun answerPrintAgain() {
+        val id = printQuestionSaleId ?: return
+        val store = printQuestionStore
+        printQuestionSaleId = null
+        startPrint(id,explicit = true,reason = null,store = store)
+    }
+    fun dismissPrintQuestion() { printQuestionSaleId = null }
+    /** Ask again for a receipt that was sent but never answered (for example the app was closed first). */
+    fun askDidItPrint(saleId: String, store: Boolean) { printQuestionSaleId = saleId; printQuestionStore = store }
+    private fun settlePrintQuestion(outcome: PrintOutcome, text: String) {
+        val id = printQuestionSaleId ?: return
+        val store = printQuestionStore
+        scope?.launch {
+            try {
+                if (store) repository.storeSettlePrint(id,outcome) else repository.settlePrint(id,outcome)
+                printQuestionSaleId = null; printMessage = text
+            } catch (e: CancellationException) { throw e }
+            catch (_: Exception) { printMessage = "Could not save your answer. Try again." }
+            finally {
+                savedSales = runCatching { repository.savedSales() }.getOrDefault(savedSales)
+                if (store) storePrints = runCatching { repository.storePrintHistories() }.getOrDefault(storePrints)
             }
         }
     }
