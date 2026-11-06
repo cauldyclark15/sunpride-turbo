@@ -14,6 +14,12 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -29,25 +35,41 @@ import com.sunpride.van.selling.SellStep
 enum class TenderKind { CASH, OTHER, CREDIT }
 data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
 
-/** CART -> PAYMENT -> COMPLETE tracker; the finished steps are green, the current one is dark. */
+/** CART -> PAYMENT -> COMPLETE tracker; the finished steps are red, the current one is dark. */
 @Composable fun StepPills(current: SellStep) {
     val steps = listOf(SellStep.CART to "CART", SellStep.PAYMENT to "PAYMENT", SellStep.COMPLETE to "COMPLETE")
     val at = steps.indexOfFirst { it.first == current }.let { if (it < 0) 0 else it }
     Row(Modifier.fillMaxWidth().testTag("step-pills"), horizontalArrangement = Arrangement.spacedBy(6.dp), verticalAlignment = Alignment.CenterVertically) {
         steps.forEachIndexed { i, (_, label) ->
-            val bg = when { i < at -> SunprideTokens.stockGreen; i == at -> SunprideTokens.barInk; else -> MaterialTheme.colorScheme.surfaceVariant }
-            val fg = if (i <= at) Color.White else MaterialTheme.colorScheme.onSurface
-            Surface(Modifier.weight(1f), shape = RoundedCornerShape(20.dp), color = bg) {
+            val bg = when { i < at -> Look.accent; i == at -> Look.barInk; else -> Look.card }
+            val fg = when { i < at -> Look.onAccent; i == at -> Color.White; else -> Look.ink }
+            Surface(Modifier.weight(1f), shape = CircleShape, color = bg, border = if (i > at) BorderStroke(1.dp, Look.hairline) else null) {
                 Text((if (i < at) "✓ " else "") + label, Modifier.padding(vertical = 8.dp).fillMaxWidth(), color = fg, fontWeight = FontWeight.ExtraBold, fontSize = 14.sp, textAlign = TextAlign.Center, maxLines = 1)
             }
         }
     }
 }
 
-@Composable private fun Figure(label: String, value: String, tag: String, modifier: Modifier = Modifier, big: Boolean = false, color: Color = MaterialTheme.colorScheme.onSurface) {
+/** A labelled amount that shrinks to fit instead of clipping: the last digit of a total must never be lost. */
+@Composable private fun Figure(label: String, value: String, tag: String, modifier: Modifier = Modifier, big: Boolean = false, color: Color = Look.ink) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, fontSize = if (big) 34.sp else 26.sp, lineHeight = if (big) 40.sp else 32.sp, fontWeight = FontWeight.ExtraBold, color = color, maxLines = 1, modifier = Modifier.testTag(tag))
+        Text(label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Look.muted, letterSpacing = 0.8.sp)
+        FitText(value, if (big) 44.sp else 28.sp, Modifier.fillMaxWidth(), minSize = if (big) 24.sp else 16.sp, color = color, textAlign = TextAlign.Center, tag = tag)
+    }
+}
+
+/** The big total on its own line, then two smaller figures side by side. Used by Payment and Complete. */
+@Composable private fun FigureCard(totalLabel: String, totalValue: String, totalTag: String, left: Triple<String, String, String>, right: Triple<String, String, String>, rightColor: Color) {
+    LookCard {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Figure(totalLabel, totalValue, totalTag, Modifier.fillMaxWidth(), big = true)
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Look.hairline))
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Figure(left.first, left.second, left.third, Modifier.weight(1f))
+                Box(Modifier.width(1.dp).height(44.dp).background(Look.hairline))
+                Figure(right.first, right.second, right.third, Modifier.weight(1f), color = rightColor)
+            }
+        }
     }
 }
 
@@ -55,6 +77,7 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
  * Payment: Total, Tendered and Change in large type, a tender row, EXACT and quick-cash buttons, live change. EXACT pays at once
  * ([onExact]); a bill only fills Tendered and shows the change, then [onPay] confirms.
  */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable fun PaymentStep(
     title: String, totalMinor: Long?, choices: List<TenderChoice>, selectedId: String, onSelect: (String) -> Unit,
     tenderedMinor: Long?, onTendered: (Long?) -> Unit, issues: List<String>, saving: Boolean, canPay: Boolean, exactEnabled: Boolean,
@@ -75,45 +98,30 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
     // A different tender starts clean: no stale keypad digits from the previous one.
     LaunchedEffect(selected.id) { typed = ""; other = false }
     Scaffold(Modifier.fillMaxSize().imePadding(), containerColor = MaterialTheme.colorScheme.background, contentWindowInsets = WindowInsets.systemBars,
-        topBar = {
-            Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 2.dp) {
-                Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp).padding(horizontal = 8.dp), verticalAlignment = Alignment.CenterVertically) {
-                    TextButton(onBack, Modifier.heightIn(min = 56.dp).testTag("back"), enabled = !saving, colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) { Text("Back", fontSize = 17.sp, fontWeight = FontWeight.Bold) }
-                    Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f).testTag("screen-title"))
-                }
-            }
-        },
+        topBar = { LookTopBar(title, onBack, backEnabled = !saving) },
         bottomBar = {
-            Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp) {
-                Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    OutlinedButton(onBack, Modifier.weight(1f).heightIn(min = 64.dp).testTag("payment-back"), enabled = !saving, shape = SunprideTokens.shapes.small, border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) { Text("Back", fontSize = 18.sp, fontWeight = FontWeight.ExtraBold) }
-                    Button(onPay, Modifier.weight(2f).heightIn(min = 64.dp).testTag("complete-sale"), enabled = canPay && !saving, shape = SunprideTokens.shapes.small,
-                        colors = ButtonDefaults.buttonColors(containerColor = SunprideTokens.accessibleRed, contentColor = Color.White)) {
-                        Text(if (saving) "Saving…" else if (cash && change > 0) "Complete · change ${Peso.format(change)}" else "Complete sale", fontSize = 19.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1)
-                    }
+            Surface(color = Look.sheet, shadowElevation = 10.dp, shape = RoundedCornerShape(topStart = Look.sheetTop, topEnd = Look.sheetTop)) {
+                Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PillButton("Back", onBack, Modifier.weight(1f).testTag("payment-back"), enabled = !saving, filled = false, height = 64.dp)
+                    PillButton(if (saving) "Saving…" else if (cash && change > 0) "Complete · change ${Peso.format(change)}" else "Complete sale", onPay, Modifier.weight(2f).testTag("complete-sale"), enabled = canPay && !saving, height = 64.dp, fontSize = 19.sp)
                 }
             }
         }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
             message?.let { Text(it, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("message")) }
             StepPills(SellStep.PAYMENT)
-            Surface(Modifier.fillMaxWidth(), shape = SunprideTokens.shapes.large, color = MaterialTheme.colorScheme.surface, border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline)) {
-                Row(Modifier.fillMaxWidth().padding(vertical = 14.dp, horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                    Figure("TOTAL", totalMinor?.let(Peso::format) ?: "Not ready", "checkout-total", big = true, modifier = Modifier.weight(1.3f))
-                    Figure("TENDERED", tendered?.let(Peso::format) ?: "₱0.00", "checkout-tendered", modifier = Modifier.weight(1f))
-                    if (short > 0) Figure("SHORT", Peso.format(short), "checkout-change", color = SunprideTokens.emptyRed, modifier = Modifier.weight(1f))
-                    else Figure("CHANGE", Peso.format(change), "checkout-change", color = if (change > 0) SunprideTokens.stockGreen else MaterialTheme.colorScheme.onSurface, modifier = Modifier.weight(1f))
-                }
-            }
+            FigureCard("TOTAL", totalMinor?.let(Peso::format) ?: "Not ready", "checkout-total",
+                Triple("TENDERED", tendered?.let(Peso::format) ?: "₱0.00", "checkout-tendered"),
+                if (short > 0) Triple("SHORT", Peso.format(short), "checkout-change") else Triple("CHANGE", Peso.format(change), "checkout-change"),
+                if (short > 0) SunprideTokens.emptyRed else if (change > 0) SunprideTokens.stockGreen else Look.ink)
             if (issues.isNotEmpty()) SectionCard("Before you can finish") { issues.forEachIndexed { i, text -> Text(text, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("checkout-issue-$i")) } }
-            if (choices.size > 1) LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.testTag("tender-row")) {
-                items(choices) { choice ->
+            if (choices.size > 1) FlowRow(Modifier.fillMaxWidth().testTag("tender-row"), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                choices.forEach { choice ->
                     val on = choice.id == selected.id
-                    Surface(Modifier.heightIn(min = 56.dp).clickable { onSelect(choice.id) }.testTag("pay-${choice.id}"), shape = RoundedCornerShape(28.dp),
-                        color = if (on) SunprideTokens.barInk else MaterialTheme.colorScheme.surface, border = BorderStroke(2.dp, if (on) SunprideTokens.barInk else MaterialTheme.colorScheme.outline)) {
-                        Box(Modifier.padding(horizontal = 20.dp).heightIn(min = 56.dp), contentAlignment = Alignment.Center) {
-                            Text(choice.label, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold, color = if (on) Color.White else MaterialTheme.colorScheme.onSurface)
+                    Surface(Modifier.heightIn(min = 52.dp).clip(CircleShape).clickable { onSelect(choice.id) }.testTag("pay-${choice.id}"), shape = CircleShape,
+                        color = if (on) Look.barInk else Look.sheet, border = BorderStroke(1.5.dp, if (on) Look.barInk else Look.hairline)) {
+                        Box(Modifier.padding(horizontal = 20.dp).heightIn(min = 52.dp), contentAlignment = Alignment.Center) {
+                            Text(choice.label, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = if (on) Color.White else Look.ink, maxLines = 1)
                         }
                     }
                 }
@@ -124,15 +132,18 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         rowButtons.forEach { (label, action) ->
                             val exact = label == "EXACT"
-                            Button(action, Modifier.weight(1f).heightIn(min = 68.dp).testTag(if (exact) "pay-exact" else "quick-cash-${label.filter(Char::isDigit)}"), enabled = !saving && (!exact || exactEnabled), shape = SunprideTokens.shapes.small,
-                                colors = ButtonDefaults.buttonColors(containerColor = if (exact) SunprideTokens.stockGreen else SunprideTokens.barInk, contentColor = Color.White),
-                                contentPadding = PaddingValues(horizontal = 4.dp)) { Text(label, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1) }
+                            val on = !saving && (!exact || exactEnabled)
+                            val shape = RoundedCornerShape(22.dp)
+                            Box(Modifier.weight(1f).heightIn(min = 68.dp).clip(shape).background(if (!on) Brush.linearGradient(listOf(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.surfaceVariant)) else if (exact) Look.gradient else Brush.linearGradient(listOf(Look.card, Look.card)))
+                                .then(if (!exact) Modifier.border(1.5.dp, Look.hairline, shape) else Modifier)
+                                .clickable(enabled = on, onClick = action, role = Role.Button).testTag(if (exact) "pay-exact" else "quick-cash-${label.filter(Char::isDigit)}"), contentAlignment = Alignment.Center) {
+                                FitText(label, 24.sp, Modifier.padding(horizontal = 6.dp), minSize = 14.sp, color = if (!on) MaterialTheme.colorScheme.onSurfaceVariant else if (exact) Color.White else Look.ink, textAlign = TextAlign.Center)
+                            }
                         }
                         repeat(3 - rowButtons.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
-                OutlinedButton({ other = !other }, Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("pay-other-amount"), shape = SunprideTokens.shapes.small, border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline),
-                    colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) { Text(if (other) "Hide keypad" else "Other amount", fontSize = 18.sp, fontWeight = FontWeight.ExtraBold) }
+                PillButton(if (other) "Hide keypad" else "Other amount", { other = !other }, Modifier.testTag("pay-other-amount"), filled = false, height = 56.dp)
                 if (other) MoneyPad(typed, "₱0", { typed = it; onTendered(OpeningFloat.centavos(it)) }, "cash-received", enabled = !saving)
             }
             body()
@@ -147,20 +158,12 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
     body: @Composable ColumnScope.() -> Unit,
 ) {
     Scaffold(Modifier.fillMaxSize(), containerColor = MaterialTheme.colorScheme.background, contentWindowInsets = WindowInsets.systemBars,
-        topBar = {
-            Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 2.dp) {
-                Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f).testTag("screen-title"))
-                }
-            }
-        },
+        topBar = { LookTopBar(title, null) },
         bottomBar = {
-            Surface(color = MaterialTheme.colorScheme.surface, shadowElevation = 6.dp) {
-                Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Button(onNewSale, Modifier.fillMaxWidth().heightIn(min = 76.dp).testTag("new-sale"), shape = SunprideTokens.shapes.small,
-                        colors = ButtonDefaults.buttonColors(containerColor = SunprideTokens.barInk, contentColor = SunprideTokens.barYellow)) { Text("New sale", fontSize = 28.sp, fontWeight = FontWeight.ExtraBold) }
-                    OutlinedButton(onSecondary, Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("sale-done"), shape = SunprideTokens.shapes.small, border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline),
-                        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) { Text(secondaryLabel, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold) }
+            Surface(color = Look.sheet, shadowElevation = 10.dp, shape = RoundedCornerShape(topStart = Look.sheetTop, topEnd = Look.sheetTop)) {
+                Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    PillButton("New sale", onNewSale, Modifier.testTag("new-sale"), height = 76.dp, fontSize = 28.sp)
+                    PillButton(secondaryLabel, onSecondary, Modifier.testTag("sale-done"), filled = false, height = 56.dp)
                 }
             }
         }) { padding ->
@@ -168,16 +171,10 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
             message?.let { Text(it, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("message")) }
             StepPills(SellStep.COMPLETE)
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                Surface(Modifier.size(72.dp), shape = CircleShape, color = SunprideTokens.stockGreen) { Box(contentAlignment = Alignment.Center) { Text("✓", fontSize = 44.sp, color = Color.White, fontWeight = FontWeight.ExtraBold) } }
+                Surface(Modifier.size(72.dp), shape = CircleShape, color = SunprideTokens.stockGreen) { Box(contentAlignment = Alignment.Center) { Glyph(GlyphKind.CHECK, Color.White, 40.dp) } }
                 Text(headline, style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("sale-saved-note"))
             }
-            Surface(Modifier.fillMaxWidth(), shape = SunprideTokens.shapes.large, color = MaterialTheme.colorScheme.surface, border = BorderStroke(2.dp, MaterialTheme.colorScheme.outline)) {
-                Row(Modifier.fillMaxWidth().padding(vertical = 14.dp, horizontal = 8.dp), horizontalArrangement = Arrangement.SpaceEvenly) {
-                    Figure("RECEIVED", receivedLabel, "receipt-received", modifier = Modifier.weight(1f))
-                    Figure("TOTAL", totalLabel, "receipt-total", big = true, modifier = Modifier.weight(1.2f))
-                    Figure("CHANGE", changeLabel, "receipt-change", color = SunprideTokens.stockGreen, modifier = Modifier.weight(1f))
-                }
-            }
+            FigureCard("TOTAL", totalLabel, "receipt-total", Triple("RECEIVED", receivedLabel, "receipt-received"), Triple("CHANGE", changeLabel, "receipt-change"), SunprideTokens.stockGreen)
             body()
         }
     }

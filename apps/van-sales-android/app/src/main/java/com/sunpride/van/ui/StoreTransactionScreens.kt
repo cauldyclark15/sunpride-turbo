@@ -131,7 +131,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
             onSetLine={id,base->if(!c.busy)cart=SellingCart.set(cart,id,base)},
             rows=rows,totalLabel=browseTotal,chargeEnabled=quote!=null&&shiftOpen&&!c.busy&&!c.onHold,onCharge={send(SellEvent.ChargeTapped)},
             cartOpen=flow.step==SellStep.CART,onCartOpen={open->send(if(open)SellEvent.CartBarTapped else SellEvent.BackTapped)},
-            message=c.message?:notice?:reason,busy=c.busy)
+            message=c.message?:notice?:reason,busy=c.busy,cashierName=c.seller?.name,roleLabel="Cashier")
         SellStep.PAYMENT->PaymentStep(
             title="Payment",totalMinor=total,
             choices=listOf(TenderChoice("cash","Cash",TenderKind.CASH),TenderChoice("gcash","GCash / e-wallet",TenderKind.OTHER),TenderChoice("card","Card",TenderKind.OTHER),TenderChoice("split","Split",TenderKind.OTHER)),

@@ -3,6 +3,9 @@ package com.sunpride.van.ui
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.KeyboardOptions
@@ -22,26 +25,17 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.*
 import androidx.compose.ui.unit.dp
 
-/** Field-app palette, cards and shapes; handheld buttons/fields enlarged to 56dp. */
+/** IP-LOOK: pill buttons, rounded cards. Handheld buttons/fields stay at least 56dp. */
 @Composable fun PrimaryBottomButton(label: String, onClick: () -> Unit, enabled: Boolean = true, tag: String = "primary") {
-    Button(onClick, enabled = enabled, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag(tag),
-        shape = SunprideTokens.shapes.small,
-        colors = ButtonDefaults.buttonColors(containerColor = MaterialTheme.colorScheme.secondary,
-            contentColor = MaterialTheme.colorScheme.onSecondary,
-            disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
-            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant)) {
-        Text(label, style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
-    }
+    PillButton(label, onClick, Modifier.testTag(tag), enabled = enabled, height = 56.dp, fontSize = 18.sp)
 }
 @Composable fun SecondaryButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
-    OutlinedButton(onClick, modifier.fillMaxWidth().heightIn(min = 56.dp), enabled = enabled,
-        shape = SunprideTokens.shapes.small, colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = .7f))) { Text(label, style = MaterialTheme.typography.titleMedium) }
+    PillButton(label, onClick, modifier, enabled = enabled, filled = false, height = 56.dp, fontSize = 17.sp)
 }
 @Composable fun SectionCard(label: String, content: @Composable ColumnScope.() -> Unit) {
-    Surface(Modifier.fillMaxWidth(), shape = SunprideTokens.shapes.large,
-        color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = .7f))) {
+    Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(Look.cardRadius),
+        color = Look.sheet, tonalElevation = 0.dp,
+        border = BorderStroke(1.dp, Look.hairline), shadowElevation = 1.dp) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             content()
@@ -49,15 +43,15 @@ import androidx.compose.ui.unit.dp
     }
 }
 @Composable fun ListRow(title: String, meta: String = "", tag: String = "", enabled: Boolean = true, onClick: (() -> Unit)? = null) {
-    Surface(Modifier.fillMaxWidth().testTag(tag), color = MaterialTheme.colorScheme.surface,
-        shape = SunprideTokens.shapes.small) {
+    Surface(Modifier.fillMaxWidth().testTag(tag), color = Look.card,
+        shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Look.hairline)) {
         Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).then(if (onClick != null) Modifier.clickable(enabled = enabled,onClick = onClick) else Modifier)
             .padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
             Column(Modifier.weight(1f)) {
                 Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
                 if (meta.isNotBlank()) Text(meta, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (onClick != null && enabled) Text("›", style = MaterialTheme.typography.titleLarge)
+            if (onClick != null && enabled) Glyph(GlyphKind.BACK, Look.accent, 20.dp, Modifier.graphicsLayer { rotationZ = 180f })
         }
     }
 }
@@ -92,8 +86,9 @@ fun passwordToggleLabel(revealed: Boolean): String = if (revealed) "Hide passwor
             }
         }) else null,
         keyboardOptions = KeyboardOptions(keyboardType = keyboardType ?: when { password -> KeyboardType.Password; numeric -> KeyboardType.Decimal; tag == "email" -> KeyboardType.Email; else -> KeyboardType.Text }),
-        shape = SunprideTokens.shapes.small, textStyle = MaterialTheme.typography.bodyLarge,
-        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = MaterialTheme.colorScheme.onSurface,
+        shape = RoundedCornerShape(Look.pill), textStyle = MaterialTheme.typography.bodyLarge,
+        colors = OutlinedTextFieldDefaults.colors(focusedBorderColor = Look.accent,
+            unfocusedBorderColor = Look.hairline,
             focusedLabelColor = MaterialTheme.colorScheme.onSurface,
             disabledTextColor = MaterialTheme.colorScheme.onSurface,
             disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant,
@@ -121,15 +116,8 @@ fun passwordToggleLabel(revealed: Boolean): String = if (revealed) "Hide passwor
     content: @Composable ColumnScope.() -> Unit) {
     Scaffold(Modifier.fillMaxSize().imePadding(), containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets.systemBars,
-        topBar = {
-            Surface(color = MaterialTheme.colorScheme.surface) {
-                Row(Modifier.fillMaxWidth().statusBarsPadding().heightIn(min = 64.dp).padding(horizontal = 16.dp), verticalAlignment = Alignment.CenterVertically) {
-                    if (onBack != null) TextButton(onBack,Modifier.heightIn(min = 56.dp).testTag("back"), colors = ButtonDefaults.textButtonColors(contentColor = MaterialTheme.colorScheme.onSurface)) { Text("Back") }
-                    Text(title, style = MaterialTheme.typography.titleLarge, modifier = Modifier.weight(1f).testTag("screen-title"))
-                }
-            }
-        }, bottomBar = {
-            if (action != null || footer != null || bottomContent != null) Surface(color = MaterialTheme.colorScheme.surface) {
+        topBar = { LookTopBar(title, onBack) }, bottomBar = {
+            if (action != null || footer != null || bottomContent != null) Surface(color = Look.sheet, shadowElevation = 8.dp, shape = RoundedCornerShape(topStart = Look.sheetTop, topEnd = Look.sheetTop)) {
                 Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     // Thumb-zone controls (e.g. POS search) sit just above the pinned primary and the navigation bar.
                     bottomContent?.invoke(this)

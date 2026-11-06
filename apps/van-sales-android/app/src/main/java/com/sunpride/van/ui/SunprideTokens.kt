@@ -66,7 +66,7 @@ object SunprideTokens {
     val lightColors = lightColorScheme(
         primary = accessibleRed, onPrimary = snow,
         secondary = ink, onSecondary = snow,
-        background = canvas, onBackground = ink,
+        background = Color.White, onBackground = ink,
         surface = surface, onSurface = ink,
         surfaceVariant = disabledLight, onSurfaceVariant = muted,
         error = danger, onError = snow,
