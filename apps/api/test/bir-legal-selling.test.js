@@ -916,3 +916,34 @@ test("IP-INT2 ask 1: after senior/PWD sales the Z shows non-zero privilege lines
       .value,
   ).not.toBe("₱0.00");
 });
+
+test("IP-INT2FIX: the tax summary subtracts an approved refund, so output VAT is not overstated", async () => {
+  const before = (await api("/api/v1/fiscal/tax-summary")).body.totals;
+  shift = crypto.randomUUID();
+  const opened = await pushRaw(
+    op("store.shift.open", {
+      shiftId: shift,
+      policyId: policy,
+      openingCentavos: "0",
+    }),
+  );
+  expect(opened.status).toBe("applied");
+  const { id, result } = await ring(["VAT39"], "3900");
+  expect(result.status).toBe("applied");
+  const sold = (await api("/api/v1/fiscal/tax-summary")).body.totals;
+  expect(Number(sold.vat) - Number(before.vat)).toBe(418);
+  expect(sold.documents).toBe(before.documents + 1);
+  const refund = await pushRaw(
+    op("store.refund", { saleId: id, reason: "SAMPLE returned" }),
+  );
+  expect(refund.status).toBe("applied");
+  const [reversal] =
+    await h.db`select id from store_reversals where sale_id=${id}`;
+  await web("reversals/decide", { id: reversal.id, decision: "approved" });
+  const after = await api("/api/v1/fiscal/tax-summary");
+  expect(after.status).toBe(200);
+  for (const key of ["gross", "vatable", "vat", "total_due", "vat_exempt", "zero_rated"])
+    expect(after.body.totals[key]).toBe(before[key]);
+  // the sale is still a document of the day; the credit memo is not counted as a sale
+  expect(after.body.totals.documents).toBe(before.documents + 1);
+});

@@ -292,24 +292,47 @@ export function installBirRoutes(router, ctx) {
       const { all, ids } = await readScope(db, actor, q.get("unitId"));
       const from = day(q.get("from"), "start"),
         to = day(q.get("to"), "end");
-      const base = db`from fiscal_document_tax t
+      // IP-INT2FIX: a credit memo (refund) is a negative row of the same buckets as the sale it returns, so output VAT is not
+      // overstated after a refund. Its tax facts are the frozen snapshot of the credit memo document.
+      const promo = db`case when d.snapshot->'tax'->>'promoDiscountMinor' ~ '^[0-9]{1,15}$' then (d.snapshot->'tax'->>'promoDiscountMinor')::bigint else 0 end`;
+      const priv = db`case when d.snapshot->'tax'->>'privilegeDiscountMinor' ~ '^[0-9]{1,15}$' then (d.snapshot->'tax'->>'privilegeDiscountMinor')::bigint else 0 end`;
+      const removed = db`case when d.snapshot->'tax'->>'vatRemovedMinor' ~ '^[0-9]{1,15}$' then (d.snapshot->'tax'->>'vatRemovedMinor')::bigint else 0 end`;
+      const base = db`from (
+          select t.document_id,t.org_unit_id,t.business_date,t.gross_centavos,t.vatable_centavos,t.vat_centavos,t.vat_exempt_centavos,t.zero_rated_centavos,
+            t.promo_discount_centavos,t.privilege_discount_centavos,t.vat_removed_centavos,t.privilege_type,t.total_due_centavos,false as credit
+            from fiscal_document_tax t
+          union all
+          select d.id,r.org_unit_id,(d.issued_at at time zone 'Asia/Manila')::date,
+            -(case when d.snapshot->'tax'->>'grossMinor' ~ '^[0-9]{1,15}$' then (d.snapshot->'tax'->>'grossMinor')::bigint else (d.snapshot->'tax'->>'totalMinor')::bigint end),
+            -(d.snapshot->'tax'->>'vatableSalesMinor')::bigint,-(d.snapshot->'tax'->>'vatMinor')::bigint,
+            -(d.snapshot->'tax'->>'vatExemptMinor')::bigint,-(d.snapshot->'tax'->>'zeroRatedMinor')::bigint,
+            -(${promo}),-(${priv}),-(${removed}),
+            case when ${priv}>0 or ${removed}>0 then d.snapshot->'tax'->>'privilegeType' end,
+            -(d.snapshot->'tax'->>'totalMinor')::bigint,true
+            from fiscal_documents d join fiscal_series s on s.id=d.series_id join fiscal_registrations r on r.id=s.registration_id
+           where r.document_type='credit_memo'
+             and d.snapshot->'tax'->>'totalMinor' ~ '^[0-9]{1,15}$' and d.snapshot->'tax'->>'vatableSalesMinor' ~ '^[0-9]{1,15}$'
+             and d.snapshot->'tax'->>'vatMinor' ~ '^[0-9]{1,15}$' and d.snapshot->'tax'->>'vatExemptMinor' ~ '^[0-9]{1,15}$'
+             and d.snapshot->'tax'->>'zeroRatedMinor' ~ '^[0-9]{1,15}$'
+        ) t
         where (${all} or t.org_unit_id in ${db(ids)})
           and (${from}::date is null or t.business_date>=${from})
           and (${to}::date is null or t.business_date<=${to})
           and not exists(select 1 from fiscal_document_events e where e.document_id=t.document_id and e.kind='void')`;
       const days =
-        await db`select t.business_date::text as date, count(*)::int as documents,
+        await db`select t.business_date::text as date, (count(*) filter (where not t.credit))::int as documents,
           sum(t.gross_centavos)::text as gross, sum(t.vatable_centavos)::text as vatable, sum(t.vat_centavos)::text as vat,
           sum(t.vat_exempt_centavos)::text as vat_exempt, sum(t.zero_rated_centavos)::text as zero_rated,
           sum(t.promo_discount_centavos)::text as promo_discount, sum(t.privilege_discount_centavos)::text as privilege_discount,
           sum(t.vat_removed_centavos)::text as vat_removed, sum(t.total_due_centavos)::text as total_due ${base}
           group by t.business_date order by t.business_date desc limit 400`;
       const privilege =
-        await db`select t.privilege_type as type, count(*)::int as documents,
+        await db`select t.privilege_type as type, (count(*) filter (where not t.credit))::int as documents,
           sum(t.privilege_discount_centavos)::text as discount, sum(t.vat_removed_centavos)::text as vat_removed,
           sum(t.gross_centavos)::text as gross ${base} and t.privilege_type is not null
           group by t.privilege_type order by t.privilege_type`;
-      const [totals] = await db`select count(*)::int as documents,
+      const [totals] =
+        await db`select (count(*) filter (where not t.credit))::int as documents,
           coalesce(sum(t.gross_centavos),0)::text as gross, coalesce(sum(t.vatable_centavos),0)::text as vatable, coalesce(sum(t.vat_centavos),0)::text as vat,
           coalesce(sum(t.vat_exempt_centavos),0)::text as vat_exempt, coalesce(sum(t.zero_rated_centavos),0)::text as zero_rated,
           coalesce(sum(t.promo_discount_centavos),0)::text as promo_discount, coalesce(sum(t.privilege_discount_centavos),0)::text as privilege_discount,
