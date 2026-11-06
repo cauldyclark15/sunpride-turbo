@@ -1,6 +1,7 @@
 package com.sunpride.van.storepos
 
 import androidx.room.withTransaction
+import com.sunpride.van.pos.OpeningFloat
 import com.sunpride.van.storage.*
 import kotlinx.coroutines.flow.combine
 import org.json.JSONObject
@@ -42,7 +43,7 @@ class StorePosStore(private val store: RoomVanStore) {
             .also {check(it.mode=="store");check(it.policyId!=null)}
     }
     suspend fun open(openingCentavos: Long): String = store.db.withTransaction {
-        require(openingCentavos in 0..MAX_MONEY)
+        require(floatProblem(openingCentavos)==null) {OpeningFloat.CAP_MESSAGE}
         val config=writable()
         val saved=dao.outboxRows(s,d)
         check(project(config,saved).shift==null) {"A cashier session is already open"}
@@ -72,6 +73,8 @@ class StorePosStore(private val store: RoomVanStore) {
     }
     companion object {
         const val MAX_MONEY=9_000_000_000L
+        /** IP-P0: a store opening float is held to the office's ₱0..₱100,000 range, the same as a trip float; null when fine. */
+        fun floatProblem(openingCentavos: Long): String? = if (OpeningFloat.valid(openingCentavos)) null else OpeningFloat.CAP_MESSAGE
         val KINDS=setOf("store.shift.open","store.shift.close","store.sale","store.void","store.refund","store.read","store.receive","store.count","store.deposit","store.customer","store.print")
         fun project(config: StorePosConfig?,rows: List<OutboxRow>): StorePosState {
             val all=rows.filter {it.kind in KINDS}

@@ -9,6 +9,8 @@ object OpeningFloat {
     const val HINT_PESOS = 2_000L
     const val MAX_CENTAVOS = 10_000_000L
     const val FIELD = "openingFloatCentavos"
+    /** The same ceiling the office enforces on a trip float and on a store opening float. */
+    const val CAP_MESSAGE = "Opening float must be between ₱0 and ₱100,000"
     private const val MAX_PESOS = MAX_CENTAVOS / 100
 
     /** One key press on the pad: a digit, "00" or "back". A press that would pass the maximum is ignored. */

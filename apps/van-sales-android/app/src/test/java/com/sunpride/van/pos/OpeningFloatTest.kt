@@ -32,6 +32,10 @@ class OpeningFloatTest {
         assertNull(OpeningFloat.centavos("100001")); assertNull(OpeningFloat.centavos("12a")); assertFalse(OpeningFloat.valid(10_000_001L))
         assertEquals("abc",OpeningFloat.press("abc","x"))
     }
+    @Test fun capMessageNamesTheSameRangeTheOfficeEnforces() {
+        assertEquals("Opening float must be between ₱0 and ₱100,000",OpeningFloat.CAP_MESSAGE)
+        assertEquals(10_000_000L,OpeningFloat.MAX_CENTAVOS)
+    }
     @Test fun hintIsShownAsPesosNotPrefilled() {
         assertEquals("₱2,000",OpeningFloat.display(OpeningFloat.HINT_PESOS.toString()))
         assertEquals("₱0",OpeningFloat.display(""))

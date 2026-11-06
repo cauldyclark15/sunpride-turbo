@@ -16,6 +16,15 @@ class StorePosRulesTest {
         val p=JSONObject().put("shiftId",shift).put("modeVersionId",mode).put("deviceTime",time)
         return OutboxRow("v2|cashier|scope","device",id,register,kind,JSONObject().put("kind",kind).put("clientRequestId",id).put("payload",p).toString(),time,status=status)
     }
+    @Test fun IP_P0_storeOpeningFloatIsHeldToTheSameCapAsTheOffice() {
+        assertNull(StorePosStore.floatProblem(0L))
+        assertNull(StorePosStore.floatProblem(10_000_000L))
+        assertEquals("Opening float must be between ₱0 and ₱100,000",StorePosStore.floatProblem(10_000_001L))
+        // ₱150,000 used to be saved on the phone and then refused by the office on sync.
+        assertNotNull(StorePosStore.floatProblem(15_000_000L))
+        assertNotNull(StorePosStore.floatProblem(-1L))
+        assertTrue(StorePosStore.MAX_MONEY > 10_000_000L)
+    }
     @Test fun F_R01_offlineOpenAndCloseReplayNeverReopenClosedSession() {
         val id=UUID.randomUUID().toString()
         val a=row("store.shift.open",id,1)

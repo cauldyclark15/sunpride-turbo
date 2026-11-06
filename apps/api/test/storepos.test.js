@@ -396,6 +396,35 @@ test("IP-P0 store open without a float means zero; a float outside 0..P100,000 i
       .body.results[0].status,
   ).toBe("applied");
 });
+test("IP-P0 fix: the store float cap is the same P100,000 the phone enforces: the top is accepted, one centavo over is not", async () => {
+  const top = crypto.randomUUID();
+  const ok = await push([
+    op("store.shift.open", {
+      shiftId: top,
+      policyId,
+      openingCentavos: "10000000",
+    }),
+  ]);
+  expect(ok.body.results[0].status).toBe("applied");
+  const [row] =
+    await h.db`select opening_centavos::text as o from store_shifts where id=${top}`;
+  expect(row.o).toBe("10000000");
+  expect(
+    (await push([op("store.shift.close", { shiftId: top, declaredCentavos: "10000000" })]))
+      .body.results[0].status,
+  ).toBe("applied");
+  const over = await push([
+    op("store.shift.open", {
+      shiftId: crypto.randomUUID(),
+      policyId,
+      openingCentavos: "10000001",
+    }),
+  ]);
+  expect(over.body.results[0]).toMatchObject({
+    status: "rejected",
+    code: "invalid_request",
+  });
+});
 test("F-R01 office idempotency and Van mode round trip preserve the existing van contract", async () => {
   const body = {
       deviceId: seller.deviceId,

@@ -70,7 +70,9 @@ import com.sunpride.van.storepos.StoreXPreview
 /** Open only: take the float and open the session. It cannot turn into a count. */
 @Composable fun OpenSessionScreen(c: VanController) {
     var amount by remember {mutableStateOf("")}
-    val minor=VanRules.parseMoney(amount)?.takeIf {it<=StorePosStore.MAX_MONEY}
+    val typed=VanRules.parseMoney(amount)?.takeIf {it<=StorePosStore.MAX_MONEY}
+    val floatProblem=typed?.let(StorePosStore::floatProblem)
+    val minor=typed?.takeIf {floatProblem==null}
     // A session that is already open sends the cashier home; the form is never reused for counting.
     LaunchedEffect(c.storePos.shift) {if(c.storePos.shift!=null) c.open(Page.HOME)}
     ScreenFrame("Open cashier session",c::back,action="Open session",actionTag="save-store-open",
@@ -79,6 +81,7 @@ import com.sunpride.van.storepos.StoreXPreview
         Text(c.storePos.config?.storeName ?: "Store",style=MaterialTheme.typography.titleLarge)
         Text("Enter the cash placed in the drawer before the session starts. It is an opening float, not a sale.")
         LabeledField("Opening float (₱)",amount,{amount=it},"store-float-amount",numeric=true,maxLength=16)
+        floatProblem?.let {Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("store-float-problem"))}
         Text("Saved securely on this phone, even without a network. Sync when connected.")
     }
 }
