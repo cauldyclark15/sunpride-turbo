@@ -103,6 +103,14 @@ fun FieldApp(
     // scripts/measure-performance.sh); a no-op where the host reports nothing (tests, previews).
     androidx.activity.compose.ReportDrawnWhen { controller.launchSettled }
     var page by rememberSaveable { mutableStateOf("home") }
+    // Where a drill-down page (Account, Sync, a tool) opened from, so Back and the arrow return there.
+    var origin by rememberSaveable { mutableStateOf("home") }
+    fun go(next: String) {
+        if (page !in FieldNav.overlayPages) origin = page
+        page = next
+    }
+    // The Messages list is drawn under the app header; a chat, search or picker brings its own bar instead.
+    var chatAtRoot by remember { mutableStateOf(true) }
     var customerId by rememberSaveable { mutableStateOf<String?>(null) }
     val customer = customerId?.let { id -> controller.today.customers.firstOrNull { it.outletId == id } }
     // SP-0128: a sealed session waits for the system prompt; the app starts once it is opened (or the
@@ -214,7 +222,7 @@ fun FieldApp(
     // SP-0141: the phone's Back key and the on-screen ‹ take the same one step up; only Today (and the
     // sign-in / unlock / waiting screens) hand Back to the system, which leaves the app.
     val backStep = BackNavigation.step(BackState(locked = locked, signedIn = controller.state != EnrollmentState.SignedOut,
-        ready = ready, page = page, visitOpen = controller.diagnostic != null, visitsEnabled = visits,
+        ready = ready, page = page, origin = origin, visitOpen = controller.diagnostic != null, visitsEnabled = visits,
         photoCaptureOpen = controller.photoCaptureOpen, activityFormOpen = controller.activityForm != null,
         orderOpen = controller.orderOpen, orderReview = controller.orderReview, callSheetOpen = controller.callSheetOpen))
     val goBack: () -> Unit = {
@@ -237,58 +245,40 @@ fun FieldApp(
     LaunchedEffect(workDayHost, dayView?.started, dayView?.locationAllowed) {
         if (dayView?.started == true && dayView.locationAllowed) dayAction { h, t -> h.resume(t) }
     }
+    val summaryUnread = if (ready) com.sunpride.field.chat.rememberFieldUnread() else 0
+    val imeVisible = rememberImeVisible()
+    // The visit screens take over the page the seller was on, exactly as the `when` below picks them.
+    val visitOpen = controller.diagnostic != null && visits && ready && page !in FieldNav.pagesAheadOfVisit
+    val barVisible = FieldNav.barVisible(ready, locked, controller.today.partnerMode, visitOpen, page) && !imeVisible
     MaterialTheme(colorScheme = if (dark) SunprideTokens.darkColors else SunprideTokens.lightColors,
         shapes = SunprideTokens.shapes, typography = SunprideTokens.typography) {
         Scaffold(contentWindowInsets = WindowInsets.safeDrawing, containerColor = MaterialTheme.colorScheme.background, topBar = {
             // SP-0147: Messages draws its own top bar (title, back, actions), so the app's bar steps aside there.
-            if (com.sunpride.field.chat.FieldChat.appBarVisible(ready, page)) Surface(color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp, modifier = Modifier.statusBarsPadding()) {
-                Column {
-                Row(Modifier.fillMaxWidth().height(48.dp).padding(horizontal = 20.dp),
-                    horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                    if (controller.diagnostic != null && ready && (page == "home" || page == "route" || page == "customers" || page == "customer")) Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = goBack, modifier = Modifier.height(48.dp).testTag("visit-back")) {
-                            Text("‹", style = MaterialTheme.typography.titleLarge)
+            if (com.sunpride.field.chat.FieldChat.appBarVisible(ready, page, chatAtRoot)) {
+                val spec = headerSpec(ready, locked, signedIn = controller.state != EnrollmentState.SignedOut, page = page,
+                    visitOpen = visitOpen, controller = controller, routeCode = controller.today.routeCode)
+                FieldHeader(spec.title, subtitle = spec.subtitle, titleTag = spec.titleTag,
+                    onBack = if (spec.back) goBack else null, backTag = spec.backTag,
+                    actions = {
+                        if (controller.state != EnrollmentState.SignedOut && !locked) HeaderRoundButton(GlyphKind.PERSON, "Account",
+                            { go("account") }, Modifier.testTag("account-open"))
+                    },
+                    below = if (ready) ({
+                        // FlowRow: a long sync label pushes the location pill to its own line instead of squeezing it.
+                        androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            val label = status.label(now)
+                            StatusPill(label, Modifier.testTag("sync-status"), onClick = { go("sync") },
+                                warning = status.review > 0 || status.held > 0 || label.startsWith("Late") || label.startsWith("Day closed"),
+                                good = label == "All synced")
+                            if (dayView != null) com.sunpride.field.ui.location.LocationIndicator(dayView)
                         }
-                        Text(if (controller.photoCaptureOpen) "Photo" else controller.activityForm?.let {
-                            com.sunpride.field.storage.ActivityRules.kindLabel(it) }
-                            ?: if (controller.orderOpen && controller.orderReview) "Review" else if (controller.orderOpen) "Order"
-                            else if (controller.callSheetOpen) "Call sheet" else "Visit", style = MaterialTheme.typography.titleMedium)
-                    } else if (controller.state != EnrollmentState.SignedOut && !locked && (page == "account" || page == "change-password" || page == "sync" || page == "support" ||
-                        (ready && (page == "route" || page == "customers" || page == "customer" || page == "team" || page == "census" || page == "workforce" || page == "jointcall" || page == "collections")))) Row(verticalAlignment = Alignment.CenterVertically) {
-                        IconButton(onClick = goBack,
-                            modifier = Modifier.height(48.dp).testTag(when (page) {
-                                "sync" -> "sync-back"; "support" -> "support-back"; "route" -> "route-back"
-                                "customers" -> "customers-back"; "customer" -> "customer-back"; "team" -> "team-back"; "workforce" -> "workforce-back"
-                                else -> "account-back"
-                            })) {
-                            Text("‹", style = MaterialTheme.typography.titleLarge)
-                        }
-                        Text(when (page) {
-                            "change-password" -> "Change password"; "sync" -> "Sync"; "support" -> "Support info"; "route" -> "Route"
-                            "customers" -> "Customers"; "customer" -> "Outlet"; "team" -> "Team"; "census" -> "Census"; "workforce" -> "Attendance & prospects"; "jointcall" -> "Work-With & coaching"; "collections" -> "Collector agenda"; else -> "Account"
-                        }, style = MaterialTheme.typography.titleMedium,
-                            modifier = when (page) {
-                                "account" -> Modifier.testTag("account-title"); "route" -> Modifier.testTag("route-title")
-                                "customers" -> Modifier.testTag("customers-title"); "customer" -> Modifier.testTag("customer-title")
-                                "team" -> Modifier.testTag("team-title")
-                                else -> Modifier
-                            })
-                    } else Text("Sunpride Field", style = MaterialTheme.typography.titleMedium)
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        if (controller.state != EnrollmentState.SignedOut) IconButton(onClick = { page = "account" },
-                            modifier = Modifier.height(48.dp).testTag("account-open")) {
-                            AccountGlyph()
-                        }
-                    }
-                }
-                // FlowRow: a long sync label pushes the location pill to its own line instead of squeezing it.
-                if (ready) androidx.compose.foundation.layout.FlowRow(Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    StatusPill(status.label(now), Modifier.testTag("sync-status"), onClick = { page = "sync" })
-                    if (dayView != null) com.sunpride.field.ui.location.LocationIndicator(dayView)
-                }
-                }
+                    }) else null)
             }
+        }, bottomBar = {
+            if (barVisible) FieldBottomBar(FieldNav.tabOf(page), summaryUnread, onSelect = { tab ->
+                if (tab.page != page) { page = tab.page; origin = "home" }
+            })
         }) { padding ->
             val modifier = Modifier.padding(padding).consumeWindowInsets(padding)
             when {
@@ -302,20 +292,19 @@ fun FieldApp(
                         controller::companyKey,controller::signCompanyMessage,controller::updateCompanyWaiting, { controller.companySignIn(it) }) })
                 ready&&controller.today.partnerMode&&page !in setOf("account","support","change-password","sync") -> DsrScreen(controller,location,modifier)
                 page == "account" -> AccountScreen(controller.key, signOut,
-                    onBack = { page = "home" }, onSupport = { page = "support" }, modifier = modifier,
+                    onBack = goBack, onSupport = { page = "support" }, modifier = modifier,
                     showKeyDetails = FieldFeature.PHONE_KEY_DETAILS in features,
                     onReportIssue = features.reportIssueUrl?.let { url -> { openLink(context, url) } },
                     biometrics = biometrics,
-                    onIncentives = if (ready) ({ page = "incentives" }) else null,
-                    onChangePassword = { controller.resetPasswordForm(); page = "change-password" },
-                    onBatteryGuide = if (batteryGuide != null) ({ page = "location-battery" }) else null,
+                                        onChangePassword = { controller.resetPasswordForm(); page = "change-password" },
+                    onBatteryGuide = if (batteryGuide != null) ({ go("location-battery") }) else null,
                     sapContent = {
                         FieldCreditControlPanel(controller::creditControl,controller::sapMasterLifetime)
                         com.sunpride.catalogue.SapMasterCopy(controller::sapMasters,controller::sapMasterLifetime)
                         com.sunpride.integrity.AppUpdatePanel(controller::appUpdates,controller::sapMasterLifetime)
                     })
                 ready && page == "incentives" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
-                    com.sunpride.field.ui.incentives.EarnedStatementsScreen(backend, { page = "account" }, modifier)
+                    com.sunpride.field.ui.incentives.EarnedStatementsScreen(backend, { page = origin }, modifier)
                 }
                 page == "change-password" -> ChangePasswordScreen(controller.passwordBusy, controller.passwordMessage,
                     controller.passwordChanged, onChange = { current, next, confirm ->
@@ -324,7 +313,7 @@ fun FieldApp(
                 page == "support" -> SupportDetails(status, { page = "account" }, modifier)
                 ready && page == "location-consent" -> com.sunpride.field.ui.location.LocationConsentScreen(
                     onAgree = { dayAction(after = requestLocation) { h, t -> h.consent(t) } },
-                    onDecline = { page = "home" }, modifier = modifier)
+                    onDecline = { page = origin }, modifier = modifier)
                 ready && page == "location-background" -> com.sunpride.field.ui.location.BackgroundLocationScreen(
                     onOpenSettings = { backgroundLauncher.launch(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION) },
                     onSkip = { afterLocationSetup() }, modifier = modifier)
@@ -335,26 +324,37 @@ fun FieldApp(
                     com.sunpride.field.ui.location.BatteryGuideScreen(guideView!!,
                         onBattery = { batteryGuide.openBattery(context) },
                         onAutostart = { batteryGuide.openAutostart(context) },
-                        onDone = { page = "home" }, modifier = modifier)
+                        onDone = { page = origin }, modifier = modifier)
                 }
                 ready && page == "collections" -> CollectorScreen(controller,modifier)
                 ready && page == "jointcall" -> JointCallScreen(controller,modifier)
                 ready && page == "catalogue" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
-                    com.sunpride.field.catalogue.FieldCatalogue(backend, { page = "home" }, modifier)
+                    com.sunpride.field.catalogue.FieldCatalogue(backend, { page = origin }, modifier)
                 }
                 ready && page == "census" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
-                    com.sunpride.field.census.CensusScreen(backend, location, { page = "home" }, modifier)
+                    com.sunpride.field.census.CensusScreen(backend, location, { page = origin }, modifier)
                 }
                 ready && page == "workforce" -> com.sunpride.field.ui.workforce.WorkforceScreen(controller,location,modifier)
                 // SP-0146 v2 messaging: the shared chat module; Back inside it steps back, Back on its list returns here.
-                ready && page == "messages" -> com.sunpride.field.chat.FieldMessages(modifier, chatTap, onClose = { page = "home" },
+                ready && page == "messages" -> com.sunpride.field.chat.FieldMessages(modifier, chatTap, onClose = { page = "home" }, onAtRoot = { chatAtRoot = it },
                     openHref = { href ->
                         Regex("^/stores/([^/?#]+)").find(href)?.groupValues?.get(1)
                             ?.takeIf { id -> controller.today.customers.any { it.outletId == id } }
                             ?.let { id -> customerId = id; page = "customer"; true } ?: false
                     })
-                ready && page == "sync" -> SyncDetails(status, onDismiss = { page = "home" },
+                ready && page == "sync" -> SyncDetails(status, onDismiss = { page = origin },
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
+                ready && page == "more" -> MoreScreen(modifier = modifier, status = status, now = now,
+                    onSync = { go("sync") }, onAccount = { go("account") }, onSupport = { go("support") },
+                    onCatalogue = { go("catalogue") }, onCensus = if (visits) ({ go("census") }) else null,
+                    onWorkforce = { controller.openWorkforce(); go("workforce") },
+                    onJointCall = if (controller.today.supervisor) ({ go("jointcall") }) else null,
+                    onCollections = { go("collections") },
+                    onTeam = if (FieldFeature.TEAM in features && controller.today.supervisor) ({ go("team") }) else null,
+                    onIncentives = { go("incentives") },
+                    onBatteryGuide = if (batteryGuide != null) ({ go("location-battery") }) else null,
+                    onReportIssue = features.reportIssueUrl?.let { url -> { openLink(context, url) } },
+                    onSignOut = signOut)
                 controller.diagnostic != null && visits && ready && controller.photoCaptureOpen ->
                     com.sunpride.field.ui.diagnosticvisit.PhotoCaptureScreen(controller, modifier)
                 controller.diagnostic != null && visits && ready && controller.activityForm != null ->
@@ -388,31 +388,21 @@ fun FieldApp(
                     onVisit = controller::openDiagnostic, diagnosticEnabled = visits, modifier = modifier, offline = offline,
                     unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features,
                     onRoute = { page = "route" }, onCustomers = { page = "customers" },
-                    onCensus = if (visits) ({ page = "census" }) else null,
-                    onCatalogue = { page = "catalogue" },
-                    onTeam = if (FieldFeature.TEAM in features) ({ page = "team" }) else null,
+                    onTeam = if (FieldFeature.TEAM in features) ({ go("team") }) else null,
+                    showTitle = false,
                     workDay = {
-                        com.sunpride.field.chat.FieldMessagesEntry { page = "messages" }
-                        SectionCard("Field forms") {
-                            Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                                Text("Attendance and new prospects work offline.",style=MaterialTheme.typography.bodyMedium)
-                                SecondaryButton("Attendance & prospects",{controller.openWorkforce();page="workforce"},Modifier.testTag("workforce-open"))
-                                if(controller.today.supervisor) SecondaryButton("Work-With & coaching",{page="jointcall"},Modifier.testTag("jointcall-open"))
-                                SecondaryButton("Collector agenda",{page="collections"},Modifier.testTag("collections-open"))
-                            }
-                        }
                         dayView?.let { view ->
                         com.sunpride.field.ui.location.WorkDayCard(view, dayBusy,
                             onStart = {
                                 when {
-                                    !view.consented -> page = "location-consent"
+                                    !view.consented -> go("location-consent")
                                     !view.locationAllowed -> requestLocation()
                                     else -> dayAction(after = { afterLocationSetup() }) { h, t -> h.startDay(t) }
                                 }
                             },
                             onKeepSharing = guideView?.takeIf {
                                 com.sunpride.field.location.BatteryGuideRules.offerAgain(view.sharing, it.unrestricted)
-                            }?.let { { page = "location-battery" } },
+                            }?.let { { go("location-battery") } },
                             onEnd = { dayAction { h, t -> h.endDay(t) } },
                             onAllowLocation = {
                                 if (!askedLocation) requestLocation()
@@ -556,75 +546,6 @@ private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: Stri
 }
 
 @Composable
-fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: () -> Unit,
-    modifier: Modifier = Modifier, onVisit: (VisitDisplay) -> Unit = {}, diagnosticEnabled: Boolean = false,
-    offline: Boolean = false, onRoute: (() -> Unit)? = null, onCustomers: (() -> Unit)? = null,
-    onTeam: (() -> Unit)? = null, unplannedEnabled: Boolean = diagnosticEnabled,
-    onCensus: (() -> Unit)? = null, onCatalogue: (() -> Unit)? = null,
-    /** SP-0136 work-day card (Start day / End day, location sharing status). */
-    workDay: (@Composable () -> Unit)? = null) {
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
-        .padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Today", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.testTag("today-title"))
-        Text(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila")).format(
-            java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d", java.util.Locale.ENGLISH)),
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant)
-        workDay?.invoke()
-        val summary = remember(data) { com.sunpride.field.ui.today.TodaySummary.of(data) }
-        if (summary.planned > 0) com.sunpride.field.ui.today.CallProgressCard(summary)
-        if (summary.planned > 0) com.sunpride.field.ui.today.NextStoreCard(summary,
-            onOpen = if (diagnosticEnabled) onVisit else null)
-        if (onRoute != null && data.visits.isNotEmpty()) SectionCard("Route") {
-            val next = remember(data.visits) { com.sunpride.field.ui.route.DailyRoutes.build(data.visits, null).next }
-            ListRow(next?.let { "Next: ${it.visit.outlet}" } ?: "All stops done",
-                "${data.visits.size} stops · distance and directions", "route", Modifier.testTag("route-open"),
-                onClick = onRoute)
-        }
-        if (onCatalogue != null) SectionCard("Products") {
-            ListRow("Product catalogue", "Search, scan and read saved product details offline", "store",
-                Modifier.testTag("catalogue-open"), onClick = onCatalogue)
-        }
-        if (onCensus != null) SectionCard("Outlet universe") {
-            ListRow("Outlet census", "Capture a new store, GPS and storefront photo offline", "store",
-                Modifier.testTag("census-open"), onClick = onCensus)
-        }
-        if (onTeam != null && data.supervisor) SectionCard("Team") {
-            ListRow("Your team today", "Coverage and exceptions for your direct reports", "team",
-                Modifier.testTag("team-open"), onClick = onTeam)
-        }
-        if (onCustomers != null) SectionCard("Customers") {
-            ListRow("Search customers", if (data.customers.isEmpty() && data.lastSynced != null) "No outlets on your plan today"
-                else if (data.customers.isEmpty()) "Sync to download your outlets"
-                else "${data.customers.size} outlets saved on this phone", "search",
-                Modifier.testTag("customers-open"), onClick = onCustomers)
-        }
-        SectionCard(summary.routeCode?.let { "Route $it · ${summary.planned} stops" } ?: "Visits · ${summary.planned}",
-            Modifier.testTag("today-route")) {
-            if (data.visits.isEmpty()) Text("No visits today", Modifier.padding(16.dp).testTag("today-empty"))
-            summary.stops.forEach { stop ->
-                val visit = stop.visit
-                val facts = listOfNotNull(visit.planned.takeUnless { it == "Planned" || it == "Scheduled" || it.isBlank() },
-                    visit.status.takeUnless { it == "Planned" || it == "Scheduled" || it == "Pending" || it.isBlank() }
-                        ?.replace("Queued", "Waiting"), com.sunpride.field.ui.today.outcomeLabel(summary, stop), visit.timeSpent)
-                if (diagnosticEnabled) androidx.compose.foundation.layout.Box(Modifier.testTag("today-visit")) {
-                    ListRow(visit.outlet, facts.joinToString(" · "), "store", Modifier.testTag("diagnostic-open"),
-                        onClick = { onVisit(visit) }, tile = stop.stop.toString())
-                } else ListRow(visit.outlet, facts.joinToString(" · "), "store", Modifier.testTag("today-visit"),
-                    tile = stop.stop.toString())
-            }
-        }
-        com.sunpride.field.ui.today.SalesCard(data.sales)
-        com.sunpride.catalogue.TargetProgressCard(data.targets)
-        if (diagnosticEnabled && unplannedEnabled && data.unplannedOutlets.isNotEmpty()) SectionCard("Unplanned visit") {
-            data.unplannedOutlets.forEach { outlet -> ListRow(outlet.outlet, "", "store",
-                Modifier.testTag("unplanned-open"), onClick = { onVisit(outlet) }) }
-        }
-        data.warning?.let { Text(it, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("today-warning")) }
-    }
-}
-
-@Composable
 fun EnrollmentScreen(state: EnrollmentState, key: DeviceKeyInfo?, busy: Boolean, error: String?,
     onCheck: () -> Unit, onSignOut: () -> Unit, modifier: Modifier = Modifier, unsent: Int = 0,
     pairingContent: (@Composable ()->Unit)? = null) {
@@ -680,35 +601,36 @@ fun EnrollmentScreen(state: EnrollmentState, key: DeviceKeyInfo?, busy: Boolean,
 @Composable
 fun AccountScreen(key: DeviceKeyInfo?, onSignOut: () -> Unit, onBack: () -> Unit,
     onSupport: () -> Unit = {}, modifier: Modifier = Modifier, showKeyDetails: Boolean = true,
-    onReportIssue: (() -> Unit)? = null, biometrics: BiometricGate? = null, onChangePassword: (() -> Unit)? = null, onBatteryGuide: (() -> Unit)? = null,onIncentives: (() -> Unit)? = null,
+    onReportIssue: (() -> Unit)? = null, biometrics: BiometricGate? = null, onChangePassword: (() -> Unit)? = null, onBatteryGuide: (() -> Unit)? = null,
     sapContent: (@Composable ()->Unit)? = null) {
-    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
+    Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            SectionCard("Phone") {
-                sapContent?.invoke()
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (biometrics != null) BiometricSetting(biometrics)
+            if (sapContent != null) SectionCard("Credit and updates") {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    sapContent()
+                }
+            }
+            if (onChangePassword != null) SectionCard("Password") {
+                ListRow("Change password", "Keep your account safe", "lock", Modifier.testTag("change-password-open"),
+                    onClick = onChangePassword)
+            }
+            if (onBatteryGuide != null) SectionCard("Location sharing") {
+                ListRow("Keep the app running", "Battery and background settings", "battery",
+                    Modifier.testTag("account-battery-guide"), onClick = onBatteryGuide)
+            }
+            SectionCard("Support") {
+                if (onReportIssue != null) ListRow("Report an issue", "Tell the Sunpride team what went wrong", "chat",
+                    Modifier.testTag("report-issue"), onClick = onReportIssue)
+                ListRow("Support info", "App version and counts to share with the team", "info", Modifier.testTag("support-info"), onClick = onSupport)
+            }
+            SectionCard("This phone") {
                 ValueRow("Model", if (Build.MODEL.startsWith("sdk_")) "Android emulator" else Build.MODEL, Modifier.testTag("device-info"))
                 ValueRow("OS", "Android ${Build.VERSION.RELEASE}")
                 ValueRow("App version", BuildConfig.VERSION_NAME)
                 if (showKeyDetails) ValueRow("Key storage", key?.protection ?: "Unavailable", Modifier.testTag("key-storage"))
                 if (showKeyDetails) ValueRow("Fingerprint", key?.fingerprint ?: "Unavailable")
-            }
-            if (onIncentives != null) SectionCard("My earnings") {
-                ListRow("Earned statements", "Personal results · online only", "info", Modifier.testTag("earned-statements-open"), onClick = onIncentives)
-            }
-            if (biometrics != null) BiometricSetting(biometrics)
-            if (onChangePassword != null) SectionCard("Password") {
-                ListRow("Change password", "Keep your account safe", "info", Modifier.testTag("change-password-open"),
-                    onClick = onChangePassword)
-            }
-            if (onBatteryGuide != null) SectionCard("Location sharing") {
-                ListRow("Keep the app running", "Battery and background settings", "info",
-                    Modifier.testTag("account-battery-guide"), onClick = onBatteryGuide)
-            }
-            SectionCard("Support") {
-                if (onReportIssue != null) ListRow("Report an issue", "Tell the Sunpride team what went wrong", "info",
-                    Modifier.testTag("report-issue"), onClick = onReportIssue)
-                ListRow("Support info", "", "info", Modifier.testTag("support-info"), onClick = onSupport)
             }
         }
         androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
@@ -745,6 +667,47 @@ private fun BiometricSetting(gate: BiometricGate) {
             modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp).testTag("biometric-message")) }
     }
 }
+
+/** What the red header says: title, subtitle, the tags the device tests look for, and whether it has a Back arrow. */
+private data class HeaderSpec(val title: String, val subtitle: String? = null, val titleTag: String? = null,
+    val back: Boolean = false, val backTag: String? = null)
+
+private fun headerSpec(ready: Boolean, locked: Boolean, signedIn: Boolean, page: String, visitOpen: Boolean,
+    controller: FieldController, routeCode: String?): HeaderSpec = when {
+    locked || !signedIn -> HeaderSpec("Sunpride Field")
+    // A phone still waiting for registration can open Account, Support and Sync, so those keep their own header.
+    !ready && page !in setOf("account", "support", "sync", "change-password") -> HeaderSpec("Sunpride Field")
+    // The store stays in the header through every step of its visit; the step is the subtitle.
+    visitOpen -> HeaderSpec(controller.diagnostic?.outlet ?: "Visit",
+        subtitle = if (controller.photoCaptureOpen || controller.activityForm != null || controller.orderOpen ||
+            controller.callSheetOpen) null else "Visit",
+        back = true, backTag = "visit-back")
+    else -> when (page) {
+        "home" -> HeaderSpec("Today", listOfNotNull(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila")).format(
+            java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d", java.util.Locale.ENGLISH)),
+            routeCode?.let { "Route $it" }).joinToString(" · "), "today-title")
+        "route" -> HeaderSpec("Route", titleTag = "route-title")
+        "customers" -> HeaderSpec("Stores", titleTag = "customers-title")
+        "customer" -> HeaderSpec("Store", titleTag = "customer-title", back = true, backTag = "customer-back")
+        "more" -> HeaderSpec("More")
+        "messages" -> HeaderSpec("Messages")
+        "account" -> HeaderSpec("Account", titleTag = "account-title", back = true, backTag = "account-back")
+        "sync" -> HeaderSpec("Sync", back = true, backTag = "sync-back")
+        "support" -> HeaderSpec("Support info", back = true, backTag = "support-back")
+        "change-password" -> HeaderSpec("Change password", back = true, backTag = "account-back")
+        "team" -> HeaderSpec("Team", titleTag = "team-title", back = true, backTag = "team-back")
+        "census" -> HeaderSpec("Outlet census", back = true, backTag = "account-back")
+        "workforce" -> HeaderSpec("Attendance & prospects", back = true, backTag = "workforce-back")
+        "jointcall" -> HeaderSpec("Work-With & coaching", back = true, backTag = "account-back")
+        "collections" -> HeaderSpec("Collector agenda", back = true, backTag = "account-back")
+        "catalogue" -> HeaderSpec("Products", back = true, backTag = "account-back")
+        "incentives" -> HeaderSpec("Earned statements", back = true, backTag = "account-back")
+        "location-consent", "location-background" -> HeaderSpec("Location sharing", back = true, backTag = "account-back")
+        "location-battery" -> HeaderSpec("Keep sharing on", back = true, backTag = "account-back")
+        else -> HeaderSpec("Sunpride Field")
+    }
+}
+
 
 private val previewEnvironment = AppEnvironment("https://sunpride.cauldnclark.com")
 @Preview(name = "Light", showBackground = true)

@@ -17,5 +17,5 @@ fun FieldCatalogue(backend: FieldBackend?,onBack: () -> Unit,modifier: Modifier 
             CatalogueEntry(it.id,it.code,it.name,it.barcodes.map { b -> b.barcode },it.catalogue)
         } }.getOrDefault(emptyList()) }
     }
-    CatalogueScreen(entries,onBack,modifier,imageDownloader=backend?.let { b -> { image -> b.catalogueImage(image) } })
+    CatalogueScreen(entries,onBack,modifier,embedded=true,imageDownloader=backend?.let { b -> { image -> b.catalogueImage(image) } })
 }
