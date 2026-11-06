@@ -170,7 +170,7 @@ describe("per-product posting locks", () => {
       );
       const rows =
         await t`select mode,count(*)::int as n from pg_locks where locktype='advisory' and pid=pg_backend_pid() group by mode`;
-      return Object.fromEntries(rows.map((r) => [r.mode, r.n]));
+      return Object.fromEntries(rows.map((/** @type {any} */ r) => [r.mode, r.n]));
     });
     // org (shared) + 2 pairs + idempotency key + the change-log lock
     expect(names.ShareLock).toBe(1);
@@ -191,7 +191,7 @@ describe("per-product posting locks", () => {
 
 describe("batched SQL in the writer", () => {
   it("a 100-line movement issues a bounded number of statements and keeps the ledger exact", async () => {
-    const products = [];
+    /** @type {any[]} */ const products = [];
     for (let i = 0; i < 100; i++) products.push(await f.product());
     let statements = 0;
     const result = await tx(f.h.db, async (t) => {
