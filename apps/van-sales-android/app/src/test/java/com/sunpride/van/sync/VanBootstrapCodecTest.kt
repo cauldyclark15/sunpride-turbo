@@ -64,6 +64,23 @@ class VanBootstrapCodecTest {
         val h = VanBootstrapCodec.decode(o.toString()).policy.handheld!!
         assertNull(h.vehicleCode); assertNull(h.supervisorName); assertNull(h.supervisorPhone); assertEquals("ABC-1234",h.plateNumber)
     }
+    @Test fun productCategoryIsOptionalAndStaysOutOfTheFrozenValidator() {
+        assertNull(VanBootstrapCodec.decode(fixture()).products.first().category)
+        val o = JSONObject(fixture())
+        VanBootstrapCodec.objects(o.getJSONArray("products")).forEach { it.put("category","Juices") }
+        val b = VanBootstrapCodec.decode(o.toString())
+        assertTrue(b.products.all { it.category == "Juices" })
+    }
+    @Test fun vanDayRidesThePolicyAndOlderBundlesHaveNone() {
+        assertNull(VanBootstrapCodec.decode(fixture()).policy.vanDay); assertFalse(VanBootstrapCodec.decode(fixture()).policy.splitTender)
+        val o = JSONObject(fixture())
+        o.getJSONObject("policy").put("vanDay",JSONObject("""{"version":1,"device":{"deviceId":"d1","vehicle":{"vehicleId":"v","vehicleCode":"V-1","plateNumber":"ABC-1234"}},
+            "crew":{"onDevice":null,"members":[]},"roster":null,"tripId":null,"load":null}""")).put("splitTender",true)
+        val p = VanBootstrapCodec.decode(o.toString()).policy
+        assertEquals("ABC-1234",p.vanDay!!.vehicleLabel); assertTrue(p.splitTender)
+        o.getJSONObject("policy").put("vanDay",JSONObject("""{"version":9}"""))
+        assertNull("an unreadable van day is no van day",VanBootstrapCodec.decode(o.toString()).policy.vanDay)
+    }
     @Test fun tripFloatAndRecountFactsRideTheBundleAndStayOutOfTheFrozenValidator() {
         val plain = VanBootstrapCodec.decode(fixture())
         assertNull(plain.trip!!.openingFloatCentavos); assertNull(plain.load!!.confirmRequestId); assertNull(plain.load.rejectionNote)

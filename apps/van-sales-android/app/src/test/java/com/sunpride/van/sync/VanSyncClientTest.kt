@@ -17,8 +17,8 @@ class VanSyncClientTest {
     private val signer=JcaDeviceSigner(CryptoVectors.privateKey,CryptoVectors.publicKey,KeyProtection.SOFTWARE)
     private fun fixture()=javaClass.classLoader!!.getResourceAsStream("bootstrap-response.json")!!.bufferedReader().readText()
     private val identity get()=NativeIdentity("subject",JSONObject(fixture()).getJSONObject("seller").getString("profileId"),"unit","fingerprint","epoch")
-    private fun snapshot(): String {
-        val data=JSONObject(fixture()); val at=data.getLong("serverTime"); data.remove("type"); data.remove("contractVersion"); data.remove("serverTime")
+    private fun snapshot(extra: (JSONObject)->Unit = {}): String {
+        val data=JSONObject(fixture()); val at=data.getLong("serverTime"); data.remove("type"); data.remove("contractVersion"); data.remove("serverTime"); extra(data)
         return JSONObject().put("version",2).put("serverTime",at).put("hasMore",false).put("nextPageCursor",JSONObject.NULL).put("nextCursor","cursor")
             .put("bundles",JSONArray().put(JSONObject().put("scopeId","unit").put("scopeFingerprint","fingerprint").put("projection","van.bundle")
                 .put("mode","snapshot").put("complete",true).put("changes",JSONArray()).put("authorization",JSONObject().put("epoch","epoch").put("expiresAt",at+60_000))
@@ -42,6 +42,20 @@ class VanSyncClientTest {
         val scope=request.getJSONArray("scopes").getJSONObject(0)
         assertEquals("van.bundle",scope.getString("projection"))
         assertTrue(scope.getJSONObject("params").getBoolean("catalogue"))
+        Unit
+    }
+    /** IP-HH2: the phone asks for the van day and the product categories, and the answer lands inside the cached policy / product rows. */
+    @Test fun ipHh2AsksForTheVanDayAndCategoriesAndKeepsThemInsideThePolicyAndProducts()=runBlocking {
+        val t=Transport(ArrayDeque(listOf(200 to snapshot { d ->
+            d.put("vanDay",JSONObject("""{"version":1,"device":{"deviceId":"d","vehicle":{"vehicleId":"v","vehicleCode":"V-1","plateNumber":"ABC-1234"}},"crew":{"onDevice":null,"members":[]},"roster":null,"tripId":null,"load":null}"""))
+            VanBootstrapCodec.objects(d.getJSONArray("products")).forEach { it.put("category","Juices") }
+        })))
+        val local=JSONObject(client(t).bootstrap())
+        val params=JSONObject(String(t.bodies.single())).getJSONArray("scopes").getJSONObject(0).getJSONObject("params")
+        assertTrue(params.getBoolean("vanDay")); assertTrue(params.getBoolean("categories")); assertTrue(params.getBoolean("handheld"))
+        assertFalse("the frozen top level is untouched",local.has("vanDay"))
+        assertEquals("ABC-1234",VanBootstrapCodec.decode(local.toString()).policy.vanDay!!.vehicleLabel)
+        assertTrue(VanBootstrapCodec.decode(local.toString()).products.all { it.category=="Juices" })
         Unit
     }
     @Test fun first401RefreshesOnceWithFreshProofAndExplicitServerTimestamp()=runBlocking {

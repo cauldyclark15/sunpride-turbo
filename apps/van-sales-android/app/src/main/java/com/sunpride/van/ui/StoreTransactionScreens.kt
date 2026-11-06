@@ -49,6 +49,9 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     var employee by remember {mutableStateOf(false)}
     var pin by remember {mutableStateOf("")}
     var more by remember {mutableStateOf(false)}
+    // IP-HH2: Senior / PWD / Solo parent / Athlete / Uniformed. It replaces the employee discount and points on this sale.
+    var claim by remember {mutableStateOf<com.sunpride.van.selling.DiscountClaim?>(null)}
+    var claiming by remember {mutableStateOf(false)}
     var notice by remember {mutableStateOf<String?>(null)}
     var completed by remember {mutableStateOf<CompletedStoreSale?>(null)}
     var savedFlag by remember {mutableStateOf(false)}
@@ -59,7 +62,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
         val ctx=context.getOrNull()
         ProductSearch(products,ctx?.stock?:emptyList(),ctx?.prices?:emptyList(),now,ctx?.customers?.singleOrNull())
     }
-    val evaluation=runCatching{StoreCheckout.quote(config,c.storePos.rows,cart,now)}
+    val evaluation=runCatching{StoreCheckout.quote(config,c.storePos.rows,cart,now,claim)}
     val quote=evaluation.getOrNull()
     val pointCount=if(points.isBlank())0L else points.toLongOrNull()?.takeIf {it>=0}
     val validRedemption=pointCount==0L || pointCount!=null&&pointCount<=StoreCheckout.availablePoints(config,c.storePos.rows)&&runCatching{StoreCheckout.normalizePhone(phone)}.getOrNull()==config.details.optJSONObject("customerLookup")?.optString("phone")
@@ -89,14 +92,14 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
         val id=saleId
         c.saveStoreSale(id,cart,withTenders,n,phone.takeIf{it.isNotBlank()},if(employee)pin else null,checkNotNull(pointCount),onSaved={
             savedFlag=true;completed=CompletedStoreSale(id,receivedMinor,n,change);send(SellEvent.SaleSaved)
-        });pin=""
+        },claim=claim);pin=""
     }
     // A refused save (the controller shows why) re-enables the buttons.
     LaunchedEffect(c.busy){if(!c.busy&&flow.saving&&!savedFlag)send(SellEvent.SaveFailed)}
     BackHandler(enabled=flow.step==SellStep.PAYMENT&&!flow.saving){send(SellEvent.BackTapped)}
 
     fun newSale(){
-        cart=emptyList();saleId=UUID.randomUUID().toString();tender="cash";tenderedMinor=null;cashShare="";cardShare="";received="";walletRef="";cardRef="";phone="";points="";employee=false;pin="";more=false;notice=null;completed=null;savedFlag=false
+        cart=emptyList();saleId=UUID.randomUUID().toString();tender="cash";tenderedMinor=null;cashShare="";cardShare="";received="";walletRef="";cardRef="";phone="";points="";employee=false;pin="";more=false;claim=null;claiming=false;notice=null;completed=null;savedFlag=false
         send(SellEvent.NewSaleTapped)
     }
     val currency="PHP"
@@ -115,8 +118,12 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
         context.isFailure->context.exceptionOrNull()?.message
         !shiftOpen->"Open a session before selling."
         (evaluation.exceptionOrNull() as? CheckoutRefused)?.issues?.any{it.problem==CheckoutProblem.PROMOTION_NEEDS_OFFICE}==true->"This campaign needs office finance authority before selling"
+        claim!=null&&(evaluation.exceptionOrNull() as? CheckoutRefused)?.issues?.firstOrNull{it.problem in setOf(CheckoutProblem.DISCOUNT_TAX_UNKNOWN,CheckoutProblem.DISCOUNT_CLAIM_INVALID,CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL)}!=null->
+            (evaluation.exceptionOrNull() as CheckoutRefused).issues.first{it.problem in setOf(CheckoutProblem.DISCOUNT_TAX_UNKNOWN,CheckoutProblem.DISCOUNT_CLAIM_INVALID,CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL)}.let{VanRules.checkoutMessage(it.problem,it.productId?.let{id->products.firstOrNull{p->p.productId==id}?.name})}
         else->null
     }
+    if(claiming)ClaimSheet(items=cart.map{l->l.productId to (products.firstOrNull{it.productId==l.productId}?.name?:"Item")},initial=claim,
+        onApply={claim=it;employee=false;pin="";points="";claiming=false},onRemove=if(claim!=null)({claim=null;claiming=false}) else null,onClose={claiming=false})
     when(flow.step){
         SellStep.BROWSE,SellStep.CART->SellingBrowse(
             title="Store sale",subtitle=config.storeName?:"Store",onBack=c::back,place=SellingPlace.STORE,
@@ -137,6 +144,12 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
             saving=flow.saving,canPay=canPay,exactEnabled=total!=null&&tender=="cash"&&shiftOpen&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)&&buildTenders(total,total)!=null,
             onExact={val n=total;val t=n?.let{buildTenders(it,it)};if(n!=null&&t!=null)pay(t,n)},
             onPay={val n=total;val t=tenders;if(n!=null&&t!=null)pay(t,n)},onBack={send(SellEvent.BackTapped)},message=c.message?:notice){
+            claim?.let{cl->ClaimSummary(cl,quote?.legal,VanController.ClaimPreview.None,{claiming=true})}
+            if(claim==null){
+                val possible=StoreCheckout.claimsPossible(config)
+                SecondaryButton("Senior, PWD or other discount",{claiming=true},Modifier.testTag("store-claim"),enabled=possible&&!c.busy&&cart.isNotEmpty())
+                if(!possible)Text("Not available yet: this store's tax set-up has not reached the phone, so the discount cannot be worked out. Sync, or ask the office.",style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-claim-unavailable"))
+            }
             if(tender=="split"){
                 SectionCard("Split tender"){
                     LabeledField("Cash part (₱)",cashShare,{cashShare=it},"store-split-cash",numeric=true,maxLength=16)
@@ -151,12 +164,12 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
             SecondaryButton(if(more)"Hide customer & discounts" else "Customer, points & employee discount",{more=!more},Modifier.testTag("store-more"))
             if(more){
                 LabeledField("Customer phone (optional)",phone,{phone=it},"store-sale-phone",numeric=true,maxLength=24)
-                if(config.details.optJSONObject("loyalty")?.optBoolean("enabled")==true){
+                if(claim==null&&config.details.optJSONObject("loyalty")?.optBoolean("enabled")==true){
                     SecondaryButton("Look up customer & points",{scope.launch {notice=runCatching {c.repository.storeLookup(phone)?.let {"${it.getString("name")} · ${it.getString("points")} points"}?:"No customer found. Register them in Customers."}.getOrElse {"Connect to look up this customer."}}})
                     config.details.optJSONObject("customerLookup")?.takeIf {it.optString("phone")==runCatching{StoreCheckout.normalizePhone(phone)}.getOrNull()}?.let {Text("${it.getString("name")} · ${StoreCheckout.availablePoints(config,c.storePos.rows)} points available")}
                     LabeledField("Points to redeem",points,{points=it},"store-points",numeric=true,maxLength=9)
                 }
-                if(config.details.optJSONObject("supervisor")!=null){
+                if(claim==null&&config.details.optJSONObject("supervisor")!=null){
                     SecondaryButton(if(employee)"Remove employee discount" else "Employee discount",{employee=!employee;pin=""})
                     if(employee)LabeledField("Supervisor PIN",pin,{pin=it},"store-supervisor-pin",password=true,maxLength=12)
                 }
@@ -185,30 +198,6 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
                 Text("Saved on this register first. It is sent to the office at the next sync.",style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("sale-saved-note-2"))
             }
         }
-    }
-}
-
-/** F-R02 provisional offline reads are explicit; office assigns immutable monotonic read numbers. */
-@Composable fun StoreReadsScreen(c:VanController){
-    val config=c.storePos.config?:return
-    val receipts=StoreTransactions.receipts(config,c.storePos.rows)
-    val amount=receipts.filter {it.optString("_status")!="voided"}.sumOf {it.getString("totalMinor").toLong()}
-    val remote=StoreCheckout.objects(config.details.optJSONArray("reads"))
-    ScreenFrame("X / Z reports",c::back,message=c.message){
-        SectionCard("Downloaded and locally saved journal"){
-            Text("${receipts.size} receipts · ${pesos(amount)}",Modifier.testTag("store-x-preview"))
-            Text("Office reads include approved voids/refunds and all shifts for this register’s day. An offline preview is provisional until received.")
-        }
-        SecondaryButton("Save X report",{c.saveStoreAction("store.read",JSONObject().put("kind","x"))},enabled=c.storePos.shift!=null&&!c.busy,modifier=Modifier.testTag("store-x-read"))
-        SecondaryButton("Close day · save Z report",{c.saveStoreAction("store.read",JSONObject().put("kind","z"))},enabled=c.storePos.shift!=null&&!c.busy,modifier=Modifier.testTag("store-z-read"))
-        Text("Z closes selling for the day. Resolve pending voids/refunds first, then submit the blind cash count. Read sequences never reset.")
-        remote.forEach {r->SectionCard("${r.getString("kind").uppercase()} read ${r.getString("sequence")}"){
-            val snap=r.getJSONObject("snapshot");Text(pesos(snap.getString("salesCentavos").toLong()))
-            StoreCheckout.objects(snap.getJSONArray("tenders")).forEach {Text("${it.getString("label")} · ${pesos(it.getString("amount").toLong())}")}
-            Text("VAT · ${pesos(snap.getJSONObject("vat").getString("vatMinor").toLong())}")
-            Text("E-journal and reporting export are available in the website’s Retail POS tab.")
-        }}
-        c.storePos.rows.filter {it.kind=="store.read"&&it.status in setOf("pending","sending")}.forEach {Text("${JSONObject(it.operationJson).getJSONObject("payload").getString("kind").uppercase()} read saved · waiting for office number")}
     }
 }
 

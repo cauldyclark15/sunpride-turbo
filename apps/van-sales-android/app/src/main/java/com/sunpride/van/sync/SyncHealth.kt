@@ -51,6 +51,10 @@ object SyncHealth {
         "load.confirm" -> "Load check"
         "trip.start" -> "Trip start"
         "truck.damage" -> "Truck damage"
+        "load.accept" -> "Load count"
+        "crew.switch" -> "Crew change"
+        "store.cash" -> "Cash movement"
+        "store.read" -> "X / Z reading"
         else -> "Other work"
     }
 

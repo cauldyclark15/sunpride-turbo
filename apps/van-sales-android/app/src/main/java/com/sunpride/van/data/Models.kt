@@ -12,7 +12,11 @@ data class VanPolicy(val allowNegativeStock: Boolean = false,
     val stockReconciliation: StockReconciliationPolicy? = null,
     val tripClose: TripClosePolicy? = null, val operationsVersion: Int = 0, val fiscalJson:String? = null,val schemesJson:String? = null,
     /** IP-P0: who and which van this handheld belongs to, for the "No trip" screen. Absent until the office sends it. */
-    val handheld: HandheldInfo? = null)
+    val handheld: HandheldInfo? = null,
+    /** IP-HH2: the van day (opt-in `params.vanDay`): the truck this phone belongs to, the crew, the planned load to accept. Null on an older server. */
+    val vanDay: com.sunpride.van.vanday.VanDayInfo? = null,
+    /** IP-HH2: the office's server accepts a sale paid with two tenders (`payment.parts`); until it says so the van offers one tender only. */
+    val splitTender: Boolean = false)
 /** IP-P0 (SPEC 5.3): the van this handheld is bound to and the supervisor to call; every part is optional. */
 data class HandheldInfo(val vehicleCode: String? = null, val plateNumber: String? = null, val supervisorName: String? = null, val supervisorPhone: String? = null) {
     /** "ABC-1234" when the plate is known, else the van code. */

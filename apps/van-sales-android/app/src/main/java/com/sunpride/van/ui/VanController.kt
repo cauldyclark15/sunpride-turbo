@@ -54,8 +54,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     }
     fun saveStoreAction(kind:String,payload:org.json.JSONObject) = command("Saved securely on this phone. Sync when connected.") {repository.storeAction(kind,payload);page=Page.HOME}
     /** IP-HH1: the sale screen stays up and shows its Complete step; [onSaved] runs once the sale is durably saved. */
-    fun saveStoreSale(id:String,lines:List<CartLine>,tenders:List<com.sunpride.van.storepos.StoreTransactions.Tender>,total:Long,phone:String?,pin:String?,points:Long,onSaved:()->Unit={}) = command("Store sale saved. Printing the receipt…") {
-        repository.storeSale(id,lines,tenders,total,phone,pin,points)
+    fun saveStoreSale(id:String,lines:List<CartLine>,tenders:List<com.sunpride.van.storepos.StoreTransactions.Tender>,total:Long,phone:String?,pin:String?,points:Long,onSaved:()->Unit={},claim:com.sunpride.van.selling.DiscountClaim?=null) = command("Store sale saved. Printing the receipt…") {
+        repository.storeSale(id,lines,tenders,total,phone,pin,points,claim)
         // IP-P0 (SPEC 6.5): the invoice prints by itself; the cashier then answers "Did it print?".
         startPrint(id,explicit=false,reason=null,store=true)
         onSaved()
@@ -182,6 +182,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     }
     private fun acceptSyncStatus(status: SyncStatus) {
         sync=status
+        refreshAcceptWaiting()
         val notice=syncFailureNotice
         if (notice != null && notice.resolved(status) && message==notice.text) {
             message=null; syncFailureNotice=null
@@ -492,6 +493,109 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         discountMessage=null
         discountEpoch++
     }
+
+    // ---------------------------------------------------------------- IP-HH2: discount claim, split tender, till day, van day
+    private var lockoutRef: com.sunpride.van.security.PinLockout? = null
+    /** Wrong-PIN bookkeeping (5 wrong = 10 minutes locked, per person). The app attaches the preferences-backed one at start. */
+    val lockout: com.sunpride.van.security.PinLockout get() = lockoutRef ?: com.sunpride.van.security.PinLockout(com.sunpride.van.security.MemoryLockoutStorage()).also { lockoutRef = it }
+    fun installLockout(l: com.sunpride.van.security.PinLockout) { lockoutRef = l }
+    private fun pinWords(key: String): String? = lockout.lockedForMs(key).takeIf { it > 0 }?.let { "Too many wrong PINs. Try again in ${com.sunpride.van.security.PinLockout.words(it)}." }
+    private fun wrongPin(key: String): String = if (lockout.recordFailure(key)) "Too many wrong PINs. Locked for ${com.sunpride.van.security.PinLockout.words(10 * 60_000L)}." else "That PIN was not accepted. ${lockout.triesLeft(key)} tries left."
+
+    /** The server's check of the discount (online only): the phone's own figures stand when it cannot be reached. */
+    sealed interface ClaimPreview {
+        data object None : ClaimPreview
+        data object Checking : ClaimPreview
+        data class Matches(val totalMinor: Long) : ClaimPreview
+        data class Differs(val serverMinor: Long, val phoneMinor: Long) : ClaimPreview
+        data object Offline : ClaimPreview
+    }
+    var claimPreview by mutableStateOf<ClaimPreview>(ClaimPreview.None)
+        private set
+    fun setClaim(claim: com.sunpride.van.selling.DiscountClaim?) { sale = sale?.copy(claim = claim); claimPreview = ClaimPreview.None; discountEpoch++; discountMessage = null; if (claim != null) previewClaim() }
+    fun previewClaim() {
+        val draft = sale ?: return; val claim = draft.claim ?: return
+        val quote = cartQuote() ?: return; val legal = quote.legal ?: return
+        val facts = saleContext().taxFacts ?: return
+        val orgUnit = runCatching { JSONObject(checkNotNull(policy?.fiscalJson)).getJSONObject("authority").getString("orgUnitId") }.getOrNull() ?: return
+        val lines = quote.lines.map { q -> val tax = facts(q,draft.customer.priceListId) ?: return
+            JSONObject().put("productId",q.product.productId).put("description",q.product.name).put("grossCentavos",q.grossMinor).put("promoDiscountCentavos",q.discountMinor)
+                .put("taxTreatment",tax.treatment).put("taxBasisPoints",tax.vatBps) }
+        val body = JSONObject().put("surface","van").put("orgUnitId",orgUnit).apply { trip?.route?.routeId?.let { put("routeId",it) } }
+            .put("discountClaim",claim.json("privilegeDiscountMinor","vatRemovedMinor",null)).put("lines",org.json.JSONArray(lines))
+        val signature = draft.saleId to (claim to draft.lines)
+        claimPreview = ClaimPreview.Checking
+        scope?.launch {
+            val result = runCatching { repository.claimPreview(body).getJSONObject("totals").getLong("total") }
+            if (sale?.let { it.saleId to (it.claim to it.lines) } != signature) return@launch
+            claimPreview = result.fold({ server -> if (server == legal.total) ClaimPreview.Matches(server) else ClaimPreview.Differs(server,legal.total) }, { if (it is CancellationException) throw it; ClaimPreview.Offline })
+        }
+    }
+
+    /** Van day: the truck this phone belongs to, the crew and the load to accept (null on an older server or a phone with no truck). */
+    val vanDay: com.sunpride.van.vanday.VanDayInfo? get() = policy?.vanDay
+    var acceptWaiting by mutableStateOf(false)
+        private set
+    /** Name of the person who just took over the phone here, until the office's own list shows them. */
+    var crewPending by mutableStateOf<String?>(null)
+        private set
+    /** The sales saved on this trip (Today's next store reads them). */
+    fun refreshSavedSales() { scope?.launch { savedSales = runCatching { repository.savedSales() }.getOrDefault(savedSales) } }
+    fun refreshAcceptWaiting() { val id = trip?.tripId; scope?.launch { acceptWaiting = id != null && runCatching { repository.acceptWaiting(id) }.getOrDefault(false) } }
+    fun acceptLoad(counts: Map<String, com.sunpride.van.vanday.AcceptCount>, note: String?) = command("Your count is saved on this phone. Sync sends it to the office.") {
+        repository.acceptLoad(checkNotNull(vanDay) { "No load to accept" },counts,note); acceptWaiting = true; page = Page.HOME
+    }
+    /** Crew member takes over the phone with their PIN. No sign-out, no change to the phone's registration. [onResult] gets null on success, else the words to show. */
+    fun switchCrew(member: com.sunpride.van.vanday.CrewMember, pin: String, onResult: (String?) -> Unit) {
+        val key = "crew:${member.profileId}"
+        pinWords(key)?.let { onResult(it); return }
+        val info = vanDay ?: run { onResult("No van day on this phone yet. Sync first."); return }
+        if (busy) return
+        scope?.launch {
+            busy = true
+            try {
+                if (repository.switchCrew(info,member,pin)) { lockout.reset(key); crewPending = member.name; message = "${member.name} is on the phone. Sync tells the office."; onResult(null) }
+                else onResult(wrongPin(key))
+            } catch (e: CancellationException) { throw e } catch (e: Exception) { onResult(UserMessages.forFailure(e)) } finally { busy = false }
+        }
+    }
+
+    /** Till movement with its reason; a supervisor's PIN approves the kinds that need one. [onResult] gets null on success, else the words to show. */
+    fun saveCash(kind: com.sunpride.van.storepos.CashKind, amountCentavos: Long, reason: com.sunpride.van.storepos.CashReason, note: String,
+        supervisor: com.sunpride.van.storepos.Supervisor?, pin: String, onResult: (String?) -> Unit) {
+        val payload = runCatching { com.sunpride.van.storepos.TillPayloads.cash(kind,amountCentavos,reason.code,note) }.getOrElse { onResult("Check the amount."); return }
+        runSupervised("store.cash",payload,kind.overrideKind,if (kind.hasAmount) amountCentavos.toString() else "0",kind.supervisor,supervisor,pin,"${kind.label} saved. Sync sends it to the office.",onResult)
+    }
+    /** Z reading for the day: every session closed first, a supervisor's PIN, then printed from this phone. */
+    fun saveZ(supervisor: com.sunpride.van.storepos.Supervisor?, pin: String, onResult: (String?) -> Unit) =
+        runSupervised("store.read",JSONObject().put("kind","z"),"z_reading","0",true,supervisor,pin,"Z reading saved. Sync sends it to the office.",onResult)
+    private fun runSupervised(kind: String, payload: JSONObject, overrideKind: String?, amount: String, needs: Boolean, supervisor: com.sunpride.van.storepos.Supervisor?, pin: String, success: String, onResult: (String?) -> Unit) {
+        if (busy) return
+        scope?.launch {
+            busy = true; message = null
+            try {
+                if (!needs) { repository.storeAction(kind,payload); message = success; onResult(null); return@launch }
+                val sup = supervisor ?: run { onResult("Choose the supervisor who approves this."); return@launch }
+                val key = "sup:${sup.profileId}"
+                pinWords(key)?.let { onResult(it); return@launch }
+                if (repository.storeSupervised(kind,payload,checkNotNull(overrideKind),amount,sup,pin)) { lockout.reset(key); message = success; onResult(null) } else onResult(wrongPin(key))
+            } catch (e: CancellationException) { throw e } catch (e: Exception) { onResult(UserMessages.forFailure(e)) } finally { busy = false }
+        }
+    }
+    /** X reading: any time, nothing stops. Saved for the office to number, and printed from what this phone holds. */
+    fun readX(doc: com.sunpride.van.printing.ReceiptDocument) = command("X reading saved. Sync sends it to the office.") {
+        repository.storeAction("store.read",JSONObject().put("kind","x")); printReading(doc)
+    }
+    fun printReading(doc: com.sunpride.van.printing.ReceiptDocument) {
+        val s = scope ?: return
+        s.launch {
+            printMessage = "Printing…"
+            printMessage = try { when (val r = printer.print(doc)) {
+                is com.sunpride.van.printing.PrintResult.Success -> "Sent to the printer."
+                else -> "Could not print. Check the printer and try again." } }
+                catch (e: CancellationException) { throw e } catch (_: Exception) { "Could not print. Check the printer and try again." }
+        }
+    }
     fun cancelSale() { discountEpoch++;discountMessage=null;sale = null; pickingForSale = false; open(Page.HOME) }
     /** VAN-012 credit sold here / references used; refreshed when Checkout opens (the store re-checks while saving). */
     var paymentFacts by mutableStateOf(com.sunpride.van.storage.PaymentFacts())
@@ -499,10 +603,11 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     suspend fun refreshPaymentFacts() { paymentFacts = runCatching { repository.paymentFacts() }.getOrDefault(com.sunpride.van.storage.PaymentFacts()) }
     fun saleContext(now: Long = System.currentTimeMillis()): CheckoutContext =
         CheckoutContext(VanRules.canSell(trip) && session.signedIn,customers,products,stock,prices,policy,now,trip?.serviceDate,
-            paymentFacts.creditUsedMinor,paymentFacts.usedReferences,cashCounted,promotions,stockCounted)
-    fun quote(payment: PaymentInput): CheckoutResult? = sale?.let { CheckoutRules.evaluate(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,payment,it.manualDiscount,it.priceOverride,it.creditOverride),saleContext()) }
+            paymentFacts.creditUsedMinor,paymentFacts.usedReferences,cashCounted,promotions,stockCounted,
+            taxFacts = policy?.fiscalJson?.let { com.sunpride.van.fiscal.FiscalTax.facts(JSONObject(it),now) })
+    fun quote(payment: PaymentInput, split: SplitPayment? = null): CheckoutResult? = sale?.let { CheckoutRules.evaluate(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,payment,it.manualDiscount,it.priceOverride,it.creditOverride,it.claim,split),saleContext()) }
     /** Lines and total of the cart alone, before a payment is entered. */
-    fun cartQuote(ignoreManual:Boolean=false,ignorePrices:Boolean=false): CheckoutQuote? = sale?.let { CheckoutRules.cartQuote(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,PaymentInput(PaymentMethod.CASH.code),if(ignoreManual)null else it.manualDiscount,if(ignorePrices)null else it.priceOverride,it.creditOverride),saleContext()) }
+    fun cartQuote(ignoreManual:Boolean=false,ignorePrices:Boolean=false): CheckoutQuote? = sale?.let { CheckoutRules.cartQuote(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,PaymentInput(PaymentMethod.CASH.code),if(ignoreManual)null else it.manualDiscount,if(ignorePrices)null else it.priceOverride,it.creditOverride,it.claim),saleContext()) }
     /** F-124: retire every cart-bound grant when another financial fact changes. */
     fun setSalePrices(input:SalePriceOverride?){
         sale=sale?.let{d->d.copy(priceOverride=input?.copy(authorization=input.authorization.copy(reason=input.authorization.reason.trim(),requestId=UUID.randomUUID().toString(),approval=null)),manualDiscount=d.manualDiscount?.copy(requestId=UUID.randomUUID().toString(),approval=null),creditOverride=null)}
@@ -632,10 +737,10 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     /** Payment methods the office allows (cash only until the policy says otherwise). */
     val paymentMethods: List<PaymentMethod> get() = policy?.paymentMethods ?: PaymentMethod.CASH_ONLY
     /** The store validates again in the saving transaction; a refusal keeps the cart so the seller can fix it. */
-    fun completeSale(payment: PaymentInput, expectedTotalMinor: Long) = command {
+    fun completeSale(payment: PaymentInput, expectedTotalMinor: Long, split: SplitPayment? = null) = command {
         val draft = checkNotNull(sale)
         try {
-            val receipt = repository.completeSale(CheckoutRequest(draft.saleId,draft.customer.outletId,draft.lines,payment,draft.manualDiscount,draft.priceOverride,draft.creditOverride),expectedTotalMinor)
+            val receipt = repository.completeSale(CheckoutRequest(draft.saleId,draft.customer.outletId,draft.lines,payment,draft.manualDiscount,draft.priceOverride,draft.creditOverride,draft.claim,split),expectedTotalMinor)
             lastReceipt = receipt; sale = null; page = Page.SALE_DONE; printMessage = null
             // VAN-017: the sale is saved first; the receipt prints after, and a printer problem never touches the sale.
             startPrint(receipt.saleId,explicit = false,reason = null)
@@ -845,4 +950,6 @@ data class CloseDraft(val closeId: String, val reviewed: Boolean = false, val od
 const val LOCATION_OFF_MESSAGE = "Location sharing is off. Allow location for Sunpride Van (and turn location on), then check Today."
 const val TRIP_CLOSED_MESSAGE = "This trip is closed on this phone. Nothing more can be recorded on it."
 /** A sale being built for one customer (VAN-011). */
-data class SaleDraft(val saleId: String, val customer: Customer, val lines: List<CartLine>,val manualDiscount:ManualDiscountInput? = null,val priceOverride:SalePriceOverride?=null,val creditOverride:FinancialOverride?=null)
+data class SaleDraft(val saleId: String, val customer: Customer, val lines: List<CartLine>,val manualDiscount:ManualDiscountInput? = null,val priceOverride:SalePriceOverride?=null,val creditOverride:FinancialOverride?=null,
+    /** IP-HH2: the statutory discount the cashier entered (type, ID, name); worked out by [com.sunpride.van.selling.Privilege]. */
+    val claim: com.sunpride.van.selling.DiscountClaim? = null)

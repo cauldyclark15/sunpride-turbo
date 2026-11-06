@@ -265,7 +265,8 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             dao.pricelistlineRows(s,d).map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo,it.priceListCode) },
             meta?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) }, clock(), t?.serviceDate,
             facts.creditUsedMinor, facts.usedReferences, counted,
-            dao.promotionRows(s,d).map { VanBootstrapCodec.promotion(JSONObject(it.json)) }, stockCounted)
+            dao.promotionRows(s,d).map { VanBootstrapCodec.promotion(JSONObject(it.json)) }, stockCounted,
+            taxFacts = meta?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)).fiscalJson }?.let { com.sunpride.van.fiscal.FiscalTax.facts(JSONObject(it),clock()) })
     }
 
     /**
@@ -315,9 +316,12 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         val at = maxOf(context.now,Math.addExact(dao.latestCreatedAt(s,d) ?: 0L,1L))
         val pay = quote.payment
         // Posting state ("saved" on this phone) and payment state are separate columns (VAN-012).
-        dao.insertSale(SaleRow(s,d,request.saleId,t.tripId,id.receiptNumber,id.idempotencyKey,customer.outletId,"saved",quote.totalMinor,at,pay.state.wire))
+        dao.insertSale(SaleRow(s,d,request.saleId,t.tripId,id.receiptNumber,id.idempotencyKey,customer.outletId,"saved",quote.totalMinor,at,(quote.split?.other ?: pay).state.wire))
         quote.lines.forEach { dao.insertSaleLine(SaleLineRow(s,d,request.saleId,it.lineNumber,it.product.productId,it.quantityBase,it.unitPriceMinor,it.totalMinor,it.freeBase,it.discountMinor)) }
-        dao.insertPayment(PaymentRow(s,d,UUID.randomUUID().toString(),request.saleId,pay.method.code,pay.amountMinor,at,
+        val split = quote.split
+        if (split != null) split.parts.forEach { part -> dao.insertPayment(PaymentRow(s,d,UUID.randomUUID().toString(),request.saleId,part.method.code,part.amountMinor,at,
+            part.reference,part.state.wire,part.tenderedMinor,part.dueDate)) }
+        else dao.insertPayment(PaymentRow(s,d,UUID.randomUUID().toString(),request.saleId,pay.method.code,pay.amountMinor,at,
             pay.reference,pay.state.wire,pay.tenderedMinor,pay.dueDate))
         // VAN-018: deduct every line from available truck stock in this same transaction, then prove the sale and
         // its deductions agree before commit. Any refusal or mismatch throws and rolls the whole sale back.
@@ -334,11 +338,12 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
                 .put("unitPriceMinor",it.unitPriceMinor.toString()).put("grossMinor",it.grossMinor.toString()).put("discountMinor",it.discountMinor.toString()).put("totalMinor",it.totalMinor.toString())
                 .put("priceListIds",JSONArray(it.priceListIds)).put("priceSource",it.priceListId?.let { id -> JSONObject().put("priceListId",id).put("priceListCode",it.priceListCode ?: JSONObject.NULL) } ?: JSONObject.NULL)
                 .put("promotion",it.promotion?.let { p -> JSONObject().put("promotionId",p.promotionId).put("code",p.code).put("kind",p.kind) } ?: JSONObject.NULL) }))
-            .put("payment",JSONObject().put("method",pay.method.code).put("kind",pay.method.kind.wire).put("status",pay.state.wire)
+            .put("payment",if (split != null) splitPaymentJson(quote.totalMinor,split) else JSONObject().put("method",pay.method.code).put("kind",pay.method.kind.wire).put("status",pay.state.wire)
                 .put("amountMinor",pay.amountMinor.toString())
                 .apply { pay.tenderedMinor?.let { put("tenderedMinor",it.toString()).put("changeMinor",pay.changeMinor.toString()) } }
                 .apply { pay.reference?.let { put("reference",it) } }
                 .apply { pay.dueDate?.let { put("dueDate",it) } })
+            .apply { quote.claim?.let { put("discountClaim",it.json("privilegeDiscountMinor","vatRemovedMinor",quote.legal)) } }
             .put("deviceTime",context.now)
             .apply{if(pay.method.kind==PaymentKind.CREDIT&&com.sunpride.van.pos.SapCreditExceptions.credit(request,context,quote.totalMinor)!=null)put("sapCreditExceptionId",checkNotNull(com.sunpride.van.pos.SapCreditExceptions.approved(request,context,quote.totalMinor)).getString("id"))}
             .apply{request.priceOverride?.let{put("priceOverride",com.sunpride.van.pos.SaleAdjustments.json(it.authorization))};if(pay.method.kind==PaymentKind.CREDIT)request.creditOverride?.let{put("creditOverride",com.sunpride.van.pos.SaleAdjustments.json(it))}}
@@ -349,18 +354,38 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             } }
             .apply { if(com.sunpride.van.pos.PromotionEngine.useCanonical(request,context)) put("schemeEngineVersion",1) }
             .apply { fiscal?.let { put("fiscal",JSONObject().put("allocationId",it.allocationId).put("serial",it.serial.toString())) } }
-        val sellingTax=fiscal?.let{com.sunpride.van.fiscal.FiscalTax.snapshot(quote.lines,JSONObject(checkNotNull(context.policy?.fiscalJson)),customer.priceListId,context.now)}
+        val sellingTax=fiscal?.let{if(quote.claim!=null&&quote.legal!=null)com.sunpride.van.fiscal.FiscalTax.snapshotWithDiscount(quote.lines,checkNotNull(context.taxFacts),customer.priceListId)
+            else com.sunpride.van.fiscal.FiscalTax.snapshot(quote.lines,JSONObject(checkNotNull(context.policy?.fiscalJson)),customer.priceListId,context.now)}
         sellingTax?.let{payload.getJSONObject("fiscal").put("tax",it)}
         VanCallStore(this@RoomVanStore).bindAdapter(payload,customer.outletId,listOf("order_build","discount","invoice","payment"))
         RouteOpsStore(this).prepare(payload)
         val op = JSONObject().put("kind",SALE_KIND).put("clientRequestId",id.idempotencyKey).put("payload",payload).toString()
         dao.insertOutbox(OutboxRow(s,d,id.idempotencyKey,t.tripId,SALE_KIND,op,at,null,capturedStatus))
-        val receipt = SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it) },
+        val receiptFiscal = fiscal?.let { receiptExtras(com.sunpride.van.fiscal.FiscalNumbers.snapshot(it,quote.totalMinor,providedTax=sellingTax),quote.claim,quote.legal,quote.split) }
+        val receipt = if (split != null) SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it) },
+            quote.currency,quote.totalMinor,split.cash.tenderedMinor ?: split.cash.amountMinor,split.cash.changeMinor,at,false,"split","${split.cash.method.label} + ${split.other.method.label}",PaymentKind.OTHER,
+            split.other.state.wire,split.other.reference,split.other.dueDate,receiptFiscal)
+        else SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it) },
             quote.currency,quote.totalMinor,quote.tenderedMinor,quote.changeMinor,at,false,pay.method.code,pay.method.label,pay.method.kind,
-            pay.state.wire,pay.reference,pay.dueDate,fiscal?.let { com.sunpride.van.fiscal.FiscalNumbers.snapshot(it,quote.totalMinor,providedTax=sellingTax) })
+            pay.state.wire,pay.reference,pay.dueDate,receiptFiscal)
         // VAN-017: freeze what this receipt says (and seller/trip/truck) in the same transaction as the sale.
         db.receiptPrints().insertSaleReceipt(SaleReceiptRow(s,d,request.saleId,FrozenReceipts.encode(receipt,currentReceiptHeader(dao,s,d,dao.trip(s,d)))))
         receipt
+    }
+    /** IP-HH2: the wire shape of a sale paid with cash plus one more tender (the server must support `payment.parts`; see the lane report). */
+    private fun splitPaymentJson(total: Long, split: com.sunpride.van.pos.QuotedSplit): JSONObject = JSONObject().put("split",true).put("method","split").put("kind","split")
+        .put("status",split.other.state.wire).put("amountMinor",total.toString())
+        .put("parts",JSONArray(split.parts.map { part -> JSONObject().put("method",part.method.code).put("kind",part.method.kind.wire).put("status",part.state.wire)
+            .put("amountMinor",part.amountMinor.toString())
+            .apply { part.tenderedMinor?.let { put("tenderedMinor",it.toString()).put("changeMinor",part.changeMinor.toString()) } }
+            .apply { part.reference?.let { put("reference",it) } }.apply { part.dueDate?.let { put("dueDate",it) } } }))
+    /** IP-HH2: the claim and the split tender go on the frozen receipt so the print and every reprint show the discount and payment lines. */
+    private fun receiptExtras(fiscalJson: String, claim: com.sunpride.van.selling.DiscountClaim?, legal: com.sunpride.van.selling.LegalCart?, split: com.sunpride.van.pos.QuotedSplit?): String {
+        if (claim == null && split == null) return fiscalJson
+        val o = JSONObject(fiscalJson)
+        claim?.let { o.put("discountClaim",com.sunpride.van.printing.ReceiptDiscounts.claimJson(it,legal)) }
+        split?.let { o.put("payments",com.sunpride.van.printing.ReceiptDiscounts.paymentsJson(it)) }
+        return o.toString()
     }
     /** The original sale, payment, deductions and receipt stay intact. Only compensating facts are appended. */
     suspend fun voidSale(saleId: String, reasonCode: String?, note: String?, approvalCode: String?): SaleVoidResult = db.withTransaction {

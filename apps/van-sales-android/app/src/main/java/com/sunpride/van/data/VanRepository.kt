@@ -107,9 +107,46 @@ class VanRepository private constructor(private val context: Context, private va
     suspend fun openStoreShift(floatCentavos: Long) = withContext(Dispatchers.IO) { com.sunpride.van.storepos.StorePosStore(store()).open(floatCentavos).also { schedule() } }
     suspend fun closeStoreShift(countCentavos: Long) = withContext(Dispatchers.IO) { com.sunpride.van.storepos.StorePosStore(store()).close(countCentavos).also { schedule() } }
     suspend fun storeAction(kind:String,payload:JSONObject):String = withContext(Dispatchers.IO) { com.sunpride.van.storepos.StoreTransactions(store()).action(kind,payload).also {schedule()} }
-    suspend fun storeSale(id:String,lines:List<com.sunpride.van.pos.CartLine>,tenders:List<com.sunpride.van.storepos.StoreTransactions.Tender>,total:Long,phone:String?,pin:String?,points:Long):JSONObject = withContext(Dispatchers.IO) {
+    /**
+     * IP-HH2: a till action a supervisor approves with their PIN (cash drop, pickup, paid out, no sale, Z). The PIN is checked against the downloaded
+     * verifier and signs THIS action only; false = wrong PIN. The PIN and key are wiped before returning.
+     */
+    suspend fun storeSupervised(kind:String,payload:JSONObject,overrideKind:String,amountCentavos:String,supervisor:com.sunpride.van.storepos.Supervisor,pin:String):Boolean = withContext(Dispatchers.Default) {
+        val key=com.sunpride.van.security.PinProofs.derive(pin,supervisor.salt)
+        try {
+            if(!com.sunpride.van.security.PinProofs.matches(key,supervisor.hash)) return@withContext false
+            val id=java.util.UUID.randomUUID().toString()
+            withContext(Dispatchers.IO) {
+                com.sunpride.van.storepos.StoreTransactions(store()).action(kind,payload,id,null) {shiftId->
+                    com.sunpride.van.storepos.Supervisors.json(supervisor,com.sunpride.van.security.PinProofs.hmacHex(key,com.sunpride.van.security.PinProofs.overrideMessage(overrideKind,id,shiftId,amountCentavos,supervisor.pinId)))
+                }
+                schedule()
+            }
+            true
+        } finally { key.fill(0) }
+    }
+    /** IP-HH2: the seller's count of the clerk's load (`load.accept`). */
+    suspend fun acceptLoad(info:com.sunpride.van.vanday.VanDayInfo,counts:Map<String,com.sunpride.van.vanday.AcceptCount>,note:String?):String = withContext(Dispatchers.IO) { com.sunpride.van.storage.VanDayStore(store()).acceptLoad(info,counts,note).also {schedule()} }
+    suspend fun acceptWaiting(tripId:String):Boolean = withContext(Dispatchers.IO) { com.sunpride.van.storage.VanDayStore(store()).acceptWaiting(tripId) }
+    /** IP-HH2: a crew member takes over the phone with their PIN (`crew.switch`); false = wrong PIN. No sign-out, no change to the registration. */
+    suspend fun switchCrew(info:com.sunpride.van.vanday.VanDayInfo,member:com.sunpride.van.vanday.CrewMember,pin:String):Boolean = withContext(Dispatchers.Default) {
+        val salt=member.salt;val hash=member.hash
+        if(salt==null||hash==null||!member.hasPin) return@withContext false
+        val key=com.sunpride.van.security.PinProofs.derive(pin,salt)
+        try {
+            if(!com.sunpride.van.security.PinProofs.matches(key,hash)) return@withContext false
+            withContext(Dispatchers.IO) { com.sunpride.van.storage.VanDayStore(store()).switchCrew(info,member,key); schedule() }
+            true
+        } finally { key.fill(0) }
+    }
+    /** IP-HH2: the server's check of a discount claim (nothing is written). Any failure just means the phone's own figures stand; it never holds the account. */
+    suspend fun claimPreview(body:JSONObject):JSONObject = withContext(Dispatchers.IO) {
+        val st=store();check(st.canSync()){"Not signed in to the office"}
+        api.request("/api/v1/fiscal/discount-claims/preview",body)
+    }
+    suspend fun storeSale(id:String,lines:List<com.sunpride.van.pos.CartLine>,tenders:List<com.sunpride.van.storepos.StoreTransactions.Tender>,total:Long,phone:String?,pin:String?,points:Long,claim:com.sunpride.van.selling.DiscountClaim?=null):JSONObject = withContext(Dispatchers.IO) {
         com.sunpride.van.storepos.StoreCheckout.customerLock.withLock {
-            com.sunpride.van.storepos.StoreTransactions(store()).sale(id,lines,tenders,total,phone,pin,points).also {schedule()}
+            com.sunpride.van.storepos.StoreTransactions(store()).sale(id,lines,tenders,total,phone,pin,points,claim).also {schedule()}
         }
     }
     /** IP-P0: print a store receipt through the same original/reprint rule as the van. */

@@ -26,6 +26,8 @@ object SaleReceiptDocuments {
         val tax=fiscal?.optJSONObject("tax")
         require(fiscal==null||fiscal.optString("documentType")=="official_receipt"||tax!=null){"Invoice tax snapshot is missing"}
         val taxLines=tax?.optJSONArray("lines")?.let{rows->(0 until rows.length()).map{rows.getJSONObject(it)}.associate{it.getInt("lineNumber") to it.getString("treatment")}}.orEmpty()
+        val lineDiscounts=tax?.optJSONArray("lines")?.let{rows->(0 until rows.length()).map{rows.getJSONObject(it)}.associate{it.getInt("lineNumber") to (it.optString("privilegeDiscountMinor","0").toLongOrNull()?:0L)}}.orEmpty()
+        val claimLabel=fiscal?.optJSONObject("discountClaim")?.optString("label")
         val voidSlip = attempt.kind == PrintKind.VOID
         if (voidSlip) requireNotNull(void) { "Void slip needs cancellation evidence" }
         val reprint = attempt.kind == PrintKind.REPRINT
@@ -60,6 +62,7 @@ object SaleReceiptDocuments {
                     add(ReceiptElement.Text("  Offer $code"))
                 }
                 if(line.discountMinor>0)add(ReceiptElement.Text("  Discounts -${money(line.discountMinor,receipt.currency)}"))
+                lineDiscounts[line.lineNumber]?.takeIf{it>0}?.let{add(ReceiptElement.Text("  ${claimLabel?:"Discount"} -${money(it,receipt.currency)}"))}
                 if (line.freeBase > 0L) add(ReceiptElement.Text("  Free ${line.freeQuantityLabel ?: line.freeBase} ${line.uomCode} (${line.promotionCode ?: "promotion"})"))
             }
             add(ReceiptElement.Divider())
@@ -72,9 +75,12 @@ object SaleReceiptDocuments {
                 add(ReceiptElement.Columns("VAT exempt",money(tax.getString("vatExemptMinor").toLong(),receipt.currency)))
                 add(ReceiptElement.Columns("Zero rated",money(tax.getString("zeroRatedMinor").toLong(),receipt.currency)))
             }
+            ReceiptDiscounts.claimLines(fiscal){money(it,receipt.currency)}.forEach{(label,amount)->add(if(amount!=null)ReceiptElement.Columns(label,amount) else ReceiptElement.Text(label))}
             if(fiscal?.optString("taxRecognition")=="payment_application_only")add(ReceiptElement.Text("Payment against invoice - no new invoice tax"))
             add(ReceiptElement.Columns("TOTAL", money(receipt.totalMinor, receipt.currency), bold = true))
-            when (receipt.paymentKind) {
+            val splitLines = ReceiptDiscounts.paymentLines(fiscal) { money(it,receipt.currency) }
+            if (splitLines.isNotEmpty()) splitLines.forEach { (label,amount) -> add(ReceiptElement.Columns(label,amount)) }
+            else when (receipt.paymentKind) {
                 PaymentKind.CASH -> {
                     add(ReceiptElement.Columns("Cash", money(receipt.tenderedMinor, receipt.currency)))
                     add(ReceiptElement.Columns("Change", money(receipt.changeMinor, receipt.currency)))

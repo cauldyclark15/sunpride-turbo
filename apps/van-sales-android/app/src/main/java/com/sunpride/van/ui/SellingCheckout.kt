@@ -59,14 +59,17 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
     title: String, totalMinor: Long?, choices: List<TenderChoice>, selectedId: String, onSelect: (String) -> Unit,
     tenderedMinor: Long?, onTendered: (Long?) -> Unit, issues: List<String>, saving: Boolean, canPay: Boolean, exactEnabled: Boolean,
     onExact: () -> Unit, onPay: () -> Unit, onBack: () -> Unit, message: String? = null,
+    /** IP-HH2: a split sale; cash, change and the quick-cash buttons work against this part of the total. */
+    cashDueMinor: Long? = null,
     body: @Composable ColumnScope.() -> Unit = {},
 ) {
     val selected = choices.firstOrNull { it.id == selectedId } ?: choices.first()
     val cash = selected.kind == TenderKind.CASH
     val total = totalMinor ?: 0L
     val tendered = if (cash) tenderedMinor else if (selected.kind == TenderKind.OTHER) totalMinor else null
-    val change = if (tendered != null) QuickCash.changeMinor(total, tendered) else 0L
-    val short = if (cash && tendered != null) QuickCash.shortMinor(total, tendered) else 0L
+    val cashTotal = cashDueMinor ?: total
+    val change = if (tendered != null) QuickCash.changeMinor(cashTotal, tendered) else 0L
+    val short = if (cash && tendered != null) QuickCash.shortMinor(cashTotal, tendered) else 0L
     var other by remember { mutableStateOf(false) }
     var typed by remember { mutableStateOf("") }
     // A different tender starts clean: no stale keypad digits from the previous one.
@@ -116,7 +119,7 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
                 }
             }
             if (cash && totalMinor != null) {
-                val buttons = listOf<Pair<String, () -> Unit>>("EXACT" to onExact) + QuickCash.choices(total).map { Peso.format(it).removeSuffix(".00") to { typed = ""; onTendered(it) } }
+                val buttons = listOf<Pair<String, () -> Unit>>("EXACT" to onExact) + QuickCash.choices(cashTotal).map { Peso.format(it).removeSuffix(".00") to { typed = ""; onTendered(it) } }
                 buttons.chunked(3).forEach { rowButtons ->
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                         rowButtons.forEach { (label, action) ->

@@ -65,7 +65,7 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
         // The server deliberately refuses van deltas. A complete, bounded snapshot is required every cycle.
         val request = envelope().put("since",JSONObject.NULL).put("pageCursor",JSONObject.NULL).put("limit",100)
             .put("scopes",JSONArray().put(JSONObject().put("scopeId",identity.scopeId).put("projection","van.bundle")
-                .put("params",JSONObject().put("serviceDate",day).put("catalogue",true).put("schemeEngine",1).put("posMode",true).put("handheld",true))))
+                .put("params",JSONObject().put("serviceDate",day).put("catalogue",true).put("schemeEngine",1).put("posMode",true).put("handheld",true).put("vanDay",true).put("categories",true))))
         val response = JSONObject(send(PULL,request.toString().toByteArray()))
         val local = V2VanCodec.snapshot(response,identity,clock())
         tripId = local.optJSONObject("trip")?.getString("tripId")
@@ -138,7 +138,7 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
 }
 
 object V2VanCodec {
-    val BUSINESS_OPS = setOf("payment.record","delivery.confirm","delivery.timing","availability.record","availability.proposal","fiscal.print","trip.start","load.confirm","truck.damage","sale.record","sale.void","return.record","cash.reconcile","stock.reconcile","trip.close","call.start","call.step","call.close") + com.sunpride.van.storage.RouteOpsStore.KINDS + com.sunpride.van.storepos.StorePosStore.KINDS
+    val BUSINESS_OPS = setOf("load.accept","crew.switch","payment.record","delivery.confirm","delivery.timing","availability.record","availability.proposal","fiscal.print","trip.start","load.confirm","truck.damage","sale.record","sale.void","return.record","cash.reconcile","stock.reconcile","trip.close","call.start","call.step","call.close") + com.sunpride.van.storage.RouteOpsStore.KINDS + com.sunpride.van.storepos.StorePosStore.KINDS
     fun operation(row: OutboxRow): JSONObject {
         require(row.kind in BUSINESS_OPS)
         val old = JSONObject(row.operationJson)
@@ -191,6 +191,9 @@ object V2VanCodec {
             customer.optJSONObject("callFlow")?.let { flows.put(customer.getString("outletId"),com.sunpride.callflow.CallFlowEngine.validate(it)) }
             customer.remove("callFlow")
         }
+        // IP-HH2: the van day rides inside the cached policy (frozen v1 top-level keys stay as they were).
+        data.optJSONObject("vanDay")?.let { data.getJSONObject("policy").put("vanDay",it) }
+        data.remove("vanDay")
         val deliveries = data.optJSONArray("deliveryDrops") ?: JSONArray()
         data.remove("deliveryDrops")
         val serverCalls = data.optJSONArray("callFlowCalls") ?: JSONArray()
