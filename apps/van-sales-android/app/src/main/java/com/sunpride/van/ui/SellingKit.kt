@@ -269,7 +269,7 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
                         .testTag("scan-camera").semantics { contentDescription = "Scan with camera" }, contentAlignment = Alignment.Center) { Glyph(GlyphKind.CAMERA, Color.White, 24.dp) }
                 }
                 banner?.let { b ->
-                    Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp).semantics { liveRegion = LiveRegionMode.Polite }.testTag("scan-toast"), shape = RoundedCornerShape(16.dp),
+                    Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }.testTag("scan-toast"), shape = RoundedCornerShape(16.dp),
                         color = if (b.error) SunprideTokens.emptyRed else SunprideTokens.stockGreen) {
                         Text(b.text, Modifier.padding(14.dp), color = Color.White, fontSize = 17.sp, fontWeight = FontWeight.Bold)
                     }
@@ -297,7 +297,7 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
     }
 
     if (paletteOpen) SearchPalette(search, lines, touched, onTap = { addUnits(it, it.quantityScale, null) }, query = paletteQuery, onQuery = { paletteQuery = it },
-        banner = banner?.let { it.text to it.error }, onClose = { paletteOpen = false })
+        banner = banner?.let { it.text to it.error }, onClose = { paletteOpen = false; paletteQuery = "" })
     keypadFor?.let { p ->
         QuantityKeypad(p, SellingCart.baseOf(lines, p.productId), byId[p.productId]?.availableBase ?: 0L,
             priceLabel = rows.firstOrNull { it.productId == p.productId }?.unitPriceLabel?.removeSuffix(" each") ?: byId[p.productId]?.price?.let { PosMoney.format(it.unitPriceMinor, it.currency) },

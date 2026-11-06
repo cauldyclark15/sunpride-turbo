@@ -64,20 +64,20 @@ class StorePosDeviceTest {
         rule.onNodeWithTag("store-end-session").assertDoesNotExist()
         rule.onNodeWithTag("open-customers").assertDoesNotExist()
         rule.onNodeWithTag("open-route-ops").assertDoesNotExist()
-        rule.onNodeWithTag("store-session-status").assertTextEquals("No cashier session open")
-        rule.onNodeWithTag("store-new-sale-reason").assertTextEquals("Open a cashier session first")
+        rule.onNodeWithTag("store-session-status").assertTextEquals("Closed")
+        rule.onNodeWithTag("nav-sell").performClick(); rule.onNodeWithText("Open the till to start selling").assertIsDisplayed(); rule.onNodeWithTag("nav-till").performClick()
         captureVanScreenshot(rule,"retail-store-home","store-open-session")
         rule.onNodeWithTag("store-open-session").performClick()
-        rule.onNodeWithTag("screen-title").assertTextEquals("Open cashier session")
+        rule.onNodeWithTag("screen-title").assertTextEquals("Open the till")
         captureVanScreenshot(rule,"retail-opening-float","save-store-open")
         rule.onNodeWithTag("store-float-amount").performTextInput("1000")
         Espresso.closeSoftKeyboard()
         rule.onNodeWithTag("save-store-open").performClick()
         rule.waitUntil(10_000){!c.busy && c.storePos.shift!=null}
         // After open: Store home, never the count.
-        rule.waitUntil(10_000){c.page==Page.HOME}
-        rule.onNodeWithTag("store-session-status").assertTextEquals("Cashier session open")
-        rule.onNodeWithTag("message").assertTextContains("Session open · float ₱1,000.00",substring=true)
+        rule.waitUntil(10_000){c.page!=Page.STORE_OPEN}
+        rule.onNodeWithTag("nav-till").performClick()
+        rule.onNodeWithTag("store-session-status").assertTextEquals("Open")
         rule.onNodeWithTag("store-count-amount").assertDoesNotExist()
         rule.onNodeWithTag("save-store-close").assertDoesNotExist()
         rule.onNodeWithText("Blind cash count").assertDoesNotExist()
@@ -104,6 +104,7 @@ class StorePosDeviceTest {
         rule.onNodeWithTag("save-store-close").performClick()
         rule.waitUntil(10_000){!c.busy && c.page==Page.HOME && c.storePos.shift==null}
         captureVanScreenshot(rule,"retail-closed-session","store-open-session")
+        rule.onNodeWithTag("nav-more").performClick()
         rule.onNodeWithTag("open-pos-mode").performScrollTo().performClick()
         rule.onNodeWithTag("pos-mode-value").assertTextEquals("Store")
         captureVanScreenshot(rule,"retail-mode-settings","primary")

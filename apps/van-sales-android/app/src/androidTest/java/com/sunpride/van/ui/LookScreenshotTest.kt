@@ -175,7 +175,8 @@ class LookScreenshotTest {
             shot("look-12-till-open")
             rule.onNodeWithTag("save-store-open").performClick()
             rule.waitUntil(10_000) { !c.busy && c.storePos.shift != null }
-            rule.waitUntil(10_000) { c.page == Page.HOME }
+            rule.waitUntil(10_000) { c.page != Page.STORE_OPEN }
+            rule.runOnUiThread { c.open(Page.HOME) }; rule.waitForIdle()
             rule.onNodeWithTag("store-end-session").performScrollTo().performClick()
             rule.onNodeWithTag("store-end-continue").performClick()
             rule.onNodeWithTag("store-count-amount").performTextInput("1990")

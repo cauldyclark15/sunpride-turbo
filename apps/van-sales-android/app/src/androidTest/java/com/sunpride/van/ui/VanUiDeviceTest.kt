@@ -928,7 +928,7 @@ class VanUiDeviceTest {
         rule.waitUntil(10_000) { c.trip?.startPending == true && !c.busy }
         sync(); rule.waitUntil(10_000) { c.trip?.status == "active" }
         captureVanScreenshot(rule,"13-home-on-route","home-primary")
-        open(Page.STOCK); captureVanScreenshot(rule,"14-truck-stock","stock-sync")
+        open(Page.STOCK); captureVanScreenshot(rule,"14-truck-stock","open-products")
         rule.onNodeWithTag("damage-0").performClick()
         captureVanScreenshot(rule,"15-record-damage","save-damage")
         rule.onNodeWithTag("damage-quantity").performTextInput("49"); hideKeyboard()

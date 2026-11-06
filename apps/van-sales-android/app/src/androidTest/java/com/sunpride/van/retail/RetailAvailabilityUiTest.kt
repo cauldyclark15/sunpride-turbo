@@ -99,7 +99,7 @@ class RetailAvailabilityUiTest {
         quantity(0,"0")
         rule.onNodeWithTag("retail-save").performScrollTo().performClick()
         rule.waitUntil(10_000) { c.retailSaved && !c.busy }
-        assertTrue(c.sale!!.lines.isEmpty()); rule.onNodeWithTag("checkout").assertIsNotEnabled()
+        assertTrue(c.sale!!.lines.isEmpty()); rule.onAllNodesWithTag("checkout").assertCountEquals(0)
         val rows=runBlocking { f.store.pending() }
         val check=JSONObject(rows[0].operationJson).getJSONObject("payload")
         assertEquals("scan",check.getJSONArray("lines").getJSONObject(1).getString("method"))
