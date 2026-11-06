@@ -49,7 +49,7 @@ Red means "act or attention"; it is not decoration inside the sheet. Status is n
 
 ## Components (`ui/CalmComponents.kt`, `ui/FieldLook.kt`)
 
-`FieldHeader`, `SectionCard`/`LookCard`, `ListRow` (optional leading and trailing slots), `IconTile`, `StatusChip`, `FilterPill`, `SearchField`, `PrimaryBottomButton`, `SecondaryButton`, `TonalButton`, `EmptyState`, `CallProgressCard`/`ProgressBar`, `Glyph` icon set (drawn in code, no icon font). Existing signatures are kept so earlier screens and tests compile; test tags are unchanged.
+`FieldHeader`, `ActionBar` (full-width bar with a soft shadow that holds a screen's actions; the list scrolls clear above it), `NoticeCard` (tinted inline note with a glyph), `FieldTextField`, `QuantityField`, `PickerField`, `ChoiceRow`, `FieldButton`, `SectionCard`/`LookCard`, `ListRow` (optional leading and trailing slots), `IconTile`, `StatusChip`, `FilterPill`, `SearchField`, `PrimaryBottomButton`, `SecondaryButton`, `TonalButton`, `EmptyState`, `CallProgressCard`/`ProgressBar`, `Glyph` icon set (drawn in code, no icon font). Existing signatures are kept so earlier screens and tests compile; test tags are unchanged.
 
 ## Today
 
@@ -58,6 +58,10 @@ Red means "act or attention"; it is not decoration inside the sheet. Status is n
 3. Call progress card: "N of M stores done", bar, productive count.
 4. Stops list: green check when done, numbered tile otherwise; next stop outlined in red with a "Next" pill.
 5. Floating dark bar: next store name, area, **Start**. It sits above the nav bar and the list scrolls clear of it.
+
+## Form screens
+
+Sign-in, Register phone, Call sheet, Order draft and review, Census (New store), Attendance, Collector, Work-With and the Catalogue body use the same kit: header, white sheet, one `PageIntro` or notice at the top, `SectionCard` groups, pill fields and buttons, and the actions in an `ActionBar` (primary red pill first on sign-in/register, side by side on order screens). States are words in tinted chips or notices (`StatusChip`, `NoticeCard`), never colour alone. Product cards lead with a code chip, then the name on its own full-width line so pack sizes ("150 g") do not wrap; the quantity field sits beside the price. Where the screen had one-line selections (stores on a route, invoices, trainees) they are `ChoiceRow`s: one text node, ticked while selected.
 
 ## Empty and error states
 

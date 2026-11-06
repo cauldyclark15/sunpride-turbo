@@ -269,9 +269,10 @@ fun HeaderRoundButton(kind: GlyphKind, description: String, onClick: () -> Unit,
 
 /** A small tinted status pill: label in a dark tone-matched colour. Never relies on colour alone: the label says it. */
 @Composable
-fun StatusChip(label: String, tone: Look.Tone = Look.Tone.NEUTRAL, modifier: Modifier = Modifier) {
+fun StatusChip(label: String, tone: Look.Tone = Look.Tone.NEUTRAL, modifier: Modifier = Modifier, textTag: String? = null) {
     Box(modifier.clip(CircleShape).background(Look.fill(tone)).padding(horizontal = 10.dp, vertical = 4.dp)) {
-        Text(label, color = Look.text(tone), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(label, color = Look.text(tone), style = MaterialTheme.typography.labelMedium, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            modifier = if (textTag != null) Modifier.testTag(textTag) else Modifier)
     }
 }
 

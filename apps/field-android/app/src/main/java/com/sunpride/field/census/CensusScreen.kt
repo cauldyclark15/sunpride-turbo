@@ -21,9 +21,20 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import com.sunpride.field.ui.ActionBar
 import com.sunpride.field.ui.FieldBackend
+import com.sunpride.field.ui.FieldTextField
+import com.sunpride.field.ui.GlyphKind
+import com.sunpride.field.ui.Look
+import com.sunpride.field.ui.NoticeCard
+import com.sunpride.field.ui.PickerField
 import com.sunpride.field.ui.PrimaryBottomButton
-import com.sunpride.field.ui.SecondaryButton
+import com.sunpride.field.ui.SectionCard
+import com.sunpride.field.ui.StatusChip
+import com.sunpride.field.ui.TonalButton
 import com.sunpride.field.ui.diagnosticvisit.CameraPreview
 import com.sunpride.field.ui.diagnosticvisit.VisitLocation
 import kotlinx.coroutines.Dispatchers
@@ -83,58 +94,80 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
             finally { busy = false }
         }
     }
-    Column(modifier.fillMaxSize().padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(message, style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("census-message"))
-            CensusPicker("Census batch", choices("batches"), batch, { batch = it }, "census-batch")
-            OutlinedTextField(name, { name = it }, label = { Text("Store name") }, modifier = Modifier.fillMaxWidth().testTag("census-name"))
-            OutlinedTextField(address, { address = it }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth().testTag("census-address"))
-            OutlinedTextField(owner, { owner = it }, label = { Text("Owner contact name") }, modifier = Modifier.fillMaxWidth().testTag("census-owner"))
-            OutlinedTextField(phone, { phone = it }, label = { Text("Owner phone") }, modifier = Modifier.fillMaxWidth().testTag("census-phone"))
-            CensusPicker("Channel", choices("channels"), channel, { channel = it; subchannel = "" }, "census-channel")
-            CensusPicker("Sub-channel", choices("subchannels"), subchannel, { subchannel = it }, "census-subchannel")
-            CensusPicker("Estimated revenue-potential class", listOf("A", "B", "C", "D").map { it to "Class $it" }, estimatedClass, { estimatedClass = it }, "census-class")
-            SecondaryButton("Get GPS fix", {
-                if (location.requiresPermission && ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
-                    locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                else scope.launch { busy = true; try { fix = location.fixWithinAccuracy(50.0); message = if (fix == null) "No GPS fix. Move outside and retry." else "GPS accuracy ±${fix!!.getDouble("accuracyMeters").toInt()} m. Must be under 50 m." } finally { busy = false } }
-            }, Modifier.fillMaxWidth().testTag("census-gps"), !busy)
-            fix?.let { Text("GPS ±${it.getDouble("accuracyMeters").toInt()} m", modifier = Modifier.testTag("census-accuracy")) }
-            if (camera) {
-                CameraPreview({ capture = it }, { message = "Camera unavailable." }, Modifier.fillMaxWidth().height(260.dp))
-                SecondaryButton("Take storefront photo", {
-                    val still = capture ?: return@SecondaryButton
-                    val output = ByteArrayOutputStream(); busy = true
-                    still.takePicture(ImageCapture.OutputFileOptions.Builder(output).build(), ContextCompat.getMainExecutor(context), object : ImageCapture.OnImageSavedCallback {
-                        override fun onImageSaved(result: ImageCapture.OutputFileResults) {
-                            scope.launch { try { jpeg = withContext(Dispatchers.Default) { boundedJpeg(output.toByteArray()) }; camera = false; message = "Storefront photo saved for this census." } catch (_: Exception) { message = "Could not prepare the photo. Try again." } finally { busy = false } }
-                        }
-                        override fun onError(exception: ImageCaptureException) { busy = false; message = "Could not take the photo. Try again." }
-                    })
-                }, Modifier.fillMaxWidth().testTag("census-shutter"), !busy)
-            } else SecondaryButton(if (jpeg == null) "Open storefront camera" else "Retake storefront photo", {
-                if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) camera = true
-                else cameraPermission.launch(Manifest.permission.CAMERA)
-            }, Modifier.fillMaxWidth().testTag("census-camera"), !busy)
-            jpeg?.let { bytes -> BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let { Image(it.asImageBitmap(), "Captured storefront", Modifier.fillMaxWidth().height(180.dp)) } }
-            if (history.isNotEmpty()) {
-                Text("Saved census captures", style = MaterialTheme.typography.titleMedium)
-                history.takeLast(20).reversed().forEach { (store, state) -> Text("$store · ${if (state == "done") "Sent for review" else if (state == "review") "Needs review" else "Saved on phone"}", modifier = Modifier.testTag("census-saved")) }
+    Column(modifier.fillMaxSize().imePadding()) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            NoticeCard(message, tone = if (config == null) Look.Tone.WARN else Look.Tone.NEUTRAL,
+                glyph = if (config == null) GlyphKind.INFO else GlyphKind.LOCK, textTag = "census-message")
+            SectionCard("Store") {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CensusPicker("Census batch", choices("batches"), batch, { batch = it }, "census-batch",
+                        empty = if (config == null) "Not downloaded yet" else "No batches assigned")
+                    FieldTextField(name, { name = it }, label = { Text("Store name") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("census-name"))
+                    FieldTextField(address, { address = it }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth().testTag("census-address"))
+                }
             }
-            Spacer(Modifier.height(16.dp))
+            SectionCard("Owner") {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    FieldTextField(owner, { owner = it }, label = { Text("Owner contact name") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("census-owner"))
+                    FieldTextField(phone, { phone = it }, label = { Text("Owner phone") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("census-phone"),
+                        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone))
+                }
+            }
+            SectionCard("Channel") {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    CensusPicker("Channel", choices("channels"), channel, { channel = it; subchannel = "" }, "census-channel")
+                    CensusPicker("Sub-channel", choices("subchannels"), subchannel, { subchannel = it }, "census-subchannel",
+                        empty = if (channel.isEmpty()) "Choose a channel first" else "Choose…")
+                    CensusPicker("Estimated revenue-potential class", listOf("A", "B", "C", "D").map { it to "Class $it" }, estimatedClass, { estimatedClass = it }, "census-class")
+                }
+            }
+            SectionCard("Location and photo") {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    TonalButton("Get GPS fix", {
+                        if (location.requiresPermission && ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
+                            locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
+                        else scope.launch { busy = true; try { fix = location.fixWithinAccuracy(50.0); message = if (fix == null) "No GPS fix. Move outside and retry." else "GPS accuracy ±${fix!!.getDouble("accuracyMeters").toInt()} m. Must be under 50 m." } finally { busy = false } }
+                    }, Modifier.fillMaxWidth().testTag("census-gps"), !busy, glyph = GlyphKind.PIN)
+                    fix?.let { StatusChip("GPS ±${it.getDouble("accuracyMeters").toInt()} m", Look.Tone.GOOD, textTag = "census-accuracy") }
+                    if (camera) {
+                        CameraPreview({ capture = it }, { message = "Camera unavailable." }, Modifier.fillMaxWidth().height(260.dp).clip(RoundedCornerShape(20.dp)))
+                        PrimaryBottomButton("Take storefront photo", {
+                            val still = capture ?: return@PrimaryBottomButton
+                            val output = ByteArrayOutputStream(); busy = true
+                            still.takePicture(ImageCapture.OutputFileOptions.Builder(output).build(), ContextCompat.getMainExecutor(context), object : ImageCapture.OnImageSavedCallback {
+                                override fun onImageSaved(result: ImageCapture.OutputFileResults) {
+                                    scope.launch { try { jpeg = withContext(Dispatchers.Default) { boundedJpeg(output.toByteArray()) }; camera = false; message = "Storefront photo saved for this census." } catch (_: Exception) { message = "Could not prepare the photo. Try again." } finally { busy = false } }
+                                }
+                                override fun onError(exception: ImageCaptureException) { busy = false; message = "Could not take the photo. Try again." }
+                            })
+                        }, Modifier.fillMaxWidth().testTag("census-shutter"), !busy)
+                    } else TonalButton(if (jpeg == null) "Open storefront camera" else "Retake storefront photo", {
+                        if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) camera = true
+                        else cameraPermission.launch(Manifest.permission.CAMERA)
+                    }, Modifier.fillMaxWidth().testTag("census-camera"), !busy, glyph = GlyphKind.CAMERA)
+                    jpeg?.let { bytes -> BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let { Image(it.asImageBitmap(), "Captured storefront", Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Crop) } }
+                }
+            }
+            if (history.isNotEmpty()) SectionCard("Saved census captures") {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    history.takeLast(20).reversed().forEach { (store, state) ->
+                        Text("$store · ${if (state == "done") "Sent for review" else if (state == "review") "Needs review" else "Saved on phone"}",
+                            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("census-saved"))
+                    }
+                }
+            }
         }
-        PrimaryBottomButton("Save census offline", ::save, Modifier.fillMaxWidth().testTag("census-save"), !busy && config != null && !camera)
+        ActionBar { PrimaryBottomButton("Save census offline", ::save, Modifier.fillMaxWidth().testTag("census-save"), !busy && config != null && !camera) }
     }
 }
 @Composable
-private fun CensusPicker(label: String, choices: List<Pair<String, String>>, value: String, onChange: (String) -> Unit, tag: String) {
+private fun CensusPicker(label: String, choices: List<Pair<String, String>>, value: String, onChange: (String) -> Unit, tag: String,
+    empty: String = "Choose…") {
     var expanded by remember { mutableStateOf(false) }
-    Column {
-        Text(label, style = MaterialTheme.typography.labelMedium)
-        Box {
-            OutlinedButton(onClick = { expanded = true }, modifier = Modifier.fillMaxWidth().testTag(tag)) { Text(choices.firstOrNull { it.first == value }?.second ?: "Choose…") }
-            DropdownMenu(expanded, { expanded = false }) { choices.forEach { choice -> DropdownMenuItem(text = { Text(choice.second) }, onClick = { onChange(choice.first); expanded = false }) } }
-        }
+    Box {
+        PickerField(label, choices.firstOrNull { it.first == value }?.second, empty, { expanded = true }, Modifier.testTag(tag))
+        DropdownMenu(expanded, { expanded = false }) { choices.forEach { choice -> DropdownMenuItem(text = { Text(choice.second) }, onClick = { onChange(choice.first); expanded = false }) } }
     }
 }
 private fun boundedJpeg(bytes: ByteArray): ByteArray {

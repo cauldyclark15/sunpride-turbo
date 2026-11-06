@@ -29,6 +29,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
@@ -163,7 +165,7 @@ fun ValueRow(label: String, value: String, modifier: Modifier = Modifier) {
 }
 
 @Composable
-private fun fieldColors() = OutlinedTextFieldDefaults.colors(
+internal fun fieldColors() = OutlinedTextFieldDefaults.colors(
     focusedBorderColor = MaterialTheme.colorScheme.primary,
     unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.55f),
     disabledBorderColor = Look.hairline,
@@ -277,5 +279,121 @@ fun EmptyState(title: String, body: String, glyph: GlyphKind, modifier: Modifier
         Text(title, style = MaterialTheme.typography.titleMedium, textAlign = TextAlign.Center)
         Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center)
         action?.invoke()
+    }
+}
+
+/** Screen heading inside the white sheet: one title, one muted line under it. */
+@Composable
+fun PageIntro(title: String, subtitle: String? = null, modifier: Modifier = Modifier, titleTag: String? = null) {
+    Column(modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+        Text(title, style = MaterialTheme.typography.headlineSmall,
+            modifier = if (titleTag != null) Modifier.testTag(titleTag) else Modifier)
+        if (subtitle != null) Text(subtitle, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+/**
+ * An inline notice: tinted fill, a glyph and one or two sentences. The word carries the meaning, the tint only supports it.
+ * [textTag] goes on the text itself so tests and screen readers find the sentence.
+ */
+@Composable
+fun NoticeCard(text: String, modifier: Modifier = Modifier, tone: Look.Tone = Look.Tone.NEUTRAL, glyph: GlyphKind = GlyphKind.INFO,
+    textTag: String? = null) {
+    Row(modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(Look.fill(tone)).padding(horizontal = 14.dp, vertical = 12.dp),
+        verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+        Glyph(glyph, Look.text(tone), 20.dp, Modifier.padding(top = 1.dp))
+        Text(text, color = Look.text(tone), style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f).then(if (textTag != null) Modifier.testTag(textTag) else Modifier))
+    }
+}
+
+/** A text field in the shared look: 16 dp corners, accent border while focused, label above the entered text. */
+@Composable
+fun FieldTextField(value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
+    label: (@Composable () -> Unit)? = null, placeholder: (@Composable () -> Unit)? = null, singleLine: Boolean = false,
+    minLines: Int = 1, isError: Boolean = false,
+    keyboardOptions: androidx.compose.foundation.text.KeyboardOptions = androidx.compose.foundation.text.KeyboardOptions.Default) {
+    OutlinedTextField(value, onValueChange, modifier = modifier.heightIn(min = 52.dp), enabled = enabled, label = label,
+        placeholder = placeholder, singleLine = singleLine, minLines = if (singleLine) 1 else minLines, isError = isError,
+        keyboardOptions = keyboardOptions, shape = RoundedCornerShape(16.dp), textStyle = MaterialTheme.typography.bodyLarge,
+        colors = fieldColors())
+}
+
+/**
+ * Same call shape as the Material OutlinedButton: an outlined pill, 48 dp tall, dark text. [primary] turns it into the one
+ * filled red pill of a form (save). Extra named arguments go before the trailing content lambda.
+ */
+@Composable
+fun FieldButton(onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, primary: Boolean = false,
+    content: @Composable androidx.compose.foundation.layout.RowScope.() -> Unit) {
+    if (primary) {
+        Button(onClick = onClick, enabled = enabled, modifier = modifier.heightIn(min = 52.dp), shape = RoundedCornerShape(Look.pill),
+            colors = ButtonDefaults.buttonColors(disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant), content = content)
+        return
+    }
+    OutlinedButton(onClick = onClick, enabled = enabled, modifier = modifier.heightIn(min = 48.dp), shape = RoundedCornerShape(Look.pill),
+        border = BorderStroke(1.5.dp, if (enabled) MaterialTheme.colorScheme.outline else Look.hairline),
+        contentPadding = PaddingValues(horizontal = 18.dp, vertical = 8.dp),
+        colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface,
+            disabledContentColor = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.78f)),
+        content = content)
+}
+
+/**
+ * A full-width choice: one line of text on a card, tinted and ticked while [selected]. The text stays a single node so it is
+ * found, read and clicked as one sentence.
+ */
+@Composable
+fun ChoiceRow(text: String, selected: Boolean, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    Surface(onClick = onClick, enabled = enabled, modifier = modifier.fillMaxWidth().heightIn(min = 56.dp), shape = RoundedCornerShape(Look.cardRadius),
+        color = if (selected) Look.tint else Look.card,
+        border = BorderStroke(if (selected) 1.5.dp else 1.dp, if (selected) Look.accent else Look.hairline)) {
+        Row(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(text, Modifier.weight(1f), style = MaterialTheme.typography.titleSmall.copy(fontWeight = if (selected) FontWeight.Bold else FontWeight.SemiBold),
+                color = if (selected) Look.onTint else Look.ink, maxLines = 3, overflow = TextOverflow.Ellipsis)
+            if (selected) Glyph(GlyphKind.CHECK, Look.onTint, 20.dp) else Glyph(GlyphKind.CHEVRON, Look.muted, 18.dp)
+        }
+    }
+}
+
+/** A small number box for a quantity: centred digits, accent focus, error tint. */
+@Composable
+fun QuantityField(value: String, onValueChange: (String) -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true,
+    isError: Boolean = false, placeholder: String? = null) {
+    OutlinedTextField(value, onValueChange, singleLine = true, enabled = enabled, isError = isError,
+        modifier = modifier.heightIn(min = 52.dp),
+        placeholder = placeholder?.let { { Text(it, Modifier.fillMaxWidth(), style = MaterialTheme.typography.bodyLarge,
+            color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = TextAlign.Center) } },
+        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Number),
+        shape = RoundedCornerShape(14.dp), textStyle = MaterialTheme.typography.titleSmall.copy(textAlign = TextAlign.Center),
+        colors = fieldColors())
+}
+
+/** The bar that holds a screen's actions: full width, a soft shadow above it, content scrolls clear underneath. */
+@Composable
+fun ActionBar(modifier: Modifier = Modifier, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.background, shadowElevation = 8.dp) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+    }
+}
+
+/** A pill-shaped dropdown field: label above, the chosen value inside with a chevron. Tag goes on the tappable pill. */
+@Composable
+fun PickerField(label: String, valueText: String?, placeholder: String, onClick: () -> Unit, modifier: Modifier = Modifier,
+    enabled: Boolean = true) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 14.dp))
+        Surface(onClick = onClick, enabled = enabled, modifier = modifier.fillMaxWidth().heightIn(min = 52.dp),
+            shape = RoundedCornerShape(Look.pill), color = MaterialTheme.colorScheme.surface,
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.55f))) {
+            Row(Modifier.padding(horizontal = 18.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text(valueText ?: placeholder, style = MaterialTheme.typography.bodyLarge,
+                    color = if (valueText != null) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                Glyph(GlyphKind.CHEVRON, MaterialTheme.colorScheme.onSurfaceVariant, 18.dp, Modifier.rotate(90f))
+            }
+        }
     }
 }

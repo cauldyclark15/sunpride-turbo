@@ -438,18 +438,19 @@ private fun BiometricOffer(onAccept: () -> Unit, onDecline: () -> Unit) {
 /** SP-0128 launch lock: the system prompt sits on top; these buttons retry it or go to the password. */
 @Composable
 private fun UnlockScreen(busy: Boolean, onUnlock: () -> Unit, onPassword: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(16.dp)) {
+    Column(modifier.fillMaxSize()) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 20.dp),
+            horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(12.dp, Alignment.CenterVertically)) {
+            SunprideLogo(Modifier.testTag("unlock-logo"), 72.dp)
             Text("Welcome back", style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.testTag("unlock-title"))
             Text("Use your fingerprint or face to open the app.", style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                color = MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
-        androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
-        SecondaryButton("Sign in with password", onPassword, Modifier.fillMaxWidth().testTag("unlock-password"))
-        androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
-        PrimaryBottomButton("Use fingerprint or face", onUnlock, Modifier.testTag("unlock-biometric"), !busy)
+        ActionBar {
+            PrimaryBottomButton("Use fingerprint or face", onUnlock, Modifier.testTag("unlock-biometric"), !busy)
+            SecondaryButton("Sign in with password", onPassword, Modifier.fillMaxWidth().testTag("unlock-password"))
+        }
     }
 }
 
@@ -487,9 +488,9 @@ private object UnconfiguredBackend : FieldBackend {
 
 /** SP-0126: the client's logo exactly as supplied (packages/ui/assets/sunpride-logo.jpg), never recoloured. */
 @Composable
-fun SunprideLogo(modifier: Modifier = Modifier) {
+fun SunprideLogo(modifier: Modifier = Modifier, size: androidx.compose.ui.unit.Dp = 96.dp) {
     androidx.compose.foundation.Image(androidx.compose.ui.res.painterResource(com.sunpride.field.R.drawable.sunpride_logo),
-        contentDescription = "Sunpride", modifier = modifier.size(96.dp).clip(MaterialTheme.shapes.large))
+        contentDescription = "Sunpride", modifier = modifier.size(size).clip(MaterialTheme.shapes.large))
 }
 
 @Composable
@@ -509,12 +510,17 @@ private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: Stri
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
+    Column(modifier.fillMaxSize()) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            SunprideLogo(Modifier.padding(top = 8.dp).testTag("sign-in-logo"))
-            Text("Sign in", style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.testTag("shell-title"))
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+                SunprideLogo(Modifier.testTag("sign-in-logo"), 64.dp)
+                Column {
+                    Text("Sign in", style = MaterialTheme.typography.headlineMedium, modifier = Modifier.testTag("shell-title"))
+                    Text("Use your Sunpride work account.", style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant)
+                }
+            }
             if (!environment.isReady) SectionCard("Configuration required", Modifier.testTag("environment-error")) {
                 environment.errors.forEach { Text(it, Modifier.padding(16.dp)) }
             }
@@ -531,17 +537,22 @@ private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: Stri
                         EyeGlyph(crossed = showPassword)
                     }
                 })
-            companyContent?.invoke()
-            if (error != null) Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("auth-error"))
+            if (error != null) NoticeCard(error, tone = Look.Tone.BAD, textTag = "auth-error")
+            if (companyContent != null) {
+                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    androidx.compose.material3.HorizontalDivider(Modifier.weight(1f), color = Look.hairline)
+                    Text("or", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    androidx.compose.material3.HorizontalDivider(Modifier.weight(1f), color = Look.hairline)
+                }
+                companyContent.invoke()
+            }
         }
-        androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
-        if (onBiometric != null) {
-            SecondaryButton("Use fingerprint or face", onBiometric, Modifier.fillMaxWidth().testTag("sign-in-biometric"), !busy)
-            androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
+        ActionBar {
+            if (onBiometric != null) SecondaryButton("Use fingerprint or face", onBiometric, Modifier.fillMaxWidth().testTag("sign-in-biometric"), !busy)
+            PrimaryBottomButton(if (busy) "Signing in…" else "Sign in", {
+                val secret = password; password = ""; showPassword = false; onSignIn(email.trim(), secret)
+            }, Modifier.testTag("sign-in"), environment.isReady && !busy && email.isNotBlank() && password.isNotEmpty())
         }
-        PrimaryBottomButton(if (busy) "Signing in…" else "Sign in", {
-            val secret = password; password = ""; showPassword = false; onSignIn(email.trim(), secret)
-        }, Modifier.testTag("sign-in"), environment.isReady && !busy && email.isNotBlank() && password.isNotEmpty())
     }
 }
 
@@ -551,50 +562,51 @@ fun EnrollmentScreen(state: EnrollmentState, key: DeviceKeyInfo?, busy: Boolean,
     pairingContent: (@Composable ()->Unit)? = null) {
     val context = LocalContext.current
     var expanded by rememberSaveable { mutableStateOf(false) }
-    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
+    Column(modifier.fillMaxSize()) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 20.dp, end = 20.dp, top = 8.dp, bottom = 20.dp),
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text(if (state == EnrollmentState.Removed) "Phone removed" else "Register phone",
-                style = MaterialTheme.typography.headlineMedium, modifier = Modifier.testTag("enrollment-title"))
-            if (state == EnrollmentState.Unregistered) {
-                pairingContent?.invoke()
-                Text("Send this code to your admin", style = MaterialTheme.typography.bodySmall,
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                Text(if (state == EnrollmentState.Removed) "Phone removed" else "Register phone",
+                    style = MaterialTheme.typography.headlineMedium, modifier = Modifier.testTag("enrollment-title"))
+                Text(if (state == EnrollmentState.Removed) "Ask your admin to re-add this phone"
+                    else "Send this code to your admin", style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            if (state == EnrollmentState.Unregistered) {
+                NoticeCard("Waiting for your admin. This screen checks again by itself.", tone = Look.Tone.WARN, glyph = GlyphKind.CLOCK)
                 if (key != null) SectionCard("Phone code") {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                         Text(key.fingerprint.filter { it.isLetterOrDigit() }.chunked(4).joinToString(" "),
                             fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleLarge,
                             modifier = Modifier.testTag("key-fingerprint"))
-                        TextButton(onClick = { expanded = !expanded }, modifier = Modifier.testTag("show-full-code"),
-                            colors = androidx.compose.material3.ButtonDefaults.textButtonColors(
-                                contentColor = MaterialTheme.colorScheme.onSurfaceVariant)) {
-                            Text(if (expanded) "Hide full code" else "Show full code",
-                                style = MaterialTheme.typography.bodyMedium)
-                        }
+                        TonalButton(if (expanded) "Hide full code" else "Show full code", { expanded = !expanded },
+                            Modifier.testTag("show-full-code"))
                         if (expanded) SelectionContainer { Text(key.publicKey, fontFamily = FontFamily.Monospace,
                             style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("public-key")) }
                     }
                 } else if (busy) CircularProgressIndicator(Modifier.testTag("key-loading"))
+                if (pairingContent != null) SectionCard("Replacing another phone?") {
+                    Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp)) { pairingContent() }
+                }
             }
             if (state == EnrollmentState.Removed) {
-                Text("Ask your admin to re-add this phone", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
-                if (unsent > 0) Text("$unsent unsent on this phone", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+                if (unsent > 0) NoticeCard("$unsent unsent on this phone", tone = Look.Tone.WARN)
             }
-            if (error != null) Text(error, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("auth-error"))
+            if (error != null) NoticeCard(error, tone = Look.Tone.BAD, textTag = "auth-error")
         }
-        androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
-        if (state == EnrollmentState.Unregistered) SecondaryButton("Check again", onCheck,
-            Modifier.fillMaxWidth().testTag("check-again"), !busy)
-        else SecondaryButton("Sign out", onSignOut, Modifier.fillMaxWidth().testTag("sign-out"), !busy, danger = true)
-        androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
-        if (state == EnrollmentState.Unregistered) PrimaryBottomButton("Copy code", {
-            key?.let { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                .setPrimaryClip(ClipData.newPlainText("Phone code", it.publicKey)) }
-        }, Modifier.testTag("copy-key"), key != null)
-        else PrimaryBottomButton(if (busy) "Checking…" else "Check again", onCheck,
-            Modifier.testTag("check-again-primary"), !busy)
+        ActionBar {
+            if (state == EnrollmentState.Unregistered) {
+                PrimaryBottomButton("Copy code", {
+                    key?.let { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
+                        .setPrimaryClip(ClipData.newPlainText("Phone code", it.publicKey)) }
+                }, Modifier.testTag("copy-key"), key != null)
+                SecondaryButton("Check again", onCheck, Modifier.fillMaxWidth().testTag("check-again"), !busy)
+            } else {
+                PrimaryBottomButton(if (busy) "Checking…" else "Check again", onCheck,
+                    Modifier.testTag("check-again-primary"), !busy)
+                SecondaryButton("Sign out", onSignOut, Modifier.fillMaxWidth().testTag("sign-out"), !busy, danger = true)
+            }
+        }
     }
 }
 
@@ -696,10 +708,10 @@ private fun headerSpec(ready: Boolean, locked: Boolean, signedIn: Boolean, page:
         "support" -> HeaderSpec("Support info", back = true, backTag = "support-back")
         "change-password" -> HeaderSpec("Change password", back = true, backTag = "account-back")
         "team" -> HeaderSpec("Team", titleTag = "team-title", back = true, backTag = "team-back")
-        "census" -> HeaderSpec("Outlet census", back = true, backTag = "account-back")
-        "workforce" -> HeaderSpec("Attendance & prospects", back = true, backTag = "workforce-back")
-        "jointcall" -> HeaderSpec("Work-With & coaching", back = true, backTag = "account-back")
-        "collections" -> HeaderSpec("Collector agenda", back = true, backTag = "account-back")
+        "census" -> HeaderSpec("New store", back = true, backTag = "account-back")
+        "workforce" -> HeaderSpec("Attendance", back = true, backTag = "workforce-back")
+        "jointcall" -> HeaderSpec("Work-With", back = true, backTag = "account-back")
+        "collections" -> HeaderSpec("Collector", back = true, backTag = "account-back")
         "catalogue" -> HeaderSpec("Products", back = true, backTag = "account-back")
         "incentives" -> HeaderSpec("Earned statements", back = true, backTag = "account-back")
         "location-consent", "location-background" -> HeaderSpec("Location sharing", back = true, backTag = "account-back")

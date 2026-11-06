@@ -12,25 +12,34 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.unit.dp
 import com.sunpride.field.storage.CallSheet
 import com.sunpride.field.ui.FieldController
+import com.sunpride.field.ui.ActionBar
+import com.sunpride.field.ui.EmptyState
+import com.sunpride.field.ui.GlyphKind
+import com.sunpride.field.ui.Look
+import com.sunpride.field.ui.LookCard
+import com.sunpride.field.ui.NoticeCard
+import com.sunpride.field.ui.PageIntro
 import com.sunpride.field.ui.PrimaryBottomButton
-import com.sunpride.field.ui.SecondaryButton
+import com.sunpride.field.ui.QuantityField
 import com.sunpride.field.ui.SectionCard
-import com.sunpride.field.ui.SunprideTokens
+import com.sunpride.field.ui.StatusChip
+import com.sunpride.field.ui.TonalButton
+import com.sunpride.field.ui.ValueRow
 import org.json.JSONObject
 
 @Composable
@@ -52,45 +61,43 @@ fun CallSheetScreen(sheet: CallSheet, controller: FieldController, modifier: Mod
         intent.kind == "visit.activity" &&
             JSONObject(intent.serializedOperation).getJSONObject("payload").getJSONObject("activity").optString("kind") == "call_sheet"
     }
-    Column(modifier.fillMaxSize().imePadding().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
-        LazyColumn(Modifier.weight(1f).testTag("call-sheet-products"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier.fillMaxSize().imePadding()) {
+        LazyColumn(Modifier.weight(1f).testTag("call-sheet-products"), verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp)) {
             item {
-                Text("Call sheet", style = MaterialTheme.typography.headlineMedium)
-                Text("For this visit · Week is assigned from the service date",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                PageIntro("Call sheet", "For this visit · Week is assigned from the service date")
             }
             item {
                 SectionCard("Account") {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.padding(bottom = 6.dp)) {
                         val labels = listOf("Account name", "Address", "Buyer", "Contact #", "Acct in-charge",
                             "Receiving in-charge", "Distributor", "Sched & Cont #", "FOC", "Pricing")
                         sheet.header.fields().zip(labels).forEach { (field, label) ->
-                            field.second?.let { value ->
-                                Column {
-                                    Text(label, style = MaterialTheme.typography.labelMedium,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant)
-                                    Text(value, style = MaterialTheme.typography.bodyMedium)
-                                }
-                            }
+                            field.second?.let { value -> ValueRow(label, value) }
                         }
                     }
                 }
             }
             if (saved.isNotEmpty()) item {
                 SectionCard("Saved call sheets") {
-                    saved.forEachIndexed { index, (_, state) ->
-                        Text("Save ${index + 1} · ${when (state) {
-                            "pending" -> "Queued"; "sending" -> "Sending"; "done" -> "Sent"; else -> "Needs review"
-                        }}", Modifier.padding(horizontal = 16.dp, vertical = 8.dp).testTag("call-sheet-status"),
-                            style = MaterialTheme.typography.bodySmall)
+                    Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        saved.forEachIndexed { index, (_, state) ->
+                            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                Text("Save ${index + 1}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
+                                StatusChip(when (state) {
+                                    "pending" -> "Queued"; "sending" -> "Sending"; "done" -> "Sent"; else -> "Needs review"
+                                }, when (state) { "done" -> Look.Tone.GOOD; "pending", "sending" -> Look.Tone.NEUTRAL; else -> Look.Tone.WARN },
+                                    textTag = "call-sheet-status")
+                            }
+                        }
                     }
                 }
             }
             item {
                 SectionCard("Suggested order", Modifier.testTag("suggested-order")) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                         suggestion.message?.let {
-                            Text(it, style = MaterialTheme.typography.bodySmall,
+                            Text(it, style = MaterialTheme.typography.bodyMedium,
                                 modifier = Modifier.testTag("suggested-order-message"))
                         }
                         if (order != null) {
@@ -100,7 +107,7 @@ fun CallSheetScreen(sheet: CallSheet, controller: FieldController, modifier: Mod
                         Text(SuggestedOrderRules.NOTE, style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
                         if (order != null && SuggestedOrderRules.hasApplicable(order, sheet))
-                            SecondaryButton("Use all suggestions", { setDrafts(SuggestedOrderRules.useAll(order, sheet, drafts)) },
+                            TonalButton("Use all suggestions", { setDrafts(SuggestedOrderRules.useAll(order, sheet, drafts)) },
                                 Modifier.fillMaxWidth().testTag("suggested-order-use-all"), !controller.busy)
                         val extra = order?.let { SuggestedOrderRules.notOnSheet(it, sheet) }.orEmpty()
                         if (extra.isNotEmpty()) {
@@ -114,13 +121,18 @@ fun CallSheetScreen(sheet: CallSheet, controller: FieldController, modifier: Mod
                     }
                 }
             }
-            if (sheet.lines.isEmpty()) item { Text("No products set up for this account yet. Ask your office.") }
+            if (sheet.lines.isEmpty()) item {
+                EmptyState("No products yet", "No products set up for this account yet. Ask your office.", GlyphKind.BOX)
+            }
             itemsIndexed(sheet.lines, key = { _, product -> product.productId }) { index, product ->
-                SectionCard(product.code) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LookCard {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                            StatusChip(product.code, Look.Tone.ACCENT)
+                            StatusChip(product.uom)
+                        }
                         Text(product.name, style = MaterialTheme.typography.titleSmall)
-                        Text(listOfNotNull(product.uom, product.pricing).joinToString(" · "),
-                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        product.pricing?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         order?.let { SuggestedOrderRules.suggestion(it, product.productId) }?.let { line ->
                             Text(SuggestedOrderRules.statusText(line), style = MaterialTheme.typography.labelLarge,
                                 modifier = Modifier.testTag("suggestion-${product.productId}"))
@@ -128,28 +140,24 @@ fun CallSheetScreen(sheet: CallSheet, controller: FieldController, modifier: Mod
                                 Text(reason, style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                             }
-                            if (line.canUse) SecondaryButton("Use ${line.quantityText}", {
+                            if (line.canUse) TonalButton("Use ${line.quantityText}", {
                                 setDrafts(SuggestedOrderRules.use(order, drafts, product.productId))
                             }, Modifier.testTag("suggestion-use-${product.productId}"), !controller.busy)
                         }
                         repeat(3) { row ->
-                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                                 repeat(2) { column ->
                                     val measure = row * 2 + column
                                     val offset = index * 6 + measure
-                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                        Text(CallSheetPayload.labels[measure], style = MaterialTheme.typography.labelMedium)
-                                        OutlinedTextField(values[offset], { text ->
+                                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                        Text(CallSheetPayload.labels[measure], style = MaterialTheme.typography.labelMedium,
+                                            modifier = Modifier.padding(start = 4.dp))
+                                        QuantityField(values[offset], { text ->
                                             values = values.toMutableList().also { it[offset] = text }
-                                        }, singleLine = true, enabled = !controller.busy,
-                                            modifier = Modifier.fillMaxWidth().height(56.dp)
-                                                .testTag("call-sheet-${product.productId}-${CallSheetPayload.measures[measure]}"),
-                                            keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                            isError = runCatching { CallSheetPayload.quantity(values[offset]) }.isFailure,
-                                            shape = SunprideTokens.shapes.small, textStyle = MaterialTheme.typography.bodyMedium,
-                                            colors = OutlinedTextFieldDefaults.colors(
-                                                focusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                                                unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)))
+                                        }, Modifier.fillMaxWidth()
+                                            .testTag("call-sheet-${product.productId}-${CallSheetPayload.measures[measure]}"),
+                                            enabled = !controller.busy,
+                                            isError = runCatching { CallSheetPayload.quantity(values[offset]) }.isFailure)
                                     }
                                 }
                             }
@@ -157,15 +165,15 @@ fun CallSheetScreen(sheet: CallSheet, controller: FieldController, modifier: Mod
                     }
                 }
             }
-            if (invalid) item { Text("Use whole numbers from 0 to 1,000,000.", color = MaterialTheme.colorScheme.error) }
+            if (invalid) item { NoticeCard("Use whole numbers from 0 to 1,000,000.", tone = Look.Tone.BAD) }
             controller.diagnosticError?.let { message -> item {
-                Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("call-sheet-error"))
+                NoticeCard(message, tone = Look.Tone.BAD, textTag = "call-sheet-error")
             } }
-            item { Spacer(Modifier.height(16.dp)) }
         }
-        Spacer(Modifier.height(12.dp))
-        PrimaryBottomButton("Save call sheet", {
-            controller.queueCallSheet(drafts) { values = List(sheet.lines.size * 6) { "" } }
-        }, Modifier.testTag("call-sheet-save"), !controller.busy && valid)
+        ActionBar {
+            PrimaryBottomButton("Save call sheet", {
+                controller.queueCallSheet(drafts) { values = List(sheet.lines.size * 6) { "" } }
+            }, Modifier.testTag("call-sheet-save"), !controller.busy && valid)
+        }
     }
 }
