@@ -12,7 +12,6 @@
 
   var nav = document.getElementById("nav");
   var toc = document.getElementById("toc");
-  var content = document.getElementById("content");
   var search = document.getElementById("search");
   var results = document.getElementById("results");
   var navEmpty = document.getElementById("nav-empty");
