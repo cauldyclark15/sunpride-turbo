@@ -163,12 +163,15 @@ export const INTEGRITY_CHECKS = [
     severity: "critical",
     title: "A paid sale has no stock movement",
     classification: "missing_outbound",
+    // IP-INT3FIX: the showcase seed's van sales (receipt numbers 'SMP-%') have their stock under source_type 'sample', keyed by
+    // the order id, so they can never match a van_sale movement. They are immutable seed history, not drift, and would otherwise
+    // keep one critical alert permanently open and hide a real missing movement inside it.
     sql: (db) => db.unsafe(`select null::uuid as product_id,null::uuid as location_id,'store_sale:'||s.receipt_number as ref,0::bigint as ledger,1::bigint as other
       from store_sales s left join inventory_movements m on m.id=s.movement_id
       where m.id is null or m.movement_type<>'pos_sale' or m.source_document_id is distinct from s.id::text or not exists (select 1 from inventory_ledger_entries e where e.movement_id=m.id)
       union all
       select null,null,'van_sale:'||v.receipt_number,0,1 from van_sales v
-      where not exists (select 1 from inventory_movements m where m.source_type='van_sale' and m.movement_type='pos_sale' and m.source_document_id=v.id::text and exists (select 1 from inventory_ledger_entries e where e.movement_id=m.id))`, []),
+      where coalesce(v.receipt_number,'') not like 'SMP-%' and not exists (select 1 from inventory_movements m where m.source_type='van_sale' and m.movement_type='pos_sale' and m.source_document_id=v.id::text and exists (select 1 from inventory_ledger_entries e where e.movement_id=m.id))`, []),
   },
   {
     kind: "stock_without_sale",

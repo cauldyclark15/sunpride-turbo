@@ -148,6 +148,11 @@ describe("nightly integrity check", () => {
     const sale = crypto.randomUUID(),
       sale2 = crypto.randomUUID();
     const m = await post({ kind: "pos_sale", sourceType: "van_sale", sourceId: sale2, lines: [{ productId: p.id, fromLocationId: truck, toLocationId: null, quantityBase: 3, uom: "PC" }] });
+    // IP-INT3FIX: a showcase seed sale keeps its stock under source_type 'sample' and is not drift
+    const seedSale = crypto.randomUUID();
+    await f.h.db.begin(async (t) => {
+      await t`insert into van_sales (id,trip_id,receipt_number,total_centavos,receipt,captured_request) values (${seedSale},${crypto.randomUUID()},'SMP-RECEIPT-0001',100,${{}},${{}})`;
+    });
     await f.h.db.begin(async (t) => {
       const fake = () => crypto.randomUUID();
       for (const [id, no, qty] of /** @type {Array<[string,string,number]>} */ ([[sale, "VS-NOMOVE", 2], [sale2, "VS-QTY", 4]])) {
