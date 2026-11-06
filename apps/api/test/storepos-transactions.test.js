@@ -19,6 +19,7 @@ import {
 } from "../src/domains/fiscal/series.js";
 import { commands as inventory } from "../src/domains/inventory/commands.js";
 import { pinSettings } from "../src/domains/storepos/security.js";
+import { saveRule } from "../src/domains/fiscal/authority.js";
 import { createHmac, randomInt } from "node:crypto";
 /** @type {any} */ let h;
 /** @type {any} */ let people;
@@ -47,6 +48,36 @@ const pin = String(randomInt(100000, 999999));
   const p = who.profile;
   await h.db`insert into profiles(id,user_id,auth_subject,name,email,role,status,org_unit_id) values(${p.id},${who.userId},${who.userId},${p.name},${who.email},${p.role},'active',${unit})`;
   await h.db`insert into employee_assignments(profile_id,org_unit_id,role,effective_from,actor_subject,reason) values(${p.id},${unit},${p.role},now()-interval '1 day','fixture','fixture')`;
+}
+/** A cashier needs inventory.adjustment.request for a count to be approvable (F-124 matrix); a plain sales
+ * role never had it, so the count test lends the cashier the manager role for the approval and gives it back.
+ * @param {string} role */
+async function lendRole(role) {
+  people.set(seller.userId, {
+    role,
+    orgUnitId: unit,
+    name: seller.profile.name,
+  });
+  await h.db`update profiles set role=${role} where id=${seller.profile.id}`;
+  await h.db`update employee_assignments set role=${role} where profile_id=${seller.profile.id} and effective_to is null`;
+}
+/** After a Z the register's next session belongs to the next business date: open one for the tests that follow.
+ * @param {string} [float] */
+async function freshSession(float = "10000") {
+  shift = crypto.randomUUID();
+  await push(
+    op("store.shift.open", {
+      shiftId: shift,
+      policyId: policy,
+      openingCentavos: float,
+    }),
+  );
+}
+/** Supervisor Z at the office: every session must be closed first. */
+async function officeZ() {
+  const [day] =
+    await h.db`select id from store_till_days where register_id=${register} and status<>'z_done'`;
+  return web(`days/${day.id}/z`, {});
 }
 /** @param {string} path @param {any} p */ async function web(
   path,
@@ -415,12 +446,28 @@ test("F-R04/F-R05 canonical cycle count is independently posted and low stock su
   );
   const [count] =
     await h.db`select * from stock_count_sessions where location_id=${location}`;
+  await lendRole("manager");
+  // A count variance is a stock override: the branch needs an authority band for the counter's role.
+  await tx(h.db, (db) =>
+    saveRule(db, supervisor, {
+      orgUnitId: unit,
+      kind: "stock",
+      role: "manager",
+      channel: "inventory",
+      minCentavos: "0",
+      maxCentavos: "100000000",
+      selfLimitCentavos: "0",
+      approverRoles: ["super_admin"],
+      effectiveFrom: "2026-01-01T00:00:00Z",
+    }),
+  );
   await tx(h.db, async (db) => {
     const ctx = { db, actor: supervisor, now: Date.now() };
     const body = { sessionId: count.id, idempotencyKey: crypto.randomUUID() };
     const prepared = await inventory["counts/approve"].prepare(ctx, body);
     await inventory["counts/approve"].run(ctx, body, prepared);
   });
+  await lendRole("sales");
   const [posted] =
     await h.db`select status from stock_count_sessions where id=${count.id}`;
   expect(posted.status).toBe("posted");
@@ -447,7 +494,9 @@ test("F-R04/F-R05 canonical cycle count is independently posted and low stock su
 });
 test("F-R02/F-R06/F-R01 X/Z sequence, real upload, deposit discrepancy and blind cash escalation", async () => {
   await push(op("store.read", { kind: "x" }));
-  await push(op("store.read", { kind: "z" }));
+  // Z reads the whole day, so it only runs after every session is closed (SPEC 7.3 step 9).
+  await push(op("store.shift.close", { declaredCentavos: "12000" }));
+  await officeZ();
   const [z] = await h.db`select * from store_reads where kind='z'`;
   expect(String(z.sequence)).toBe("1");
   expect(z.snapshot.salesCentavos).toBe("4500");
@@ -493,7 +542,6 @@ test("F-R02/F-R06/F-R01 X/Z sequence, real upload, deposit discrepancy and blind
     decision: "accepted",
     reason: "SAMPLE reconciliation reviewed",
   });
-  await push(op("store.shift.close", { declaredCentavos: "12000" }));
   const res = await h.fetch("/api/v1/storepos/workspace", {
     headers: { authorization: `Bearer ${seller.access}` },
   });
@@ -521,6 +569,7 @@ test("F-R08 store KPI uses the canonical warehouse, editable target and posted s
 });
 
 test("F-R03 follow-up fully governed zero total does not invent a cash tender", async () => {
+  await freshSession();
   await h.db`update store_register_policies set employee_discount_bps=10000 where id=${policy}`;
   const [a] =
     await h.db`select next_issue from fiscal_allocations where id=${allocation}`;
@@ -580,7 +629,8 @@ test("F-R08 follow-up two registers never double-count a store; dated target edi
   const result = await res.json();
   expect(result.rows).toHaveLength(1);
   expect(result.rows[0].registers).toHaveLength(2);
-  expect(result.rows[0].sales).toBe(4500);
+  // the split sale (4500) from the refund test plus this cash sale (4500); the zero-total sale adds nothing
+  expect(result.rows[0].sales).toBe(9000);
   expect(result.rows[0].target).toBe(15000 + 5000);
   const retained =
     await h.db`select amount_centavos::text as n from store_daily_targets where register_id=${register} and (${before}::date between from_date and to_date or ${after}::date between from_date and to_date)`;
@@ -594,8 +644,10 @@ test("F-R08 follow-up two registers never double-count a store; dated target edi
 
 test("F-R06 photo review serves the verified private slip only after current authorization", async () => {
   await sale("cash");
-  await push(op("store.read", { kind: "z" }));
-  const [z] = await h.db`select id from store_reads where kind='z'`;
+  await push(op("store.shift.close", { declaredCentavos: "30000" }));
+  await officeZ();
+  const [z] =
+    await h.db`select id from store_reads where kind='z' order by sequence desc limit 1`;
   const bytes = new Uint8Array(
     await Bun.file(
       import.meta.dir + "/fixtures/sample-return.jpg",
@@ -650,6 +702,14 @@ test("F-R06 photo review serves the verified private slip only after current aut
 });
 
 test("F-R02 credit journal retains its actual fiscal credit number and signed refund amount", async () => {
+  await freshSession();
+  // earlier tests sold the opening stock down; receive more so this sale can ring
+  await push(
+    op("store.receive", {
+      purchaseOrder: "SAMPLE-PO-2",
+      lines: [{ productId: product, quantityBase: 5 }],
+    }),
+  );
   const id = await sale("cash");
   await push(
     op("store.refund", { saleId: id, reason: "SAMPLE journal return" }),
@@ -658,7 +718,8 @@ test("F-R02 credit journal retains its actual fiscal credit number and signed re
     await h.db`select id from store_reversals where sale_id=${id}`;
   await web("reversals/decide", { id: reversal.id, decision: "approved" });
   await push(op("store.read", { kind: "x" }));
-  const [r] = await h.db`select snapshot from store_reads`;
+  const [r] =
+    await h.db`select snapshot from store_reads where kind='x' order by captured_at desc,sequence desc limit 1`;
   const credit = r.snapshot.journal.find(
     (/** @type {any} */ x) => x.kind === "refund",
   );

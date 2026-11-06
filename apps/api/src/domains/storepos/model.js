@@ -1,6 +1,7 @@
 import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { outletOwnerUnit } from "../org/scope.js";
 import { sellingBundle } from "./bundle.js";
+import { supervisorDirectory } from "./overrides.js";
 import { forbidden } from "../../core/errors.js";
 import { currentActor, currentDeviceActor } from "../van/access.js";
 import { uuid, refuse, integer, today, dayString } from "../van/model.js";
@@ -86,12 +87,17 @@ export async function modeBundle(db, actor, device, mode) {
     ? await db`select * from store_register_policies where register_id=${r.id} and effective_from<=now() and (effective_to is null or effective_to>now())`
     : [];
   const [open] =
-    await db`select s.id,s.opened_at,s.service_date,s.mode_version_id,s.policy_id from store_shifts s left join store_shift_closures c on c.shift_id=s.id where s.device_id=${device.id} and s.cashier_id=${actor.profileId} and c.id is null`;
+    await db`select s.id,s.opened_at,s.service_date,s.mode_version_id,s.policy_id,s.till_day_id,s.doc_number from store_shifts s left join store_shift_closures c on c.shift_id=s.id where s.device_id=${device.id} and s.cashier_id=${actor.profileId} and c.id is null`;
   if (open)
     [policy] =
       await db`select * from store_register_policies where id=${open.policy_id}`;
   const [closed] =
     await db`select max(c.closed_at) as at from store_shift_closures c join store_shifts s on s.id=c.shift_id where s.device_id=${device.id} and s.cashier_id=${actor.profileId}`;
+  // Server truth about this handheld's recent sessions: the phone shows these, it does not rebuild them from its outbox.
+  const known =
+    await db`select s.id,s.doc_number,s.till_day_id,s.service_date,s.opened_at,c.closed_at,c.kind as closure_kind,d.status as day_status,exists(select 1 from store_session_events e where e.shift_id=s.id and e.kind='suspended' and not exists(select 1 from store_session_events e2 where e2.shift_id=s.id and e2.kind='resumed' and e2.captured_at>e.captured_at)) as suspended from store_shifts s left join store_shift_closures c on c.shift_id=s.id left join store_till_days d on d.id=s.till_day_id where s.device_id=${device.id} and s.cashier_id=${actor.profileId} order by s.opened_at desc limit 20`;
+  const supervisors =
+    r && mode.mode === "store" ? await supervisorDirectory(db, r) : [];
   return {
     closedThrough: closed.at ? +new Date(closed.at) : 0,
     version: 1,
@@ -122,9 +128,28 @@ export async function modeBundle(db, actor, device, mode) {
           employeeDiscountBps: policy.employee_discount_bps,
         }
       : null,
+    supervisors,
+    sessions: known.map((/** @type {any} */ k) => ({
+      shiftId: k.id,
+      number: k.doc_number,
+      tillDayId: k.till_day_id,
+      businessDate: k.service_date ? dayString(k.service_date) : null,
+      openedAt: +new Date(k.opened_at),
+      closedAt: k.closed_at ? +new Date(k.closed_at) : null,
+      status: k.closed_at
+        ? k.closure_kind === "forced"
+          ? "force_closed"
+          : "closed"
+        : k.suspended
+          ? "suspended"
+          : "open",
+      dayStatus: k.day_status ?? null,
+    })),
     shift: open
       ? {
           shiftId: open.id,
+          number: open.doc_number,
+          tillDayId: open.till_day_id,
           openedAt: +new Date(open.opened_at),
           serviceDate: dayString(open.service_date),
           modeVersionId: open.mode_version_id,
@@ -149,11 +174,21 @@ export async function shiftView(db, actor, s) {
     serviceDate: dayString(s.service_date),
     openedAt: +new Date(s.opened_at),
     closedAt: s.closed_at ? +new Date(s.closed_at) : null,
+    number: s.doc_number ?? null,
+    tillDayId: s.till_day_id ?? null,
+    forced: s.closure_kind === "forced",
     status: s.closed_at
-      ? (s.decision ?? (s.needs_review ? "needs_review" : "closed"))
-      : "open",
+      ? s.closure_kind === "forced"
+        ? "force_closed"
+        : (s.decision ?? (s.needs_review ? "needs_review" : "closed"))
+      : s.suspended
+        ? "suspended"
+        : "open",
     openingFloatCentavos: String(s.opening_centavos ?? 0),
-    declaredCentavos: s.closed_at ? String(s.declared_centavos) : null,
+    declaredCentavos:
+      s.closed_at && s.closure_kind !== "forced"
+        ? String(s.declared_centavos)
+        : null,
     expectedCentavos:
       canReview && s.closed_at ? String(s.expected_centavos) : null,
     varianceCentavos:
