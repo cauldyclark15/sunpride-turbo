@@ -6,6 +6,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -35,6 +36,14 @@ import androidx.compose.ui.unit.dp
 }
 @Composable fun SecondaryButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     PillButton(label, onClick, modifier, enabled = enabled, filled = false, height = 56.dp, fontSize = 17.sp)
+}
+/** A destructive but allowed action (void, cancel): outlined pill with alert-red text, so it never competes with the main action. */
+@Composable fun DangerButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
+    val shape = RoundedCornerShape(Look.pill + 8.dp)
+    Box(modifier.fillMaxWidth().heightIn(min = 52.dp).clip(shape).background(Look.sheet).border(1.5.dp, if (enabled) SunprideTokens.emptyRed else Look.hairline, shape)
+        .clickable(enabled = enabled, onClick = onClick, role = androidx.compose.ui.semantics.Role.Button), contentAlignment = Alignment.Center) {
+        FitText(label, 17.sp, Modifier.padding(horizontal = 16.dp), minSize = 13.sp, color = if (enabled) SunprideTokens.emptyRed else MaterialTheme.colorScheme.onSurfaceVariant, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+    }
 }
 @Composable fun SectionCard(label: String, content: @Composable ColumnScope.() -> Unit) {
     Surface(Modifier.fillMaxWidth(), shape = RoundedCornerShape(Look.cardRadius),
@@ -139,8 +148,11 @@ fun passwordToggleLabel(revealed: Boolean): String = if (revealed) "Hide passwor
     Scaffold(Modifier.fillMaxSize().imePadding(), containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets.systemBars,
         topBar = { LookTopBar(title, onBack, subtitle = subtitle, trailing = trailing) }, bottomBar = {
-            if (action != null || footer != null || bottomContent != null) Surface(color = Look.sheet, shadowElevation = 8.dp, shape = RoundedCornerShape(topStart = Look.sheetTop, topEnd = Look.sheetTop)) {
-                Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // With the bottom bar showing, the action bar is a flat strip (no second rounded sheet stacked on the bar); alone, it is the raised sheet.
+            val withNav = LocalNavBarShown.current
+            if (action != null || footer != null || bottomContent != null) Surface(color = Look.sheet, shadowElevation = if (withNav) 0.dp else 8.dp,
+                shape = if (withNav) RoundedCornerShape(0.dp) else RoundedCornerShape(topStart = Look.sheetTop, topEnd = Look.sheetTop), border = if (withNav) BorderStroke(1.dp, Look.hairline) else null) {
+                Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = if (withNav) 8.dp else 12.dp),verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     // Thumb-zone controls (e.g. POS search) sit just above the pinned primary and the navigation bar.
                     bottomContent?.invoke(this)
                     footer?.let { Text(it,style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("sync-line")) }

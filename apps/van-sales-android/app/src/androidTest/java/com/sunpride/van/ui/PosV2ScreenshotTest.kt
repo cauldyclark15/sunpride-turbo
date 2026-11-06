@@ -191,6 +191,12 @@ class PosV2ScreenshotTest {
             shot("c7-sell-open-no-products")
             rule.onNodeWithTag("nav-till").performClick(); rule.waitForIdle()
             shot("c8-till-open")
+            for ((page, name) in listOf(Page.STORE_READS to "c9-xz-cash", Page.STORE_DEPOSIT to "c10-deposit", Page.STORE_CUSTOMERS to "c11-customers", Page.POS_MODE to "c12-pos-mode", Page.SYNC to "c13-sync", Page.ACCOUNT to "c14-account")) {
+                rule.runOnUiThread { c.open(page) }; rule.waitForIdle(); shot(name)
+            }
+            rule.runOnUiThread { c.open(Page.HOME) }; rule.waitForIdle()
+            rule.onNodeWithTag("store-end-session").performScrollTo().performClick(); rule.waitForIdle()
+            shot("c15-close-till-sheet")
             rule.runOnUiThread { mounted = false }
             rule.waitForIdle()
         } finally { storeFixture?.close() }
@@ -227,6 +233,10 @@ class PosV2ScreenshotTest {
             shot("d4-receipts-empty")
             rule.onNodeWithTag("nav-more").performClick(); rule.waitForIdle()
             shot("d5-more")
+            for ((page, name) in listOf(Page.PRODUCTS to "d6-find-product", Page.CATALOGUE to "d7-catalogue", Page.WALK_IN to "d8-walk-in", Page.ACCOUNT to "d9-account", Page.SYNC to "d10-sync", Page.PRINTER to "d11-printer", Page.POS_MODE to "d12-pos-mode")) {
+                rule.runOnUiThread { c.open(page) }; rule.waitForIdle(); shot(name)
+            }
+            rule.runOnUiThread { c.select(c.customers.first { it.source == "route" }) }; rule.waitForIdle(); shot("d13-customer")
             rule.onNodeWithTag("nav-today").performClick(); rule.waitForIdle()
             assertEquals(Page.HOME, c.page)
         } finally { rule.runOnUiThread { host = null }; rule.waitForIdle(); repositories.forEach { it.close() } }
@@ -268,6 +278,24 @@ class PosV2ScreenshotTest {
             rule.onNodeWithTag("complete-sale").performClick()
             rule.waitUntil(10_000) { c.page == Page.SALE_DONE }
             shot("e6-van-complete")
+            for ((page, name) in listOf(Page.CASH to "e7-count-cash", Page.STOCK_COUNT to "e8-count-stock", Page.CLOSE_TRIP to "e9-close-trip", Page.RECEIPTS to "e10-receipts-one")) {
+                rule.runOnUiThread { c.open(page) }; rule.waitForIdle(); shot(name)
+            }
         } finally { rule.runOnUiThread { host = null }; rule.waitForIdle(); repositories.forEach { it.close() } }
+    }
+
+    @Test fun F1_signIn() {
+        try {
+            WorkManager.getInstance(context).cancelUniqueWork("van-sales-sync-stub").result.get()
+            context.deleteDatabase("van_stub_store.db")
+            context.getSharedPreferences("van_fixture_backend", 0).edit().clear().commit()
+            val repo = VanRepository.forWorker(context, true).also { repositories += it }
+            val ctrl = VanController(repo, AppEnvironment("", ""), true) { withContext(Dispatchers.IO) { "AAAA BBBB CCCC DDDD" } }
+            host = ctrl
+            rule.runOnUiThread { rule.activity.enableEdgeToEdge() }
+            rule.setContent { host?.let { VanApp(it, restore = false) } }
+            rule.waitUntil(10_000) { ctrl.initialized }
+            shot("f1-sign-in")
+        } finally { rule.runOnUiThread { host = null }; rule.waitForIdle() }
     }
 }

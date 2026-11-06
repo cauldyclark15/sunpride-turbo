@@ -270,8 +270,8 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
                 else->Text("Reprinted ${ReprintRules.MAX_REPRINTS} times. Ask the office for a copy.")
             }
             if(r.optString("_status")!="voided"){
-                SecondaryButton("Request void before close",{c.saveStoreAction("store.void",JSONObject().put("saleId",r.getString("saleId")).put("reason",reason))},enabled=reason.isNotBlank()&&c.storePos.shift!=null&&!c.busy)
-                SecondaryButton("Request receipt refund",{c.saveStoreAction("store.refund",JSONObject().put("saleId",r.getString("saleId")).put("reason",reason))},enabled=reason.isNotBlank()&&c.storePos.shift!=null&&!c.busy)
+                DangerButton("Request void before close",{c.saveStoreAction("store.void",JSONObject().put("saleId",r.getString("saleId")).put("reason",reason))},enabled=reason.isNotBlank()&&c.storePos.shift!=null&&!c.busy)
+                DangerButton("Request receipt refund",{c.saveStoreAction("store.refund",JSONObject().put("saleId",r.getString("saleId")).put("reason",reason))},enabled=reason.isNotBlank()&&c.storePos.shift!=null&&!c.busy)
             }else Text("Voided · retained in the immutable journal")
         }}
     }

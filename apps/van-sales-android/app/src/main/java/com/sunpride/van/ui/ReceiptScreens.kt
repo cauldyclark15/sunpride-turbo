@@ -99,7 +99,7 @@ import java.time.format.DateTimeFormatter
                 if (!saved.isCollection && saved.void == null && r.paymentKind == com.sunpride.van.data.PaymentKind.CREDIT && !c.tripClosed)
                     SecondaryButton("Collect payment & issue OR",{collecting=saved},Modifier.testTag("receipt-$index-collect"),enabled=!c.busy)
                 if (!saved.isCollection && saved.void == null && c.policy?.let { VoidRules.offered(it).isNotEmpty() } == true)
-                    SecondaryButton("Void sale",{ voiding = saved },Modifier.testTag("receipt-$index-void-sale"),enabled = !c.busy && !c.printing)
+                    DangerButton("Void sale",{ voiding = saved },Modifier.testTag("receipt-$index-void-sale"),enabled = !c.busy && !c.printing)
             }
         }
     }

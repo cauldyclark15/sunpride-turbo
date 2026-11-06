@@ -86,7 +86,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
             SecondaryButton("Price exception",{ changingPrice = true },Modifier.testTag("sale-price-exception"),!c.busy && draft.lines.isNotEmpty() && draft.claim == null)
             if (draft.priceOverride != null) FinancialApprovalCard(c,"price")
             quote?.takeIf { ManualDiscounts.amount(it.lines) > 0L }?.let { DiscountApprovalCard(c,it) }
-            SecondaryButton("Cancel sale",c::cancelSale,Modifier.testTag("sale-cancel"),!c.busy)
+            DangerButton("Cancel sale",c::cancelSale,Modifier.testTag("sale-cancel"),!c.busy)
         })
     if (claiming) ClaimSheet(items = draft.lines.map { l -> l.productId to (c.products.firstOrNull { it.productId == l.productId }?.name ?: "Item") },initial = draft.claim,
         onApply = { c.setClaim(it); claiming = false },onRemove = if (draft.claim != null) ({ c.setClaim(null); claiming = false }) else null,onClose = { claiming = false })

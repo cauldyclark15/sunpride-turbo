@@ -192,7 +192,7 @@ import kotlinx.coroutines.delay
 @Composable private fun PrinterScreen(c: VanController) {
     // VAN-017: the shared printer (also used for sale receipts); the Activity owns and closes it. The scanner is the app's one.
     val scanner = checkNotNull(LocalScannerInput.current)
-    ScreenFrame("Settings",c::back,action = "Done",onAction = c::back,actionTag = "printer-done",scroll = false) {
+    ScreenFrame("Printer & scanner",c::back,action = "Done",onAction = c::back,actionTag = "printer-done",scroll = false) {
         PrinterTestScreen(c.printer,scanner,Modifier.fillMaxSize(),lastPrint = c.lastPrint?.let { last ->
             java.time.Instant.ofEpochMilli(last.at).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("h:mm a")) + " · " + last.text
         })
