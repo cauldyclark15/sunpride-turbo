@@ -1,5 +1,6 @@
 import { ApiError } from "../../core/errors.js";
 import { requireCapability } from "../../core/capabilities.js";
+import { actorFor } from "../../core/context.js";
 import { nextDocNumber } from "../../core/docnum.js";
 import {
   choice,
@@ -973,6 +974,108 @@ export async function resolveVariance(c, b, row) {
     note,
     decidedBy: c.actor.userId,
   });
+}
+
+/**
+ * Resolve an open difference by AGREEMENT (IP-NAV, vanday's clerk and seller). No third person is needed when two
+ * different people each counted the stock on their own and got the same numbers: the clerk who sent it and the seller
+ * who received it. Nothing is skipped silently. The function proves the agreement before it posts anything:
+ *   - clerk and seller are two different people, and the seller is the person who received this document;
+ *   - every line that has an open short or over is named, with both people's count;
+ *   - both counts are the same, and equal what the document says was received (+ the over, if any).
+ * The resolution row records both signatures (`agreed_clerk_id`, `agreed_seller_id`, `agreement`).
+ * @param {any} db a transaction handle
+ * @param {string} org organization
+ * @param {string} transferId
+ * @param {{clerkId:string, sellerId:string, lines:Array<{productId:string, lotId?:string|null, clerkBase:number|string, sellerBase:number|string}>,
+ *   chargeTo?:string, shortReasonCode?:string, overReasonCode?:string, note?:string|null, idempotencyKey?:string, at?:number}} a
+ */
+export async function resolveVarianceByAgreement(db, org, transferId, a) {
+  const [row] =
+    await db`select * from stock_transfers where id=${id(transferId, "Document")} and organization_id=${org} for update`;
+  if (!row) throw new ApiError("not_found", 404, "That document does not exist");
+  state(row, OPEN_VARIANCE_STATES);
+  const clerk = text(a?.clerkId, "Clerk", 100),
+    seller = text(a?.sellerId, "Seller", 100);
+  if (clerk === seller)
+    throw new ApiError(
+      "self_approval",
+      403,
+      "Two different people must agree: the clerk and the seller cannot be the same person",
+    );
+  if (row.received_by !== seller)
+    throw new ApiError(
+      "self_approval",
+      403,
+      "The seller who agrees must be the person who received this load",
+    );
+  const allocs = await allocationsOf(db, row.id);
+  /** @type {Map<string, {clerk:number, seller:number}>} */ const said = new Map();
+  for (const l of Array.isArray(a.lines) ? a.lines : []) {
+    const key = `${id(l.productId, "Product")}:${l.lotId ?? ""}`;
+    if (said.has(key)) invalid("A load line is listed twice");
+    said.set(key, {
+      clerk: integer(l.clerkBase, "The clerk's count", 0),
+      seller: integer(l.sellerBase, "The seller's count", 0),
+    });
+  }
+  let agreedLines = 0;
+  for (const al of allocs) {
+    const short = Number(al.short_base) - Number(al.resolved_short_base),
+      over = Number(al.over_base) - Number(al.resolved_over_base);
+    if (!short && !over) continue;
+    const key = `${al.product_id}:${al.lot_id ?? ""}`;
+    const got = said.get(key);
+    if (!got)
+      invalid("Every line with a difference needs both counts before it can be agreed");
+    if (got.clerk !== got.seller)
+      throw new ApiError(
+        "counts_differ",
+        409,
+        "The clerk and the seller did not count the same, so this goes to a supervisor",
+      );
+    const received = posted(al) + Number(al.over_base);
+    if (got.seller !== received)
+      throw new ApiError(
+        "counts_differ",
+        409,
+        "The agreed count does not match what the load document says was received",
+      );
+    agreedLines += 1;
+  }
+  if (!agreedLines) invalid("There is no difference to agree on this document");
+  const shortReason = a.shortReasonCode ?? "SHORT-PICK",
+    overReason = a.overReasonCode ?? "FOUND";
+  const chargeTo = choice(a.chargeTo ?? "dispatch_side", CHARGE_TO);
+  const open = (/** @type {string} */ k) =>
+    allocs.reduce(
+      (/** @type {number} */ n, /** @type {any} */ x) =>
+        n + Number(x[`${k}_base`]) - Number(x[`resolved_${k}_base`]),
+      0,
+    );
+  const note = a.note == null ? null : text(a.note, "Note", 500);
+  if (open("short") > 0) await requireReason(db, org, shortReason, { direction: "out", note });
+  if (open("over") > 0) await requireReason(db, org, overReason, { direction: "in", note });
+  const key = a.idempotencyKey ?? `agree:${row.id}`;
+  const who = await actorFor(db, clerk);
+  if (!who)
+    throw new ApiError("forbidden", 403, "The clerk is no longer active");
+  const c = {
+    db,
+    actor: { userId: clerk, profileId: who.profileId },
+    now: a.at ?? Date.now(),
+    trusted: true,
+  };
+  const done = await resolveStock(c, { idempotencyKey: key }, row, {
+    chargeTo,
+    shortReason: open("short") > 0 ? shortReason : undefined,
+    overReason: open("over") > 0 ? overReason : undefined,
+    note: note ?? "Clerk and seller counted the same on their own",
+    decidedBy: clerk,
+  });
+  await db`update stock_transfer_resolutions set agreement='clerk_and_seller',agreed_clerk_id=${clerk},agreed_seller_id=${seller}
+    where id=(select id from stock_transfer_resolutions where transfer_id=${row.id} order by created_at desc,id desc limit 1)`;
+  return { ...done, agreement: "clerk_and_seller" };
 }
 
 // ---------------------------------------------------------------- van load-in

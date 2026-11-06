@@ -25,6 +25,7 @@ mock.module("../src/domains/analytics/refresh.js", () => ({
 }));
 const { install: installVan } = await import("../src/domains/van/index.js");
 const { install: installInventory } = await import("../src/domains/inventory/index.js");
+const { install: installDecide } = await import("../src/domains/decide/index.js");
 const { postMovement } = await import("../src/domains/inventory/posting.js");
 const { suggestLine, generateTrips, computeSuggestion, installNightly } = await import("../src/domains/van/nightly.js");
 const { crewProof, switchCrew, isoWeekday } = await import("../src/domains/van/roster.js");
@@ -188,7 +189,7 @@ const planOf = async (/** @type {string} */ tripId) =>
 const tripOf = async (/** @type {string} */ tripId) => (await h.db`select * from van_trips where id=${tripId}`)[0];
 
 beforeAll(async () => {
-  h = await startHarness({ installers: [installInventory, installVan] });
+  h = await startHarness({ installers: [installInventory, installVan, installDecide] });
   const profiles = profileStore(h);
   await h.db`insert into org_units(id,organization_id,code,name,type_code,status,effective_from) values(${unit},'sunpride','SUNPRIDE','Van day test','national','active',now()-interval '1 day')`;
   who = await boundDevice(h, profiles, { app: "van-android", orgUnitId: unit });
@@ -466,7 +467,7 @@ describe("load-out on the movement document", () => {
     expect(twice.body.results[0].status).toBe("rejected");
 
     const agree = await web(clerk, "loads/recount", { tripId: sc.tripId, agree: true });
-    expect(agree.status).toBe(200);
+    expect(agree.status, JSON.stringify(agree.body)).toBe(200);
     expect(agree.body).toMatchObject({ state: "accepted", agreement: "both_agreed" });
     const plan = await planOf(sc.tripId);
     expect(plan).toMatchObject({ state: "accepted", agreement: "both_agreed" });
@@ -493,9 +494,24 @@ describe("load-out on the movement document", () => {
     expect(item).toBeTruthy();
     // The clerk cannot decide it (no van.load.approve); the seller's own trip is not theirs to approve.
     expect((await web(clerk, "loads/approve", { tripId: sc.tripId, decision: "approve" })).status).toBe(403);
-    const decided = await web(boss, "loads/approve", { tripId: sc.tripId, decision: "approve", basis: "seller", note: "Seller counted twice" });
+    // IP-NAV: the same load is one row of the single Decide inbox, with the rule that sent it there; the clerk sees why they cannot decide.
+    const inbox = async (/** @type {any} */ who2) => (await (await h.fetch("/api/v1/decide/inbox", { headers: { cookie: who2.cookie } })).json());
+    const row = (await inbox(boss)).items.find((/** @type {any} */ i) => i.ref === sc.tripId);
+    expect(row).toMatchObject({ kind: "load_difference", canDecide: true, blockedReason: null });
+    expect(row.rule).toContain("needs a person to decide");
+    expect(row.valueCentavos).toBeGreaterThan(0);
+    const clerkRow = (await inbox(clerk)).items.find((/** @type {any} */ i) => i.ref === sc.tripId);
+    expect(clerkRow).toMatchObject({ canDecide: false });
+    expect(clerkRow.blockedReason).toBeTruthy();
+    const refused = await h.fetch("/api/v1/decide/act", { method: "POST", headers: { cookie: clerk.cookie, "content-type": "application/json" }, body: JSON.stringify({ id: row.id, verdict: "approve", idempotencyKey: crypto.randomUUID() }) });
+    expect(refused.status).toBe(403);
+    const key = crypto.randomUUID();
+    const send = () => h.fetch("/api/v1/decide/act", { method: "POST", headers: { cookie: boss.cookie, "content-type": "application/json" }, body: JSON.stringify({ id: row.id, verdict: "approve", reason: "Seller counted twice", idempotencyKey: key }) });
+    const decided = await send();
     expect(decided.status).toBe(200);
     expect((await tripOf(sc.tripId)).status).toBe("loaded");
+    expect((await inbox(boss)).items.some((/** @type {any} */ i) => i.ref === sc.tripId)).toBe(false);
+    expect((await h.db`select verdict,reason,rule from decide_log where kind='load_difference' and ref_id=${sc.tripId}`)).toHaveLength(1);
     expect((await stock(prodA.id, sc.truckId)).available).toBe(12);
     const [res] = await h.db`select r.decided_by,r.charge_to from stock_transfer_resolutions r join van_planned_loads p on p.stock_transfer_id=r.transfer_id where p.trip_id=${sc.tripId}`;
     expect(res).toEqual({ decided_by: boss.userId, charge_to: "dispatch_side" });

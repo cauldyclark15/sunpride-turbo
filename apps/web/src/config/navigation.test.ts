@@ -2,9 +2,13 @@ import { describe, expect, it } from "vitest";
 import { APP_ROLES, canAccessWebModule } from "../lib/module-access";
 import {
   LEGACY_REDIRECTS,
+  OPERATIONS_SECTIONS,
   OWNER_PAGES,
+  WORKSPACE_SLUGS,
   getWebNavigation,
   isWebModuleSlug,
+  operationsSectionFor,
+  operationsSubFor,
   primaryIdFor,
 } from "./navigation";
 import { phoneTitleFor } from "./phone-tabs";
@@ -95,5 +99,113 @@ describe("v2 navigation", () => {
       dashboard: "/today",
       analytics: "/sales",
     });
+  });
+});
+
+describe("Operations: verbs first (IP-NAV)", () => {
+  const opsTabs = (role: string, pathname = "/operations/stock") =>
+    getWebNavigation(pathname, (slug) => canAccessWebModule(slug, role))
+      .moduleTabs.map((tab) => tab.label);
+
+  it("lists the verbs in the order people do them", () => {
+    expect(OPERATIONS_SECTIONS.map((s) => s.label)).toEqual([
+      "Stock",
+      "Receive",
+      "Transfers",
+      "Counts",
+      "Van day",
+      "Stores POS",
+      "Decide",
+    ]);
+    expect(opsTabs("super_admin")).toEqual(
+      OPERATIONS_SECTIONS.map((s) => s.label),
+    );
+  });
+
+  it("each verb carries its own screens", () => {
+    const subs = (id: string) =>
+      OPERATIONS_SECTIONS.find((s) => s.id === id)!.subs.map((s) => s.label);
+    expect(subs("stock")).toEqual(
+      expect.arrayContaining(["Stock on hand", "Stock card", "Bad orders", "Expiry"]),
+    );
+    expect(subs("counts")).toEqual(["My counts", "Plan a count", "Review"]);
+    expect(subs("van-day")).toEqual(
+      expect.arrayContaining(["Board", "Roster", "Suggested loads"]),
+    );
+    expect(subs("stores-pos")).toEqual(
+      expect.arrayContaining([
+        "Registers & till days",
+        "X / Z readings",
+        "Overrides",
+        "Receipts",
+        "Tax summary",
+      ]),
+    );
+  });
+
+  it("hides the verbs a role cannot use", () => {
+    expect(opsTabs("operations")).toEqual([
+      "Stock",
+      "Receive",
+      "Transfers",
+      "Counts",
+      "Van day",
+    ]);
+    expect(opsTabs("approver")).toEqual([
+      "Stock",
+      "Transfers",
+      "Counts",
+      "Van day",
+      "Stores POS",
+      "Decide",
+    ]);
+    expect(opsTabs("sales")).toEqual(["Stock"]);
+    expect(opsTabs("viewer")).toEqual(["Stock"]);
+  });
+
+  it("the sidebar has one Operations item and Work no longer carries the stock and van pages", () => {
+    const items = getWebNavigation("/today", () => true).navGroups.flatMap(
+      (g) => g.items,
+    );
+    expect(items.filter((i) => i.label === "Operations")).toHaveLength(1);
+    const work = getWebNavigation("/orders", () => true).moduleTabs.map(
+      (t) => t.href,
+    );
+    for (const moved of ["/inventory", "/van-trips", "/workflows"])
+      expect(work).not.toContain(moved);
+    expect(work.length).toBeLessThan(17);
+  });
+
+  it("every older route stays reachable: it is a tab or a screen of a verb, and it lights Operations", () => {
+    for (const moved of ["inventory", "van-trips", "workflows"]) {
+      expect(primaryIdFor(`/${moved}`)).toBe("operations");
+      expect(
+        OPERATIONS_SECTIONS.some((s) =>
+          s.subs.some((sub) => sub.href === `/${moved}`),
+        ),
+      ).toBe(true);
+    }
+    const reachable = new Set<string>();
+    for (const path of ["/orders", "/admin", "/operations/stock"])
+      for (const tab of getWebNavigation(path, () => true).moduleTabs)
+        reachable.add(tab.href.slice(1).split("?")[0]!);
+    for (const section of OPERATIONS_SECTIONS)
+      for (const sub of section.subs)
+        reachable.add(sub.href.slice(1).split("?")[0]!);
+    for (const slug of WORKSPACE_SLUGS)
+      if (slug !== "live-map" && slug !== "sap-integration")
+        expect(reachable.has(slug), `${slug} is reachable`).toBe(true);
+  });
+
+  it("finds the verb and the lit screen for a path, including detail pages and moved pages", () => {
+    expect(operationsSectionFor("/operations/counts/review")?.id).toBe("counts");
+    expect(operationsSectionFor("/inventory")?.id).toBe("stock");
+    expect(operationsSectionFor("/van-trips?tripId=x")?.id).toBe("van-day");
+    expect(operationsSectionFor("/workflows")?.id).toBe("decide");
+    expect(operationsSectionFor("/today")).toBeNull();
+    expect(operationsSubFor("/operations/transfers/abc")?.id).toBe("list");
+    expect(operationsSubFor("/operations/stock/bad-orders")?.id).toBe("bad-orders");
+    expect(operationsSubFor("/operations/stock")?.id).toBe("on-hand");
+    expect(operationsSubFor("/van-trips")?.id).toBe("trips");
   });
 });

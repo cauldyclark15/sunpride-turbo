@@ -6,8 +6,7 @@ import { IntegrityReview } from "../../integrity/review";
 import Link from "next/link";
 import { FiscalWorkspace } from "../../fiscal/fiscal-workspace";
 import { RetailExceptionReview } from "../../storepos/retail-workspace";
-import { StoreShiftReview } from "../../storepos/storepos-admin";
-import { LoadDifferenceReview } from "../../van/load-differences";
+import { DecideInbox } from "../../ops/decide";
 import { FraudPanel, AlertsPanel } from "./tower";
 import { useCallback, useState } from "react";
 import { useAnalytics } from "../api";
@@ -301,6 +300,8 @@ export function DecidePage() {
         />
       }
     >
+      {/* IP-NAV: the one inbox for every approval. Loads, transfer differences, counts, bad orders, till counts and overrides are rows in it. */}
+      <DecideInbox heading={false} />
       <PageData result={result} label="the decision inbox">
         {(data) => (
           <DecideView
@@ -316,8 +317,6 @@ export function DecidePage() {
           />
         )}
       </PageData>
-      <LoadDifferenceReview />
-      <StoreShiftReview />
       <RetailExceptionReview />
       <CallFlowReviews />
       <CallFlowReport />

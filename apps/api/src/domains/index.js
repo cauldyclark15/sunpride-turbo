@@ -25,6 +25,7 @@ import { install as retail } from "./retail/index.js";
 import { install as partners } from "./partners/index.js";
 import { install as storepos } from "./storepos/index.js";
 import { install as messaging } from "./messaging/index.js";
+import { install as decide } from "./decide/index.js";
 /** @type {Array<(router: any, ctx: any) => void>} */
 export const domainInstallers = [
   org,
@@ -53,4 +54,5 @@ export const domainInstallers = [
   partners,
   storepos,
   messaging,
+  decide,
 ];

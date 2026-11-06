@@ -59,6 +59,24 @@ describe("module access mirrors apps/api capabilities.js", () => {
       ],
     ],
     ["van-trips", ["van.read"]],
+    // IP-NAV: the Operations verbs.
+    ["ops-stock", ["inventory.read"]],
+    ["ops-receive", ["inventory.write"]],
+    ["ops-transfers", ["inventory.write", "inventory.approve"]],
+    ["ops-counts", ["inventory.count.submit", "inventory.count.approve"]],
+    ["ops-van-day", ["van.manage", "van.load.approve"]],
+    ["ops-stores-pos", ["van.cash.approve", "admin.manage"]],
+    [
+      "ops-decide",
+      [
+        "van.load.approve",
+        "inventory.approve",
+        "inventory.count.approve",
+        "inventory.adjustment.approve",
+        "van.cash.approve",
+        "van.stock.approve",
+      ],
+    ],
     ["inventory", ["inventory.read"]],
     ["today", ["report.read"]],
   ] as const)("%s follows %j", (slug, capabilities) => {
