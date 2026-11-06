@@ -21,7 +21,11 @@ object VanBootstrapCodec {
         o.optJSONObject("stockReconciliation")?.let { StockReconciliationPolicy(it.getBoolean("approvalRequired"),
             strings(it.getJSONArray("reasons")),nullable(it,"key")) },
         o.optJSONObject("tripClose")?.let { TripClosePolicy(it.getBoolean("requireCashCount"),it.getBoolean("requireStockCount"),
-            it.getBoolean("requireUploadsSent"),it.getBoolean("exceptionsNeedReview")) },o.optInt("operationsVersion",0),o.optJSONObject("fiscal")?.toString(),o.optJSONObject("schemes")?.toString())
+            it.getBoolean("requireUploadsSent"),it.getBoolean("exceptionsNeedReview")) },o.optInt("operationsVersion",0),o.optJSONObject("fiscal")?.toString(),o.optJSONObject("schemes")?.toString(),
+        handheld = o.optJSONObject("handheld")?.let { h -> HandheldInfo(clean(h,"vehicleCode",40),clean(h,"plateNumber",40),clean(h,"supervisorName",80),clean(h,"supervisorPhone",30)) })
+    /** Optional display text: trimmed, bounded, no control characters; anything else is simply not shown. */
+    private fun clean(o: JSONObject, key: String, max: Int): String? = o.optString(key,"").trim().takeIf { it.isNotEmpty() && it.length <= max && it.none(Char::isISOControl) }
+
     /** VAN-012: optional; a policy cached before it (or an older server) allows cash only. */
     fun paymentMethods(a: JSONArray): List<PaymentMethod> {
         val methods = objects(a).map { PaymentMethod(it.getString("code"), it.getString("label"), PaymentKind.of(it.getString("kind")),
@@ -122,6 +126,7 @@ object VanBootstrapCodec {
         legacy.optJSONArray("promotions")?.let(::objects)?.forEach{p->listOf("engineVersion","precedence","stacking","exclusionGroup","excludes","outletIds").forEach(p::remove)}
         legacy.getJSONObject("policy").remove("schemes")
         legacy.getJSONObject("policy").remove("storePos")
+        legacy.getJSONObject("policy").remove("handheld")
         o.getJSONObject("policy").optJSONObject("storePos")?.let(com.sunpride.van.storepos.StorePosConfig::decode)
         VanWireSchema.validate(legacy)
         if (o.getJSONObject("policy").has("fiscal")) {

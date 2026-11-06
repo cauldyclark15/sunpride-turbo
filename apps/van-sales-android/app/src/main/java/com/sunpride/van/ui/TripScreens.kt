@@ -29,7 +29,7 @@ import java.time.format.DateTimeFormatter
             Text("Your trip is paused until the office confirms this phone. Tap Sync now. Your saved work is kept here.",
                 style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("on-hold"))
         } else if (trip == null) {
-            Text("No trip assigned for today. Ask your supervisor.",style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("no-trip"))
+            NoTripPanel(c,"No trip","no-trip")
         } else {
             SectionCard("Your trip") {
                 Text(trip.tripNumber,style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("trip-number"))
@@ -132,7 +132,7 @@ private data class LoadDraft(val quantity: String, val reason: String?)
         message = sent ?: c.message) {
         Text("Count what is on the truck. Give a reason for any difference.",style = MaterialTheme.typography.bodyMedium)
         if (lines.isEmpty() && c.onHold) Text("Your trip is paused until the office confirms this phone. Tap Sync now. Your saved work is kept here.",modifier = Modifier.testTag("on-hold"))
-        else if (lines.isEmpty()) Text("No load sheet available. Sync and ask your supervisor.")
+        else if (lines.isEmpty()) NoTripPanel(c,"No load sheet","no-load-sheet")
         lines.forEach { line ->
             val draft = drafts[line.lineNumber]!!
             val actual = VanRules.parseQuantity(draft.quantity,line.quantityScale)
