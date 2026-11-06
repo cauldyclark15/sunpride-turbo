@@ -351,7 +351,10 @@ describe("an old removed phone row never overrules the current one", () => {
     const { devicePerson } = await import("../src/core/devices.js");
     const thrown = await devicePerson(
       h.db,
-      { profileId: profile.id, orgUnitId: profile.orgUnitId },
+      /** @type {any} */ ({
+        profileId: profile.id,
+        orgUnitId: profile.orgUnitId,
+      }),
       deviceId,
     ).catch((/** @type {any} */ e) => e);
     expect(thrown.code).toBe("device_revoked");

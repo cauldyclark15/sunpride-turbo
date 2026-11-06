@@ -410,8 +410,11 @@ test("IP-P0 fix: the store float cap is the same P100,000 the phone enforces: th
     await h.db`select opening_centavos::text as o from store_shifts where id=${top}`;
   expect(row.o).toBe("10000000");
   expect(
-    (await push([op("store.shift.close", { shiftId: top, declaredCentavos: "10000000" })]))
-      .body.results[0].status,
+    (
+      await push([
+        op("store.shift.close", { shiftId: top, declaredCentavos: "10000000" }),
+      ])
+    ).body.results[0].status,
   ).toBe("applied");
   const over = await push([
     op("store.shift.open", {
