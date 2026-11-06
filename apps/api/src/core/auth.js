@@ -309,7 +309,7 @@ export function installAuth(router) {
             ))
           ) {
             if (device.status === "revoked")
-              throw forbidden(NOT_SET_UP_MESSAGE, "device_not_set_up_for_you");
+              throw forbidden(NOT_SET_UP_MESSAGE, "device_revoked");
             if (device.status !== "active")
               throw forbidden("Phone is paused", "device_suspended");
             await requireDeviceIntegrity(ctx.db, device);

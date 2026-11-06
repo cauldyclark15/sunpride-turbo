@@ -228,7 +228,7 @@ describe("signed request proof", () => {
     });
     await h.db`update registered_devices set status = 'revoked' where id = ${d.deviceId}`;
     const rev = await challenge(h, d.access, d.deviceId);
-    expect(rev.body.error.code).toBe("device_not_set_up_for_you");
+    expect(rev.body.error.code).toBe("device_revoked");
   });
 
   test("scope change after enrolment withdraws the device", async () => {
@@ -318,7 +318,7 @@ describe("an old removed phone row never overrules the current one", () => {
     expect(ok.status).toBe(200);
   });
 
-  test("when the only row is removed the handheld is refused with the plain not-set-up code", async () => {
+  test("when the only row is removed the handheld is refused with the old machine code and the plain words", async () => {
     const userId = await createUser(h, "gone1@example.com", "device password");
     const profile = profiles.set(userId, { role: "sales" });
     const key = await deviceKey();
@@ -340,11 +340,23 @@ describe("an old removed phone row never overrules the current one", () => {
     expect(body.device).toMatchObject({ id: deviceId, status: "revoked" });
     const refused = await refresh(tokens.sessionToken, key.keyId);
     expect(refused.status).toBe(403);
-    expect(/** @type {any} */ (await refused.json()).error.code).toBe(
-      "device_not_set_up_for_you",
-    );
+    const refusal = /** @type {any} */ (await refused.json()).error;
+    // field-android and older van builds key on this exact machine code; only the words are new.
+    expect(refusal.code).toBe("device_revoked");
+    expect(refusal.code).not.toBe("device_not_set_up_for_you");
     const ch = await challenge(h, tokens.accessToken, deviceId);
     expect(ch.res.status).toBe(403);
-    expect(ch.body.error.code).toBe("device_not_set_up_for_you");
+    expect(ch.body.error.code).toBe("device_revoked");
+    // The native envelope carries no text; the server's own refusal has the plain words.
+    const { devicePerson } = await import("../src/core/devices.js");
+    const thrown = await devicePerson(
+      h.db,
+      { profileId: profile.id, orgUnitId: profile.orgUnitId },
+      deviceId,
+    ).catch((/** @type {any} */ e) => e);
+    expect(thrown.code).toBe("device_revoked");
+    expect(thrown.message).toBe(
+      "This handheld is not set up for you. Ask your supervisor to hand it over.",
+    );
   });
 });

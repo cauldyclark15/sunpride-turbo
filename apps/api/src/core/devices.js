@@ -107,7 +107,7 @@ export async function devicePerson(db, actor, deviceId, opts = {}) {
   if (!device || device.profile_id !== actor.profileId)
     throw forbidden("Device unavailable", "device_unavailable");
   if (device.status === "revoked")
-    throw forbidden(NOT_SET_UP_MESSAGE, "device_not_set_up_for_you");
+    throw forbidden(NOT_SET_UP_MESSAGE, "device_revoked");
   if (device.status === "suspended")
     throw forbidden("Device suspended", "device_suspended");
   if (!device.org_unit_id || device.org_unit_id !== actor.orgUnitId)
