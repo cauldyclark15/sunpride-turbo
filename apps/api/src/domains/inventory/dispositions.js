@@ -216,7 +216,8 @@ export function installDispositionCommands() {
         await c.db`select code from inventory_locations where id=${b.locationId}`;
       const number_ = await nextDocNumber(c.db, ORGANIZATION, {
         type: "DSP",
-        locationCode: loc.code,
+        locationCode:
+          String(loc.code).toUpperCase().replace(/[^A-Z0-9-]+/g, "-").replace(/^-+|-+$/g, "").slice(0, 20) || "LOC",
         at: c.now,
       });
       const [row] =
@@ -564,6 +565,7 @@ export async function expiryBoard(ctx) {
     await blindStockGate(c, ids);
     const now = ctx.now ?? Date.now();
     const days = integer(Number(ctx.url.searchParams.get("days") ?? 90), "Days", 1);
+    const productFilter = ctx.url.searchParams.get("productId") ? id(ctx.url.searchParams.get("productId"), "Product") : null;
     const locName = new Map(locations.map((l) => [l.id, l]));
     const rows = ids.length
       ? await db`select lb.product_id,lb.location_id,lb.lot_id,lb.stock_status,lb.physical_base,lb.reserved_base,lb.available_base,l.lot_number,l.expires_at,p.code,p.name,b.weighted_average_cost_minor as wac,
@@ -573,6 +575,7 @@ export async function expiryBoard(ctx) {
           left join inventory_balances b on b.organization_id=lb.organization_id and b.product_id=lb.product_id and b.location_id=lb.location_id
         where lb.organization_id=${ORGANIZATION} and lb.location_id in ${db(ids)} and lb.physical_base>0 and lb.stock_status in ('available','quality_hold','quarantine')
           and l.expires_at is not null and l.expires_at<=${new Date(now + days * 86400000)}
+          and (${productFilter}::uuid is null or lb.product_id=${productFilter})
         order by l.expires_at,p.code`
       : [];
     /** @type {Map<string,any>} */ const pres = new Map();

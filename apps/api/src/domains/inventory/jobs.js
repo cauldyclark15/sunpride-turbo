@@ -188,7 +188,7 @@ export const INTEGRITY_CHECKS = [
     sql: (db) => db.unsafe(`select null::uuid as product_id,null::uuid as location_id,'store_sale:'||s.receipt_number as ref,
         (select coalesce(sum(quantity_base),0) from inventory_movement_lines where movement_id=s.movement_id)::bigint as ledger,
         (select coalesce(sum((x->>'quantityBase')::bigint),0) from jsonb_array_elements(s.receipt->'lines') x)::bigint as other
-      from store_sales s where jsonb_typeof(s.receipt->'lines')='array' and jsonb_array_length(s.receipt->'lines')>0
+      from store_sales s where exists (select 1 from inventory_movements where id=s.movement_id) and jsonb_typeof(s.receipt->'lines')='array' and jsonb_array_length(s.receipt->'lines')>0
         and (select bool_and(x ? 'quantityBase') from jsonb_array_elements(s.receipt->'lines') x)
         and (select coalesce(sum(quantity_base),0) from inventory_movement_lines where movement_id=s.movement_id)
           <> (select coalesce(sum((x->>'quantityBase')::bigint),0) from jsonb_array_elements(s.receipt->'lines') x)
