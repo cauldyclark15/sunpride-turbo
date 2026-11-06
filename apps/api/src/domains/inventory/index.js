@@ -3,6 +3,8 @@ import { commands, execute } from "./commands.js";
 import { visibleLocations } from "./common.js";
 import { installJobs } from "./jobs.js";
 import { installCommandExtensions } from "./extensions.js";
+import { installReasonRoutes } from "./reasons.js";
+import { installToleranceRoutes } from "./tolerances.js";
 import { lots, policies } from "./reference.js";
 import {
   catalog,
@@ -41,6 +43,8 @@ export function install(router, core) {
   router.get(`${prefix}/counts/detail`, countDetail);
   router.get(`${prefix}/negative`, negative);
   router.get(`${prefix}/replenishment`, suggestions);
+  installReasonRoutes(router);
+  installToleranceRoutes(router);
   for (const kind of [
     "receipts",
     "transfers",
