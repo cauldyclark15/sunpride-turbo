@@ -1439,6 +1439,30 @@ async function countersRoute(ctx) {
   const loc = await locationGate(ctx, "inventory.count.submit", id(param(ctx, "locationId"), "Location"));
   return countersAt(ctx, loc.id);
 }
+/** GET counts/find-products: a light product search for "found item" (the full catalog is far too heavy for this).
+ * @param {any} ctx */
+async function findProductsRoute(ctx) {
+  await requireCapability(ctx, "inventory.count.submit");
+  const q = (param(ctx, "q") ?? "").trim();
+  if (q.length < 2) return [];
+  const like = `%${q.replace(/[\\%_]/g, (/** @type {string} */ m) => `\\${m}`)}%`;
+  const rows =
+    await ctx.db`select * from products where organization_id=${ORGANIZATION} and active and deleted_at is null and (code ilike ${like} or name ilike ${like}) order by code limit 20`;
+  const info = infoLoader(ctx.db, ctx.now);
+  const out = [];
+  for (const r of rows) {
+    const i = await info(r.id);
+    out.push({
+      id: r.id,
+      code: r.code,
+      name: r.name,
+      tracking: i.tracking,
+      basePerCase: i.units.basePerCase,
+      basePerPiece: i.units.basePerPiece,
+    });
+  }
+  return out;
+}
 /** GET counts/schedules @param {any} ctx */
 async function schedulesRoute(ctx) {
   await requireCapability(ctx, "inventory.count.approve");
@@ -1470,6 +1494,7 @@ export function installCountRoutes(router, core) {
   router.get(`${prefix}/review`, reviewRoute);
   router.get(`${prefix}/preview`, previewRoute);
   router.get(`${prefix}/counters`, countersRoute);
+  router.get(`${prefix}/find-products`, findProductsRoute);
   router.get(`${prefix}/schedules`, schedulesRoute);
   /** @param {{db:any}} ctx */
   const run = async ({ db }) => {

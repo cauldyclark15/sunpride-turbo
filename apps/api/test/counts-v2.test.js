@@ -639,3 +639,22 @@ describe("schedules", () => {
     expect(list.body[0].scope).toContain("Fast movers");
   });
 });
+
+describe("pickers for the plan and found-item screens", () => {
+  it("lists who can count at a place and finds products by code or name", async () => {
+    const loc = await location(`Pick-${crypto.randomUUID()}`);
+    const p = await product();
+    const counters = await read(planner, `counts/counters?locationId=${loc}`);
+    expect(counters.status).toBe(200);
+    const ids = counters.body.map((/** @type {any} */ c) => c.userId);
+    expect(ids).toContain(clerk.userId);
+    expect(ids).not.toContain(sup.userId); // an approver cannot count
+    const found = await read(clerk, `counts/find-products?q=${encodeURIComponent(p.code)}`);
+    expect(found.body.map((/** @type {any} */ r) => r.id)).toContain(p.id);
+    expect(found.body[0]).toMatchObject({ basePerCase: 48, basePerPiece: 1, tracking: "none" });
+    expect((await read(clerk, "counts/find-products?q=a")).body).toEqual([]);
+    // A viewer cannot plan or preview.
+    const viewer = await person("viewer");
+    expect((await read(viewer, `counts/preview?locationId=${loc}`)).status).toBe(403);
+  });
+});
