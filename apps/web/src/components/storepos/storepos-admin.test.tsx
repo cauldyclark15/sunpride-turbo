@@ -54,6 +54,15 @@ describe("F-R01 Store cashier setup and blind review", () => {
     expect(view).toContain("₱1,000.01");
     expect(view).toMatch(/[−-]₱0\.01/);
   });
+  it("shows the opening float on the session line in pesos", () => {
+    const view = html(
+      createElement(StoreShiftRows, {
+        shifts: [{ ...shift, openingFloatCentavos: "200000" }],
+      }),
+    );
+    expect(view).toContain("Opening float");
+    expect(view).toContain("₱2,000.00");
+  });
   it("uses plain register/person labels and never renders private identifiers", () => {
     const view = html(createElement(StoreShiftRows, { shifts: [shift] }));
     expect(view).toContain("Cebu Colon");

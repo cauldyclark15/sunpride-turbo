@@ -38,7 +38,7 @@ export async function readVans(db, p, s) {
       db`select * from van_stock_events where trip_id in ${db(tripIds)}`,
       db`select c.trip_id,l.* from van_stock_count_lines l join van_stock_counts c on c.id=l.count_id where c.trip_id in ${db(tripIds)}`,
       db`select t.id trip_id,c.expected_centavos,c.declared_centavos,c.variance_centavos,r.amount_centavos remitted,
-      (select sum(case when kind in ('refund','void_refund') then -amount_centavos else amount_centavos end) from van_payments where trip_id=t.id and method='cash') expected
+      (select case when count(*)>0 or t.opening_float_centavos>0 then coalesce(sum(case when kind in ('refund','void_refund') then -amount_centavos else amount_centavos end),0)+t.opening_float_centavos end from van_payments where trip_id=t.id and method='cash') expected
       from van_trips t left join van_cash_counts c on c.trip_id=t.id left join van_cash_remittances r on r.trip_id=t.id where t.id in ${db(tripIds)}`,
       db`select s.trip_id,count(*) total,count(v.id) voids,coalesce(sum(s.total_centavos) filter(where v.id is null),0) sales,coalesce(sum(s.discount_centavos) filter(where v.id is null),0) discounts from van_sales s left join van_sale_voids v on v.sale_id=s.id where s.trip_id in ${db(tripIds)} group by s.trip_id`,
     ]);

@@ -148,6 +148,9 @@ export async function tripDetail(db, actor, tripId) {
     ),
     stock,
     cash: {
+      openingFloatCentavos: safeNumber(
+        BigInt(trip.opening_float_centavos ?? 0),
+      ),
       expectedCentavos: safeNumber(expected),
       cashSalesCentavos: safeNumber(
         payments

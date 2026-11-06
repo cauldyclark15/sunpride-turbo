@@ -89,6 +89,8 @@ export type TripSettlement = {
   discountsCentavos: number;
   stock: StockRow[];
   cash: {
+    /** Cash handed to the seller before the first sale; part of expected cash. */
+    openingFloatCentavos?: number;
     expectedCentavos: number;
     cashSalesCentavos: number;
     collectionsCentavos: number;

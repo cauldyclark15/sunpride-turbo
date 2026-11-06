@@ -90,6 +90,7 @@ export function tripCsv(trip: TripSettlement) {
       r.varianceCentavos ?? "Unknown value",
     ]),
     [],
+    ["Opening float centavos", trip.cash.openingFloatCentavos ?? 0],
     ["Cash expected centavos", trip.cash.expectedCentavos],
     ["Cash remitted centavos", trip.cash.remittedCentavos ?? "Not counted"],
     ["Cash variance centavos", trip.cash.varianceCentavos ?? "Not counted"],
@@ -233,10 +234,11 @@ export function VanTripDetail({ trip }: { trip: TripSettlement }) {
       </section>
       <section aria-label="Cash settlement">
         <h3 className="mb-2 font-medium">
-          Cash sales + collections − refunds → cash hand-in
+          Opening float + cash sales + collections − refunds → cash hand-in
         </h3>
         <dl className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           {[
+            ["Opening float", trip.cash.openingFloatCentavos ?? 0],
             ["Cash sales", trip.cash.cashSalesCentavos],
             ["Collections", trip.cash.collectionsCentavos],
             ["Refunds", trip.cash.refundsCentavos],

@@ -21,6 +21,8 @@ type Shift = {
   serviceDate: string;
   openedAt: number;
   closedAt: number | null;
+  /** Cash in the drawer when the session opened. */
+  openingFloatCentavos?: string;
   status: string;
   declaredCentavos: string | null;
   expectedCentavos: string | null;
@@ -362,6 +364,11 @@ export function StoreShiftRows({
             {s.cashierName} · {formatDayTime(s.openedAt)} ·{" "}
             {storeStatus(s.status)}
           </p>
+          {s.openingFloatCentavos !== undefined && (
+            <p className="text-sm">
+              Opening float {formatPhp(Number(s.openingFloatCentavos))}
+            </p>
+          )}
           {s.declaredCentavos !== null && (
             <p className="text-sm">
               Declared {formatPhp(Number(s.declaredCentavos))}

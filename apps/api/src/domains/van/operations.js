@@ -60,6 +60,7 @@ import {
   VOID_REASONS,
   STOCK_VARIANCE_REASONS,
   CASH_VARIANCE_REASONS,
+  openingFloat,
 } from "./model.js";
 import { canonicalJson } from "../../core/util.js";
 import { ApiError } from "../../core/errors.js";
@@ -331,7 +332,8 @@ async function dispatchOperation(ctx, env) {
           refuse("Invalid odometer", "invalid_request");
         if (p.settlementVersion === 1)
           await requireTemperature(db, trip, p.deviceTime, "load_out");
-        await db`update van_trips set status='active',started_at=now(),started_device_id=${device.id},driver_name=coalesce(${text(p.driverName, 80)},driver_name),helper_name=coalesce(${text(p.helperName, 80)},helper_name),start_odometer_km=${p.odometerKm ?? null},start_note=${text(p.note)},updated_at=now() where id=${trip.id}`;
+        const openingFloatCentavos = openingFloat(p, "openingFloatCentavos");
+        await db`update van_trips set status='active',opening_float_centavos=${String(openingFloatCentavos)},started_at=now(),started_device_id=${device.id},driver_name=coalesce(${text(p.driverName, 80)},driver_name),helper_name=coalesce(${text(p.helperName, 80)},helper_name),start_odometer_km=${p.odometerKm ?? null},start_note=${text(p.note)},updated_at=now() where id=${trip.id}`;
         result = { entityId: trip.id };
         break;
       }

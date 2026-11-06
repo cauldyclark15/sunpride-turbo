@@ -257,6 +257,18 @@ describe("owner truck settlement", () => {
     expect(html).toContain("₱102.00");
     expect(html).not.toContain("counting_error");
   });
+  it("shows the opening float as its own line in cash settlement and in the export", () => {
+    const withFloat = {
+      ...trip,
+      cash: { ...trip.cash, openingFloatCentavos: 200000 },
+    };
+    const html = renderToStaticMarkup(
+      createElement(VanTripDetail, { trip: withFloat }),
+    );
+    expect(html).toContain("Opening float");
+    expect(html).toContain("₱2,000.00");
+    expect(tripCsv(withFloat)).toContain("Opening float centavos");
+  });
   it("exports RFC-4180, BOM, all stock/cash/void facts and formula-protects cells", () => {
     const csv = tripCsv({
       ...trip,

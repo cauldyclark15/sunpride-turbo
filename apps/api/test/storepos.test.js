@@ -349,6 +349,53 @@ test("F-R01 concurrent opens serialize to exactly one session and cash evidence 
     ).body.results[0].status,
   ).toBe("applied");
 });
+test("IP-P0 store session opens with a P2,000 float under either field name; the close expects it", async () => {
+  const { expectedCash } =
+    await import("../src/domains/storepos/operations.js");
+  const both = [
+    ["openingFloatCentavos", 200000],
+    ["openingCentavos", "200000"],
+  ];
+  for (const [field, value] of both) {
+    const shiftId = crypto.randomUUID(),
+      opening = op("store.shift.open", { shiftId, policyId, [field]: value });
+    const r = await push([opening]);
+    expect(r.body.results[0].status).toBe("applied");
+    expect((await push([opening])).body.results[0].status).toBe("duplicate");
+    const [row] =
+      await h.db`select opening_centavos::text as o from store_shifts where id=${shiftId}`;
+    expect(row.o).toBe("200000");
+    expect(await expectedCash(h.db, shiftId)).toBe(200000n);
+    const closed = await push([
+      op("store.shift.close", { shiftId, declaredCentavos: "200000" }),
+    ]);
+    expect(closed.body.results[0].status).toBe("applied");
+    const [c] =
+      await h.db`select expected_centavos::text as e,variance_centavos::text as v from store_shift_closures where shift_id=${shiftId}`;
+    expect(c).toEqual({ e: "200000", v: "0" });
+  }
+});
+test("IP-P0 store open without a float means zero; a float outside 0..P100,000 is refused", async () => {
+  const bad = op("store.shift.open", {
+    shiftId: crypto.randomUUID(),
+    policyId,
+    openingFloatCentavos: 10_000_001,
+  });
+  expect((await push([bad])).body.results[0]).toMatchObject({
+    status: "rejected",
+    code: "invalid_request",
+  });
+  const shiftId = crypto.randomUUID();
+  const none = op("store.shift.open", { shiftId, policyId });
+  expect((await push([none])).body.results[0].status).toBe("applied");
+  const [row] =
+    await h.db`select opening_centavos::text as o from store_shifts where id=${shiftId}`;
+  expect(row.o).toBe("0");
+  expect(
+    (await push([op("store.shift.close", { shiftId, declaredCentavos: "0" })]))
+      .body.results[0].status,
+  ).toBe("applied");
+});
 test("F-R01 office idempotency and Van mode round trip preserve the existing van contract", async () => {
   const body = {
       deviceId: seller.deviceId,

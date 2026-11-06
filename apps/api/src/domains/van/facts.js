@@ -129,10 +129,11 @@ export async function assertTruckStock(db, trip, expected) {
       );
   }
 }
-/** @param {any} db @param {string} tripId */
+/** Cash the seller should hold: opening float + cash sales + cash collections - cash refunds. @param {any} db @param {string} tripId */
 export async function cashExpectation(db, tripId) {
   const [r] =
-    await db`select coalesce(sum(case when kind in ('refund','void_refund') then -amount_centavos else amount_centavos end),0)::text as expected
+    await db`select ((select opening_float_centavos from van_trips where id=${tripId})
+      + coalesce(sum(case when kind in ('refund','void_refund') then -amount_centavos else amount_centavos end),0))::text as expected
     from van_payments where trip_id=${tripId} and method='cash'`;
   return BigInt(r.expected);
 }

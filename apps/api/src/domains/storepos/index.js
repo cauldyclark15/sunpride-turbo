@@ -7,7 +7,15 @@ import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { ApiError, forbidden } from "../../core/errors.js";
 import { OpRejected } from "../../core/sync.js";
 import { scopeFilterForActor } from "../org/scope.js";
-import { integer, uuid, text, choice, refuse, today } from "../van/model.js";
+import {
+  integer,
+  uuid,
+  text,
+  choice,
+  refuse,
+  today,
+  openingFloat,
+} from "../van/model.js";
 import { currentActor, currentDeviceActor } from "../van/access.js";
 import {
   cashierContext,
@@ -259,7 +267,7 @@ export async function shiftOperation(c) {
       await db`select max(c.closed_at) as at from store_shift_closures c join store_shifts s on s.id=c.shift_id where s.register_id=${r.id}`;
     if (previous.at && at < +new Date(previous.at))
       refuse("A session cannot overlap an earlier closed session");
-    await db`insert into store_shifts(id,register_id,mode_version_id,policy_id,device_id,cashier_id,service_date,opening_centavos,opened_at) values(${shiftId},${r.id},${mode.id},${policy.id},${device.id},${actor.profileId},${today(at)},${String(integer(p.openingCentavos))},${new Date(at)})`;
+    await db`insert into store_shifts(id,register_id,mode_version_id,policy_id,device_id,cashier_id,service_date,opening_centavos,opened_at) values(${shiftId},${r.id},${mode.id},${policy.id},${device.id},${actor.profileId},${today(at)},${String(openingFloat(p, "openingFloatCentavos", "openingCentavos"))},${new Date(at)})`;
   } else {
     const [s] =
       await db`select * from store_shifts where id=${shiftId} for update`;

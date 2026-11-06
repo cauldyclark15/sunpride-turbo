@@ -197,3 +197,25 @@ export function extend(price, quantity, factor) {
   if (factor <= 0n) throw invalid("Unit conversion needs setup");
   return (price * quantity + factor / 2n) / factor;
 }
+
+/** Opening float entered at trip start or till open: whole centavos, 0..10_000_000 (₱100,000), default 0.
+ * Several field names may carry it (the first present wins; two different values are refused).
+ * @param {any} p payload @param {...string} names */
+export function openingFloat(p, ...names) {
+  const given = names
+    .map((n) => p?.[n])
+    .filter((v) => v !== undefined && v !== null);
+  const parsed = given.map((raw) =>
+    typeof raw === "number" && Number.isSafeInteger(raw)
+      ? BigInt(raw)
+      : typeof raw === "string" && /^(0|[1-9]\d{0,15})$/.test(raw)
+        ? BigInt(raw)
+        : -1n,
+  );
+  if (!parsed.length) return 0n;
+  if (parsed.some((n) => n < 0n || n > 10_000_000n))
+    throw invalid("Opening cash must be between ₱0 and ₱100,000");
+  if (parsed.some((n) => n !== parsed[0]))
+    throw invalid("Opening cash was sent twice with different amounts");
+  return /** @type {bigint} */ (parsed[0]);
+}
