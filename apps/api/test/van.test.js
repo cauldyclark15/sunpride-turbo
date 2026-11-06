@@ -58,10 +58,18 @@ mock.module("../src/domains/inventory/posting.js", () => ({
   },
 }));
 mock.module("../src/domains/orders/pricing.js", () => ({
+  // The governed tax fields every real SAP condition row carries (quoteSapCondition): without them the invoice is
+  // refused by design (F-108/F-109), which is not what these sales tests are about.
   resolvePrice: async () => ({
     unitPriceCentavos: 12525,
     priceListId: null,
     source: "office",
+    taxCode: "VAT12",
+    taxBasisPoints: 1200,
+    taxTreatment: "vatable",
+    taxInclusive: true,
+    sourceTaxInclusive: true,
+    sourceUnitPriceCentavos: 12525,
   }),
   creditCheck: async () => ({ status: "within", limit: 1000000, exposure: 0 }),
 }));
@@ -177,6 +185,8 @@ beforeAll(async () => {
   await h.db`insert into inventory_balances(product_code,warehouse_code,on_hand,reserved,available,as_of,organization_id,product_id,location_id,physical_base,weighted_average_cost_minor) values('SAMPLE','TRUCK',0,0,0,now(),'sunpride',${product},${truck},0,10000)`;
   await h.db`insert into outlets(id,organization_id,code,name,status,custodian_org_unit_id,channel,created_by) values(${outlet},'sunpride','STORE','Sample store','active',${unit},'GT','fixture')`;
   await h.db`insert into sample_data_rows(batch,table_name,row_id,key) values('fiscal-test','org_units',${unit},'branch')`;
+  // F-124/F-511: a supervisor void code needs a governed authority rule that allows handheld codes.
+  await h.db`insert into fiscal_authority_rules(org_unit_id,kind,role,channel,min_centavos,max_centavos,self_limit_centavos,approver_roles,offline_allowed,effective_from,sample) values(${unit},'void','sales','GT',0,100000000,0,${["super_admin"]},true,now()-interval '1 day',true)`;
   for (const method of PAYMENT_METHODS)
     await h.db`insert into fiscal_tender_rules(org_unit_id,method,label,reference_label,enabled,effective_from,sample,entered_by) values(${unit},${method.code},${method.label},${method.referenceLabel},true,now()-interval '1 day',true,${manager.profile.id})`;
   const [reg] =
