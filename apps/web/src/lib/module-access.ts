@@ -111,6 +111,48 @@ const ownerReaders = [
   "viewer",
 ] as const satisfies readonly AppRole[];
 
+// IP-NAV Operations verbs. Each follows the capabilities the verb needs (the mirror test compares them).
+// Receive: inventory.write. Transfers: inventory.write + inventory.approve. Counts: count.submit + count.approve.
+// Van day: van.manage + van.load.approve. Stores POS office: van.cash.approve + admin.manage.
+// Decide: every approval capability in the inbox.
+const stockWriters = [
+  "super_admin",
+  "admin",
+  "operations",
+] as const satisfies readonly AppRole[];
+const transferActors = [
+  "super_admin",
+  "admin",
+  "operations",
+  "approver",
+] as const satisfies readonly AppRole[];
+const countActors = [
+  "super_admin",
+  "admin",
+  "operations",
+  "manager",
+  "approver",
+] as const satisfies readonly AppRole[];
+const vanDayActors = [
+  "super_admin",
+  "admin",
+  "operations",
+  "manager",
+  "approver",
+] as const satisfies readonly AppRole[];
+const storeOffice = [
+  "super_admin",
+  "admin",
+  "manager",
+  "approver",
+] as const satisfies readonly AppRole[];
+const deciders = [
+  "super_admin",
+  "admin",
+  "manager",
+  "approver",
+] as const satisfies readonly AppRole[];
+
 export const MCP_PANEL_ROLES = {
   "mcp.read": allReaders,
   "mcp.plan": ["super_admin", "admin", "manager", "sales"],
@@ -169,6 +211,14 @@ export const MODULE_ROLES = {
   vans: ownerReaders,
   money: ownerReaders,
   decide: ownerReaders,
+  // Operations (IP-NAV): the verbs.
+  "ops-stock": allReaders, // inventory.read
+  "ops-receive": stockWriters, // inventory.write
+  "ops-transfers": transferActors, // inventory.write, inventory.approve
+  "ops-counts": countActors, // inventory.count.submit, inventory.count.approve
+  "ops-van-day": vanDayActors, // van.manage, van.load.approve
+  "ops-stores-pos": storeOffice, // van.cash.approve, admin.manage
+  "ops-decide": deciders, // every approval capability
   // Work.
   orders: orderActors, // order.create, order.approve, order.encode
   "modern-trade": ownerReaders, // report.read; each command has its own capability gate

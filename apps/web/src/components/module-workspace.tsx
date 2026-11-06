@@ -7,8 +7,10 @@ import type { ReactNode } from "react";
 import {
   getWebModuleTabs,
   LEGACY_REDIRECTS,
+  operationsSectionFor,
   type WebModuleSlug,
 } from "../config/navigation";
+import { OperationsTabs } from "./ops/operations-workspace";
 import { useSession } from "../lib/auth/session";
 import { canAccessWebModule } from "../lib/module-access";
 import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-workspace";
@@ -152,7 +154,10 @@ function AllowedModuleWorkspace({
       module === "modern-trade" ? null : (
         <PageHeader title={TITLES[module]} />
       )}
-      {tabs.length > 1 ? (
+      {/* Inventory, Van trips and Approvals live under a verb of Operations: same two rows as the new screens. */}
+      {operationsSectionFor(pathname) ? (
+        <OperationsTabs role={role} />
+      ) : tabs.length > 1 ? (
         <WorkspaceModuleTabs
           activeHref={pathname}
           items={tabs}

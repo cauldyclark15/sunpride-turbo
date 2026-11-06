@@ -4,6 +4,7 @@ import { ApiError } from "../../core/errors.js";
 import { isUuid } from "../../core/util.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { toleranceFor } from "../inventory/tolerances.js";
+import { uploadCountPhoto } from "./count-photo.js";
 
 /**
  * IP-NAV: ONE Decide inbox for every approval (SPEC 3.6, 3.9, 8).
@@ -634,4 +635,6 @@ async function inbox(router, c) {
 export function install(router, _core) {
   router.get("/api/v1/decide/inbox", (c) => inbox(router, c));
   router.post("/api/v1/decide/act", (c) => act(router, c));
+  // The web count screen's photo picker (a browser cannot make the phone's device-proved claim).
+  router.post("/api/v1/inventory/counts/photo", uploadCountPhoto, { raw: true });
 }

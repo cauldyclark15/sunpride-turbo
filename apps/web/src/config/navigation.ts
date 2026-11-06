@@ -29,6 +29,122 @@ export const OWNER_PAGES = [
 
 export type OwnerSlug = (typeof OWNER_PAGES)[number]["id"];
 
+/**
+ * Operations (IP-NAV): the verbs of the stock and till day, in the order people do them. One tab per verb; each verb has its
+ * own screens (`subs`). `access` is the page key the role map and the capability mirror test use. Old routes that still hold
+ * functions the new screens do not (`/inventory`, `/van-trips`, `/workflows`) stay as their own pages and are listed under the
+ * verb they belong to, so nothing is unreachable.
+ */
+export const OPERATIONS_SECTIONS = [
+  {
+    id: "stock",
+    label: "Stock",
+    href: "/operations/stock",
+    access: "ops-stock",
+    subs: [
+      { id: "on-hand", label: "Stock on hand", href: "/operations/stock" },
+      { id: "card", label: "Stock card", href: "/operations/stock/card" },
+      {
+        id: "bad-orders",
+        label: "Bad orders",
+        href: "/operations/stock/bad-orders",
+      },
+      { id: "expiry", label: "Expiry", href: "/operations/stock/expiry" },
+      { id: "tools", label: "All inventory tools", href: "/inventory" },
+    ],
+  },
+  {
+    id: "receive",
+    label: "Receive",
+    href: "/operations/receive",
+    access: "ops-receive",
+    subs: [
+      { id: "queue", label: "To receive", href: "/operations/receive" },
+      {
+        id: "delivery",
+        label: "Receive a delivery",
+        href: "/operations/receive/delivery",
+      },
+    ],
+  },
+  {
+    id: "transfers",
+    label: "Transfers",
+    href: "/operations/transfers",
+    access: "ops-transfers",
+    subs: [{ id: "list", label: "All transfers", href: "/operations/transfers" }],
+  },
+  {
+    id: "counts",
+    label: "Counts",
+    href: "/operations/counts",
+    access: "ops-counts",
+    subs: [
+      { id: "mine", label: "My counts", href: "/operations/counts" },
+      { id: "plan", label: "Plan a count", href: "/operations/counts/plan" },
+      { id: "review", label: "Review", href: "/operations/counts/review" },
+    ],
+  },
+  {
+    id: "van-day",
+    label: "Van day",
+    href: "/operations/van-day",
+    access: "ops-van-day",
+    subs: [
+      { id: "board", label: "Board", href: "/operations/van-day" },
+      { id: "roster", label: "Roster", href: "/operations/van-day/roster" },
+      {
+        id: "loads",
+        label: "Suggested loads",
+        href: "/operations/van-day/loads",
+      },
+      { id: "trips", label: "Trips", href: "/van-trips" },
+    ],
+  },
+  {
+    id: "stores-pos",
+    label: "Stores POS",
+    href: "/operations/stores-pos",
+    access: "ops-stores-pos",
+    subs: [
+      {
+        id: "days",
+        label: "Registers & till days",
+        href: "/operations/stores-pos",
+      },
+      { id: "z", label: "X / Z readings", href: "/operations/stores-pos/z" },
+      {
+        id: "overrides",
+        label: "Overrides",
+        href: "/operations/stores-pos/overrides",
+      },
+      {
+        id: "receipts",
+        label: "Receipts",
+        href: "/operations/stores-pos/receipts",
+      },
+      { id: "tax", label: "Tax summary", href: "/operations/stores-pos/tax" },
+    ],
+  },
+  {
+    id: "decide",
+    label: "Decide",
+    href: "/operations/decide",
+    access: "ops-decide",
+    subs: [
+      { id: "inbox", label: "Inbox", href: "/operations/decide" },
+      {
+        id: "orders",
+        label: "Orders & truck approvals",
+        href: "/workflows",
+      },
+    ],
+  },
+] as const;
+
+export type OperationsSlug = (typeof OPERATIONS_SECTIONS)[number]["access"];
+export type OperationsSection = (typeof OPERATIONS_SECTIONS)[number];
+
 /** Workflow pages rendered by `app/(dashboard)/[module]` through ModuleWorkspace. */
 export const WORKSPACE_SLUGS = [
   "orders",
@@ -65,8 +181,10 @@ export const LEGACY_REDIRECTS = {
   analytics: "/sales",
 } as const;
 
-export type PageSlug = OwnerSlug | WebModuleSlug;
+export type PageSlug = OwnerSlug | WebModuleSlug | OperationsSlug;
 
+/** Pages that belong to Operations: the new routes and the older pages that moved under a verb. */
+const OPERATIONS_SEGMENTS = new Set(["operations", "inventory", "van-trips", "workflows"]);
 const OWNER_SLUGS = new Set<string>(OWNER_PAGES.map((page) => page.id));
 const WORKSPACES = new Set<string>(WORKSPACE_SLUGS);
 
@@ -85,6 +203,7 @@ export function isWebModuleSlug(slug: string): boolean {
     slug === "account" ||
     slug === "distributor" ||
     slug === "messages" ||
+    slug === "operations" ||
     isWorkspaceSlug(slug) ||
     isOwnerSlug(slug) ||
     Object.hasOwn(LEGACY_REDIRECTS, slug)
@@ -92,6 +211,11 @@ export function isWebModuleSlug(slug: string): boolean {
 }
 
 const moduleTabs: Record<string, WorkspaceModuleTab[]> = {
+  operations: OPERATIONS_SECTIONS.map(({ id, label, href }) => ({
+    id,
+    label,
+    href,
+  })),
   work: [
     { id: "orders", label: "Orders", href: "/orders" },
     { id: "distributors", label: "Distributors", href: "/distributors" },
@@ -101,17 +225,14 @@ const moduleTabs: Record<string, WorkspaceModuleTab[]> = {
       href: "/finance-claims",
     },
     { id: "modern-trade", label: "Modern trade", href: "/modern-trade" },
-    { id: "workflows", label: "Approvals", href: "/workflows" },
     { id: "sales-force", label: "Coverage plans", href: "/sales-force" },
     { id: "supervision", label: "Supervision", href: "/supervision" },
     { id: "call-sheets", label: "Call sheets", href: "/call-sheets" },
     { id: "daily-sales", label: "DSR", href: "/daily-sales" },
     { id: "activity-reports", label: "DAR / ROAR", href: "/activity-reports" },
     { id: "training", label: "Training", href: "/training" },
-    { id: "inventory", label: "Inventory", href: "/inventory" },
     { id: "imports", label: "Imports", href: "/imports" },
     { id: "outside-calls", label: "Outside-call POs", href: "/outside-calls" },
-    { id: "van-trips", label: "Van trips", href: "/van-trips" },
     {
       id: "retail-execution",
       label: "Retail execution",
@@ -135,6 +256,12 @@ const moduleTabs: Record<string, WorkspaceModuleTab[]> = {
 };
 
 const tailItems: WorkspaceNavGroup["items"] = [
+  {
+    id: "operations",
+    label: "Operations",
+    href: "/operations/stock",
+    icon: "inventory",
+  },
   { id: "live-map", label: "Live map", href: "/live-map", icon: "mobile" },
   { id: "work", label: "Work", href: "/orders", icon: "board" },
   { id: "messages", label: "Messages", href: "/messages", icon: "comment" },
@@ -149,6 +276,7 @@ export function primaryIdFor(pathname: string): string {
     return segment === "analytics" ? "sales" : "today";
   if (isOwnerSlug(segment)) return segment;
   if (segment === "live-map") return "live-map";
+  if (OPERATIONS_SEGMENTS.has(segment)) return "operations";
   if (segment === "issues") return "issues";
   if (segment === "messages") return "messages";
   for (const [group, tabs] of Object.entries(moduleTabs))
@@ -161,9 +289,13 @@ function visible<T extends { href: string }>(items: T[]) {
   return items.filter((item) => !isModuleHiddenForBeta(item.href.slice(1)));
 }
 
-/** Slug a nav href opens (`/coverage-people` → `coverage-people`). */
-function slugOf(href: string) {
-  return href.split("?")[0]!.split("/")[1] ?? "";
+/**
+ * Page key a nav href opens (`/coverage-people` → `coverage-people`). Operations screens are gated per verb:
+ * `/operations/counts/plan` → `ops-counts`.
+ */
+export function slugOf(href: string) {
+  const [, first = "", second = ""] = href.split("?")[0]!.split("/");
+  return first === "operations" ? `ops-${second || "stock"}` : first;
 }
 
 /**
@@ -221,4 +353,37 @@ export function navigationForRole(
 /** In-content tabs for grouped pages (Work, Setup); none elsewhere. */
 export function getWebModuleTabs(pathname: string) {
   return visible(moduleTabs[primaryIdFor(pathname)] ?? []);
+}
+
+/** The old pages that moved under a verb of Operations (they keep working at their own address). */
+const MOVED_UNDER: Record<string, OperationsSection["id"]> = {
+  inventory: "stock",
+  "van-trips": "van-day",
+  workflows: "decide",
+};
+
+/** The Operations verb a pathname belongs to, or null outside Operations. */
+export function operationsSectionFor(pathname: string): OperationsSection | null {
+  const [, first = "", second = ""] = pathname.split("?")[0]!.split("/");
+  const id = first === "operations" ? second || "stock" : MOVED_UNDER[first];
+  return OPERATIONS_SECTIONS.find((section) => section.id === id) ?? null;
+}
+
+/** The sub-tab (second row) a pathname lights up inside its verb. */
+export function operationsSubFor(pathname: string) {
+  const section = operationsSectionFor(pathname);
+  if (!section) return null;
+  const path = pathname.split("?")[0]!.replace(/\/+$/, "");
+  const exact = section.subs.find((sub) => sub.href === path);
+  if (exact) return exact;
+  // Detail pages (/operations/transfers/<id>) keep their list lit.
+  const parents = section.subs
+    .filter((sub) => path.startsWith(`${sub.href}/`))
+    .sort((a, b) => b.href.length - a.href.length);
+  return parents[0] ?? section.subs[0] ?? null;
+}
+
+/** The href of the top tab to light for a pathname (top tabs match by verb, not by exact address). */
+export function activeTabHref(pathname: string) {
+  return operationsSectionFor(pathname)?.href ?? pathname;
 }

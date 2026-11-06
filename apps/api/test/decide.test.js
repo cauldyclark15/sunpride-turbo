@@ -423,6 +423,29 @@ describe("till counts, forced closes and overrides", () => {
   });
 });
 
+describe("count finding photos from the web", () => {
+  it("the counter uploads a JPEG under count-finding and the count line takes it; other people, other files and closed counts are refused", async () => {
+    const loc = await location(`Pho-${crypto.randomUUID()}`, "warehouse");
+    const p = await product();
+    await stockIn(loc, [{ p, qty: 12, cost: 100 }]);
+    const plan = await command(planner, "counts/plan", { locationId: loc, assignedTo: clerk.userId, title: "Photos" });
+    const l = await lines(clerk, plan.body.id);
+    const up = (/** @type {any} */ who, /** @type {Uint8Array} */ bytes, sid = plan.body.id) =>
+      h.fetch(`/api/v1/inventory/counts/photo?sessionId=${sid}`, { method: "POST", headers: { cookie: who.cookie, "content-type": "image/jpeg" }, body: /** @type {any} */ (bytes) });
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...new TextEncoder().encode(`finding-${crypto.randomUUID()}`)]);
+    const ok = await up(clerk, jpeg);
+    expect(ok.status).toBe(200);
+    const body = /** @type {any} */ (await ok.json());
+    expect((await h.db`select purpose,status,owner_id from files where id=${body.fileId}`)[0]).toMatchObject({ purpose: "count-finding", status: "stored", owner_id: plan.body.id });
+    expect((await up(planner, jpeg)).status).toBe(403); // not the counter
+    expect((await up(clerk, new TextEncoder().encode("not a photo"))).status).toBe(422);
+    expect((await up(clerk, jpeg, "nonsense")).status).toBe(422);
+    const saved = await command(clerk, "counts/save-lines", { sessionId: plan.body.id, lines: [{ lineId: l.lines[0].id, countedBase: 11, finding: "damaged", note: "Crushed box", photoFileId: body.fileId }] });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect((await lines(clerk, plan.body.id)).lines[0].photoFileId).toBe(body.fileId);
+  });
+});
+
 describe("the inbox", () => {
   it("counts every kind, is readable by everyone who may read stock, and keeps a recent-decisions list", async () => {
     const res = await inbox(sup);
