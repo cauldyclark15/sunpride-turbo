@@ -87,7 +87,7 @@ data class PayOption(val label: String, val detail: String?, val tag: String, va
     Box(modifier.heightIn(min = 56.dp).clip(shape).background(if (active) Look.tint else Look.sheet).border(1.5.dp, if (active) Look.accent else Look.hairline, shape)
         .clickable(enabled = enabled, onClick = onClick, role = Role.Button).testTag(tag), contentAlignment = Alignment.Center) {
         Column(Modifier.padding(horizontal = 6.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            FitText(label, 15.sp, minSize = 12.sp, color = if (active && enabled) Look.accent else ink, textAlign = TextAlign.Center)
+            Text(label, color = if (active && enabled) Look.accent else ink, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
             if (detail != null) Text(detail, color = Look.muted, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
         }
     }
