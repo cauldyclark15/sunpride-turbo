@@ -307,7 +307,8 @@ export async function generateCommand(db, actor, p) {
     date: day,
     planned: r.planned,
   });
-  return r;
+  // `tripIds` makes the command wrapper refresh each seller's bundle.
+  return { ...r, tripIds: r.trips.filter((/** @type {any} */ t) => t.tripId && t.result.startsWith("planned")).map((/** @type {any} */ t) => t.tripId) };
 }
 
 /**
@@ -390,7 +391,14 @@ export async function copyTrips(db, actor, p) {
     }
   }
   await db`insert into van_nightly_runs(org_unit_id,service_date,trigger,planned,already_planned,needs_attention,detail,ran_by) values(${p.unitId ?? null},${to}::date,'copy',${planned},${existed},${attention},${{ trips: detail }},${actor.subject})`;
-  return { date: to, planned, alreadyPlanned: existed, needsAttention: attention, trips: detail };
+  return {
+    date: to,
+    planned,
+    alreadyPlanned: existed,
+    needsAttention: attention,
+    trips: detail,
+    tripIds: detail.filter((/** @type {any} */ t) => t.tripId && t.result === "planned").map((/** @type {any} */ t) => t.tripId),
+  };
 }
 
 /** What a trip actually went out with, by product (the accepted count, else what was sent, else what was planned). @param {any} db @param {string} tripId */
@@ -454,6 +462,19 @@ export function installNightly(core) {
       generateTrips(t, { day: tomorrow, by: SYSTEM.subject, trigger: "nightly" }),
     );
     if (r.planned || r.needsAttention) {
+      // Each seller's phone gets the new trip on its next pull.
+      await tx(db, async (/** @type {any} */ t) => {
+        for (const row of r.trips)
+          if (row.tripId && row.result.startsWith("planned")) {
+            const [trip] = await t`select salesperson_profile_id from van_trips where id=${row.tripId}`;
+            if (trip)
+              await core.recordChange?.(t, {
+                entity: "van.bundle",
+                entityId: trip.salesperson_profile_id,
+                scopeKey: `profile:${trip.salesperson_profile_id}`,
+              });
+          }
+      });
       await core.publish("van");
     }
   };

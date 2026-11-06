@@ -436,6 +436,10 @@ describe("load-out on the movement document", () => {
     const plan = await planOf(sc.tripId);
     expect(plan).toMatchObject({ state: "accepted", agreement: "within_tolerance" });
     expect((await stock(prodA.id, sc.truckId)).available).toBe(31);
+    // The settlement and the stock count expect what was COUNTED onto the truck.
+    expect(Number((await h.db`select coalesce(sum(delta_base),0)::text as q from van_stock_events where trip_id=${sc.tripId} and kind='load' and product_id=${prodA.id}`)[0].q)).toBe(31);
+    const detailRes = await read(boss, `trip?tripId=${sc.tripId}`);
+    expect(detailRes.body.stock[0].loaded.base).toBe("31");
     const [closed] = await h.db`select status,variance_status from stock_transfers where id=${doc.id}`;
     expect(closed).toEqual({ status: "closed", variance_status: "auto_accepted" });
     const [line] = await h.db`select expected_base::text,actual_base::text,discrepancy_reason from van_trip_load_lines where trip_id=${sc.tripId}`;
@@ -669,7 +673,7 @@ describe("the van day board", () => {
     let b = await row();
     expect(b.rows.find((/** @type {any} */ r) => r.vehicleCode === "VANBRD")).toMatchObject({ trip: { label: "No trip yet" }, primary: { kind: "plan_trip", label: "Plan trip" } });
     expect(b.summary.text).toMatch(/^\d+ trips planned, \d+ need attention$/);
-    expect(find(b)).toMatchObject({ load: { state: "suggested", label: "Suggested", products: 1, totalBase: 24 }, trip: { label: "Planned", stage: "planned" }, primary: { kind: "approve_load" }, sellerName: "Sam Seller" });
+    expect(find(b)).toMatchObject({ load: { state: "suggested", label: "Suggested", products: 1, totalBase: 24, cases: 2, pieces: 0 }, trip: { label: "Planned", stage: "planned" }, primary: { kind: "approve_load" }, sellerName: "Sam Seller" });
     await web(boss, "loads/approve-plan", { tripIds: [sc.tripId] });
     expect(find(await row())).toMatchObject({ load: { state: "approved" }, primary: { kind: "pick", label: "Start picking" } });
     await web(clerk, "loads/pick", { tripId: sc.tripId });

@@ -141,6 +141,9 @@ export async function dayBoard(ctx) {
           documentStatus: doc?.status ?? null,
           products: caseLines.length,
           totalBase: caseLines.reduce((/** @type {number} */ n, /** @type {any} */ l) => n + Number(l.q), 0),
+          // Whole cases and loose pieces across the products, so the board can say "5 cs 2 pc".
+          cases: caseLines.reduce((/** @type {number} */ n, /** @type {any} */ l) => n + (Number(l.case_base) > 1 ? Math.floor(Number(l.q) / Number(l.case_base)) : 0), 0),
+          pieces: caseLines.reduce((/** @type {number} */ n, /** @type {any} */ l) => n + (Number(l.case_base) > 1 ? Number(l.q) % Number(l.case_base) : Number(l.q)), 0),
           attention: plan?.attention ?? [],
           source: plan?.source ?? null,
           agreement: plan?.agreement ?? null,
@@ -177,7 +180,7 @@ export async function dayBoard(ctx) {
         sellerName: s?.name ?? null,
         onPhone: null,
         trip: { status: "not_planned", label: TRIP_LABELS.not_planned, stage: "planned" },
-        load: { state: "none", detail: "none", label: LOAD_LABELS.none, plannedLoadId: null, number: null, documentStatus: null, products: 0, totalBase: 0, attention: [], source: null, agreement: null, differenceCentavos: 0 },
+        load: { state: "none", detail: "none", label: LOAD_LABELS.none, plannedLoadId: null, number: null, documentStatus: null, products: 0, totalBase: 0, cases: 0, pieces: 0, attention: [], source: null, agreement: null, differenceCentavos: 0 },
         cash: { expectedCentavos: 0, salesCentavos: 0, remittedCentavos: null },
         loadIn: null,
         settlement: { status: "open", label: "Not yet" },

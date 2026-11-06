@@ -12,7 +12,7 @@ import {
 } from "../inventory/transfers.js";
 import { toleranceFor, withinTolerance } from "../inventory/tolerances.js";
 import { ORGANIZATION } from "../inventory/common.js";
-import { audit, productFor } from "./facts.js";
+import { audit, explainStock, productFor } from "./facts.js";
 import { tripFor, locationFor } from "./access.js";
 import { loadedLines, suggestionFromLines } from "./nightly.js";
 import { LOAD_REASONS, dayString, refuse, text, uuid } from "./model.js";
@@ -393,6 +393,17 @@ async function postCounted(db, o) {
   }
   await db`update van_trip_loads set status='posted',movement_id=${movementId},updated_at=now() where id=${load.id}`;
   await db`update van_trips set status='loaded',updated_at=now() where id=${trip.id}`;
+  // What the settlement and the stock count expect to find on the truck is built from these events: the COUNTED load.
+  /** @type {Map<string, bigint>} */ const perProduct = new Map();
+  for (const a of sent)
+    perProduct.set(a.product_id, (perProduct.get(a.product_id) ?? 0n) + BigInt(counts.get(keyOf(a)).base));
+  await explainStock(
+    db,
+    trip,
+    load.id,
+    "load",
+    [...perProduct].filter(([, q]) => q > 0n).map(([productId, delta]) => ({ productId, delta })),
+  );
   const m = await measure(db, sent, counts);
   await db`update van_planned_loads set state='accepted',agreement=${how},agreed_at=now(),difference_value_centavos=${m.centavos},updated_at=now() where id=${plan.id}`;
   return { status: fresh.status, movementId, differenceCentavos: m.centavos };
