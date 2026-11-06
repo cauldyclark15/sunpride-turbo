@@ -534,6 +534,28 @@ describe("receive: good / damaged / on hold, partial, short, over", () => {
       })(),
     ).rejects.toThrow();
   });
+  it("IP-INT3FIX recount: the person who received (or sent) the document cannot send it back, even with inventory.approve", async () => {
+    const p = await product();
+    await receipt(p, 480);
+    const id = await dispatched(p, 480);
+    const line = (await detail(id)).lines[0].id;
+    const first = await command(admin, "transfers/receive", { transferId: id, final: true, lines: [{ lineId: line, receivedGoodBase: 384 }] });
+    expect(first.body.status).toBe("review_needed");
+    // The approver is the receiver of record here.
+    await h.db`update stock_transfers set received_by=${approver.userId} where id=${id}`;
+    const own = await command(approver, "transfers/recount", { transferId: id, reason: "Count again" });
+    expect(own.status).toBe(403);
+    expect(own.body.error?.code ?? own.body.code).toBe("self_approval");
+    // nothing changed: still waiting for a different person
+    expect((await detail(id)).status).toBe("review_needed");
+    await h.db`update stock_transfers set shipped_by=${approver.userId}, received_by=${clerk.userId} where id=${id}`;
+    const sent = await command(approver, "transfers/recount", { transferId: id, reason: "Count again" });
+    expect(sent.status).toBe(403);
+    expect(sent.body.error?.code ?? sent.body.code).toBe("self_approval");
+    // a different approver can
+    const other = await person("approver");
+    expect((await command(other, "transfers/recount", { transferId: id, reason: "Count again" })).status).toBe(200);
+  });
   it("IP-INT3 recount: a document that was sent and never received goes back to dispatched, and a van load-out is not reopened here", async () => {
     const p = await product();
     await receipt(p, 480);

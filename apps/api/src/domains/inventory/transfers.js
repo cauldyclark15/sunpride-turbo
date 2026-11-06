@@ -1166,6 +1166,15 @@ export async function reopenForRecount(c, transferId, reason) {
     await c.db`select * from stock_transfers where id=${id(transferId, "Transfer")} and organization_id=${ORGANIZATION} for update`;
   if (!row) throw new ApiError("not_found", 404, "Transfer not found");
   state(row, OPEN_VARIANCE_STATES);
+  // IP-INT3FIX: maker != checker, same rule as resolveVariance. Whoever sent or received the document cannot send it
+  // back and then post the "late" stock themselves with no difference left to review.
+  for (const who of [row.received_by, row.shipped_by])
+    if (who && (who === c.actor.userId || who === c.actor.profileId))
+      throw new ApiError(
+        "self_approval",
+        403,
+        "A different person must decide this difference: the sender and the receiver cannot",
+      );
   if (row.type === "van_load_out")
     invalid(
       "A van load is recounted from the Van day board, with the clerk and the seller",
