@@ -321,15 +321,15 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
         if(c.storePos.shift==null)Text("Open the till (Till tab) to save stock changes.",style=MaterialTheme.typography.bodyLarge,color=Look.muted,modifier=Modifier.testTag("store-stock-needs-till"))
         when(mode){
             "receive"->{
-                HelpDisclosure("How receiving works","Receive against a purchase order reference. Lot and expiry checks follow the inventory policy, and stock may enter quality hold.","store-stock-help")
+                HelpDisclosure("How receiving works","Receive against a purchase order reference. Lot and expiry checks follow the inventory policy, and stock may enter quality hold. Type the expiry date as YYYY-MM-DD.","store-stock-help")
                 LabeledField("Purchase order reference",po,{po=it},"store-po-reference",maxLength=100)
                 StockProductPicker(catalogue,product,{product=it},"store-product")
                 LabeledField("Quantity received (base units)",amount,{amount=it},"store-receive-quantity",numeric=true,maxLength=12)
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                     Box(Modifier.weight(1f)){LabeledField("Lot, if required",lot,{lot=it},"store-receive-lot",maxLength=100)}
-                    Box(Modifier.weight(1f)){LabeledField("Expiry YYYY-MM-DD",expiry,{expiry=it},"store-receive-expiry",maxLength=10)}
+                    Box(Modifier.weight(1f)){LabeledField("Expiry date",expiry,{expiry=it},"store-receive-expiry",maxLength=10)}
                 }
-                Spacer(Modifier.height(8.dp))
+                if(expiry.isNotBlank()&&runCatching{java.time.LocalDate.parse(expiry)}.isFailure)Text("Type the expiry date as YYYY-MM-DD, for example 2026-12-31.",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-receive-expiry-problem"))
             }
             "count"->{
                 HelpDisclosure("How counting works","Count what is on the shelf. Expected quantities are hidden. The office must independently approve any variance before posting.","store-stock-help")
@@ -371,12 +371,12 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     var open by remember{mutableStateOf(false)}
     val current=products.firstOrNull {it.getString("productId")==selected}?.getString("name")
     val shape=androidx.compose.foundation.shape.RoundedCornerShape(Look.pill)
-    Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(4.dp)){
-        Text("Product",Modifier.padding(start=14.dp),color=Look.muted,fontSize=14.sp,fontWeight=FontWeight.SemiBold)
-        Row(Modifier.fillMaxWidth().heightIn(min=56.dp).clip(shape).border(1.5.dp,Look.hairline,shape).clickable(onClickLabel="Choose a product"){open=true}.padding(horizontal=16.dp).testTag(tag),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
-            Text(current?:"Choose a product",Modifier.weight(1f),fontSize=17.sp,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
-            if(current!=null)Text("Change",color=Look.accent,fontSize=15.sp,fontWeight=FontWeight.Bold) else Glyph(GlyphKind.CHEVRON,Look.muted,20.dp)
+    Row(Modifier.fillMaxWidth().heightIn(min=56.dp).clip(shape).border(1.5.dp,Look.hairline,shape).clickable(onClickLabel="Choose a product"){open=true}.padding(start=16.dp,end=12.dp,top=6.dp,bottom=6.dp).testTag(tag),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+        Column(Modifier.weight(1f)){
+            Text("Product",color=Look.muted,fontSize=13.sp,fontWeight=FontWeight.SemiBold,maxLines=1)
+            FitText(current?:"Choose a product",16.sp,minSize=13.sp,fontWeight=FontWeight.SemiBold,color=Look.ink)
         }
+        Glyph(GlyphKind.CHEVRON,Look.muted,20.dp)
     }
     if(open)LookSheet("Choose a product",{open=false},tag="$tag-sheet",closeTag="$tag-close",footer={PillButton("Cancel",{open=false},Modifier.testTag("$tag-cancel"),filled=false,height=52.dp)}){
         Column(Modifier.padding(horizontal=20.dp).padding(top=14.dp,bottom=20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
