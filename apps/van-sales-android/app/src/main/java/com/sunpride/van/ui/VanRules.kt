@@ -262,6 +262,7 @@ object VanRules {
             com.sunpride.van.printing.PrintRefusal.ALREADY_PRINTED -> "Receipt already printed. Use Reprint for another copy."
             com.sunpride.van.printing.PrintRefusal.REASON_REQUIRED -> "Choose why you are reprinting."
             com.sunpride.van.printing.PrintRefusal.LIMIT_REACHED -> "This receipt was reprinted ${com.sunpride.van.printing.ReprintRules.MAX_REPRINTS} times already. Ask the office for a copy."
+            com.sunpride.van.printing.PrintRefusal.CONFIRM_FIRST -> "This receipt was sent to the printer ${com.sunpride.van.printing.ReprintRules.MAX_REPRINTS + 1} times. Answer \"Did it print?\" or ask the office for a copy."
             com.sunpride.van.printing.PrintRefusal.NOT_THIS_TRIP -> "Only receipts from this trip can be printed on the phone. Ask the office for a copy."
             com.sunpride.van.printing.PrintRefusal.SALE_NOT_FOUND -> "This sale is not on this phone."
             com.sunpride.van.printing.PrintRefusal.HELD -> "Sign in again to print."

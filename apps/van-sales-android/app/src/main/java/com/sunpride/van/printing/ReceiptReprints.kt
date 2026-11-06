@@ -37,6 +37,8 @@ enum class PrintRefusal {
     ALREADY_PRINTED,
     REASON_REQUIRED,
     LIMIT_REACHED,
+    /** Before "Yes, printed": the receipt was already sent [ReprintRules.MAX_REPRINTS] extra times; answer Yes or Skip first. */
+    CONFIRM_FIRST,
     /** Receipts can be reprinted on the phone only for the trip it is on now; older ones come from the office. */
     NOT_THIS_TRIP,
     SALE_NOT_FOUND,
@@ -73,6 +75,8 @@ object ReprintRules {
         if (lastConfirmed == null) {
             // Nothing is confirmed yet: the automatic print happens once, but a seller's "Print again" is still the original.
             if (!explicit && live.any { it.mayHaveReachedPaper }) return PrintDecision.Refused(PrintRefusal.ALREADY_PRINTED)
+            // IP-P0: re-sends before "Yes, printed" are capped like reprints, so a seller cannot loop out originals.
+            if (unconfirmedResends(live) >= MAX_REPRINTS) return PrintDecision.Refused(PrintRefusal.CONFIRM_FIRST)
             return PrintDecision.Print(PrintKind.ORIGINAL, 0, null)
         }
         if (!explicit) return PrintDecision.Refused(PrintRefusal.ALREADY_PRINTED)
@@ -83,6 +87,13 @@ object ReprintRules {
         if (confirmedReprints >= MAX_REPRINTS) return PrintDecision.Refused(PrintRefusal.LIMIT_REACHED)
         return PrintDecision.Print(PrintKind.REPRINT, confirmedReprints + 1, reasonCode)
     }
+    /**
+     * Copies sent to the printer for a receipt nobody has confirmed, beyond the first. A copy counts once it may have
+     * reached paper or was skipped for lack of paper (so "Skip, no paper" then print is a re-send); a copy the printer
+     * refused before any paper moved is free.
+     */
+    private fun unconfirmedResends(live: List<PrintAttempt>): Int =
+        maxOf(0, live.count { it.kind == PrintKind.ORIGINAL && (it.mayHaveReachedPaper || it.outcome == PrintOutcome.SKIPPED) } - 1)
     /** The latest reprint sent after the last confirmation and not yet confirmed (it may or may not be on paper). */
     private fun pendingReprint(live: List<PrintAttempt>): PrintAttempt? {
         val lastConfirmed = live.filter { it.confirmed }.maxByOrNull { it.startedAt } ?: return null
@@ -91,6 +102,7 @@ object ReprintRules {
     /** Reprints still available: confirmed ones and one sent-but-unconfirmed copy use up the cap. */
     fun remaining(history: List<PrintAttempt>): Int {
         val live = history.filter { it.kind != PrintKind.VOID }
+        if (live.none { it.confirmed }) return maxOf(0, MAX_REPRINTS - unconfirmedResends(live))
         val used = live.count { it.confirmed && it.kind == PrintKind.REPRINT } + if (pendingReprint(live) != null) 1 else 0
         return maxOf(0, MAX_REPRINTS - used)
     }

@@ -67,6 +67,34 @@ class ReceiptReprintTest {
         assertEquals(PrintDecision.Print(PrintKind.ORIGINAL, 0, null), ReprintRules.decide(listOf(attempt(PrintKind.ORIGINAL, PrintOutcome.SKIPPED)), true, null))
     }
 
+    @Test fun reSendsBeforeYesPrintedAreCappedAtThreeAndSkipThenPrintCounts() {
+        fun sent(vararg outcomes: PrintOutcome) = outcomes.mapIndexed { i, o -> PrintAttempt("p$i", "sale-1", PrintKind.ORIGINAL, 0, null, o, 1L + i) }
+        val original = PrintDecision.Print(PrintKind.ORIGINAL, 0, null)
+        // The first send and three re-sends are all the original.
+        assertEquals(original, ReprintRules.decide(sent(PrintOutcome.PRINTED), true, null))
+        assertEquals(original, ReprintRules.decide(sent(PrintOutcome.PRINTED, PrintOutcome.PRINTED, PrintOutcome.MAYBE_PRINTED), true, null))
+        assertEquals(3, ReprintRules.remaining(sent(PrintOutcome.PRINTED)))
+        assertEquals(0, ReprintRules.remaining(sent(PrintOutcome.PRINTED, PrintOutcome.PRINTED, PrintOutcome.PRINTED, PrintOutcome.PRINTED)))
+        // The fourth re-send is refused until the seller answers.
+        val four = sent(PrintOutcome.PRINTED, PrintOutcome.PRINTED, PrintOutcome.PRINTED, PrintOutcome.PRINTED)
+        assertEquals(PrintDecision.Refused(PrintRefusal.CONFIRM_FIRST), ReprintRules.decide(four, true, null))
+        assertEquals(PrintDecision.Refused(PrintRefusal.CONFIRM_FIRST), ReprintRules.decide(four, true, "customer_copy"))
+        // "Skip, no paper" then print is a re-send too: skipped copies use up the cap.
+        assertEquals(original, ReprintRules.decide(sent(PrintOutcome.SKIPPED), true, null))
+        assertEquals(2, ReprintRules.remaining(sent(PrintOutcome.SKIPPED, PrintOutcome.PRINTED)))
+        assertEquals(PrintDecision.Refused(PrintRefusal.CONFIRM_FIRST),
+            ReprintRules.decide(sent(PrintOutcome.SKIPPED, PrintOutcome.SKIPPED, PrintOutcome.SKIPPED, PrintOutcome.SKIPPED), true, null))
+        // A copy the printer refused before any paper moved is free.
+        assertEquals(original, ReprintRules.decide(sent(PrintOutcome.PRINTED, PrintOutcome.NOT_PRINTED, PrintOutcome.NOT_PRINTED, PrintOutcome.NOT_PRINTED, PrintOutcome.NOT_PRINTED), true, null))
+        // Answering Yes ends the loop: reprints then follow the confirmed-copy rule with a reason.
+        val answered = four.dropLast(1) + four.last().copy(outcome = PrintOutcome.CONFIRMED)
+        assertEquals(PrintDecision.Print(PrintKind.REPRINT, 1, "customer_copy"), ReprintRules.decide(answered, true, "customer_copy"))
+    }
+    @Test fun capReachedBeforeConfirmationExplainsWhatToDo() {
+        val text = VanRules.printMessage(PrintJobResult.Refused(PrintRefusal.CONFIRM_FIRST))
+        assertTrue(text, text.contains("4 times") && text.contains("Did it print?"))
+    }
+
     @Test fun onlyPrintsAfterConfirmationAreReprintsAndNeedAReason() {
         val confirmed = listOf(attempt(PrintKind.ORIGINAL, PrintOutcome.CONFIRMED))
         assertEquals(PrintDecision.Refused(PrintRefusal.ALREADY_PRINTED), ReprintRules.decide(confirmed, explicit = false, reasonCode = "customer_copy"))
