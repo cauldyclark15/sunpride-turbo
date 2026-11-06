@@ -1,5 +1,9 @@
 import { installExtended } from "./extended.js";
-import { expectedCash } from "./operations.js";
+import { expectedCash } from "./cash.js";
+import { installZday } from "./zday-routes.js";
+import { tillDayForOpen } from "./till-days.js";
+import { nextDocNumber } from "../../core/docnum.js";
+import { slipCode } from "./cash.js";
 import { pinSettings } from "./security.js";
 import { tx } from "@sunpride/db/client";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
@@ -13,7 +17,7 @@ import {
   text,
   choice,
   refuse,
-  today,
+  dayString,
   openingFloat,
 } from "../van/model.js";
 import { currentActor, currentDeviceActor } from "../van/access.js";
@@ -28,16 +32,28 @@ import {
  * @param {any} router @param {any} platform */
 export function install(router, platform) {
   installExtended(router, platform);
+  installZday(router, platform);
   platform.registerTopic("storepos", (/** @type {any} */ a) =>
     roleHas(a.role, "van.read"),
   );
-  for (const kind of ["store.shift.open", "store.shift.close"])
+  for (const kind of [
+    "store.shift.open",
+    "store.shift.close",
+    "store.shift.suspend",
+    "store.shift.resume",
+  ])
     platform.registerOp(kind, async (/** @type {any} */ c) => {
       try {
         const result = await shiftOperation(c);
         await c.change(
           "storepos",
           result.entityId,
+          `profile:${c.actor.profileId}`,
+        );
+        // The handheld's bundle carries the server's view of its sessions: refresh it (acknowledgement).
+        await c.change(
+          "van.bundle",
+          c.actor.profileId,
           `profile:${c.actor.profileId}`,
         );
         c.publish("storepos");
@@ -251,11 +267,9 @@ export async function shiftOperation(c) {
   if (p.registerId !== r.id || p.modeVersionId !== mode.id)
     refuse("Download the register's current configuration");
   const shiftId = uuid(p.shiftId);
+  /** @type {string|null} */ let tillDayId = null;
   if (c.op.opType === "store.shift.open") {
     await noOpenShift(db, r.id);
-    const [closedDay] =
-      await db`select 1 from store_reads where register_id=${r.id} and kind='z' and snapshot->>'date'=${today(at)}`;
-    if (closedDay) refuse("This register has already closed its sales day");
     const [deviceOpen] =
       await db`select 1 from store_shifts s left join store_shift_closures x on x.shift_id=s.id where s.device_id=${device.id} and x.id is null`;
     if (deviceOpen) refuse("This handheld already has an open cashier session");
@@ -267,7 +281,14 @@ export async function shiftOperation(c) {
       await db`select max(c.closed_at) as at from store_shift_closures c join store_shifts s on s.id=c.shift_id where s.register_id=${r.id}`;
     if (previous.at && at < +new Date(previous.at))
       refuse("A session cannot overlap an earlier closed session");
-    await db`insert into store_shifts(id,register_id,mode_version_id,policy_id,device_id,cashier_id,service_date,opening_centavos,opened_at) values(${shiftId},${r.id},${mode.id},${policy.id},${device.id},${actor.profileId},${today(at)},${String(openingFloat(p, "openingFloatCentavos", "openingCentavos"))},${new Date(at)})`;
+    const day = await tillDayForOpen(db, r, at);
+    const number = await nextDocNumber(db, r.organization_id, {
+      type: "SHF",
+      locationCode: slipCode(r, null),
+      at,
+    });
+    await db`insert into store_shifts(id,register_id,mode_version_id,policy_id,device_id,cashier_id,service_date,opening_centavos,opened_at,till_day_id,doc_number) values(${shiftId},${r.id},${mode.id},${policy.id},${device.id},${actor.profileId},${dayString(day.business_date)},${String(openingFloat(p, "openingFloatCentavos", "openingCentavos"))},${new Date(at)},${day.id},${number})`;
+    tillDayId = day.id;
   } else {
     const [s] =
       await db`select * from store_shifts where id=${shiftId} for update`;
@@ -278,6 +299,20 @@ export async function shiftOperation(c) {
       s.register_id !== r.id
     )
       throw forbidden("This session belongs to another cashier or terminal");
+    tillDayId = s.till_day_id;
+    if (c.op.opType === "store.shift.suspend" || c.op.opType === "store.shift.resume") {
+      const [done] =
+        await db`select 1 from store_shift_closures where shift_id=${shiftId}`;
+      if (done) refuse("This session is already closed");
+      const [lastEvent] =
+        await db`select kind from store_session_events where shift_id=${shiftId} order by captured_at desc,created_at desc limit 1`;
+      const suspended = lastEvent?.kind === "suspended";
+      const suspend = c.op.opType === "store.shift.suspend";
+      if (suspend === suspended)
+        refuse(suspend ? "This session is already on hold" : "This session is not on hold");
+      await db`insert into store_session_events(id,shift_id,kind,reason,actor_profile_id,captured_at) values(${uuid(c.op.clientOpId)},${shiftId},${suspend ? "suspended" : "resumed"},${p.reason ? String(p.reason).slice(0, 300) : null},${actor.profileId},${new Date(at)})`;
+      return { entityId: shiftId, eventIds: [s.till_day_id] };
+    }
     if (at < +new Date(s.opened_at))
       refuse("Close time must follow opening time");
     const [closed] =
@@ -298,7 +333,7 @@ export async function shiftOperation(c) {
       BigInt(policy.tolerance_centavos);
     await db`insert into store_shift_closures(id,shift_id,declared_centavos,expected_centavos,variance_centavos,needs_review,closed_at) values(${uuid(c.op.clientOpId)},${s.id},${String(declared)},${String(expected)},${String(variance)},${review},${new Date(at)})`;
   }
-  return { entityId: shiftId };
+  return { entityId: shiftId, eventIds: tillDayId ? [tillDayId] : [] };
 }
 /** F-R01. @param {any} db @param {any} actor @param {any} p */
 async function decideShift(db, actor, p) {
@@ -333,7 +368,7 @@ async function workspace(c) {
       ? await db`select id,name,org_unit_id from profiles where status='active' and role='sales' and deleted_at is null and (${scope.unitIds === null} or org_unit_id in ${db(ids)}) order by name limit 501`
       : [];
     const shifts =
-      await db`select s.*,r.name as register_name,l.name as store_name,p.name as cashier_name,c.id as closure_id,c.declared_centavos,c.expected_centavos,c.variance_centavos,c.needs_review,c.closed_at,d.decision from store_shifts s join store_registers r on r.id=s.register_id join inventory_locations l on l.id=r.location_id join profiles p on p.id=s.cashier_id left join store_shift_closures c on c.shift_id=s.id left join store_shift_decisions d on d.closure_id=c.id where l.active and l.deleted_at is null and (${scope.unitIds === null} or l.org_unit_id in ${db(ids)}) and (${actor.role !== "sales"} or s.cashier_id=${actor.profileId}) order by s.opened_at desc,s.id desc limit 501`;
+      await db`select s.*,r.name as register_name,l.name as store_name,p.name as cashier_name,c.id as closure_id,c.declared_centavos,c.expected_centavos,c.variance_centavos,c.needs_review,c.closed_at,c.kind as closure_kind,d.decision,exists(select 1 from store_session_events e where e.shift_id=s.id and e.kind='suspended' and not exists(select 1 from store_session_events e2 where e2.shift_id=s.id and e2.kind='resumed' and e2.captured_at>e.captured_at)) as suspended from store_shifts s join store_registers r on r.id=s.register_id join inventory_locations l on l.id=r.location_id join profiles p on p.id=s.cashier_id left join store_shift_closures c on c.shift_id=s.id left join store_shift_decisions d on d.closure_id=c.id where l.active and l.deleted_at is null and (${scope.unitIds === null} or l.org_unit_id in ${db(ids)}) and (${actor.role !== "sales"} or s.cashier_id=${actor.profileId}) order by s.opened_at desc,s.id desc limit 501`;
     return {
       locations: locations.slice(0, 500),
       registers: registers.slice(0, 500),
