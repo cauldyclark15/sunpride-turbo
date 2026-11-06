@@ -132,15 +132,60 @@ export function installBirRoutes(router, ctx) {
         (select p.name from profiles p where p.id=j.actor_profile_id) as actor_name
        from fiscal_ejournal j where document_id=${documentId} order by seq`;
 
+  /** Recent receipts for the reprint screen: newest first, searchable by printed number or buyer. */
+  router.get("/api/v1/fiscal/receipts", async (/** @type {any} */ c) =>
+    tx(c.db, async (db) => {
+      const actor = await currentActor(db, c.actor);
+      const q = c.url.searchParams;
+      const { all, ids } = await readScope(db, actor, q.get("unitId"));
+      const dayFilter = day(q.get("day"), "day");
+      const needle = (q.get("q") ?? "").trim().slice(0, 60);
+      const like = `%${needle.replace(/[%_\\]/g, "")}%`;
+      const limit = Math.min(
+        Math.max(Number(q.get("limit") ?? 50) || 50, 1),
+        200,
+      );
+      const sellerOnly = actor.role === "sales";
+      const rows =
+        await db`select d.id,d.source_id,d.source_type,d.document_number,r.document_type,d.issued_at,
+          d.snapshot->>'totalMinor' as total_due,
+          coalesce(d.snapshot->'buyer'->>'name',d.snapshot->'customer'->>'name') as buyer_name,
+          d.snapshot->'discountClaim'->>'type' as privilege_type,
+          exists(select 1 from fiscal_document_events e where e.document_id=d.id and e.kind='void') as voided,
+          (select count(*)::int from fiscal_document_events e where e.document_id=d.id and e.kind='reprint') as reprints
+        from fiscal_documents d join fiscal_series s on s.id=d.series_id join fiscal_registrations r on r.id=s.registration_id
+          join fiscal_allocations a on a.id=d.allocation_id
+        where d.source_type in ('store_sale','van_sale','van_collection')
+          and (${all} or r.org_unit_id in ${db(ids)})
+          and (${!sellerOnly} or a.profile_id=${actor.profileId})
+          and (${dayFilter}::date is null or (d.issued_at at time zone 'Asia/Manila')::date=${dayFilter})
+          and (${needle === ""} or d.document_number ilike ${like} or coalesce(d.snapshot->'buyer'->>'name',d.snapshot->'customer'->>'name','') ilike ${like})
+        order by d.issued_at desc limit ${limit + 1}`;
+      return {
+        receipts: rows.slice(0, limit).map((/** @type {any} */ r) => ({
+          id: r.id,
+          saleId: r.source_id,
+          sourceType: r.source_type,
+          documentNumber: r.document_number,
+          documentType: r.document_type,
+          issuedAt: r.issued_at,
+          totalDueMinor: r.total_due,
+          buyerName: r.buyer_name,
+          privilegeType: r.privilege_type,
+          voided: r.voided,
+          reprints: r.reprints,
+        })),
+        hasMore: rows.length > limit,
+      };
+    }),
+  );
+
   router.get(
     "/api/v1/fiscal/receipts/:id/print-model",
     async (/** @type {any} */ c) =>
       tx(c.db, async (db) => {
         const actor = await currentActor(db, c.actor);
-        const { model, doc, orgUnitId } = await loadPrintModel(
-          db,
-          uuid(c.params.id),
-        );
+        const { model, doc, orgUnitId } = await loadPrintModel(db, c.params.id);
         await mayRead(db, actor, doc, orgUnitId);
         const journal = await journalOf(db, doc.id);
         return { model, journal };
@@ -153,7 +198,7 @@ export function installBirRoutes(router, ctx) {
       const out = await tx(c.db, async (db) => {
         const actor = await currentActor(db, c.actor);
         await db`select set_config('sunpride.actor',${actor.userId},true)`;
-        const { doc, orgUnitId } = await loadPrintModel(db, uuid(c.params.id));
+        const { doc, orgUnitId } = await loadPrintModel(db, c.params.id);
         await mayRead(db, actor, doc, orgUnitId);
         const reason = text(c.body?.reason, 300, true);
         const result = await documentEvent(db, actor, {

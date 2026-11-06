@@ -298,11 +298,14 @@ export function buildPrintModel({
   };
 }
 
-/** Load a document by fiscal document id OR by the sale/collection id it was issued for, then build its model.
- * @param {any} db @param {string} id @param {{copy?:{kind:'original'|'reprint',number:number}}} [o] */
+/** Load a document by fiscal document id, by the sale/collection id it was issued for, or by its printed number,
+ * then build its model. @param {any} db @param {string} id @param {{copy?:{kind:'original'|'reprint',number:number}}} [o] */
 export async function loadPrintModel(db, id, o = {}) {
-  const [doc] =
-    await db`select * from fiscal_documents where id=${id} or source_id=${id} order by (id=${id}) desc limit 1`;
+  const isId =
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id);
+  const [doc] = isId
+    ? await db`select * from fiscal_documents where id=${id} or source_id=${id} order by (id=${id}) desc limit 1`
+    : await db`select * from fiscal_documents where document_number=${String(id).slice(0, 100)}`;
   if (!doc) refuse("That receipt was not found", "not_found");
   const [series] =
     await db`select * from fiscal_series where id=${doc.series_id}`;

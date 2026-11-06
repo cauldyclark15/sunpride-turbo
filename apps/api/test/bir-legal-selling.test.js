@@ -807,6 +807,34 @@ test("reprint and void land in the append-only, hash-chained e-journal with the 
   ).toBe(true);
 });
 
+test("recent receipts list is searchable and any receipt opens by its printed number", async () => {
+  const all = await api("/api/v1/fiscal/receipts");
+  expect(all.status).toBe(200);
+  expect(all.body.receipts.length).toBeGreaterThanOrEqual(5);
+  const voided = all.body.receipts.find(
+    (/** @type {any} */ r) => r.saleId === printedSale,
+  );
+  expect(voided).toMatchObject({
+    voided: true,
+    reprints: 2,
+    privilegeType: "senior",
+    totalDueMinor: "7786",
+    buyerName: "Sample Store Trading Inc.",
+  });
+  const found = await api(
+    `/api/v1/fiscal/receipts?q=${voided.documentNumber.slice(-6)}`,
+  );
+  expect(
+    found.body.receipts.map((/** @type {any} */ r) => r.documentNumber),
+  ).toContain(voided.documentNumber);
+  const byNumber = await api(
+    `/api/v1/fiscal/receipts/${voided.documentNumber}/print-model`,
+  );
+  expect(byNumber.status).toBe(200);
+  expect(byNumber.body.model.documentNumber).toBe(voided.documentNumber);
+  expect(byNumber.body.journal.length).toBe(3);
+});
+
 test("tax summary shows privilege discounts as their own lines and leaves voided documents out; SC/PWD book lists holders", async () => {
   const s = await api("/api/v1/fiscal/tax-summary");
   expect(s.status).toBe(200);
