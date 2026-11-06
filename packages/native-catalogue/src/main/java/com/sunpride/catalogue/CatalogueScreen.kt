@@ -22,7 +22,9 @@ import kotlinx.coroutines.withContext
 @Composable
 fun CatalogueScreen(entries: List<CatalogueEntry>, onBack: () -> Unit,
     modifier: Modifier = Modifier, scanEvent: Pair<Long,String>? = null,
-    imageDownloader:((CatalogueImage)->ByteArray?)? = null) {
+    imageDownloader:((CatalogueImage)->ByteArray?)? = null,
+    /** The host draws the page title and Back (the field app header); hide this screen's own at the list. */
+    embedded: Boolean = false) {
     var query by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf<CatalogueEntry?>(null) }
     var camera by remember { mutableStateOf(false) }
@@ -54,9 +56,9 @@ fun CatalogueScreen(entries: List<CatalogueEntry>, onBack: () -> Unit,
     }
     Scaffold(modifier=modifier,contentWindowInsets=WindowInsets.systemBars) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            TextButton(onClick={if(selected!=null){selected=null;message=null;query=""}else onBack()},modifier=Modifier.testTag("catalogue-back")) { Text(if(selected!=null) "Back to catalogue" else "Back") }
+            if(!embedded||selected!=null) TextButton(onClick={if(selected!=null){selected=null;message=null;query=""}else onBack()},modifier=Modifier.testTag("catalogue-back")) { Text(if(selected!=null) "Back to catalogue" else "Back") }
             val product=selected?.let { chosen -> entries.firstOrNull { it.id==chosen.id } }
-            Text(product?.name ?: "Product catalogue",style=MaterialTheme.typography.headlineSmall,modifier=Modifier.testTag("catalogue-title"))
+            if(!embedded||product!=null) Text(product?.name ?: "Product catalogue",style=MaterialTheme.typography.headlineSmall,modifier=Modifier.testTag("catalogue-title"))
             if(product==null) {
                 Text("Saved on this phone · Read only",style=MaterialTheme.typography.bodySmall)
                 if(imageCount>0) TextButton(onClick={imageRefresh++},modifier=Modifier.testTag("catalogue-image-refresh")) { Text("$imagesReady of $imageCount images stored · Refresh images") }
