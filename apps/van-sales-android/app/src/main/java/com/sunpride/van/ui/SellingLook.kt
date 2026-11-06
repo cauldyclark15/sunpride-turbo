@@ -73,7 +73,7 @@ object Look {
     val amberDot = Color(0xFFE08A00)
     val scrim = Color(0x80000000)
     val hairlineLight = Color(0xFFD9D9DE)
-    val cardLight = Color(0xFFF6F6F7)
+    val cardLight = Color(0xFFFAFAFA)
     val tintLight = Color(0xFFFCE9E7)
     val sheetTop = 28.dp
     val cardRadius = 20.dp

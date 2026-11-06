@@ -107,10 +107,11 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
                     tag = "grid-price-$code")
             }
             if (inCart > 0) QtyStepper(hit.product.displayQuantity(inCart), onMinus, onPlus, onQuantity = onLong, tagPrefix = "grid-$code")
-            else Row(Modifier.fillMaxWidth().height(48.dp).clip(CircleShape).background(Look.tint).clickable(onClick = onPlus).testTag("grid-add-$code"), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
-                Glyph(GlyphKind.PLUS, Look.accent, 18.dp)
+            else Row(Modifier.fillMaxWidth().height(48.dp).clip(CircleShape).background(if (empty) MaterialTheme.colorScheme.surfaceVariant else Look.tint).clickable(onClick = onPlus).testTag("grid-add-$code"), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
+                val fg = if (empty) MaterialTheme.colorScheme.onSurfaceVariant else Look.accent
+                Glyph(GlyphKind.PLUS, fg, 18.dp)
                 Spacer(Modifier.width(6.dp))
-                Text("Add", color = Look.accent, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
+                Text("Add", color = fg, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold)
             }
         }
     }
@@ -304,9 +305,9 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
     val hits = remember(search, query) { search.search(query, 80) }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { focus.requestFocus() } }
-    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false)) {
-        Surface(Modifier.fillMaxSize().statusBarsPadding().imePadding().navigationBarsPadding().testTag("search-palette"), color = Look.canvas) {
-            Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+    Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false, dismissOnClickOutside = false, decorFitsSystemWindows = false)) {
+        Surface(Modifier.fillMaxSize().testTag("search-palette"), color = Look.canvas) {
+            Column(Modifier.fillMaxSize().statusBarsPadding().imePadding().navigationBarsPadding(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     OutlinedTextField(query, { if (it.length <= 120) onQuery(it) }, Modifier.weight(1f).heightIn(min = 60.dp).focusRequester(focus).testTag("product-search"),
                         placeholder = { Text("Name, code or barcode", fontSize = 18.sp) }, singleLine = true, keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
