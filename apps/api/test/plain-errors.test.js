@@ -61,6 +61,32 @@ describe("catalogue", () => {
     );
   });
 
+  test("IP-P0 fix: only the exact internal sentences are rewritten; unrelated words that look alike are left alone", () => {
+    const keep = (/** @type {string} */ code, /** @type {string} */ message) =>
+      expect(plainMessage({ code, message })).toBe(message);
+    keep("invalid_transition", "The distributor van arrangement is no longer active");
+    keep("invalid_request", "Inventory actor is no longer active");
+    keep("forbidden", "Your access is no longer active");
+    keep("invalid_request", "Phone removed from the roster export");
+    keep("invalid_request", "Use the current configuration of the price list");
+    keep("invalid_request", "Start a new count of the freezer next week");
+    keep("invalid_request", "A quote can carry no more than 50 lots of one product");
+    // Catalog admin messages keep their own words: "Enter pieces" is wrong advice there.
+    keep("invalid_uom", "Invalid catalog conversion");
+    keep("invalid_price", "The default price needs correction");
+    // The exact messages still become plain words.
+    expect(
+      plainMessage({ code: "invalid_transition", message: "Sync the current register configuration" }),
+    ).toBe("Settings changed in the office. Tap Sync.");
+    expect(
+      plainMessage({ code: "invalid_request", message: "The lot roster changed. Start a new count." }),
+    ).toBe(PLAIN_BY_CODE.stale_snapshot);
+    // A removed handheld is recognised by its code, in whatever words the server used.
+    expect(plainMessage({ code: "device_revoked", message: "Anything at all" })).toBe(
+      NOT_SET_UP_MESSAGE,
+    );
+  });
+
   test("specific, already-plain sentences are kept; blank or generic ones get a default", () => {
     expect(
       plainMessage({

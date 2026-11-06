@@ -22,8 +22,6 @@ export const PLAIN_BY_CODE = Object.freeze({
   device_integrity_required:
     "This handheld needs a quick safety check. Open the app and try again.",
   value_overflow: "That amount is too large. Check the quantity and price.",
-  invalid_uom: "Case size not set for this product. Enter pieces.",
-  invalid_price: "This product has no price set. Ask the office.",
   rate_limited: "Too many tries. Wait a moment and try again.",
   internal: "Something went wrong on our side. Try again in a moment.",
 });
@@ -47,25 +45,28 @@ export const PLAIN_FALLBACK = Object.freeze({
   unauthenticated: "Sign in again to continue.",
 });
 
-/** Known awkward server sentences, by what they say. First match wins. */
+/**
+ * Known awkward server sentences. Each pattern is anchored to the one internal message it targets, so an unrelated
+ * message that merely shares words (for example "…is no longer active") is never rewritten. Device refusals are
+ * matched by code only (PLAIN_BY_CODE), never by text. First match wins.
+ */
 export const PLAIN_BY_TEXT = /** @type {Array<[RegExp,string]>} */ ([
   [
-    /Start a new count|roster changed|Stock changed since this count began/i,
+    /^(The (product|lot) roster changed|Stock changed since this count began)\. Start a new count\.?$/,
     PLAIN_BY_CODE.stale_snapshot,
   ],
   [
-    /more than 50 lots|50 lots/i,
+    /^This movement needs more than 50 lots; split the document$/,
     "Too many batches on one line. Split this line in two.",
   ],
   [
-    /unit setup needed|Unit conversion needs setup|base unit in the catalog|quantity scale needs correction|ambiguous unit/i,
+    /^(Unit conversion needs setup|The product quantity scale needs correction)$/,
     "Case size not set for this product. Enter pieces.",
   ],
   [
-    /current (register )?configuration|Sync the current register/i,
+    /^(Download the register's current configuration|Sync the current register configuration)$/,
     "Settings changed in the office. Tap Sync.",
   ],
-  [/Phone removed|Device removed|no longer active/i, NOT_SET_UP_MESSAGE],
 ]);
 
 const GENERIC_TEXT =
