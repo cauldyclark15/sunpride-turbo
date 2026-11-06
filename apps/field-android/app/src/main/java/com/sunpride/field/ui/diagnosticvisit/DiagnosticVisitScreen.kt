@@ -372,7 +372,16 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                 modifier = Modifier.testTag("queue-error")) }
             androidx.compose.foundation.layout.Spacer(Modifier.height(16.dp).testTag("visit-bottom-space"))
         }
-        if (!checkedOut) androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
+        // The reason a tap did nothing (no fix, outside the radius, a refused save) sits by the button, not at the end of the scroll.
+        if (!checkedOut) {
+            val pinned = controller.diagnosticError ?: locationNotice?.takeIf { it.review }?.text
+            if (pinned != null) {
+                androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
+                com.sunpride.field.ui.NoticeCard(pinned, tone = if (controller.diagnosticError != null) com.sunpride.field.ui.Look.Tone.BAD
+                    else com.sunpride.field.ui.Look.Tone.WARN)
+            }
+            androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
+        }
         if (!checkedIn) PrimaryBottomButton(if (capturing) "Getting location…" else "Start", { record("visit.checkIn") }, Modifier.testTag("diagnostic-checkin"),
             !controller.busy && !capturing && (startFailure == null || canDeviate && sequenceReason.isNotBlank()) &&
                 (visit.plannedVisitId != null || (reason.isNotBlank() && intents.isNotEmpty())))
