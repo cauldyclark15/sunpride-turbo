@@ -145,8 +145,8 @@ export function json(body, status = 200, headers) {
   return new Response(JSON.stringify(body), { status, headers: h });
 }
 
-/** @param {unknown} error @param {boolean} v2 @param {number} now */
-export function errorResponse(error, v2, now) {
+/** @param {unknown} error @param {boolean} v2 @param {number} now @param {string} [path] */
+export function errorResponse(error, v2, now, path) {
   const apiError =
     error instanceof ApiError
       ? error
@@ -160,5 +160,5 @@ export function errorResponse(error, v2, now) {
     headers["retry-after"] = String(Math.ceil(apiError.retryAfterMs / 1000));
   // The unread body would poison a reused keep-alive connection.
   if (apiError.status === 413) headers.connection = "close";
-  return json(errorBody(apiError, v2, now), apiError.status, headers);
+  return json(errorBody(apiError, v2, now, path), apiError.status, headers);
 }

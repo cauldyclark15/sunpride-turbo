@@ -127,7 +127,7 @@ export function createApp(opts) {
       if (ctx.actor) res.headers.set("cache-control", "private, no-store");
       return res;
     } catch (error) {
-      const res = errorResponse(error, ctx ? ctx.v2 : v2, now);
+      const res = errorResponse(error, ctx ? ctx.v2 : v2, now, url.pathname);
       if (ctx) for (const c of ctx.cookies) res.headers.append("set-cookie", c);
       return res;
     }

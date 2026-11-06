@@ -1,6 +1,5 @@
-/** A handheld whose only registration for this person was removed. */
-export const NOT_SET_UP_MESSAGE =
-  "This handheld is not set up for you. Ask your supervisor to hand it over.";
+import { NOT_SET_UP_MESSAGE, plainMessage } from "./plain-errors.js";
+export { NOT_SET_UP_MESSAGE };
 
 /** Whole-request API error. `action` and `retryAfterMs` feed the v2 native envelope (D2). */
 export class ApiError extends Error {
@@ -51,8 +50,9 @@ export const conflict = (message = "Conflict", code = "conflict") =>
  * @param {ApiError} error
  * @param {boolean} v2
  * @param {number} now
+ * @param {string} [path] request path; inventory, van and store POS routes get catalogue messages
  */
-export function errorBody(error, v2, now) {
+export function errorBody(error, v2, now, path) {
   if (v2)
     return {
       version: 2,
@@ -67,7 +67,7 @@ export function errorBody(error, v2, now) {
   return {
     error: {
       code: error.code,
-      message: error.message,
+      message: plainMessage(error, path),
       retryable: error.retryable,
     },
   };
