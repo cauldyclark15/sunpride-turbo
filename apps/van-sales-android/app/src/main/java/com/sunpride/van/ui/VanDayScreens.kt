@@ -100,7 +100,7 @@ private data class CountDraft(val cases: String = "", val pieces: String = "", v
             Text(step.title, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 30.sp, modifier = Modifier.testTag("next-step-title"))
             Text(step.detail, color = Color(0xFFE6E6E8), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("next-step-detail"))
             step.button?.let { label ->
-                PillButton(label, onGo, Modifier.padding(top = 6.dp).testTag("next-step-go"), enabled = enabled, height = 60.dp, fontSize = 20.sp)
+                PillButton(label, onGo, Modifier.padding(top = 6.dp).testTag("home-primary"), enabled = enabled, height = 60.dp, fontSize = 20.sp)
             }
         }
     }

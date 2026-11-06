@@ -59,7 +59,10 @@ import java.time.format.DateTimeFormatter
             // SP-0137: visible while the trip is on the road.
             LocationSharingRow(c)
             val selling = VanRules.canSell(trip) && !c.cashCounted && !c.stockCounted && !c.tripClosed
+            // The Sell tab is the home of selling; this row is the quick way in from Today.
             if (c.sale != null && selling) ListRow("Continue sale",c.sale!!.customer.name,"new-sale",enabled = !c.busy,onClick = c::continueSale,glyph = GlyphKind.CART)
+            else ListRow("New sale",when { c.tripClosed -> "Trip closed — no more sales on this trip"; c.cashCounted -> "Cash counted — no more sales on this trip"; c.stockCounted -> "Stock counted — no more sales on this trip"; selling -> "Choose the customer, then add products"; else -> "Start the trip to sell" },
+                "new-sale",enabled = selling && !c.busy,onClick = { c.open(Page.CUSTOMERS) },glyph = GlyphKind.CART)
             if (c.policy?.operationsVersion==1) ListRow("Route controls","Temperature, batches, containers, reload and unload","open-route-ops",onClick = { c.open(Page.ROUTE_OPS) },glyph = GlyphKind.FLAG)
             // VAN-022: end of trip. Open once the trip is on the road; after saving it shows the count.
             val countable = c.cashCounted || VanRules.canCountCash(trip) && !c.tripClosed
@@ -75,6 +78,8 @@ import java.time.format.DateTimeFormatter
             if (countable || c.stockCounted || c.tripClosed) ListRow("Close trip",when { c.tripClosed -> "Closed — see the close"; closable -> "Check everything, then close"; else -> "Start the trip first" },
                 "open-close-trip",enabled = closable && !c.busy,onClick = { c.open(Page.CLOSE_TRIP) },glyph = GlyphKind.TRUCK)
         }
+        // VAN-025: phone, office and SAP stay on separate lines (details on Sync & posting).
+        Text(status,style = MaterialTheme.typography.bodyMedium,color = Look.muted,modifier = Modifier.padding(top = 4.dp).testTag("sync-line"))
     }
 }
 private data class LoadDraft(val quantity: String, val reason: String?)
