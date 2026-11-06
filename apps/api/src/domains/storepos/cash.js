@@ -39,37 +39,38 @@ const OVERRIDE_KIND = /** @type {Record<string,string>} */ ({
  * Local adapter: FOUND's reason table is inventory-only (no cash category). Ask for a "cash" category;
  * until then these codes live here. A note is required where the code says so.
  */
-export const CASH_REASONS = /** @type {Record<string,{code:string,label:string,note?:boolean}[]>} */ ({
-  float: [
-    { code: "top_up", label: "More change needed" },
-    { code: "opening_correction", label: "Opening float was short" },
-  ],
-  drop: [
-    { code: "till_limit", label: "Too much cash in the drawer" },
-    { code: "safe_drop", label: "Move to the safe" },
-    { code: "end_of_day", label: "End of day drop" },
-  ],
-  pickup: [
-    { code: "bank_deposit", label: "For the bank" },
-    { code: "owner_pickup", label: "Picked up by the owner or supervisor" },
-  ],
-  paid_out: [
-    { code: "supplies", label: "Store supplies" },
-    { code: "delivery_fee", label: "Delivery fee" },
-    { code: "petty_cash", label: "Petty cash" },
-    { code: "other", label: "Other (write why)", note: true },
-  ],
-  paid_in: [
-    { code: "change_fund", label: "Change fund returned" },
-    { code: "correction", label: "Correction" },
-    { code: "other", label: "Other (write why)", note: true },
-  ],
-  no_sale: [
-    { code: "change_request", label: "Customer needs change" },
-    { code: "drawer_check", label: "Checking the drawer" },
-    { code: "other", label: "Other (write why)", note: true },
-  ],
-});
+export const CASH_REASONS =
+  /** @type {Record<string,{code:string,label:string,note?:boolean}[]>} */ ({
+    float: [
+      { code: "top_up", label: "More change needed" },
+      { code: "opening_correction", label: "Opening float was short" },
+    ],
+    drop: [
+      { code: "till_limit", label: "Too much cash in the drawer" },
+      { code: "safe_drop", label: "Move to the safe" },
+      { code: "end_of_day", label: "End of day drop" },
+    ],
+    pickup: [
+      { code: "bank_deposit", label: "For the bank" },
+      { code: "owner_pickup", label: "Picked up by the owner or supervisor" },
+    ],
+    paid_out: [
+      { code: "supplies", label: "Store supplies" },
+      { code: "delivery_fee", label: "Delivery fee" },
+      { code: "petty_cash", label: "Petty cash" },
+      { code: "other", label: "Other (write why)", note: true },
+    ],
+    paid_in: [
+      { code: "change_fund", label: "Change fund returned" },
+      { code: "correction", label: "Correction" },
+      { code: "other", label: "Other (write why)", note: true },
+    ],
+    no_sale: [
+      { code: "change_request", label: "Customer needs change" },
+      { code: "drawer_check", label: "Checking the drawer" },
+      { code: "other", label: "Other (write why)", note: true },
+    ],
+  });
 
 /** @param {string} kind @param {string} code @param {string|null} note */
 export function requireCashReason(kind, code, note) {
@@ -132,7 +133,8 @@ export async function recordCashMovement(c, o) {
     supervisorId = used?.supervisorProfileId ?? null;
     overrideId = used?.overrideId ?? null;
   }
-  const [loc] = await db`select code from inventory_locations where id=${register.location_id}`;
+  const [loc] =
+    await db`select code from inventory_locations where id=${register.location_id}`;
   let slip = null;
   if (kind === "drop" || kind === "pickup" || kind === "paid_out")
     slip = await nextDocNumber(db, register.organization_id, {
@@ -164,8 +166,8 @@ export async function listMovements(db, q) {
     effectCentavos: String(cashEffect(m.kind, BigInt(m.amount_centavos))),
     reasonCode: m.reason_code,
     reasonLabel:
-      (CASH_REASONS[m.kind] ?? []).find((r) => r.code === m.reason_code)?.label ??
-      m.reason_code,
+      (CASH_REASONS[m.kind] ?? []).find((r) => r.code === m.reason_code)
+        ?.label ?? m.reason_code,
     note: m.note,
     supervisorName: m.supervisor_name,
     slipNumber: m.slip_number,
@@ -178,8 +180,7 @@ export async function listMovements(db, q) {
  * - drops, pickups and paid-outs. Never trusts a phone-supplied amount.
  * @param {any} db @param {string} shiftId */
 export async function expectedCash(db, shiftId) {
-  const [r] =
-    await db`select s.opening_centavos
+  const [r] = await db`select s.opening_centavos
       + coalesce((select sum(t.amount_centavos) from store_tenders t where t.shift_id=s.id and t.method='cash'),0)
       + coalesce((select sum(case when m.kind in ('float','paid_in') then m.amount_centavos when m.kind in ('drop','pickup','paid_out') then -m.amount_centavos else 0 end) from store_cash_movements m where m.shift_id=s.id),0) as expected
       from store_shifts s where s.id=${shiftId}`;

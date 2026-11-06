@@ -77,8 +77,7 @@ export function aggregateSales(sales, credits) {
     count++;
     numbers.push(s.number);
     net += total;
-    for (const l of s.receipt?.lines ?? [])
-      promo += big(l.discountCentavos);
+    for (const l of s.receipt?.lines ?? []) promo += big(l.discountCentavos);
     const pv = privilegeOf(s.receipt);
     for (const t of PRIVILEGE_TYPES) privilege[t] += pv.byType[t];
     vatRemoved += pv.vatRemoved;
@@ -229,7 +228,8 @@ export async function readingModel(db, dayId, kind) {
       openingFloat: str(big(s.opening_centavos)),
       ...sessionCash,
       expected: str(expected),
-      declared: s.closure_id && !isForced ? str(big(s.declared_centavos)) : null,
+      declared:
+        s.closure_id && !isForced ? str(big(s.declared_centavos)) : null,
       variance:
         s.closure_id && !isForced ? str(big(s.variance_centavos)) : null,
       forced: isForced,
@@ -249,7 +249,11 @@ export async function readingModel(db, dayId, kind) {
         beginningNet: big(frozen.beginning_net_centavos),
         endingNet: big(frozen.ending_net_centavos),
       }
-    : advanceAccumulator(await lastAccumulator(db, day.register_id), agg.gross, agg.net);
+    : advanceAccumulator(
+        await lastAccumulator(db, day.register_id),
+        agg.gross,
+        agg.net,
+      );
   /** @type {any[]} */
   const journal = salesRows.map((/** @type {any} */ s) => ({
     number: s.number,
@@ -315,7 +319,9 @@ export async function readingModel(db, dayId, kind) {
       otherCentavos: str(
         tenderRows.reduce(
           (/** @type {bigint} */ n, /** @type {any} */ t) =>
-            ["cash", "gcash", "card"].includes(t.method) ? n : n + big(t.amount),
+            ["cash", "gcash", "card"].includes(t.method)
+              ? n
+              : n + big(t.amount),
           0n,
         ),
       ),
@@ -335,7 +341,9 @@ export async function readingModel(db, dayId, kind) {
       noSaleCount: noSale,
       expectedCentavos: str(expectedTotal),
       countedCentavos: anyCounted ? str(countedTotal) : null,
-      shortOverCentavos: anyCounted ? str(countedTotal - countedExpected) : null,
+      shortOverCentavos: anyCounted
+        ? str(countedTotal - countedExpected)
+        : null,
       forcedSessions: forced,
     },
     accumulators: {
@@ -373,12 +381,24 @@ async function sessionCashParts(db, shiftId) {
   };
 }
 
+/** 123456 -> "₱1,234.56", exact (BigInt), negative as "-₱0.50". @param {any} centavos */
+export function pesoText(centavos) {
+  if (centavos == null) return "—";
+  const v = BigInt(centavos);
+  const abs = v < 0n ? -v : v;
+  const whole = (abs / 100n).toString().replace(/\B(?=(\d{3})+(?!\d))/g, ",");
+  return `${v < 0n ? "-" : ""}₱${whole}.${(abs % 100n).toString().padStart(2, "0")}`;
+}
 /** Printer-neutral lines for X and Z. Same shape the handheld and web both render. @param {any} m */
 export function readingPrintModel(m) {
-  const peso = (/** @type {any} */ c) => (c == null ? null : String(c));
+  const peso = pesoText;
   /** @type {{label:string,value:string|null,strong?:boolean}[]} */
   const lines = [];
-  const add = (/** @type {string} */ label, /** @type {any} */ value, strong = false) =>
+  const add = (
+    /** @type {string} */ label,
+    /** @type {any} */ value,
+    strong = false,
+  ) =>
     lines.push({ label, value: value == null ? null : String(value), strong });
   add("Store", m.store);
   add("Register", `${m.register} (${m.terminal})`);
@@ -389,9 +409,18 @@ export function readingPrintModel(m) {
   }
   add("Beginning invoice", m.invoices.beginning ?? "none");
   add("Ending invoice", m.invoices.ending ?? "none");
-  add("Void range", m.voids.count ? `${m.voids.beginning} – ${m.voids.ending}` : "none");
-  add("Refund range", m.refunds.count ? `${m.refunds.beginning} – ${m.refunds.ending}` : "none");
-  add("Beginning grand total (gross)", peso(m.accumulators.beginningGrossCentavos));
+  add(
+    "Void range",
+    m.voids.count ? `${m.voids.beginning} – ${m.voids.ending}` : "none",
+  );
+  add(
+    "Refund range",
+    m.refunds.count ? `${m.refunds.beginning} – ${m.refunds.ending}` : "none",
+  );
+  add(
+    "Beginning grand total (gross)",
+    peso(m.accumulators.beginningGrossCentavos),
+  );
   add("Ending grand total (gross)", peso(m.accumulators.endingGrossCentavos));
   add("Beginning grand total (net)", peso(m.accumulators.beginningNetCentavos));
   add("Ending grand total (net)", peso(m.accumulators.endingNetCentavos));
@@ -405,8 +434,8 @@ export function readingPrintModel(m) {
   add("VAT", peso(m.sales.vatCentavos));
   add("VAT-exempt sales", peso(m.sales.vatExemptCentavos));
   add("Zero-rated sales", peso(m.sales.zeroRatedCentavos));
-  add("Voids", `${m.voids.count} · ${m.voids.totalCentavos}`);
-  add("Refunds", `${m.refunds.count} · ${m.refunds.totalCentavos}`);
+  add("Voids", `${m.voids.count} · ${pesoText(m.voids.totalCentavos)}`);
+  add("Refunds", `${m.refunds.count} · ${pesoText(m.refunds.totalCentavos)}`);
   add("Cash", peso(m.tenders.cashCentavos));
   add("GCash", peso(m.tenders.gcashCentavos));
   add("Card", peso(m.tenders.cardCentavos));
@@ -450,7 +479,8 @@ export async function generateZ(db, register, actor, o) {
     );
   const [pending] =
     await db`select count(*)::int as n from store_reversals v join store_shifts h on h.id=v.shift_id where h.till_day_id=${day.id} and v.status='pending'`;
-  if (pending.n) refuse("Decide pending voids and refunds before the Z reading");
+  if (pending.n)
+    refuse("Decide pending voids and refunds before the Z reading");
   const [any] =
     await db`select count(*)::int as n from store_shifts where till_day_id=${day.id}`;
   if (!any.n) refuse("This day has no cashier session");

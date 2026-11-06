@@ -4,7 +4,16 @@ import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { currentActor } from "../van/access.js";
-import { uuid, refuse, text, choice, date, today, integer, dayString } from "../van/model.js";
+import {
+  uuid,
+  refuse,
+  text,
+  choice,
+  date,
+  today,
+  integer,
+  dayString,
+} from "../van/model.js";
 import { registerFor } from "./model.js";
 import {
   CASH_KINDS,
@@ -32,7 +41,10 @@ import { loadTillDay } from "./till-days.js";
 
 /** Office and supervisors only: expected cash and variance are not for the cashier being counted. @param {any} db @param {any} actor */
 async function requireOffice(db, actor) {
-  if (!roleHas(actor.role, "van.cash.approve") && !roleHas(actor.role, "admin.manage"))
+  if (
+    !roleHas(actor.role, "van.cash.approve") &&
+    !roleHas(actor.role, "admin.manage")
+  )
     throw forbidden("Supervisors and the office only");
 }
 /** @param {any} db @param {any} actor */
@@ -59,7 +71,11 @@ export function installZday(router, platform) {
     router.post(`/api/v1/storepos/${path}`, async (/** @type {any} */ c) => {
       const body = c.body;
       if (!body || typeof body !== "object" || Array.isArray(body))
-        throw new ApiError("invalid_request", 400, "Use an object command body");
+        throw new ApiError(
+          "invalid_request",
+          400,
+          "Use an object command body",
+        );
       const response = await tx(c.db, async (/** @type {any} */ db) => {
         const actor = await currentActor(db, c.actor);
         await requireCapability({ db, actor }, capability);
@@ -73,7 +89,11 @@ export function installZday(router, platform) {
           await db`select * from store_pos_commands where actor_profile_id=${actor.profileId} and request_key=${key}`;
         if (old) {
           if (old.payload_hash !== hash)
-            throw new ApiError("idempotency_conflict", 409, "Request key was reused");
+            throw new ApiError(
+              "idempotency_conflict",
+              409,
+              "Request key was reused",
+            );
           return old.response;
         }
         const result = await work(db, actor, body, c);
@@ -96,21 +116,33 @@ export function installZday(router, platform) {
     });
 
   // ---- day-end ---------------------------------------------------------
-  command("days/:id/start-closing", "van.cash.approve", async (db, actor, _b, c) => {
-    const day = await loadTillDay(db, uuid(c.params.id), true);
-    const r = await registerFor(db, actor, day.register_id, "van.cash.approve");
-    if (day.status !== "open") refuse("This day is not open");
-    const open = await openSessions(db, day.id);
-    if (open.length)
-      refuse(`Close ${open.length} open cashier session${open.length > 1 ? "s" : ""} first`);
-    await db`update store_till_days set status='closing',closing_at=now(),closing_by=${actor.profileId},updated_at=now() where id=${day.id}`;
-    void r;
-    return { id: day.id, dayId: day.id, status: "closing" };
-  });
+  command(
+    "days/:id/start-closing",
+    "van.cash.approve",
+    async (db, actor, _b, c) => {
+      const day = await loadTillDay(db, uuid(c.params.id), true);
+      const r = await registerFor(
+        db,
+        actor,
+        day.register_id,
+        "van.cash.approve",
+      );
+      if (day.status !== "open") refuse("This day is not open");
+      const open = await openSessions(db, day.id);
+      if (open.length)
+        refuse(
+          `Close ${open.length} open cashier session${open.length > 1 ? "s" : ""} first`,
+        );
+      await db`update store_till_days set status='closing',closing_at=now(),closing_by=${actor.profileId},updated_at=now() where id=${day.id}`;
+      void r;
+      return { id: day.id, dayId: day.id, status: "closing" };
+    },
+  );
   command("days/:id/reopen", "van.cash.approve", async (db, actor, b, c) => {
     const day = await loadTillDay(db, uuid(c.params.id), true);
     await registerFor(db, actor, day.register_id, "van.cash.approve");
-    if (day.status !== "closing") refuse("Only a day waiting for its Z can be reopened");
+    if (day.status !== "closing")
+      refuse("Only a day waiting for its Z can be reopened");
     text(b.reason, 300, true);
     await db`update store_till_days set status='open',closing_at=null,closing_by=null,updated_at=now() where id=${day.id}`;
     return { id: day.id, dayId: day.id, status: "open" };
@@ -119,7 +151,11 @@ export function installZday(router, platform) {
     const day = await loadTillDay(db, uuid(c.params.id), true);
     const r = await registerFor(db, actor, day.register_id, "van.cash.approve");
     const readId = crypto.randomUUID();
-    const z = await generateZ(db, r, actor, { dayId: day.id, readId, at: Date.now() });
+    const z = await generateZ(db, r, actor, {
+      dayId: day.id,
+      readId,
+      at: Date.now(),
+    });
     await logOfficeOverride(db, r, actor, {
       kind: "z_reading",
       tillDayId: day.id,
@@ -148,7 +184,8 @@ export function installZday(router, platform) {
     const [closed] =
       await db`select 1 from store_shift_closures where shift_id=${s.id}`;
     if (closed) refuse("This session is already closed");
-    const [day] = await db`select status from store_till_days where id=${s.till_day_id}`;
+    const [day] =
+      await db`select status from store_till_days where id=${s.till_day_id}`;
     if (day?.status === "z_done") refuse("This day already has its Z reading");
     const reason = text(b.reason, 300, true);
     const expected = await expectedCash(db, s.id);
@@ -178,14 +215,27 @@ export function installZday(router, platform) {
     if (closed) refuse("This session is already closed");
     const id = crypto.randomUUID();
     const out = await recordCashMovement(
-      { db, register: r, shift: s, actor, payload: b, now: Date.now(), op: { clientOpId: id } },
+      {
+        db,
+        register: r,
+        shift: s,
+        actor,
+        payload: b,
+        now: Date.now(),
+        op: { clientOpId: id },
+      },
       { id, officeActor: actor },
     );
     return { id, ...out };
   });
-  command("supervisors/pin", "admin.manage", async (db, actor, b) => ({
-    ...(await setSupervisorPin(db, actor, b)),
-  }), ["storepos"]);
+  command(
+    "supervisors/pin",
+    "admin.manage",
+    async (db, actor, b) => ({
+      ...(await setSupervisorPin(db, actor, b)),
+    }),
+    ["storepos"],
+  );
 
   // ---- online supervisor check (handheld is online) --------------------
   router.post("/api/v1/storepos/overrides/verify", verifyOnline);
@@ -233,10 +283,15 @@ export function installZday(router, platform) {
       await requireOffice(db, actor);
       const q = c.url.searchParams;
       if (q.get("sessionId")) {
-        const [s] = await db`select register_id from store_shifts where id=${uuid(q.get("sessionId"))}`;
+        const [s] =
+          await db`select register_id from store_shifts where id=${uuid(q.get("sessionId"))}`;
         if (!s) refuse("Choose a cashier session", "not_found");
         await registerFor(db, actor, s.register_id, "van.cash.approve");
-        return { movements: await listMovements(db, { shiftId: q.get("sessionId") ?? "" }) };
+        return {
+          movements: await listMovements(db, {
+            shiftId: q.get("sessionId") ?? "",
+          }),
+        };
       }
       const day = await loadTillDay(db, uuid(q.get("dayId")));
       await registerFor(db, actor, day.register_id, "van.cash.approve");
@@ -253,7 +308,10 @@ export function installZday(router, platform) {
       const from = q.get("from")
         ? date(q.get("from"))
         : new Date(Date.parse(to) - 6 * 86400000).toISOString().slice(0, 10);
-      if (Date.parse(to) < Date.parse(from) || (Date.parse(to) - Date.parse(from)) / 86400000 > 92)
+      if (
+        Date.parse(to) < Date.parse(from) ||
+        (Date.parse(to) - Date.parse(from)) / 86400000 > 92
+      )
         refuse("Choose up to 93 days");
       const sc = await scopeIds(db, actor);
       const registerId = q.get("registerId") ? uuid(q.get("registerId")) : null;
@@ -288,7 +346,10 @@ export function installZday(router, platform) {
           zNumber: d.z_doc,
           zCounter: d.z_counter == null ? null : Number(d.z_counter),
           canZ:
-            d.status !== "z_done" && d.open_sessions === 0 && d.pending_reversals === 0 && d.sessions > 0,
+            d.status !== "z_done" &&
+            d.open_sessions === 0 &&
+            d.pending_reversals === 0 &&
+            d.sessions > 0,
         })),
       };
     }),
@@ -300,13 +361,22 @@ export function installZday(router, platform) {
       await requireOffice(db, actor);
       const day = await loadTillDay(db, uuid(c.params.id));
       await registerFor(db, actor, day.register_id, "van.read");
-      const fresh = await readingModel(db, day.id, day.status === "z_done" ? "z" : "x");
+      const fresh = await readingModel(
+        db,
+        day.id,
+        day.status === "z_done" ? "z" : "x",
+      );
       const { sessions } = fresh;
-      const [typedZ] = await db`select * from store_z_readings where till_day_id=${day.id}`;
-      const model = typedZ ? { ...typedZ.model, sessions: fresh.model.sessions } : fresh.model;
+      const [typedZ] =
+        await db`select * from store_z_readings where till_day_id=${day.id}`;
+      const model = typedZ
+        ? { ...typedZ.model, sessions: fresh.model.sessions }
+        : fresh.model;
       // Blind count: the cashier being counted never sees expected or variance, even in the office view.
       const mine = new Set(
-        sessions.filter((/** @type {any} */ s) => s.cashier_id === actor.profileId).map((/** @type {any} */ s) => s.id),
+        sessions
+          .filter((/** @type {any} */ s) => s.cashier_id === actor.profileId)
+          .map((/** @type {any} */ s) => s.id),
       );
       const sessionViews = model.sessions.map((/** @type {any} */ s) =>
         mine.has(s.id)
@@ -323,14 +393,21 @@ export function installZday(router, platform) {
       });
       const xReads =
         await db`select r.id,r.sequence::text,r.captured_at,p.name as cashier from store_reads r join store_shifts s on s.id=r.shift_id join profiles p on p.id=s.cashier_id where r.kind='x' and s.till_day_id=${day.id} order by r.captured_at desc limit 100`;
-      const [z] = await db`select * from store_z_readings where till_day_id=${day.id}`;
+      const [z] =
+        await db`select * from store_z_readings where till_day_id=${day.id}`;
       const [legacy] = z
         ? []
         : await db`select id,sequence::text,snapshot,captured_at from store_reads where register_id=${day.register_id} and kind='z' and snapshot->>'date'=${dayString(day.business_date)}`;
-      const openCount = sessions.filter((/** @type {any} */ s) => !s.closure_id).length;
+      const openCount = sessions.filter(
+        (/** @type {any} */ s) => !s.closure_id,
+      ).length;
       const [pending] =
         await db`select count(*)::int as n from store_reversals v join store_shifts h on h.id=v.shift_id where h.till_day_id=${day.id} and v.status='pending'`;
-      const publicModel = { ...model, sessions: sessionViews, journal: undefined };
+      const publicModel = {
+        ...model,
+        sessions: sessionViews,
+        journal: undefined,
+      };
       return {
         day: {
           id: day.id,
@@ -338,7 +415,12 @@ export function installZday(router, platform) {
           businessDate: dayString(day.business_date),
           status: day.status,
           number: day.doc_number,
-          canZ: day.status !== "z_done" && openCount === 0 && pending.n === 0 && sessions.length > 0 && roleHas(actor.role, "van.cash.approve"),
+          canZ:
+            day.status !== "z_done" &&
+            openCount === 0 &&
+            pending.n === 0 &&
+            sessions.length > 0 &&
+            roleHas(actor.role, "van.cash.approve"),
           openSessions: openCount,
           pendingReversals: pending.n,
         },
@@ -368,16 +450,21 @@ export function installZday(router, platform) {
       };
     }),
   );
-  router.get("/api/v1/storepos/days/:id/reading", async (/** @type {any} */ c) =>
-    tx(c.db, async (/** @type {any} */ db) => {
-      const actor = await currentActor(db, c.actor);
-      await requireOffice(db, actor);
-      const day = await loadTillDay(db, uuid(c.params.id));
-      await registerFor(db, actor, day.register_id, "van.read");
-      // Read-only: nothing is written, nothing is numbered, no accumulator moves.
-      const { model } = await readingModel(db, day.id, "x");
-      return { reading: { ...model, journal: undefined }, printModel: readingPrintModel(model) };
-    }),
+  router.get(
+    "/api/v1/storepos/days/:id/reading",
+    async (/** @type {any} */ c) =>
+      tx(c.db, async (/** @type {any} */ db) => {
+        const actor = await currentActor(db, c.actor);
+        await requireOffice(db, actor);
+        const day = await loadTillDay(db, uuid(c.params.id));
+        await registerFor(db, actor, day.register_id, "van.read");
+        // Read-only: nothing is written, nothing is numbered, no accumulator moves.
+        const { model } = await readingModel(db, day.id, "x");
+        return {
+          reading: { ...model, journal: undefined },
+          printModel: readingPrintModel(model),
+        };
+      }),
   );
   router.get("/api/v1/storepos/z-readings", async (/** @type {any} */ c) =>
     tx(c.db, async (/** @type {any} */ db) => {
@@ -413,11 +500,15 @@ export function installZday(router, platform) {
     tx(c.db, async (/** @type {any} */ db) => {
       const actor = await currentActor(db, c.actor);
       await requireOffice(db, actor);
-      const [z] = await db`select * from store_z_readings where id=${uuid(c.params.id)}`;
+      const [z] =
+        await db`select * from store_z_readings where id=${uuid(c.params.id)}`;
       if (!z) throw new ApiError("not_found", 404, "Z reading not found");
       await registerFor(db, actor, z.register_id, "van.read");
       // Reprint: the SAME stored numbers, marked as a copy.
-      return { reading: zView(z), printModel: { ...readingPrintModel(z.model), reprint: true } };
+      return {
+        reading: zView(z),
+        printModel: { ...readingPrintModel(z.model), reprint: true },
+      };
     }),
   );
   void integer;

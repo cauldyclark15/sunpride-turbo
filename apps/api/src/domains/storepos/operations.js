@@ -12,11 +12,7 @@ import {
 import { enqueueSapPosting } from "../fiscal/transactions.js";
 import { recordCashMovement } from "./cash.js";
 import { useSupervisor } from "./overrides.js";
-import {
-  readingModel,
-  generateZ,
-  legacySnapshot,
-} from "./readings.js";
+import { readingModel, generateZ, legacySnapshot } from "./readings.js";
 
 export const STORE_OPS = [
   "store.sale",
@@ -32,7 +28,12 @@ export const STORE_OPS = [
   "store.override",
 ];
 /** Ops a closed session may still send (reports, evidence, reprints). */
-const AFTER_CLOSE = ["store.deposit", "store.customer", "store.print", "store.read"];
+const AFTER_CLOSE = [
+  "store.deposit",
+  "store.customer",
+  "store.print",
+  "store.read",
+];
 /** F-R01..R07: every offline write enters the existing signed push transaction. @param {any} c */
 export async function storeOperation(c) {
   const at = captureTime(c),
@@ -57,7 +58,11 @@ export async function storeOperation(c) {
     !dayDone &&
     c.op.opType === "store.sale" &&
     at <= +new Date(closed.closed_at);
-  if ((closed || dayDone) && !AFTER_CLOSE.includes(c.op.opType) && !lateButValid)
+  if (
+    (closed || dayDone) &&
+    !AFTER_CLOSE.includes(c.op.opType) &&
+    !lateButValid
+  )
     refuse("This session has closed its sales day");
   if (!closed && !dayDone) {
     const [event] =

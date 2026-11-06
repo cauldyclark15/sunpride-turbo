@@ -300,7 +300,10 @@ export async function shiftOperation(c) {
     )
       throw forbidden("This session belongs to another cashier or terminal");
     tillDayId = s.till_day_id;
-    if (c.op.opType === "store.shift.suspend" || c.op.opType === "store.shift.resume") {
+    if (
+      c.op.opType === "store.shift.suspend" ||
+      c.op.opType === "store.shift.resume"
+    ) {
       const [done] =
         await db`select 1 from store_shift_closures where shift_id=${shiftId}`;
       if (done) refuse("This session is already closed");
@@ -309,7 +312,11 @@ export async function shiftOperation(c) {
       const suspended = lastEvent?.kind === "suspended";
       const suspend = c.op.opType === "store.shift.suspend";
       if (suspend === suspended)
-        refuse(suspend ? "This session is already on hold" : "This session is not on hold");
+        refuse(
+          suspend
+            ? "This session is already on hold"
+            : "This session is not on hold",
+        );
       await db`insert into store_session_events(id,shift_id,kind,reason,actor_profile_id,captured_at) values(${uuid(c.op.clientOpId)},${shiftId},${suspend ? "suspended" : "resumed"},${p.reason ? String(p.reason).slice(0, 300) : null},${actor.profileId},${new Date(at)})`;
       return { entityId: shiftId, eventIds: [s.till_day_id] };
     }

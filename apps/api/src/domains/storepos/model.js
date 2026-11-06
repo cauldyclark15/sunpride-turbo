@@ -186,7 +186,9 @@ export async function shiftView(db, actor, s) {
         : "open",
     openingFloatCentavos: String(s.opening_centavos ?? 0),
     declaredCentavos:
-      s.closed_at && s.closure_kind !== "forced" ? String(s.declared_centavos) : null,
+      s.closed_at && s.closure_kind !== "forced"
+        ? String(s.declared_centavos)
+        : null,
     expectedCentavos:
       canReview && s.closed_at ? String(s.expected_centavos) : null,
     varianceCentavos:

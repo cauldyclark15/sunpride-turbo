@@ -1,4 +1,9 @@
-import { createHmac, pbkdf2Sync, createHash, timingSafeEqual } from "node:crypto";
+import {
+  createHmac,
+  pbkdf2Sync,
+  createHash,
+  timingSafeEqual,
+} from "node:crypto";
 import { tx } from "@sunpride/db/client";
 import { ApiError, forbidden } from "../../core/errors.js";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
@@ -96,7 +101,11 @@ async function inRegisterScope(db, person, register) {
   try {
     const a = await actorFor(db, person.user_id);
     if (!a) return false;
-    await requireCapability({ db, actor: a }, "van.cash.approve", register.org_unit_id);
+    await requireCapability(
+      { db, actor: a },
+      "van.cash.approve",
+      register.org_unit_id,
+    );
     return true;
   } catch {
     return false;
@@ -162,7 +171,12 @@ export async function verifyOnline(c) {
     const mode = await modeAt(db, fresh.device.id);
     if (mode?.mode !== "store" || !mode.register_id)
       refuse("This handheld is not in Store mode");
-    const register = await registerFor(db, fresh.actor, mode.register_id, "van.operate");
+    const register = await registerFor(
+      db,
+      fresh.actor,
+      mode.register_id,
+      "van.operate",
+    );
     const sup = await supervisorFor(db, supervisorId, register, Date.now());
     if (sup.profile.id === fresh.actor.profileId)
       throw forbidden("A supervisor cannot approve their own action");
@@ -203,7 +217,11 @@ async function supervisorFor(db, profileId, register, at, pinId) {
   const base = await actorFor(db, profile.user_id);
   if (!base) refuse("That supervisor is not active");
   const sup = await currentActor(db, base);
-  await requireCapability({ db, actor: sup }, "van.cash.approve", register.org_unit_id);
+  await requireCapability(
+    { db, actor: sup },
+    "van.cash.approve",
+    register.org_unit_id,
+  );
   const when = new Date(at);
   const [pin] = pinId
     ? await db`select * from store_supervisor_pins where id=${pinId} and profile_id=${profileId} and effective_from<=${when} and (effective_to is null or effective_to>${when})`
@@ -250,7 +268,11 @@ export async function useSupervisor(c, need) {
   const method = given.method === "pin_online" ? "pin_online" : "pin_offline";
   const overrideId = need.overrideId ?? uuid(c.op.clientOpId);
   await db`insert into store_overrides(id,register_id,till_day_id,shift_id,kind,method,supervisor_profile_id,supervisor_pin_id,cashier_profile_id,reason,amount_centavos,ref_type,ref_id,captured_at) values(${overrideId},${register.id},${need.tillDayId ?? shift?.till_day_id ?? null},${shift?.id ?? null},${need.kind},${method},${sup.profile.id},${pinId},${c.actor.profileId},${need.reason ? text(need.reason, 300) : null},${need.amountCentavos ?? null},${need.refType},${need.refId},${new Date(c.now)})`;
-  return { overrideId, supervisor: sup.actor, supervisorProfileId: sup.profile.id };
+  return {
+    overrideId,
+    supervisor: sup.actor,
+    supervisorProfileId: sup.profile.id,
+  };
 }
 
 /** Office actions that are themselves the supervisor's decision (force close, Z on the web).
@@ -277,7 +299,8 @@ export async function listOverrides(db, actor, q) {
     supervisorName: o.supervisor_name,
     cashierName: o.cashier_name,
     reason: o.reason,
-    amountCentavos: o.amount_centavos == null ? null : String(o.amount_centavos),
+    amountCentavos:
+      o.amount_centavos == null ? null : String(o.amount_centavos),
     refType: o.ref_type,
     refId: o.ref_id,
     capturedAt: +new Date(o.captured_at),
