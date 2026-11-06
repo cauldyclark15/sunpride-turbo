@@ -22,12 +22,22 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sunpride.van.R
 import com.sunpride.van.auth.EnrollmentState
 import com.sunpride.van.printing.*
-import com.sunpride.van.scanning.SenraiseScanner
+import com.sunpride.van.scanning.LocalScannerInput
+import com.sunpride.van.scanning.ScannerInput
 import kotlinx.coroutines.delay
 
-@Composable fun VanApp(controller: VanController, dark: Boolean = false, restore: Boolean = true) {
+@Composable fun VanApp(controller: VanController, dark: Boolean = false, restore: Boolean = true, scannerInput: ScannerInput? = null) {
     LaunchedEffect(controller) { controller.run(restore) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
+    // IP-HH1: one scanner for the whole app (the Activity can pass its own so it also receives wedge key bursts).
+    val appContext = LocalContext.current.applicationContext
+    val scanner = scannerInput ?: remember(appContext) { ScannerInput(appContext) }
+    DisposableEffect(scanner,lifecycle) {
+        val observer = LifecycleEventObserver { _,event -> if (event == Lifecycle.Event.ON_START) scanner.start() else if (event == Lifecycle.Event.ON_STOP) scanner.stop() }
+        lifecycle.addObserver(observer)
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) scanner.start()
+        onDispose { lifecycle.removeObserver(observer); scanner.stop() }
+    }
     // A suspended timer does not spin or block Compose. Checks stop on leaving this state.
     LaunchedEffect(controller,controller.enrollment) {
         while (controller.enrollment == EnrollmentState.Unregistered || controller.enrollment == EnrollmentState.Removed ||
@@ -42,6 +52,7 @@ import kotlinx.coroutines.delay
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
+    CompositionLocalProvider(LocalScannerInput provides scanner) {
     MaterialTheme(colorScheme = if (dark) SunprideTokens.darkColors else SunprideTokens.lightColors,
         typography = SunprideTokens.typography, shapes = SunprideTokens.shapes) {
         BackHandler(controller.page != Page.HOME) { controller.back() }
@@ -94,6 +105,7 @@ import kotlinx.coroutines.delay
         }
         // IP-P0: asked after every print, on whichever screen the cashier is on.
         controller.printQuestionSaleId?.let { DidItPrintSheet(controller) }
+    }
     }
 }
 @Composable private fun SignInScreen(c: VanController) {
@@ -161,10 +173,8 @@ import kotlinx.coroutines.delay
     }
 }
 @Composable private fun PrinterScreen(c: VanController) {
-    val context = LocalContext.current
-    // VAN-017: the shared printer (also used for sale receipts); the Activity owns and closes it.
-    val scanner = remember { SenraiseScanner(context) }
-    DisposableEffect(scanner) { onDispose { scanner.close() } }
+    // VAN-017: the shared printer (also used for sale receipts); the Activity owns and closes it. The scanner is the app's one.
+    val scanner = checkNotNull(LocalScannerInput.current)
     ScreenFrame("Settings",c::back,action = "Done",onAction = c::back,actionTag = "printer-done",scroll = false) {
         PrinterTestScreen(c.printer,scanner,Modifier.fillMaxSize(),lastPrint = c.lastPrint?.let { last ->
             java.time.Instant.ofEpochMilli(last.at).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("h:mm a")) + " · " + last.text

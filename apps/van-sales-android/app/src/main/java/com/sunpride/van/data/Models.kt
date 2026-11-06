@@ -73,7 +73,9 @@ data class Load(val loadId: String, val status: String, val lines: List<LoadLine
 data class BarcodeUnit(val barcode: String, val uomCode: String, val baseQuantity: Long?)
 data class Product(val productId: String, val code: String, val name: String, val uomCode: String,
     val quantityScale: Long, val barcodes: List<String>, val barcodeUnits: List<BarcodeUnit> = emptyList(),
-    val catalogue: com.sunpride.catalogue.CatalogueDetails? = null) {
+    val catalogue: com.sunpride.catalogue.CatalogueDetails? = null,
+    /** IP-HH1: the office's category when the bootstrap carries one (optional); the grid falls back to the first word of the name. */
+    val category: String? = null) {
     fun displayQuantity(base: Long): String = BigDecimal.valueOf(base).divide(BigDecimal.valueOf(quantityScale),java.math.MathContext.DECIMAL128).stripTrailingZeros().toPlainString()
 }
 /**

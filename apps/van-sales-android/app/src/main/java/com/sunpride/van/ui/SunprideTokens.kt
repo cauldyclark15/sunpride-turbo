@@ -24,7 +24,7 @@ object SunprideTokens {
     val canvas = Color(0xFFF5F5F5)
     val surface = Color.White
     val snow = Color(0xFFFCFCFC)
-    val muted = Color(0xFF626269)
+    val muted = Color(0xFF3F3F46)
     val darkCanvas = Color(0xFF060606)
     val darkSurface = Color(0xFF181818)
     val darkMuted = Color(0xFFB4B4B4)
@@ -48,12 +48,21 @@ object SunprideTokens {
     )
     // sp participates in the platform font scale; no unlicensed bundled font.
     val typography = Typography(
-        bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 24.sp),
-        bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
-        labelLarge = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
-        titleLarge = TextStyle(fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.SemiBold),
-        headlineMedium = TextStyle(fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.SemiBold)
+        bodyLarge = TextStyle(fontSize = 17.sp, lineHeight = 24.sp),
+        bodyMedium = TextStyle(fontSize = 15.sp, lineHeight = 21.sp),
+        labelLarge = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
+        titleMedium = TextStyle(fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold),
+        titleLarge = TextStyle(fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold),
+        headlineMedium = TextStyle(fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold),
+        // IP-HH1 outdoor theme: totals are read at arm's length in direct sun.
+        headlineLarge = TextStyle(fontSize = 44.sp, lineHeight = 50.sp, fontWeight = FontWeight.ExtraBold)
     )
+    /** IP-HH1 selling palette: every pair is at least 7:1 (checked in SellingThemeTest), no thin grey on white. */
+    val stockGreen = Color(0xFF0F5C33)
+    val emptyRed = Color(0xFF9E1220)
+    val barInk = Color(0xFF111111)
+    val barYellow = Color(0xFFFEF200)
+    val barText = Color(0xFFFFFFFF)
     val lightColors = lightColorScheme(
         primary = accessibleRed, onPrimary = snow,
         secondary = ink, onSecondary = snow,

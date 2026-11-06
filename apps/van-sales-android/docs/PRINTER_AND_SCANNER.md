@@ -243,6 +243,26 @@ physical peso glyph is legible: inspect that line on paper before claiming suppo
 changing the capability flag. No visual glyph confirmation is available to this lane.
 The printer must not silently switch production amounts to `₱` based on service success.
 
+## One scanner for the whole app (IP-HH1)
+
+Since IP-HH1 no screen builds its own scanner. `MainActivity` creates ONE `scanning.ScannerInput` and hands it to `VanApp`, which
+starts and stops it with the app lifecycle and publishes it as `LocalScannerInput`. Screens only collect `scans`.
+
+| Source | How it arrives | Notes |
+|---|---|---|
+| Vendor broadcast | `SenraiseScanner` (kept as the receiver; `android.scanner.scan` / `result` first, then the other `ScanIntentProfiles`) | the primary path on the H10P |
+| Keyboard wedge | `MainActivity.dispatchKeyEvent` -> `ScannerInput.onKeyEvent` -> `WedgeRouter` -> `WedgeBurstDetector` | taken before any text field; a scan is 4+ printable keys, each within 50 ms of the last, ended by Enter or 50 ms of silence |
+| Camera | `ScannerInput.cameraCode` | fallback button on the sale screen |
+
+- All three go through one `BarcodeInputs` gate: one 300 ms duplicate filter, so the broadcast and its typed copy add once.
+- Wedge capture is OFF by default (`ScannerInput.wedgeCapture`). Only the selling grid turns it on, because it has no text field; the
+  search palette, forms and Find product leave it off so typing is never swallowed.
+- One rule for van and store (`selling.ScanRules`): piece barcode = +1 piece, case barcode = +1 case (the barcode unit's size),
+  product code = +1 piece, unknown = toast "Not in this van: <code>" / "Not in this store: <code>" with the error beep and a buzz.
+  A case with no known size is refused, never guessed. A scan never opens a quantity dialog.
+- Feedback is `ScanFeedback` (`AndroidScanFeedback`: ToneGenerator + Vibrator, needs `VIBRATE`).
+- Tests: `ScannerInputTest` (burst, gap, dedupe, router), `SellingRulesTest` (piece/case/unknown rule).
+
 ## Unified scanning
 
 All three paths use `BarcodeInputs` / `BarcodeSource.scans: Flow<ScanEvent>`, with source

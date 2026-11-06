@@ -4,6 +4,8 @@
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <!-- Camera barcode fallback when the handheld has no built-in scanner. -->
+    <!-- IP-HH1: one short buzz after a scan, so the seller does not have to look at the screen. -->
+    <uses-permission android:name="android.permission.VIBRATE" />
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
     <!-- VAN-015: optional Bluetooth ESC/POS printer (already paired in system settings; no scanning). -->

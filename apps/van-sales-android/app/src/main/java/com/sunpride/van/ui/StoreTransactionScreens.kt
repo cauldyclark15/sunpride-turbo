@@ -10,7 +10,8 @@ import com.sunpride.van.pos.*
 import com.sunpride.van.data.Product
 import com.sunpride.van.printing.PrintOutcome
 import com.sunpride.van.printing.ReprintRules
-import com.sunpride.van.scanning.SenraiseScanner
+import com.sunpride.van.selling.*
+import androidx.activity.compose.BackHandler
 import com.sunpride.van.evidence.DamageCameraScreen
 import kotlinx.coroutines.launch
 import org.json.JSONObject
@@ -21,14 +22,23 @@ import java.math.BigDecimal
 private fun pesos(n:Long)= "₱"+BigDecimal.valueOf(n,2).setScale(2).toPlainString()
 private fun quantity(text:String,scale:Long):Long?=runCatching{BigDecimal(text).multiply(BigDecimal.valueOf(scale)).longValueExact().also {require(it>=0)}}.getOrNull()
 
-/** F-R03 same APK, physical scanner and pure checkout/pricing/promotion engine. */
+/** The sale that was just saved, for the Complete step. */
+private data class CompletedStoreSale(val saleId: String, val receivedMinor: Long, val totalMinor: Long, val changeMinor: Long)
+
+/**
+ * F-R03 same APK, physical scanner and pure checkout/pricing/promotion engine. IP-HH1: the same selling kit as the van — grid,
+ * palette, cart bar, steppers, Payment and Complete steps — with the store's tenders, loyalty and employee discount kept on Payment.
+ */
 @Composable fun StoreSaleScreen(c:VanController){
     val config=c.storePos.config ?: return
-    val products=remember(config){StoreCheckout.products(config)}
+    var now by remember{mutableLongStateOf(System.currentTimeMillis())}
+    LaunchedEffect(Unit){while(true){kotlinx.coroutines.delay(60_000);now=System.currentTimeMillis()}}
     var cart by remember(config.modeVersionId){mutableStateOf(emptyList<CartLine>())}
-    val saleId=remember(config.modeVersionId){UUID.randomUUID().toString()}
-    var search by remember {mutableStateOf("")}
+    var saleId by remember(config.modeVersionId){mutableStateOf(UUID.randomUUID().toString())}
+    var flow by remember{mutableStateOf(SellFlow())}
+    fun send(e:SellEvent){flow=SellFlowReducer.reduce(flow,e)}
     var tender by remember {mutableStateOf("cash")}
+    var tenderedMinor by remember {mutableStateOf<Long?>(null)}
     var cashShare by remember {mutableStateOf("")}
     var cardShare by remember {mutableStateOf("")}
     var received by remember {mutableStateOf("")}
@@ -38,78 +48,143 @@ private fun quantity(text:String,scale:Long):Long?=runCatching{BigDecimal(text).
     var points by remember {mutableStateOf("")}
     var employee by remember {mutableStateOf(false)}
     var pin by remember {mutableStateOf("")}
+    var more by remember {mutableStateOf(false)}
     var notice by remember {mutableStateOf<String?>(null)}
+    var completed by remember {mutableStateOf<CompletedStoreSale?>(null)}
+    var savedFlag by remember {mutableStateOf(false)}
     val scope=rememberCoroutineScope()
-    val evaluation=runCatching{StoreCheckout.quote(config,c.storePos.rows,cart,System.currentTimeMillis())}
+    val context=remember(config,c.storePos.rows,now){runCatching{StoreCheckout.context(config,c.storePos.rows,now)}}
+    val products=remember(config){StoreCheckout.products(config)}
+    val index=remember(context,products,now){
+        val ctx=context.getOrNull()
+        ProductSearch(products,ctx?.stock?:emptyList(),ctx?.prices?:emptyList(),now,ctx?.customers?.singleOrNull())
+    }
+    val evaluation=runCatching{StoreCheckout.quote(config,c.storePos.rows,cart,now)}
     val quote=evaluation.getOrNull()
     val pointCount=if(points.isBlank())0L else points.toLongOrNull()?.takeIf {it>=0}
     val validRedemption=pointCount==0L || pointCount!=null&&pointCount<=StoreCheckout.availablePoints(config,c.storePos.rows)&&runCatching{StoreCheckout.normalizePhone(phone)}.getOrNull()==config.details.optJSONObject("customerLookup")?.optString("phone")
     val total=quote?.takeIf {pointCount!=null&&validRedemption}?.let {runCatching{StoreCheckout.total(config,it.totalMinor,employee,checkNotNull(pointCount))}.getOrNull()}
-    val tenders=runCatching {
-        val n=checkNotNull(total)
+    val cashPart=when(tender){"cash"->total;"split"->VanRules.parseMoney(cashShare);else->null}
+    fun buildTenders(n:Long,tendered:Long?):List<StoreTransactions.Tender>?=runCatching {
         val cash=when(tender){"cash"->n;"split"->checkNotNull(VanRules.parseMoney(cashShare));else->0}
         val card=when(tender){"card"->n;"split"->VanRules.parseMoney(cardShare)?:0;else->0}
         val wallet=when(tender){"gcash"->n;"split"->n-cash-card;else->0}
         require(cash>=0&&card>=0&&wallet>=0)
         buildList {
-            if(cash>0)add(StoreTransactions.Tender("cash",cash,tendered=VanRules.parseMoney(received)?:cash))
+            if(cash>0)add(StoreTransactions.Tender("cash",cash,tendered=tendered?:cash))
             if(wallet>0){require(walletRef.length>=2);add(StoreTransactions.Tender("gcash",wallet,walletRef))}
             if(card>0){require(cardRef.length>=2);add(StoreTransactions.Tender("card",card,cardRef))}
         }.also {require(n==0L||it.isNotEmpty())}
     }.getOrNull()
-    fun add(product:Product,amount:Long=product.quantityScale){
-        if(c.busy)return
-        val old=cart.firstOrNull {it.productId==product.productId}
-        cart=cart.filter {it.productId!=product.productId}+CartLine(product.productId,Math.addExact(old?.quantityBase?:0,amount))
+    val splitCashTendered=VanRules.parseMoney(received)
+    val tenders=total?.let{n->buildTenders(n,if(tender=="split")splitCashTendered else tenderedMinor)}
+    val cashReady=when(tender){"cash"->tenderedMinor!=null&&total!=null&&tenderedMinor!!>=total;else->true}
+    val canPay=total!=null&&tenders!=null&&cashReady&&c.storePos.shift!=null&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)
+    /** One save path for Exact and the Complete button: nothing about the payload changes from the old Save sale. */
+    fun pay(withTenders:List<StoreTransactions.Tender>,n:Long){
+        send(SellEvent.PayTapped);savedFlag=false
+        val cashTender=withTenders.firstOrNull{it.method=="cash"}
+        val receivedMinor=cashTender?.let{it.tendered?:it.amount}?:n
+        val change=cashTender?.let{maxOf(0L,(it.tendered?:it.amount)-it.amount)}?:0L
+        val id=saleId
+        c.saveStoreSale(id,cart,withTenders,n,phone.takeIf{it.isNotBlank()},if(employee)pin else null,checkNotNull(pointCount),onSaved={
+            savedFlag=true;completed=CompletedStoreSale(id,receivedMinor,n,change);send(SellEvent.SaleSaved)
+        });pin=""
     }
-    val scanContext=LocalContext.current
-    val scanner=remember(scanContext){SenraiseScanner(scanContext)}
-    val latestAdd by rememberUpdatedState<(Product,Long)->Unit>({p,n->add(p,n)})
-    DisposableEffect(scanner){scanner.start();onDispose{scanner.close()}}
-    LaunchedEffect(scanner,products){scanner.scans.collect {event->
-        val matches=products.filter {it.code==event.code||event.code in it.barcodes}
-        if(matches.size==1){val p=matches.single();latestAdd(p,p.barcodeUnits.firstOrNull {it.barcode==event.code}?.baseQuantity?:p.quantityScale)}else notice="Barcode is missing or ambiguous; search the catalogue."
-    }}
-    ScreenFrame("Store sale",c::back,action="Save sale",actionTag="save-store-sale",enabled=total!=null&&tenders!=null&&c.storePos.shift!=null&&!c.busy&&!c.onHold&&(!employee||pin.length>=6),
-        onAction={c.saveStoreSale(saleId,cart,checkNotNull(tenders),checkNotNull(total),phone.takeIf{it.isNotBlank()},if(employee)pin else null,checkNotNull(pointCount));pin=""},message=c.message?:notice){
-        Text(config.storeName?:"Store",style=MaterialTheme.typography.titleLarge)
-        Text("Scan with the handheld button or search. Prices and promotions come from the shared office authority.")
-        LabeledField("Search or scan code",search,{search=it},"store-product-search",maxLength=100)
-        products.filter {search.isBlank()||it.name.contains(search,true)||it.code==search||search in it.barcodes}.take(30).forEach {p->
-            ListRow(p.name,"${p.code} · add one ${p.uomCode}","store-add-${p.code}",onClick={add(p)},enabled=!c.busy)
-        }
-        SectionCard("Basket"){
-            if(cart.isEmpty())Text("Add a product to begin.")
-            cart.forEach {line->val p=products.single {it.productId==line.productId}
-                Text("${p.name} · ${p.displayQuantity(line.quantityBase)} ${p.uomCode}")
-                SecondaryButton("Remove ${p.name}",{cart=cart.filter {it.productId!=line.productId}})
-            }
-            Text(total?.let(::pesos)?:if((evaluation.exceptionOrNull() as? CheckoutRefused)?.issues?.any{it.problem==CheckoutProblem.PROMOTION_NEEDS_OFFICE}==true)"This campaign needs office finance authority before selling" else "Choose priced products with enough available stock",style=MaterialTheme.typography.titleLarge,modifier=Modifier.testTag("store-basket-total"))
-        }
-        LabeledField("Customer phone (optional)",phone,{phone=it},"store-sale-phone",numeric=true,maxLength=24)
-        if(config.details.optJSONObject("loyalty")?.optBoolean("enabled")==true){
-            SecondaryButton("Look up customer & points",{scope.launch {notice=runCatching {c.repository.storeLookup(phone)?.let {"${it.getString("name")} · ${it.getString("points")} points"}?:"No customer found. Register them in Customers."}.getOrElse {"Connect to look up this customer."}}})
-            config.details.optJSONObject("customerLookup")?.takeIf {it.optString("phone")==runCatching{StoreCheckout.normalizePhone(phone)}.getOrNull()}?.let {Text("${it.getString("name")} · ${StoreCheckout.availablePoints(config,c.storePos.rows)} points available")}
-            LabeledField("Points to redeem",points,{points=it},"store-points",numeric=true,maxLength=9)
-        }
-        if(config.details.optJSONObject("supervisor")!=null){
-            SecondaryButton(if(employee)"Remove employee discount" else "Employee discount",{employee=!employee;pin=""})
-            if(employee)LabeledField("Supervisor PIN",pin,{pin=it},"store-supervisor-pin",password=true,maxLength=12)
-        }
-        SectionCard("Tender"){
-            listOf("cash" to "Cash","gcash" to "GCash / e-wallet","card" to "Card","split" to "Split tender").forEach {(id,label)->SecondaryButton((if(tender==id)"Selected · " else "")+label,{tender=id})}
+    // A refused save (the controller shows why) re-enables the buttons.
+    LaunchedEffect(c.busy){if(!c.busy&&flow.saving&&!savedFlag)send(SellEvent.SaveFailed)}
+    BackHandler(enabled=flow.step==SellStep.PAYMENT&&!flow.saving){send(SellEvent.BackTapped)}
+
+    fun newSale(){
+        cart=emptyList();saleId=UUID.randomUUID().toString();tender="cash";tenderedMinor=null;cashShare="";cardShare="";received="";walletRef="";cardRef="";phone="";points="";employee=false;pin="";more=false;notice=null;completed=null;savedFlag=false
+        send(SellEvent.NewSaleTapped)
+    }
+    val currency="PHP"
+    val rows=cart.map{line->
+        val product=products.firstOrNull{it.productId==line.productId}
+        val q=quote?.lines?.firstOrNull{it.product.productId==line.productId}
+        val own=product?.let{PriceResolver.resolve(it,context.getOrNull()?.prices?:emptyList(),now,context.getOrNull()?.customers?.singleOrNull())}
+        CartRowUi(line.productId,product,q?.quantityBase?:line.quantityBase,(q?.unitPriceMinor?:own?.unitPriceMinor)?.let{PosMoney.format(it,currency)+" each"},
+            q?.let{PosMoney.format(it.totalMinor,currency)}?:"Office price",
+            q?.promotion?.let{"${it.name}${if(q.discountMinor>0)" · discount ${PosMoney.format(q.discountMinor,currency)}" else ""}"},
+            context.getOrNull()?.stock?.firstOrNull{it.productId==line.productId}?.availableBase?:0L)
+    }
+    val browseTotal=when{cart.isEmpty()->"₱0.00";quote!=null->PosMoney.format(quote.totalMinor,currency);else->"Not ready"}
+    val shiftOpen=c.storePos.shift!=null
+    val reason=when{
+        context.isFailure->context.exceptionOrNull()?.message
+        !shiftOpen->"Open a session before selling."
+        (evaluation.exceptionOrNull() as? CheckoutRefused)?.issues?.any{it.problem==CheckoutProblem.PROMOTION_NEEDS_OFFICE}==true->"This campaign needs office finance authority before selling"
+        else->null
+    }
+    when(flow.step){
+        SellStep.BROWSE,SellStep.CART->SellingBrowse(
+            title="Store sale",subtitle=config.storeName?:"Store",onBack=c::back,place=SellingPlace.STORE,
+            search=index,scanProducts=products,currentLines={cart},
+            onSetLine={id,base->if(!c.busy)cart=SellingCart.set(cart,id,base)},
+            rows=rows,totalLabel=browseTotal,chargeEnabled=quote!=null&&shiftOpen&&!c.busy&&!c.onHold,onCharge={send(SellEvent.ChargeTapped)},
+            cartOpen=flow.step==SellStep.CART,onCartOpen={open->send(if(open)SellEvent.CartBarTapped else SellEvent.BackTapped)},
+            message=c.message?:notice?:reason,busy=c.busy)
+        SellStep.PAYMENT->PaymentStep(
+            title="Payment",totalMinor=total,
+            choices=listOf(TenderChoice("cash","Cash",TenderKind.CASH),TenderChoice("gcash","GCash / e-wallet",TenderKind.OTHER),TenderChoice("card","Card",TenderKind.OTHER),TenderChoice("split","Split",TenderKind.OTHER)),
+            selectedId=tender,onSelect={tender=it;tenderedMinor=null},tenderedMinor=tenderedMinor,onTendered={tenderedMinor=it},
+            issues=buildList{
+                if(quote!=null&&total==null)add("Points or discounts do not match this basket.")
+                if(employee&&pin.length<6)add("Enter the supervisor PIN for the employee discount.")
+                if(!shiftOpen)add("Open a session before selling.")
+            },
+            saving=flow.saving,canPay=canPay,exactEnabled=total!=null&&tender=="cash"&&shiftOpen&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)&&buildTenders(total,total)!=null,
+            onExact={val n=total;val t=n?.let{buildTenders(it,it)};if(n!=null&&t!=null)pay(t,n)},
+            onPay={val n=total;val t=tenders;if(n!=null&&t!=null)pay(t,n)},onBack={send(SellEvent.BackTapped)},message=c.message?:notice){
             if(tender=="split"){
-                LabeledField("Cash part (₱)",cashShare,{cashShare=it},"store-split-cash",numeric=true,maxLength=16)
-                LabeledField("Card part (₱, optional)",cardShare,{cardShare=it},"store-split-card",numeric=true,maxLength=16)
-                Text("The remainder is paid by e-wallet. All parts must add up to the total.")
+                SectionCard("Split tender"){
+                    LabeledField("Cash part (₱)",cashShare,{cashShare=it},"store-split-cash",numeric=true,maxLength=16)
+                    LabeledField("Card part (₱, optional)",cardShare,{cardShare=it},"store-split-card",numeric=true,maxLength=16)
+                    Text("The remainder is paid by e-wallet. All parts must add up to the total.")
+                    LabeledField("Cash received (₱, blank means exact)",received,{received=it},"store-cash-tendered",numeric=true,maxLength=16)
+                }
             }
-            if(tender in setOf("cash","split"))LabeledField("Cash received (₱, blank means exact)",received,{received=it},"store-cash-tendered",numeric=true,maxLength=16)
             if(tender in setOf("gcash","split"))LabeledField("E-wallet confirmation reference",walletRef,{walletRef=it},"store-wallet-ref",maxLength=100)
             if(tender in setOf("card","split"))LabeledField("Card approval reference — never card number",cardRef,{cardRef=it},"store-card-ref",maxLength=100)
-            tenders?.firstOrNull {it.method=="cash"}?.let {Text("Change · ${pesos((it.tendered?:it.amount)-it.amount)}")}
-            Text("E-wallet and card references await office confirmation; they are not bank settlement proof.")
+            if(tender!="cash")Text("E-wallet and card references await office confirmation; they are not bank settlement proof.",style=MaterialTheme.typography.bodyMedium)
+            SecondaryButton(if(more)"Hide customer & discounts" else "Customer, points & employee discount",{more=!more},Modifier.testTag("store-more"))
+            if(more){
+                LabeledField("Customer phone (optional)",phone,{phone=it},"store-sale-phone",numeric=true,maxLength=24)
+                if(config.details.optJSONObject("loyalty")?.optBoolean("enabled")==true){
+                    SecondaryButton("Look up customer & points",{scope.launch {notice=runCatching {c.repository.storeLookup(phone)?.let {"${it.getString("name")} · ${it.getString("points")} points"}?:"No customer found. Register them in Customers."}.getOrElse {"Connect to look up this customer."}}})
+                    config.details.optJSONObject("customerLookup")?.takeIf {it.optString("phone")==runCatching{StoreCheckout.normalizePhone(phone)}.getOrNull()}?.let {Text("${it.getString("name")} · ${StoreCheckout.availablePoints(config,c.storePos.rows)} points available")}
+                    LabeledField("Points to redeem",points,{points=it},"store-points",numeric=true,maxLength=9)
+                }
+                if(config.details.optJSONObject("supervisor")!=null){
+                    SecondaryButton(if(employee)"Remove employee discount" else "Employee discount",{employee=!employee;pin=""})
+                    if(employee)LabeledField("Supervisor PIN",pin,{pin=it},"store-supervisor-pin",password=true,maxLength=12)
+                }
+            }
+            Text("Saved before upload. Printing does not require a network. Any refused upload remains visible for review.",style=MaterialTheme.typography.bodyMedium)
         }
-        Text("Saved before upload. Printing does not require a network. Any refused upload remains visible for review.")
+        SellStep.COMPLETE->{
+            val done=completed
+            val receipts=StoreTransactions.receipts(config,c.storePos.rows)
+            val receiptNumber=done?.let{d->receipts.firstOrNull{it.optString("saleId")==d.saleId}?.optString("receiptNumber")}
+            CompleteStep(title="Sale saved",receivedLabel=Peso.format(done?.receivedMinor?:0),totalLabel=Peso.format(done?.totalMinor?:0),changeLabel=Peso.format(done?.changeMinor?:0),
+                headline=receiptNumber?:"Saved on this register",onNewSale=::newSale,secondaryLabel="Receipts",onSecondary={c.open(Page.STORE_RECEIPTS)},message=c.message?:c.printMessage){
+                done?.let{d->
+                    val history=c.storePrints[d.saleId].orEmpty()
+                    val confirmed=history.any{it.confirmed}
+                    SectionCard("Receipt"){
+                        Text(when{ReprintRules.needsConfirmation(history)->"Sent to printer · did it print?";confirmed->"Printed";history.any{it.outcome==PrintOutcome.SKIPPED}->"Not printed · skipped, no paper";c.printing->"Printing…";else->"Not printed yet"},
+                            style=MaterialTheme.typography.bodyLarge,modifier=Modifier.testTag("print-status"))
+                        when{
+                            ReprintRules.needsConfirmation(history)->SecondaryButton("Did it print?",{c.askDidItPrint(d.saleId,true)},Modifier.testTag("store-did-it-print"),enabled=!c.printing)
+                            !confirmed->SecondaryButton(if(c.printing)"Printing…" else "Print receipt",{c.printStoreReceipt(d.saleId)},Modifier.testTag("store-print"),enabled=!c.printing)
+                            else->{}
+                        }
+                    }
+                }
+                Text("Saved on this register first. It is sent to the office at the next sync.",style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("sale-saved-note-2"))
+            }
+        }
     }
 }
 

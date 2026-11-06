@@ -86,17 +86,8 @@ private data class LoadDraft(val quantity: String, val reason: String?)
         val draft = drafts[line.lineNumber]!!; val actual = VanRules.parseQuantity(draft.quantity,line.quantityScale)
         actual != null && (!VanRules.reasonRequired(line.expectedBase,actual) || draft.reason in (c.policy?.loadDiscrepancyReasons ?: emptyList()))
     }
-    val context = LocalContext.current
-    val scanner = remember { SenraiseScanner(context) }
+    val scanner = checkNotNull(com.sunpride.van.scanning.LocalScannerInput.current)
     var scanMessage by remember { mutableStateOf<String?>(null) }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(scanner,lifecycle,editable) {
-        val observer = LifecycleEventObserver { _,event -> if (event == Lifecycle.Event.ON_START && editable) scanner.start() else if (event == Lifecycle.Event.ON_STOP) scanner.stop() }
-        lifecycle.addObserver(observer)
-        if (editable && lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) scanner.start()
-        onDispose { lifecycle.removeObserver(observer); scanner.stop() }
-    }
-    DisposableEffect(scanner) { onDispose { scanner.close() } }
     LaunchedEffect(scanner,editable,lines,c.products) {
         scanner.scans.collect { scan ->
             if (editable) {
