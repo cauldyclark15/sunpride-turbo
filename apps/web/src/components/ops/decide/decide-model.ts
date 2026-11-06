@@ -29,6 +29,7 @@ export type DecideItem = {
   needs: { chargeTo?: boolean };
   openOnly?: boolean;
   sentBack?: { by: string | null; reason: string; at: number } | null;
+  extra?: { forced?: boolean };
 };
 
 export type DecideRecent = {
@@ -111,7 +112,7 @@ export function ageText(since: number | null, now: number): string {
 }
 
 /** The button label for a verdict, in the words of the kind. */
-export function verdictLabels(kind: DecideKind) {
+export function verdictLabels(kind: DecideKind, forced = false) {
   switch (kind) {
     case "transfer_variance":
     case "reload_difference":
@@ -120,7 +121,9 @@ export function verdictLabels(kind: DecideKind) {
     case "count_review":
       return { approve: "Approve count", reject: "Send back for a recount" };
     case "cash_variance":
-      return { approve: "Accept", reject: "Investigate" };
+      return forced
+        ? { approve: "Accept the close", reject: "Investigate" }
+        : { approve: "Accept the difference", reject: "Investigate" };
     case "override_review":
       return { approve: "Looks fine", reject: "Flag it" };
     default:
@@ -131,4 +134,25 @@ export function verdictLabels(kind: DecideKind) {
 /** Items shown for a kind filter (null = everything). */
 export function filterItems(items: DecideItem[], kind: DecideKind | null) {
   return kind ? items.filter((i) => i.kind === kind) : items;
+}
+
+/** What the link to the document says, in the words of the kind. */
+export function openLabel(kind: DecideKind, openOnly = false): string {
+  if (openOnly) return "Open the trip";
+  switch (kind) {
+    case "load_difference":
+      return "Open the trip";
+    case "transfer_variance":
+    case "reload_difference":
+    case "load_in_difference":
+      return "Open the transfer";
+    case "count_review":
+      return "Open the count";
+    case "disposition":
+      return "Open Bad orders";
+    case "cash_variance":
+      return "Open the till day";
+    case "override_review":
+      return "Open the overrides";
+  }
 }

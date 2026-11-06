@@ -28,6 +28,7 @@ import {
   ReviewList,
   StockCardPicker,
   manilaToday,
+  manilaTomorrow,
 } from "./operations-pickers";
 import { ReceiveDelivery, ReceiveQueue } from "./receive";
 import { BadOrders, ExpiryBoard, StockCard, StockOnHand } from "./stock";
@@ -250,7 +251,7 @@ function Screen({ path, role }: { path: string[]; role: string }) {
           </div>
         ) : (
           <LoadsPicker
-            date={today}
+            dates={[today, manilaTomorrow()]}
             hrefFor={(id) => `/operations/van-day/loads?trip=${id}`}
           />
         );

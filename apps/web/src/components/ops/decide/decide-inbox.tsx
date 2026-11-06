@@ -15,6 +15,7 @@ import {
   decideBody,
   decideProblems,
   filterItems,
+  openLabel,
   verdictLabels,
   type DecideForm,
   type DecideInboxData,
@@ -49,7 +50,7 @@ export function DecideRow({
   pending?: boolean;
   error?: string | null;
 }) {
-  const labels = verdictLabels(item.kind);
+  const labels = verdictLabels(item.kind, item.extra?.forced === true);
   const problems = open ? decideProblems(item, form) : [];
   return (
     <li className="grid gap-3 px-4 py-4" data-kind={item.kind}>
@@ -188,7 +189,7 @@ export function DecideRow({
               href={item.link}
               className="inline-flex min-h-12 items-center rounded-[10px] border border-border px-4 text-base font-medium"
             >
-              {item.openOnly ? "Open the trip" : "Open the document"}
+              {openLabel(item.kind, item.openOnly)}
             </Link>
           ) : null}
         </div>

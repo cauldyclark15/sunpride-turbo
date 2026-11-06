@@ -11,6 +11,11 @@ import type { BoardRow, DayBoard } from "./vanday";
 const field =
   "min-h-12 w-full rounded-[10px] border border-field-border bg-field-background px-3 text-base";
 
+/** The next Manila day as YYYY-MM-DD: the night plan makes tomorrow's loads. */
+export function manilaTomorrow(now = new Date()) {
+  return manilaToday(new Date(now.getTime() + 24 * 3600000));
+}
+
 /** Today in Manila as YYYY-MM-DD (the van day is a Manila day). */
 export function manilaToday(now = new Date()) {
   return new Intl.DateTimeFormat("en-CA", { timeZone: "Asia/Manila" }).format(
@@ -168,8 +173,24 @@ export function ReviewList({ hrefFor }: { hrefFor: (id: string) => string }) {
   );
 }
 
-/** Today's trips that have a suggested load, so a planner can open one. */
+/** Trips that have a load for today and tomorrow, so a planner can open one. */
 export function LoadsPicker({
+  dates,
+  hrefFor,
+}: {
+  dates: string[];
+  hrefFor: (tripId: string) => string;
+}) {
+  return (
+    <div className="grid gap-4">
+      {dates.map((date) => (
+        <LoadsForDay key={date} date={date} hrefFor={hrefFor} />
+      ))}
+    </div>
+  );
+}
+
+function LoadsForDay({
   date,
   hrefFor,
 }: {
@@ -192,7 +213,7 @@ export function LoadsPicker({
     (r) => r.tripId && r.load.state !== "none",
   );
   return (
-    <Card label={`Suggested loads for ${date}`} count={rows.length} flush>
+    <Card label={`Loads for ${date}`} count={rows.length} flush>
       {rows.length ? (
         <ul className="divide-y divide-separator">
           {rows.map((r) => (
@@ -223,8 +244,8 @@ export function LoadsPicker({
         </ul>
       ) : (
         <p className="p-4 text-base text-muted">
-          No trip has a load yet. The night plan makes tomorrow's loads at
-          8 pm, or plan a trip on the Board.
+          No trip has a load for this day yet. The night plan makes tomorrow's
+          loads at 8 pm, or plan a trip on the Board.
         </p>
       )}
     </Card>

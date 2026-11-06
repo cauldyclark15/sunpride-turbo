@@ -208,7 +208,7 @@ async function transferDifferences(router, c, actor) {
         ? null
         : mine
           ? "You sent or received this, so a different person must decide the difference."
-          : "Your role cannot decide document differences.",
+          : "Only an approver (or the owner) can decide a difference on a delivered document. Ask one.",
       makerChecker: MAKER_CHECKER,
       lines: [
         sender ? { label: "Sent by", value: sender.name ?? "—" } : null,
@@ -357,9 +357,11 @@ async function cashVariances(c, actor) {
           : closedByMe
             ? "You closed this session, so someone else must review it."
             : null,
-        makerChecker: MAKER_CHECKER,
+        makerChecker: forced
+          ? "Whoever force-closed this session, and the cashier, cannot review it. The system checks that for you."
+          : "The cashier who counted this till cannot decide it. A second person must. The system checks that for you.",
         lines: forced
-          ? []
+          ? [{ label: "Count", value: "None was taken: the office closed the session" }]
           : [
               { label: "Expected in the drawer", value: peso(k.expected_centavos) },
               { label: "Counted", value: peso(k.declared_centavos) },
@@ -427,10 +429,10 @@ async function overrides(c, actor) {
         askedAt: ms(o.captured_at),
         valueCentavos: o.amount_centavos == null ? null : Number(o.amount_centavos),
         rule: "A void, refund, price change or discount approved at the till gets a second look from someone who was not there.",
+        makerChecker: "The supervisor who approved it at the till, and the cashier, cannot review it. The system checks that for you.",
         link: "/operations/stores-pos/overrides",
         canDecide: !involved,
         blockedReason: involved ? "You approved this at the till or were the cashier. Someone else must look at it." : null,
-        makerChecker: MAKER_CHECKER,
         lines: o.reason ? [{ label: "Reason given", value: o.reason }] : [],
         needs: {},
       };

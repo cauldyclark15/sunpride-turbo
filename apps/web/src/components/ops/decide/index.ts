@@ -6,6 +6,7 @@ export {
   decideProblems,
   filterItems,
   isTransferKind,
+  openLabel,
   verdictLabels,
 } from "./decide-model";
 export type {

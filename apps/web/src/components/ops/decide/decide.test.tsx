@@ -93,7 +93,7 @@ describe("Decide inbox rows", () => {
     expect(html).toContain("Why it is here:");
     expect(html).toContain("needs a person to decide");
     expect(html).toContain('href="/operations/transfers/t1"');
-    expect(html).toContain("Open the document");
+    expect(html).toContain("Open the transfer");
     expect(html).toContain("Write it off");
     expect(html).toContain("Send back for a recount");
     expect(html).toContain("cannot decide it");
@@ -110,7 +110,7 @@ describe("Decide inbox rows", () => {
     );
     expect(html).toContain("You sent or received this");
     expect(html).not.toContain("Write it off");
-    expect(html).toContain("Open the document");
+    expect(html).toContain("Open the transfer");
   });
 
   it("a row decided inside its own page offers only Open", () => {
@@ -202,7 +202,8 @@ describe("Decide model", () => {
   });
 
   it("speaks the words of each kind and counts age in plain units", () => {
-    expect(verdictLabels("cash_variance")).toEqual({ approve: "Accept", reject: "Investigate" });
+    expect(verdictLabels("cash_variance")).toEqual({ approve: "Accept the difference", reject: "Investigate" });
+    expect(verdictLabels("cash_variance", true).approve).toBe("Accept the close");
     expect(verdictLabels("load_difference")).toEqual({ approve: "Approve", reject: "Reject" });
     expect(ageText(NOW - 30000, NOW)).toBe("just now");
     expect(ageText(NOW - 5 * 60000, NOW)).toBe("5 min");
