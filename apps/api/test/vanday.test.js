@@ -536,12 +536,30 @@ describe("load-out on the movement document", () => {
     expect((await h.db`select round from van_load_counts where planned_load_id=${(await planOf(sc.tripId)).id} and side='seller' order by round`).map((/** @type {any} */ x) => x.round)).toEqual([1, 2]);
   });
 
-  it("the old confirm-load op is refused on a documented load; the old manual load replaces a suggestion", async () => {
+  it("IP-INT3FIX: an old phone's confirm-load on a documented load is the seller's accept (shim); the old manual load replaces a suggestion", async () => {
     const sc = await scenario();
     await toDispatched(sc.tripId);
     const loadId = await loadIdOf(sc.tripId);
+    // beta.25/26/27 have no Accept load: their Confirm load carries line numbers, not products.
     const legacy = await push([op("load.confirm", { tripId: sc.tripId, loadId, lines: [{ lineNumber: 1, actualBase: "24" }] })]);
-    expect(legacy.body.results[0].status).toBe("rejected");
+    expect(legacy.body.results[0].status).toBe("applied");
+    expect((await planOf(sc.tripId)).state).toBe("accepted");
+    expect((await stock(prodA.id, sc.truckId)).available).toBe(24);
+    expect((await tripOf(sc.tripId)).status).toBe("loaded");
+    const start = await push([op("trip.start", { tripId: sc.tripId, vehicleConfirmed: true, routeConfirmed: true })]);
+    expect(start.body.results[0].status).toBe("applied");
+    // a short count from an old phone goes the same way a new phone's does: over tolerance waits for the clerk
+    const sc3 = await scenario();
+    await toDispatched(sc3.tripId);
+    const loadId3 = await loadIdOf(sc3.tripId);
+    const short = await push([op("load.confirm", { tripId: sc3.tripId, loadId: loadId3, lines: [{ lineNumber: 1, actualBase: "12", reason: "short_loaded" }] })]);
+    expect(short.body.results[0].status).toBe("applied");
+    expect((await planOf(sc3.tripId)).state).toBe("recount");
+    // a line number that is not on the load is still refused
+    const sc4 = await scenario();
+    await toDispatched(sc4.tripId);
+    const bad = await push([op("load.confirm", { tripId: sc4.tripId, loadId: await loadIdOf(sc4.tripId), lines: [{ lineNumber: 9, actualBase: "24" }] })]);
+    expect(bad.body.results[0].status).toBe("rejected");
     const sc2 = await scenario();
     const manual = await web(boss, "loads/plan", { tripId: sc2.tripId, lines: [{ productId: prodA.id, expectedBase: "12" }] });
     expect(manual.status).toBe(200);

@@ -86,7 +86,7 @@ import { saleLots } from "./lots.js";
 import { validateReturnEvidence } from "./return-evidence.js";
 import { receiveReload } from "./reloads.js";
 import { validateBatchCount } from "./batch-count.js";
-import { acceptLoad, assertLegacyLoad } from "./loadout.js";
+import { acceptLoad } from "./loadout.js";
 import { crewGuard, recordCrewAction, switchCrew } from "./roster.js";
 
 export const VAN_OPS = [
@@ -363,12 +363,39 @@ async function dispatchOperation(ctx, env) {
           await db`select * from van_trip_loads where id=${uuid(p.loadId)} and trip_id=${trip.id} and deleted_at is null for update`;
         if (!load || load.status !== "planned" || trip.status !== "loading")
           refuse("Load cannot be confirmed now");
-        assertLegacyLoad(load);
         /** @type {any[]} */ const lines =
           await db`select * from van_trip_load_lines where load_id=${load.id} and deleted_at is null order by line_number`;
         const supplied = rows(p.lines);
         if (supplied.length !== lines.length)
           refuse("Count every load line", "invalid_request");
+        // IP-INT3FIX: a beta.25/26/27 phone has no Accept load. On a load that has a dispatch document its Confirm load is
+        // the same thing: the seller's count of each line. Map its line numbers to product and batch and take the
+        // normal accept (tolerance, recount, posting) instead of leaving the seller stuck.
+        if (load.stock_transfer_id) {
+          const mapped = [];
+          const used = new Set();
+          for (const input of supplied) {
+            const line = lines.find((l) => l.line_number === input.lineNumber);
+            if (!line || used.has(input.lineNumber))
+              refuse("Load line is missing or repeated", "invalid_request");
+            used.add(input.lineNumber);
+            mapped.push({
+              productId: line.product_id,
+              lotId: line.lot_id ?? null,
+              actualBase: input.actualBase,
+              reason: input.reason ?? null,
+            });
+          }
+          result = await acceptLoad(
+            db,
+            trip,
+            actor,
+            device,
+            { loadId: load.id, lines: mapped, note: p.note },
+            op,
+          );
+          break;
+        }
         const seen = new Set();
         let differs = false;
         for (const input of supplied) {

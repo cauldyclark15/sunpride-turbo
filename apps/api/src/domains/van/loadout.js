@@ -544,10 +544,4 @@ export async function cancelPlanForTrip(db, actor, trip) {
 export async function supersedePlan(db, tripId) {
   await db`update van_planned_loads set state='cancelled',updated_at=now() where trip_id=${tripId} and state='suggested'`;
 }
-/** The old "Confirm load" op cannot be used on a load that has a movement document. @param {any} load */
-export function assertLegacyLoad(load) {
-  if (load.stock_transfer_id)
-    refuse("This load has a dispatch document. Use Accept load", "invalid_request");
-}
-
 export { OPEN_STATES };
