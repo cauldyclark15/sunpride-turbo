@@ -537,10 +537,10 @@ class VanUiDeviceTest {
         rule.waitUntil(10_000) { c.prices.map { it.priceListId to it.productId } == listOf("PL-PRACTICE" to juice) }
     }
     /**
-     * IP-HH1 tap budget (compiled, run on a handheld later): after the scan, a 1-item exact-cash sale is Charge, Exact, New sale
-     * (3 taps; 4 if the seller also answers "Did it print?"). The scan is a vendor broadcast, never a tap.
+     * Tap budget (compiled, run on a handheld later): after the scan, a 1-item exact-cash sale is Charge, Exact, Complete, New sale
+     * (4 taps; 5 if the seller also answers "Did it print?"). EXACT only fills Tendered; Complete saves. The scan is a vendor broadcast, never a tap.
      */
-    @Test fun oneScannedItemExactCashSaleIsAtMostFourTapsAfterTheScan() {
+    @Test fun oneScannedItemExactCashSaleIsAtMostFiveTapsAfterTheScan() {
         val printer = com.sunpride.van.printing.FakeReceiptPrinter()
         mount(printer = printer); loadAndStart()
         val juice = c.products.single { it.code == "SP-PJ-1L" }
@@ -554,13 +554,17 @@ class VanUiDeviceTest {
         var taps = 0
         fun tap(tag: String) { rule.onNodeWithTag(tag).performScrollTo().performClick(); taps++ }
         tap("checkout"); tap("pay-exact")
+        // EXACT does not complete the sale: Tendered = Total, Change = 0, still on Payment until Complete is pressed.
+        rule.onNodeWithTag("checkout-change",useUnmergedTree = true).assertTextEquals("₱0.00")
+        assertEquals(Page.CHECKOUT,c.page); assertTrue(c.savedSales.isEmpty())
+        tap("complete-sale")
         rule.waitUntil(10_000) { c.page == Page.SALE_DONE && !c.printing && c.savedSales.isNotEmpty() }
         rule.onNodeWithTag("receipt-total",useUnmergedTree = true).assertTextEquals("₱85.00")
         rule.onNodeWithTag("receipt-change",useUnmergedTree = true).assertTextEquals("₱0.00")
         tap("print-yes")
         rule.waitUntil(10_000) { c.printQuestionSaleId == null }
         tap("new-sale")
-        assertTrue("taps after the scan: $taps",taps <= 4)
+        assertTrue("taps after the scan: $taps",taps <= 5)
         rule.waitUntil(10_000) { c.page == Page.SALE && c.sale?.lines?.isEmpty() == true }
         assertEquals(1,c.sync.savedSales)
     }

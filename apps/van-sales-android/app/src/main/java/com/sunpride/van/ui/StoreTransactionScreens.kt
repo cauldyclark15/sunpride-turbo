@@ -1,6 +1,10 @@
 package com.sunpride.van.ui
 
 import androidx.compose.material3.*
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -42,6 +46,8 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     fun send(e:SellEvent){flow=SellFlowReducer.reduce(flow,e)}
     var tender by remember {mutableStateOf("cash")}
     var tenderedMinor by remember {mutableStateOf<Long?>(null)}
+    // EXACT only marks "tendered = total"; it follows the total if a discount changes it, and a bill turns it off. It never saves.
+    var exact by remember {mutableStateOf(false)}
     var cashShare by remember {mutableStateOf("")}
     var cardShare by remember {mutableStateOf("")}
     var received by remember {mutableStateOf("")}
@@ -71,6 +77,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     val validRedemption=pointCount==0L || pointCount!=null&&pointCount<=StoreCheckout.availablePoints(config,c.storePos.rows)&&runCatching{StoreCheckout.normalizePhone(phone)}.getOrNull()==config.details.optJSONObject("customerLookup")?.optString("phone")
     val total=quote?.takeIf {pointCount!=null&&validRedemption}?.let {runCatching{StoreCheckout.total(config,it.totalMinor,employee,checkNotNull(pointCount))}.getOrNull()}
     val cashPart=when(tender){"cash"->total;"split"->VanRules.parseMoney(cashShare);else->null}
+    val tenderedNow=QuickCash.effectiveTenderedMinor(exact,total,tenderedMinor)
     fun buildTenders(n:Long,tendered:Long?):List<StoreTransactions.Tender>?=runCatching {
         val cash=when(tender){"cash"->n;"split"->checkNotNull(VanRules.parseMoney(cashShare));else->0}
         val card=when(tender){"card"->n;"split"->VanRules.parseMoney(cardShare)?:0;else->0}
@@ -83,8 +90,8 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
         }.also {require(n==0L||it.isNotEmpty())}
     }.getOrNull()
     val splitCashTendered=VanRules.parseMoney(received)
-    val tenders=total?.let{n->buildTenders(n,if(tender=="split")splitCashTendered else tenderedMinor)}
-    val cashReady=when(tender){"cash"->tenderedMinor!=null&&total!=null&&tenderedMinor!!>=total;else->true}
+    val tenders=total?.let{n->buildTenders(n,if(tender=="split")splitCashTendered else tenderedNow)}
+    val cashReady=when(tender){"cash"->tenderedNow!=null&&total!=null&&tenderedNow>=total;else->true}
     val setupProblem=remember(config){StoreCheckout.setupProblem(config)}
     val enabledTenders=remember(config){StoreCheckout.enabledTenders(config)}
     val canPay=setupProblem==null&&total!=null&&tenders!=null&&cashReady&&c.storePos.shift!=null&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)
@@ -104,7 +111,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     BackHandler(enabled=flow.step==SellStep.PAYMENT&&!flow.saving){send(SellEvent.BackTapped)}
 
     fun newSale(){
-        cart=emptyList();saleId=UUID.randomUUID().toString();tender="cash";tenderedMinor=null;cashShare="";cardShare="";received="";walletRef="";cardRef="";phone="";points="";employee=false;pin="";more=false;claim=null;claiming=false;notice=null;completed=null;savedFlag=false
+        cart=emptyList();saleId=UUID.randomUUID().toString();tender="cash";tenderedMinor=null;exact=false;cashShare="";cardShare="";received="";walletRef="";cardRef="";phone="";points="";employee=false;pin="";more=false;claim=null;claiming=false;notice=null;completed=null;savedFlag=false
         send(SellEvent.NewSaleTapped)
     }
     val currency="PHP"
@@ -137,11 +144,16 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
             rows=rows,totalLabel=browseTotal,chargeEnabled=quote!=null&&shiftOpen&&!c.busy&&!c.onHold,onCharge={send(SellEvent.ChargeTapped)},
             cartOpen=flow.step==SellStep.CART,onCartOpen={open->send(if(open)SellEvent.CartBarTapped else SellEvent.BackTapped)},
             message=c.message?:notice?:reason,busy=c.busy,cashierName=c.seller?.name,roleLabel="Cashier")
-        SellStep.PAYMENT->PaymentStep(
-            title="Payment",totalMinor=total,
+        SellStep.PAYMENT->{
+            val possible=StoreCheckout.claimsPossible(config)
+            val canDiscount=possible&&!c.busy&&cart.isNotEmpty()
+            val hasSupervisor=config.details.optJSONObject("supervisor")!=null
+            val customerDetail=when{phone.isNotBlank()->phone;employee->"Employee";else->null}
+            PaymentStep(
+            title="Payment",totalMinor=total,subtitle=config.storeName,
             choices=listOf(TenderChoice("cash","Cash",TenderKind.CASH),TenderChoice("gcash","GCash / e-wallet",TenderKind.OTHER),TenderChoice("card","Card",TenderKind.OTHER),TenderChoice("split","Split",TenderKind.OTHER))
                 .filter{when(it.id){"split"->"cash" in enabledTenders&&"gcash" in enabledTenders;else->it.id in enabledTenders||it.id=="cash"}},
-            selectedId=tender,onSelect={tender=it;tenderedMinor=null},tenderedMinor=tenderedMinor,onTendered={tenderedMinor=it},
+            selectedId=tender,onSelect={tender=it;tenderedMinor=null;exact=false},tenderedMinor=tenderedNow,onTendered={exact=false;tenderedMinor=it},
             issues=buildList{
                 if(quote!=null&&total==null)add("Points or discounts do not match this basket.")
                 if(employee&&pin.length<6)add("Enter the supervisor PIN for the employee discount.")
@@ -149,14 +161,16 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
                 setupProblem?.let{add(it)}
             },
             saving=flow.saving,canPay=canPay,exactEnabled=setupProblem==null&&total!=null&&tender=="cash"&&shiftOpen&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)&&buildTenders(total,total)!=null,
-            onExact={val n=total;val t=n?.let{buildTenders(it,it)};if(n!=null&&t!=null){tenderedMinor=QuickCash.exactTenderedMinor(n);pay(t,n)}},
-            onPay={val n=total;val t=tenders;if(n!=null&&t!=null)pay(t,n)},onBack={send(SellEvent.BackTapped)},message=c.message?:notice){
+            exactActive=exact&&tender=="cash",
+            // EXACT only fills Tendered = Total (change ₱0.00). The cashier still adds a discount or a customer, then presses Complete.
+            onExact={if(total!=null){send(SellEvent.ExactTapped);exact=true;tenderedMinor=null}},
+            onPay={val n=total;val t=tenders;if(n!=null&&t!=null)pay(t,n)},onBack={send(SellEvent.BackTapped)},message=c.message?:notice,
+            options=listOf(
+                PayOption("Discount",claim?.type?.label,"store-claim",{claiming=true},enabled=canDiscount,active=claim!=null),
+                PayOption("Customer",customerDetail,"store-more",{more=true},enabled=!c.busy,active=customerDetail!=null)
+            )){
             claim?.let{cl->ClaimSummary(cl,quote?.legal,VanController.ClaimPreview.None,{claiming=true})}
-            if(claim==null){
-                val possible=StoreCheckout.claimsPossible(config)
-                SecondaryButton("Senior, PWD or other discount",{claiming=true},Modifier.testTag("store-claim"),enabled=possible&&!c.busy&&cart.isNotEmpty())
-                if(!possible)Text("Not available yet: this store's tax set-up has not reached the phone, so the discount cannot be worked out. Sync, or ask the office.",style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-claim-unavailable"))
-            }
+            if(!possible)Text("Discounts are not available yet: this store's tax set-up has not reached the phone. Sync, or ask the office.",style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-claim-unavailable"))
             if(tender=="split"){
                 SectionCard("Split tender"){
                     LabeledField("Cash part (₱)",cashShare,{cashShare=it},"store-split-cash",numeric=true,maxLength=16)
@@ -168,21 +182,26 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
             if(tender in setOf("gcash","split"))LabeledField("E-wallet confirmation reference",walletRef,{walletRef=it},"store-wallet-ref",maxLength=100)
             if(tender in setOf("card","split"))LabeledField("Card approval reference — never card number",cardRef,{cardRef=it},"store-card-ref",maxLength=100)
             if(tender!="cash")Text("E-wallet and card references await office confirmation; they are not bank settlement proof.",style=MaterialTheme.typography.bodyMedium)
-            SecondaryButton(if(more)"Hide customer & discounts" else "Customer, points & employee discount",{more=!more},Modifier.testTag("store-more"))
-            if(more){
-                LabeledField("Customer phone (optional)",phone,{phone=it},"store-sale-phone",numeric=true,maxLength=24)
-                if(claim==null&&config.details.optJSONObject("loyalty")?.optBoolean("enabled")==true){
-                    SecondaryButton("Look up customer & points",{scope.launch {notice=runCatching {c.repository.storeLookup(phone)?.let {"${it.getString("name")} · ${it.getString("points")} points"}?:"No customer found. Register them in Customers."}.getOrElse {"Connect to look up this customer."}}})
-                    config.details.optJSONObject("customerLookup")?.takeIf {it.optString("phone")==runCatching{StoreCheckout.normalizePhone(phone)}.getOrNull()}?.let {Text("${it.getString("name")} · ${StoreCheckout.availablePoints(config,c.storePos.rows)} points available")}
-                    LabeledField("Points to redeem",points,{points=it},"store-points",numeric=true,maxLength=9)
-                }
-                if(claim==null&&config.details.optJSONObject("supervisor")!=null){
-                    SecondaryButton(if(employee)"Remove employee discount" else "Employee discount",{employee=!employee;pin=""})
-                    if(employee)LabeledField("Supervisor PIN",pin,{pin=it},"store-supervisor-pin",password=true,maxLength=12)
+            if(more)LookSheet("Customer & points",{more=false},tag="store-customer-sheet",closeTag="store-customer-close",footer={
+                PillButton("Done",{more=false},Modifier.testTag("store-customer-done"),height=56.dp,fontSize=20.sp)
+            }){
+                Column(Modifier.padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+                    LabeledField("Customer phone (optional)",phone,{phone=it},"store-sale-phone",numeric=true,maxLength=24)
+                    notice?.let{Text(it,style=MaterialTheme.typography.bodyLarge,fontWeight=FontWeight.SemiBold,modifier=Modifier.testTag("store-customer-notice"))}
+                    if(claim==null&&config.details.optJSONObject("loyalty")?.optBoolean("enabled")==true){
+                        SecondaryButton("Look up customer & points",{scope.launch {notice=runCatching {c.repository.storeLookup(phone)?.let {"${it.getString("name")} · ${it.getString("points")} points"}?:"No customer found. Register them in Customers."}.getOrElse {"Connect to look up this customer."}}})
+                        config.details.optJSONObject("customerLookup")?.takeIf {it.optString("phone")==runCatching{StoreCheckout.normalizePhone(phone)}.getOrNull()}?.let {Text("${it.getString("name")} · ${StoreCheckout.availablePoints(config,c.storePos.rows)} points available")}
+                        LabeledField("Points to redeem",points,{points=it},"store-points",numeric=true,maxLength=9)
+                    }
+                    if(claim==null&&hasSupervisor){
+                        SecondaryButton(if(employee)"Remove employee discount" else "Employee discount",{employee=!employee;pin=""})
+                        if(employee)LabeledField("Supervisor PIN",pin,{pin=it},"store-supervisor-pin",password=true,maxLength=12)
+                    }
+                    if(claim!=null)Text("A Senior, PWD or other discount replaces points and the employee discount on this sale.",style=MaterialTheme.typography.bodyMedium)
                 }
             }
-            Text("Saved before upload. Printing does not require a network. Any refused upload remains visible for review.",style=MaterialTheme.typography.bodyMedium)
-        }
+            Text("Saved on this register before upload. Printing does not need a network.",style=MaterialTheme.typography.bodyMedium)
+        }}
         SellStep.COMPLETE->{
             val done=completed
             val receipts=StoreTransactions.receipts(config,c.storePos.rows)

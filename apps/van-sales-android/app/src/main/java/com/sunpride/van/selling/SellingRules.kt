@@ -124,20 +124,35 @@ object Quantities {
         ?: product.name.trim().substringBefore(' ').trim().ifEmpty { "Other" }.lowercase().replaceFirstChar { it.uppercase() }
 }
 
-/** Quick-cash buttons: EXACT plus the next round amounts above the total (centavos in, centavos out). */
+/**
+ * Quick-cash buttons: EXACT plus the next round amounts above the total, and always the PHP 100 / 500 / 1,000 bills that cover it
+ * (centavos in, centavos out). At most [MAX_BILLS] bills, so EXACT + bills fill two rows of three; when there are more, the always-bills stay.
+ */
 object QuickCash {
     private val DENOMINATIONS = listOf(20L, 50L, 100L, 200L, 500L, 1000L)
+    private val ALWAYS = listOf(100L, 500L, 1000L)
+    const val MAX_BILLS = 5
     fun choices(totalMinor: Long): List<Long> {
-        if (totalMinor <= 0) return DENOMINATIONS.map { it * 100 }
+        val always = ALWAYS.map { it * 100 }.filter { it > totalMinor }
+        if (totalMinor <= 0) return ALWAYS.map { it * 100 }
         val rounded = DENOMINATIONS.map { d -> val step = d * 100; ((totalMinor + step - 1) / step) * step }
-        val bills = DENOMINATIONS.map { it * 100 }.filter { it > totalMinor }
-        return (rounded + bills).filter { it > totalMinor }.distinct().sorted().take(6)
+        val all = (rounded + always).filter { it > totalMinor }.distinct().sorted()
+        if (all.size <= MAX_BILLS) return all
+        val keep = always.toSet()
+        val extras = all.filter { it !in keep }.take(MAX_BILLS - always.size)
+        return (extras + always).distinct().sorted()
     }
     fun changeMinor(totalMinor: Long, tenderedMinor: Long): Long = maxOf(0L, tenderedMinor - totalMinor)
     fun shortMinor(totalMinor: Long, tenderedMinor: Long): Long = maxOf(0L, totalMinor - tenderedMinor)
     fun canPay(totalMinor: Long, tenderedMinor: Long?): Boolean = tenderedMinor != null && tenderedMinor >= totalMinor
-    /** EXACT: the customer hands over exactly what is due, whatever bill was picked before. The screen shows this at once. */
+    /** EXACT: the customer hands over exactly what is due, whatever bill was picked before. It only fills Tendered; it never saves the sale. */
     fun exactTenderedMinor(cashDueMinor: Long): Long = cashDueMinor
+    /**
+     * What counts as tendered right now. While EXACT is on it follows the amount due, so a discount added after EXACT never turns
+     * into silent change; picking a bill or typing an amount turns EXACT off.
+     */
+    fun effectiveTenderedMinor(exact: Boolean, cashDueMinor: Long?, pickedMinor: Long?): Long? =
+        if (exact) cashDueMinor?.let(::exactTenderedMinor) else pickedMinor
 }
 
 /** Money text for big totals: "₱1,234.50". */

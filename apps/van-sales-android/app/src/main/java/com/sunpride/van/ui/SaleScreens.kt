@@ -106,6 +106,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
     val splitOn = splitAvailable && methodCode == SPLIT_ID
     val method = methods.firstOrNull { it.code == methodCode } ?: methods.first()
     var tendered by remember { mutableStateOf<Long?>(null) }
+    // EXACT only fills Tendered with what is due (and follows it if a discount changes it). A bill turns it off. It never saves.
+    var exact by remember { mutableStateOf(false) }
+    var claiming by remember { mutableStateOf(false) }
+    var discounting by remember { mutableStateOf(false) }
     var reference by remember { mutableStateOf("") }
     var splitCode by remember { mutableStateOf(splitMethods.firstOrNull()?.code) }
     var splitText by remember { mutableStateOf("") }
@@ -124,22 +128,24 @@ import androidx.compose.runtime.saveable.rememberSaveable
         c.sale?.let{com.sunpride.van.pos.SapCreditExceptions.state(it.saleId,c.saleContext(now))}?.takeIf{!it.isNull("expiresAt")}?.let{times.add(it.getLong("expiresAt"))}
         times.filter{it>now}.minOrNull()?.let{kotlinx.coroutines.delay((it-now).coerceAtMost(86_400_000L)+1);approvalExpiryTick++}
     }
-    val payment = if (splitOn) PaymentInput(checkNotNull(cashMethod).code,tendered) else PaymentInput(method.code,if (method.kind == PaymentKind.CASH) tendered else null,reference.takeIf { method.referenceRequired })
+    // Totals come from the cart alone, so the seller sees the amount due before entering the payment.
+    val due = remember(c.sale,c.products,c.stock,c.prices,c.customers,c.policy,c.trip) { c.cartQuote() }
+    val exactCash: Long? = due?.let { d -> if (splitOn) splitMinor?.let { o -> d.totalMinor - o } else d.totalMinor }
+    val tenderedNow = QuickCash.effectiveTenderedMinor(exact,exactCash,tendered)
+    val payment = if (splitOn) PaymentInput(checkNotNull(cashMethod).code,tenderedNow) else PaymentInput(method.code,if (method.kind == PaymentKind.CASH) tenderedNow else null,reference.takeIf { method.referenceRequired })
     val splitPayment = if (splitOn && splitMethod != null && splitMinor != null) SplitPayment(splitMethod.code,splitMinor,splitRef.takeIf { splitMethod.referenceRequired }) else null
     // A split that is not filled in yet is not a sale: the buttons below are the answer.
     val result = remember(c.sale,c.products,c.stock,c.prices,c.customers,c.policy,c.trip,c.paymentFacts,payment,splitPayment,splitOn,approvalExpiryTick) { if (splitOn && splitPayment == null) null else c.quote(payment,splitPayment) }
-    // Totals come from the cart alone, so the seller sees the amount due before entering the payment.
-    val due = remember(c.sale,c.products,c.stock,c.prices,c.customers,c.policy,c.trip) { c.cartQuote() }
     val quote = result?.quote
     // EXACT: the customer hands over exactly the total (or, split, exactly the cash part), so the sale can be saved with that one tap.
     val exactPayment = remember(due?.totalMinor,cashMethod?.code,splitOn,splitMinor) { due?.let { d -> cashMethod?.let { PaymentInput(it.code,if (splitOn) splitMinor?.let { o -> d.totalMinor - o } else d.totalMinor) } } }
     val exactResult = remember(c.sale,c.products,c.stock,c.prices,c.customers,c.policy,c.trip,c.paymentFacts,exactPayment,splitPayment,splitOn,approvalExpiryTick) { exactPayment?.takeIf { it.tenderedMinor != null && (!splitOn || splitPayment != null) }?.let { c.quote(it,splitPayment) } }
     val draft = c.sale
     if (draft == null) { ScreenFrame("Payment", c::back) { Text("No sale in progress.") }; return }
-    val view = if (splitOn) due?.let { SplitTenders.view(it.totalMinor,splitMinor ?: 0L,tendered ?: 0L) } else null
+    val view = if (splitOn) due?.let { SplitTenders.view(it.totalMinor,splitMinor ?: 0L,tenderedNow ?: 0L) } else null
     val preview = c.claimPreview
     // Cash needs a tender: until one is chosen that is not a "problem", the buttons below are the answer.
-    val issues = (result?.issues ?: emptyList()).filterNot { (method.kind == PaymentKind.CASH || splitOn) && tendered == null && it.problem == CheckoutProblem.CASH_MISSING }.map { issue ->
+    val issues = (result?.issues ?: emptyList()).filterNot { (method.kind == PaymentKind.CASH || splitOn) && tenderedNow == null && it.problem == CheckoutProblem.CASH_MISSING }.map { issue ->
         VanRules.checkoutMessage(issue.problem,issue.productId?.let { id -> c.products.firstOrNull { it.productId == id }?.name })
     } + listOfNotNull(
         (preview as? VanController.ClaimPreview.Differs)?.let { "The office works out ${com.sunpride.van.selling.Peso.format(it.serverMinor)} for this discount; this phone ${com.sunpride.van.selling.Peso.format(it.phoneMinor)}. Sync to refresh prices and tax, then try again." },
@@ -147,13 +153,20 @@ import androidx.compose.runtime.saveable.rememberSaveable
     val blocked = preview is VanController.ClaimPreview.Differs
     val choices = methods.map { TenderChoice(it.code,it.label,when (it.kind) { PaymentKind.CASH -> TenderKind.CASH; PaymentKind.OTHER -> TenderKind.OTHER; PaymentKind.CREDIT -> TenderKind.CREDIT }) } +
         (if (splitAvailable) listOf(TenderChoice(SPLIT_ID,"Cash + other",TenderKind.CASH)) else emptyList())
+    val manualUsed = draft.manualDiscount?.let { it.lineMinor.isNotEmpty() || it.basketMinor > 0L } == true || draft.priceOverride?.unitMinor?.isNotEmpty() == true
     PaymentStep(
-        title = "Payment · ${draft.customer.name}", totalMinor = due?.totalMinor, choices = choices,
-        selectedId = if (splitOn) SPLIT_ID else method.code, onSelect = { methodCode = it; tendered = null }, tenderedMinor = tendered, onTendered = { tendered = it },
+        title = "Payment", subtitle = draft.customer.name + (if (draft.customer.code.isNotBlank()) " · ${draft.customer.code}" else ""),
+        totalMinor = due?.totalMinor, choices = choices,
+        selectedId = if (splitOn) SPLIT_ID else method.code, onSelect = { methodCode = it; tendered = null; exact = false }, tenderedMinor = tenderedNow, onTendered = { exact = false; tendered = it },
         issues = issues, cashDueMinor = view?.cashDueMinor,
-        saving = c.busy, canPay = !c.busy && !blocked && result?.ok == true, exactEnabled = !c.busy && !blocked && exactResult?.ok == true,
-        onExact = { val p = exactPayment; val q = exactResult?.quote; if (p != null && q != null && exactResult.ok) { tendered = p.tenderedMinor?.let(QuickCash::exactTenderedMinor); c.completeSale(p,q.totalMinor,splitPayment) } },
-        onPay = { quote?.let { c.completeSale(payment,it.totalMinor,splitPayment) } }, onBack = c::back, message = c.message) {
+        saving = c.busy, canPay = !c.busy && !blocked && result?.ok == true, exactEnabled = !c.busy && !blocked && exactResult?.ok == true, exactActive = exact,
+        // EXACT only fills Tendered = Total (change ₱0.00). The seller can still add a discount, then must press Complete.
+        onExact = { if (exactPayment != null && exactResult?.ok == true) { exact = true; tendered = null } },
+        onPay = { quote?.let { c.completeSale(payment,it.totalMinor,splitPayment) } }, onBack = c::back, message = c.message,
+        options = listOf(
+            // IP-HH2: Senior / PWD / Solo parent / Athlete / Uniformed replaces the manual discount and the price exception on this sale.
+            PayOption("Discount",draft.claim?.type?.label,"sale-claim",{ claiming = true },enabled = !c.busy && draft.lines.isNotEmpty() && (draft.claim != null || !manualUsed),active = draft.claim != null),
+            PayOption("Line discount",if (manualUsed) "Applied" else null,"sale-discounts",{ discounting = true },enabled = !c.busy && draft.lines.isNotEmpty() && draft.claim == null,active = manualUsed))) {
         draft.claim?.let { claim -> ClaimSummary(claim,due?.legal,preview,null) }
         if (splitOn) SectionCard("Second tender") {
             splitMethods.forEach { m ->
@@ -202,6 +215,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
         }
         Text("The sale is saved on this phone first. It doesn't need signal.",style = MaterialTheme.typography.bodyMedium)
     }
+    if (claiming) ClaimSheet(items = draft.lines.map { l -> l.productId to (c.products.firstOrNull { it.productId == l.productId }?.name ?: "Item") },initial = draft.claim,
+        onApply = { c.setClaim(it); claiming = false },onRemove = if (draft.claim != null) ({ c.setClaim(null); claiming = false }) else null,onClose = { claiming = false })
+    if (discounting) DiscountDialog(c) { discounting = false }
 }
 private const val SPLIT_ID = "split"
 

@@ -60,6 +60,7 @@ class StorePosShortProofTest {
                 val before=c.storePos.rows.count{it.kind=="store.sale"}
                 rule.onNodeWithTag("checkout").performClick()
                 rule.onNodeWithTag("pay-exact").performClick()
+                rule.onNodeWithTag("complete-sale").performClick()
                 rule.waitUntil(20_000){!c.busy&&c.page==Page.STORE_SALE&&c.storePos.rows.count{it.kind=="store.sale"}==before+1}
                 capture("retail-short-$label-receipt")
             }

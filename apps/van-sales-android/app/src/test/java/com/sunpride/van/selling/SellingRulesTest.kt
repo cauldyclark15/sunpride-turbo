@@ -88,8 +88,8 @@ class SellingRulesTest {
     }
 
     @Test fun quickCashRoundsUpAboveTheTotal() {
-        assertEquals(listOf(4000L, 5000L, 10000L, 20000L, 50000L, 100000L), QuickCash.choices(2786))
-        assertEquals(listOf(124000L, 125000L, 130000L, 140000L, 150000L, 200000L), QuickCash.choices(123_400))
+        assertEquals(listOf(4000L, 5000L, 10000L, 50000L, 100000L), QuickCash.choices(2786))
+        assertEquals(listOf(124000L, 125000L, 130000L, 140000L, 150000L), QuickCash.choices(123_400))
         assertEquals(listOf(20000L, 50000L, 100000L), QuickCash.choices(10_000))
         assertTrue(QuickCash.choices(2786).all { it > 2786 })
     }
@@ -111,12 +111,32 @@ class SellingRulesTest {
     // Beta.28: EXACT after picking a bill left TENDERED at the bill. EXACT always means tendered = what is due, change 0.
     @Test fun exactReplacesAPreviouslyPickedBillWithTheAmountDue() {
         val due = 4790L
-        val pickedBill = QuickCash.choices(due).first { it == 20_000L }
-        assertEquals(15_210L, QuickCash.changeMinor(due, pickedBill))
+        val pickedBill = QuickCash.choices(due).first { it == 10_000L }
+        assertEquals(5_210L, QuickCash.changeMinor(due, pickedBill))
         val afterExact = QuickCash.exactTenderedMinor(due)
         assertEquals(due, afterExact)
         assertEquals(0L, QuickCash.changeMinor(due, afterExact))
         assertEquals(0L, QuickCash.shortMinor(due, afterExact))
         assertTrue(QuickCash.canPay(due, afterExact))
+    }
+
+    // Beta.30: the 100 / 500 / 1,000 bills are always offered when they cover the total, and at most five bills sit next to EXACT.
+    @Test fun quickCashAlwaysOffersTheBigBillsThatCoverTheTotal() {
+        listOf(2987L, 4000L, 8755L, 9999L, 19467L, 47689L, 49900L).forEach { total ->
+            val bills = QuickCash.choices(total)
+            assertTrue("$total: at most five bills", bills.size <= QuickCash.MAX_BILLS)
+            listOf(10_000L, 50_000L, 100_000L).filter { it > total }.forEach { assertTrue("$total offers $it: $bills", it in bills) }
+            assertTrue(bills.all { it > total }); assertEquals(bills.sorted(), bills); assertEquals(bills.distinct(), bills)
+        }
+        assertEquals(listOf(20000L, 50000L, 100000L), QuickCash.choices(19467))
+    }
+
+    @Test fun exactFollowsTheAmountDueUntilABillIsPicked() {
+        assertEquals(4790L, QuickCash.effectiveTenderedMinor(exact = true, cashDueMinor = 4790L, pickedMinor = 20_000L))
+        // A discount lowers the due amount after EXACT: Tendered follows it, so there is never silent change.
+        assertEquals(4300L, QuickCash.effectiveTenderedMinor(exact = true, cashDueMinor = 4300L, pickedMinor = null))
+        assertEquals(20_000L, QuickCash.effectiveTenderedMinor(exact = false, cashDueMinor = 4790L, pickedMinor = 20_000L))
+        assertNull(QuickCash.effectiveTenderedMinor(exact = false, cashDueMinor = 4790L, pickedMinor = null))
+        assertNull(QuickCash.effectiveTenderedMinor(exact = true, cashDueMinor = null, pickedMinor = 100L))
     }
 }

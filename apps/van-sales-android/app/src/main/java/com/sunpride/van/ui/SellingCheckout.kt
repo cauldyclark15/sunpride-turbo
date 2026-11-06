@@ -23,6 +23,7 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.sunpride.van.pos.OpeningFloat
@@ -54,7 +55,7 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
 @Composable private fun Figure(label: String, value: String, tag: String, modifier: Modifier = Modifier, big: Boolean = false, color: Color = Look.ink) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Look.muted, letterSpacing = 0.8.sp)
-        FitText(value, if (big) 44.sp else 28.sp, Modifier.fillMaxWidth(), minSize = FigureFit.MIN_SP.sp, // IP-INT3FIX: always shrinks down to the 14sp floor before it could clip
+        FitText(value, if (big) 42.sp else 26.sp, Modifier.fillMaxWidth(), minSize = FigureFit.MIN_SP.sp, // IP-INT3FIX: always shrinks down to the 14sp floor before it could clip
              color = color, textAlign = TextAlign.Center, tag = tag)
     }
 }
@@ -62,7 +63,7 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
 /** The big total on its own line, then two smaller figures side by side. Used by Payment and Complete. */
 @Composable private fun FigureCard(totalLabel: String, totalValue: String, totalTag: String, left: Triple<String, String, String>, right: Triple<String, String, String>, rightColor: Color) {
     LookCard {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Figure(totalLabel, totalValue, totalTag, Modifier.fillMaxWidth(), big = true)
             Box(Modifier.fillMaxWidth().height(1.dp).background(Look.hairline))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
@@ -74,9 +75,25 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
     }
 }
 
+/** One option tile under the quick-cash buttons (Discount, Customer...): [detail] shows what is already applied. */
+data class PayOption(val label: String, val detail: String?, val tag: String, val onClick: () -> Unit, val enabled: Boolean = true, val active: Boolean = false)
+
+@Composable private fun OptionTile(label: String, detail: String?, tag: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true, active: Boolean = false) {
+    val shape = RoundedCornerShape(18.dp)
+    val ink = if (enabled) Look.ink else MaterialTheme.colorScheme.onSurfaceVariant
+    Box(modifier.heightIn(min = 56.dp).clip(shape).background(if (active) Look.tint else Look.sheet).border(1.5.dp, if (active) Look.accent else Look.hairline, shape)
+        .clickable(enabled = enabled, onClick = onClick, role = Role.Button).testTag(tag), contentAlignment = Alignment.Center) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(label, color = if (active && enabled) Look.accent else ink, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+            if (detail != null) Text(detail, color = Look.muted, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        }
+    }
+}
+
 /**
- * Payment: Total, Tendered and Change in large type, a tender row, EXACT and quick-cash buttons, live change. EXACT pays at once
- * ([onExact]); a bill only fills Tendered and shows the change, then [onPay] confirms.
+ * Payment: Total, Tendered and Change in large type, a tender row, EXACT and quick-cash buttons, then the discount / customer
+ * options, all above a Complete button that is always on screen. EXACT and the bills only fill Tendered ([onExact] never saves);
+ * [onPay], the big Complete button, is the only thing that completes the sale.
  */
 @OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable fun PaymentStep(
@@ -85,6 +102,12 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
     onExact: () -> Unit, onPay: () -> Unit, onBack: () -> Unit, message: String? = null,
     /** IP-HH2: a split sale; cash, change and the quick-cash buttons work against this part of the total. */
     cashDueMinor: Long? = null,
+    /** True while EXACT is the chosen amount (the EXACT button shows as selected). */
+    exactActive: Boolean = false,
+    /** Under the title: who the sale is for. */
+    subtitle: String? = null,
+    /** Discount / customer tiles, shown above Complete without scrolling. */
+    options: List<PayOption> = emptyList(),
     body: @Composable ColumnScope.() -> Unit = {},
 ) {
     val selected = choices.firstOrNull { it.id == selectedId } ?: choices.first()
@@ -99,7 +122,7 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
     // A different tender starts clean: no stale keypad digits from the previous one.
     LaunchedEffect(selected.id) { typed = ""; other = false }
     Scaffold(Modifier.fillMaxSize().imePadding(), containerColor = MaterialTheme.colorScheme.background, contentWindowInsets = WindowInsets.systemBars,
-        topBar = { LookTopBar(title, onBack, backEnabled = !saving) },
+        topBar = { LookTopBar(title, onBack, backEnabled = !saving, subtitle = subtitle) },
         bottomBar = {
             Surface(color = Look.sheet, shadowElevation = 10.dp, shape = RoundedCornerShape(topStart = Look.sheetTop, topEnd = Look.sheetTop)) {
                 Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -108,9 +131,8 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
                 }
             }
         }) { padding ->
-        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             message?.let { Text(it, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("message")) }
-            StepPills(SellStep.PAYMENT)
             FigureCard("TOTAL", totalMinor?.let(Peso::format) ?: "Not ready", "checkout-total",
                 Triple("TENDERED", tendered?.let(Peso::format) ?: "₱0.00", "checkout-tendered"),
                 if (short > 0) Triple("SHORT", Peso.format(short), "checkout-change") else Triple("CHANGE", Peso.format(change), "checkout-change"),
@@ -119,10 +141,10 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
             if (choices.size > 1) FlowRow(Modifier.fillMaxWidth().testTag("tender-row"), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 choices.forEach { choice ->
                     val on = choice.id == selected.id
-                    Surface(Modifier.heightIn(min = 52.dp).clip(CircleShape).clickable { onSelect(choice.id) }.testTag("pay-${choice.id}"), shape = CircleShape,
+                    Surface(Modifier.heightIn(min = 48.dp).clip(CircleShape).clickable { onSelect(choice.id) }.testTag("pay-${choice.id}"), shape = CircleShape,
                         color = if (on) Look.barInk else Look.sheet, border = BorderStroke(1.5.dp, if (on) Look.barInk else Look.hairline)) {
-                        Box(Modifier.padding(horizontal = 20.dp).heightIn(min = 52.dp), contentAlignment = Alignment.Center) {
-                            Text(choice.label, fontSize = 17.sp, fontWeight = FontWeight.ExtraBold, color = if (on) Color.White else Look.ink, maxLines = 1)
+                        Box(Modifier.padding(horizontal = 18.dp).heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
+                            Text(choice.label, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = if (on) Color.White else Look.ink, maxLines = 1)
                         }
                     }
                 }
@@ -134,19 +156,28 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
                         rowButtons.forEach { (label, action) ->
                             val exact = label == "EXACT"
                             val on = !saving && (!exact || exactEnabled)
-                            val shape = RoundedCornerShape(22.dp)
-                            Box(Modifier.weight(1f).heightIn(min = 68.dp).clip(shape).background(if (!on) Brush.linearGradient(listOf(MaterialTheme.colorScheme.surfaceVariant, MaterialTheme.colorScheme.surfaceVariant)) else if (exact) Look.gradient else Brush.linearGradient(listOf(Look.card, Look.card)))
-                                .then(if (!exact) Modifier.border(1.5.dp, Look.hairline, shape) else Modifier)
+                            val picked = if (exact) exactActive else tendered == OpeningFloat.centavos(label.filter { it.isDigit() })
+                            val shape = RoundedCornerShape(18.dp)
+                            val fill = when { !on -> MaterialTheme.colorScheme.surfaceVariant; picked -> Look.accent; exact -> Look.tint; else -> Look.card }
+                            val ink = when { !on -> MaterialTheme.colorScheme.onSurfaceVariant; picked -> Look.onAccent; exact -> Look.accent; else -> Look.ink }
+                            Box(Modifier.weight(1f).heightIn(min = 56.dp).clip(shape).background(fill)
+                                .border(1.5.dp, if (picked) Look.accent else if (exact && on) Look.accent else Look.hairline, shape)
                                 .clickable(enabled = on, onClick = action, role = Role.Button).testTag(if (exact) "pay-exact" else "quick-cash-${label.filter(Char::isDigit)}"), contentAlignment = Alignment.Center) {
-                                FitText(label, 24.sp, Modifier.padding(horizontal = 6.dp), minSize = 14.sp, color = if (!on) MaterialTheme.colorScheme.onSurfaceVariant else if (exact) Color.White else Look.ink, textAlign = TextAlign.Center)
+                                FitText(label, 22.sp, Modifier.padding(horizontal = 6.dp), minSize = 14.sp, color = ink, textAlign = TextAlign.Center)
                             }
                         }
                         repeat(3 - rowButtons.size) { Spacer(Modifier.weight(1f)) }
                     }
                 }
-                PillButton(if (other) "Hide keypad" else "Other amount", { other = !other }, Modifier.testTag("pay-other-amount"), filled = false, height = 56.dp)
-                if (other) MoneyPad(typed, "₱0", { typed = it; onTendered(OpeningFloat.centavos(it)) }, "cash-received", enabled = !saving)
             }
+            val tiles = (if (cash && totalMinor != null) listOf(PayOption(if (other) "Hide keypad" else "Other amount", null, "pay-other-amount", { other = !other }, active = other)) else emptyList()) + options
+            tiles.chunked(3).forEach { row ->
+                Row(Modifier.fillMaxWidth().testTag("pay-options"), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    row.forEach { o -> OptionTile(o.label, o.detail, o.tag, o.onClick, Modifier.weight(1f), o.enabled && !saving, o.active) }
+                    repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                }
+            }
+            if (cash && other && totalMinor != null) MoneyPad(typed, "₱0", { typed = it; onTendered(OpeningFloat.centavos(it)) }, "cash-received", enabled = !saving)
             body()
         }
     }
