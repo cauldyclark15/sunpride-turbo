@@ -5,6 +5,7 @@ import { installIntegrityRoutes, installJobs } from "./jobs.js";
 import { installDispositionRoutes } from "./dispositions.js";
 import { installValuationRoutes } from "./valuation.js";
 import { installCommandExtensions } from "./extensions.js";
+import { installCountRoutes } from "./counts.js";
 import { installReasonRoutes } from "./reasons.js";
 import { installToleranceRoutes } from "./tolerances.js";
 import { installTransferRoutes } from "./transfers.js";
@@ -55,6 +56,7 @@ export function install(router, core) {
   installIntegrityRoutes(router, core);
   installTransferRoutes(router);
   installReceivingRoutes(router);
+  installCountRoutes(router, core);
   for (const kind of [
     "receipts",
     "transfers",

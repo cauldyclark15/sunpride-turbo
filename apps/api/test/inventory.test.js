@@ -115,6 +115,29 @@ function input(p, qty, from = null, to = depot, extra = {}) {
 }
 /** @param {any} data */
 const movement = (data) => tx(h.db, (t) => postMovement(t, data));
+/** Count approval goes through the shared fiscal matrix (F-124), which reads PERSISTED people. The fixtures
+ * above only exist in the profile hook, so persist the counter and the approver and give the counter's role a
+ * stock rule, once. */
+let authorized = false;
+/** @param {any[]} people */
+async function authorizeCounts(...people) {
+  for (const who of people) {
+    await h.db`insert into profiles(id,user_id,auth_subject,name,email,role,status,org_unit_id) values(${who.profileId},${who.userId},${who.userId},'Test Person',${`persisted-${who.userId}@example.test`},${who.role},'active',${who.orgUnitId}) on conflict do nothing`;
+    await h.db`insert into employee_assignments(profile_id,org_unit_id,role,effective_from,actor_subject,reason) select ${who.profileId},${who.orgUnitId},${who.role},now()-interval '1 day','TEST','TEST' where not exists (select 1 from employee_assignments where profile_id=${who.profileId})`;
+  }
+  if (!authorized) {
+    authorized = true;
+    await h.db`insert into fiscal_authority_rules(org_unit_id,kind,role,channel,min_centavos,max_centavos,self_limit_centavos,approver_roles,offline_allowed,effective_from,sample) values(${unit},'stock','manager','*',0,100000000,0,${["approver"]},false,'2026-01-01',true)`;
+  }
+}
+/** A stock-in line that carries a cost, so the count can be valued. @param {any} p @param {number} qty @param {string} to @param {number} [cost] */
+const costed = (p, qty, to, cost = 100) => {
+  const base = input(p, qty, null, to);
+  return {
+    ...base,
+    lines: [{ ...base.lines[0], unitCostMinor: cost }],
+  };
+};
 /** @param {any} p @param {number} qty @param {any} [extra] */
 const receipt = (p, qty, extra = {}) =>
   command(admin, "receipts/post", {
@@ -543,7 +566,8 @@ describe("blind counts and adjustment separation", () => {
     });
     // Truck already has other stock; use a dedicated location for a single-line proof.
     const loc = await location(`Count-${crypto.randomUUID()}`, "bin");
-    await movement(input(p, 10, null, loc));
+    await movement(costed(p, 10, loc));
+    await authorizeCounts(manager, approver);
     const started = await command(manager, "counts/start", {
       locationId: loc,
       blindCount: true,
@@ -593,7 +617,7 @@ describe("blind counts and adjustment separation", () => {
     );
     expect(ownAfter.body.lines[0]).not.toHaveProperty("variance");
   });
-  it("rejects changed-and-restored stock by frozen version, not merely matching quantity", async () => {
+  it("does not throw a count out when stock moves and comes back before submit (v2: no whole-count invalidation)", async () => {
     const p = await product(),
       loc = await location(`Stale-${crypto.randomUUID()}`, "bin");
     await movement(input(p, 10, null, loc));
@@ -608,11 +632,10 @@ describe("blind counts and adjustment separation", () => {
       sessionId: start.body.id,
       lines: [{ lineId: detail.body.lines[0].id, countedBase: 10 }],
     });
-    expect(response.status).toBe(409);
-    expect(response.body.error.code).toBe("stale_snapshot");
+    expect(response.status).toBe(200);
     const [session] =
       await h.db`select status from stock_count_sessions where id=${start.body.id}`;
-    expect(session.status).toBe("counting");
+    expect(session.status).toBe("submitted");
   });
   it("manual adjustments require inventory.approve, never the requester, even for super admin", async () => {
     const p = await product(),
@@ -651,10 +674,11 @@ describe("blind counts and adjustment separation", () => {
 });
 
 describe("inventory lifecycle counterexamples", () => {
-  it("refuses approval after stock changed and was restored after submission, without creating an adjustment", async () => {
+  it("still approves after stock changed and was restored after submission: the adjustment is counted minus expected-at-count-time", async () => {
     const p = await product(),
-      loc = await location(`Approval-stale-${crypto.randomUUID()}`, "bin");
-    await movement(input(p, 10, null, loc));
+      loc = await location(`Approval-moved-${crypto.randomUUID()}`, "bin");
+    await movement(costed(p, 10, loc));
+    await authorizeCounts(manager, approver);
     const start = await command(manager, "counts/start", { locationId: loc });
     const detail = await read(
       manager,
@@ -673,11 +697,13 @@ describe("inventory lifecycle counterexamples", () => {
     const approved = await command(approver, "counts/approve", {
       sessionId: start.body.id,
     });
-    expect(approved.status).toBe(409);
-    expect(approved.body.error.code).toBe("stale_snapshot");
+    expect(approved.status).toBe(200);
     const [count] =
       await h.db`select count(*) as n from inventory_adjustments where source_count_id=${start.body.id}`;
-    expect(Number(count.n)).toBe(0);
+    expect(Number(count.n)).toBe(1);
+    const [bal] =
+      await h.db`select physical_base from inventory_balances where product_id=${p.id} and location_id=${loc}`;
+    expect(Number(bal.physical_base)).toBe(9);
   });
   it("posts and reverses receipts and adjustments atomically without losing exact lot identity", async () => {
     const p = await product({ tracked: true }),
