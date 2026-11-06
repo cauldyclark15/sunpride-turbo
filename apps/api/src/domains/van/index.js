@@ -33,7 +33,13 @@ import {
 } from "./commands.js";
 import { applyOperation, VAN_OPS } from "./operations.js";
 import { vanProjection } from "./projection.js";
-import { tripsForDay, tripDetail, damageReview, csv } from "./queries.js";
+import {
+  tripsForDay,
+  tripDetail,
+  damageReview,
+  loadDifferences,
+  csv,
+} from "./queries.js";
 import { uuid } from "./model.js";
 
 /** @param {any} router @param {any} ctx */
@@ -134,6 +140,7 @@ export function install(router, ctx) {
     ),
   );
   router.get("/api/v1/van/damage", damageReview);
+  router.get("/api/v1/van/load-differences", loadDifferences);
   router.get("/api/v1/van/damage-photo", async (/** @type {any} */ request) => {
     const row = await tx(request.db, async (db) => {
       const actor = await currentActor(db, request.actor);

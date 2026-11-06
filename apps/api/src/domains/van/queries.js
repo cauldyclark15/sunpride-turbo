@@ -5,7 +5,7 @@ import { ApiError } from "../../core/errors.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { currentActor, tripFor, can } from "./access.js";
-import { cashExpectation } from "./facts.js";
+import { cashExpectation, productFor } from "./facts.js";
 import { date, dayString, safeNumber, today, units } from "./model.js";
 
 /** @param {any} v */
@@ -345,4 +345,81 @@ export function csv(rows) {
   return (
     "\ufeff" + rows.map((r) => r.map(cell).join(",")).join("\r\n") + "\r\n"
   );
+}
+
+/** Load differences waiting for a supervisor: what the seller counted against what was planned, in cases + pieces and pesos at cost.
+ * @param {any} ctx */
+export async function loadDifferences(ctx) {
+  return tx(ctx.db, async (db) => {
+    const actor = await currentActor(db, ctx.actor);
+    await requireCapability({ db, actor }, "van.read");
+    const scope = await scopeFilterForActor(db, actor),
+      ids = scope.unitIds?.length
+        ? scope.unitIds
+        : ["00000000-0000-0000-0000-000000000000"];
+    /** @type {any[]} */ const loads =
+      await db`select l.id as load_id,l.confirmed_at,l.confirmed_by,t.id as trip_id,t.trip_number,t.service_date,t.salesperson_profile_id,t.source_location_id,p.name as seller_name,coalesce(v.name,v.vehicle_code) as truck
+        from van_trip_loads l join van_trips t on t.id=l.trip_id join profiles p on p.id=t.salesperson_profile_id join vehicles v on v.id=t.vehicle_id
+        where l.status='discrepancy' and l.deleted_at is null and t.deleted_at is null and t.status='loading'
+        and (${scope.unitIds === null} or t.org_unit_id in ${db(ids)})
+        and (${actor.role !== "sales"} or t.salesperson_profile_id=${actor.profileId})
+        order by l.confirmed_at,l.id limit 50`;
+    const canApprove = can(actor, "van.load.approve"),
+      now = Date.now();
+    const items = [];
+    for (const load of loads) {
+      /** @type {any[]} */ const lines =
+        await db`select * from van_trip_load_lines where load_id=${load.load_id} and deleted_at is null order by line_number`;
+      let valueCentavos = 0n;
+      const out = [];
+      for (const l of lines) {
+        const product = await productFor(db, l.product_id);
+        const [bal] =
+          await db`select weighted_average_cost_minor from inventory_balances where product_id=${l.product_id} and location_id=${load.source_location_id}`;
+        const expected = BigInt(l.expected_base),
+          counted = BigInt(l.actual_base ?? l.expected_base),
+          diff = counted - expected,
+          cost = bal?.weighted_average_cost_minor
+            ? BigInt(bal.weighted_average_cost_minor)
+            : null,
+          scale = product.quantityScale,
+          lineValue =
+            cost === null ? null : ((diff < 0n ? -diff : diff) * cost) / scale;
+        if (lineValue !== null) valueCentavos += lineValue;
+        out.push({
+          lineNumber: l.line_number,
+          productCode: l.product_code,
+          productName: product.name,
+          reason: l.discrepancy_reason,
+          expected: display(expected, product),
+          counted: display(counted, product),
+          differenceBase: String(diff),
+          differenceCentavos: lineValue === null ? null : String(lineValue),
+          differs: diff !== 0n,
+        });
+      }
+      items.push({
+        tripId: load.trip_id,
+        loadId: load.load_id,
+        tripNumber: load.trip_number,
+        serviceDate: dayString(load.service_date),
+        truck: load.truck,
+        sellerName: load.seller_name,
+        requestedAt: ms(load.confirmed_at),
+        ageMinutes: load.confirmed_at
+          ? Math.max(
+              0,
+              Math.floor((now - new Date(load.confirmed_at).getTime()) / 60000),
+            )
+          : null,
+        lines: out,
+        differenceCentavos: String(valueCentavos),
+        canDecide:
+          canApprove &&
+          load.salesperson_profile_id !== actor.profileId &&
+          load.confirmed_by !== actor.subject,
+      });
+    }
+    return { items };
+  });
 }

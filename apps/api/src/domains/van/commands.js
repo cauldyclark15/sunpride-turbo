@@ -270,18 +270,26 @@ export async function planLoad(db, actor, p) {
   await audit(db, trip, actor, "van.load.planned", load.id);
   return { tripId: trip.id, loadId: load.id };
 }
-/** @param {any} db @param {any} actor @param {any} p */
+/** A supervisor decides a load difference: approve posts the counted load; reject sends it back to the seller to recount.
+ * @param {any} db @param {any} actor @param {any} p */
 export async function approveLoad(db, actor, p) {
   const trip = await tripFor(db, actor, p.tripId, "van.load.approve", true);
   notSelf(actor, trip);
+  const decision = choice(p.decision ?? "approve", ["approve", "reject"]),
+    note = text(p.note, 300, decision === "reject");
   const [load] =
     await db`select * from van_trip_loads where trip_id=${trip.id} and status='discrepancy' for update`;
   if (!load || trip.status !== "loading" || load.confirmed_by === actor.subject)
     refuse("No load can be approved by this person");
-  await db`update van_trip_loads set approved_by=${actor.subject},approved_at=now(),approval_note=${text(p.note)} where id=${load.id}`;
+  if (decision === "reject") {
+    await db`update van_trip_loads set status='planned',approved_by=null,approved_at=null,approval_note=${note},updated_at=now() where id=${load.id}`;
+    await audit(db, trip, actor, "van.load.rejected", load.id, { note });
+    return { tripId: trip.id, entityId: load.id, decision };
+  }
+  await db`update van_trip_loads set approved_by=${actor.subject},approved_at=now(),approval_note=${note} where id=${load.id}`;
   const ack = await finishLoad(db, trip, actor);
   await audit(db, trip, actor, "van.load.approved", load.id);
-  return { ...ack, tripId: trip.id };
+  return { ...ack, tripId: trip.id, decision };
 }
 /** @param {any} db @param {any} actor @param {any} p */
 export async function cancelTrip(db, actor, p) {

@@ -7,6 +7,7 @@ import Link from "next/link";
 import { FiscalWorkspace } from "../../fiscal/fiscal-workspace";
 import { RetailExceptionReview } from "../../storepos/retail-workspace";
 import { StoreShiftReview } from "../../storepos/storepos-admin";
+import { LoadDifferenceReview } from "../../van/load-differences";
 import { FraudPanel, AlertsPanel } from "./tower";
 import { useCallback, useState } from "react";
 import { useAnalytics } from "../api";
@@ -315,6 +316,7 @@ export function DecidePage() {
           />
         )}
       </PageData>
+      <LoadDifferenceReview />
       <StoreShiftReview />
       <RetailExceptionReview />
       <CallFlowReviews />
