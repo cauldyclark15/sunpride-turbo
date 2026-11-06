@@ -44,9 +44,9 @@ class StorePosShortProofTest {
             rule.onNodeWithTag("password").performTextInput(login.getString("password"));login.remove("password")
             Espresso.closeSoftKeyboard();rule.onNodeWithTag("sign-in").performClick();ready(c)
             assertNull(c.storePos.shift);capture("retail-short-home")
-            rule.onNodeWithTag("store-shift").performClick()
-            rule.onNodeWithTag("store-cash-amount").performTextInput("1000");Espresso.closeSoftKeyboard();capture("retail-short-opening")
-            rule.onNodeWithTag("save-store-shift").performClick()
+            rule.onNodeWithTag("store-open-session").performClick()
+            rule.onNodeWithTag("store-float-amount").performTextInput("1000");Espresso.closeSoftKeyboard();capture("retail-short-opening")
+            rule.onNodeWithTag("save-store-open").performClick()
             rule.waitUntil(20_000){!c.busy&&c.storePos.shift!=null}
             val config=checkNotNull(c.storePos.config)
             val product=StoreCheckout.products(config).first {p->runCatching{StoreCheckout.quote(config,c.storePos.rows,listOf(com.sunpride.van.pos.CartLine(p.productId,p.quantityScale)),System.currentTimeMillis())}.isSuccess}
@@ -76,8 +76,9 @@ class StorePosShortProofTest {
             assertEquals(0,c.storePos.review);capture("retail-short-synced")
             rule.runOnIdle{c.open(Page.STORE_READS)};rule.waitForIdle();capture("retail-short-received-x")
             rule.onNodeWithTag("store-z-read").performScrollTo().performClick();rule.waitUntil(20_000){!c.busy&&c.page==Page.HOME}
-            home(c);rule.onNodeWithTag("store-shift").performClick();rule.onNodeWithTag("store-cash-amount").performTextInput("1000");Espresso.closeSoftKeyboard();capture("retail-short-blind-count")
-            rule.onNodeWithTag("save-store-shift").performClick();rule.waitUntil(20_000){!c.busy&&c.storePos.shift==null}
+            home(c);rule.onNodeWithTag("store-end-session").performScrollTo().performClick();rule.onNodeWithTag("store-end-continue").performClick()
+            rule.onNodeWithTag("store-count-amount").performTextInput("1000");Espresso.closeSoftKeyboard();capture("retail-short-blind-count")
+            rule.onNodeWithTag("save-store-close").performClick();rule.waitUntil(20_000){!c.busy&&c.storePos.shift==null}
             rule.runOnIdle{c.syncNow()};rule.waitUntil(20_000){!c.busy&&c.storePos.queued==0}
             assertEquals(0,c.storePos.review);capture("retail-short-day-closed")
             signal("done")

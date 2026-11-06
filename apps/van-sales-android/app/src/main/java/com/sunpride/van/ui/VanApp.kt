@@ -55,7 +55,7 @@ import kotlinx.coroutines.delay
             controller.enrollment !is EnrollmentState.Ready -> EnrollmentScreen(controller)
             // SP-0146 v2 messaging: the shared chat module, opened from Home; Back inside it steps back, Back on its list returns Home.
             com.sunpride.van.chat.VanChat.open && !controller.storeMode -> com.sunpride.van.chat.VanMessages(chatTap)
-            controller.storeMode && controller.page !in setOf(Page.ACCOUNT,Page.CHANGE_PASSWORD,Page.PRINTER,Page.SYNC,Page.STORE_SHIFT,Page.POS_MODE,Page.STORE_SALE,Page.STORE_READS,Page.STORE_RECEIPTS,Page.STORE_STOCK,Page.STORE_DEPOSIT,Page.STORE_CUSTOMERS) -> StoreHomeScreen(controller)
+            controller.storeMode && controller.page !in setOf(Page.ACCOUNT,Page.CHANGE_PASSWORD,Page.PRINTER,Page.SYNC,Page.STORE_OPEN,Page.STORE_CLOSE,Page.POS_MODE,Page.STORE_SALE,Page.STORE_READS,Page.STORE_RECEIPTS,Page.STORE_STOCK,Page.STORE_DEPOSIT,Page.STORE_CUSTOMERS) -> StoreHomeScreen(controller)
             else -> when (controller.page) {
                 Page.STORE_SALE -> StoreSaleScreen(controller)
                 Page.STORE_READS -> StoreReadsScreen(controller)
@@ -63,7 +63,8 @@ import kotlinx.coroutines.delay
                 Page.STORE_STOCK -> StoreStockScreen(controller)
                 Page.STORE_DEPOSIT -> StoreDepositScreen(controller)
                 Page.STORE_CUSTOMERS -> StoreCustomersScreen(controller)
-                Page.STORE_SHIFT -> StoreShiftScreen(controller)
+                Page.STORE_OPEN -> OpenSessionScreen(controller)
+                Page.STORE_CLOSE -> CloseSessionScreen(controller)
                 Page.POS_MODE -> PosModeScreen(controller)
                 Page.ACCOUNT -> AccountScreen(controller)
                 Page.CHANGE_PASSWORD -> ChangePasswordScreen(controller)

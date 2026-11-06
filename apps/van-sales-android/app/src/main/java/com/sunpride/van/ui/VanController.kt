@@ -31,8 +31,27 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     init { require(damagePhotoSource == null || fixtureMode && com.sunpride.van.BuildConfig.DEBUG); require(callLocationSource == null || com.sunpride.van.BuildConfig.DEBUG) }
     var storePos by mutableStateOf(com.sunpride.van.storepos.StorePosState(null,null,0,0)); private set
     val storeMode: Boolean get() = storePos.config?.mode == "store"
-    fun openStoreShift(amount: Long) = command("Opening float saved on this phone") { repository.openStoreShift(amount) }
-    fun closeStoreShift(amount: Long) = command("Blind count saved. The office will review any difference.") { repository.closeStoreShift(amount); page=Page.HOME }
+    /** IP-P0 (SPEC 7.1): cashier-session screens. [page] stays the one page; these flags only come from [StoreSessionNav]. */
+    var storeNav by mutableStateOf(StoreNav()); private set
+    private fun storeNavEvent(event: StoreNavEvent) {
+        val next=StoreSessionNav.reduce(StoreNav(page,storeNav.endSheet,storeNav.countUnlocked),event,storePos.shift!=null)
+        storeNav=next; page=next.page
+    }
+    /** The sheet that shows the X reading before the blind count; only a visible sheet can unlock the count. */
+    val endSessionSheet: Boolean get() = storeNav.endSheet && storePos.shift!=null
+    val countUnlocked: Boolean get() = storeNav.countUnlocked && storePos.shift!=null
+    fun beginOpenSession() { message=null; storeNavEvent(StoreNavEvent.OpenTapped) }
+    fun requestEndSession() { message=null; storeNavEvent(StoreNavEvent.EndTapped) }
+    fun cancelEndSession() = storeNavEvent(StoreNavEvent.EndCancelled)
+    fun confirmEndSession() { message=null; storeNavEvent(StoreNavEvent.EndConfirmed) }
+    fun openStoreShift(amount: Long) = command("Session open · float ${com.sunpride.van.pos.PosMoney.format(amount,"PHP")}") {
+        repository.openStoreShift(amount); storeNavEvent(StoreNavEvent.OpenSaved)
+    }
+    fun closeStoreShift(amount: Long) {
+        // Only the count page behind the confirmation may close the session.
+        if(!countUnlocked) return
+        command("Blind count saved. The office will review any difference.") { repository.closeStoreShift(amount); storeNavEvent(StoreNavEvent.CloseSaved) }
+    }
     fun saveStoreAction(kind:String,payload:org.json.JSONObject) = command("Saved securely on this phone. Sync when connected.") {repository.storeAction(kind,payload);page=Page.HOME}
     fun saveStoreSale(id:String,lines:List<CartLine>,tenders:List<com.sunpride.van.storepos.StoreTransactions.Tender>,total:Long,phone:String?,pin:String?,points:Long) = command("Store sale saved. Preview the receipt before printing.") {
         repository.storeSale(id,lines,tenders,total,phone,pin,points);page=Page.STORE_RECEIPTS
@@ -177,7 +196,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.storePos.collect { value ->
             val changed=storePos.config?.mode != value.config?.mode
             storePos=value
-            if(changed) { page=Page.HOME; sale=null; selectedCustomer=null; callFlow=null; currentCall=null }
+            if(changed) { page=Page.HOME; storeNav=StoreNav(); sale=null; selectedCustomer=null; callFlow=null; currentCall=null }
         } }
         launch { repository.damageRecords.collect { damageRecords = it } }
         launch { repository.seller.collect { seller = it } }
@@ -235,6 +254,9 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         else -> "Could not sync. Your work is kept here. Try again."
     }
     fun open(next: Page) {
+        // The cash count is reachable only through End session -> confirmation; the open form only when no session is open.
+        if (!StoreSessionNav.mayOpen(next,storeNav,storePos.shift!=null)) return
+        if (next != Page.STORE_CLOSE) storeNav = StoreNav(next)
         page = next; message = null
         if (next == Page.RECEIPTS) { printMessage = null; refreshReceipts() }
         if (next == Page.CASH) refreshCash()
@@ -331,7 +353,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         page = Page.ACCOUNT
         message = "Password changed. Your other sign-ins have ended."
     }
-    fun signOut() = command { stopSharing(); repository.signOut(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null; cashSummary = null; cashDraft = CashDraft(CashReconciliationRules.newReconciliationId()); stockSummary = null; stockDraft = StockDraft(StockReconciliationRules.newCountId()); closeSummary = null; closeDraft = CloseDraft(TripCloseRules.newCloseId()) }
+    fun signOut() = command { stopSharing(); repository.signOut(); page = Page.HOME; storeNav = StoreNav(); sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null; cashSummary = null; cashDraft = CashDraft(CashReconciliationRules.newReconciliationId()); stockSummary = null; stockDraft = StockDraft(StockReconciliationRules.newCountId()); closeSummary = null; closeDraft = CloseDraft(TripCloseRules.newCloseId()) }
     fun checkAgain() = command(failure = { AuthMessages.forFailure(it,AuthMessages.CHECK_FALLBACK) }) { repository.refreshEnrollment(); if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow() }
     fun syncNow() = command("Sync finished. Check the waiting and review counts.",failure = { rememberSyncFailure(syncMessage(it)) }) { repository.syncNow() }
     // Pending state is read from the store (VanRules.status), never from a stale one-off message.

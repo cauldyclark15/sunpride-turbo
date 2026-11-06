@@ -54,29 +54,56 @@ class StorePosDeviceTest {
         assertTrue(runCatching{StorePosStore(f.store).open(0)}.isFailure)
         Unit
     }
+    /** IP-P0 (SPEC 7.1): opening goes to Home with New sale ready; the blind count is only behind End session -> confirm. */
     @Test fun F_R01_storeScreensHideVanActionsAndKeepBlindCountClearOfSystemBars() {
         val c=VanController(f.repository(),AppEnvironment("https://retail.invalid"))
         mounted=true
         rule.setContent{if(mounted)VanApp(c,restore=false)}
         rule.waitUntil(10_000){c.initialized && c.storeMode}
-        rule.onNodeWithTag("store-shift").assertIsDisplayed()
+        rule.onNodeWithTag("store-open-session").assertIsDisplayed()
+        rule.onNodeWithTag("store-end-session").assertDoesNotExist()
         rule.onNodeWithTag("open-customers").assertDoesNotExist()
         rule.onNodeWithTag("open-route-ops").assertDoesNotExist()
-        captureVanScreenshot(rule,"retail-store-home","store-shift")
-        rule.onNodeWithTag("store-shift").performClick()
-        captureVanScreenshot(rule,"retail-opening-float","save-store-shift")
-        rule.onNodeWithTag("store-cash-amount").performTextInput("1000")
+        rule.onNodeWithTag("store-session-status").assertTextEquals("No cashier session open")
+        rule.onNodeWithTag("store-new-sale-reason").assertTextEquals("Open a cashier session first")
+        captureVanScreenshot(rule,"retail-store-home","store-open-session")
+        rule.onNodeWithTag("store-open-session").performClick()
+        rule.onNodeWithTag("screen-title").assertTextEquals("Open cashier session")
+        captureVanScreenshot(rule,"retail-opening-float","save-store-open")
+        rule.onNodeWithTag("store-float-amount").performTextInput("1000")
         Espresso.closeSoftKeyboard()
-        rule.onNodeWithTag("save-store-shift").performClick()
+        rule.onNodeWithTag("save-store-open").performClick()
         rule.waitUntil(10_000){!c.busy && c.storePos.shift!=null}
+        // After open: Store home, never the count.
+        rule.waitUntil(10_000){c.page==Page.HOME}
+        rule.onNodeWithTag("store-session-status").assertTextEquals("Cashier session open")
+        rule.onNodeWithTag("message").assertTextContains("Session open · float ₱1,000.00",substring=true)
+        rule.onNodeWithTag("store-count-amount").assertDoesNotExist()
+        rule.onNodeWithTag("save-store-close").assertDoesNotExist()
+        rule.onNodeWithText("Blind cash count").assertDoesNotExist()
+        rule.onNodeWithTag("store-open-session").assertDoesNotExist()
+        // New sale is enabled once the office has switched selling on; this fixture leaves it off, so it must say why.
+        if(c.storePos.config?.details?.optBoolean("transactionsEnabled")==true) rule.onNodeWithTag("store-new-sale").performScrollTo().assertIsEnabled()
+        else rule.onNodeWithTag("store-new-sale-reason").performScrollTo().assertIsDisplayed()
+        captureVanScreenshot(rule,"retail-session-open-home","store-new-sale")
+        // End session is a secondary row that asks first, with the X reading, before any count.
+        rule.onNodeWithTag("store-end-session").performScrollTo().performClick()
+        rule.onNodeWithTag("end-session-title").assertIsDisplayed()
+        rule.onNodeWithTag("end-session-x").assertIsDisplayed()
+        rule.onNodeWithText("Expected",substring=true).assertDoesNotExist()
+        rule.onNodeWithTag("store-end-cancel").performClick()
+        rule.onNodeWithTag("end-session-title").assertDoesNotExist()
+        assertNotNull(c.storePos.shift)
+        rule.onNodeWithTag("store-end-session").performScrollTo().performClick()
+        rule.onNodeWithTag("store-end-continue").performClick()
         rule.onNodeWithTag("screen-title").assertTextEquals("Blind cash count")
         rule.onNodeWithText("Expected",substring=true).assertDoesNotExist()
-        captureVanScreenshot(rule,"retail-blind-count","save-store-shift")
-        rule.onNodeWithTag("store-cash-amount").performTextReplacement("990")
+        captureVanScreenshot(rule,"retail-blind-count","save-store-close")
+        rule.onNodeWithTag("store-count-amount").performTextInput("990")
         Espresso.closeSoftKeyboard()
-        rule.onNodeWithTag("save-store-shift").performClick()
+        rule.onNodeWithTag("save-store-close").performClick()
         rule.waitUntil(10_000){!c.busy && c.page==Page.HOME && c.storePos.shift==null}
-        captureVanScreenshot(rule,"retail-closed-session","store-shift")
+        captureVanScreenshot(rule,"retail-closed-session","store-open-session")
         rule.onNodeWithTag("open-pos-mode").performScrollTo().performClick()
         rule.onNodeWithTag("pos-mode-value").assertTextEquals("Store")
         captureVanScreenshot(rule,"retail-mode-settings","primary")
