@@ -4,6 +4,10 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.background
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.sp
 import androidx.compose.foundation.layout.*
@@ -42,16 +46,33 @@ import androidx.compose.ui.unit.dp
         }
     }
 }
-@Composable fun ListRow(title: String, meta: String = "", tag: String = "", enabled: Boolean = true, onClick: (() -> Unit)? = null) {
+@Composable fun ListRow(title: String, meta: String = "", tag: String = "", enabled: Boolean = true, onClick: (() -> Unit)? = null, glyph: GlyphKind? = null) {
     Surface(Modifier.fillMaxWidth().testTag(tag), color = Look.card,
         shape = RoundedCornerShape(18.dp), border = BorderStroke(1.dp, Look.hairline)) {
         Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).then(if (onClick != null) Modifier.clickable(enabled = enabled,onClick = onClick) else Modifier)
-            .padding(16.dp), verticalAlignment = Alignment.CenterVertically) {
+            .padding(horizontal = 14.dp, vertical = 10.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (glyph != null) Box(Modifier.size(40.dp).clip(CircleShape).background(if (enabled) Look.tint else MaterialTheme.colorScheme.surfaceVariant), contentAlignment = Alignment.Center) {
+                Glyph(glyph, if (enabled) Look.accent else MaterialTheme.colorScheme.onSurfaceVariant, 22.dp)
+            }
             Column(Modifier.weight(1f)) {
-                Text(title, style = MaterialTheme.typography.titleMedium, color = MaterialTheme.colorScheme.onSurface)
+                Text(title, style = MaterialTheme.typography.titleMedium, color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant)
                 if (meta.isNotBlank()) Text(meta, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            if (onClick != null && enabled) Glyph(GlyphKind.BACK, Look.accent, 20.dp, Modifier.graphicsLayer { rotationZ = 180f })
+            if (onClick != null && enabled) Glyph(GlyphKind.CHEVRON, Look.muted, 20.dp)
+        }
+    }
+}
+/** A row of equal pills where exactly one is chosen (a mode switch). The chosen one is dark and filled. */
+@Composable fun SegmentedChips(options: List<Pair<String, String>>, selected: String, onSelect: (String) -> Unit, tag: String) {
+    Row(Modifier.fillMaxWidth().testTag(tag), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+        options.forEach { (id, label) ->
+            val on = id == selected
+            Surface(Modifier.weight(1f).heightIn(min = 48.dp).clip(CircleShape).clickable { onSelect(id) }.testTag("$tag-$id"), shape = CircleShape,
+                color = if (on) Look.barInk else Look.sheet, border = BorderStroke(1.5.dp, if (on) Look.barInk else Look.hairline)) {
+                Box(Modifier.padding(horizontal = 8.dp).heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
+                    FitText(label, 16.sp, minSize = 12.sp, color = if (on) Color.White else Look.ink, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                }
+            }
         }
     }
 }
@@ -113,10 +134,11 @@ fun passwordToggleLabel(revealed: Boolean): String = if (revealed) "Hide passwor
 @Composable fun ScreenFrame(title: String, onBack: (() -> Unit)? = null, action: String? = null,
     onAction: () -> Unit = {}, enabled: Boolean = true, actionTag: String = "primary", footer: String? = null,
     message: String? = null, scroll: Boolean = true, bottomContent: (@Composable ColumnScope.() -> Unit)? = null,
+    trailing: (@Composable () -> Unit)? = null, subtitle: String? = null,
     content: @Composable ColumnScope.() -> Unit) {
     Scaffold(Modifier.fillMaxSize().imePadding(), containerColor = MaterialTheme.colorScheme.background,
         contentWindowInsets = WindowInsets.systemBars,
-        topBar = { LookTopBar(title, onBack) }, bottomBar = {
+        topBar = { LookTopBar(title, onBack, subtitle = subtitle, trailing = trailing) }, bottomBar = {
             if (action != null || footer != null || bottomContent != null) Surface(color = Look.sheet, shadowElevation = 8.dp, shape = RoundedCornerShape(topStart = Look.sheetTop, topEnd = Look.sheetTop)) {
                 Column(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp),verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     // Thumb-zone controls (e.g. POS search) sit just above the pinned primary and the navigation bar.

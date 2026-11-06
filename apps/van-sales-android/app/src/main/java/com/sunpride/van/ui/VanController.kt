@@ -69,6 +69,11 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun printStoreReceipt(id:String,reason:String?=null) = startPrint(id,explicit=true,reason=reason,store=true)
     var page by mutableStateOf(Page.HOME)
         private set
+    /** A selling host sets this while the bottom bar must stay hidden (Payment and Complete). Never saved. */
+    var navHidden by mutableStateOf(false)
+    /** Work still waiting to leave this phone, and work the office wants a person to look at; for the small sync badge. */
+    val syncWaiting: Int get() = if (storeMode) storePos.queued else sync.queued + sync.sending
+    val syncReview: Int get() = if (storeMode) storePos.review else sync.review
     var session by mutableStateOf(SessionState())
         private set
     var enrollment by mutableStateOf<EnrollmentState>(EnrollmentState.SignedOut)
@@ -277,7 +282,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             Page.RETURN -> Page.CUSTOMER
             Page.STOCK_COUNT -> Page.HOME
             Page.LOCATION_CONSENT -> if (pendingStart != null) Page.START else Page.HOME
-            Page.PRODUCTS -> if (pickingForSale && sale != null) Page.SALE else Page.HOME
+            Page.PRODUCTS -> if (pickingForSale && sale != null) Page.SALE else Page.STOCK
+            Page.CATALOGUE -> Page.STOCK
             else -> Page.HOME
         }
         if (page == Page.PRODUCTS) pickingForSale = false

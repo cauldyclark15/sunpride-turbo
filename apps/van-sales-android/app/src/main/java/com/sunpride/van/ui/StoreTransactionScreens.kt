@@ -109,6 +109,9 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     // A refused save (the controller shows why) re-enables the buttons.
     LaunchedEffect(c.busy){if(!c.busy&&flow.saving&&!savedFlag)send(SellEvent.SaveFailed)}
     BackHandler(enabled=flow.step==SellStep.PAYMENT&&!flow.saving){send(SellEvent.BackTapped)}
+    // The bottom bar hides while money is being taken (Payment and Complete share this page with the grid).
+    SideEffect{c.navHidden=flow.step==SellStep.PAYMENT||flow.step==SellStep.COMPLETE}
+    DisposableEffect(Unit){onDispose{c.navHidden=false}}
 
     fun newSale(){
         cart=emptyList();saleId=UUID.randomUUID().toString();tender="cash";tenderedMinor=null;exact=false;cashShare="";cardShare="";received="";walletRef="";cardRef="";phone="";points="";employee=false;pin="";more=false;claim=null;claiming=false;notice=null;completed=null;savedFlag=false
@@ -138,12 +141,12 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
         onApply={claim=it;employee=false;pin="";points="";claiming=false},onRemove=if(claim!=null)({claim=null;claiming=false}) else null,onClose={claiming=false})
     when(flow.step){
         SellStep.BROWSE,SellStep.CART->SellingBrowse(
-            title="Store sale",subtitle=config.storeName?:"Store",onBack=c::back,place=SellingPlace.STORE,
+            title="Store sale",subtitle=config.storeName?:"Store",onBack=null,place=SellingPlace.STORE,
             search=index,scanProducts=products,currentLines={cart},
             onSetLine={id,base->if(!c.busy){c.dismissGenericMessage();cart=SellingCart.set(cart,id,base)}},
             rows=rows,totalLabel=browseTotal,chargeEnabled=quote!=null&&shiftOpen&&!c.busy&&!c.onHold,onCharge={send(SellEvent.ChargeTapped)},
             cartOpen=flow.step==SellStep.CART,onCartOpen={open->send(if(open)SellEvent.CartBarTapped else SellEvent.BackTapped)},
-            message=c.message?:notice?:reason,busy=c.busy,cashierName=c.seller?.name,roleLabel="Cashier")
+            message=c.message?:notice?:reason,busy=c.busy,cashierName=c.seller?.name,roleLabel="Cashier",syncBadge={SyncPill(c)})
         SellStep.PAYMENT->{
             val possible=StoreCheckout.claimsPossible(config)
             val canDiscount=possible&&!c.busy&&cart.isNotEmpty()
@@ -151,7 +154,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
             val customerDetail=when{phone.isNotBlank()->phone;employee->"Employee";else->null}
             PaymentStep(
             title="Payment",totalMinor=total,subtitle=config.storeName,
-            choices=listOf(TenderChoice("cash","Cash",TenderKind.CASH),TenderChoice("gcash","GCash / e-wallet",TenderKind.OTHER),TenderChoice("card","Card",TenderKind.OTHER),TenderChoice("split","Split",TenderKind.OTHER))
+            choices=listOf(TenderChoice("cash","Cash",TenderKind.CASH),TenderChoice("gcash","GCash",TenderKind.OTHER),TenderChoice("card","Card",TenderKind.OTHER),TenderChoice("split","Split",TenderKind.OTHER))
                 .filter{when(it.id){"split"->"cash" in enabledTenders&&"gcash" in enabledTenders;else->it.id in enabledTenders||it.id=="cash"}},
             selectedId=tender,onSelect={tender=it;tenderedMinor=null;exact=false},tenderedMinor=tenderedNow,onTendered={exact=false;tenderedMinor=it},
             issues=buildList{
@@ -182,24 +185,11 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
             if(tender in setOf("gcash","split"))LabeledField("E-wallet confirmation reference",walletRef,{walletRef=it},"store-wallet-ref",maxLength=100)
             if(tender in setOf("card","split"))LabeledField("Card approval reference — never card number",cardRef,{cardRef=it},"store-card-ref",maxLength=100)
             if(tender!="cash")Text("E-wallet and card references await office confirmation; they are not bank settlement proof.",style=MaterialTheme.typography.bodyMedium)
-            if(more)LookSheet("Customer & points",{more=false},tag="store-customer-sheet",closeTag="store-customer-close",footer={
-                PillButton("Done",{more=false},Modifier.testTag("store-customer-done"),height=56.dp,fontSize=20.sp)
-            }){
-                Column(Modifier.padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-                    LabeledField("Customer phone (optional)",phone,{phone=it},"store-sale-phone",numeric=true,maxLength=24)
-                    notice?.let{Text(it,style=MaterialTheme.typography.bodyLarge,fontWeight=FontWeight.SemiBold,modifier=Modifier.testTag("store-customer-notice"))}
-                    if(claim==null&&config.details.optJSONObject("loyalty")?.optBoolean("enabled")==true){
-                        SecondaryButton("Look up customer & points",{scope.launch {notice=runCatching {c.repository.storeLookup(phone)?.let {"${it.getString("name")} · ${it.getString("points")} points"}?:"No customer found. Register them in Customers."}.getOrElse {"Connect to look up this customer."}}})
-                        config.details.optJSONObject("customerLookup")?.takeIf {it.optString("phone")==runCatching{StoreCheckout.normalizePhone(phone)}.getOrNull()}?.let {Text("${it.getString("name")} · ${StoreCheckout.availablePoints(config,c.storePos.rows)} points available")}
-                        LabeledField("Points to redeem",points,{points=it},"store-points",numeric=true,maxLength=9)
-                    }
-                    if(claim==null&&hasSupervisor){
-                        SecondaryButton(if(employee)"Remove employee discount" else "Employee discount",{employee=!employee;pin=""})
-                        if(employee)LabeledField("Supervisor PIN",pin,{pin=it},"store-supervisor-pin",password=true,maxLength=12)
-                    }
-                    if(claim!=null)Text("A Senior, PWD or other discount replaces points and the employee discount on this sale.",style=MaterialTheme.typography.bodyMedium)
-                }
-            }
+            if(more)StoreCustomerSheet(phone,{phone=it},notice,loyaltyOn=claim==null&&config.details.optJSONObject("loyalty")?.optBoolean("enabled")==true,
+                onLookup={scope.launch {notice=runCatching {c.repository.storeLookup(phone)?.let {"${it.getString("name")} · ${it.getString("points")} points"}?:"No customer found. Register them in Customers."}.getOrElse {"Connect to look up this customer."}}},
+                found=config.details.optJSONObject("customerLookup")?.takeIf {it.optString("phone")==runCatching{StoreCheckout.normalizePhone(phone)}.getOrNull()}?.let {"${it.getString("name")} · ${StoreCheckout.availablePoints(config,c.storePos.rows)} points available"},
+                points=points,onPoints={points=it},employeeOn=claim==null&&hasSupervisor,employee=employee,onToggleEmployee={employee=!employee;pin=""},pin=pin,onPin={pin=it},
+                claimNote=claim!=null,onClose={more=false})
             Text("Saved on this register before upload. Printing does not need a network.",style=MaterialTheme.typography.bodyMedium)
         }}
         SellStep.COMPLETE->{
@@ -227,15 +217,43 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     }
 }
 
+/** Customer phone, points and the employee discount, as a bottom sheet over Payment (it used to be a long inline block under the Complete button). */
+@Composable internal fun StoreCustomerSheet(phone:String,onPhone:(String)->Unit,notice:String?,loyaltyOn:Boolean,onLookup:()->Unit,found:String?,points:String,onPoints:(String)->Unit,
+    employeeOn:Boolean,employee:Boolean,onToggleEmployee:()->Unit,pin:String,onPin:(String)->Unit,claimNote:Boolean,onClose:()->Unit){
+    LookSheet("Customer & points",onClose,tag="store-customer-sheet",closeTag="store-customer-close",footer={
+        PillButton("Done",onClose,Modifier.testTag("store-customer-done"),height=56.dp,fontSize=20.sp)
+    }){
+        Column(Modifier.padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+            LabeledField("Customer phone (optional)",phone,onPhone,"store-sale-phone",numeric=true,maxLength=24)
+            notice?.let{Text(it,style=MaterialTheme.typography.bodyLarge,fontWeight=FontWeight.SemiBold,modifier=Modifier.testTag("store-customer-notice"))}
+            if(loyaltyOn){
+                SecondaryButton("Look up customer & points",onLookup)
+                found?.let{Text(it)}
+                LabeledField("Points to redeem",points,onPoints,"store-points",numeric=true,maxLength=9)
+            }
+            if(employeeOn){
+                SecondaryButton(if(employee)"Remove employee discount" else "Employee discount",onToggleEmployee)
+                if(employee)LabeledField("Supervisor PIN",pin,onPin,"store-supervisor-pin",password=true,maxLength=12)
+            }
+            if(claimNote)Text("A Senior, PWD or other discount replaces points and the employee discount on this sale.",style=MaterialTheme.typography.bodyMedium)
+            if(!loyaltyOn&&!employeeOn&&!claimNote)Text("Loyalty and employee discounts are not turned on for this store. The phone number is saved with the receipt.",style=MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
 /** F-R03 frozen receipt preview, print with "Did it print?", and independently approved reversal requests. */
 @Composable fun StoreReceiptsScreen(c:VanController){
     val config=c.storePos.config?:return
     var reason by remember{mutableStateOf("")}
     var reprinting by remember{mutableStateOf<JSONObject?>(null)}
     val receipts=StoreTransactions.receipts(config,c.storePos.rows)
-    ScreenFrame("Store receipts",c::back,message=c.message?:c.printMessage){
-        LabeledField("Void / refund reason",reason,{reason=it},"store-reversal-reason",maxLength=300)
-        Text("A second person approves voids and receipt-linked refunds in the office. Voids are only for the original open session; refunds return stock into quality hold.")
+    ScreenFrame("Sales",message=c.message?:c.printMessage,trailing={SyncPill(c)}){
+        if(receipts.isEmpty())EmptyState(GlyphKind.RECEIPT,"No receipts yet","Sales you complete here show up as receipts. You can print or reprint them, or ask for a void or refund.",Modifier.testTag("store-no-receipts"),
+            actionLabel="Go to Sell",onAction={c.open(Page.STORE_SALE)},actionTag="sales-go-sell")
+        else{
+            LabeledField("Void / refund reason",reason,{reason=it},"store-reversal-reason",maxLength=300)
+            Text("A second person approves voids and receipt-linked refunds in the office. Voids are only for the original open session; refunds return stock into quality hold.",style=MaterialTheme.typography.bodyMedium)
+        }
         receipts.forEach {r->SectionCard(r.getString("receiptNumber")){
             Text(r.optString("customer","Walk-in"));Text(pesos(r.getString("totalMinor").toLong()),style=MaterialTheme.typography.titleLarge)
             StoreCheckout.objects(r.getJSONArray("lines")).forEach {Text("${it.getString("description")} · ${it.get("quantity")} ${it.getString("uom")}")}
@@ -256,7 +274,6 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
                 SecondaryButton("Request receipt refund",{c.saveStoreAction("store.refund",JSONObject().put("saleId",r.getString("saleId")).put("reason",reason))},enabled=reason.isNotBlank()&&c.storePos.shift!=null&&!c.busy)
             }else Text("Voided · retained in the immutable journal")
         }}
-        if(receipts.isEmpty())Text("No store receipts saved yet.")
     }
     reprinting?.let {r->
         val history=c.storePrints[r.getString("saleId")].orEmpty()
@@ -277,8 +294,8 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     var lot by remember{mutableStateOf("")}
     var expiry by remember{mutableStateOf("")}
     var counts by remember{mutableStateOf(emptyMap<String,String>())}
-    ScreenFrame("Receiving & counts",c::back,message=c.message){
-        SecondaryButton("Receiving",{mode="receive"});SecondaryButton("Full count",{mode="full"});SecondaryButton("Cycle count",{mode="cycle"})
+    ScreenFrame("Stock",message=c.message,trailing={SyncPill(c)}){
+        SegmentedChips(listOf("receive" to "Receiving","full" to "Full count","cycle" to "Cycle count"),mode,{mode=it},"store-stock-mode")
         if(mode=="receive"){
             transfers.forEach {t->SectionCard(t.getString("name")){
                 StoreCheckout.objects(t.getJSONArray("lines")).forEach {Text("${it.getString("name")} · ${it.getString("quantityBase")} base units")}

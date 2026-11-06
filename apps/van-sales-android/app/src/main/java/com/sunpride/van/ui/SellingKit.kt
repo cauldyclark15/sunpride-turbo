@@ -25,6 +25,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.LiveRegionMode
 import androidx.compose.ui.semantics.Role
@@ -77,7 +78,7 @@ private val Touch = 48.dp
         Box(Modifier.size(10.dp).clip(CircleShape).background((if (empty) SunprideTokens.emptyRed else Look.amberDot).copy(alpha = 0.28f)), contentAlignment = Alignment.Center) {
             Box(Modifier.size(5.dp).clip(CircleShape).background(if (empty) SunprideTokens.emptyRed else Look.amberDot))
         }
-        Text(if (empty) "Out of stock" else hit.product.displayQuantity(hit.availableBase) + " remaining", color = if (empty) SunprideTokens.emptyRed else Look.amberText,
+        Text(if (empty) "Sold out" else hit.product.displayQuantity(hit.availableBase) + " left", color = if (empty) SunprideTokens.emptyRed else Look.amberText,
             fontSize = 13.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
@@ -92,19 +93,22 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
 @Composable private fun ProductCard(hit: PosProductHit, inCart: Long, highlighted: Boolean, onTap: () -> Unit, onLong: () -> Unit, onMinus: () -> Unit, onPlus: () -> Unit) {
     val empty = hit.availableBase <= 0
     val code = hit.product.code
-    val border = when { highlighted -> BorderStroke(3.dp, Look.accent); inCart > 0 -> BorderStroke(1.5.dp, Look.accent.copy(alpha = 0.4f)); else -> BorderStroke(1.dp, Look.hairline) }
+    val border = when { highlighted -> BorderStroke(3.dp, Look.accent); inCart > 0 -> BorderStroke(1.5.dp, Look.accent.copy(alpha = 0.45f)); else -> BorderStroke(1.dp, Look.hairline) }
+    // POS v2: a compact card (about 150dp) so two and a half rows fit above the cart bar: name, photo + price + stock, then the Add / stepper.
     Surface(Modifier.fillMaxWidth().combinedClickable(onClick = onTap, onLongClick = onLong).testTag("grid-$code"),
-        shape = RoundedCornerShape(Look.cardRadius), color = Look.card, border = border) {
-        Column(Modifier.padding(8.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Box {
-                ProductPhoto(hit.product, Modifier.fillMaxWidth().aspectRatio(1.7f))
-                if (empty) Box(Modifier.matchParentSize().clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.55f)))
-            }
-            Column(Modifier.padding(horizontal = 4.dp), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                StockBadge(hit)
-                Text(hit.product.name, Modifier.heightIn(min = 40.dp), fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, color = Look.ink)
-                FitText(hit.price?.let { priceText(PosMoney.format(it.unitPriceMinor, it.currency), Look.accent) } ?: AnnotatedString("Office price"), 20.sp, minSize = 13.sp, color = Look.ink,
-                    tag = "grid-price-$code")
+        shape = RoundedCornerShape(18.dp), color = if (inCart > 0) Look.tint.copy(alpha = 0.35f).compositeOver(Look.card) else Look.card, border = border) {
+        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+            Text(hit.product.name, Modifier.heightIn(min = 36.dp).padding(horizontal = 2.dp), fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis, color = Look.ink)
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Box {
+                    ProductPhoto(hit.product, Modifier.size(44.dp), initialsSize = 16.sp, showCategory = false)
+                    if (empty) Box(Modifier.size(44.dp).clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.55f)))
+                }
+                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(1.dp)) {
+                    FitText(hit.price?.let { priceText(PosMoney.format(it.unitPriceMinor, it.currency), Look.accent) } ?: AnnotatedString("Office price"), 19.sp, minSize = 13.sp, color = Look.ink,
+                        tag = "grid-price-$code")
+                    StockBadge(hit)
+                }
             }
             if (inCart > 0) QtyStepper(hit.product.displayQuantity(inCart), onMinus, onPlus, onQuantity = onLong, tagPrefix = "grid-$code")
             else Row(Modifier.fillMaxWidth().height(48.dp).clip(CircleShape).background(if (empty) MaterialTheme.colorScheme.surfaceVariant else Look.tint).clickable(onClick = onPlus).testTag("grid-add-$code"), horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically) {
@@ -163,7 +167,7 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable fun SellingBrowse(
-    title: String, subtitle: String?, onBack: () -> Unit, place: SellingPlace,
+    title: String, subtitle: String?, onBack: (() -> Unit)?, place: SellingPlace,
     search: ProductSearch, scanProducts: List<Product>,
     currentLines: () -> List<CartLine>, onSetLine: (String, Long) -> Unit,
     rows: List<CartRowUi>, totalLabel: String, chargeEnabled: Boolean, onCharge: () -> Unit,
@@ -174,6 +178,8 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
     cartTitle: String = "Cart",
     /** IP-LOOK: who is selling (the signed-in seller) and in what role, for the header. Display only. */
     cashierName: String? = null, roleLabel: String = "Cashier",
+    /** POS v2: the small sync badge at the right of the header. */
+    syncBadge: (@Composable () -> Unit)? = null,
 ) {
     val lines = currentLines()
     val all = remember(search) { search.search("", Int.MAX_VALUE).sortedBy { it.product.name.lowercase() } }
@@ -224,26 +230,30 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
         return
     }
 
-    val navInset = WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    // With the bottom bar showing, the system bar is already accounted for below the content.
+    val navInset = if (LocalNavBarShown.current) 0.dp else WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val countLabel = CartCount.label(lines) { id -> byId[id]?.product ?: scanProducts.firstOrNull { it.productId == id } }
     Box(Modifier.fillMaxSize().background(Look.canvas).imePadding()) {
         Column(Modifier.fillMaxSize()) {
-            LookHeader(bottomOverlap = 20.dp) {
+            LookHeader(bottomOverlap = 14.dp) {
                 // IP-LOOK polish: one 48dp row (back, small avatar, name, one role/place line) instead of three text lines.
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Box(Modifier.size(48.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f)).clickable(onClick = onBack, role = Role.Button).testTag("back")
+                    if (onBack != null) Box(Modifier.size(48.dp).clip(CircleShape).background(Color.White.copy(alpha = 0.18f)).clickable(onClick = onBack, role = Role.Button).testTag("back")
                         .semantics { contentDescription = "Back" }, contentAlignment = Alignment.Center) { Glyph(GlyphKind.BACK, Color.White, 22.dp) }
-                    Avatar(cashierName ?: title, size = 40.dp)
+                    if (onBack == null) Avatar(cashierName ?: title, size = 40.dp)
                     Column(Modifier.weight(1f)) {
-                        Text(cashierName ?: title, color = Color.White, fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.testTag("cashier-name"))
-                        // Role and place on one line ("Cashier · Sample Cebu South Store"); the screen name only shows when there is no place to name.
+                        // POS v2: the name and role share the first line; the whole second line is the place, so a long store name keeps its room.
+                        Row(verticalAlignment = Alignment.Bottom) {
+                            Text(cashierName ?: title, color = Color.White, fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false).testTag("cashier-name"))
+                            if (cashierName != null && onBack == null) Text("  $roleLabel", color = Color.White, fontSize = 13.sp, lineHeight = 20.sp, maxLines = 1, softWrap = false)
+                        }
                         Row(verticalAlignment = Alignment.CenterVertically) {
-                            if (cashierName != null) Text("$roleLabel · ", color = Color.White, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, softWrap = false)
                             if (subtitle != null) Text(subtitle, color = Color.White, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).testTag("sale-customer"))
                             else Text(title, color = Color.White, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, softWrap = false, modifier = Modifier.testTag("screen-title"))
                         }
                     }
+                    syncBadge?.invoke()
                 }
             }
             Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
@@ -265,7 +275,7 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
                     }
                 } ?: message?.let { Text(it, Modifier.padding(horizontal = 20.dp).testTag("message"), fontSize = 14.sp, lineHeight = 18.sp, color = Look.ink, maxLines = 2, overflow = TextOverflow.Ellipsis) }
                 CategoryChips(categories, category) { category = it }
-                LazyVerticalGrid(GridCells.Fixed(2), Modifier.fillMaxSize().testTag("product-grid"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = 88.dp + navInset),
+                LazyVerticalGrid(GridCells.Fixed(2), Modifier.fillMaxSize().testTag("product-grid"), contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 2.dp, bottom = (if (lines.isEmpty()) 12.dp else 88.dp) + navInset),
                     horizontalArrangement = Arrangement.spacedBy(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     header?.let { h -> item(span = { GridItemSpan(maxLineSpan) }) { h() } }
                     if (shown.isEmpty()) item(span = { GridItemSpan(maxLineSpan) }) {
@@ -282,7 +292,8 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
                 }
             }
         }
-        CartBar(lines.size, totalLabel, chargeEnabled && !busy, onOpen = { onCartOpen(true) }, onCharge = onCharge, Modifier.align(Alignment.BottomCenter), countLabel = countLabel)
+        // POS v2: the bar appears with the first item (an empty, disabled bar only took room from the products).
+        if (lines.isNotEmpty()) CartBar(lines.size, totalLabel, chargeEnabled && !busy, onOpen = { onCartOpen(true) }, onCharge = onCharge, Modifier.align(Alignment.BottomCenter), countLabel = countLabel)
     }
 
     if (paletteOpen) SearchPalette(search, lines, touched, onTap = { addUnits(it, it.quantityScale, null) }, query = paletteQuery, onQuery = { paletteQuery = it },

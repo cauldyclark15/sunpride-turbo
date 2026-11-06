@@ -11,6 +11,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
@@ -20,18 +21,30 @@ import com.sunpride.van.data.*
 
 @Composable fun TruckStockScreen(c: VanController) {
     var damageProduct by remember { mutableStateOf<Product?>(null) }
-    ScreenFrame("Truck stock",c::back,action = "Sync now",actionTag = "stock-sync",onAction = c::syncNow,enabled = !c.busy,message = c.message) {
+    ScreenFrame("Stock",message = c.message,trailing = { SyncPill(c) }) {
+        ListRow("Find a product","Search or scan · stock and price","open-products",onClick = { c.open(Page.PRODUCTS) },glyph = GlyphKind.SEARCH)
+        ListRow("Product catalogue","Offline details, images and pack hierarchy","open-catalogue",onClick = { c.open(Page.CATALOGUE) },glyph = GlyphKind.BOX)
+        Text("On the truck",style = MaterialTheme.typography.titleMedium,modifier = Modifier.padding(top = 4.dp))
         Text("Available stock includes saved changes on this phone.",style = MaterialTheme.typography.bodyMedium)
         if (c.sync.queued+c.sync.sending > 0) Text("Waiting for sync",Modifier.testTag("stock-pending"))
         if (c.sync.review > 0) Text("Some changes need review. Ask your supervisor.")
         if (c.products.isEmpty()) Text("No truck stock available. Sync and check with your supervisor.")
         c.products.forEachIndexed { index,product ->
             val stock = c.stock.firstOrNull { it.productId == product.productId } ?: TruckStock(product.productId,0,0)
-            SectionCard(product.code) {
-                Text(product.name,style = MaterialTheme.typography.titleMedium)
-                Text("Available: ${product.displayQuantity(stock.availableBase)} ${product.uomCode}",style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("available-$index"))
-                Text("Damaged: ${product.displayQuantity(stock.damagedBase)} ${product.uomCode}")
-                SecondaryButton("Record damage",{ damageProduct = product },Modifier.testTag("damage-$index"),!c.busy)
+            Surface(Modifier.fillMaxWidth(),shape = androidx.compose.foundation.shape.RoundedCornerShape(18.dp),color = Look.card,border = androidx.compose.foundation.BorderStroke(1.dp,Look.hairline)) {
+                Column(Modifier.padding(14.dp),verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Row(verticalAlignment = Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        Column(Modifier.weight(1f)) {
+                            Text(product.name,style = MaterialTheme.typography.titleMedium)
+                            Text(product.code + (if (stock.damagedBase > 0) " · Damaged ${product.displayQuantity(stock.damagedBase)} ${product.uomCode}" else ""),style = MaterialTheme.typography.bodyMedium,color = Look.muted)
+                        }
+                        Column(horizontalAlignment = Alignment.End) {
+                            Text(product.displayQuantity(stock.availableBase),style = MaterialTheme.typography.headlineMedium,modifier = Modifier.testTag("available-$index"))
+                            Text("${product.uomCode} available",style = MaterialTheme.typography.bodyMedium,color = Look.muted)
+                        }
+                    }
+                    SecondaryButton("Record damage",{ damageProduct = product },Modifier.testTag("damage-$index"),!c.busy)
+                }
             }
         }
         SectionCard("This trip's damage records") {
@@ -112,9 +125,9 @@ import com.sunpride.van.data.*
 @Composable fun CustomersScreen(c: VanController) {
     var query by remember { mutableStateOf("") }
     val filtered = c.customers.filter { query.isBlank() || it.name.contains(query,true) || it.code.contains(query,true) }
-    ScreenFrame("Customers",c::back,action = "Add walk-in customer",actionTag = "add-walk-in",
-        enabled = !c.busy && c.policy?.walkInAllowed == true,onAction = { c.open(Page.WALK_IN) },message = c.message) {
+    ScreenFrame("Sell",trailing = { SyncPill(c) },message = c.message) {
         LabeledField("Search customers",query,{ query = it },"customer-search",maxLength = 150)
+        ListRow("Add walk-in customer","For someone who is not on your list","add-walk-in",enabled = !c.busy && c.policy?.walkInAllowed == true,onClick = { c.open(Page.WALK_IN) },glyph = GlyphKind.PLUS)
         if (c.policy?.walkInAllowed != true) Text("Ask your supervisor to allow walk-in customers.")
         listOf("route" to "Today's route","unplanned" to "Other stores in your area","walk_in" to "Walk-in").forEach { (source,label) ->
             val group = filtered.filter { it.source == source }.let { if (source == "route") it.sortedBy { it.sequence ?: Int.MAX_VALUE } else it }

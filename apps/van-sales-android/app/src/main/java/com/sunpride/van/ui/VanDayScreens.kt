@@ -95,14 +95,12 @@ private data class CountDraft(val cases: String = "", val pieces: String = "", v
 
 /** The ONE thing to do now, big, at the top of Today. */
 @Composable fun NextStepCard(step: NextStep, enabled: Boolean, onGo: () -> Unit) {
-    Surface(Modifier.fillMaxWidth().testTag("next-step"), shape = SunprideTokens.shapes.large, color = SunprideTokens.barInk) {
+    Surface(Modifier.fillMaxWidth().testTag("next-step"), shape = androidx.compose.foundation.shape.RoundedCornerShape(Look.cardRadius), color = Look.barInk) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text("NEXT", color = SunprideTokens.barYellow, fontWeight = FontWeight.ExtraBold, fontSize = 13.sp)
-            Text(step.title, color = Color.White, fontSize = 26.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 32.sp, modifier = Modifier.testTag("next-step-title"))
-            Text(step.detail, color = Color.White, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("next-step-detail"))
+            Text(step.title, color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold, lineHeight = 30.sp, modifier = Modifier.testTag("next-step-title"))
+            Text(step.detail, color = Color(0xFFE6E6E8), style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("next-step-detail"))
             step.button?.let { label ->
-                Button(onGo, Modifier.fillMaxWidth().heightIn(min = 64.dp).testTag("next-step-go"), enabled = enabled, shape = SunprideTokens.shapes.small,
-                    colors = ButtonDefaults.buttonColors(containerColor = SunprideTokens.barYellow, contentColor = Color.Black)) { Text(label, fontSize = 20.sp, fontWeight = FontWeight.ExtraBold) }
+                PillButton(label, onGo, Modifier.padding(top = 6.dp).testTag("next-step-go"), enabled = enabled, height = 60.dp, fontSize = 20.sp)
             }
         }
     }

@@ -63,8 +63,11 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
 /** The big total on its own line, then two smaller figures side by side. Used by Payment and Complete. */
 @Composable private fun FigureCard(totalLabel: String, totalValue: String, totalTag: String, left: Triple<String, String, String>, right: Triple<String, String, String>, rightColor: Color) {
     LookCard {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Figure(totalLabel, totalValue, totalTag, Modifier.fillMaxWidth(), big = true)
+        Column(Modifier.padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(totalLabel, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Look.muted, letterSpacing = 0.8.sp)
+                FitText(totalValue, 40.sp, Modifier.weight(1f), minSize = FigureFit.MIN_SP.sp, color = Look.ink, textAlign = TextAlign.End, tag = totalTag)
+            }
             Box(Modifier.fillMaxWidth().height(1.dp).background(Look.hairline))
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
                 Figure(left.first, left.second, left.third, Modifier.weight(1f))
@@ -83,8 +86,8 @@ data class PayOption(val label: String, val detail: String?, val tag: String, va
     val ink = if (enabled) Look.ink else MaterialTheme.colorScheme.onSurfaceVariant
     Box(modifier.heightIn(min = 56.dp).clip(shape).background(if (active) Look.tint else Look.sheet).border(1.5.dp, if (active) Look.accent else Look.hairline, shape)
         .clickable(enabled = enabled, onClick = onClick, role = Role.Button).testTag(tag), contentAlignment = Alignment.Center) {
-        Column(Modifier.padding(horizontal = 8.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-            Text(label, color = if (active && enabled) Look.accent else ink, fontSize = 15.sp, lineHeight = 18.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+        Column(Modifier.padding(horizontal = 6.dp, vertical = 6.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+            FitText(label, 15.sp, minSize = 12.sp, color = if (active && enabled) Look.accent else ink, textAlign = TextAlign.Center)
             if (detail != null) Text(detail, color = Look.muted, fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
         }
     }
@@ -125,9 +128,9 @@ data class PayOption(val label: String, val detail: String?, val tag: String, va
         topBar = { LookTopBar(title, onBack, backEnabled = !saving, subtitle = subtitle) },
         bottomBar = {
             Surface(color = Look.sheet, shadowElevation = 10.dp, shape = RoundedCornerShape(topStart = Look.sheetTop, topEnd = Look.sheetTop)) {
-                Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 12.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    PillButton("Back", onBack, Modifier.weight(1f).testTag("payment-back"), enabled = !saving, filled = false, height = 64.dp)
-                    PillButton(if (saving) "Saving…" else if (cash && change > 0) "Complete · change ${Peso.format(change)}" else "Complete sale", onPay, Modifier.weight(2f).testTag("complete-sale"), enabled = canPay && !saving, height = 64.dp, fontSize = 19.sp)
+                Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    PillButton("Back", onBack, Modifier.weight(1f).testTag("payment-back"), enabled = !saving, filled = false, height = 60.dp)
+                    PillButton(if (saving) "Saving…" else if (cash && change > 0) "Complete · change ${Peso.format(change)}" else "Complete sale", onPay, Modifier.weight(2f).testTag("complete-sale"), enabled = canPay && !saving, height = 60.dp, fontSize = 19.sp)
                 }
             }
         }) { padding ->
@@ -138,13 +141,25 @@ data class PayOption(val label: String, val detail: String?, val tag: String, va
                 if (short > 0) Triple("SHORT", Peso.format(short), "checkout-change") else Triple("CHANGE", Peso.format(change), "checkout-change"),
                 if (short > 0) SunprideTokens.emptyRed else if (change > 0) SunprideTokens.stockGreen else Look.ink)
             if (issues.isNotEmpty()) SectionCard("Before you can finish") { issues.forEachIndexed { i, text -> Text(text, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("checkout-issue-$i")) } }
-            if (choices.size > 1) FlowRow(Modifier.fillMaxWidth().testTag("tender-row"), horizontalArrangement = Arrangement.spacedBy(8.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                choices.forEach { choice ->
+            if (choices.size > 1) {
+                // Up to four tenders share one row (Cash, GCash, Card, Split); more are laid out three to a row, long names on two lines.
+                val grid = choices.size > 4
+                @Composable fun chip(choice: TenderChoice, modifier: Modifier) {
                     val on = choice.id == selected.id
-                    Surface(Modifier.heightIn(min = 48.dp).clip(CircleShape).clickable { onSelect(choice.id) }.testTag("pay-${choice.id}"), shape = CircleShape,
+                    val fg = if (on) Color.White else Look.ink
+                    Surface(modifier.heightIn(min = 48.dp).clip(CircleShape).clickable { onSelect(choice.id) }.testTag("pay-${choice.id}"), shape = CircleShape,
                         color = if (on) Look.barInk else Look.sheet, border = BorderStroke(1.5.dp, if (on) Look.barInk else Look.hairline)) {
-                        Box(Modifier.padding(horizontal = 18.dp).heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
-                            Text(choice.label, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold, color = if (on) Color.White else Look.ink, maxLines = 1)
+                        Box(Modifier.padding(horizontal = 10.dp).heightIn(min = 48.dp), contentAlignment = Alignment.Center) {
+                            if (grid) Text(choice.label.substringBefore(" ("), fontSize = 14.sp, lineHeight = 16.sp, fontWeight = FontWeight.ExtraBold, color = fg, maxLines = 2, overflow = TextOverflow.Ellipsis, textAlign = TextAlign.Center)
+                            else FitText(choice.label, 16.sp, minSize = 12.sp, color = fg, textAlign = TextAlign.Center)
+                        }
+                    }
+                }
+                Column(Modifier.fillMaxWidth().testTag("tender-row"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    (if (grid) choices.chunked(3) else listOf(choices)).forEach { rowChoices ->
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            rowChoices.forEach { chip(it, Modifier.weight(1f)) }
+                            if (grid) repeat(3 - rowChoices.size) { Spacer(Modifier.weight(1f)) }
                         }
                     }
                 }
@@ -158,12 +173,14 @@ data class PayOption(val label: String, val detail: String?, val tag: String, va
                             val on = !saving && (!exact || exactEnabled)
                             val picked = if (exact) exactActive else tendered == OpeningFloat.centavos(label.filter { it.isDigit() })
                             val shape = RoundedCornerShape(18.dp)
-                            val fill = when { !on -> MaterialTheme.colorScheme.surfaceVariant; picked -> Look.accent; exact -> Look.tint; else -> Look.card }
+                            val fill = when { !on -> MaterialTheme.colorScheme.surfaceVariant; picked -> Look.accent; else -> Look.card }
                             val ink = when { !on -> MaterialTheme.colorScheme.onSurfaceVariant; picked -> Look.onAccent; exact -> Look.accent; else -> Look.ink }
                             Box(Modifier.weight(1f).heightIn(min = 56.dp).clip(shape).background(fill)
-                                .border(1.5.dp, if (picked) Look.accent else if (exact && on) Look.accent else Look.hairline, shape)
+                                .border(1.5.dp, if (picked) Look.accent else Look.hairline, shape)
                                 .clickable(enabled = on, onClick = action, role = Role.Button).testTag(if (exact) "pay-exact" else "quick-cash-${label.filter(Char::isDigit)}"), contentAlignment = Alignment.Center) {
-                                FitText(label, 22.sp, Modifier.padding(horizontal = 6.dp), minSize = 14.sp, color = ink, textAlign = TextAlign.Center)
+                                if (exact && picked) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                                    Glyph(GlyphKind.CHECK, ink, 20.dp); FitText(label, 22.sp, Modifier.padding(end = 4.dp), minSize = 14.sp, color = ink, textAlign = TextAlign.Center)
+                                } else FitText(label, 22.sp, Modifier.padding(horizontal = 6.dp), minSize = 14.sp, color = ink, textAlign = TextAlign.Center)
                             }
                         }
                         repeat(3 - rowButtons.size) { Spacer(Modifier.weight(1f)) }
@@ -204,7 +221,7 @@ data class PayOption(val label: String, val detail: String?, val tag: String, va
             StepPills(SellStep.COMPLETE)
             Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(6.dp)) {
                 Surface(Modifier.size(72.dp), shape = CircleShape, color = SunprideTokens.stockGreen) { Box(contentAlignment = Alignment.Center) { Glyph(GlyphKind.CHECK, Color.White, 40.dp) } }
-                Text(headline, style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("sale-saved-note"))
+                FitText(headline, 22.sp, Modifier.padding(horizontal = 8.dp), minSize = 13.sp, color = Look.ink, textAlign = TextAlign.Center, tag = "sale-saved-note")
             }
             FigureCard("TOTAL", totalLabel, "receipt-total", Triple("RECEIVED", receivedLabel, "receipt-received"), Triple("CHANGE", changeLabel, "receipt-change"), SunprideTokens.stockGreen)
             body()

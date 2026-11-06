@@ -66,7 +66,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
         currentLines = { c.sale?.lines ?: emptyList() }, onSetLine = { id,base -> if (!c.busy) c.setSaleLine(id,base) },
         rows = rows, totalLabel = totalLabel, chargeEnabled = canCharge, onCharge = { c.open(Page.CHECKOUT) },
         cartOpen = cartOpen, onCartOpen = { cartOpen = it }, busy = c.busy,
-        cashierName = c.seller?.name, roleLabel = "Van seller",
+        cashierName = c.seller?.name, roleLabel = "Van seller", syncBadge = { SyncPill(c) },
         message = c.message ?: when {
             !c.retailLoaded -> "Loading the downloaded MSL…"
             draft.lines.isNotEmpty() && quote == null -> claimIssue(c,draft) ?: "Total not ready: some products are priced by the office"

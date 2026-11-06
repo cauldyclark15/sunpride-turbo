@@ -117,7 +117,7 @@ object Look {
     }
 }
 
-enum class GlyphKind { PLUS, MINUS, BAG, CAMERA, SEARCH, BACK, CLOSE, CHECK, PERCENT }
+enum class GlyphKind { PLUS, MINUS, BAG, CAMERA, SEARCH, BACK, CLOSE, CHECK, PERCENT, HOME, CART, RECEIPT, WALLET, BOX, DOTS, CHEVRON, SYNC, PRINTER, USER, USERS, TRUCK, CHAT, FLAG, SWITCH, LOCK }
 
 /** Small stroke icons drawn here so no icon library is needed. */
 @Composable fun Glyph(kind: GlyphKind, color: Color, size: Dp = 20.dp, modifier: Modifier = Modifier) {
@@ -146,6 +146,64 @@ enum class GlyphKind { PLUS, MINUS, BAG, CAMERA, SEARCH, BACK, CLOSE, CHECK, PER
                 drawCircle(color, radius = 2.6f * u, center = Offset(7f * u, 7f * u), style = stroke)
                 drawCircle(color, radius = 2.6f * u, center = Offset(17f * u, 17f * u), style = stroke)
                 line(18f, 5f, 6f, 19f)
+            }
+            GlyphKind.HOME -> {
+                line(3.5f, 11f, 12f, 3.5f); line(12f, 3.5f, 20.5f, 11f)
+                line(6f, 9.5f, 6f, 20f); line(18f, 9.5f, 18f, 20f); line(6f, 20f, 18f, 20f)
+                line(10f, 20f, 10f, 14f); line(14f, 20f, 14f, 14f); line(10f, 14f, 14f, 14f)
+            }
+            GlyphKind.CART -> {
+                line(3f, 4.5f, 5.8f, 4.5f); line(5.8f, 4.5f, 8.2f, 15.5f); line(8.2f, 15.5f, 18.5f, 15.5f)
+                line(6.4f, 7.5f, 20.5f, 7.5f); line(20.5f, 7.5f, 18.8f, 13f)
+                drawCircle(color, radius = 1.7f * u, center = Offset(9.8f * u, 19.6f * u)); drawCircle(color, radius = 1.7f * u, center = Offset(17f * u, 19.6f * u))
+            }
+            GlyphKind.RECEIPT -> {
+                drawRoundRect(color, Offset(5.5f * u, 2.8f * u), Size(13f * u, 18.4f * u), androidx.compose.ui.geometry.CornerRadius(2.5f * u), style = stroke)
+                line(9f, 8f, 15f, 8f); line(9f, 12f, 15f, 12f); line(9f, 16f, 12.5f, 16f)
+            }
+            GlyphKind.WALLET -> {
+                drawRoundRect(color, Offset(3f * u, 6f * u), Size(18f * u, 13.5f * u), androidx.compose.ui.geometry.CornerRadius(3.2f * u), style = stroke)
+                line(5.5f, 6f, 16f, 3.6f); drawCircle(color, radius = 1.5f * u, center = Offset(16.4f * u, 12.8f * u))
+            }
+            GlyphKind.BOX -> {
+                drawRoundRect(color, Offset(4f * u, 9f * u), Size(16f * u, 11f * u), androidx.compose.ui.geometry.CornerRadius(2f * u), style = stroke)
+                line(3f, 9f, 5.5f, 4f); line(5.5f, 4f, 18.5f, 4f); line(18.5f, 4f, 21f, 9f); line(10f, 13.5f, 14f, 13.5f)
+            }
+            GlyphKind.DOTS -> { drawCircle(color, radius = 2.1f * u, center = Offset(5.5f * u, 12f * u)); drawCircle(color, radius = 2.1f * u, center = Offset(12f * u, 12f * u)); drawCircle(color, radius = 2.1f * u, center = Offset(18.5f * u, 12f * u)) }
+            GlyphKind.CHEVRON -> { line(9f, 5f, 16f, 12f); line(16f, 12f, 9f, 19f) }
+            GlyphKind.SYNC -> {
+                drawArc(color, startAngle = -40f, sweepAngle = 250f, useCenter = false, topLeft = Offset(4.5f * u, 4.5f * u), size = Size(15f * u, 15f * u), style = stroke)
+                line(19.5f, 3.5f, 19.6f, 8.2f); line(19.6f, 8.2f, 14.9f, 8.2f)
+            }
+            GlyphKind.PRINTER -> {
+                drawRoundRect(color, Offset(3f * u, 9f * u), Size(18f * u, 8f * u), androidx.compose.ui.geometry.CornerRadius(2.5f * u), style = stroke)
+                line(7f, 9f, 7f, 3.5f); line(7f, 3.5f, 17f, 3.5f); line(17f, 3.5f, 17f, 9f)
+                drawRoundRect(color, Offset(7f * u, 14f * u), Size(10f * u, 6.5f * u), androidx.compose.ui.geometry.CornerRadius(1f * u), style = stroke)
+            }
+            GlyphKind.USER -> {
+                drawCircle(color, radius = 4f * u, center = Offset(12f * u, 8f * u), style = stroke)
+                drawArc(color, startAngle = 180f, sweepAngle = 180f, useCenter = false, topLeft = Offset(4.5f * u, 14f * u), size = Size(15f * u, 15f * u), style = stroke)
+            }
+            GlyphKind.USERS -> {
+                drawCircle(color, radius = 3.4f * u, center = Offset(9f * u, 8.5f * u), style = stroke)
+                drawArc(color, startAngle = 180f, sweepAngle = 180f, useCenter = false, topLeft = Offset(2.5f * u, 14.5f * u), size = Size(13f * u, 13f * u), style = stroke)
+                drawCircle(color, radius = 2.8f * u, center = Offset(17.2f * u, 9.2f * u), style = stroke)
+                drawArc(color, startAngle = 200f, sweepAngle = 150f, useCenter = false, topLeft = Offset(12.5f * u, 14.5f * u), size = Size(10f * u, 10f * u), style = stroke)
+            }
+            GlyphKind.TRUCK -> {
+                drawRoundRect(color, Offset(2f * u, 6f * u), Size(12f * u, 10f * u), androidx.compose.ui.geometry.CornerRadius(1.5f * u), style = stroke)
+                line(14f, 9.5f, 18.2f, 9.5f); line(18.2f, 9.5f, 21.5f, 13f); line(21.5f, 13f, 21.5f, 16f); line(14f, 16f, 21.5f, 16f)
+                drawCircle(color, radius = 2.1f * u, center = Offset(7f * u, 17.8f * u), style = stroke); drawCircle(color, radius = 2.1f * u, center = Offset(17f * u, 17.8f * u), style = stroke)
+            }
+            GlyphKind.CHAT -> {
+                drawRoundRect(color, Offset(3f * u, 4f * u), Size(18f * u, 12.5f * u), androidx.compose.ui.geometry.CornerRadius(4f * u), style = stroke)
+                line(8f, 16.5f, 7f, 20.5f); line(7f, 20.5f, 12f, 16.5f)
+            }
+            GlyphKind.FLAG -> { line(6f, 3.5f, 6f, 21f); line(6f, 4.5f, 18.5f, 4.5f); line(18.5f, 4.5f, 15.5f, 8.5f); line(15.5f, 8.5f, 18.5f, 12.5f); line(18.5f, 12.5f, 6f, 12.5f) }
+            GlyphKind.SWITCH -> { line(4f, 8f, 19f, 8f); line(19f, 8f, 15.5f, 4.5f); line(20f, 16f, 5f, 16f); line(5f, 16f, 8.5f, 19.5f) }
+            GlyphKind.LOCK -> {
+                drawRoundRect(color, Offset(5f * u, 10.5f * u), Size(14f * u, 10f * u), androidx.compose.ui.geometry.CornerRadius(2.5f * u), style = stroke)
+                drawArc(color, startAngle = 180f, sweepAngle = 180f, useCenter = false, topLeft = Offset(8f * u, 3.5f * u), size = Size(8f * u, 10f * u), style = stroke)
             }
         }
     }
@@ -234,7 +292,7 @@ fun initialsOf(name: String, max: Int = 2): String {
     LightStatusIcons()
     Box(modifier.fillMaxWidth()) {
         Box(Modifier.matchParentSize().background(Look.gradient)) { Canvas(Modifier.matchParentSize()) { drawContours() } }
-        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 12.dp, top = 6.dp, bottom = bottomOverlap + 4.dp), content = content)
+        Column(Modifier.fillMaxWidth().statusBarsPadding().padding(start = 12.dp, end = 12.dp, top = 2.dp, bottom = bottomOverlap + 2.dp), content = content)
         Box(Modifier.align(Alignment.BottomCenter).fillMaxWidth().height(bottomOverlap).clip(RoundedCornerShape(topStart = Look.sheetTop, topEnd = Look.sheetTop)).background(Look.canvas))
     }
 }
@@ -340,17 +398,18 @@ fun Modifier.floatingBar(): Modifier = this.shadow(14.dp, RoundedCornerShape(28.
  * The compact red title bar for every non-browse screen (payment, complete, till open/close, X/Z, receipts...): optional round Back,
  * the title in white, rounded white sheet starting under it. [title] keeps the "screen-title" tag the tests and the readers use.
  */
-@Composable fun LookTopBar(title: String, onBack: (() -> Unit)?, modifier: Modifier = Modifier, backEnabled: Boolean = true, subtitle: String? = null) {
-    LookHeader(modifier, bottomOverlap = 22.dp) {
-        Row(Modifier.heightIn(min = 52.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+@Composable fun LookTopBar(title: String, onBack: (() -> Unit)?, modifier: Modifier = Modifier, backEnabled: Boolean = true, subtitle: String? = null, trailing: (@Composable () -> Unit)? = null) {
+    LookHeader(modifier, bottomOverlap = 14.dp) {
+        Row(Modifier.heightIn(min = 48.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
             if (onBack != null) Box(Modifier.size(48.dp).clip(CircleShape).background(Color.White.copy(alpha = if (backEnabled) 0.18f else 0.08f))
                 .clickable(enabled = backEnabled, onClick = onBack, role = androidx.compose.ui.semantics.Role.Button).testTag("back").semantics { contentDescription = "Back" }, contentAlignment = Alignment.Center) {
                 Glyph(GlyphKind.BACK, Color.White, 22.dp)
             } else Spacer(Modifier.width(4.dp))
             Column(Modifier.weight(1f)) {
-                Text(title, color = Color.White, fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("screen-title"))
+                Text(title, color = Color.White, fontSize = 21.sp, lineHeight = 26.sp, fontWeight = FontWeight.ExtraBold, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.testTag("screen-title"))
                 subtitle?.let { Text(it, color = Color.White, fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
+            trailing?.invoke()
         }
     }
 }
