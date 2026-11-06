@@ -44,6 +44,7 @@ import { uuid } from "./model.js";
 import {
   bindDevice,
   crewSessionCommand,
+  crewPinPrecheck,
   verifyCrewPinOnline,
   handoverTrip,
   listRosters,
@@ -261,7 +262,11 @@ export function install(router, ctx) {
     const body = request.body ?? {};
     const needsPin = body.office !== true;
     await requireCapability(request, "van.read"); // never let a stranger spend someone's PIN tries
-    if (needsPin) await verifyCrewPinOnline(request.db, uuid(body.toProfileId), body.pin);
+    if (needsPin) {
+      // IP-INT3FIX: own phone and the trip's phone first, so a wrong PIN from a stranger is never counted.
+      await crewPinPrecheck(request.db, request.actor, body);
+      await verifyCrewPinOnline(request.db, uuid(body.toProfileId), body.pin);
+    }
     return command(request, ctx, "crew-sessions", "van.read", (db, actor, p) =>
       crewSessionCommand(db, actor, p, needsPin),
     );
