@@ -25,6 +25,8 @@ class StoreClaimTest {
         assertFalse(StoreCheckout.claimsPossible(config(row("a", 3_900, null))))
         assertFalse(StoreCheckout.claimsPossible(config(row("a", 3_900, "vatable"), row("b", 1_000, null))))
         assertFalse(StoreCheckout.claimsPossible(config()))
+        // IP-INT3: a product with no price is not sold, so it needs no tax fact.
+        assertTrue(StoreCheckout.claimsPossible(config(row("a", 3_900, "vatable"), row("b", 1_000, null).put("unitPriceMinor", JSONObject.NULL))))
     }
 
     @Test fun aSeniorClaimOnAStoreSaleGivesTwentySevenPesosEightySix() {

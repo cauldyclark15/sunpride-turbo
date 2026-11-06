@@ -7,8 +7,11 @@ import { tenderPolicy } from "../fiscal/tenders.js";
 import { STATUSES, STATUS_FIELDS } from "../inventory/common.js";
 import { refuse } from "../van/model.js";
 /** F-R03: cached quotes are replicas of shared SAP conditions, not a retail price list.
- * @param {any} db @param {any} actor @param {any} device @param {any} r */
-export async function sellingBundle(db, actor, device, r) {
+ * IP-INT3: `opts.taxFacts` (a handheld that asked with `params.handheld`) adds each product's governed tax treatment and
+ * rate, taken from the same price condition a store sale is taxed with, so the phone's discount maths agrees with the
+ * server. A product with no price, or a price with no tax set-up, carries none (the phone refuses to guess).
+ * @param {any} db @param {any} actor @param {any} device @param {any} r @param {{taxFacts?:boolean}} [opts] */
+export async function sellingBundle(db, actor, device, r, opts = {}) {
   const [outlet] = r.outlet_id
     ? await db`select o.*,c.code as account_code from outlets o join outlet_customer_links k on k.outlet_id=o.id and k.deleted_at is null and k.effective_from<=now() and (k.effective_to is null or k.effective_to>now()) join customers c on c.id=k.customer_id and c.active and c.deleted_at is null where o.id=${r.outlet_id} and o.status='active' and o.deleted_at is null`
     : [];
@@ -61,6 +64,12 @@ export async function sellingBundle(db, actor, device, r) {
           ? null
           : String(price.unitPriceCentavos),
       sourcePriceListId: price?.priceListId ?? null,
+      ...(opts.taxFacts && price?.taxTreatment
+        ? {
+            taxTreatment: price.taxTreatment,
+            taxBasisPoints: price.taxBasisPoints ?? 0,
+          }
+        : {}),
       units: Object.fromEntries(
         [...p.factors].map(([code, value]) => [code, String(value)]),
       ),

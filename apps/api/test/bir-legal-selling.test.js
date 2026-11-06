@@ -947,3 +947,42 @@ test("IP-INT2FIX: the tax summary subtracts an approved refund, so output VAT is
   // the sale is still a document of the day; the credit memo is not counted as a sale
   expect(after.body.totals.documents).toBe(before.documents + 1);
 });
+
+test("IP-INT3: the store bundle carries each product's tax facts for a handheld that asks, and nothing for one that does not", async () => {
+  const { bundle } = await import("../src/domains/van/projection.js");
+  const actor = await actorFor(h.db, seller.userId);
+  const ctx = {
+    db: h.db,
+    actor,
+    device: { id: seller.deviceId },
+    params: {
+      serviceDate: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10),
+      posMode: true,
+    },
+    now: Date.now(),
+  };
+  /** @param {any} res @param {string} code */
+  const row = (res, code) =>
+    res.policy.storePos.catalogue.find((/** @type {any} */ c) => c.code === code);
+  const plain = await bundle(ctx, {});
+  expect(row(plain, "VAT39")).toBeTruthy();
+  expect(row(plain, "VAT39").taxTreatment).toBeUndefined();
+  expect(row(plain, "VAT39").taxBasisPoints).toBeUndefined();
+  const handheld = await bundle(
+    { ...ctx, params: { ...ctx.params, handheld: true } },
+    {},
+  );
+  expect(row(handheld, "VAT39")).toMatchObject({
+    unitPriceMinor: "3900",
+    taxTreatment: "vatable",
+    taxBasisPoints: 1200,
+  });
+  expect(row(handheld, "EXM112")).toMatchObject({
+    taxTreatment: "exempt",
+    taxBasisPoints: 0,
+  });
+  expect(row(handheld, "ZRO50")).toMatchObject({
+    taxTreatment: "zero_rated",
+    taxBasisPoints: 0,
+  });
+});

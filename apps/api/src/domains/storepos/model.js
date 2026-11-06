@@ -75,8 +75,8 @@ export function captureTime(c) {
   return Number(at);
 }
 /** F-R01: configuration rides the existing authorized van bundle, even with no trip.
- * @param {any} db @param {any} actor @param {any} device @param {any} mode */
-export async function modeBundle(db, actor, device, mode) {
+ * @param {any} db @param {any} actor @param {any} device @param {any} mode @param {{taxFacts?:boolean}} [opts] */
+export async function modeBundle(db, actor, device, mode, opts = {}) {
   if (!mode) return null;
   if (mode.mode === "store")
     await cashierContext(db, actor, device, Date.now());
@@ -112,7 +112,7 @@ export async function modeBundle(db, actor, device, mode) {
     allowLocalSwitch: mode.allow_local_switch,
     transactionsEnabled: Boolean(r?.outlet_id),
     ...(r && mode.mode === "store"
-      ? await sellingBundle(db, actor, device, r)
+      ? await sellingBundle(db, actor, device, r, opts)
       : {}),
     loyalty: policy
       ? {

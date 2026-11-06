@@ -58,7 +58,8 @@ object StoreCheckout {
     }
     /** True when this store's bundle carries tax facts for every catalogue product (so a discount claim can be worked out here). */
     fun claimsPossible(config: StorePosConfig): Boolean {
-        val rows=objects(config.details.optJSONArray("catalogue"))
+        // IP-INT3: a product with no price cannot be sold, so it needs no tax fact; every sellable product must have one.
+        val rows=objects(config.details.optJSONArray("catalogue")).filter {!it.isNull("unitPriceMinor")}
         return rows.isNotEmpty()&&rows.all {it.optString("taxTreatment").isNotBlank()}
     }
     fun quote(config: StorePosConfig,rows: List<OutboxRow>,lines:List<CartLine>,now:Long,claim:com.sunpride.van.selling.DiscountClaim?=null): CheckoutQuote {

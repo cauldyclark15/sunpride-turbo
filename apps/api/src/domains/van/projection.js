@@ -172,7 +172,9 @@ export async function bundle(ctx, env) {
       );
     const storePos =
       ctx.params.posMode === true
-        ? await modeBundle(db, actor, device, posMode)
+        ? await modeBundle(db, actor, device, posMode, {
+            taxFacts: ctx.params.handheld === true,
+          })
         : null;
     let trips =
       storePos?.mode === "store"
