@@ -249,6 +249,67 @@ describe("request, approve (reserves), pick, dispatch", () => {
   });
 });
 
+describe("draft, partial approval, and what cannot be undone", () => {
+  it("a draft is submitted, approved for less than asked, and only the approved part is held and sent", async () => {
+    const p = await product();
+    await receipt(p, 480);
+    const made = await command(clerk, "transfers/request", {
+      draft: true,
+      sourceLocationId: depot,
+      destinationLocationId: store,
+      inTransitLocationId: transit,
+      lines: [{ productId: p.id, quantityBase: 480 }],
+    });
+    expect((await detail(made.body.id)).status).toBe("draft");
+    expect(
+      (
+        await command(approver, "transfers/approve", {
+          transferId: made.body.id,
+        })
+      ).status,
+    ).toBe(409); // a draft is not yet asked for
+    expect(
+      (await command(clerk, "transfers/submit", { transferId: made.body.id }))
+        .status,
+    ).toBe(200);
+    const doc = await detail(made.body.id);
+    const ok = await command(approver, "transfers/approve", {
+      transferId: made.body.id,
+      lines: [{ lineId: doc.lines[0].id, approvedBase: 240 }],
+    });
+    expect(ok.status).toBe(200);
+    expect(await stock(p.id, depot)).toMatchObject({
+      available: 480,
+      reserved: 240,
+    });
+    const tooMany = await command(clerk, "transfers/pick", {
+      transferId: made.body.id,
+      lines: [{ lineId: doc.lines[0].id, pickedBase: 241 }],
+    });
+    expect(tooMany.status).toBe(422);
+    expect(
+      (await command(clerk, "transfers/dispatch", { transferId: made.body.id }))
+        .status,
+    ).toBe(200);
+    expect(await stock(p.id, depot)).toMatchObject({
+      available: 240,
+      reserved: 0,
+    });
+    expect((await detail(made.body.id)).lines[0]).toMatchObject({
+      approvedBase: 240,
+      dispatchedBase: 240,
+    });
+    // Once it is on the road it cannot be cancelled, only received.
+    expect(
+      (
+        await command(approver, "transfers/cancel", {
+          transferId: made.body.id,
+        })
+      ).status,
+    ).toBe(409);
+  });
+});
+
 describe("receive: good / damaged / on hold, partial, short, over", () => {
   it("receives in two partial receipts; the sending numbers never change", async () => {
     const p = await product();
