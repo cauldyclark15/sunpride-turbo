@@ -145,11 +145,14 @@ async function authorizeTarget(db, actor, path, p) {
     if (p.id) await registerFor(db, actor, uuid(p.id), "admin.manage");
   } else if (path === "shifts/decide") {
     const [s] =
-      await db`select s.register_id,s.cashier_id from store_shift_closures c join store_shifts s on s.id=c.shift_id where c.id=${uuid(p.closureId)}`;
+      await db`select s.register_id,s.cashier_id,c.forced_by from store_shift_closures c join store_shifts s on s.id=c.shift_id where c.id=${uuid(p.closureId)}`;
     if (!s) refuse("Choose a submitted count");
     await registerFor(db, actor, s.register_id, "van.cash.approve");
     if (s.cashier_id === actor.profileId)
       throw forbidden("A second person must decide your count");
+    // IP-INT3FIX: maker != checker also for the person who force-closed the session
+    if (s.forced_by && s.forced_by === actor.profileId)
+      throw forbidden("A second person must decide a session you closed");
   } else await registerFor(db, actor, uuid(p.registerId), "admin.manage");
 }
 /** F-R01. @param {any} db @param {string} registerId */
