@@ -1,7 +1,9 @@
 import { roleHas } from "../../core/capabilities.js";
 import { commands, execute } from "./commands.js";
 import { visibleLocations } from "./common.js";
-import { installJobs } from "./jobs.js";
+import { installIntegrityRoutes, installJobs } from "./jobs.js";
+import { installDispositionRoutes } from "./dispositions.js";
+import { installValuationRoutes } from "./valuation.js";
 import { installCommandExtensions } from "./extensions.js";
 import { installReasonRoutes } from "./reasons.js";
 import { installToleranceRoutes } from "./tolerances.js";
@@ -45,6 +47,10 @@ export function install(router, core) {
   router.get(`${prefix}/replenishment`, suggestions);
   installReasonRoutes(router);
   installToleranceRoutes(router);
+  // IP-VALUE: stock card, valuation, dispositions + expiry board, integrity (adds commands before they are routed below)
+  installValuationRoutes(router);
+  installDispositionRoutes(router);
+  installIntegrityRoutes(router, core);
   for (const kind of [
     "receipts",
     "transfers",

@@ -68,6 +68,67 @@ export const manilaDate = (at = Date.now()) =>
 export const stockLock = async (t, org) => {
   await t`select pg_advisory_xact_lock(hashtext(${`inventory:${org}`}))`;
 };
+/**
+ * Posting locks (IP-VALUE). A posting takes (1) the org lock in SHARED mode, so whole-org
+ * holders (`stockLock`, exclusive: commands, recalls, expiry) still exclude every posting, and
+ * (2) one exclusive advisory lock per (product, location) it touches plus one for its
+ * idempotency key. The per-row locks are taken in ONE statement over the sorted, de-duplicated
+ * 64-bit lock keys, so two postings that touch the same pair of rows in opposite order cannot
+ * deadlock, and two postings on different products never wait on each other.
+ * Lock order everywhere: org(shared|exclusive) -> sorted row locks -> row locks -> change-log lock.
+ * @param {any} t @param {string} org @param {string} idempotencyKey @param {any[]} movementLines
+ */
+export async function postingLocks(t, org, idempotencyKey, movementLines) {
+  const names = new Set([`idem:${org}:${idempotencyKey}`]);
+  for (const l of movementLines)
+    for (const loc of [l?.fromLocationId, l?.toLocationId])
+      if (loc) names.add(`stock:${org}:${l.productId}:${loc}`);
+  await t`select pg_advisory_xact_lock_shared(hashtext(${`inventory:${org}`}))`;
+  await t`select pg_advisory_xact_lock(s.k) from (select distinct hashtextextended(n,0) as k from jsonb_array_elements_text(${JSON.stringify([...names])}::text::jsonb) as n order by 1 offset 0) s`;
+  return [...names];
+}
+/** Read a consistent snapshot WITHOUT blocking postings: repeatable read, read only.
+ * Falls back to the caller's transaction when one is already open.
+ * @template T @param {any} db @param {(t:any)=>Promise<T>} fn @returns {Promise<T>} */
+export async function snapshot(db, fn) {
+  if (db.__inTx || typeof db.begin !== "function") return fn(db);
+  return db.begin("isolation level repeatable read read only", fn);
+}
+/** Products and their policies for a whole movement in two queries. `get` throws exactly what
+ * productPolicy throws; `peek` never throws.
+ * @param {any} t @param {any[]} productIds @param {string} [org] */
+export async function productCatalog(t, productIds, org = ORGANIZATION) {
+  const wanted = [...new Set(productIds.filter((v) => isUuid(v)))];
+  /** @type {Map<string,any>} */ const products = new Map(),
+    policies = new Map();
+  if (wanted.length) {
+    for (const r of await t`select * from products where id in ${t(wanted)} and organization_id=${org} and active and deleted_at is null`)
+      products.set(r.id, r);
+    for (const r of await t`select * from product_inventory_policies where organization_id=${org} and product_id in ${t(wanted)} and active and deleted_at is null`)
+      if (!policies.has(r.product_id)) policies.set(r.product_id, r);
+  }
+  return {
+    /** @param {any} productId */
+    peek: (productId) => products.get(productId) ?? null,
+    /** @param {any} productId */
+    get(productId) {
+      id(productId, "Product");
+      const product = products.get(productId);
+      if (!product)
+        throw new ApiError("not_found", 404, "Active product not found");
+      const policy = policies.get(productId);
+      const scale = Number(policy?.quantity_scale ?? product.quantity_scale ?? 1);
+      if (!Number.isSafeInteger(scale) || scale <= 0)
+        invalid("The product quantity scale needs correction", "invalid_uom");
+      return {
+        product,
+        policy,
+        tracking: policy?.tracking_mode ?? product.tracking_mode ?? "none",
+        scale,
+      };
+    },
+  };
+}
 /** @param {any} ctx @param {string} capability @param {string} locationId @param {string} [org] */
 export async function locationGate(
   ctx,

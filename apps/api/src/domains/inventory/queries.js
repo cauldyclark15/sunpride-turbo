@@ -15,7 +15,7 @@ import {
   manilaDate,
   number,
   ORGANIZATION,
-  stockLock,
+  snapshot,
   visibleLocations,
 } from "./common.js";
 import { presenter } from "./units.js";
@@ -46,8 +46,9 @@ function total(rows, key) {
 }
 /** @param {any} ctx */
 export async function overview(ctx) {
-  return tx(ctx.db, async (db) => {
-    await stockLock(db, ORGANIZATION);
+  // IP-VALUE: a repeatable-read snapshot gives the same consistency the org-wide lock did, without
+  // making every sale wait while a screen loads.
+  return snapshot(ctx.db, async (db) => {
     const c = { ...ctx, db };
     let locations = await visibleLocations(c);
     const filter = ctx.url.searchParams.get("locationId");
@@ -306,7 +307,6 @@ export async function catalog(ctx) {
 /** @param {any} ctx */
 export async function countDetail(ctx) {
   return tx(ctx.db, async (db) => {
-    await stockLock(db, ORGANIZATION);
     const session = await document(
       db,
       "stock_count_sessions",
