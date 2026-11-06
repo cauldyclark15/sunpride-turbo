@@ -9,6 +9,7 @@ import { authorityContext } from "./authority.js";
 import { roleHas } from "../../core/capabilities.js";
 import { invoiceTaxSnapshot } from "./taxes.js";
 import { canonicalJson } from "../../core/util.js";
+import { buildTaxSnapshot } from "./legal-sale.js";
 /** F-108/F-109: inclusive VAT, exact half-up centavos; the frozen registration owns the rate.
  * @param {string} total @param {number} bps */
 export function taxSnapshot(total, bps) {
@@ -41,9 +42,15 @@ export async function invoiceForSale(db, actor, trip, p, receipt, deviceId) {
     await db`select r.*,a.registration_snapshot from fiscal_allocations a join fiscal_series s on s.id=a.series_id join fiscal_registrations r on r.id=s.registration_id where a.id=${uuid(p.fiscal.allocationId)}`;
   if (!r || r.org_unit_id !== trip.org_unit_id)
     refuse("Fiscal range belongs to another branch");
-  /** @type {ReturnType<typeof invoiceTaxSnapshot>|ReturnType<typeof taxSnapshot>} */
-  let tax = invoiceTaxSnapshot(receipt.lines, receipt.totalMinor);
-  if (p.fiscal.tax) {
+  /** @type {any} */
+  let tax;
+  if (receipt.discountClaim) {
+    // IP-BIR: a statutory discount keeps its own amounts; the server tax is authoritative (a phone tax blob is not compared).
+    tax = vanClaimTax(receipt);
+  } else tax = invoiceTaxSnapshot(receipt.lines, receipt.totalMinor);
+  if (receipt.discountClaim) {
+    // tax already computed from the recomputed per-line privilege results
+  } else if (p.fiscal.tax) {
     if (canonicalJson(p.fiscal.tax) !== canonicalJson(tax))
       refuse(
         "Selling tax changed; keep the invoice for office review rather than rewriting its printed facts",
@@ -130,4 +137,33 @@ export async function fiscalBundle(db, actor, trip, deviceId, env) {
       ? { authority: await authorityContext(db, actor, trip.org_unit_id, env) }
       : {}),
   };
+}
+
+/** IP-BIR: tax snapshot of a van sale that carries a discount claim (lines hold their recomputed `legal` results).
+ * @param {any} receipt */
+function vanClaimTax(receipt) {
+  const taxLines = [],
+    results = [];
+  for (const l of receipt.lines) {
+    if (BigInt(l.grossMinor) === 0n) continue;
+    taxLines.push({
+      totalMinor: l.totalMinor,
+      grossMinor: l.grossMinor,
+      promoDiscountMinor: l.discountMinor,
+      taxBasisPoints: l.taxBasisPoints,
+      taxTreatment: l.taxTreatment,
+      taxCode: l.taxCode,
+      sourceTaxInclusive: l.sourceTaxInclusive,
+      sourceSellingUnitMinor: l.sourceSellingUnitMinor,
+      sourceNetUnitMinor: l.sourceNetUnitMinor,
+      sapConditionKey: l.sapConditionKey,
+      sapConditionVersion: l.sapConditionVersion,
+    });
+    results.push(l.legal);
+  }
+  return buildTaxSnapshot(taxLines, {
+    results,
+    claim: receipt.discountClaim,
+    totalMinor: receipt.totalMinor,
+  });
 }

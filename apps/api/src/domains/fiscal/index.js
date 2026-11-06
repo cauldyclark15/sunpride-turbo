@@ -23,6 +23,7 @@ import {
   readOverride,
 } from "./authority.js";
 import { installCommercial } from "./commercial.js";
+import { birCommands, installBirRoutes } from "./receipts.js";
 export { allocateDocumentNumber } from "./series.js";
 export { requestOverride } from "./authority.js";
 
@@ -51,6 +52,7 @@ async function auditTripPrint(c, actor, { sourceType, sourceId }, eventId) {
 /** F-018/F-019/F-020/F-124/F-511. @param {any} router @param {any} ctx */
 export function install(router, ctx) {
   installCommercial(router);
+  installBirRoutes(router, ctx);
   ctx.registerTopic(
     "fiscal",
     (/** @type {any} */ actor, /** @type {string} */ topic) =>
@@ -73,6 +75,7 @@ export function install(router, ctx) {
     return { entityId: result.id };
   });
   const commands = {
+    ...birCommands,
     "registrations/save": saveRegistration,
     "tenders/save": saveTenderRule,
     "series/create": createSeries,

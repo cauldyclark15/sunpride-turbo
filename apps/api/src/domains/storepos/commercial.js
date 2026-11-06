@@ -3,7 +3,14 @@ import { decimalMoney } from "../orders/validation.js";
 import { evaluateSchemes } from "../tpm/engine.js";
 import { postMovement } from "../inventory/posting.js";
 import { issueDocument } from "../fiscal/series.js";
-import { taxSnapshot, enqueueSapPosting } from "../fiscal/transactions.js";
+import { enqueueSapPosting } from "../fiscal/transactions.js";
+import {
+  prepareLegalSale,
+  buildTaxSnapshot,
+  resolveBuyer,
+  recordClaim,
+  privilegeLabel,
+} from "../fiscal/legal-sale.js";
 import { configuredTender } from "../fiscal/tenders.js";
 import { canonicalJson } from "../../core/util.js";
 import { integer, uuid, refuse, today, text } from "../van/model.js";
@@ -85,7 +92,45 @@ export async function recordSale(c) {
   }
   if (priced.totalCentavos === null)
     refuse("Shared promotion could not price this basket");
-  const total = BigInt(priced.totalCentavos);
+  // IP-BIR: statutory discount claim (SC / PWD / ...). The server recomputes per line and refuses a mismatch.
+  const legalLines = priced.lines.map((/** @type {any} */ l) => ({
+    productId: l.productId,
+    description: l.description,
+    grossCentavos: l.lineTotalCentavos + l.discountCentavos,
+    promoDiscountCentavos: l.discountCentavos,
+    taxTreatment: l.taxTreatment ?? null,
+    taxBasisPoints: l.taxBasisPoints ?? null,
+  }));
+  const legal = await prepareLegalSale(db, {
+    surface: "store",
+    orgUnitId: r.org_unit_id,
+    payload: p,
+    at: p.deviceTime,
+    lines: legalLines,
+  });
+  if (legal.claim) {
+    legal.assertMatches({
+      totalCentavos: p.totalCentavos,
+      privilegeDiscountCentavos: p.discountClaim?.privilegeDiscountCentavos,
+      vatRemovedCentavos: p.discountClaim?.vatRemovedCentavos,
+    });
+    priced = {
+      ...priced,
+      totalCentavos: legal.totals.total,
+      lines: priced.lines.map(
+        (/** @type {any} */ l, /** @type {number} */ i) => ({
+          ...l,
+          lineTotalCentavos: legal.results[i].netCentavos,
+          discountCentavos:
+            legalLines[i].grossCentavos - legal.results[i].netCentavos,
+          privilegeType: legal.results[i].privilegeType,
+          privilegeDiscountCentavos: legal.results[i].privilegeDiscountCentavos,
+          vatRemovedCentavos: legal.results[i].vatRemovedCentavos,
+        }),
+      ),
+    };
+  }
+  const total = BigInt(/** @type {number} */ (priced.totalCentavos));
   if (integer(p.totalCentavos) !== total)
     refuse(
       "Basket changed; review the shared price or promotion",
@@ -146,6 +191,12 @@ export async function recordSale(c) {
       uom: l.uom,
     })),
   });
+  const buyer = await resolveBuyer(db, {
+    outletId: r.outlet_id,
+    override: legal.buyerOverride,
+    fallbackName: outlet.name,
+    fallbackAddress: outlet.address,
+  });
   const receipt = {
     saleId: id,
     store: r.store_name,
@@ -160,7 +211,20 @@ export async function recordSale(c) {
     currency: "PHP",
     employeeDiscount: p.employeeDiscount === true,
     pointsRedeemed: String(points),
+    buyer,
+    ...(legal.claim
+      ? {
+          discountClaim: {
+            type: legal.claim.type,
+            label: privilegeLabel(legal.claim.type),
+            idNumber: legal.claim.idNumber,
+            holderName: legal.claim.holderName,
+            applied: legal.totals.applied,
+          },
+        }
+      : {}),
   };
+  const tax = storeTax(priced.lines, legalLines, legal, String(total));
   const [registration] =
     await db`select a.registration_snapshot as snapshot,r.org_unit_id from fiscal_allocations a join fiscal_series s on s.id=a.series_id join fiscal_registrations r on r.id=s.registration_id where a.id=${uuid(p.fiscal?.allocationId)}`;
   if (registration?.org_unit_id !== r.org_unit_id)
@@ -177,7 +241,7 @@ export async function recordSale(c) {
     at: p.deviceTime,
     snapshot: {
       ...receipt,
-      tax: taxSnapshot(String(total), registration.snapshot.taxBasisPoints),
+      tax,
     },
   });
   if (document.document_number !== p.receiptNumber)
@@ -209,8 +273,53 @@ export async function recordSale(c) {
     if (points)
       await db`insert into store_points(customer_id,sale_id,delta,kind) values(${customer.id},${id},${String(-points)},'redeem')`;
   }
+  await recordClaim(db, {
+    sourceType: "store_sale",
+    sourceId: id,
+    orgUnitId: r.org_unit_id,
+    legal,
+    claimed: p.discountClaim ?? {},
+    actorProfileId: actor.profileId,
+    documentId: document.id,
+  });
   await enqueueSapPosting(db, document);
   return { entityId: id, movementId: movement.movementId };
+}
+/** IP-BIR: tax is split PER LINE from each product's governed treatment (never one whole-basket rate).
+ * Zero-value free-goods lines carry no tax. @param {any[]} lines @param {any[]} legalLines @param {any} legal @param {string} totalMinor */
+export function storeTax(lines, legalLines, legal, totalMinor) {
+  /** @type {any[]} */ const taxLines = [],
+    /** @type {any[]} */ results = [];
+  lines.forEach((/** @type {any} */ l, /** @type {number} */ i) => {
+    const gross = legalLines[i].grossCentavos;
+    if (gross === 0) return;
+    if (!l.taxTreatment || typeof l.taxCode !== "string")
+      refuse(
+        `${l.description} has no tax set-up. Ask the office to finish its price and tax set-up before selling it.`,
+        "tax_setup_missing",
+      );
+    taxLines.push({
+      totalMinor: String(l.lineTotalCentavos),
+      grossMinor: String(gross),
+      promoDiscountMinor: String(legalLines[i].promoDiscountCentavos),
+      taxBasisPoints: l.taxBasisPoints,
+      taxTreatment: l.taxTreatment,
+      taxCode: l.taxCode,
+      sourceTaxInclusive: l.sourceTaxInclusive,
+      sourceSellingUnitMinor: String(l.unitPriceCentavos ?? 0),
+      sourceNetUnitMinor: String(
+        l.sourceUnitPriceCentavos ?? l.unitPriceCentavos ?? 0,
+      ),
+      sapConditionKey: l.sapKey ?? null,
+      sapConditionVersion: l.sapVersion ?? null,
+    });
+    results.push(legal.results?.[i] ?? null);
+  });
+  return buildTaxSnapshot(taxLines, {
+    results: legal.claim ? results : null,
+    claim: legal.claim,
+    totalMinor,
+  });
 }
 /** F-R03: canonical analytics sees exactly the same net, source and frozen line amounts. @param {any} c @param {any} v */
 export async function canonicalOrder(c, v) {

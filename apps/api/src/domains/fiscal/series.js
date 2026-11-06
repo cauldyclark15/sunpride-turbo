@@ -2,6 +2,7 @@ import { requireCapability } from "../../core/capabilities.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { currentActor, currentDeviceActor } from "../van/access.js";
 import { integer, uuid, text, choice, refuse } from "../van/model.js";
+import { loadPrintModel } from "./print-model.js";
 
 export const DOCUMENT_TYPES = [
   "sales_invoice",
@@ -288,8 +289,43 @@ export async function issueDocument(db, input) {
    values(${a.id},${s.id},${String(serial)},${number},${text(input.sourceType, 80, true)},${sourceId},${snapshot},${hash},${new Date(input.at)}) returning *`;
   await db`update fiscal_allocations set next_issue=${String(serial + 1n)},updated_at=now() where id=${a.id}`;
   await db`insert into fiscal_document_events(document_id,kind,request_key,reason,actor_profile_id) values(${d.id},'issued',${sourceId},'Issued with immutable transaction facts',${actor.profileId})`;
+  await recordDocumentTax(db, d, r, snapshot);
   return d;
 }
+/** IP-BIR: typed per-document tax row for Z readings and the tax summary. Buckets are before the privilege discount.
+ * @param {any} db @param {any} d @param {any} r @param {any} snapshot */
+async function recordDocumentTax(db, d, r, snapshot) {
+  const t = snapshot.tax;
+  if (
+    !t ||
+    typeof t !== "object" ||
+    !["store_sale", "van_sale"].includes(d.source_type)
+  )
+    return;
+  const n = (/** @type {any} */ v) =>
+    /^\d{1,15}$/.test(String(v ?? "")) ? String(v) : null;
+  const vatable = n(t.vatableSalesMinor),
+    vat = n(t.vatMinor),
+    exempt = n(t.vatExemptMinor),
+    zero = n(t.zeroRatedMinor),
+    total = n(t.totalMinor);
+  if (
+    vatable === null ||
+    vat === null ||
+    exempt === null ||
+    zero === null ||
+    total === null
+  )
+    return;
+  const priv = n(t.privilegeDiscountMinor) ?? "0",
+    removed = n(t.vatRemovedMinor) ?? "0";
+  await db`insert into fiscal_document_tax(document_id,org_unit_id,source_type,document_type,issued_at,business_date,gross_centavos,vatable_centavos,vat_centavos,vat_exempt_centavos,zero_rated_centavos,promo_discount_centavos,privilege_discount_centavos,vat_removed_centavos,privilege_type,total_due_centavos)
+    values(${d.id},${r.org_unit_id},${d.source_type},${r.document_type},${d.issued_at},${manilaDay(d.issued_at)},${n(t.grossMinor) ?? total},${vatable},${vat},${exempt},${zero},${n(t.promoDiscountMinor) ?? "0"},${priv},${removed},${BigInt(priv) > 0n || BigInt(removed) > 0n ? (t.privilegeType ?? null) : null},${total})
+    on conflict(document_id) do nothing`;
+}
+/** @param {any} at */
+const manilaDay = (at) =>
+  new Date(new Date(at).getTime() + 8 * 3600000).toISOString().slice(0, 10);
 /** F-019/F-109. No document may be deleted or assigned a new number.
  * @param {any} db @param {any} actor @param {any} p */
 export async function documentEvent(db, actor, p) {
@@ -312,7 +348,18 @@ export async function documentEvent(db, actor, p) {
   }
   if (kind === "void" || kind === "spoiled")
     refuse("Void requires the controlled transaction override path");
+  // IP-BIR: the e-journal trigger records this hash of the exact receipt content that was (re)printed.
+  const [{ n: sameKind }] =
+    await db`select count(*)::int as n from fiscal_document_events where document_id=${d.id} and kind=${kind}`;
+  const { model } = await loadPrintModel(db, d.id, {
+    copy:
+      kind === "reprint"
+        ? { kind: "reprint", number: sameKind + 1 }
+        : undefined,
+  });
+  await db`select set_config('sunpride.ejournal_model_hash',${model.contentHash},true)`;
   const [event] =
     await db`insert into fiscal_document_events(document_id,kind,request_key,reason,actor_profile_id,facts) values(${d.id},${kind},${key},${reason},${actor.profileId},${{ copy: kind === "reprint" ? "REPRINT" : "ORIGINAL", outcome: choice(p.outcome, ["printed", "not_printed", "uncertain"]), printId: p.printId ? uuid(p.printId) : null }}) returning id`;
+  await db`select set_config('sunpride.ejournal_model_hash','',true)`;
   return { id: event.id };
 }
