@@ -6,6 +6,7 @@ export {
 } from "./decide-inbox";
 export {
   ageText,
+  agoText,
   CHARGE_CHOICES,
   decideBadgeText,
   decideBody,

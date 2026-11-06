@@ -11,6 +11,7 @@ import { StatusPill } from "../status-pill";
 import { useIntent } from "../transfers/use-intent";
 import {
   ageText,
+  agoText,
   decideBadgeText,
   CHARGE_CHOICES,
   decideBody,
@@ -320,7 +321,7 @@ export function DecideInboxView({
                 <span>{r.reason}</span>
                 {r.valueCentavos != null ? <Peso centavos={r.valueCentavos} /> : null}
                 <span className="ml-auto text-muted">
-                  {r.by} · {ageText(r.at, data.asOf)} ago
+                  {r.by} · {agoText(r.at, data.asOf)}
                 </span>
               </li>
             ))}

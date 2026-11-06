@@ -179,6 +179,25 @@ describe("van day screens", () => {
     const none = wrap(createElement(PlannedLoadView, { detail: { tripId: "t", plan: null, lines: [] }, edits: {}, onEdit: noop, onSave: noop, onApprove: noop, onCopy: noop }));
     expect(none).toContain("This trip has no suggested load yet.");
   });
+  it("IP-INT3: a role that may only read the roster sees the lines and a plain note, no Change, End or form", () => {
+    const html = wrap(
+      createElement(RosterEditorView, {
+        rows: [{ rosterId: "r1", vehicleId: "v1", vehicleCode: "VAN1", plateNumber: "ABC 1234", routeName: "Mandaue route", sellerProfileId: "s", sellerName: "Sam Seller", helperProfileId: null, helperName: null, driverProfileId: null, driverName: null, weekdays: [1, 3, 5], weekdayLabel: "Mon, Wed, Fri", effectiveFrom: "2026-11-01", effectiveTo: null, status: "active" }],
+        choices: { vehicles: [], sellers: [], routes: [] },
+        readOnly: true,
+        form: emptyRosterForm("2026-11-07"),
+        onForm: noop,
+        onSave: noop,
+        onEdit: noop,
+        onEnd: noop,
+      }),
+    );
+    expect(html).toContain("Mon, Wed, Fri");
+    expect(html).toContain("You can read the roster here.");
+    expect(html).not.toContain("Save roster line");
+    expect(html).not.toContain(">Change<");
+    expect(html).not.toContain(">End<");
+  });
   it("the roster editor lists lines with their days and blocks a bad form with plain reasons", () => {
     const save = vi.fn();
     const html = wrap(

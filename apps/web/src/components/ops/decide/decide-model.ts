@@ -111,6 +111,12 @@ export function ageText(since: number | null, now: number): string {
   return `${Math.floor(hours / 24)} days`;
 }
 
+/** "12 min ago", or just "just now" (never "just now ago"). */
+export function agoText(since: number | null, now: number): string {
+  const age = ageText(since, now);
+  return age === "just now" || age === "—" ? age : `${age} ago`;
+}
+
 /** The button label for a verdict, in the words of the kind. */
 export function verdictLabels(kind: DecideKind, forced = false) {
   switch (kind) {

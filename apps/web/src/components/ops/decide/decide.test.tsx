@@ -6,6 +6,7 @@ import { ApiStore } from "@/lib/api/store";
 import { DecideInbox, DecideInboxView } from "./decide-inbox";
 import {
   ageText,
+  agoText,
   decideBadgeText,
   decideBody,
   decideProblems,
@@ -224,5 +225,14 @@ describe("Decide sidebar badge (IP-INT3)", () => {
     expect(decideBadgeText(null)).toBeUndefined();
     expect(decideBadgeText(undefined)).toBeUndefined();
     expect(decideBadgeText(data(mine(120)))).toBe("99+");
+  });
+});
+
+describe("Decide ages (IP-INT3)", () => {
+  it("never says 'just now ago'", () => {
+    expect(agoText(NOW - 20_000, NOW)).toBe("just now");
+    expect(agoText(NOW - 5 * 60_000, NOW)).toBe("5 min ago");
+    expect(agoText(NOW - 3 * 3600_000, NOW)).toBe("3 h ago");
+    expect(agoText(null, NOW)).toBe("—");
   });
 });

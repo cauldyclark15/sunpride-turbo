@@ -3,7 +3,7 @@
 import { Button } from "@heroui/react";
 import { Card, FormField, Notice } from "@sunpride/ui";
 import { useState } from "react";
-import { apiFetch, useApi, useMutate } from "@/lib/api";
+import { ApiError, apiFetch, useApi, useMutate } from "@/lib/api";
 import { useIntent } from "../transfers/use-intent";
 import {
   emptyRosterForm,
@@ -35,6 +35,7 @@ export function RosterEditorView({
   onEnd,
   pending,
   error,
+  readOnly = false,
 }: {
   rows: RosterRow[];
   choices: RosterChoices;
@@ -45,6 +46,8 @@ export function RosterEditorView({
   onEnd: (r: RosterRow) => void;
   pending?: boolean;
   error?: string | null;
+  /** IP-INT3: a role that may look at the roster but not change it (planning choices are refused) sees the list only. */
+  readOnly?: boolean;
 }) {
   const problems = rosterProblems(form);
   const person = (key: keyof RosterForm, label: string, optional = false) => (
@@ -84,7 +87,7 @@ export function RosterEditorView({
                   {r.effectiveTo ? ` to ${r.effectiveTo}` : ""}
                   {r.status === "ended" ? " · ended" : ""}
                 </span>
-                {r.status === "active" ? (
+                {r.status === "active" && !readOnly ? (
                   <span className="flex gap-2">
                     <Button variant="secondary" className="min-h-12 text-base" onPress={() => onEdit(r)}>
                       Change
@@ -98,9 +101,18 @@ export function RosterEditorView({
             ))}
           </ul>
         ) : (
-          <p className="p-4 text-sm text-muted">No roster yet. Add a truck below.</p>
+          <p className="p-4 text-sm text-muted">
+            {readOnly ? "No roster yet." : "No roster yet. Add a truck below."}
+          </p>
         )}
       </Card>
+      {readOnly ? (
+        <Notice
+          tone="neutral"
+          title="You can read the roster here."
+          meta="Operations or an admin changes it."
+        />
+      ) : (
       <Card label={form.rosterId ? "Change roster line" : "Add roster line"}>
         <div className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-2">
@@ -180,6 +192,7 @@ export function RosterEditorView({
           </Button>
         </div>
       </Card>
+      )}
     </div>
   );
 }
@@ -198,9 +211,12 @@ export function RosterEditor({ today, unitId }: { today: string; unitId?: string
   const choices = useApi<RosterChoices>(["van", "planning", today], ({ signal }) =>
     apiFetch<RosterChoices>("/api/v1/van/planning", { query: { date: today }, signal }),
   );
-  if (list.error || choices.error)
+  // A role without van.manage may read the roster; only the planning choices (who and what can be rostered) are refused.
+  const readOnly =
+    !list.error && choices.error instanceof ApiError && choices.error.status === 403;
+  if (list.error || (choices.error && !readOnly))
     return <Notice tone="danger" title="The roster could not load." meta="Check your connection and try again." />;
-  if (!list.data || !choices.data) return <p className="p-4 text-muted">Loading the roster…</p>;
+  if (!list.data || (!choices.data && !readOnly)) return <p className="p-4 text-muted">Loading the roster…</p>;
   const post = async (body: Record<string, unknown>) => {
     const path = "/api/v1/van/rosters/save";
     setError(null);
@@ -215,7 +231,8 @@ export function RosterEditor({ today, unitId }: { today: string; unitId?: string
   return (
     <RosterEditorView
       rows={list.data.items}
-      choices={choices.data}
+      choices={choices.data ?? { vehicles: [], sellers: [], routes: [] }}
+      readOnly={readOnly}
       form={form}
       onForm={setForm}
       pending={write.pending}
