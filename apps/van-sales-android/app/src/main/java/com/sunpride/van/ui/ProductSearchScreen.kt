@@ -27,7 +27,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sunpride.van.pos.*
 import com.sunpride.van.scanning.CameraScanScreen
-import com.sunpride.van.scanning.SenraiseScanner
+import com.sunpride.van.scanning.LocalScannerInput
 
 /** The last scan on this screen and what it resolved to (VAN-009). Empty [hits] = not found. */
 private data class ScanOutcome(val code: String, val hits: List<ScanHit>)
@@ -65,16 +65,8 @@ private val barcodeLike = Regex("^[0-9]{8,14}$")
     val focus = LocalFocusManager.current
     val field = remember { FocusRequester() }
 
-    // Hardware scanner broadcasts are received while this screen is visible; a scan replaces the query.
-    val context = LocalContext.current
-    val scanner = remember { SenraiseScanner(context) }
-    val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(scanner,lifecycle) {
-        val observer = LifecycleEventObserver { _,event -> if (event == Lifecycle.Event.ON_START) scanner.start() else if (event == Lifecycle.Event.ON_STOP) scanner.stop() }
-        lifecycle.addObserver(observer)
-        if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) scanner.start()
-        onDispose { lifecycle.removeObserver(observer); scanner.close() }
-    }
+    // The app's one scanner feeds this screen; a scan replaces the query.
+    val scanner = checkNotNull(LocalScannerInput.current)
     val latestIndex by rememberUpdatedState(index)
     LaunchedEffect(scanner) {
         scanner.scans.collect { event ->
@@ -86,7 +78,7 @@ private val barcodeLike = Regex("^[0-9]{8,14}$")
     }
 
     if (camera) {
-        CameraScanScreen(onCode = { scanner.inputs.cameraCode(it) },onClose = { camera = false },closeLabel = "Back to Find product")
+        CameraScanScreen(onCode = { scanner.cameraCode(it) },onClose = { camera = false },closeLabel = "Back to Find product")
         return
     }
 

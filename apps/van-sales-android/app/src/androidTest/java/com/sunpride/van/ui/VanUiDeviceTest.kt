@@ -65,6 +65,20 @@ class VanUiDeviceTest {
     private fun ready() { rule.waitUntil(20_000) { c.initialized && !c.busy && c.trip != null && c.products.size == 2 && c.policy != null } }
     private fun open(page: Page) { rule.runOnUiThread { c.open(page) }; rule.waitForIdle() }
     private fun hideKeyboard() { runCatching { Espresso.closeSoftKeyboard() }; rule.waitForIdle() }
+    /** IP-HH1: the sale screen is a grid; the search palette stays open and adds one unit per tap. */
+    private fun addByPalette(query: String, taps: Int = 1) {
+        rule.onNodeWithTag("sale-add-product").performClick()
+        rule.onNodeWithTag("product-search").performTextInput(query); hideKeyboard()
+        repeat(taps) { rule.onNodeWithTag("product-0").performClick() }
+        rule.onNodeWithTag("palette-done").performClick()
+    }
+    /** Types whole pesos on the Payment keypad. */
+    private fun keypadPesos(digits: String) {
+        rule.onNodeWithTag("pay-other-amount").performScrollTo().performClick()
+        digits.forEach { rule.onNodeWithTag("cash-received-key-$it").performScrollTo().performClick() }
+    }
+    private fun scanBroadcast(code: String) = context.sendBroadcast(android.content.Intent(com.sunpride.van.scanning.SenraiseScanner.ACTION)
+        .putExtra(com.sunpride.van.scanning.SenraiseScanner.RESULT_EXTRA,code).setPackage(context.packageName))
     private fun sync() { runBlocking { c.repository.syncNow() }; rule.waitForIdle() }
     private fun loadAndStart() {
         open(Page.LOAD)
@@ -411,14 +425,9 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("new-sale").performScrollTo().performClick()
         rule.onNodeWithTag("customer-route-1").performClick()
         rule.onNodeWithTag("start-sale").performClick()
-        rule.onNodeWithTag("sale-add-product").performScrollTo().performClick()
-        rule.onNodeWithTag("product-search").performTextInput("sppj1l"); hideKeyboard()
-        rule.onNodeWithTag("product-0").performClick()
-        rule.onNodeWithTag("sale-quantity").performTextInput("1"); hideKeyboard()
-        rule.onNodeWithTag("save-quantity").performClick()
-        rule.waitUntil(5_000) { c.page == Page.SALE }
+        addByPalette("sppj1l")
         rule.onNodeWithTag("checkout").performClick()
-        rule.onNodeWithTag("cash-received").performTextInput("100"); hideKeyboard()
+        rule.onNodeWithTag("quick-cash-100").performScrollTo().performClick()
         rule.onNodeWithTag("complete-sale").assertIsEnabled().performClick()
         // Saved first, then the original prints automatically, once.
         rule.waitUntil(10_000) { c.page == Page.SALE_DONE && !c.printing && printer.documents.size == 1 && c.savedSales.isNotEmpty() }
@@ -527,6 +536,62 @@ class VanUiDeviceTest {
         } }
         rule.waitUntil(10_000) { c.prices.map { it.priceListId to it.productId } == listOf("PL-PRACTICE" to juice) }
     }
+    /**
+     * IP-HH1 tap budget (compiled, run on a handheld later): after the scan, a 1-item exact-cash sale is Charge, Exact, New sale
+     * (3 taps; 4 if the seller also answers "Did it print?"). The scan is a vendor broadcast, never a tap.
+     */
+    @Test fun oneScannedItemExactCashSaleIsAtMostFourTapsAfterTheScan() {
+        val printer = com.sunpride.van.printing.FakeReceiptPrinter()
+        mount(printer = printer); loadAndStart()
+        val juice = c.products.single { it.code == "SP-PJ-1L" }
+        rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 2 } }
+        testPriceFeed(juice.productId)
+        rule.runOnUiThread { c.startSale(c.customers.first { it.source == "route" }) }
+        rule.waitUntil(10_000) { c.page == Page.SALE && c.retailLoaded }
+        scanBroadcast("4800000000017")
+        rule.waitUntil(5_000) { c.sale?.lines?.singleOrNull()?.quantityBase == 1L }
+        rule.onNodeWithTag("cart-bar-count",useUnmergedTree = true).assertTextContains("1 item",substring = true)
+        var taps = 0
+        fun tap(tag: String) { rule.onNodeWithTag(tag).performScrollTo().performClick(); taps++ }
+        tap("checkout"); tap("pay-exact")
+        rule.waitUntil(10_000) { c.page == Page.SALE_DONE && !c.printing && c.savedSales.isNotEmpty() }
+        rule.onNodeWithTag("receipt-total",useUnmergedTree = true).assertTextEquals("₱85.00")
+        rule.onNodeWithTag("receipt-change",useUnmergedTree = true).assertTextEquals("₱0.00")
+        tap("print-yes")
+        rule.waitUntil(10_000) { c.printQuestionSaleId == null }
+        tap("new-sale")
+        assertTrue("taps after the scan: $taps",taps <= 4)
+        rule.waitUntil(10_000) { c.page == Page.SALE && c.sale?.lines?.isEmpty() == true }
+        assertEquals(1,c.sync.savedSales)
+    }
+    /** Ten scans add ten units with no tap between them: the only taps are the closing ones. */
+    @Test fun tenScansNeedNoTapsBetweenItems() {
+        mount(); loadAndStart()
+        val juice = c.products.single { it.code == "SP-PJ-1L" }
+        rule.waitUntil(10_000) { c.stock.any { it.productId == juice.productId && it.availableBase > 0 } }
+        val onHand = c.stock.single { it.productId == juice.productId }.availableBase
+        org.junit.Assume.assumeTrue("needs at least 10 on the truck",onHand >= 10)
+        testPriceFeed(juice.productId)
+        rule.runOnUiThread { c.startSale(c.customers.first { it.source == "route" }) }
+        rule.waitUntil(10_000) { c.page == Page.SALE && c.retailLoaded }
+        repeat(10) { n ->
+            scanBroadcast("4800000000017")
+            rule.waitUntil(5_000) { c.sale?.lines?.singleOrNull()?.quantityBase == (n + 1).toLong() }
+            Thread.sleep(350) // a repeat inside 300 ms is the same scan, by design
+        }
+        rule.onNodeWithTag("cart-bar-total",useUnmergedTree = true).assertTextEquals("₱850.00")
+    }
+    /** An unknown barcode only shows the plain toast: no dialog, no cart change. */
+    @Test fun anUnknownScanOnTheSaleScreenShowsTheToastAndChangesNothing() {
+        mount(); loadAndStart()
+        rule.runOnUiThread { c.startSale(c.customers.first { it.source == "route" }) }
+        rule.waitUntil(10_000) { c.page == Page.SALE && c.retailLoaded }
+        scanBroadcast("9999999999994")
+        rule.waitUntil(5_000) { rule.onAllNodesWithTag("scan-toast").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("scan-toast").assertTextContains("Not in this van: 9999999999994",substring = true)
+        assertTrue(c.sale!!.lines.isEmpty())
+        rule.onAllNodesWithTag("save-quantity").assertCountEquals(0)
+    }
     @Test fun checkoutValidatesPricesAndCashThenSavesTheSaleOnThisPhone() {
         mount(); loadAndStart()
         val juice = c.products.single { it.code == "SP-PJ-1L" }
@@ -540,31 +605,23 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("start-sale").assertIsEnabled().performClick()
         rule.onNodeWithTag("sale-customer").assertTextEquals("Aling Nena Store")
         rule.onNodeWithTag("checkout").assertIsNotEnabled()
-        fun add(query: String, quantity: String) {
-            rule.onNodeWithTag("sale-add-product").performScrollTo().performClick()
-            rule.onNodeWithTag("screen-title").assertTextEquals("Add product")
-            rule.onNodeWithTag("product-search").performTextInput(query); hideKeyboard()
-            rule.onNodeWithTag("product-0").performClick()
-            rule.onNodeWithTag("sale-quantity").performTextInput(quantity); hideKeyboard()
-            rule.onNodeWithTag("save-quantity").performClick()
-            rule.waitUntil(5_000) { c.page == Page.SALE }
-        }
-        add("sppj1l","2"); add("chunks","1")
+        addByPalette("sppj1l",taps = 2); addByPalette("chunks")
+        rule.onNodeWithTag("cart-bar").performClick()
         rule.onNodeWithTag("sale-line-total-0",useUnmergedTree = true).assertTextEquals("₱170.00")
-        rule.onNodeWithTag("sale-line-total-1",useUnmergedTree = true).assertTextEquals("Priced by the office")
-        captureVanScreenshot(rule,"29-sale-cart","checkout")
+        rule.onNodeWithTag("sale-line-total-1",useUnmergedTree = true).assertTextEquals("Office price")
+        captureVanScreenshot(rule,"29-sale-cart","cart-charge")
+        rule.onNodeWithTag("cart-close").performClick()
         // An unpriced product blocks the sale: no guessed price, Complete stays off.
         rule.onNodeWithTag("checkout").performClick()
         rule.onNodeWithTag("checkout-issue-0").assertTextContains("priced by the office",substring = true)
         rule.onNodeWithTag("complete-sale").assertIsNotEnabled()
         captureVanScreenshot(rule,"30-checkout-unpriced","complete-sale")
         rule.onNodeWithTag("back").performClick()
-        rule.onNodeWithTag("sale-line-1").performClick()
-        rule.onNodeWithTag("sale-quantity").performTextClearance(); rule.onNodeWithTag("sale-quantity").performTextInput("0"); hideKeyboard()
-        rule.onNodeWithTag("save-quantity").assertTextEquals("Remove").performClick()
-        rule.onNodeWithTag("checkout").performClick()
+        rule.onNodeWithTag("cart-bar").performClick()
+        rule.onNodeWithTag("line-remove-1").performClick()
+        rule.onNodeWithTag("cart-charge").performClick()
         rule.onNodeWithTag("checkout-total",useUnmergedTree = true).assertTextEquals("₱170.00")
-        rule.onNodeWithTag("cash-received").performTextInput("150"); hideKeyboard()
+        keypadPesos("150")
         rule.onNodeWithText("Cash received is less than the total.").assertExists()
         rule.onNodeWithTag("complete-sale").assertIsNotEnabled()
         // VAN-012: a reference method needs its number; credit shows the office terms and the due date.
@@ -576,8 +633,8 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("credit-due",useUnmergedTree = true).assertTextEquals("Due 2026-11-06")
         captureVanScreenshot(rule,"31a-checkout-credit","complete-sale")
         rule.onNodeWithTag("pay-cash").performScrollTo().performClick()
-        rule.onNodeWithTag("cash-received").performTextClearance(); rule.onNodeWithTag("cash-received").performTextInput("200"); hideKeyboard()
-        rule.onNodeWithTag("checkout-change",useUnmergedTree = true).assertTextEquals("Change ₱30.00")
+        keypadPesos("200")
+        rule.onNodeWithTag("checkout-change",useUnmergedTree = true).assertTextEquals("₱30.00")
         captureVanScreenshot(rule,"31-checkout-cash","complete-sale")
         rule.onNodeWithTag("complete-sale").assertIsEnabled().performClick()
         rule.waitUntil(10_000) { c.page == Page.SALE_DONE && !c.busy }
@@ -650,12 +707,7 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("new-sale").performScrollTo().performClick()
         rule.onNodeWithTag("customer-route-1").performClick()
         rule.onNodeWithTag("start-sale").assertIsEnabled().performClick()
-        rule.onNodeWithTag("sale-add-product").performScrollTo().performClick()
-        rule.onNodeWithTag("product-search").performTextInput("sppj1l"); hideKeyboard()
-        rule.onNodeWithTag("product-0").performClick()
-        rule.onNodeWithTag("sale-quantity").performTextInput("1"); hideKeyboard()
-        rule.onNodeWithTag("save-quantity").performClick()
-        rule.waitUntil(5_000) { c.page == Page.SALE }
+        addByPalette("sppj1l")
         rule.onNodeWithTag("checkout").performClick()
         // JM Sari-Sari has no credit terms from the office.
         rule.onNodeWithTag("pay-credit").performScrollTo().performClick()
@@ -667,7 +719,7 @@ class VanUiDeviceTest {
         captureVanScreenshot(rule,"31b-checkout-check","complete-sale")
         rule.onNodeWithTag("complete-sale").assertIsEnabled().performClick()
         rule.waitUntil(10_000) { c.page == Page.SALE_DONE && !c.busy }
-        rule.onNodeWithTag("receipt-change",useUnmergedTree = true).assertTextEquals("Check ₱85.00")
+        rule.onNodeWithTag("receipt-method",useUnmergedTree = true).assertTextEquals("Check ₱85.00")
         rule.onNodeWithTag("receipt-reference",useUnmergedTree = true).assertTextEquals("Reference BDO 000123")
         rule.onNodeWithTag("receipt-payment-state",useUnmergedTree = true).assertTextEquals("To be confirmed by the office")
         captureVanScreenshot(rule,"32b-sale-saved-check","sale-done")

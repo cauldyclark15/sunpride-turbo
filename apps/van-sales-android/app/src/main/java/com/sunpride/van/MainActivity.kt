@@ -17,6 +17,7 @@ import kotlinx.coroutines.withContext
 class MainActivity : ComponentActivity() {
     private var repository: VanRepository? = null
     private var printer: com.sunpride.van.printing.ReceiptPrinter? = null
+    private var scanner: com.sunpride.van.scanning.ScannerInput? = null
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val dark = resources.configuration.uiMode and Configuration.UI_MODE_NIGHT_MASK == Configuration.UI_MODE_NIGHT_YES
@@ -43,11 +44,16 @@ class MainActivity : ComponentActivity() {
                 hex(sha256(KeystoreDeviceKey.loadOrCreate(applicationContext,alias).publicKeySpki)).uppercase().chunked(4).joinToString(" ")
             }
         }
-        setContent { VanApp(controller,dark) }
+        val scannerInput = com.sunpride.van.scanning.ScannerInput(applicationContext).also { scanner = it }
+        setContent { VanApp(controller,dark,scannerInput = scannerInput) }
     }
+    /** IP-HH1: keyboard-wedge bursts are taken here, before any text field, and only while the selling grid is on screen. */
+    @android.annotation.SuppressLint("RestrictedApi")
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean = scanner?.onKeyEvent(event) == true || super.dispatchKeyEvent(event)
     override fun onDestroy() {
         super.onDestroy()
         repository?.close(); repository = null
         printer?.close(); printer = null
+        scanner?.close(); scanner = null
     }
 }

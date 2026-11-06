@@ -52,12 +52,15 @@ class StorePosShortProofTest {
             val product=StoreCheckout.products(config).first {p->runCatching{StoreCheckout.quote(config,c.storePos.rows,listOf(com.sunpride.van.pos.CartLine(p.productId,p.quantityScale)),System.currentTimeMillis())}.isSuccess}
             fun takeSale(label:String){
                 home(c);rule.onNodeWithTag("store-new-sale").performScrollTo().performClick()
-                rule.onNodeWithTag("store-product-search").performTextInput(product.code);Espresso.closeSoftKeyboard()
-                rule.onNodeWithTag("store-add-${product.code}").performScrollTo().performClick()
+                rule.onNodeWithTag("sale-add-product").performClick()
+                rule.onNodeWithTag("product-search").performTextInput(product.code);Espresso.closeSoftKeyboard()
+                rule.onNodeWithTag("product-0").performClick()
+                rule.onNodeWithTag("palette-done").performClick()
                 capture("retail-short-$label-cart")
                 val before=c.storePos.rows.count{it.kind=="store.sale"}
-                rule.onNodeWithTag("save-store-sale").assertIsEnabled().performClick()
-                rule.waitUntil(20_000){!c.busy&&c.page==Page.STORE_RECEIPTS&&c.storePos.rows.count{it.kind=="store.sale"}==before+1}
+                rule.onNodeWithTag("checkout").performClick()
+                rule.onNodeWithTag("pay-exact").performClick()
+                rule.waitUntil(20_000){!c.busy&&c.page==Page.STORE_SALE&&c.storePos.rows.count{it.kind=="store.sale"}==before+1}
                 capture("retail-short-$label-receipt")
             }
             takeSale("online")

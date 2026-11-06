@@ -33,7 +33,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sunpride.van.scanning.CameraScanScreen
 import com.sunpride.van.scanning.ScanEvent
-import com.sunpride.van.scanning.SenraiseScanner
 import com.sunpride.van.scanning.WedgeScanField
 import kotlinx.coroutines.launch
 
@@ -58,7 +57,7 @@ private val PrinterMonochrome = lightColorScheme(
 @Composable
 fun PrinterTestScreen(
     printer: ReceiptPrinter,
-    scanner: SenraiseScanner,
+    scanner: com.sunpride.van.scanning.ScannerInput,
     modifier: Modifier = Modifier,
     deviceModel: String = Build.MODEL,
     /** VAN-017: the latest sale-receipt print result in this session, if any. */
@@ -80,18 +79,6 @@ fun PrinterTestScreen(
     }
     LaunchedEffect(printer) { check() }
     LaunchedEffect(scanner) { scanner.scans.collect { scan = it } }
-    DisposableEffect(scanner, lifecycle) {
-        val observer = LifecycleEventObserver { _, event ->
-            when (event) {
-                Lifecycle.Event.ON_START -> scanner.start()
-                Lifecycle.Event.ON_STOP -> scanner.stop()
-                else -> Unit
-            }
-        }
-        lifecycle.addObserver(observer)
-        if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) scanner.start()
-        onDispose { lifecycle.removeObserver(observer); scanner.stop() }
-    }
     MaterialTheme(colorScheme = PrinterMonochrome) {
         if (camera) {
             CameraScanScreen(

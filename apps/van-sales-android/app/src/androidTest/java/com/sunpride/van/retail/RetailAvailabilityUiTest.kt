@@ -65,9 +65,10 @@ class RetailAvailabilityUiTest {
         rule.waitUntil(10_000) { c.retailSaved && !c.busy && c.sale?.lines?.singleOrNull()?.quantityBase==5L }
         rule.onNodeWithTag("retail-completeness").performScrollTo().assertTextEquals("Complete · saved on this phone")
         rule.onNodeWithTag("checkout").assertIsEnabled()
-        rule.onNodeWithTag("sale-line-0").performScrollTo().assertTextContains("5 PC",substring=true).performClick()
-        rule.onNodeWithTag("sale-quantity").performTextReplacement("7")
-        Espresso.closeSoftKeyboard()
+        rule.onNodeWithTag("cart-bar").performClick()
+        rule.onNodeWithTag("line-qty-0",useUnmergedTree=true).assertTextContains("5 PC",substring=true)
+        rule.onNodeWithTag("line-0-qty").performClick()
+        rule.onNodeWithTag("qty-key-7").performClick()
         rule.onNodeWithTag("save-quantity").assertIsEnabled().performClick()
         rule.waitUntil(10_000) { c.sale?.lines?.singleOrNull()?.quantityBase==7L }
         assertEquals(f.product,c.sale!!.lines.single().productId)

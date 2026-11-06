@@ -53,10 +53,12 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         command("Blind count saved. The office will review any difference.") { repository.closeStoreShift(amount); storeNavEvent(StoreNavEvent.CloseSaved) }
     }
     fun saveStoreAction(kind:String,payload:org.json.JSONObject) = command("Saved securely on this phone. Sync when connected.") {repository.storeAction(kind,payload);page=Page.HOME}
-    fun saveStoreSale(id:String,lines:List<CartLine>,tenders:List<com.sunpride.van.storepos.StoreTransactions.Tender>,total:Long,phone:String?,pin:String?,points:Long) = command("Store sale saved. Printing the receipt…") {
-        repository.storeSale(id,lines,tenders,total,phone,pin,points);page=Page.STORE_RECEIPTS
+    /** IP-HH1: the sale screen stays up and shows its Complete step; [onSaved] runs once the sale is durably saved. */
+    fun saveStoreSale(id:String,lines:List<CartLine>,tenders:List<com.sunpride.van.storepos.StoreTransactions.Tender>,total:Long,phone:String?,pin:String?,points:Long,onSaved:()->Unit={}) = command("Store sale saved. Printing the receipt…") {
+        repository.storeSale(id,lines,tenders,total,phone,pin,points)
         // IP-P0 (SPEC 6.5): the invoice prints by itself; the cashier then answers "Did it print?".
         startPrint(id,explicit=false,reason=null,store=true)
+        onSaved()
     }
     fun switchStoreMode(pin:String) = command("POS mode updated") {repository.switchPosMode(if(storeMode)"van" else "store",pin);page=Page.HOME}
     /** Store receipts and their print history (original, reprints, confirmed or skipped), refreshed after every print. */

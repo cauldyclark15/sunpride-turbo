@@ -55,7 +55,8 @@ object VanBootstrapCodec {
         require(units.map { it.barcode }.distinct().size == units.size)
         return Product(o.getString("productId"), o.getString("code"), o.getString("name"), o.getString("uomCode"),
             base(o,"quantityScale"), barcodes, units,
-            o.optJSONObject("catalogue")?.let(com.sunpride.catalogue.CatalogueDetails::decode))
+            o.optJSONObject("catalogue")?.let(com.sunpride.catalogue.CatalogueDetails::decode),
+            if (o.isNull("category") || !o.has("category")) null else o.optString("category").trim().take(60).takeIf { it.isNotEmpty() })
     }
     fun customer(o: JSONObject): Customer {
         val mode = when {

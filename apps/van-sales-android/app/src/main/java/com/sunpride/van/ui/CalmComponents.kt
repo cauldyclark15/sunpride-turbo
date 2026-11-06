@@ -36,12 +36,12 @@ import androidx.compose.ui.unit.dp
 @Composable fun SecondaryButton(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, enabled: Boolean = true) {
     OutlinedButton(onClick, modifier.fillMaxWidth().heightIn(min = 56.dp), enabled = enabled,
         shape = SunprideTokens.shapes.small, colors = ButtonDefaults.outlinedButtonColors(contentColor = MaterialTheme.colorScheme.onSurface),
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = .28f))) { Text(label, style = MaterialTheme.typography.titleMedium) }
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = .7f))) { Text(label, style = MaterialTheme.typography.titleMedium) }
 }
 @Composable fun SectionCard(label: String, content: @Composable ColumnScope.() -> Unit) {
     Surface(Modifier.fillMaxWidth(), shape = SunprideTokens.shapes.large,
         color = MaterialTheme.colorScheme.surface, tonalElevation = 0.dp,
-        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = .28f))) {
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = .7f))) {
         Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
             content()
