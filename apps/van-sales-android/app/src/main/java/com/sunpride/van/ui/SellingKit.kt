@@ -237,10 +237,11 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
                     Column(Modifier.weight(1f)) {
                         Text(cashierName ?: title, color = Color.White, fontSize = 18.sp, lineHeight = 22.sp, fontWeight = FontWeight.ExtraBold, maxLines = 1, overflow = TextOverflow.Ellipsis,
                             modifier = Modifier.testTag("cashier-name"))
+                        // Role and place on one line ("Cashier · Sample Cebu South Store"); the screen name only shows when there is no place to name.
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             if (cashierName != null) Text("$roleLabel · ", color = Color.White, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, softWrap = false)
-                            Text(title, color = Color.White, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, softWrap = false, modifier = Modifier.testTag("screen-title"))
-                            subtitle?.let { Text(" · $it", color = Color.White, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).testTag("sale-customer")) }
+                            if (subtitle != null) Text(subtitle, color = Color.White, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false).testTag("sale-customer"))
+                            else Text(title, color = Color.White, fontSize = 13.sp, lineHeight = 16.sp, maxLines = 1, softWrap = false, modifier = Modifier.testTag("screen-title"))
                         }
                     }
                 }
