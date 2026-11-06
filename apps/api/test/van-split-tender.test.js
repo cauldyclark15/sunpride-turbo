@@ -537,7 +537,7 @@ test("voiding a split sale gives both parts back and expected cash returns to wh
   expect(await cashExpectation(h.db, trip.tripId)).toBe(afterSale - 7525n);
 });
 
-test("the handheld bundle says splitTender only to a handheld; the office shape needs nothing else", async () => {
+test("the handheld bundle says splitTender only to the vanDay build; the office shape needs nothing else", async () => {
   /** @param {boolean} handheld */
   const pull = async (handheld) => {
     const r = await signedPost(h, who, "/api/sync/pull", {
@@ -550,7 +550,10 @@ test("the handheld bundle says splitTender only to a handheld; the office shape 
         {
           scopeId: unit,
           projection: "van.bundle",
-          params: { serviceDate: today(), ...(handheld ? { handheld: true } : {}) },
+          params: {
+            serviceDate: today(),
+            ...(handheld ? { handheld: true, vanDay: true } : {}),
+          },
         },
       ],
       limit: 100,
@@ -560,4 +563,85 @@ test("the handheld bundle says splitTender only to a handheld; the office shape 
   };
   expect((await pull(true)).policy.splitTender).toBe(true);
   expect((await pull(false)).policy.splitTender).toBeUndefined();
+});
+
+// IP-INT3FIX P0: beta.26/27 (f2aba224) validate `policy` with additionalProperties:false and strip only
+// operationsVersion/fiscal/schemes/storePos/handheld, so any other new key makes them refuse the whole bundle.
+// Their request is `handheld:true` WITHOUT `vanDay`. `splitTender` must go only to the build that sends `vanDay:true`.
+test("a beta.26-shaped bundle request (handheld only) gets no policy key the frozen v1 schema refuses", async () => {
+  const allowed = JSON.parse(
+    readFileSync(
+      new URL("./fixtures/van-wire-v1-policy-keys.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  const known = new Set([
+    ...allowed.validatedKeys,
+    ...allowed.strippedBeforeValidation,
+  ]);
+  // a second seller with no trip: the empty "no trip yet" bundle is built by a different branch of bundle()
+  h.setHooks({
+    loadProfile: async (/** @type {any} */ _db, /** @type {string} */ id) =>
+      profiles.byUser.get(id) ?? null,
+  });
+  const idle = await boundDevice(h, profiles, {
+    app: "van-android",
+    orgUnitId: unit,
+  });
+  await persistPerson(idle);
+  h.setHooks({
+    loadProfile: async (/** @type {any} */ db, /** @type {string} */ id) => {
+      const [p] =
+        await db`select * from profiles where user_id=${id} and deleted_at is null`;
+      return p
+        ? {
+            id: p.id,
+            userId: p.user_id,
+            name: p.name,
+            role: p.role,
+            orgUnitId: p.org_unit_id,
+            status: p.status,
+          }
+        : null;
+    },
+  });
+  /** @param {any} device @param {any} params */
+  const pull = async (device, params) => {
+    const r = await signedPost(h, device, "/api/sync/pull", {
+      version: 2,
+      app: "van-android",
+      deviceId: device.deviceId,
+      since: null,
+      pageCursor: null,
+      scopes: [
+        {
+          scopeId: unit,
+          projection: "van.bundle",
+          params: { serviceDate: today(), ...params },
+        },
+      ],
+      limit: 100,
+    });
+    expect(r.res.status).toBe(200);
+    return /** @type {any} */ (r.body.bundles[0].data);
+  };
+  // the exact params of VanSyncClient.kt at f2aba224
+  const beta26 = {
+    catalogue: true,
+    schemeEngine: 1,
+    posMode: true,
+    handheld: true,
+  };
+  const withTrip = await pull(who, beta26);
+  const withoutTrip = await pull(idle, beta26);
+  expect(withTrip.trip).not.toBeNull();
+  expect(withoutTrip.trip).toBeNull();
+  for (const b of [withTrip, withoutTrip]) {
+    expect(b.policy.handheld).toBeDefined();
+    expect(Object.keys(b.policy).filter((k) => !known.has(k))).toEqual([]);
+  }
+  // the hh2 build (also sends vanDay) is told, on both
+  const hh2 = { ...beta26, vanDay: true, categories: true };
+  expect((await pull(who, hh2)).policy.splitTender).toBe(true);
+  expect((await pull(idle, hh2)).policy.splitTender).toBe(true);
 });

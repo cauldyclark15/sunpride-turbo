@@ -1,0 +1,24 @@
+{
+  "source": "VanWireSchema.kt + VanBootstrapCodec.decode at f2aba224 (the build of beta.26 and beta.27, params.handheld but not params.vanDay)",
+  "validatedKeys": [
+    "allowNegativeStock",
+    "loadDiscrepancyRequiresApproval",
+    "walkInAllowed",
+    "loadDiscrepancyReasons",
+    "damageReasons",
+    "paymentMethods",
+    "damagePolicy",
+    "voidReasons",
+    "voidApproval",
+    "cashReconciliation",
+    "stockReconciliation",
+    "tripClose"
+  ],
+  "strippedBeforeValidation": [
+    "operationsVersion",
+    "fiscal",
+    "schemes",
+    "storePos",
+    "handheld"
+  ]
+}

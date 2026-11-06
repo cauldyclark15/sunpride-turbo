@@ -69,6 +69,18 @@ export function policy(env, tripId) {
   };
 }
 /**
+ * IP-INT3: the van sale takes cash plus one other tender (`payment.parts` / `payments[]`). `policy.splitTender` is a new
+ * key in the frozen v1 `policy` object (additionalProperties:false in beta.26/27), so it goes only to a phone that proves
+ * it is the new build. beta.26/27 already send `handheld:true`; only the hh2 build also sends `vanDay:true`.
+ * @param {any} ctx
+ */
+export function splitTenderFlag(ctx) {
+  return ctx.params.handheld === true && ctx.params.vanDay === true
+    ? { splitTender: true }
+    : {};
+}
+
+/**
  * IP-P0 (SPEC 5.3): who this handheld is for, so "No trip for today" can name the van and the supervisor.
  * The van is today's trip, else the last trip this handheld or seller drove. The supervisor is the seller's current
  * employee-assignment supervisor, else the profile's supervisor. Unknown parts are null. `supervisorPhone` is the
@@ -201,8 +213,7 @@ export async function bundle(ctx, env) {
         ...(handheld
           ? {
               handheld: await handheldInfo(db, actor, device, null),
-              // IP-INT3: the van sale takes cash plus one other tender (`payment.parts` / `payments[]`).
-              splitTender: true,
+              ...splitTenderFlag(ctx),
             }
           : {}),
       },
@@ -500,7 +511,7 @@ export async function bundle(ctx, env) {
         ...(handheld
           ? {
               handheld: await handheldInfo(db, actor, device, trip),
-              splitTender: true,
+              ...splitTenderFlag(ctx),
             }
           : {}),
         paymentMethods: await tenderPolicy(db, trip.org_unit_id),
