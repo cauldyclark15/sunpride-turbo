@@ -22,7 +22,8 @@ object VanBootstrapCodec {
             strings(it.getJSONArray("reasons")),nullable(it,"key")) },
         o.optJSONObject("tripClose")?.let { TripClosePolicy(it.getBoolean("requireCashCount"),it.getBoolean("requireStockCount"),
             it.getBoolean("requireUploadsSent"),it.getBoolean("exceptionsNeedReview")) },o.optInt("operationsVersion",0),o.optJSONObject("fiscal")?.toString(),o.optJSONObject("schemes")?.toString(),
-        handheld = o.optJSONObject("handheld")?.let { h -> HandheldInfo(clean(h,"vehicleCode",40),clean(h,"plateNumber",40),clean(h,"supervisorName",80),clean(h,"supervisorPhone",30)) })
+        handheld = o.optJSONObject("handheld")?.let { h -> HandheldInfo(clean(h,"vehicleCode",40),clean(h,"plateNumber",40),clean(h,"supervisorName",80),clean(h,"supervisorPhone",30)) },
+        vanDay = com.sunpride.van.vanday.VanDayCodec.decode(o.optJSONObject("vanDay")),splitTender = o.optBoolean("splitTender",false))
     /** Optional display text: trimmed, bounded, no control characters; anything else is simply not shown. */
     private fun clean(o: JSONObject, key: String, max: Int): String? = if (o.isNull(key)) null else o.optString(key,"").trim().takeIf { it.isNotEmpty() && it.length <= max && it.none(Char::isISOControl) }
 
@@ -123,12 +124,14 @@ object VanBootstrapCodec {
         require(operationsVersion in 0..1 && (operationsVersion == 0 || routeOps?.getInt("version") == 1))
         // F-019 F-616: validate negotiated extensions without changing frozen v1.
         val legacy = JSONObject(o.toString())
-        objects(legacy.getJSONArray("products")).forEach { it.remove("catalogue") }
+        objects(legacy.getJSONArray("products")).forEach { it.remove("catalogue"); it.remove("category") }
         legacy.getJSONObject("policy").remove("fiscal")
         legacy.optJSONArray("promotions")?.let(::objects)?.forEach{p->listOf("engineVersion","precedence","stacking","exclusionGroup","excludes","outletIds").forEach(p::remove)}
         legacy.getJSONObject("policy").remove("schemes")
         legacy.getJSONObject("policy").remove("storePos")
         legacy.getJSONObject("policy").remove("handheld")
+        legacy.getJSONObject("policy").remove("vanDay")
+        legacy.getJSONObject("policy").remove("splitTender")
         // IP-P0: the trip float and the recount facts are negotiated v2 additions to the frozen trip and load.
         legacy.optJSONObject("trip")?.remove(com.sunpride.van.pos.OpeningFloat.FIELD)
         legacy.optJSONObject("load")?.let { it.remove("confirmRequestId"); it.remove("rejectionNote") }

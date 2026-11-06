@@ -17,30 +17,37 @@ class StoreTransactions(private val store:RoomVanStore) {
     private val d=store.scope.deviceId
     private val sessions=StorePosStore(store)
     data class Tender(val method:String,val amount:Long,val reference:String?=null,val tendered:Long?=null)
-    suspend fun action(kind:String,payload:JSONObject,id:String=UUID.randomUUID().toString(),metadata:String?=null):String = store.db.withTransaction {
+    /** [supervise] (IP-HH2) signs the action once its session is known: it gets the shift id and returns the `supervisor` object for the payload. */
+    suspend fun action(kind:String,payload:JSONObject,id:String=UUID.randomUUID().toString(),metadata:String?=null,supervise:((String)->JSONObject)?=null):String = store.db.withTransaction {
         require(kind in StorePosStore.KINDS)
         val config=sessions.writable()
         val rows=dao.outboxRows(s,d)
         val shift=StorePosStore.project(config,rows).shift
         val last=rows.filter {it.kind=="store.shift.open"}.maxByOrNull {it.createdAt}?.let {JSONObject(it.operationJson).getJSONObject("payload").getString("shiftId")}
             ?: StoreCheckout.objects(config.details.optJSONArray("reads")).firstOrNull()?.optString("shift_id")
-        val shiftId=shift?.shiftId ?: if(kind in setOf("store.deposit","store.print"))checkNotNull(last){"No cashier session on this phone"} else error("Open a cashier session first")
+        // IP-HH2: the day-end Z is read after every session is closed, so it names the last session instead of an open one.
+        val zAfterClose=kind=="store.read"&&payload.optString("kind")=="z"
+        val shiftId=shift?.shiftId ?: if(kind in setOf("store.deposit","store.print")||zAfterClose)checkNotNull(last){"No cashier session on this phone"} else error("Open a cashier session first")
         val z=rows.any {it.kind=="store.read" && it.status !in setOf("rejected","conflict") && JSONObject(it.operationJson).getJSONObject("payload").let {p->p.getString("shiftId")==shiftId && p.getString("kind")=="z"}}
             || StoreCheckout.objects(config.details.optJSONArray("reads")).any {it.optString("shift_id")==shiftId&&it.getString("kind")=="z"}
         check(!z||kind in setOf("store.deposit","store.print")){"Z closing has stopped sales for this day"}
+        check(!zAfterClose||shift==null){"End your cashier session first. Z comes after every session is closed."}
+        supervise?.let {payload.put("supervisor",it(shiftId))}
         sessions.queue(kind,shiftId,config,payload,id,shift?.openingRequestId,metadata)
     }
-    suspend fun sale(saleId:String,cart:List<CartLine>,tenders:List<Tender>,expected:Long,customerPhone:String?,employeePin:String?,points:Long):JSONObject = store.db.withTransaction {
+    suspend fun sale(saleId:String,cart:List<CartLine>,tenders:List<Tender>,expected:Long,customerPhone:String?,employeePin:String?,points:Long,claim:com.sunpride.van.selling.DiscountClaim?=null):JSONObject = store.db.withTransaction {
         val config=sessions.writable();val rows=dao.outboxRows(s,d)
         val normalizedPhone=customerPhone?.takeIf {it.isNotBlank()}?.let(StoreCheckout::normalizePhone)
         val input=JSONObject().put("lines",JSONArray(cart.map {JSONObject().put("productId",it.productId).put("quantityBase",it.quantityBase.toString())}))
             .put("tenders",JSONArray(tenders.map {JSONObject().put("method",it.method).put("amount",it.amount.toString()).put("reference",it.reference?:JSONObject.NULL).put("tendered",it.tendered?.toString()?:JSONObject.NULL)}))
-            .put("expected",expected.toString()).put("phone",normalizedPhone?:JSONObject.NULL).put("employee",employeePin!=null).put("points",points.toString()).toString()
+            .put("expected",expected.toString()).put("phone",normalizedPhone?:JSONObject.NULL).put("employee",employeePin!=null).put("points",points.toString())
+            .apply {claim?.let {put("claim",it.json("privilegeDiscountCentavos","vatRemovedCentavos",null))}}.toString()
         val hash=java.security.MessageDigest.getInstance("SHA-256").digest(input.toByteArray()).joinToString(""){"%02x".format(it.toInt() and 255)}
         rows.firstOrNull {it.clientRequestId==saleId}?.let {old->val meta=JSONObject(checkNotNull(old.metadataJson));check(meta.getString("inputHash")==hash){"Cart identifier has different content"};return@withTransaction meta.getJSONObject("receipt")}
         check(rows.none {it.kind=="store.sale" && it.status in setOf("rejected","conflict")}) {"Review the refused store sale before recording more"}
         val shift=checkNotNull(StorePosStore.project(config,rows).shift){"Open a cashier session first"}
-        val quote=StoreCheckout.quote(config,rows,cart,store.now())
+        check(claim==null||employeePin==null&&points==0L){"A senior, PWD or other statutory discount cannot be combined with the employee discount or points"}
+        val quote=StoreCheckout.quote(config,rows,cart,store.now(),claim)
         val total=StoreCheckout.total(config,quote.totalMinor,employeePin!=null,points)
         check(expected==total && total<=StorePosStore.MAX_MONEY){"Prices or discount changed"}
         require((total==0L||tenders.isNotEmpty())&&tenders.map {it.method}.distinct().size==tenders.size)
@@ -69,6 +76,7 @@ class StoreTransactions(private val store:RoomVanStore) {
             .put("lines",JSONArray(cart.map {line->val p=products.getValue(line.productId);JSONObject().put("productId",p.productId).put("uom",p.uomCode).put("quantity",p.displayQuantity(line.quantityBase)).put("quantityBase",line.quantityBase.toString())}))
             .put("stockLines",stock).put("tenders",methods).put("fiscal",JSONObject().put("allocationId",fiscal.allocationId).put("serial",fiscal.serial.toString()))
             .put("redeemPoints",points.toString()).put("loyaltyLookupId",config.details.optJSONObject("customerLookup")?.optString("lookupId")?:JSONObject.NULL).put("employeeDiscount",employeePin!=null)
+            .apply {quote.claim?.let {put("discountClaim",it.json("privilegeDiscountCentavos","vatRemovedCentavos",quote.legal))}}
         normalizedPhone?.takeIf {it.isNotBlank()}?.let {payload.put("customerPhone",it)}
         employeePin?.let {payload.put("employeeProof",StoreCheckout.proof(config,it,saleId,shift.shiftId,total))}
         val extra=quote.totalMinor-total
@@ -77,10 +85,11 @@ class StoreTransactions(private val store:RoomVanStore) {
         val receipt=JSONObject().put("saleId",saleId).put("receiptNumber",fiscal.number).put("store",config.storeName).put("register",config.registerName).put("terminal",config.terminalCode)
             .put("cashier",meta.sellerJson?.let {JSONObject(it).optString("name")}).put("customer",config.details.optJSONObject("customerLookup")?.takeIf {it.optString("phone")==normalizedPhone}?.optString("name")?:"Walk-in")
             .put("soldAt",store.now()).put("totalMinor",total.toString()).put("tenders",methods).put("fiscal",fiscal.registration)
-            .put("tax",JSONObject(FiscalNumbers.snapshot(fiscal,total)).getJSONObject("tax"))
+            .put("tax",legalTax(quote.legal)?:JSONObject(FiscalNumbers.snapshot(fiscal,total)).getJSONObject("tax"))
+            .apply {claim?.let {c->put("discountClaim",com.sunpride.van.printing.ReceiptDiscounts.claimJson(c,quote.legal));put("privilege",JSONObject().put("byType",JSONObject().put(c.type.wire,JSONObject().put("discountMinor",(quote.legal?.privilegeDiscount?:0L).toString()).put("vatRemovedMinor",(quote.legal?.vatRemoved?:0L).toString()))))}}
             .put("lines",JSONArray(quote.lines.mapIndexed {i,l->JSONObject().put("productId",l.product.productId).put("productCode",l.product.code).put("description",l.product.name)
                 .put("uom",l.product.uomCode).put("quantity",l.product.displayQuantity(l.quantityBase)).put("quantityBase",l.quantityBase.toString())
-                .put("unitPriceCentavos",l.unitPriceMinor.toString()).put("lineTotalCentavos",(l.totalMinor-allocated[i]).toString())}))
+                .put("unitPriceCentavos",l.unitPriceMinor.toString()).put("lineTotalCentavos",(l.totalMinor-allocated[i]).toString()).put("privilegeDiscountCentavos",l.privilegeDiscountMinor.toString())}))
         action("store.sale",payload,saleId,JSONObject().put("inputHash",hash).put("receipt",receipt).toString())
         receipt
     }
@@ -121,6 +130,11 @@ class StoreTransactions(private val store:RoomVanStore) {
         prints.settle(s,d,row.printId,outcome.wire,store.now())
         Unit
     }
+    private fun legalTax(legal:com.sunpride.van.selling.LegalCart?):JSONObject? = legal?.takeIf {it.applied}?.let {c->
+        JSONObject().put("vatableSalesMinor",c.lines.sumOf {it.vatable}.toString()).put("vatMinor",c.lines.sumOf {it.vat}.toString())
+            .put("vatExemptMinor",c.lines.sumOf {it.vatExempt}.toString()).put("zeroRatedMinor",c.lines.sumOf {it.zeroRated}.toString())
+            .put("privilegeDiscountMinor",c.privilegeDiscount.toString()).put("vatRemovedMinor",c.vatRemoved.toString())
+    }
     companion object {
         fun receipts(config:StorePosConfig,rows:List<OutboxRow>):List<JSONObject> {
             val server=StoreCheckout.objects(config.details.optJSONArray("sales"))
@@ -141,6 +155,7 @@ class StoreTransactions(private val store:RoomVanStore) {
             line(java.time.Instant.ofEpochMilli(r.getLong("soldAt")).atZone(java.time.ZoneId.of("Asia/Manila")).toString())
             elements+=ReceiptElement.Divider()
             StoreCheckout.objects(r.getJSONArray("lines")).forEach {l->line(l.getString("description"));elements+=ReceiptElement.Columns("${l.get("quantity")} ${l.getString("uom")}",PesoAmounts.fromCentavos(l.getString("lineTotalCentavos").toLong()))}
+            com.sunpride.van.printing.ReceiptDiscounts.claimLines(r){PesoAmounts.fromCentavos(it)}.forEach {(label,amount)->if(amount!=null)elements+=ReceiptElement.Columns(label,amount) else line(label)}
             elements+=ReceiptElement.Columns("TOTAL",PesoAmounts.fromCentavos(r.getString("totalMinor").toLong()),true)
             StoreCheckout.objects(r.getJSONArray("tenders")).forEach {t->elements+=ReceiptElement.Columns(t.optString("label",t.getString("method")),PesoAmounts.fromCentavos(t.getString("amountCentavos").toLong()));if(!t.isNull("reference"))line("Ref: ${t.getString("reference")}");if(t.getString("method")=="cash"){elements+=ReceiptElement.Columns("Cash received",PesoAmounts.fromCentavos(t.optString("tenderedCentavos",t.getString("amountCentavos")).toLong()));elements+=ReceiptElement.Columns("Change",PesoAmounts.fromCentavos(t.optString("changeCentavos","0").toLong()))}}
             val tax=r.getJSONObject("tax");elements+=ReceiptElement.Columns("VAT",PesoAmounts.fromCentavos(tax.getString("vatMinor").toLong()))

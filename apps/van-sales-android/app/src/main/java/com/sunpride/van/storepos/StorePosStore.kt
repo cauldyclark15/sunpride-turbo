@@ -75,7 +75,7 @@ class StorePosStore(private val store: RoomVanStore) {
         const val MAX_MONEY=9_000_000_000L
         /** IP-P0: a store opening float is held to the office's ₱0..₱100,000 range, the same as a trip float; null when fine. */
         fun floatProblem(openingCentavos: Long): String? = if (OpeningFloat.valid(openingCentavos)) null else OpeningFloat.CAP_MESSAGE
-        val KINDS=setOf("store.shift.open","store.shift.close","store.sale","store.void","store.refund","store.read","store.receive","store.count","store.deposit","store.customer","store.print")
+        val KINDS=setOf("store.shift.open","store.shift.close","store.sale","store.void","store.refund","store.read","store.receive","store.count","store.deposit","store.customer","store.print","store.cash","store.override","store.shift.suspend","store.shift.resume")
         fun project(config: StorePosConfig?,rows: List<OutboxRow>): StorePosState {
             val all=rows.filter {it.kind in KINDS}
             val relevant=all.filter {JSONObject(it.operationJson).getJSONObject("payload").optString("modeVersionId")==config?.modeVersionId}

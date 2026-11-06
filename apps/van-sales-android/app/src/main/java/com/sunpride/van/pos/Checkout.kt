@@ -38,7 +38,11 @@ data class QuotedPayment(val method: PaymentMethod, val amountMinor: Long, val t
 
 /** What the seller is about to sell. [saleId] is a UUID-v4 made when the cart opens; it makes Complete sale safe to tap twice. */
 data class CheckoutRequest(val saleId: String, val customerId: String?, val lines: List<CartLine>, val payment: PaymentInput,
-    val manualDiscount:ManualDiscountInput? = null,val priceOverride:SalePriceOverride?=null,val creditOverride:FinancialOverride?=null)
+    val manualDiscount:ManualDiscountInput? = null,val priceOverride:SalePriceOverride?=null,val creditOverride:FinancialOverride?=null,
+    /** IP-HH2: Senior / PWD / Solo parent / Athlete / Uniformed claim; worked out by [com.sunpride.van.selling.Privilege], never together with a manual discount. */
+    val claim: com.sunpride.van.selling.DiscountClaim? = null,
+    /** IP-HH2: the second tender of a split sale (cash stays in [payment]); the rest of the total is paid with it. */
+    val split: SplitPayment? = null)
 
 enum class CheckoutProblem {
     TRIP_NOT_SELLING, NO_CUSTOMER, UNKNOWN_CUSTOMER, EMPTY_CART, TOO_MANY_LINES, DUPLICATE_PRODUCT,
@@ -52,7 +56,11 @@ enum class CheckoutProblem {
     /** VAN-022: the trip's cash is already counted, so it sells nothing more. */
     CASH_COUNTED,
     /** VAN-023: the approved physical stock count freezes every stock-changing action. */
-    STOCK_COUNTED
+    STOCK_COUNTED,
+    /** IP-HH2 discount claim: missing ID or name, used with a manual discount, or an item with no tax set-up on this phone. */
+    DISCOUNT_CLAIM_INVALID, DISCOUNT_CLAIM_WITH_MANUAL, DISCOUNT_TAX_UNKNOWN,
+    /** IP-HH2 split tender: the parts do not add up, a part is missing, or the method cannot be split. */
+    SPLIT_INVALID
 }
 
 /** A problem, optionally tied to a product line. */
@@ -66,11 +74,18 @@ data class CheckoutIssue(val problem: CheckoutProblem, val productId: String? = 
 data class QuotedLine(val lineNumber: Int, val product: Product, val quantityBase: Long, val unitPriceMinor: Long,
     val totalMinor: Long, val priceListIds: List<String>, val paidBase: Long = quantityBase, val freeBase: Long = 0L,
     val grossMinor: Long = totalMinor, val discountMinor: Long = 0L, val priceListId: String? = null,
-    val priceListCode: String? = null, val promotion: QuotedPromotion? = null,val manualDiscountMinor:Long = 0L)
+    val priceListCode: String? = null, val promotion: QuotedPromotion? = null,val manualDiscountMinor:Long = 0L,
+    /** IP-HH2: what the statutory discount did to this line ([totalMinor] is then the amount payable). */
+    val privilegeDiscountMinor: Long = 0L, val vatRemovedMinor: Long = 0L, val privilegeType: com.sunpride.van.selling.PrivilegeType? = null,
+    val legal: com.sunpride.van.selling.LegalLine? = null)
 
 /** [tenderedMinor]/[changeMinor] are the cash handed over and change (non-cash: the amount and zero). */
 data class CheckoutQuote(val lines: List<QuotedLine>, val currency: String, val totalMinor: Long,
-    val tenderedMinor: Long, val changeMinor: Long, val payment: QuotedPayment, val earnedMinor: Long = 0)
+    val tenderedMinor: Long, val changeMinor: Long, val payment: QuotedPayment, val earnedMinor: Long = 0,
+    /** IP-HH2: the discount claim's totals (null without a claim). */
+    val legal: com.sunpride.van.selling.LegalCart? = null, val claim: com.sunpride.van.selling.DiscountClaim? = null,
+    /** IP-HH2: the cash/other split when the sale is paid with two tenders. */
+    val split: QuotedSplit? = null)
 
 /** [quote] is non-null only when there are no [issues]. */
 data class CheckoutResult(val quote: CheckoutQuote?, val issues: List<CheckoutIssue>) {
@@ -86,7 +101,9 @@ data class CheckoutContext(val tripSelling: Boolean, val customers: List<Custome
     val stock: List<TruckStock>, val prices: List<PriceLine>, val policy: VanPolicy?, val now: Long,
     val serviceDate: String? = null, val creditUsedMinor: Map<String,Long> = emptyMap(), val usedReferences: Set<String> = emptySet(),
     val cashCounted: Boolean = false, val promotions: List<com.sunpride.van.data.Promotion> = emptyList(),
-    val stockCounted: Boolean = false,val previewOnly:Boolean = false,val governedPromotionsJson:String? = null)
+    val stockCounted: Boolean = false,val previewOnly:Boolean = false,val governedPromotionsJson:String? = null,
+    /** IP-HH2: how each product is taxed on this phone; null = unknown, so a discount claim is refused rather than guessed. */
+    val taxFacts: ((QuotedLine, String?) -> com.sunpride.van.selling.TaxFact?)? = null)
 
 class CheckoutRefused(val issues: List<CheckoutIssue>) : IllegalStateException("Checkout refused")
 
@@ -173,15 +190,57 @@ object CheckoutRules {
                 if(required>BigInteger.valueOf(available[id]?:0L))issues+=CheckoutIssue(CheckoutProblem.INSUFFICIENT_STOCK,id)
             }
         }
+        val legalCart = applyClaim(request,context,customer,quoted,issues)
         if (currencies.size > 1) issues += CheckoutIssue(CheckoutProblem.MIXED_CURRENCY)
         val total = runCatching { quoted.fold(0L) { sum, line -> Math.addExact(sum,line.totalMinor) } }.getOrElse {
             issues += CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE); 0L
         }
         if (total > MAX_MINOR) issues += CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE)
 
+        // IP-HH2: an item that left the cart no longer counts as eligible (the server refuses a claim naming an item that is not in the sale).
+        val prunedClaim = request.claim?.let { c -> c.copy(eligibleProductIds = c.eligibleProductIds?.intersect(quoted.map { it.product.productId }.toSet())) }
+        val split = request.split
+        if (split != null) {
+            // IP-HH2: cash plus one more tender. The other tender pays [split.amountMinor]; cash pays the rest and only cash gives change.
+            val methods = context.policy?.paymentMethods ?: PaymentMethod.CASH_ONLY
+            val cashMethod = methods.firstOrNull { it.code == request.payment.methodCode }
+            val otherMethod = methods.firstOrNull { it.code == split.methodCode }
+            if (cashMethod?.kind != PaymentKind.CASH || otherMethod == null || otherMethod.kind == PaymentKind.CASH || !SplitTenders.partsValid(total,split.amountMinor)) issues += CheckoutIssue(CheckoutProblem.SPLIT_INVALID)
+            else {
+                val otherPay = payment(PaymentInput(split.methodCode,null,split.reference),split.amountMinor,customer,context,issues,request,quoted)
+                val cashPay = payment(request.payment,total - split.amountMinor,customer,context,issues,request,quoted)
+                if (issues.isEmpty() && otherPay != null && cashPay != null)
+                    return CheckoutResult(CheckoutQuote(quoted,currencies.single(),total,cashPay.tenderedMinor ?: cashPay.amountMinor,cashPay.changeMinor,cashPay,promotionResult.earnedMinor,legalCart,prunedClaim,QuotedSplit(cashPay,otherPay)),emptyList())
+            }
+            return CheckoutResult(null,issues.distinct())
+        }
         val payment = payment(request.payment,total,customer,context,issues,request,quoted)
         if (issues.isNotEmpty() || payment == null) return CheckoutResult(null,issues.distinct())
-        return CheckoutResult(CheckoutQuote(quoted,currencies.single(),total,payment.tenderedMinor ?: total,payment.changeMinor,payment,promotionResult.earnedMinor),emptyList())
+        return CheckoutResult(CheckoutQuote(quoted,currencies.single(),total,payment.tenderedMinor ?: total,payment.changeMinor,payment,promotionResult.earnedMinor,legalCart,prunedClaim),emptyList())
+    }
+
+    /**
+     * IP-HH2: apply the statutory discount claim to the quoted lines (replaces each line's total with the amount payable). Returns the
+     * claim's totals, or null when there is no claim or it is refused (the reason is added to [issues]).
+     */
+    private fun applyClaim(request: CheckoutRequest, context: CheckoutContext, customer: Customer?, quoted: MutableList<QuotedLine>, issues: MutableList<CheckoutIssue>): com.sunpride.van.selling.LegalCart? {
+        val claim = request.claim ?: return null
+        if (com.sunpride.van.selling.ClaimRules.problem(claim) != null) { issues += CheckoutIssue(CheckoutProblem.DISCOUNT_CLAIM_INVALID); return null }
+        if (quoted.any { it.manualDiscountMinor > 0L } || request.manualDiscount?.lineMinor?.isNotEmpty() == true || request.manualDiscount?.basketMinor?.let { it > 0L } == true || request.priceOverride?.unitMinor?.isNotEmpty() == true) {
+            issues += CheckoutIssue(CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL); return null
+        }
+        val facts = context.taxFacts
+        val inputs = quoted.map { q -> com.sunpride.van.selling.LegalInput(q.product.productId,q.grossMinor,q.discountMinor,facts?.invoke(q,customer?.priceListId)) }
+        val cart = com.sunpride.van.selling.Privilege.cart(inputs,claim).getOrElse {
+            inputs.filter { it.gross > 0 && it.tax?.known != true }.forEach { issues += CheckoutIssue(CheckoutProblem.DISCOUNT_TAX_UNKNOWN,it.productId) }
+            if (issues.none { it.problem == CheckoutProblem.DISCOUNT_TAX_UNKNOWN }) issues += CheckoutIssue(CheckoutProblem.DISCOUNT_TAX_UNKNOWN)
+            return null
+        }
+        quoted.indices.forEach { i ->
+            val r = cart.lines[i]
+            quoted[i] = quoted[i].copy(totalMinor = r.net,privilegeDiscountMinor = r.privilegeDiscount,vatRemovedMinor = r.vatRemoved,privilegeType = r.privilegeType,legal = r)
+        }
+        return cart
     }
 
     /** VAN-012 payment rules; adds problems to [issues] and returns null when the payment cannot be recorded. */
@@ -227,7 +286,7 @@ object CheckoutRules {
 
     /** The cart's lines and total alone, whatever payment the seller picks next (shown before the payment is entered). */
     fun cartQuote(request: CheckoutRequest, context: CheckoutContext): CheckoutQuote? =
-        evaluate(request.copy(payment = PaymentInput(PaymentMethod.CASH.code,MAX_MINOR)),
+        evaluate(request.copy(payment = PaymentInput(PaymentMethod.CASH.code,MAX_MINOR),split = null),
             context.copy(policy = context.policy?.copy(paymentMethods = PaymentMethod.CASH_ONLY),previewOnly=true)).quote
 
     /** Credit the customer can still take on this phone (office-available minus unacknowledged credit sold here); null without terms. */

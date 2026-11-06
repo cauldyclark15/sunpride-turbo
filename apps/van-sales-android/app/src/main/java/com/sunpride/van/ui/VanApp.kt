@@ -32,6 +32,8 @@ import kotlinx.coroutines.delay
     // IP-HH1: one scanner for the whole app (the Activity can pass its own so it also receives wedge key bursts).
     val appContext = LocalContext.current.applicationContext
     val scanner = scannerInput ?: remember(appContext) { ScannerInput(appContext) }
+    // IP-HH2: wrong-PIN counts (supervisor, crew) survive closing the app.
+    LaunchedEffect(controller,appContext) { controller.installLockout(com.sunpride.van.security.PinLockout(com.sunpride.van.security.PrefsLockoutStorage(appContext))) }
     DisposableEffect(scanner,lifecycle) {
         val observer = LifecycleEventObserver { _,event -> if (event == Lifecycle.Event.ON_START) scanner.start() else if (event == Lifecycle.Event.ON_STOP) scanner.stop() }
         lifecycle.addObserver(observer)
@@ -81,6 +83,7 @@ import kotlinx.coroutines.delay
                 Page.CHANGE_PASSWORD -> ChangePasswordScreen(controller)
                 Page.HOME -> HomeScreen(controller)
                 Page.ROUTE_OPS -> RouteOpsScreen(controller)
+                Page.ACCEPT_LOAD -> AcceptLoadScreen(controller)
                 Page.LOAD -> CheckLoadScreen(controller)
                 Page.START -> StartTripScreen(controller)
                 Page.STOCK -> TruckStockScreen(controller)

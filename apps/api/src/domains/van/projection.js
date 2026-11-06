@@ -273,6 +273,11 @@ export async function bundle(ctx, env) {
           : null;
       products.push({
         ...(catalogue ? { catalogue } : {}),
+        // IP-HH2: the office's category for the phone's chips. Opt-in (`params.categories`): the frozen v1 product
+        // schema of older APKs rejects unknown keys, so nothing changes unless the phone asks.
+        ...(ctx.params.categories === true && p.category
+          ? { category: String(p.category).slice(0, 60) }
+          : {}),
         productId: id,
         code: p.code,
         name: p.name,

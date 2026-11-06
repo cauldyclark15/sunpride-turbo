@@ -43,11 +43,27 @@ object StoreCheckout {
         objects(data.optJSONArray("catalogue")).forEach {p->lists.put(p.getString("productId"),p.opt("sourcePriceListId")?:JSONObject.NULL);units.put(p.getString("productId"),p.optJSONObject("units")?:JSONObject())}
         governed.put("priceLists",lists).put("units",units)
         return CheckoutContext(true,listOfNotNull(customer),products(config),stock,prices,VanPolicy(),now,
-            promotions=emptyList(),governedPromotionsJson=governed.toString())
+            promotions=emptyList(),governedPromotionsJson=governed.toString(),taxFacts=taxFacts(config))
     }
-    fun quote(config: StorePosConfig,rows: List<OutboxRow>,lines:List<CartLine>,now:Long): CheckoutQuote {
+    /**
+     * IP-HH2: how each catalogue product is taxed, when the office's bundle says so (`taxTreatment` + `taxBasisPoints` on the catalogue row).
+     * A bundle that does not carry them gives no facts, so a discount claim is refused in plain words rather than guessed.
+     */
+    fun taxFacts(config: StorePosConfig): (QuotedLine,String?)->com.sunpride.van.selling.TaxFact? {
+        val byProduct=objects(config.details.optJSONArray("catalogue")).mapNotNull {row->
+            val treatment=row.optString("taxTreatment").takeIf {it.isNotBlank()}?:return@mapNotNull null
+            row.getString("productId") to com.sunpride.van.selling.TaxFact(treatment,row.optInt("taxBasisPoints",0))
+        }.toMap()
+        return {line,_->byProduct[line.product.productId]}
+    }
+    /** True when this store's bundle carries tax facts for every catalogue product (so a discount claim can be worked out here). */
+    fun claimsPossible(config: StorePosConfig): Boolean {
+        val rows=objects(config.details.optJSONArray("catalogue"))
+        return rows.isNotEmpty()&&rows.all {it.optString("taxTreatment").isNotBlank()}
+    }
+    fun quote(config: StorePosConfig,rows: List<OutboxRow>,lines:List<CartLine>,now:Long,claim:com.sunpride.van.selling.DiscountClaim?=null): CheckoutQuote {
         val context=context(config,rows,now)
-        val request=CheckoutRequest(CheckoutRules.newSaleId(),context.customers.singleOrNull()?.outletId,lines,PaymentInput("cash",CheckoutRules.MAX_MINOR))
+        val request=CheckoutRequest(CheckoutRules.newSaleId(),context.customers.singleOrNull()?.outletId,lines,PaymentInput("cash",CheckoutRules.MAX_MINOR),claim=claim)
         val result=CheckoutRules.evaluate(request,context)
         if(!result.ok)throw CheckoutRefused(result.issues)
         return checkNotNull(result.quote)

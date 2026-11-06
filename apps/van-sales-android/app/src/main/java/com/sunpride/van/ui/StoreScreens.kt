@@ -35,7 +35,7 @@ import com.sunpride.van.storepos.StoreXPreview
         ListRow("New sale","Scan or search · shared prices · split tenders","store-new-sale",onClick={c.open(Page.STORE_SALE)},enabled=blocked==null&&!c.busy)
         blocked?.let {Text(it,style=MaterialTheme.typography.bodyMedium,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("store-new-sale-reason"))}
         ListRow("Receipts, voids & refunds","Frozen receipts and supervisor approval","store-receipts",onClick={c.open(Page.STORE_RECEIPTS)})
-        ListRow("X / Z reports","Mid-shift read and end-of-day closing","store-reports",onClick={c.open(Page.STORE_READS)})
+        ListRow("X / Z & cash","X reading, Z with a supervisor PIN, cash drop and paid out","store-reports",onClick={c.open(Page.STORE_READS)})
         ListRow("Receiving & counts","Warehouse/van transfer or PO · blind count","store-stock",onClick={c.open(Page.STORE_STOCK)})
         ListRow("Cash deposit","Slip photo · bank · Z-read matching","store-deposit",onClick={c.open(Page.STORE_DEPOSIT)})
         ListRow("Customers & points","Phone lookup · optional loyalty","store-customers",onClick={c.open(Page.STORE_CUSTOMERS)})

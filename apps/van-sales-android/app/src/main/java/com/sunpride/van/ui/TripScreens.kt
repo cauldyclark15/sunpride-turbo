@@ -15,18 +15,34 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.sunpride.van.data.*
 import com.sunpride.van.pos.OpeningFloat
 import com.sunpride.van.scanning.*
+import com.sunpride.van.vanday.*
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 
 @Composable fun HomeScreen(c: VanController) {
-    val next = VanRules.nextAction(c.trip,c.load)
     val last = c.sync.lastSyncTime?.let { Instant.ofEpochMilli(it).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MMM d, h:mm a")) } ?: "Not yet"
     // VAN-025: phone, office and SAP stay on separate lines; details on the Sync & posting screen.
     val status = com.sunpride.van.sync.SyncHealth.footer(c.sync,last)
-    ScreenFrame("Today",action = if (c.trip == null) "Sync now" else next.label,actionTag = "home-primary",
-        enabled = !c.busy,onAction = { if (c.trip == null) c.syncNow() else c.open(next.page) },footer = status,message = c.message) {
+    // IP-HH2: Today shows ONE next step (accept the load, start the trip, next store, load-in, settle) and the main button does it.
+    LaunchedEffect(c.trip?.tripId,c.sync.phoneOnly,c.sync.queued) { c.refreshSavedSales(); c.refreshAcceptWaiting() }
+    val routeStores = c.customers.filter { it.sequence != null && !it.localOnly }.sortedBy { it.sequence }
+    val served = c.savedSales.filter { !it.isCollection && it.void == null }.map { it.receipt.customerName }.toSet()
+    val storesLeft = routeStores.filter { it.name !in served }
+    val step = VanDaySteps.next(DayFacts(c.trip != null,c.trip?.status,c.trip?.startPending == true,c.load?.status,c.load?.confirmPending == true,c.vanDay,c.tripClosed,c.cashCounted,c.stockCounted,
+        c.policy?.operationsVersion == 1,c.sync.items.any { it.kind == "unload.record" },storesLeft.firstOrNull()?.name,storesLeft.size,c.onHold,c.acceptWaiting,c.policy?.handheld?.supervisorName))
+    val go: () -> Unit = {
+        when (step.target) {
+            StepTarget.SYNC -> c.syncNow(); StepTarget.ACCEPT_LOAD -> c.open(Page.ACCEPT_LOAD); StepTarget.LOAD -> c.open(Page.LOAD); StepTarget.START -> c.open(Page.START)
+            StepTarget.CUSTOMERS -> c.open(Page.CUSTOMERS); StepTarget.ROUTE_OPS -> c.open(Page.ROUTE_OPS); StepTarget.CASH -> c.open(Page.CASH)
+            StepTarget.STOCK_COUNT -> c.open(Page.STOCK_COUNT); StepTarget.CLOSE_TRIP -> c.open(Page.CLOSE_TRIP); StepTarget.NONE -> {}
+        }
+    }
+    ScreenFrame("Today",action = step.button ?: "Sync now",actionTag = "home-primary",
+        enabled = !c.busy,onAction = { if (step.button == null) c.syncNow() else go() },footer = status,message = c.message) {
         val trip = c.trip
+        if (!c.onHold || trip != null) NextStepCard(step,!c.busy,go)
+        PhoneCrewCard(c)
         if (trip == null && c.onHold) {
             Text("Your trip is paused until the office confirms this phone. Tap Sync now. Your saved work is kept here.",
                 style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("on-hold"))
