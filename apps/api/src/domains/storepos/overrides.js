@@ -44,6 +44,8 @@ export const OVERRIDE_LABELS = /** @type {Record<string,string>} */ ({
 const MAX_FAILURES = 5;
 const WINDOW_MS = 10 * 60 * 1000;
 const LOCK_MS = 10 * 60 * 1000;
+/** A supervisor proof is honoured for at most this long after it was captured (IP-INT2FIX: was the 7-day offline window). */
+export const PROOF_MAX_AGE_MS = 24 * 60 * 60 * 1000;
 
 /** The text both the phone and the server sign. Binds the proof to ONE action so a PIN entry cannot be replayed.
  * @param {{kind:string, refId:string, shiftId?:string|null, amountCentavos?:string|null, pinId:string}} m */
@@ -163,11 +165,13 @@ export async function verifyOnline(c) {
   const supervisorId = uuid(p.supervisorProfileId);
   const kind = choice(p.kind, OVERRIDE_KINDS);
   const refId = String(text(p.refId, 100, true));
-  await reserveAttempt(c.db, supervisorId);
-  const answer = await tx(c.db, async (/** @type {any} */ db) => {
-    const { currentDeviceActor } = await import("../van/access.js");
+  const { currentDeviceActor } = await import("../van/access.js");
+  const { modeAt, registerFor } = await import("./model.js");
+  // IP-INT2FIX: who may even try is checked BEFORE an attempt is counted. A caller that is not an authorised device on a
+  // register this supervisor can approve for gets a plain refusal and never touches the supervisor's lockout counter.
+  /** @param {any} db */
+  const authorise = async (db) => {
     const fresh = await currentDeviceActor(db, c.actor, uuid(p.deviceId));
-    const { modeAt, registerFor } = await import("./model.js");
     const mode = await modeAt(db, fresh.device.id);
     if (mode?.mode !== "store" || !mode.register_id)
       refuse("This handheld is not in Store mode");
@@ -180,6 +184,12 @@ export async function verifyOnline(c) {
     const sup = await supervisorFor(db, supervisorId, register, Date.now());
     if (sup.profile.id === fresh.actor.profileId)
       throw forbidden("A supervisor cannot approve their own action");
+    return { fresh, sup };
+  };
+  await tx(c.db, (/** @type {any} */ db) => authorise(db));
+  await reserveAttempt(c.db, supervisorId);
+  const answer = await tx(c.db, async (/** @type {any} */ db) => {
+    const { sup } = await authorise(db);
     const pin = String(p.pin ?? "");
     if (!/^\d{6,12}$/.test(pin)) refuse("Enter the supervisor PIN");
     const hash = createHash("sha256")
@@ -251,6 +261,11 @@ export async function useSupervisor(c, need) {
     pinId = uuid(given.pinId);
   if (typeof given.proof !== "string" || !/^[a-f0-9]{64}$/.test(given.proof))
     refuse("Supervisor approval is malformed");
+  if (Date.now() - c.now > PROOF_MAX_AGE_MS)
+    refuse(
+      "This supervisor approval is more than 24 hours old. Ask the supervisor to approve it again.",
+      "forbidden",
+    );
   const sup = await supervisorFor(db, profileId, register, c.now, pinId);
   if (sup.profile.id === c.actor.profileId)
     throw forbidden("A supervisor cannot approve their own action");

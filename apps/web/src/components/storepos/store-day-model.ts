@@ -1,6 +1,6 @@
 /** Types and plain-word helpers for the Stores POS day screens (lane ZDAY). The API speaks centavos as strings. */
 
-export type DayStatus = "open" | "closing" | "z_done";
+export type DayStatus = "open" | "closing" | "z_done" | "closed_no_z";
 
 export type TillDaySummary = {
   id: string;
@@ -157,6 +157,7 @@ export function dayStatusWords(status: DayStatus | string): string {
         open: "Open",
         closing: "Waiting for Z reading",
         z_done: "Day closed (Z done)",
+        closed_no_z: "Closed before Z readings started",
       } as Record<string, string>
     )[status] ?? "Needs review"
   );
@@ -211,6 +212,13 @@ export function dayNextStep(detail: Pick<DayDetail, "day">): {
   actionLabel: string | null;
 } {
   const d = detail.day;
+  if (d.status === "closed_no_z")
+    return {
+      tone: "info",
+      text: "This is an old day from before Z readings. It stays readable but cannot get a Z reading.",
+      action: "none",
+      actionLabel: null,
+    };
   if (d.status === "z_done")
     return {
       tone: "success",

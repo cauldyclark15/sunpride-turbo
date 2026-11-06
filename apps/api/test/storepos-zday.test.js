@@ -777,9 +777,17 @@ test(
     await A.close("4500");
     const id = crypto.randomUUID();
     const dayId = (await sessionDay(A.shift)).id;
-    const zOp = { ...A.op("store.read", { kind: "z" }), clientOpId: id };
-    expect((await A.send(zOp)).status).toBe("rejected");
     const sig = await proofFor("z_reading", id, A.shift, "0");
+    // a request that carries a proof stays strict: a forged one is refused (a request with NO proof is the legacy path, see
+    // storepos-int2fix.test.js)
+    const forged = {
+      ...A.op("store.read", {
+        kind: "z",
+        supervisor: { ...sig, proof: "0".repeat(64) },
+      }),
+      clientOpId: id,
+    };
+    expect((await A.send(forged)).status).toBe("rejected");
     const ok = await A.send({
       ...A.op("store.read", { kind: "z", supervisor: sig }),
       clientOpId: id,
@@ -991,6 +999,8 @@ test(
     const late = Date.parse("2026-03-10T15:50:00Z"),
       after = Date.parse("2026-03-10T16:20:00Z");
     const first = await tx(h.db, (db) => tillDayForOpen(db, reg, late));
+    // a session still open across midnight keeps the day (IP-INT2FIX: only then may yesterday's day be joined)
+    await h.db`insert into store_shifts(id,register_id,mode_version_id,policy_id,device_id,cashier_id,service_date,opening_centavos,opened_at,till_day_id) values(${crypto.randomUUID()},${reg.id},${A.mode},${policy},${A.s.deviceId},${A.s.profile.id},'2026-03-10',0,${new Date(late)},${first.id})`;
     expect(
       String(first.business_date.toISOString?.() ?? first.business_date).slice(
         0,

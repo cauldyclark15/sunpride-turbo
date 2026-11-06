@@ -145,8 +145,38 @@ export function advanceAccumulator(last, gross, net) {
   };
 }
 
-/** @param {any} db @param {string} registerId */
-export async function lastAccumulator(db, registerId) {
+/**
+ * IP-INT2FIX: what a register with history had already sold before the first new Z. Gross and net come from the same
+ * aggregation the Z uses, over every sale of a day dated before the day being closed (voided sales are out).
+ * @param {any} db @param {string} registerId @param {string} dayId
+ */
+export async function computeOpening(db, registerId, dayId) {
+  const [day] =
+    await db`select business_date::text as d from store_till_days where id=${dayId}`;
+  if (!day) return null;
+  const rows =
+    await db`select s.receipt_number as number,s.receipt,o.status from store_sales s join orders o on o.id=s.order_id join store_shifts h on h.id=s.shift_id left join store_till_days d on d.id=h.till_day_id where h.register_id=${registerId} and (d.id is null or (d.id<>${dayId} and d.business_date<${day.d}::date)) order by s.sold_at,s.id`;
+  const agg = aggregateSales(rows, []);
+  return {
+    gross: agg.gross,
+    net: agg.net,
+    salesCount: agg.transactions,
+    through: day.d,
+  };
+}
+
+/**
+ * The accumulator row the next Z continues from. A register with no accumulator row yet but with sales history starts
+ * from an opening balance = everything it sold before the day being closed. The opening is written once (record=true,
+ * only by the Z) into an append-only, audited row; a preview (X reading) computes the same number without writing.
+ * @param {any} db @param {string} registerId @param {string|null} [dayId] @param {boolean} [record]
+ */
+export async function lastAccumulator(
+  db,
+  registerId,
+  dayId = null,
+  record = false,
+) {
   const [row] =
     await db`select * from store_fiscal_accumulators where register_id=${registerId} order by z_counter desc limit 1`;
   const [seq] =
@@ -154,20 +184,37 @@ export async function lastAccumulator(db, registerId) {
   // Legacy Z readings (before accumulators) advanced the read sequence; the Z counter continues from it.
   const legacy = Number(seq?.n ?? 0);
   if (row && Number(row.z_counter) >= legacy) return row;
+  let gross = row?.ending_gross_centavos ?? 0,
+    net = row?.ending_net_centavos ?? 0;
+  if (!row && dayId) {
+    const [open] =
+      await db`select * from store_accumulator_openings where register_id=${registerId}`;
+    if (open) {
+      gross = open.opening_gross_centavos;
+      net = open.opening_net_centavos;
+    } else {
+      const made = await computeOpening(db, registerId, dayId);
+      if (made && made.salesCount > 0) {
+        gross = made.gross;
+        net = made.net;
+        if (record)
+          await db`insert into store_accumulator_openings(register_id,opening_gross_centavos,opening_net_centavos,sales_count,through_business_date,first_till_day_id,computed_by) values(${registerId},${String(made.gross)},${String(made.net)},${made.salesCount},${made.through},${dayId},nullif(current_setting('sunpride.actor',true),''))`;
+      }
+    }
+  }
   return {
     z_counter: legacy,
     reset_counter: row?.reset_counter ?? 0,
-    ending_gross_centavos: row?.ending_gross_centavos ?? 0,
-    ending_net_centavos: row?.ending_net_centavos ?? 0,
+    ending_gross_centavos: gross,
+    ending_net_centavos: net,
   };
 }
-
 /**
  * The one reading model. X (any time, read-only) and Z (day end) print THIS, so they never disagree.
  * Money is a decimal string of centavos.
- * @param {any} db @param {string} dayId @param {"x"|"z"} kind
+ * @param {any} db @param {string} dayId @param {"x"|"z"} kind @param {boolean} [record] true only from the Z: writes the opening row
  */
-export async function readingModel(db, dayId, kind) {
+export async function readingModel(db, dayId, kind, record = false) {
   const [day] =
     await db`select d.*,r.name as register_name,r.terminal_code,r.id as rid,l.name as store_name from store_till_days d join store_registers r on r.id=d.register_id join inventory_locations l on l.id=r.location_id where d.id=${dayId}`;
   if (!day) refuse("Choose a till day", "not_found");
@@ -253,7 +300,7 @@ export async function readingModel(db, dayId, kind) {
         endingNet: big(frozen.ending_net_centavos),
       }
     : advanceAccumulator(
-        await lastAccumulator(db, day.register_id),
+        await lastAccumulator(db, day.register_id, dayId, record),
         agg.gross,
         agg.net,
       );
@@ -474,6 +521,10 @@ export async function generateZ(db, register, actor, o) {
     await db`select * from store_till_days where id=${o.dayId} and register_id=${register.id} for update`;
   if (!day) refuse("Choose a till day for this register", "not_found");
   if (day.status === "z_done") refuse("This day already has its Z reading");
+  if (day.status === "closed_no_z")
+    refuse(
+      "This day was closed before Z readings started. It cannot get a Z reading now.",
+    );
   const [open] =
     await db`select count(*)::int as n from store_shifts s left join store_shift_closures c on c.shift_id=s.id where s.till_day_id=${day.id} and c.id is null`;
   if (open.n)
@@ -487,7 +538,12 @@ export async function generateZ(db, register, actor, o) {
   const [any] =
     await db`select count(*)::int as n from store_shifts where till_day_id=${day.id}`;
   if (!any.n) refuse("This day has no cashier session");
-  const { model, next, agg, sessions } = await readingModel(db, day.id, "z");
+  const { model, next, agg, sessions } = await readingModel(
+    db,
+    day.id,
+    "z",
+    true,
+  );
   const [last] =
     await db`select s.id from store_shifts s join store_shift_closures c on c.shift_id=s.id where s.till_day_id=${day.id} order by c.closed_at desc,s.id desc limit 1`;
   await db`insert into store_read_sequences(register_id,kind) values(${register.id},'z') on conflict do nothing`;

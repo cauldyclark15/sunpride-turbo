@@ -7,22 +7,42 @@ export function nextDate(ymd) {
   return new Date(Date.parse(ymd) + 86400000).toISOString().slice(0, 10);
 }
 
+/** @param {string} ymd */
+export function previousDate(ymd) {
+  return new Date(Date.parse(ymd) - 86400000).toISOString().slice(0, 10);
+}
+/** A day that can no longer take sales or a Z of its own: Z done, or closed without one (old backfilled days).
+ * @param {string|null|undefined} status */
+export const isDayFinished = (status) =>
+  status === "z_done" || status === "closed_no_z";
+
 /**
  * The till day a NEW cashier session joins. The register row is already locked by the caller.
- * A live day (open) is joined whatever the clock says, so a session that crosses midnight stays in its day.
- * With no live day, a new one starts on the Manila date of the capture time, but never on or before a date that already
- * has its Z: a session opened after the Z belongs to the next business date.
+ * A live day joins only when it is for today's Manila business date, or for yesterday while one of its sessions is still
+ * open across midnight (IP-INT2FIX: a register that skipped Z readings before the till-day release never drags weeks of
+ * old sales into one Z). "Today" is the capture time and the time the server received it, so an offline phone that
+ * opens a session late still lands in the live day. With no such day, a new one starts on the Manila date of the capture
+ * time, but never on or before a date that already has its day: a session opened after the Z belongs to the next date.
  * @param {any} db @param {any} register @param {number} at
  */
 export async function tillDayForOpen(db, register, at) {
-  const [live] =
-    await db`select * from store_till_days where register_id=${register.id} and status<>'z_done' order by business_date limit 1 for update`;
-  if (live) {
-    if (live.status === "closing")
+  const today = [manilaBusinessDate(at), manilaBusinessDate(Date.now())];
+  const yesterday = today.map(previousDate);
+  const live =
+    await db`select d.*,exists(select 1 from store_shifts s left join store_shift_closures c on c.shift_id=s.id where s.till_day_id=d.id and c.id is null) as has_open_session from store_till_days d where d.register_id=${register.id} and d.status in ('open','closing') order by d.business_date for update of d`;
+  const ymd = (/** @type {any} */ v) =>
+    String(v?.toISOString?.() ?? v).slice(0, 10);
+  const joinable = live.find(
+    (/** @type {any} */ d) =>
+      today.includes(ymd(d.business_date)) ||
+      (yesterday.includes(ymd(d.business_date)) && d.has_open_session),
+  );
+  if (joinable) {
+    if (joinable.status === "closing")
       refuse(
         "Day-end has started on this register. A supervisor must run the Z reading, or reopen the day.",
       );
-    return live;
+    return joinable;
   }
   const [last] =
     await db`select max(business_date)::text as d from store_till_days where register_id=${register.id}`;

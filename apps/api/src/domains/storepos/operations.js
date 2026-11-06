@@ -177,6 +177,18 @@ async function read(c) {
   const kind = choice(p.kind, ["x", "z"]);
   const id = uuid(c.op.clientOpId);
   if (kind === "z") {
+    // IP-INT2FIX: phones in the field (beta.25/26/hh1) send the Z with no supervisor proof. That request keeps working:
+    // it is accepted only when the day has nothing left to settle (generateZ refuses open sessions and pending voids)
+    // and it leaves a `z_legacy_no_pin` override row naming the cashier. A request that carries a proof stays strict.
+    if (p.supervisor == null) {
+      await generateZ(db, r, c.actor, {
+        dayId: shift.till_day_id,
+        readId: id,
+        at: c.now,
+      });
+      await db`insert into store_overrides(id,register_id,till_day_id,shift_id,kind,method,supervisor_profile_id,cashier_profile_id,reason,ref_type,ref_id,captured_at) values(${crypto.randomUUID()},${r.id},${shift.till_day_id},${shift.id},'z_legacy_no_pin','legacy_no_pin',${c.actor.profileId},${c.actor.profileId},${"Z reading from an older app build, no supervisor PIN"},'z_reading',${id},${new Date(c.now)})`;
+      return { entityId: id };
+    }
     const used = await useSupervisor(c, {
       kind: "z_reading",
       refType: "z_reading",

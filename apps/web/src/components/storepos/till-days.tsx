@@ -23,7 +23,7 @@ const primary =
 const secondary = "min-h-12 rounded-xl border border-border px-4 text-base";
 
 const dayPill = (status: string) =>
-  status === "z_done"
+  status === "z_done" || status === "closed_no_z"
     ? "closed"
     : status === "closing"
       ? "needs_review"
@@ -395,7 +395,10 @@ export function TillDayDetailView({
         <SessionsTable
           sessions={detail.reading.sessions}
           onForceClose={
-            detail.day.status === "z_done" ? undefined : onForceClose
+            detail.day.status === "z_done" ||
+            detail.day.status === "closed_no_z"
+              ? undefined
+              : onForceClose
           }
         />
       </section>
@@ -404,18 +407,20 @@ export function TillDayDetailView({
           Cash drops, pickups and paid-outs
         </h3>
         <MovementsList movements={detail.movements} />
-        {onCashMovement && detail.day.status !== "z_done" && (
-          <details>
-            <summary className="min-h-12 cursor-pointer py-3 text-sm font-medium">
-              Record a cash movement
-            </summary>
-            <CashMovementForm
-              sessions={open.map((s) => ({ id: s.id, cashier: s.cashier }))}
-              onSubmit={onCashMovement}
-              busy={busy}
-            />
-          </details>
-        )}
+        {onCashMovement &&
+          detail.day.status !== "z_done" &&
+          detail.day.status !== "closed_no_z" && (
+            <details>
+              <summary className="min-h-12 cursor-pointer py-3 text-sm font-medium">
+                Record a cash movement
+              </summary>
+              <CashMovementForm
+                sessions={open.map((s) => ({ id: s.id, cashier: s.cashier }))}
+                onSubmit={onCashMovement}
+                busy={busy}
+              />
+            </details>
+          )}
       </section>
       <section aria-label="X and Z readings" className="grid gap-2">
         <h3 className="text-base font-semibold">

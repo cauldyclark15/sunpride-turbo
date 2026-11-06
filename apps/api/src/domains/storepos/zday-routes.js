@@ -348,7 +348,7 @@ export function installZday(router, platform) {
           zNumber: d.z_doc,
           zCounter: d.z_counter == null ? null : Number(d.z_counter),
           canZ:
-            d.status !== "z_done" &&
+            (d.status === "open" || d.status === "closing") &&
             d.open_sessions === 0 &&
             d.pending_reversals === 0 &&
             d.sessions > 0,
@@ -418,7 +418,7 @@ export function installZday(router, platform) {
           status: day.status,
           number: day.doc_number,
           canZ:
-            day.status !== "z_done" &&
+            (day.status === "open" || day.status === "closing") &&
             openCount === 0 &&
             pending.n === 0 &&
             sessions.length > 0 &&

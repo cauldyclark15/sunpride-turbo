@@ -67,6 +67,12 @@ export const manilaDate = (at = Date.now()) =>
 /** @param {any} t @param {string} org */
 export const stockLock = async (t, org) => {
   await t`select pg_advisory_xact_lock(hashtext(${`inventory:${org}`}))`;
+  // IP-INT2FIX: remember that THIS transaction excludes every posting of the org, so postings inside it need no row locks.
+  try {
+    t.__orgExclusive = org;
+  } catch {
+    /* a frozen handle just keeps taking row locks */
+  }
 };
 /**
  * Posting locks (IP-VALUE). A posting takes (1) the org lock in SHARED mode, so whole-org
@@ -79,6 +85,10 @@ export const stockLock = async (t, org) => {
  * @param {any} t @param {string} org @param {string} idempotencyKey @param {any[]} movementLines
  */
 export async function postingLocks(t, org, idempotencyKey, movementLines) {
+  // The org lock is held exclusively by this very transaction (a command run through execute(), e.g. a 5,000 line count
+  // approval): no other posting can run at all, so per-(product, location) locks would only pile up, one per row until
+  // commit, and could exhaust the server's lock table. Nothing else is needed for safety.
+  if (t.__orgExclusive === org) return [];
   const names = new Set([`idem:${org}:${idempotencyKey}`]);
   for (const l of movementLines)
     for (const loc of [l?.fromLocationId, l?.toLocationId])
