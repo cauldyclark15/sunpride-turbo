@@ -661,6 +661,18 @@ describe("People admin", () => {
     );
     expect(assign.mock.calls[0]?.[0]).not.toHaveProperty("employeeCode");
   });
+  it("IP-INT2 ask 6: sends the staff phone number only when it changed; blank clears it", async () => {
+    const assign = vi.fn();
+    const base = { orgUnitId: region._id, role: "sales", reason: "Phone" };
+    await performPeopleAssignment(person, form({ ...base, phone: " 0917 123 4567 " }), assign);
+    expect(assign.mock.calls[0]?.[0]).toMatchObject({ phone: "0917 123 4567" });
+    assign.mockClear();
+    await performPeopleAssignment({ ...person, phone: "0917 123 4567" }, form({ ...base, phone: "0917 123 4567" }), assign);
+    expect(assign.mock.calls[0]?.[0]).not.toHaveProperty("phone");
+    assign.mockClear();
+    await performPeopleAssignment({ ...person, phone: "0917 123 4567" }, form({ ...base, phone: "" }), assign);
+    expect(assign.mock.calls[0]?.[0]).toMatchObject({ phone: null });
+  });
   it("renders assignment history with effective interval and reason", () => {
     state.historyId = person._id;
     state.values["people/queries:history"] = [
