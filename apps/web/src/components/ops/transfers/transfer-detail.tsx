@@ -90,6 +90,18 @@ export function TransferDetailView({
               }
             />
           ) : null}
+          {transfer.recountOpen ? (
+            <Notice
+              tone="warning"
+              title="A supervisor asked for the count to be done again."
+              meta={(() => {
+                const last = transfer.recounts?.at(-1);
+                return last
+                  ? `${last.requestedBy.name ?? "A supervisor"}: ${last.reason}`
+                  : "Count what arrived once more and receive it.";
+              })()}
+            />
+          ) : null}
           {transfer.varianceStatus === "auto_accepted" ? (
             <Notice
               tone="success"

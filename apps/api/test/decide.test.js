@@ -243,9 +243,21 @@ describe("transfer differences", () => {
     const back = await act(sup, row.id, "reject", { reason: "Count the pallet again" });
     expect(back.status).toBe(200);
     expect(back.body.status).toBe("Sent back for a recount.");
+    // IP-INT3: Reject really reopens the document for the receiver (it is no longer waiting in the inbox)...
+    expect(await rowOf(sup, id)).toBeUndefined();
+    const reopened = (await read(boss, `transfers/detail?id=${id}`)).body;
+    expect(reopened).toMatchObject({ status: "partially_received", varianceStatus: "recount", recountOpen: true });
+    expect(reopened.recounts).toHaveLength(1);
+    expect(reopened.recounts[0]).toMatchObject({ round: 1, reason: "Count the pallet again", answeredAt: null });
+    // ...with what was received left as it was, and the old figures kept in the history row.
+    expect((await h.db`select snapshot from stock_transfer_recounts where transfer_id=${id}`)[0].snapshot.lines[0]).toMatchObject({ dispatchedBase: 480, receivedGoodBase: 384, shortBase: 96 });
+    expect(await balance(transit, p, "in_transit_base")).toBe(96);
+    // The receiver counts again: same 384, so the difference comes back to the inbox, no longer tagged as sent back.
+    const again = await command(boss, "transfers/receive", { transferId: id, final: true, lines: [] });
+    expect(again.body.status).toBe("review_needed");
     const after = await rowOf(sup, id);
-    expect(after.sentBack).toMatchObject({ reason: "Count the pallet again" });
-    expect((await read(boss, `transfers/detail?id=${id}`)).body.status).toBe("review_needed");
+    expect(after).toMatchObject({ kind: "transfer_variance", valueCentavos: 96 * 2000, sentBack: null });
+    expect((await read(boss, `transfers/detail?id=${id}`)).body).toMatchObject({ recountOpen: false });
     // Approve needs to say who carries it; then one linked adjustment clears In transit and the item leaves the inbox.
     expect((await act(sup, row.id, "approve")).status).toBe(422);
     const ok = await act(sup, row.id, "approve", { chargeTo: "carrier", reason: "Two cases left at the depot gate" });

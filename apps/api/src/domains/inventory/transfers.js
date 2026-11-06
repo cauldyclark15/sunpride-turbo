@@ -734,6 +734,9 @@ async function settle(c, b, row, o) {
     .every((/** @type {any} */ a) => posted(a) >= Number(a.dispatched_base));
   const final = o.final || (dispatchedAny && complete);
   const anyPosted = allocs.some((/** @type {any} */ a) => posted(a) > 0);
+  // IP-INT3: the receiver's final count answers an open recount request.
+  if (final)
+    await c.db`update stock_transfer_recounts set answered_at=now(),answered_by=${c.actor.userId} where transfer_id=${row.id} and answered_at is null`;
   if (!final) {
     await c.db`update stock_transfers set status=${anyPosted ? "partially_received" : row.status} where id=${row.id}`;
     return {
@@ -1146,6 +1149,59 @@ export async function recordLoadInDocument(c, d) {
 
 // ---------------------------------------------------------------- close / cancel
 
+/**
+ * IP-INT3: a supervisor sends a document that was received with a difference back to the receiving side to count again.
+ * Nothing is un-posted: what was received stays received. The document goes back to a receivable state (partially
+ * received, or dispatched when nothing was received yet) with `variance_status='recount'`, and the receiver counts
+ * again through `receiveTransfer`; whatever the new count leaves goes through the same tolerance / review as before.
+ * Every round, its reason and the figures at the time are kept in `stock_transfer_recounts`.
+ * Van load-outs are recounted from the van day board, not here.
+ * @param {Ctx} c @param {string} transferId @param {string} reason
+ */
+export async function reopenForRecount(c, transferId, reason) {
+  const why = text(reason, "Reason", 300);
+  if (!why || why.trim().length < 3)
+    invalid("Say why the count needs to be done again, in a few words");
+  const [row] =
+    await c.db`select * from stock_transfers where id=${id(transferId, "Transfer")} and organization_id=${ORGANIZATION} for update`;
+  if (!row) throw new ApiError("not_found", 404, "Transfer not found");
+  state(row, OPEN_VARIANCE_STATES);
+  if (row.type === "van_load_out")
+    invalid(
+      "A van load is recounted from the Van day board, with the clerk and the seller",
+    );
+  const allocs = await allocationsOf(c.db, row.id);
+  const anyPosted = allocs.some(
+    (/** @type {any} */ a) => posted(a) > 0,
+  );
+  const [{ round }] =
+    await c.db`select coalesce(max(round),0)+1 as round from stock_transfer_recounts where transfer_id=${row.id}`;
+  const snapshot = {
+    varianceValueCentavos: Number(row.variance_value_centavos ?? 0),
+    receivedBy: row.received_by ?? null,
+    lines: allocs.map((/** @type {any} */ a) => ({
+      productId: a.product_id,
+      lotId: a.lot_id ?? null,
+      dispatchedBase: Number(a.dispatched_base),
+      receivedGoodBase: Number(a.received_good_base),
+      receivedDamagedBase: Number(a.received_damaged_base),
+      receivedHoldBase: Number(a.received_hold_base),
+      shortBase: Number(a.short_base) - Number(a.resolved_short_base),
+      overBase: Number(a.over_base) - Number(a.resolved_over_base),
+    })),
+  };
+  await c.db`insert into stock_transfer_recounts (transfer_id,round,reason,requested_by,requested_by_profile,snapshot)
+    values (${row.id},${round},${why.trim()},${c.actor.userId},${c.actor.profileId ?? null},${snapshot})`;
+  const next = anyPosted ? "partially_received" : "shipped";
+  await c.db`update stock_transfers set status=${next},variance_status='recount',final_receipt=false where id=${row.id}`;
+  return {
+    id: row.id,
+    status: presentStatus(next),
+    varianceStatus: "recount",
+    round,
+  };
+}
+
 /** @param {Ctx} c @param {any} b @param {any} row */
 export async function closeTransfer(c, b, row) {
   state(row, ["received", "partially_received"]);
@@ -1212,6 +1268,9 @@ export function installTransferCommands() {
   lifecycle("receive", "inventory.write", "destination", receiveTransfer);
   lifecycle("close", "inventory.write", "destination", closeTransfer);
   lifecycle("resolve-variance", "inventory.approve", "all", resolveVariance);
+  lifecycle("recount", "inventory.approve", "all", (c, b, row) =>
+    reopenForRecount(c, row.id, b.reason),
+  );
   lifecycle("cancel", "inventory.approve", "all", cancelTransfer);
 }
 
@@ -1339,8 +1398,25 @@ export async function presentTransfer(db, row, full = true) {
   if (!full) return { ...out, lines: undefined };
   const resolutions =
     await db`select * from stock_transfer_resolutions where transfer_id=${row.id} order by created_at`;
+  const recounts =
+    await db`select * from stock_transfer_recounts where transfer_id=${row.id} order by round`;
+  const recountNames = await namesFor(
+    db,
+    recounts.map((/** @type {any} */ r) => r.requested_by),
+  );
   return {
     ...out,
+    recounts: recounts.map((/** @type {any} */ r) => ({
+      round: r.round,
+      reason: r.reason,
+      requestedBy: {
+        id: r.requested_by,
+        name: recountNames.get(r.requested_by) ?? null,
+      },
+      requestedAt: r.requested_at,
+      answeredAt: r.answered_at,
+    })),
+    recountOpen: recounts.some((/** @type {any} */ r) => !r.answered_at),
     resolutions: resolutions.map((/** @type {any} */ r) => ({
       id: r.id,
       adjustmentId: r.adjustment_id,

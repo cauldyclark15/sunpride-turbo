@@ -78,7 +78,16 @@ export type Transfer = {
     Person
   >;
   dates: Record<string, string | null>;
-  varianceStatus: "none" | "open" | "resolved" | "auto_accepted";
+  varianceStatus: "none" | "open" | "resolved" | "auto_accepted" | "recount";
+  /** IP-INT3: each time a supervisor sent the count back to the receiving side. */
+  recounts?: Array<{
+    round: number;
+    reason: string;
+    requestedBy: { id: string; name: string | null };
+    requestedAt: string;
+    answeredAt: string | null;
+  }>;
+  recountOpen?: boolean;
   varianceValueCentavos: number;
   lineCount: number;
   lines: TransferLine[];

@@ -487,6 +487,67 @@ describe("receive: good / damaged / on hold, partial, short, over", () => {
     expect(late.body.status).toBe("received");
     expect((await stock(p.id, store)).available).toBe(480);
   });
+  it("IP-INT3 recount: a supervisor sends a difference back, the receiver counts again, every round is kept; late stock then closes it", async () => {
+    const p = await product();
+    await receipt(p, 480);
+    const id = await dispatched(p, 480);
+    const line = (await detail(id)).lines[0].id;
+    // Not reopenable before it has a difference to look at.
+    const early = await command(approver, "transfers/recount", { transferId: id, reason: "Count again" });
+    expect(early.status).toBe(409);
+    const first = await command(admin, "transfers/receive", { transferId: id, final: true, lines: [{ lineId: line, receivedGoodBase: 384 }] });
+    expect(first.body.status).toBe("review_needed");
+    // A reason is needed; a person who may not approve cannot reopen it.
+    expect((await command(approver, "transfers/recount", { transferId: id, reason: " " })).status).toBe(422);
+    expect((await command(clerk, "transfers/recount", { transferId: id, reason: "Count again" })).status).toBe(403);
+    const r1 = await command(approver, "transfers/recount", { transferId: id, reason: "Count the last pallet again" });
+    expect(r1.status, JSON.stringify(r1.body)).toBe(200);
+    expect(r1.body).toMatchObject({ status: "partially_received", varianceStatus: "recount", round: 1 });
+    // What was received stays received; the difference is not resolvable while it is out for recount.
+    expect((await stock(p.id, store)).available).toBe(384);
+    const noResolve = await command(approver, "transfers/resolve-variance", { transferId: id, reasonCode: "SHORT-TRANSIT", chargeTo: "carrier" });
+    expect(noResolve.status).toBe(409);
+    // Counted again, still 96 short: back to review, round 1 answered, and it can be sent back a second time.
+    const second = await command(admin, "transfers/receive", { transferId: id, final: true, lines: [] });
+    expect(second.body.status).toBe("review_needed");
+    const r2 = await command(approver, "transfers/recount", { transferId: id, reason: "Check the truck too" });
+    expect(r2.body).toMatchObject({ round: 2 });
+    // The pallet was found: late stock closes the document with no difference.
+    const late = await command(admin, "transfers/receive", { transferId: id, final: true, lines: [{ lineId: line, receivedGoodBase: 96 }] });
+    expect(late.body.status).toBe("received");
+    expect((await stock(p.id, store)).available).toBe(480);
+    const d = await detail(id);
+    expect(d.recountOpen).toBe(false);
+    expect(d.recounts.map((/** @type {any} */ r) => [r.round, r.reason, r.answeredAt !== null])).toEqual([
+      [1, "Count the last pallet again", true],
+      [2, "Check the truck too", true],
+    ]);
+    // History is append only.
+    await expect(
+      (async () => {
+        await h.db`delete from stock_transfer_recounts where transfer_id=${id}`;
+      })(),
+    ).rejects.toThrow();
+    await expect(
+      (async () => {
+        await h.db`update stock_transfer_recounts set reason='edited' where transfer_id=${id}`;
+      })(),
+    ).rejects.toThrow();
+  });
+  it("IP-INT3 recount: a document that was sent and never received goes back to dispatched, and a van load-out is not reopened here", async () => {
+    const p = await product();
+    await receipt(p, 480);
+    const id = await dispatched(p, 480);
+    // Receive nothing, final: the whole load is short.
+    const none = await command(admin, "transfers/receive", { transferId: id, final: true, lines: [] });
+    expect(none.body.status).toBe("review_needed");
+    const r = await command(approver, "transfers/recount", { transferId: id, reason: "Nothing was counted" });
+    expect(r.body.status).toBe("dispatched");
+    await h.db`update stock_transfers set type='van_load_out',status='review_needed',variance_status='open' where id=${id}`;
+    const out = await command(approver, "transfers/recount", { transferId: id, reason: "Count again" });
+    expect(out.status).toBe(422);
+    await h.db`update stock_transfers set type='depot_transfer',status='shipped',variance_status='none' where id=${id}`;
+  });
   it("over is counted but not in the ledger until resolved; then it is added to the destination", async () => {
     const p = await product();
     await receipt(p, 480);

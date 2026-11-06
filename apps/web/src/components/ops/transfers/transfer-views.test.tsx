@@ -143,6 +143,27 @@ describe("Transfer detail", () => {
     expect(html).not.toContain(">Cancel<"); // in transit cannot be cancelled
     expect(detail(base({ status: "closed" }))).not.toContain("Start picking");
   });
+  it("IP-INT3: a document sent back for a recount says who asked and why, and still offers Receive", () => {
+    const html = detail(
+      base({
+        status: "partially_received",
+        varianceStatus: "recount",
+        recountOpen: true,
+        recounts: [
+          {
+            round: 1,
+            reason: "Count the last pallet again",
+            requestedBy: { id: "u1", name: "Sam Supervisor" },
+            requestedAt: "2026-11-06T01:00:00Z",
+            answeredAt: null,
+          },
+        ],
+      }),
+    );
+    expect(html).toContain("asked for the count to be done again");
+    expect(html).toContain("Sam Supervisor: Count the last pallet again");
+    expect(html).toContain("Receive");
+  });
   it("lets the clerk edit driver, plate and receiver only before dispatch, and cancel before dispatch", () => {
     const html = detail(base({ status: "picking" }));
     expect(html).toContain("Vehicle plate");

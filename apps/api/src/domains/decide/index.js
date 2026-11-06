@@ -543,7 +543,12 @@ async function act(router, c) {
           },
         });
       }
-      // Rejecting asks the receiving side to count again; the document stays open and the inbox shows it as sent back.
+      else
+        // IP-INT3: rejecting sends the document back to the receiving side to count again (the history keeps the reason);
+        // it leaves this inbox until the receiver's new count brings it back with its own difference, if any.
+        result = await call(router, c, "POST", "/api/v1/inventory/transfers/recount", {
+          body: { transferId: item.ref, reason: note, idempotencyKey: key },
+        });
       break;
     case "count_review":
       if (verdict === "approve") {
