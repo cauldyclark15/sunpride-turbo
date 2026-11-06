@@ -94,6 +94,20 @@ describe("v2 navigation", () => {
     expect(items.find((item) => item.id === "today")?.badge).toBeUndefined();
   });
 
+  it("IP-INT3: carries the open-decisions badge onto the Decide item, and only there", () => {
+    const items = getWebNavigation(
+      "/decide",
+      (slug) => canAccessWebModule(slug, "super_admin"),
+      { decide: "4" },
+    ).navGroups.flatMap((group) => group.items);
+    expect(items.find((item) => item.id === "decide")?.badge).toBe("4");
+    expect(items.find((item) => item.id === "stock")?.badge).toBeUndefined();
+    const none = getWebNavigation("/decide", (slug) =>
+      canAccessWebModule(slug, "super_admin"),
+    ).navGroups.flatMap((group) => group.items);
+    expect(none.find((item) => item.id === "decide")?.badge).toBeUndefined();
+  });
+
   it("keeps the old Home and Reports as redirects", () => {
     expect(LEGACY_REDIRECTS).toEqual({
       dashboard: "/today",

@@ -6,6 +6,7 @@ import { ApiStore } from "@/lib/api/store";
 import { DecideInbox, DecideInboxView } from "./decide-inbox";
 import {
   ageText,
+  decideBadgeText,
   decideBody,
   decideProblems,
   filterItems,
@@ -209,5 +210,19 @@ describe("Decide model", () => {
     expect(ageText(NOW - 5 * 60000, NOW)).toBe("5 min");
     expect(ageText(NOW - 3 * 86400000, NOW)).toBe("3 days");
     expect(ageText(null, NOW)).toBe("—");
+  });
+});
+
+describe("Decide sidebar badge (IP-INT3)", () => {
+  it("counts only what the signed-in person can decide, and shows nothing when that is none", () => {
+    const mine = (n: number) =>
+      Array.from({ length: n }, (_, i) => item({ id: `transfer_variance:m${i}`, ref: `m${i}` }));
+    const blocked = item({ id: "transfer_variance:b", ref: "b", canDecide: false, blockedReason: "You asked for this" });
+    expect(decideBadgeText(data([...mine(3), blocked]))).toBe("3");
+    expect(decideBadgeText(data([blocked]))).toBeUndefined();
+    expect(decideBadgeText(data([]))).toBeUndefined();
+    expect(decideBadgeText(null)).toBeUndefined();
+    expect(decideBadgeText(undefined)).toBeUndefined();
+    expect(decideBadgeText(data(mine(120)))).toBe("99+");
   });
 });

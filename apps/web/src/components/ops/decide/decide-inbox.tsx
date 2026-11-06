@@ -11,6 +11,7 @@ import { StatusPill } from "../status-pill";
 import { useIntent } from "../transfers/use-intent";
 import {
   ageText,
+  decideBadgeText,
   CHARGE_CHOICES,
   decideBody,
   decideProblems,
@@ -328,6 +329,20 @@ export function DecideInboxView({
       ) : null}
     </div>
   );
+}
+
+/**
+ * IP-INT3: the count for the sidebar badge. Reads the same inbox the page reads (one request, shared by key), refreshed
+ * when stock, van or till things change. `enabled` is false for people who cannot open Decide or are not signed in.
+ */
+export function useDecideBadge(enabled: boolean): string | undefined {
+  const inbox = useApi<DecideInboxData>(
+    enabled ? ["decide", "inbox"] : null,
+    ({ signal }) =>
+      apiFetch<DecideInboxData>("/api/v1/decide/inbox", { signal }),
+  );
+  useLive(enabled ? ["inventory", "van", "storepos"] : null, [["decide"]]);
+  return decideBadgeText(inbox.data);
 }
 
 const EMPTY: DecideForm = { verdict: "approve", reason: "", chargeTo: "" };

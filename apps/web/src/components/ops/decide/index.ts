@@ -1,7 +1,13 @@
-export { DecideInbox, DecideInboxView, DecideRow } from "./decide-inbox";
+export {
+  DecideInbox,
+  DecideInboxView,
+  DecideRow,
+  useDecideBadge,
+} from "./decide-inbox";
 export {
   ageText,
   CHARGE_CHOICES,
+  decideBadgeText,
   decideBody,
   decideProblems,
   filterItems,

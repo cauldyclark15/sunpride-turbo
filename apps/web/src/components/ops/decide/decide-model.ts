@@ -156,3 +156,15 @@ export function openLabel(kind: DecideKind, openOnly = false): string {
       return "Open the overrides";
   }
 }
+
+/**
+ * IP-INT3: the sidebar badge on Decide. It counts what the signed-in person can decide right now (items blocked by
+ * "the person who asked cannot approve" or by role are in the inbox but are not theirs to act on). Nothing when zero.
+ */
+export function decideBadgeText(
+  data: Pick<DecideInboxData, "items"> | null | undefined,
+): string | undefined {
+  const open = data?.items.filter((item) => item.canDecide).length ?? 0;
+  if (open <= 0) return undefined;
+  return open > 99 ? "99+" : String(open);
+}

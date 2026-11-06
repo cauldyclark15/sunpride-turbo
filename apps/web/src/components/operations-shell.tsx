@@ -17,6 +17,7 @@ import {
   needsAreaAssignment,
 } from "./beta/beta-bar";
 import { OfflineDataBanner } from "./pwa/pwa-runtime";
+import { useDecideBadge } from "./ops/decide";
 
 export function OperationsShell({ children }: { children: ReactNode }) {
   const pathname = usePathname();
@@ -34,10 +35,17 @@ export function OperationsShell({ children }: { children: ReactNode }) {
       ? current?.subject
       : null,
   );
+  // IP-INT3: Decide shows what this person can decide now (people who cannot open it never ask).
+  const decideCount = useDecideBadge(
+    !agency &&
+      current?.role !== "distributor" &&
+      Boolean(current) &&
+      canAccessWebModule("ops-decide", current?.role),
+  );
   const navigation = getWebNavigation(
     pathname,
     (slug) => canAccessWebModule(slug, current?.role),
-    { messages: unreadBadgeText(unread) },
+    { messages: unreadBadgeText(unread), decide: decideCount },
   );
 
   const phone = phoneTabsFor(current?.role, navigation.navGroups);
