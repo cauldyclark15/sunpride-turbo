@@ -11,6 +11,7 @@ import {
 import { routePolicy, temperatureAssessment } from "./route-policy.js";
 import { uuid, text, choice, rows, integer, refuse } from "./model.js";
 import { postMovement } from "../inventory/posting.js";
+import { recordLoadInDocument } from "../inventory/transfers.js";
 import { vanContainerBalances, containerHistory } from "./container-custody.js";
 import { stopFacts } from "./callflow-config.js";
 import { pickupManifest } from "./pickups.js";
@@ -328,7 +329,8 @@ export async function decideObservation(db, actor, p) {
       throw invalid("Receive every unload line");
     const seen = new Set();
     const postings = [],
-      explanations = [];
+      explanations = [],
+      loadIn = [];
     for (const l of lines) {
       const key = `${l.productId}:${l.status}:${l.lotId ?? ""}`,
         e = o.facts.lines.find(
@@ -342,25 +344,41 @@ export async function decideObservation(db, actor, p) {
       seen.add(key);
       const qty = integer(l.receivedBase),
         expected = integer(e.quantityBase);
-      if (qty > expected)
-        throw invalid(
-          "Receive no more than scanned; recount excess separately",
-        );
+      // Over is allowed (the clerk may count more than the seller did). Only what the truck's books hold moves now;
+      // the extra is recorded on the load-in document and added when a supervisor resolves it.
+      const moving = qty > expected ? expected : qty;
       if (qty !== expected) text(l.reason, 300, true);
-      if (qty) {
+      let toStatus = e.status;
+      if (e.lotId && e.status === "available") {
+        const [lot] =
+          await db`select l.quality_status,exists(select 1 from inventory_lot_holds h where h.lot_id=l.id and h.released_at is null) as recalled from inventory_lots l where l.id=${e.lotId}`;
+        // Recalled or held batches are received into On hold, never refused.
+        if (lot && (lot.recalled || lot.quality_status !== "released"))
+          toStatus = "quality_hold";
+      }
+      loadIn.push({
+        productId: l.productId,
+        lotId: e.lotId ?? null,
+        status: e.status,
+        expectedBase: Number(expected),
+        receivedBase: Number(qty),
+        toStatus,
+      });
+      if (moving) {
         postings.push({
           productId: l.productId,
           fromLocationId: trip.truck_location_id,
           toLocationId: trip.source_location_id,
-          quantityBase: Number(qty),
-          stockStatus: e.status,
+          quantityBase: Number(moving),
+          fromStockStatus: e.status,
+          toStockStatus: toStatus,
           uom: e.product.uomCode,
           lotId: e.lotId ?? null,
         });
         explanations.push({
           productId: l.productId,
           status: e.status,
-          delta: -qty,
+          delta: -moving,
           facts: e.product,
         });
       }
@@ -383,6 +401,18 @@ export async function decideObservation(db, actor, p) {
         })
       ).movementId;
     await explainStock(db, trip, o.id, "unload", explanations);
+    const [seller] =
+      await db`select user_id from profiles where id=${trip.salesperson_profile_id}`;
+    const loadInDoc = await recordLoadInDocument(
+      { db, actor, now: Date.now(), trusted: true },
+      {
+        trip,
+        sellerUserId: seller?.user_id ?? null,
+        movementId,
+        source: `van_load_in:${o.id}`,
+        lines: loadIn,
+      },
+    );
     const empties = Array.isArray(p.empties) ? p.empties : [],
       seenAssets = new Set();
     if (empties.length !== (o.facts.empties ?? []).length)
@@ -402,7 +432,34 @@ export async function decideObservation(db, actor, p) {
     facts = {
       note,
       .../** @type {any} */ ({
-        lines,
+        transferId: loadInDoc.id,
+        transferNumber: loadInDoc.number,
+        varianceStatus: loadInDoc.varianceStatus,
+        // Later steps (settlement, corrections) reconcile against what left the truck, so receivedBase is capped at
+        // the scanned quantity; what the clerk actually counted, and the extra, ride beside it.
+        lines: lines.map((/** @type {any} */ l) => {
+          const scannedLine = o.facts.lines.find(
+            (/** @type {any} */ e) =>
+              e.productId === l.productId &&
+              e.status === l.status &&
+              (e.lotId ?? null) === (l.lotId ?? null),
+          );
+          const counted = integer(l.receivedBase),
+            scanned = integer(scannedLine.quantityBase);
+          // The partition rides along so later reconciliation can match this line to the scanned one.
+          const base = {
+            ...l,
+            partition: l.partition ?? scannedLine.partition,
+          };
+          return counted > scanned
+            ? {
+                ...base,
+                receivedBase: String(scanned),
+                countedBase: String(counted),
+                overBase: String(counted - scanned),
+              }
+            : base;
+        }),
         empties,
         discrepancy:
           discrepancy ||

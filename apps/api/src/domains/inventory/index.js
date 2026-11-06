@@ -5,6 +5,8 @@ import { installJobs } from "./jobs.js";
 import { installCommandExtensions } from "./extensions.js";
 import { installReasonRoutes } from "./reasons.js";
 import { installToleranceRoutes } from "./tolerances.js";
+import { installTransferRoutes } from "./transfers.js";
+import { installReceivingRoutes } from "./receiving.js";
 import { lots, policies } from "./reference.js";
 import {
   catalog,
@@ -45,6 +47,8 @@ export function install(router, core) {
   router.get(`${prefix}/replenishment`, suggestions);
   installReasonRoutes(router);
   installToleranceRoutes(router);
+  installTransferRoutes(router);
+  installReceivingRoutes(router);
   for (const kind of [
     "receipts",
     "transfers",
