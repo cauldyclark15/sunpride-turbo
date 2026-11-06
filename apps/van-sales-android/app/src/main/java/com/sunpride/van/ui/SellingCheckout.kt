@@ -14,6 +14,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -45,9 +46,15 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
 }
 
 @Composable private fun Figure(label: String, value: String, tag: String, modifier: Modifier = Modifier, big: Boolean = false, color: Color = MaterialTheme.colorScheme.onSurface) {
-    Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
-        Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        Text(value, fontSize = if (big) 34.sp else 26.sp, lineHeight = if (big) 40.sp else 32.sp, fontWeight = FontWeight.ExtraBold, color = color, maxLines = 1, modifier = Modifier.testTag(tag))
+    // IP-INT3FIX: shrink to the room this column has so the last digit is never cut off (see FigureFit).
+    BoxWithConstraints(modifier, contentAlignment = Alignment.Center) {
+        val start = if (big) 34f else 26f
+        val pxPerSp = with(LocalDensity.current) { 1.sp.toPx() }
+        val size = FigureFit.sizeSp(value, constraints.maxWidth.toFloat(), pxPerSp, start)
+        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+            Text(label, style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            Text(value, fontSize = size.sp, lineHeight = (size * 1.18f).sp, fontWeight = FontWeight.ExtraBold, color = color, maxLines = 1, softWrap = false, modifier = Modifier.testTag(tag))
+        }
     }
 }
 

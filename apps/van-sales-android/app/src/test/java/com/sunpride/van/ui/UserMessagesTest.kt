@@ -57,4 +57,9 @@ class UserMessagesTest {
         assertEquals("x",UserMessages.forFailure(IllegalStateException("a".repeat(200)),"x",passLocal = true))
         assertEquals("x",UserMessages.forFailure(java.io.IOException("Connection reset"),"x",passLocal = true))
     }
+    @Test fun onlyTheCatchAllSentenceCountsAsGeneric() {
+        assertTrue(UserMessages.isGeneric(UserMessages.DEFAULT))
+        assertFalse(UserMessages.isGeneric(UserMessages.STALE_COUNT))
+        assertFalse(UserMessages.isGeneric(null))
+    }
 }

@@ -360,6 +360,23 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     }
     fun signOut() = command { stopSharing(); repository.signOut(); page = Page.HOME; storeNav = StoreNav(); sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null; cashSummary = null; cashDraft = CashDraft(CashReconciliationRules.newReconciliationId()); stockSummary = null; stockDraft = StockDraft(StockReconciliationRules.newCountId()); closeSummary = null; closeDraft = CloseDraft(TripCloseRules.newCloseId()) }
     fun checkAgain() = command(failure = { AuthMessages.forFailure(it,AuthMessages.CHECK_FALLBACK) }) { repository.refreshEnrollment(); if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow() }
+    private var quietSyncing = false
+    private var quietSyncAt: Long? = null
+    /** IP-INT3FIX: a quiet download of the office's stock and prices for the open store sale grid (see StoreStockRefresh). No busy flag, no message. */
+    fun refreshStoreStock() {
+        val now = System.currentTimeMillis()
+        if (!com.sunpride.van.storepos.StoreStockRefresh.due(quietSyncAt, now, busy, quietSyncing)) return
+        if (repository.enrollmentState.value !is EnrollmentState.Ready) return
+        quietSyncing = true; quietSyncAt = now
+        scope?.launch {
+            try { repository.syncNow() }
+            catch (e: CancellationException) { throw e }
+            catch (_: Exception) { /* offline is normal on a route; the grid keeps the last download */ }
+            finally { quietSyncing = false }
+        }
+    }
+    /** IP-INT3FIX: a cart edit answers the unexplained banner left by an earlier action (it is not about the cart). */
+    fun dismissGenericMessage() { if (UserMessages.isGeneric(message)) message = null }
     fun syncNow() = command("Sync finished. Check the waiting and review counts.",failure = { rememberSyncFailure(syncMessage(it)) }) { repository.syncNow() }
     // Pending state is read from the store (VanRules.status), never from a stale one-off message.
     fun confirmLoad(lines: List<LoadActual>) = command { repository.confirmLoad(lines) }
