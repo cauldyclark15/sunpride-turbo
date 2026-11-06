@@ -3,6 +3,7 @@ import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { forbidden } from "../../core/errors.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { pinSettings } from "../storepos/security.js";
+import { tripFor } from "./access.js";
 import { audit } from "./facts.js";
 import { date, dayString, refuse, text, today, uuid } from "./model.js";
 
@@ -434,6 +435,29 @@ export async function switchCrew(db, s) {
   };
 }
 
+/** IP-INT3FIX: the phone must be running this trip, or a session for trip B could be put on a phone that runs trip A.
+ * @param {any} trip @param {any} device */
+function assertPhoneRunsTrip(trip, device) {
+  if (trip.salesperson_profile_id !== device.profile_id)
+    refuse("That phone is not running this trip");
+}
+
+/** IP-INT3FIX: the checks that need no PIN, run BEFORE a PIN try is spent so a signed-in stranger cannot lock someone out:
+ * the phone is the caller's own, and it runs the trip. `actor` is the signed-in person from the request.
+ * @param {any} db @param {any} actor @param {any} p */
+export async function crewPinPrecheck(db, actor, p) {
+  const [device] =
+    await db`select * from registered_devices where id=${uuid(p.deviceId)}`;
+  if (!device || device.status !== "active")
+    refuse("That phone is not set up and working");
+  if (device.profile_id !== actor.profileId)
+    throw forbidden("Use this on your own phone, or ask the office", "device_unavailable");
+  const [trip] =
+    await db`select * from van_trips where id=${uuid(p.tripId)} and deleted_at is null`;
+  if (!trip) refuse("Trip not found");
+  assertPhoneRunsTrip(trip, device);
+}
+
 /** POST van/crew-sessions (online, from the phone or the office): `{deviceId, tripId, toProfileId, pin}` or office `{…, office:true}`.
  * @param {any} db @param {any} actor @param {any} p @param {boolean} [verified] the route already checked the PIN */
 export async function crewSessionCommand(db, actor, p, verified = false) {
@@ -448,6 +472,7 @@ export async function crewSessionCommand(db, actor, p, verified = false) {
   if (office) await requireCapability({ db, actor }, "van.manage", trip.org_unit_id);
   else if (device.profile_id !== actor.profileId)
     throw forbidden("Use this on your own phone, or ask the office", "device_unavailable");
+  assertPhoneRunsTrip(trip, device);
   if (["closed", "cancelled"].includes(trip.status))
     refuse("This trip is already finished");
   const result = await switchCrew(db, {
@@ -536,7 +561,8 @@ export async function recordCrewAction(db, trip, device, op) {
 
 /** Office list of who worked a trip: crew now and every switch. @param {any} db @param {any} actor @param {string} tripId */
 export async function tripCrewDetail(db, actor, tripId) {
-  await requireCapability({ db, actor }, "van.read");
+  // IP-INT3FIX: scoped to the trip like every other trip read, not just van.read.
+  await tripFor(db, actor, uuid(tripId), "van.read");
   const crew = await crewDirectory(db, uuid(tripId));
   const sessions = await db`select s.id,s.profile_id as "profileId",p.name,s.role,s.method,s.started_at as "startedAt",s.ended_at as "endedAt",s.ended_reason as "endedReason"
     from van_crew_sessions s join profiles p on p.id=s.profile_id where s.trip_id=${tripId} order by s.started_at`;

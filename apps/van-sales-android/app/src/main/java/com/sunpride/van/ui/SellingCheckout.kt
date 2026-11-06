@@ -54,7 +54,8 @@ data class TenderChoice(val id: String, val label: String, val kind: TenderKind)
 @Composable private fun Figure(label: String, value: String, tag: String, modifier: Modifier = Modifier, big: Boolean = false, color: Color = Look.ink) {
     Column(modifier, horizontalAlignment = Alignment.CenterHorizontally) {
         Text(label, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = Look.muted, letterSpacing = 0.8.sp)
-        FitText(value, if (big) 44.sp else 28.sp, Modifier.fillMaxWidth(), minSize = if (big) 24.sp else 16.sp, color = color, textAlign = TextAlign.Center, tag = tag)
+        FitText(value, if (big) 44.sp else 28.sp, Modifier.fillMaxWidth(), minSize = FigureFit.MIN_SP.sp, // IP-INT3FIX: always shrinks down to the 14sp floor before it could clip
+             color = color, textAlign = TextAlign.Center, tag = tag)
     }
 }
 

@@ -9,6 +9,8 @@ import {
 import { actorFor } from "../src/core/context.js";
 import { today } from "../src/domains/van/model.js";
 import { postMovement } from "../src/domains/inventory/posting.js";
+import { reopenForRecount } from "../src/domains/inventory/transfers.js";
+import { reloadAction, reloadsOutForRecount } from "../src/domains/van/reloads.js";
 
 /** IP-INT2FIX P1-2: a reload dispatched by the pre-document code (stock moved depot -> truck "in transit", no stock_transfers
  * document) must still be receivable after the deploy, without reserving or double posting anything. */
@@ -264,4 +266,91 @@ test("an old in-flight reload can be received with damaged pieces, and a count t
       await h.db`select count(*)::int as n from stock_transfers where source_ref=${`van_reload:${request}`}`
     )[0].n,
   ).toBe(0);
+}, 60000);
+
+// IP-INT3FIX P1-4: a reload difference the office sends back for a recount can be answered from the seller's phone,
+// and the recount may lower what was recorded (damaged and over), not only add stock.
+/** A reload made the current way: a request, office approval and dispatch (a movement document). @param {number} quantity */
+async function documentedReload(quantity) {
+  const request = crypto.randomUUID();
+  const facts = { lines: [{ productId: product, quantityBase: String(quantity) }], note: "SAMPLE reload" };
+  await h.db`insert into van_trip_observations(id,trip_id,client_op_id,kind,captured_at,recorded_by,device_id,facts) values(${request},${trip.id},${crypto.randomUUID()},'reload_request',now(),${who.profile.id},${who.deviceId},${facts})`;
+  for (const action of ["approved", "dispatched"])
+    await h.db.begin((/** @type {any} */ db) =>
+      reloadAction(db, office, { tripId: trip.id, requestId: request, action, note: "ok" }),
+    );
+  const [doc] = await h.db`select * from stock_transfers where source_ref=${`van_reload:${request}`}`;
+  return { request, doc };
+}
+const phoneCount = (/** @type {string} */ request, /** @type {number} */ good, /** @type {number} */ damaged) =>
+  op("reload.receive", {
+    requestId: request,
+    lines: [{ productId: product, lotId: null, receivedGoodBase: String(good), receivedDamagedBase: String(damaged), reasonCode: "DMG-TRANSIT", photoCount: 1 }],
+  });
+const docOf = async (/** @type {string} */ id) => (await h.db`select * from stock_transfers where id=${id}`)[0];
+const allocOf = async (/** @type {string} */ id) => (await h.db`select received_good_base::int as good,received_damaged_base::int as damaged,over_base::int as over from stock_transfer_allocations where transfer_id=${id}`)[0];
+/** @type {any} */ let checker;
+async function expensiveProduct() {
+  const [uom] = await h.db`select id from units_of_measure where code='PC' and organization_id='sunpride'`;
+  product = crypto.randomUUID();
+  await h.db`insert into products(id,organization_id,code,name,category,uom,unit_price,active,base_uom_id,quantity_scale) values(${product},'sunpride',${`I3F-${product.slice(0, 6)}`},'Pricey reload item','Frozen','PC',0,true,${uom.id},1)`;
+  await h.db`insert into product_inventory_policies(organization_id,product_id,base_uom_id,quantity_scale,quantity_precision,tracking_mode,allocation_policy,allow_mixed_lots_per_line,allow_negative_stock,quality_release_required,shelf_life_days,expiry_date_required,manufacture_date_required,minimum_remaining_shelf_life_days,costing_method,version,active) values('sunpride',${product},${uom.id},1,0,'none','fefo',true,false,false,null,false,false,0,'weighted_average',1,true)`;
+  await h.db.begin((/** @type {any} */ db) =>
+    postMovement(db, { kind: "opening_balance", sourceType: "sample_fixture", sourceId: `i3f-${product}`, idempotencyKey: `i3f-open-${product}`, occurredAt: Date.now(), organizationId: "sunpride", actor: { profileId: boss.profile.id, userId: boss.userId }, authorizedLocations: [depot],
+      lines: [{ productId: product, fromLocationId: null, toLocationId: depot, quantityBase: 60, uom: "PC", unitCostMinor: 20000 }] }),
+  );
+  checker ??= await createUser(h, "checker-i3f@example.com", "correct horse battery");
+}
+const recountAsOffice = (/** @type {string} */ id) =>
+  h.db.begin((/** @type {any} */ db) =>
+    reopenForRecount({ db, actor: { userId: checker, profileId: null }, now: Date.now(), trusted: true }, id, "Count the pallet again"),
+  );
+
+test("a reload short + damaged difference sent back for a recount is answered from the phone; damaged goes down, stock follows", async () => {
+  await expensiveProduct();
+  const { request, doc } = await documentedReload(10);
+  expect((await docOf(doc.id)).status).toBe("shipped");
+  await apply(phoneCount(request, 5, 2)); // 3 short, 2 damaged: over the allowed difference
+  expect((await docOf(doc.id)).status).toBe("review_needed");
+  // not sent back yet: a second receive is refused
+  expect((await push(phoneCount(request, 10, 0))).body.results[0].status).toBe("rejected");
+  expect(await reloadsOutForRecount(h.db, trip.id)).toBe(false);
+  await recountAsOffice(doc.id);
+  expect((await docOf(doc.id)).variance_status).toBe("recount");
+  expect(await reloadsOutForRecount(h.db, trip.id)).toBe(true); // the trip cannot be completed meanwhile
+  // a count smaller than what is already in stock needs the office
+  expect((await push(phoneCount(request, 3, 1))).body.results[0].status).toBe("rejected");
+  // the seller counts again: everything is there and none is damaged
+  await apply(phoneCount(request, 10, 0));
+  expect(await stock(truck)).toMatchObject({ sellable: "10", damaged: "0" });
+  expect(await allocOf(doc.id)).toEqual({ good: 10, damaged: 0, over: 0 });
+  expect((await docOf(doc.id)).status).toBe("received");
+  expect(await reloadsOutForRecount(h.db, trip.id)).toBe(false);
+  const ev = await h.db`select stock_status,sum(delta_base)::int as d from van_stock_events where trip_id=${trip.id} and product_id=${product} group by 1 order by 1`;
+  expect(ev.map((/** @type {any} */ e) => [e.stock_status, e.d])).toEqual([["available", 10], ["damaged", 0]]);
+  // answered once: a third receive is refused again
+  expect((await push(phoneCount(request, 10, 0))).body.results[0].status).toBe("rejected");
+}, 60000);
+
+test("a recount can lower an over count (a record, never in stock) and the seller's phone sees the reload as still to receive", async () => {
+  await expensiveProduct();
+  const { request, doc } = await documentedReload(10);
+  await apply(phoneCount(request, 14, 0)); // 4 over (₱800)
+  const first = await allocOf(doc.id);
+  expect(first).toEqual({ good: 10, damaged: 0, over: 4 });
+  expect((await docOf(doc.id)).status).toBe("review_needed");
+  expect(await stock(truck)).toMatchObject({ sellable: "10", damaged: "0" });
+  const { routeBundle: routeRead } = /** @type {any} */ (await import("../src/domains/van/route-read.js"));
+  const shown = async () => {
+    const r = await h.db.begin((/** @type {any} */ db) => routeRead(db, trip));
+    return r.reloads.find((/** @type {any} */ x) => x.id === request).events.map((/** @type {any} */ e) => e.kind);
+  };
+  expect(await shown()).toContain("received");
+  await recountAsOffice(doc.id);
+  expect(await shown()).not.toContain("received"); // the phone offers the receive button again
+  await apply(phoneCount(request, 10, 0));
+  expect(await allocOf(doc.id)).toEqual({ good: 10, damaged: 0, over: 0 });
+  expect((await docOf(doc.id)).status).toBe("received");
+  expect(await stock(truck)).toMatchObject({ sellable: "10", damaged: "0" });
+  expect(await shown()).toContain("received");
 }, 60000);

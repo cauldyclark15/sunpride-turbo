@@ -656,11 +656,30 @@ describe("crew on the truck's phone", () => {
     const sc = await scenario();
     const mine = await web(helper, "crew-sessions", { deviceId: who.deviceId, tripId: sc.tripId, toProfileId: helper.profileId, pin: "482915" });
     expect(mine.status).toBe(403);
+    // IP-INT3FIX: a signed-in stranger with a WRONG PIN is refused before the try is counted, so they cannot lock someone out.
+    const stranger = await web(helper, "crew-sessions", { deviceId: who.deviceId, tripId: sc.tripId, toProfileId: helper.profileId, pin: "000000" });
+    expect(stranger.status).toBe(403);
+    expect((await h.db`select count(*)::int as n from van_crew_pin_attempts where profile_id=${helper.profileId}`)[0].n).toBe(0);
+    // the phone's owner, but a trip that phone is not running: refused before any try is counted, and not for the office either
+    const { crewPinPrecheck } = await import("../src/domains/van/roster.js");
+    await expect(crewPinPrecheck(h.db, { profileId: who.profile.id }, { deviceId: who.deviceId, tripId: sc.tripId })).resolves.toBeUndefined();
+    await h.db`update van_trips set salesperson_profile_id=${helper2.profileId} where id=${sc.tripId}`;
+    await expect(crewPinPrecheck(h.db, { profileId: who.profile.id }, { deviceId: who.deviceId, tripId: sc.tripId })).rejects.toThrow("That phone is not running this trip");
+    expect((await web(boss, "crew-sessions", { deviceId: who.deviceId, tripId: sc.tripId, toProfileId: helper.profileId, office: true })).status).toBe(422);
+    await h.db`update van_trips set salesperson_profile_id=${who.profile.id} where id=${sc.tripId}`;
     const office = await web(boss, "crew-sessions", { deviceId: who.deviceId, tripId: sc.tripId, toProfileId: helper.profileId, office: true });
     expect(office.status).toBe(200);
     expect((await h.db`select profile_id,method from van_crew_sessions where device_id=${who.deviceId} and ended_at is null`)[0]).toMatchObject({ profile_id: helper.profileId, method: "office" });
     const [d] = await h.db`select status from registered_devices where id=${who.deviceId}`;
     expect(d.status).toBe("active");
+  });
+
+  it("IP-INT3FIX: who was on a trip's phone is readable only by someone who may see that trip", async () => {
+    const sc = await scenario();
+    expect((await read(boss, `crew?tripId=${sc.tripId}`)).status).toBe(200);
+    // a seller (van.read) reads only their own trips: the helper is another seller, so this trip is out of scope
+    const other = await read(helper, `crew?tripId=${sc.tripId}`);
+    expect(other.status).toBe(403);
   });
 
   it("a phone belongs to a truck: bind, replace, unbind, and the bundle names the truck; the crew switch needs no new binding", async () => {

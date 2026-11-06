@@ -17,6 +17,7 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import org.json.JSONArray
 import java.util.UUID
+import com.sunpride.van.storepos.StoreStockRefresh
 import java.math.BigDecimal
 
 private fun pesos(n:Long)= "₱"+BigDecimal.valueOf(n,2).setScale(2).toPlainString()
@@ -34,6 +35,8 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     var now by remember{mutableLongStateOf(System.currentTimeMillis())}
     LaunchedEffect(Unit){while(true){kotlinx.coroutines.delay(60_000);now=System.currentTimeMillis()}}
     var cart by remember(config.modeVersionId){mutableStateOf(emptyList<CartLine>())}
+    // IP-INT3FIX: pick up stock the office received while this grid is open; never in the middle of a basket.
+    LaunchedEffect(Unit){if(cart.isEmpty())c.refreshStoreStock();while(true){kotlinx.coroutines.delay(StoreStockRefresh.EVERY_MS);if(cart.isEmpty())c.refreshStoreStock()}}
     var saleId by remember(config.modeVersionId){mutableStateOf(UUID.randomUUID().toString())}
     var flow by remember{mutableStateOf(SellFlow())}
     fun send(e:SellEvent){flow=SellFlowReducer.reduce(flow,e)}
@@ -128,7 +131,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
         SellStep.BROWSE,SellStep.CART->SellingBrowse(
             title="Store sale",subtitle=config.storeName?:"Store",onBack=c::back,place=SellingPlace.STORE,
             search=index,scanProducts=products,currentLines={cart},
-            onSetLine={id,base->if(!c.busy)cart=SellingCart.set(cart,id,base)},
+            onSetLine={id,base->if(!c.busy){c.dismissGenericMessage();cart=SellingCart.set(cart,id,base)}},
             rows=rows,totalLabel=browseTotal,chargeEnabled=quote!=null&&shiftOpen&&!c.busy&&!c.onHold,onCharge={send(SellEvent.ChargeTapped)},
             cartOpen=flow.step==SellStep.CART,onCartOpen={open->send(if(open)SellEvent.CartBarTapped else SellEvent.BackTapped)},
             message=c.message?:notice?:reason,busy=c.busy,cashierName=c.seller?.name,roleLabel="Cashier")

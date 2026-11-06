@@ -941,6 +941,10 @@ test(
       force_reason: "SAMPLE cashier went home sick",
     });
     expect(c.forced_by).toBe(boss.profile.id);
+    // IP-INT3FIX: whoever force-closed it cannot also decide its review
+    const own = await webRaw("shifts/decide", { closureId: c.id, decision: "accepted", reason: "ok" });
+    expect(own.status).toBe(403);
+    expect(await h.db`select 1 from store_shift_decisions where closure_id=${c.id}`).toHaveLength(0);
     const device = (
       await h.db`select * from registered_devices where id=${B.s.deviceId}`
     )[0];

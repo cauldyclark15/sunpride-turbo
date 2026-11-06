@@ -97,6 +97,8 @@ object UserMessages {
         }
         return fallback
     }
+    /** The catch-all sentence: an earlier action failed for a reason this app cannot name. */
+    fun isGeneric(text: String?): Boolean = text == DEFAULT
     internal fun isPlainSentence(text: String): Boolean =
         text.length in 3..160 && text.none { it.isISOControl() || it == '{' || it == '}' || it == '<' || it == '>' } &&
             !text.contains("http",true) && !text.contains("exception",true) && !text.contains("Error:",true) &&

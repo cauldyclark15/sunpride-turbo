@@ -5,6 +5,7 @@ import {
   createTransfer,
   dispatchTransfer,
   receiveTransfer,
+  recountReceive,
 } from "../inventory/transfers.js";
 import { tripFor, notSelf } from "./access.js";
 import { productFor, explainStock, audit, assertNotCounted } from "./facts.js";
@@ -129,6 +130,13 @@ export async function reloadAction(db, actor, p) {
   };
 }
 
+/** IP-INT3FIX: does this trip have a reload difference the office sent back for a recount? @param {any} db @param {string} tripId */
+export async function reloadsOutForRecount(db, tripId) {
+  const rows =
+    await db`select 1 from stock_transfers t join van_trip_observations o on t.source_ref='van_reload:'||o.id::text where o.trip_id=${tripId} and t.variance_status='recount' and t.status<>'cancelled' limit 1`;
+  return rows.length > 0;
+}
+
 /** The seller counts what arrived: good, damaged, or missing, by batch. Anything short or damaged is a variance on the same
  * document (it does not block the trip), instead of the old "scan the exact dispatched batches" rule.
  * Lines: `[{productId, lotId, receivedGoodBase?, receivedDamagedBase?, reasonCode?, photoCount?}]`; the v1 shape
@@ -140,18 +148,24 @@ export async function receiveReload(db, trip, actor, p, opId) {
   const id = uuid(p.requestId);
   const [dispatch] =
     await db`select e.* from van_reload_events e join van_trip_observations o on o.id=e.request_id where e.request_id=${id} and o.trip_id=${trip.id} and e.kind='dispatched'`;
-  if (
-    !dispatch ||
-    (
-      await db`select 1 from van_reload_events where request_id=${id} and kind='received'`
-    ).length
-  )
+  if (!dispatch)
     refuse("Download an unreceived dispatch before receiving reload stock");
+  const alreadyReceived = (
+    await db`select 1 from van_reload_events where request_id=${id} and kind='received'`
+  ).length;
+  // IP-INT3FIX: once the office has sent a reload difference back for a recount, the seller counts again from the phone.
+  /** @type {any} */ let recount = null;
+  if (alreadyReceived) {
+    [recount] =
+      await db`select * from stock_transfers where organization_id=${trip.organization_id} and source_ref=${`van_reload:${id}`} and status<>'cancelled' and variance_status='recount' for update`;
+    if (!recount)
+      refuse("Download an unreceived dispatch before receiving reload stock");
+  }
   const [request] =
     await db`select * from van_trip_observations where id=${id}`;
   // IP-INT2FIX: a reload dispatched by the old code (stock moved depot -> truck "in transit", no document) is received the
   // old way, straight from the truck's in-transit stock. Building a document now would reserve depot stock a second time.
-  if (await isLegacyDispatch(db, trip, request, dispatch))
+  if (!recount && (await isLegacyDispatch(db, trip, request, dispatch)))
     return receiveLegacyReload(db, trip, actor, p, opId, dispatch);
   const row = await reloadDocument(
     db,
@@ -184,6 +198,21 @@ export async function receiveReload(db, trip, actor, p, opId) {
     });
   }
   const at = Number.isSafeInteger(p.deviceTime) ? p.deviceTime : Date.now();
+  if (recount) {
+    // The phone's counts are the new totals for each line (a confirm-all echo means "everything arrived good").
+    const done = await recountReceive(
+      docContext(db, actor, at),
+      {
+        idempotencyKey: `van:${opId}`,
+        lines: receive,
+        note: p.note ? String(p.note) : undefined,
+      },
+      row,
+      { authorized: [row.in_transit_location_id, trip.truck_location_id] },
+    );
+    await explainStock(db, trip, id, "reload_recount", done.deltas);
+    return { entityId: id, movementId: done.movementId };
+  }
   const result = await receiveTransfer(
     docContext(db, actor, at),
     {
