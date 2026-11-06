@@ -1,6 +1,13 @@
 package com.sunpride.van.ui
 
 import androidx.compose.material3.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.unit.dp
@@ -282,44 +289,105 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     }
 }
 
-/** F-R04 physical receiving and blind full/cycle capture feed canonical inventory commands. */
+/**
+ * F-R04 physical receiving and blind full/cycle capture feed canonical inventory commands.
+ * POS v2 (beta.31): three places under a short title (Receive, Count, Transfers), one sticky action per place, the explanation
+ * collapsed behind "How this works", and a product picker instead of a button per product. The saved commands are unchanged.
+ */
 @Composable fun StoreStockScreen(c:VanController){
     val config=c.storePos.config?:return
     val catalogue=StoreCheckout.objects(config.details.optJSONArray("catalogue"))
     val transfers=StoreCheckout.objects(config.details.optJSONArray("transfers"))
-    var mode by remember{mutableStateOf("receive")}
+    var mode by remember{mutableStateOf(if(transfers.isNotEmpty())"transfers" else "receive")}
+    var kind by remember{mutableStateOf("full")}
     var po by remember{mutableStateOf("")}
     var product by remember{mutableStateOf(catalogue.firstOrNull()?.getString("productId")?:"")}
     var amount by remember{mutableStateOf("")}
     var lot by remember{mutableStateOf("")}
     var expiry by remember{mutableStateOf("")}
     var counts by remember{mutableStateOf(emptyMap<String,String>())}
-    ScreenFrame("Stock",message=c.message,trailing={SyncPill(c)}){
-        SegmentedChips(listOf("receive" to "Receiving","full" to "Full count","cycle" to "Cycle count"),mode,{mode=it},"store-stock-mode")
-        if(mode=="receive"){
-            transfers.forEach {t->SectionCard(t.getString("name")){
-                StoreCheckout.objects(t.getJSONArray("lines")).forEach {Text("${it.getString("name")} · ${it.getString("quantityBase")} base units")}
-                SecondaryButton("Receive the listed shipped quantities",{c.saveStoreAction("store.receive",JSONObject().put("transferId",t.getString("id")).put("lines",JSONArray(StoreCheckout.objects(t.getJSONArray("lines")).map {JSONObject().put("lineId",it.getString("lineId")).put("receivedBase",it.getString("quantityBase").toLong()).put("rejectedBase",0).put("shortBase",0)})))},enabled=c.storePos.shift!=null&&!c.busy)
-            }}
-            Text("Receive against a PO reference below. Lot and expiry checks use the existing inventory policy; stock may enter quality hold.")
-            LabeledField("Purchase order reference",po,{po=it},"store-po-reference",maxLength=100)
-            catalogue.forEach {p->SecondaryButton((if(product==p.getString("productId"))"Selected · " else "")+p.getString("name"),{product=p.getString("productId")})}
-            LabeledField("Accepted base units",amount,{amount=it},"store-receive-quantity",numeric=true,maxLength=12)
-            LabeledField("Batch / lot, if required",lot,{lot=it},"store-receive-lot",maxLength=100)
-            LabeledField("Expiry YYYY-MM-DD, if required",expiry,{expiry=it},"store-receive-expiry",maxLength=10)
-            SecondaryButton("Save PO receiving",{c.saveStoreAction("store.receive",JSONObject().put("purchaseOrder",po).put("lines",JSONArray().put(JSONObject().put("productId",product).put("quantityBase",amount.toLong()).put("lotNumber",lot).apply{if(expiry.isNotBlank())put("expiresAt",java.time.LocalDate.parse(expiry).atStartOfDay(java.time.ZoneId.of("Asia/Manila")).toInstant().toEpochMilli())})))},enabled=po.isNotBlank()&&product.isNotBlank()&&(amount.toLongOrNull()?:0)>0&&c.storePos.shift!=null&&!c.busy&&(expiry.isBlank()||runCatching{java.time.LocalDate.parse(expiry)}.isSuccess))
-        }else{
-            Text("Count physical stock. Expected quantities are hidden. The office must independently approve any variance before posting.")
-            if(mode=="cycle")catalogue.forEach {p->SecondaryButton((if(product==p.getString("productId"))"Selected · " else "")+p.getString("name"),{product=p.getString("productId")})}
-            val selected=if(mode=="cycle")catalogue.filter {it.getString("productId")==product}else catalogue
-            val entries=selected.flatMap {p->StoreCheckout.objects(p.getJSONArray("stockLines")).map {l->p to l}}
-            fun key(p:JSONObject,l:JSONObject)="${p.getString("productId")}:${l.optString("lotId")}:${l.getString("stockStatus")}"
-            entries.forEach {(p,l)->val k=key(p,l)
-                LabeledField("${p.getString("name")} · ${l.optString("lotNumber",l.getString("stockStatus"))} · ${p.getString("uomCode")}",counts[k]?:"",{counts=counts+(k to it)},"store-count-${p.getString("code")}",numeric=true,maxLength=12)
+    val open=c.storePos.shift!=null&&!c.busy
+    val selected=if(kind=="cycle")catalogue.filter {it.getString("productId")==product}else catalogue
+    val entries=if(mode=="count")selected.flatMap {p->StoreCheckout.objects(p.getJSONArray("stockLines")).map {l->p to l}} else emptyList()
+    fun key(p:JSONObject,l:JSONObject)="${p.getString("productId")}:${l.optString("lotId")}:${l.getString("stockStatus")}"
+    val receiveOk=po.isNotBlank()&&product.isNotBlank()&&(amount.toLongOrNull()?:0)>0&&open&&(expiry.isBlank()||runCatching{java.time.LocalDate.parse(expiry)}.isSuccess)
+    val countOk=entries.isNotEmpty()&&entries.all {(p,l)->quantity(counts[key(p,l)]?:"",p.getString("quantityScale").toLong())!=null}&&open
+    val saveReceive={c.saveStoreAction("store.receive",JSONObject().put("purchaseOrder",po).put("lines",JSONArray().put(JSONObject().put("productId",product).put("quantityBase",amount.toLong()).put("lotNumber",lot).apply{if(expiry.isNotBlank())put("expiresAt",java.time.LocalDate.parse(expiry).atStartOfDay(java.time.ZoneId.of("Asia/Manila")).toInstant().toEpochMilli())})))}
+    val submitCount={c.saveStoreAction("store.count",JSONObject().put("countType",kind).put("lines",JSONArray(entries.map {(p,l)->JSONObject().put("productId",p.getString("productId")).put("lotId",l.opt("lotId")).put("stockStatus",l.getString("stockStatus")).put("version",l.getString("version")).put("countedBase",checkNotNull(quantity(counts[key(p,l)]?:"",p.getString("quantityScale").toLong())))})))}
+    ScreenFrame("Stock",message=c.message,trailing={SyncPill(c)},
+        action=when(mode){"receive"->"Save receiving";"count"->"Submit count";else->null},actionTag="store-stock-save",
+        onAction={if(mode=="receive")saveReceive() else submitCount()},enabled=if(mode=="receive")receiveOk else countOk){
+        SegmentedChips(listOf("receive" to "Receive","count" to "Count","transfers" to (if(transfers.isEmpty())"Transfers" else "Transfers (${transfers.size})")),mode,{mode=it},"store-stock-mode")
+        if(c.storePos.shift==null)Text("Open the till (Till tab) to save stock changes.",style=MaterialTheme.typography.bodyLarge,color=Look.muted,modifier=Modifier.testTag("store-stock-needs-till"))
+        when(mode){
+            "receive"->{
+                HelpDisclosure("How receiving works","Receive against a purchase order reference. Lot and expiry checks follow the inventory policy, and stock may enter quality hold.","store-stock-help")
+                LabeledField("Purchase order reference",po,{po=it},"store-po-reference",maxLength=100)
+                StockProductPicker(catalogue,product,{product=it},"store-product")
+                LabeledField("Quantity received (base units)",amount,{amount=it},"store-receive-quantity",numeric=true,maxLength=12)
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    Box(Modifier.weight(1f)){LabeledField("Lot, if required",lot,{lot=it},"store-receive-lot",maxLength=100)}
+                    Box(Modifier.weight(1f)){LabeledField("Expiry YYYY-MM-DD",expiry,{expiry=it},"store-receive-expiry",maxLength=10)}
+                }
+                Spacer(Modifier.height(8.dp))
             }
-            SecondaryButton("Submit blind ${mode} count",{
-                c.saveStoreAction("store.count",JSONObject().put("countType",mode).put("lines",JSONArray(entries.map {(p,l)->JSONObject().put("productId",p.getString("productId")).put("lotId",l.opt("lotId")).put("stockStatus",l.getString("stockStatus")).put("version",l.getString("version")).put("countedBase",checkNotNull(quantity(counts[key(p,l)]?:"",p.getString("quantityScale").toLong())))})))
-            },enabled=entries.isNotEmpty()&&entries.all {(p,l)->quantity(counts[key(p,l)]?:"",p.getString("quantityScale").toLong())!=null}&&c.storePos.shift!=null&&!c.busy)
+            "count"->{
+                HelpDisclosure("How counting works","Count what is on the shelf. Expected quantities are hidden. The office must independently approve any variance before posting.","store-stock-help")
+                SegmentedChips(listOf("full" to "All products","cycle" to "One product"),kind,{kind=it},"store-count-kind")
+                if(kind=="cycle")StockProductPicker(catalogue,product,{product=it},"store-count-product")
+                entries.forEach {(p,l)->val k=key(p,l)
+                    LabeledField("${p.getString("name")} · ${l.optString("lotNumber",l.getString("stockStatus"))} · ${p.getString("uomCode")}",counts[k]?:"",{counts=counts+(k to it)},"store-count-${p.getString("code")}",numeric=true,maxLength=12)
+                }
+                if(entries.isEmpty())EmptyState(GlyphKind.BOX,"Nothing to count","There is no stock on this phone for that choice. Sync to refresh the list.")
+                Spacer(Modifier.height(8.dp))
+            }
+            else->{
+                HelpDisclosure("How transfers work","Receive marks every line as received in full, as shipped.","store-stock-help")
+                transfers.forEach {t->SectionCard(t.getString("name")){
+                    StoreCheckout.objects(t.getJSONArray("lines")).forEach {Text("${it.getString("name")} · ${it.getString("quantityBase")} base units",style=MaterialTheme.typography.bodyLarge)}
+                    PillButton("Receive all shipped",{c.saveStoreAction("store.receive",JSONObject().put("transferId",t.getString("id")).put("lines",JSONArray(StoreCheckout.objects(t.getJSONArray("lines")).map {JSONObject().put("lineId",it.getString("lineId")).put("receivedBase",it.getString("quantityBase").toLong()).put("rejectedBase",0).put("shortBase",0)})))},Modifier.testTag("store-transfer-receive"),enabled=open,height=52.dp,fontSize=17.sp)
+                }}
+                if(transfers.isEmpty())EmptyState(GlyphKind.TRUCK,"No transfers on the way","Shipments sent to this store show up here, ready to receive.")
+            }
+        }
+    }
+}
+
+/** A one-line "How this works" row that opens its text in place. Collapsed by default so the form is the first thing on screen. */
+@Composable fun HelpDisclosure(title:String,text:String,tag:String){
+    var open by rememberSaveable{mutableStateOf(false)}
+    val shape=androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
+    Column(Modifier.fillMaxWidth().clip(shape).background(Look.card).border(1.dp,Look.hairline,shape).testTag(tag)){
+        Row(Modifier.fillMaxWidth().heightIn(min=48.dp).clickable(onClickLabel=if(open)"Hide help" else "Show help"){open=!open}.padding(horizontal=16.dp).testTag("$tag-toggle"),verticalAlignment=Alignment.CenterVertically){
+            Text(title,Modifier.weight(1f),style=MaterialTheme.typography.bodyLarge,fontWeight=FontWeight.SemiBold)
+            Glyph(GlyphKind.CHEVRON,Look.muted,20.dp,Modifier.rotate(if(open)90f else 0f))
+        }
+        if(open)Text(text,Modifier.padding(start=16.dp,end=16.dp,bottom=14.dp).testTag("$tag-text"),style=MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/** The chosen product as a pill; tapping it opens a list, so the form is not pushed down by one button per product. */
+@Composable fun StockProductPicker(products:List<JSONObject>,selected:String,onSelect:(String)->Unit,tag:String){
+    var open by remember{mutableStateOf(false)}
+    val current=products.firstOrNull {it.getString("productId")==selected}?.getString("name")
+    val shape=androidx.compose.foundation.shape.RoundedCornerShape(Look.pill)
+    Column(Modifier.fillMaxWidth(),verticalArrangement=Arrangement.spacedBy(4.dp)){
+        Text("Product",Modifier.padding(start=14.dp),color=Look.muted,fontSize=14.sp,fontWeight=FontWeight.SemiBold)
+        Row(Modifier.fillMaxWidth().heightIn(min=56.dp).clip(shape).border(1.5.dp,Look.hairline,shape).clickable(onClickLabel="Choose a product"){open=true}.padding(horizontal=16.dp).testTag(tag),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+            Text(current?:"Choose a product",Modifier.weight(1f),fontSize=17.sp,fontWeight=FontWeight.SemiBold,maxLines=2,overflow=androidx.compose.ui.text.style.TextOverflow.Ellipsis)
+            if(current!=null)Text("Change",color=Look.accent,fontSize=15.sp,fontWeight=FontWeight.Bold) else Glyph(GlyphKind.CHEVRON,Look.muted,20.dp)
+        }
+    }
+    if(open)LookSheet("Choose a product",{open=false},tag="$tag-sheet",closeTag="$tag-close",footer={PillButton("Cancel",{open=false},Modifier.testTag("$tag-cancel"),filled=false,height=52.dp)}){
+        Column(Modifier.padding(horizontal=20.dp).padding(top=14.dp,bottom=20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+            products.forEach {p->
+                val id=p.getString("productId");val on=id==selected
+                val row=androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
+                Row(Modifier.fillMaxWidth().heightIn(min=56.dp).clip(row).background(if(on)Look.tint else Look.card).border(if(on)2.dp else 1.dp,if(on)Look.accent else Look.hairline,row).clickable{onSelect(id);open=false}.padding(horizontal=16.dp,vertical=8.dp).testTag("$tag-$id"),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                    Text(p.getString("name"),Modifier.weight(1f),fontSize=17.sp,fontWeight=FontWeight.SemiBold)
+                    if(on)Glyph(GlyphKind.CHECK,Look.accent,22.dp)
+                }
+            }
         }
     }
 }

@@ -138,7 +138,7 @@ Money goes through `FitText`, which measures and shrinks instead of clipping. Ra
 | Store | Sell | grid | search, cart sheet, Payment, Complete (bar hidden in the last two) |
 | Store | Sales | receipts | print, reprint, void, refund requests |
 | Store | Till | status and session | open the till, X/Z and cash drawer, cash deposit, close the till |
-| Store | Stock | receiving and counts | |
+| Store | Stock | Receive, Count, Transfers | help collapsed; sticky Save receiving / Submit count |
 | Store | More | list | sync now, sync and posting, printer and scanner, customers and points, POS mode, account, sign out |
 | Van | Today | next step and trip | load check, start trip, count cash, count stock, route controls, close trip |
 | Van | Sell | customers | walk-in, customer, sale grid, Payment, Complete, returns |
@@ -164,7 +164,8 @@ Rounded everywhere, one family: pill (full) for buttons, chips, steppers, search
 - **Quick cash**: EXACT, then at most five bills. The bills are the next round-ups above the total and always PHP 100, 500, 1,000 when they cover it. EXACT or a bill only fills Tendered; the selected one is red with a check.
 - **Complete**: the only control that saves a sale. Always on screen, grey until the payment is valid, then red.
 - **List row**: card with a 40dp tinted icon disc, title, one plain line, chevron. **Empty state**: icon disc, what is true, what to do, one button.
-- **Sheets** (cart, edit item, discount, customer): red title panel, white sheet with a rounded top, Done / Cancel as pills.
+- **Sheets** (cart, edit item, discount, customer): red title panel, white sheet with a rounded top, Done / Cancel as pills. Footer buttons stay on screen; content scrolls above them with 24dp of end padding, and a hairline shows over the footer while more waits below. The discount sheet uses 60dp rows and Cancel / Set side by side so all five claims show at once on 720x1440.
+- **Help disclosure**: a 48dp "How this works" row that opens its text in place, collapsed by default. Long explanations never sit above a form.
 
 ## Do's and Don'ts
 

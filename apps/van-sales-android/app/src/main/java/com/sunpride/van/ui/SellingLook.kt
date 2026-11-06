@@ -316,7 +316,10 @@ fun initialsOf(name: String, max: Int = 2): String {
                 Surface(Modifier.padding(top = 44.dp).fillMaxWidth().then(if (fill) Modifier.fillMaxHeight() else Modifier), color = Look.sheet,
                     shape = RoundedCornerShape(topStart = Look.sheetTop, topEnd = Look.sheetTop), shadowElevation = 8.dp) {
                     Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
-                        Column(Modifier.then(if (fill) Modifier.weight(1f) else Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState())).fillMaxWidth(), content = content)
+                        val scroll = rememberScrollState()
+                        Column(Modifier.then(if (fill) Modifier.weight(1f) else Modifier.weight(1f, fill = false).verticalScroll(scroll)).fillMaxWidth(), content = content)
+                        // A hairline over the footer while more content waits below it, so a row cut at the edge reads as "scrolls", not "broken".
+                        if (footer != null && !fill && scroll.canScrollForward) Box(Modifier.fillMaxWidth().height(1.dp).background(Look.hairline).testTag("$tag-more"))
                         footer?.let { f -> Column(Modifier.fillMaxWidth().padding(horizontal = 20.dp).padding(top = 8.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(10.dp), content = f) }
                     }
                 }

@@ -9,6 +9,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.unit.dp
 import androidx.test.platform.app.InstrumentationRegistry
 import androidx.work.WorkManager
 import com.sunpride.catalogue.CatalogueDetails
@@ -161,6 +162,19 @@ class PosV2ScreenshotTest {
         rule.onNodeWithTag("claim-type-senior").performClick()
         shot("b6-discount-sheet")
     }
+    /** Beta.31: with one item in the cart (the Senraise case) all five claims sit fully above Cancel / Set, nothing is cut at the footer. */
+    @Test fun B6b_discountSheetFitsAboveButtons() {
+        show { Box(Modifier.fillMaxSize()) { ClaimSheet(listOf("p1" to "Sample Beef Burger Patties 1kg"), null, {}, null, {}) } }
+        val last = rule.onNodeWithTag("claim-type-uniformed").getUnclippedBoundsInRoot()
+        val set = rule.onNodeWithTag("claim-apply").getUnclippedBoundsInRoot()
+        val cancel = rule.onNodeWithTag("claim-cancel").getUnclippedBoundsInRoot()
+        assertTrue("last claim ends at ${last.bottom}, buttons start at ${set.top}", last.bottom <= set.top)
+        assertTrue(cancel.right <= set.left + 1.dp)
+        rule.onNodeWithTag("claim-type-uniformed").assertIsDisplayed()
+        shot("b6b-discount-sheet-fit")
+        rule.onNodeWithTag("claim-name").performScrollTo()
+        shot("b6c-discount-sheet-scrolled")
+    }
     @Test fun B7_complete() { show { CompleteStep("Sale saved", "₱476.89", "₱476.89", "₱0.00", "SAMPLE-SMP-T3-STORE-SI-000000003", {}, "Receipts", {}) { } }; shot("b7-complete") }
 
     // ---------------------------------------------------------------- B: the real app in Store mode
@@ -180,6 +194,19 @@ class PosV2ScreenshotTest {
             shot("c4-sales-empty")
             rule.onNodeWithTag("nav-stock").performClick(); rule.waitForIdle()
             shot("c5-stock")
+            rule.onNodeWithTag("store-stock-help-text").assertDoesNotExist()      // help is collapsed
+            rule.onNodeWithTag("store-stock-help-toggle").performClick(); rule.waitForIdle()
+            rule.onNodeWithTag("store-stock-help-text").assertExists()
+            shot("c5b-stock-help-open")
+            rule.onNodeWithTag("store-stock-help-toggle").performClick()
+            rule.onNodeWithTag("store-product").performClick(); rule.waitForIdle()
+            shot("c5c-stock-product-picker")
+            rule.onNodeWithTag("store-product-cancel").performClick(); rule.waitForIdle()
+            rule.onNodeWithTag("store-stock-mode-count").performClick(); rule.waitForIdle()
+            shot("c5d-stock-count")
+            rule.onNodeWithTag("store-stock-mode-transfers").performClick(); rule.waitForIdle()
+            shot("c5e-stock-transfers")
+            rule.onNodeWithTag("store-stock-mode-receive").performClick(); rule.waitForIdle()
             rule.onNodeWithTag("nav-till").performClick(); rule.waitForIdle()
             rule.onNodeWithTag("store-open-session").performClick()
             rule.onNodeWithTag("store-float-amount").performTextInput("2000")
