@@ -322,6 +322,11 @@ test("IP-P0 fix: the bundle carries the trip's opening float and the handheld ca
   expect(old.trip.openingFloatCentavos).toBeUndefined();
   expect(old.policy.handheld).toBeUndefined();
 
+  // IP-INT2 ask 6: the number the office keeps on the supervisor's profile fills `supervisorPhone`.
+  await h.db`update profiles set phone='0917 123 4567' where id=${manager.profile.id}`;
+  const withPhone = await pullBundle(true);
+  expect(withPhone.policy.handheld.supervisorPhone).toBe("0917 123 4567");
+
   // No trip today: the card still names the van this handheld last drove and the supervisor.
   await h.db`update van_trips set service_date=service_date-1 where salesperson_profile_id=${who.profile.id}`;
   const none = await pullBundle(true);
@@ -330,7 +335,7 @@ test("IP-P0 fix: the bundle carries the trip's opening float and the handheld ca
     vehicleCode: veh.vehicle_code,
     plateNumber: veh.plate_number,
     supervisorName: "Supervisor",
-    supervisorPhone: null,
+    supervisorPhone: "0917 123 4567",
   });
 
   // A seller nobody supervises, on a handheld that never drove: unknown parts are null, not invented.

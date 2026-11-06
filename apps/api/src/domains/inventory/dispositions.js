@@ -1,8 +1,10 @@
+import { mkdir, rename } from "node:fs/promises";
 import { join } from "node:path";
+import { readCapped } from "../../core/router.js";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
 import { nextDocNumber } from "../../core/docnum.js";
-import { filesDir } from "../../core/media.js";
+import { filesDir, MAX_MEDIA_BYTES } from "../../core/media.js";
 import { commands, post } from "./commands.js";
 import {
   blindStockGate,
@@ -106,7 +108,7 @@ async function attachPhotos(c, dispositionId, digests) {
     if (typeof digest !== "string" || !/^[0-9a-f]{64}$/.test(digest))
       invalid("That photo could not be read. Take it again.");
     const [file] =
-      await c.db`select id from files where sha256=${digest} and created_by=${c.actor.userId} and status='stored' and mime='image/jpeg' order by created_at desc limit 1`;
+      await c.db`select id from files where sha256=${digest} and created_by=${c.actor.userId} and purpose='disposition-photo' and status='stored' and mime='image/jpeg' order by created_at desc limit 1`;
     if (!file) invalid("That photo is not uploaded yet. Upload it, then try again.", "photo_missing");
     const r =
       await c.db`insert into inventory_disposition_photos (disposition_id,file_id,sha256,added_by) values (${dispositionId},${file.id},${digest},${c.actor.userId}) on conflict (disposition_id,file_id) do nothing returning id`;
@@ -544,6 +546,35 @@ export async function photo(ctx) {
   });
 }
 
+/**
+ * Office upload of a bad-order photo (the device-proved media route cannot be used from a browser).
+ * Raw JPEG body; stored content-addressed like every other evidence file with purpose `disposition-photo`;
+ * the answer is the SHA-256 the request form sends as `photoDigests`.
+ * @param {any} ctx
+ */
+export async function uploadPhoto(ctx) {
+  const actor = await requireCapability(ctx, "inventory.adjustment.request");
+  const bytes = await readCapped(ctx.req, MAX_MEDIA_BYTES);
+  if (
+    bytes.byteLength < 4 ||
+    bytes[0] !== 0xff ||
+    bytes[1] !== 0xd8 ||
+    bytes[2] !== 0xff
+  )
+    invalid("That file is not a photo. Take the photo again.", "photo_unreadable");
+  const digest = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+  const rel = `${digest.slice(0, 2)}/${digest}`;
+  const root = filesDir(ctx.env);
+  await mkdir(join(root, digest.slice(0, 2)), { recursive: true });
+  const tmp = join(root, `${digest}.${crypto.randomUUID()}.part`);
+  await Bun.write(tmp, bytes);
+  await rename(tmp, join(root, rel));
+  await ctx.db`insert into files (owner_id,purpose,sha256,mime,size,path,status,created_by,stored_at)
+    values (null,'disposition-photo',${digest},'image/jpeg',${bytes.byteLength},${rel},'stored',${actor.userId},now())
+    on conflict (created_by,purpose,owner_id,sha256) do update set status='stored',path=excluded.path,stored_at=coalesce(files.stored_at,now())`;
+  return { sha256: digest, size: bytes.byteLength };
+}
+
 const BUCKETS = [
   { key: "expired", label: "Already expired", max: 0 },
   { key: "30", label: "Within 30 days", max: 30 },
@@ -629,5 +660,6 @@ export function installDispositionRoutes(router) {
   const prefix = "/api/v1/inventory";
   router.get(`${prefix}/dispositions`, queue);
   router.get(`${prefix}/dispositions/photo`, photo);
+  router.post(`${prefix}/dispositions/upload`, uploadPhoto, { raw: true });
   router.get(`${prefix}/expiry-board`, expiryBoard);
 }

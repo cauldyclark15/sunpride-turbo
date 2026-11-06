@@ -21,6 +21,7 @@ import type {
   SalesResponse,
   SalesRow,
   StockResponse,
+  ValuationResponse,
   StoreResponse,
   StoreRow,
   StoreStatus,
@@ -1904,6 +1905,54 @@ function store(query: Query, clock: Clock): StoreResponse {
             ? "Must-sell product never bought here"
             : "Out on the shelf at the last visit",
       })),
+  };
+}
+
+/** Dev fixture for /inventory/valuation, built from the analytics stock fixture so both pages agree. */
+export function valuationFromStock(data: StockResponse): ValuationResponse {
+  const rows = data.rows.map((r) => ({
+    productId: r.productId,
+    code: r.code,
+    name: r.name,
+    category: r.category,
+    locationId: "fixture-depot",
+    locationName: "Main depot",
+    onHand: {
+      base: r.onHand.cases * 24 + r.onHand.pieces,
+      cases: r.onHand.cases,
+      pieces: r.onHand.pieces,
+      display: r.onHand.display,
+      valueCentavos: r.valueCentavos,
+    },
+    available: {
+      base: r.onHand.cases * 24 + r.onHand.pieces,
+      cases: r.onHand.cases,
+      pieces: r.onHand.pieces,
+      display: r.onHand.display,
+      valueCentavos: r.valueCentavos,
+    },
+    costValueCentavos: r.valueCentavos ?? 0,
+    costKnown: r.valueCentavos !== null,
+    sellingValueCentavos:
+      r.valueCentavos === null ? null : Math.round(r.valueCentavos / 0.78),
+  }));
+  return {
+    asOf: data.freshness.asOf,
+    basis: "cost",
+    groupBy: "product",
+    valueLabel: "Cost value",
+    secondaryValueLabel: "Selling value",
+    rows,
+    totals: {
+      costValueCentavos: rows.reduce((n, r) => n + r.costValueCentavos, 0),
+      sellingValueCentavos: rows.reduce(
+        (n, r) => n + (r.sellingValueCentavos ?? 0),
+        0,
+      ),
+      rowsWithoutCost: rows.filter((r) => !r.costKnown).length,
+      rowsWithoutPrice: rows.filter((r) => r.sellingValueCentavos === null)
+        .length,
+    },
   };
 }
 

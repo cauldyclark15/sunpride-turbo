@@ -1,5 +1,7 @@
 import { nextDocNumber } from "../../core/docnum.js";
 import { uuid, refuse, text, choice, integer } from "../van/model.js";
+import { ApiError } from "../../core/errors.js";
+import { requireReason, listReasonCodes } from "../inventory/reasons.js";
 import { useSupervisor, logOfficeOverride } from "./overrides.js";
 
 export const CASH_KINDS = [
@@ -35,50 +37,41 @@ const OVERRIDE_KIND = /** @type {Record<string,string>} */ ({
   paid_out: "paid_out",
   no_sale: "no_sale",
 });
-/**
- * Local adapter: FOUND's reason table is inventory-only (no cash category). Ask for a "cash" category;
- * until then these codes live here. A note is required where the code says so.
- */
-export const CASH_REASONS =
-  /** @type {Record<string,{code:string,label:string,note?:boolean}[]>} */ ({
-    float: [
-      { code: "top_up", label: "More change needed" },
-      { code: "opening_correction", label: "Opening float was short" },
-    ],
-    drop: [
-      { code: "till_limit", label: "Too much cash in the drawer" },
-      { code: "safe_drop", label: "Move to the safe" },
-      { code: "end_of_day", label: "End of day drop" },
-    ],
-    pickup: [
-      { code: "bank_deposit", label: "For the bank" },
-      { code: "owner_pickup", label: "Picked up by the owner or supervisor" },
-    ],
-    paid_out: [
-      { code: "supplies", label: "Store supplies" },
-      { code: "delivery_fee", label: "Delivery fee" },
-      { code: "petty_cash", label: "Petty cash" },
-      { code: "other", label: "Other (write why)", note: true },
-    ],
-    paid_in: [
-      { code: "change_fund", label: "Change fund returned" },
-      { code: "correction", label: "Correction" },
-      { code: "other", label: "Other (write why)", note: true },
-    ],
-    no_sale: [
-      { code: "change_request", label: "Customer needs change" },
-      { code: "drawer_check", label: "Checking the drawer" },
-      { code: "other", label: "Other (write why)", note: true },
-    ],
-  });
+/** Direction of the money for the reason check: in = into the drawer, out = out of it, none = no_sale. */
+const CASH_DIRECTION = /** @type {Record<string,"in"|"out"|undefined>} */ ({
+  float: "in",
+  paid_in: "in",
+  drop: "out",
+  pickup: "out",
+  paid_out: "out",
+  no_sale: undefined,
+});
 
-/** @param {string} kind @param {string} code @param {string|null} note */
-export function requireCashReason(kind, code, note) {
-  const list = CASH_REASONS[kind] ?? [];
-  const found = list.find((r) => r.code === code);
-  if (!found) refuse("Choose a reason from the list for this cash movement");
-  if (found.note && !note) refuse("Write a short note for this reason");
-  return found;
+/**
+ * IP-INT2: till cash reasons are rows of FOUND's reason table (category `cash`, `cash_kinds` = the movements they serve).
+ * The old store-till codes are seeded rows (migration 0760), so phones and old movements keep working.
+ * @param {any} db @param {string} org @param {string} kind @param {string} code @param {string|null} note
+ */
+export async function requireCashReason(db, org, kind, code, note) {
+  try {
+    return await requireReason(db, org, code, {
+      direction: CASH_DIRECTION[kind],
+      note,
+      cashKind: kind,
+    });
+  } catch (error) {
+    if (error instanceof ApiError) refuse(error.message);
+    throw error;
+  }
+}
+/** The reasons offered for one cash movement kind: `{code, label, note?}`. @param {any} db @param {string} org @param {string} kind */
+export async function cashReasonsFor(db, org, kind) {
+  const rows = await listReasonCodes(db, org, { cashKind: kind });
+  return rows.map((r) => ({
+    code: r.code,
+    label: r.label,
+    ...(r.requiresNote ? { note: true } : {}),
+  }));
 }
 
 /** Signed effect of one movement on expected cash, in centavos. @param {string} kind @param {bigint} amount */
@@ -97,7 +90,7 @@ export async function recordCashMovement(c, o) {
   const amount = kind === "no_sale" ? 0n : integer(p.amountCentavos, true);
   const note = text(p.note, 300);
   const reasonCode = String(p.reasonCode ?? "");
-  requireCashReason(kind, reasonCode, note);
+  await requireCashReason(db, register.organization_id ?? "sunpride", kind, reasonCode, note);
   const [day] =
     await db`select * from store_till_days where id=${shift.till_day_id}`;
   if (!day || day.status === "z_done")
@@ -157,6 +150,11 @@ export async function listMovements(db, q) {
   const rows = q.shiftId
     ? await db`select m.*,rec.name as recorded_by_name,sup.name as supervisor_name from store_cash_movements m join profiles rec on rec.id=m.recorded_by left join profiles sup on sup.id=m.supervisor_profile_id where m.shift_id=${uuid(q.shiftId)} order by m.captured_at,m.id limit 501`
     : await db`select m.*,rec.name as recorded_by_name,sup.name as supervisor_name from store_cash_movements m join profiles rec on rec.id=m.recorded_by left join profiles sup on sup.id=m.supervisor_profile_id where m.till_day_id=${uuid(q.dayId)} order by m.captured_at,m.id limit 501`;
+  const labels = new Map(
+    (await db`select code,label from inventory_reason_codes where category='cash'`).map(
+      (/** @type {any} */ r) => [r.code, r.label],
+    ),
+  );
   return rows.slice(0, 500).map((/** @type {any} */ m) => ({
     id: m.id,
     shiftId: m.shift_id,
@@ -165,9 +163,7 @@ export async function listMovements(db, q) {
     amountCentavos: String(m.amount_centavos),
     effectCentavos: String(cashEffect(m.kind, BigInt(m.amount_centavos))),
     reasonCode: m.reason_code,
-    reasonLabel:
-      (CASH_REASONS[m.kind] ?? []).find((r) => r.code === m.reason_code)
-        ?.label ?? m.reason_code,
+    reasonLabel: labels.get(m.reason_code) ?? m.reason_code,
     note: m.note,
     supervisorName: m.supervisor_name,
     slipNumber: m.slip_number,

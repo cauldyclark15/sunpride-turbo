@@ -77,7 +77,10 @@ export function aggregateSales(sales, credits) {
     count++;
     numbers.push(s.number);
     net += total;
-    for (const l of s.receipt?.lines ?? []) promo += big(l.discountCentavos);
+    // IP-INT2: on a privilege sale `discountCentavos` is gross - payable (it already holds the privilege discount and the VAT
+    // removed), so the promo part is the line's own `promoDiscountCentavos` when the sale writes one.
+    for (const l of s.receipt?.lines ?? [])
+      promo += big(l.promoDiscountCentavos ?? l.discountCentavos);
     const pv = privilegeOf(s.receipt);
     for (const t of PRIVILEGE_TYPES) privilege[t] += pv.byType[t];
     vatRemoved += pv.vatRemoved;

@@ -19,6 +19,10 @@ import {
 } from "./commands.js";
 import { attach, canClaimVisitMedia } from "./evidence.js";
 import { canClaimMedia as canClaimVanMedia } from "../van/media.js";
+import {
+  INVENTORY_MEDIA_PURPOSES,
+  canClaimInventoryMedia,
+} from "../inventory/media.js";
 import { canClaimWorkforceMedia } from "../coverage/workforce.js";
 import { decideLocation } from "./location.js";
 import { list, detail, media } from "./reads.js";
@@ -74,7 +78,9 @@ export function install(router, installCtx) {
     canClaimMedia: (db, actor, claim) =>
       claim.purpose === "truck-damage"
         ? canClaimVanMedia(db, actor, claim)
-        : ["prospect-photo", "attendance-photo"].includes(claim.purpose)
+        : INVENTORY_MEDIA_PURPOSES.includes(claim.purpose)
+          ? canClaimInventoryMedia(db, actor, claim)
+          : ["prospect-photo", "attendance-photo"].includes(claim.purpose)
           ? canClaimWorkforceMedia(db, actor, claim)
           : canClaimVisitMedia(db, actor, claim),
   });

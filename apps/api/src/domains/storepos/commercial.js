@@ -123,6 +123,7 @@ export async function recordSale(c) {
           lineTotalCentavos: legal.results[i].netCentavos,
           discountCentavos:
             legalLines[i].grossCentavos - legal.results[i].netCentavos,
+          promoDiscountCentavos: legal.results[i].promoDiscountCentavos,
           privilegeType: legal.results[i].privilegeType,
           privilegeDiscountCentavos: legal.results[i].privilegeDiscountCentavos,
           vatRemovedCentavos: legal.results[i].vatRemovedCentavos,
@@ -220,6 +221,15 @@ export async function recordSale(c) {
             idNumber: legal.claim.idNumber,
             holderName: legal.claim.holderName,
             applied: legal.totals.applied,
+          },
+          // IP-INT2: the shape the Z reading reads (storepos/readings.js privilegeOf)
+          privilege: {
+            byType: {
+              [legal.claim.type]: {
+                discountMinor: String(legal.totals.privilegeDiscount),
+                vatRemovedMinor: String(legal.totals.vatRemoved),
+              },
+            },
           },
         }
       : {}),

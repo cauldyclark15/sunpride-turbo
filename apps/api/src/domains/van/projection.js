@@ -70,8 +70,8 @@ export function policy(env, tripId) {
 /**
  * IP-P0 (SPEC 5.3): who this handheld is for, so "No trip for today" can name the van and the supervisor.
  * The van is today's trip, else the last trip this handheld or seller drove. The supervisor is the seller's current
- * employee-assignment supervisor, else the profile's supervisor. Unknown parts are null. No phone number is held
- * for staff yet, so `supervisorPhone` stays null until the office keeps one.
+ * employee-assignment supervisor, else the profile's supervisor. Unknown parts are null. `supervisorPhone` is the
+ * number the office keeps on that supervisor's profile (null until it is filled in).
  * @param {any} db @param {any} actor @param {any} device @param {any} [trip]
  */
 export async function handheldInfo(db, actor, device, trip) {
@@ -81,18 +81,18 @@ export async function handheldInfo(db, actor, device, trip) {
         where t.deleted_at is null and t.status<>'cancelled' and (t.started_device_id=${device.id} or t.salesperson_profile_id=${actor.profileId})
         order by t.service_date desc,t.created_at desc limit 1`;
   const [assigned] =
-    await db`select p.name from employee_assignments a join profiles p on p.id=a.supervisor_id
+    await db`select p.name,p.phone from employee_assignments a join profiles p on p.id=a.supervisor_id
     where a.profile_id=${actor.profileId} and a.deleted_at is null and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now())
       and p.deleted_at is null and p.status='active' limit 1`;
   const [named] = assigned
     ? []
-    : await db`select s.name from profiles p join profiles s on s.auth_subject=p.supervisor_subject
+    : await db`select s.name,s.phone from profiles p join profiles s on s.auth_subject=p.supervisor_subject
         where p.id=${actor.profileId} and s.deleted_at is null and s.status='active' limit 1`;
   return {
     vehicleCode: vehicle?.vehicle_code ?? null,
     plateNumber: vehicle?.plate_number ?? null,
     supervisorName: (assigned ?? named)?.name ?? null,
-    supervisorPhone: null,
+    supervisorPhone: (assigned ?? named)?.phone ?? null,
   };
 }
 /** @param {any[]} rows @param {number} bound */

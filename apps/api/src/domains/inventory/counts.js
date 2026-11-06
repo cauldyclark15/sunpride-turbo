@@ -555,7 +555,7 @@ async function photoFor(c, entry) {
   if (entry.photoFileId == null) return null;
   const fileId = id(entry.photoFileId, "Photo");
   const [f] =
-    await c.db`select id from files where id=${fileId} and created_by=${c.actor.userId}`;
+    await c.db`select id from files where id=${fileId} and created_by=${c.actor.userId} and purpose='count-finding' and status='stored'`;
   if (!f) invalid("That photo was not uploaded by you", "photo_not_found");
   return fileId;
 }
@@ -913,6 +913,7 @@ async function runApprove(c, b, session) {
     },
     rows,
     "inventory.count.submit",
+    { tillCount: true },
   );
   for (const l of rows)
     await c.db`insert into inventory_adjustment_lines (organization_id,adjustment_id,product_id,lot_id,location_id,stock_status,variance_base,reason_code) values (${ORGANIZATION},${adjustmentId},${l.product_id},${l.lot_id},${l.location_id},${l.stock_status},${l.variance_base},${l._reason})`;

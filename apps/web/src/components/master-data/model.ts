@@ -29,6 +29,7 @@ export type Person = Base & {
   status: "active" | "disabled";
   orgUnitId?: string;
   employeeCode?: string;
+  phone?: string;
   positionId?: string;
   supervisorSubject?: string;
   effectiveFrom?: number;
@@ -383,6 +384,7 @@ export type CommandMap = {
     positionId?: string;
     supervisorId?: string;
     employeeCode?: string;
+    phone?: string | null;
   };
   "people/invite": {
     email: string;

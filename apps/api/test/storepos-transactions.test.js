@@ -49,18 +49,6 @@ const pin = String(randomInt(100000, 999999));
   await h.db`insert into profiles(id,user_id,auth_subject,name,email,role,status,org_unit_id) values(${p.id},${who.userId},${who.userId},${p.name},${who.email},${p.role},'active',${unit})`;
   await h.db`insert into employee_assignments(profile_id,org_unit_id,role,effective_from,actor_subject,reason) values(${p.id},${unit},${p.role},now()-interval '1 day','fixture','fixture')`;
 }
-/** A cashier needs inventory.adjustment.request for a count to be approvable (F-124 matrix); a plain sales
- * role never had it, so the count test lends the cashier the manager role for the approval and gives it back.
- * @param {string} role */
-async function lendRole(role) {
-  people.set(seller.userId, {
-    role,
-    orgUnitId: unit,
-    name: seller.profile.name,
-  });
-  await h.db`update profiles set role=${role} where id=${seller.profile.id}`;
-  await h.db`update employee_assignments set role=${role} where profile_id=${seller.profile.id} and effective_to is null`;
-}
 /** After a Z the register's next session belongs to the next business date: open one for the tests that follow.
  * @param {string} [float] */
 async function freshSession(float = "10000") {
@@ -356,6 +344,28 @@ beforeAll(async () => {
       ],
     }),
   );
+  // IP-INT2: a transfer is reserved at the source when it is approved (XFER), so the depot must hold the stock.
+  await tx(h.db, (db) =>
+    postMovement(db, {
+      kind: "opening_balance",
+      sourceType: "cutover",
+      sourceId: warehouse,
+      idempotencyKey: "depot-opening",
+      occurredAt: Date.now(),
+      organizationId: "sunpride",
+      actor: { profileId: actor.profileId, userId: actor.userId },
+      lines: [
+        {
+          productId: product,
+          quantityBase: 20,
+          fromLocationId: null,
+          toLocationId: warehouse,
+          uom: "PC",
+          unitCostMinor: 1000,
+        },
+      ],
+    }),
+  );
   shift = crypto.randomUUID();
   await push(
     op("store.shift.open", {
@@ -446,17 +456,17 @@ test("F-R04/F-R05 canonical cycle count is independently posted and low stock su
   );
   const [count] =
     await h.db`select * from stock_count_sessions where location_id=${location}`;
-  await lendRole("manager");
-  // A count variance is a stock override: the branch needs an authority band for the counter's role.
+  // IP-INT2 ask 2: the cashier (sales) counted at the till and is never lent a role; the supervisor approves on their own
+  // stock band (counter != approver, approver holds the adjustment capability).
   await tx(h.db, (db) =>
     saveRule(db, supervisor, {
       orgUnitId: unit,
       kind: "stock",
-      role: "manager",
+      role: "super_admin",
       channel: "inventory",
       minCentavos: "0",
       maxCentavos: "100000000",
-      selfLimitCentavos: "0",
+      selfLimitCentavos: "100000000",
       approverRoles: ["super_admin"],
       effectiveFrom: "2026-01-01T00:00:00Z",
     }),
@@ -467,7 +477,6 @@ test("F-R04/F-R05 canonical cycle count is independently posted and low stock su
     const prepared = await inventory["counts/approve"].prepare(ctx, body);
     await inventory["counts/approve"].run(ctx, body, prepared);
   });
-  await lendRole("sales");
   const [posted] =
     await h.db`select status from stock_count_sessions where id=${count.id}`;
   expect(posted.status).toBe("posted");

@@ -15,15 +15,27 @@ export async function photoDigest(file: Blob): Promise<string> {
   return [...new Uint8Array(hash)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
+/** Office photo upload (IP-INT2): raw JPEG to the office route (purpose disposition-photo); resolves the SHA-256 the request sends. */
+export async function uploadOfficePhoto(file: File): Promise<string> {
+  const response = await fetch("/api/v1/inventory/dispositions/upload", {
+    method: "POST",
+    headers: { "content-type": "image/jpeg" },
+    body: file,
+    credentials: "same-origin",
+  });
+  const body = (await response.json().catch(() => null)) as { sha256?: string; error?: { message?: string } } | null;
+  if (!response.ok || !body?.sha256) throw new Error(body?.error?.message ?? "The photo did not upload. Try again.");
+  return body.sha256;
+}
+
 /**
  * Bad orders (SPEC 4.4): stock waiting for a decision, with its value and photos.
  * One main action per row: decide what happens to it; a second person approves.
  */
 export function BadOrders({
-  uploadPhoto,
+  uploadPhoto = uploadOfficePhoto,
 }: {
-  /** Uploads the photo bytes and returns its SHA-256. The media upload route is device-proved today,
-   * so the NAV lane supplies this once the office upload purpose exists (see the VALUE report). */
+  /** Uploads the photo bytes and returns its SHA-256. Defaults to the office upload route (purpose disposition-photo). */
   uploadPhoto?: (file: File) => Promise<string>;
 }) {
   const [status, setStatus] = useState<"requested" | "posted" | "rejected" | "all">("requested");

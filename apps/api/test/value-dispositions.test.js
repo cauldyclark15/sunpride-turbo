@@ -59,7 +59,7 @@ async function photoFor(who, tag = "x") {
   const digest = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
   const leaf = `${digest}.jpg`;
   await Bun.write(join(f.h.filesDir, leaf), bytes);
-  await f.h.db`insert into files (purpose,sha256,mime,size,path,status,created_by,stored_at) values ('truck-damage',${digest},'image/jpeg',${bytes.length},${leaf},'stored',${who.userId},now())`;
+  await f.h.db`insert into files (purpose,sha256,mime,size,path,status,created_by,stored_at) values ('disposition-photo',${digest},'image/jpeg',${bytes.length},${leaf},'stored',${who.userId},now())`;
   return digest;
 }
 /** @param {string} productId @param {string} status */
@@ -70,6 +70,40 @@ const balance = async (productId, status) => {
 };
 const request = (/** @type {any} */ body, who = admin) =>
   command(who, "dispositions/request", { locationId: depot, ...body });
+
+describe("IP-INT2 ask 4: office photo upload for bad orders", () => {
+  /** @param {any} who @param {Uint8Array} bytes */
+  const upload = async (who, bytes) => {
+    const res = await f.h.fetch("/api/v1/inventory/dispositions/upload", {
+      method: "POST",
+      headers: { cookie: who.cookie, "content-type": "image/jpeg" },
+      body: /** @type {any} */ (bytes),
+    });
+    return { status: res.status, body: /** @type {any} */ (await res.json()) };
+  };
+  it("stores a JPEG under the disposition-photo purpose and the request attaches it by digest; other files and viewers are refused", async () => {
+    const jpeg = new Uint8Array([0xff, 0xd8, 0xff, 0xe0, ...new TextEncoder().encode(`office-${crypto.randomUUID()}`)]);
+    const up = await upload(manager, jpeg);
+    expect(up.status).toBe(200);
+    expect(up.body.sha256).toBe(new Bun.CryptoHasher("sha256").update(jpeg).digest("hex"));
+    const [row] = await f.h.db`select purpose,status,mime from files where sha256=${up.body.sha256}`;
+    expect(row).toMatchObject({ purpose: "disposition-photo", status: "stored", mime: "image/jpeg" });
+    const p = await f.product({ perCase: 12 });
+    await stockIn(p.id, 24, "damaged");
+    const r = await command(manager, "dispositions/request", { locationId: depot, productId: p.id, fromStatus: "damaged", cases: 1, decision: "write_off", reasonCode: "DMG-HANDLING", photoDigests: [up.body.sha256] });
+    expect(r.status).toBe(200);
+    expect(r.body.photos).toBe(1);
+    // a file that is not a photo, and a person who cannot ask for bad orders
+    expect((await upload(manager, new TextEncoder().encode("not a photo"))).status).toBe(422);
+    expect((await upload(viewer, jpeg)).status).toBe(403);
+    // a photo uploaded for another purpose (e.g. a truck-damage file) is not accepted as a bad-order photo
+    const bytes = new TextEncoder().encode(`other-${crypto.randomUUID()}`);
+    const digest = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+    await f.h.db`insert into files (purpose,sha256,mime,size,path,status,created_by,stored_at) values ('truck-damage',${digest},'image/jpeg',${bytes.length},'x.jpg','stored',${manager.userId},now())`;
+    const wrong = await command(manager, "dispositions/request", { locationId: depot, productId: p.id, fromStatus: "damaged", cases: 1, decision: "write_off", reasonCode: "DMG-HANDLING", photoDigests: [digest] });
+    expect(wrong.status).toBe(422);
+  });
+});
 
 describe("dispositions", () => {
   it("bad-order queue shows stock waiting with its value; request needs the reason's photo; a different person decides; the stock leaves in one posting", async () => {

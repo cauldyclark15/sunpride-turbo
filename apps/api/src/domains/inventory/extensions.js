@@ -43,46 +43,67 @@ export function installCommandExtensions() {
         text(b.reason, "Reversal reason", 500);
         if (!row.movement_id)
           invalid("This document has no stock movement to reverse");
-        const [original] =
-          await c.db`select * from inventory_movements where id=${row.movement_id} for update`;
-        if (original.status !== "posted")
-          invalid("Movement has already been reversed");
-        const rows =
-          await c.db`select * from inventory_movement_lines where movement_id=${original.id} order by line_number`;
-        /** @type {import('./posting.js').MovementLine[]} */ const posting = [];
-        for (const l of rows) {
-          const allocations =
-            await c.db`select * from inventory_allocations where movement_line_id=${l.id} order by allocation_sequence`;
-          for (const a of allocations.length
-            ? allocations
-            : [{ lot_id: null, quantity_base: l.quantity_base }])
-            posting.push({
-              productId: l.product_id,
-              quantityBase: Number(a.quantity_base),
-              fromLocationId: l.to_location_id,
-              toLocationId: l.from_location_id,
-              fromStockStatus: l.to_stock_status ?? "available",
-              toStockStatus: l.from_stock_status ?? "available",
-              lotId: a.lot_id,
-              uom: l.entered_uom_code ?? "base",
-              unitCostMinor: Number(l.unit_cost_minor ?? 0),
-            });
+        // IP-INT2 ask 7: a count adjustment bigger than the writer's 100-line limit is posted as several movements
+        // (counts.js records them on the session); every one of them is reversed, or none.
+        /** @type {string[]} */ let movementIds = [row.movement_id];
+        if (kind === "adjustments" && row.source_count_id) {
+          const [session] =
+            await c.db`select movement_ids from stock_count_sessions where id=${row.source_count_id}`;
+          if (Array.isArray(session?.movement_ids) && session.movement_ids.length)
+            movementIds = session.movement_ids;
         }
-        const movement = await post(
-          c,
-          { ...b, note: b.reason },
-          "reversal",
-          `${kind}_reversal`,
-          row.id,
-          posting,
-        );
-        await c.db`update inventory_movements set status='reversed',reversed_by_movement_id=${movement.movementId} where id=${original.id}`;
-        await c.db`update inventory_movements set reverses_movement_id=${original.id} where id=${movement.movementId}`;
+        /** @type {any} */ let movement = null;
+        /** @type {string[]} */ const reversalIds = [];
+        for (const [n, movementId] of movementIds.entries()) {
+          const [original] =
+            await c.db`select * from inventory_movements where id=${movementId} for update`;
+          if (original.status !== "posted")
+            invalid("Movement has already been reversed");
+          const rows =
+            await c.db`select * from inventory_movement_lines where movement_id=${original.id} order by line_number`;
+          /** @type {import('./posting.js').MovementLine[]} */ const posting = [];
+          for (const l of rows) {
+            const allocations =
+              await c.db`select * from inventory_allocations where movement_line_id=${l.id} order by allocation_sequence`;
+            for (const a of allocations.length
+              ? allocations
+              : [{ lot_id: null, quantity_base: l.quantity_base }])
+              posting.push({
+                productId: l.product_id,
+                quantityBase: Number(a.quantity_base),
+                fromLocationId: l.to_location_id,
+                toLocationId: l.from_location_id,
+                fromStockStatus: l.to_stock_status ?? "available",
+                toStockStatus: l.from_stock_status ?? "available",
+                lotId: a.lot_id,
+                uom: l.entered_uom_code ?? "base",
+                unitCostMinor: Number(l.unit_cost_minor ?? 0),
+              });
+          }
+          // One reversal movement per original movement; the writer takes at most 100 lines.
+          const key = n === 0 ? b.idempotencyKey : `${b.idempotencyKey}:r${n}`;
+          const reversal = await post(
+            c,
+            { ...b, idempotencyKey: key, note: b.reason },
+            "reversal",
+            `${kind}_reversal`,
+            row.id,
+            posting,
+          );
+          movement ??= reversal;
+          reversalIds.push(reversal.movementId);
+          await c.db`update inventory_movements set status='reversed',reversed_by_movement_id=${reversal.movementId} where id=${original.id}`;
+          await c.db`update inventory_movements set reverses_movement_id=${original.id} where id=${reversal.movementId}`;
+        }
         if (kind === "receipts")
           await c.db`update goods_receipts set status='cancelled',note=${b.reason} where id=${row.id}`;
         else
           await c.db`update inventory_adjustments set status='reversed',note=${b.reason} where id=${row.id}`;
-        return { id: row.id, ...movement };
+        return {
+          id: row.id,
+          ...movement,
+          ...(reversalIds.length > 1 ? { movementIds: reversalIds } : {}),
+        };
       },
     };
   commands["policies/save"] = {

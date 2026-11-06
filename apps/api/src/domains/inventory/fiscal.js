@@ -1,8 +1,12 @@
 import { actorFor } from "../../core/context.js";
 import { ApiError } from "../../core/errors.js";
 import { currentActor } from "../van/access.js";
-import { requireCapability } from "../../core/capabilities.js";
-import { requestOverride, decideOverride } from "../fiscal/authority.js";
+import { requireCapability, roleHas } from "../../core/capabilities.js";
+import {
+  requestOverride,
+  decideOverride,
+  authorityRule,
+} from "../fiscal/authority.js";
 import { enforceFinancialOverride } from "../fiscal/discounts.js";
 import {
   productPolicy,
@@ -12,18 +16,25 @@ import {
 } from "./common.js";
 /** F-124: the existing independent stock approval is also the one fiscal matrix decision.
  * Values/roles/locations are re-derived, never accepted from an authority form.
- * @param {any} c @param {any} document @param {any[]} rows @param {string} [creatorCapability] */
+ * @param {any} c @param {any} document @param {any[]} rows @param {string} [creatorCapability] @param {{tillCount?:boolean}} [options] */
 export async function enforceInventoryAuthority(
   c,
   document,
   rows,
   creatorCapability = "inventory.adjustment.request",
+  { tillCount = false } = {},
 ) {
   if (!rows.length) return;
   const userId = document.requested_by ?? document.created_by;
-  const requester = await currentActor(c.db, await actorFor(c.db, userId));
-  if (requester.profileId === c.actor.profileId)
+  const counter = await currentActor(c.db, await actorFor(c.db, userId));
+  if (counter.profileId === c.actor.profileId)
     invalid("Another person must approve stock changes");
+  // IP-INT2: a store cashier (or any role that may not request stock changes) can still count at the till. Their count
+  // is approved on the approver's own authority: the approver needs the adjustment capability and a stock band that
+  // covers the value; otherwise the count could never be approved.
+  const onApprover = tillCount && !roleHas(counter.role, creatorCapability);
+  const requester = onApprover ? await currentActor(c.db, c.actor) : counter;
+  if (onApprover) creatorCapability = "inventory.adjustment.approve";
   /** @type {Map<string,any[]>} */ const groups = new Map();
   for (const l of rows) {
     const locationId = l.location_id ?? document.location_id;
@@ -89,7 +100,11 @@ export async function enforceInventoryAuthority(
   for (const [orgUnitId, lines] of [...groups].sort(([a], [b]) =>
     a.localeCompare(b),
   )) {
-    await requireCapability(c, "inventory.approve", orgUnitId);
+    await requireCapability(
+      c,
+      onApprover ? "inventory.adjustment.approve" : "inventory.approve",
+      orgUnitId,
+    );
     const id = crypto.randomUUID(),
       amount = lines.reduce((n, l) => n + BigInt(l.valueMinor), 0n);
     const input = {
@@ -112,6 +127,22 @@ export async function enforceInventoryAuthority(
         totalMinor: String(amount),
       },
     };
+    if (onApprover) {
+      const rule = await authorityRule(c.db, requester, input);
+      if (amount > BigInt(rule.self_limit_centavos))
+        throw new ApiError(
+          "above_approval_limit",
+          409,
+          "This count is worth more than you may approve on your own. Ask a manager with a higher limit to approve it.",
+        );
+      await enforceFinancialOverride(
+        c.db,
+        requester,
+        { ...input, overrideId: id, operationId: document.id },
+        c.env ?? process.env,
+      );
+      continue;
+    }
     await requestOverride(c.db, requester, input);
     await decideOverride(
       c.db,

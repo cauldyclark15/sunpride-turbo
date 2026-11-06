@@ -26,6 +26,9 @@ export const MEDIA_PURPOSES = Object.freeze([
   "prospect-photo",
   "attendance-photo",
   "bank-deposit",
+  // IP-INT2: count finding photos (owner = the count) and bad-order / disposition photos (owner optional)
+  "count-finding",
+  "disposition-photo",
 ]);
 export const MEDIA_MIMES = Object.freeze(["image/jpeg"]);
 export const MAX_MEDIA_BYTES = 10 * 1024 * 1024;
@@ -81,7 +84,7 @@ async function claim(ctx) {
   if (typeof purpose !== "string" || !MEDIA_PURPOSES.includes(purpose))
     throw invalid("Invalid purpose");
   if (!(ownerId === null || isUuid(ownerId))) throw invalid("Invalid ownerId");
-  if (purpose !== "truck-damage" && ownerId === null)
+  if (!["truck-damage", "disposition-photo"].includes(purpose) && ownerId === null)
     throw invalid("visit-photo needs ownerId");
   if (typeof mime !== "string" || !MEDIA_MIMES.includes(mime))
     throw invalid("Unsupported media type", "unsupported_media");

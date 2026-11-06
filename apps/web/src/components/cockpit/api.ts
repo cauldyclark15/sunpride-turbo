@@ -6,6 +6,7 @@ import type {
   AnalyticsResponses,
   TargetLevel,
   TargetsResponse,
+  ValuationResponse,
 } from "./types";
 
 /**
@@ -83,6 +84,52 @@ export function csvHref(page: AnalyticsPage, query: AnalyticsQuery) {
   return buildApiUrl(analyticsPath(page), {
     ...cleanQuery(query),
     format: "xlsx",
+  });
+}
+
+// ---------- stock valuation (IP-INT2: the stock page reads /inventory/valuation, cost value first) ----------
+
+export const VALUATION_PATH = "/api/v1/inventory/valuation";
+
+/** Only the scope the page can pass on: a branch/depot. Cost basis, one row per product and place. */
+export function valuationQuery(query: AnalyticsQuery) {
+  const out: Record<string, string> = { basis: "cost", groupBy: "product" };
+  if (query.locationId) out.locationId = query.locationId;
+  return out;
+}
+
+export async function fetchValuation(
+  query: AnalyticsQuery,
+  signal?: AbortSignal,
+): Promise<ValuationResponse> {
+  if (isFixtureMode()) {
+    const { analyticsFixture, fixtureNow, valuationFromStock } =
+      await import("./fixtures");
+    return valuationFromStock(
+      analyticsFixture("stock", cleanQuery(query), fixtureNow()),
+    );
+  }
+  return apiFetch<ValuationResponse>(VALUATION_PATH, {
+    query: valuationQuery(query),
+    signal,
+  });
+}
+
+/** Stock value and quantity, kept fresh by the `inventory` topic. */
+export function useValuation(query: AnalyticsQuery | null) {
+  const result = useApi<ValuationResponse>(
+    query ? ["inventory", "valuation", valuationQuery(query)] : null,
+    ({ signal }) => fetchValuation(query ?? {}, signal),
+  );
+  useLive("inventory", [["inventory", "valuation"]]);
+  return result;
+}
+
+/** Download of the same view in pesos (cost value column first). */
+export function valuationCsvHref(query: AnalyticsQuery) {
+  return buildApiUrl(VALUATION_PATH, {
+    ...valuationQuery(query),
+    format: "csv",
   });
 }
 

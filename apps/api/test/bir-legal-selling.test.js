@@ -875,3 +875,44 @@ test("tax summary shows privilege discounts as their own lines and leaves voided
   });
   expect(book.body.claims[0].document_number).toMatch(/^SAMPLE-SI-/);
 });
+
+test("IP-INT2 ask 1: after senior/PWD sales the Z shows non-zero privilege lines that match the claims, with no double counting", async () => {
+  const [sh] =
+    await h.db`select till_day_id from store_shifts where id=${shift}`;
+  const close = await pushRaw(
+    op("store.shift.close", { declaredCentavos: "10000" }),
+  );
+  expect(close.status).toBe("applied");
+  const z = await web(`days/${sh.till_day_id}/z`, {});
+  const [row] =
+    await h.db`select * from store_z_readings where till_day_id=${sh.till_day_id}`;
+  /** @type {any[]} */ const sales =
+    await h.db`select s.receipt from store_sales s join orders o on o.id=s.order_id where s.shift_id=${shift} and o.status<>'voided'`;
+  const sum = (/** @type {(r:any)=>bigint} */ f) =>
+    sales.reduce((/** @type {bigint} */ n, /** @type {any} */ s) => n + f(s.receipt), 0n);
+  const claim = (/** @type {any} */ r, /** @type {string} */ t, k = "discountMinor") =>
+    BigInt(r.privilege?.byType?.[t]?.[k] ?? 0);
+  // the sale writes the shape the Z reads
+  expect(sales.some((/** @type {any} */ s) => s.receipt.privilege?.byType?.senior)).toBe(true);
+  expect(BigInt(row.senior_discount_centavos)).toBeGreaterThan(0n);
+  expect(BigInt(row.pwd_discount_centavos)).toBeGreaterThan(0n);
+  expect(BigInt(row.senior_discount_centavos)).toBe(sum((r) => claim(r, "senior")));
+  expect(BigInt(row.pwd_discount_centavos)).toBe(sum((r) => claim(r, "pwd")));
+  expect(BigInt(row.vat_removed_centavos)).toBe(
+    sum((r) => claim(r, "senior", "vatRemovedMinor") + claim(r, "pwd", "vatRemovedMinor")),
+  );
+  // gross = what the customers were charged before any discount: no promo/privilege double count
+  const gross = sum((r) =>
+    r.lines.reduce(
+      (/** @type {bigint} */ n, /** @type {any} */ l) =>
+        n + BigInt(l.lineTotalCentavos) + BigInt(l.discountCentavos),
+      0n,
+    ),
+  );
+  expect(BigInt(row.gross_sales_centavos)).toBe(gross);
+  expect(BigInt(row.promo_discount_centavos)).toBe(0n);
+  expect(
+    z.printModel.lines.find((/** @type {any} */ l) => l.label.startsWith("Senior"))
+      .value,
+  ).not.toBe("₱0.00");
+});

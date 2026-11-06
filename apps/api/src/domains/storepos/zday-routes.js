@@ -17,7 +17,7 @@ import {
 import { registerFor } from "./model.js";
 import {
   CASH_KINDS,
-  CASH_REASONS,
+  cashReasonsFor,
   CASH_KIND_LABELS,
   listMovements,
   recordCashMovement,
@@ -245,11 +245,13 @@ export function installZday(router, platform) {
     const actor = await currentActor(c.db, c.actor);
     await requireCapability({ ...c, actor }, "van.read");
     return {
-      kinds: CASH_KINDS.map((k) => ({
-        kind: k,
-        label: CASH_KIND_LABELS[k],
-        reasons: CASH_REASONS[k],
-      })),
+      kinds: await Promise.all(
+        CASH_KINDS.map(async (k) => ({
+          kind: k,
+          label: CASH_KIND_LABELS[k],
+          reasons: await cashReasonsFor(c.db, actor.organizationId ?? "sunpride", k),
+        })),
+      ),
     };
   });
   router.get("/api/v1/storepos/supervisors", async (/** @type {any} */ c) =>

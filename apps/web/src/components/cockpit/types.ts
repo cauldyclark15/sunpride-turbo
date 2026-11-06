@@ -313,6 +313,9 @@ export type StockRow = {
   category: string;
   onHand: { cases: number; pieces: number; display: string };
   valueCentavos: number | null;
+  /** IP-INT2: from /inventory/valuation. Unknown price stays null; `costKnown` false means the value above is not real cost. */
+  sellingValueCentavos?: number | null;
+  costKnown?: boolean;
   avgDailySalesCases: number | null;
   daysCover: number | null;
   numericDistributionPct: number | null;
@@ -333,6 +336,43 @@ export type StockResponse = ResponseHeader & {
     cases: number;
   }>;
   rows: StockRow[];
+};
+
+// ---------- /inventory/valuation (IP-VALUE; the stock page's source of truth for quantity and value) ----------
+export type ValuationQty = {
+  base: number;
+  cases: number | null;
+  pieces: number | null;
+  display: string;
+  valueCentavos: number | null;
+};
+export type ValuationRow = {
+  productId: string;
+  code: string;
+  name: string;
+  category: string | null;
+  locationId: string;
+  locationName?: string;
+  onHand: ValuationQty;
+  available: ValuationQty;
+  units?: { basePerCase: number | null };
+  costValueCentavos: number;
+  costKnown: boolean;
+  sellingValueCentavos: number | null;
+};
+export type ValuationResponse = {
+  asOf: number;
+  basis: "cost" | "selling";
+  groupBy: "product" | "lot";
+  valueLabel: string;
+  secondaryValueLabel: string;
+  rows: ValuationRow[];
+  totals: {
+    costValueCentavos: number | null;
+    sellingValueCentavos: number | null;
+    rowsWithoutCost: number;
+    rowsWithoutPrice: number;
+  };
 };
 
 // ---------- /analytics/vans ----------

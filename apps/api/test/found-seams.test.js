@@ -422,3 +422,36 @@ describe("document numbers", () => {
     ).toBe("DSP-CEB-261106-0001");
   });
 });
+
+describe("IP-INT2 ask 3: till cash reasons are rows of the reason table", () => {
+  it("the old store-till codes are seeded as cash rows and stay out of stock pickers", async () => {
+    const drops = await listReasonCodes(h.db, "sunpride", { cashKind: "drop" });
+    expect(drops.map((r) => r.code).sort()).toEqual(["end_of_day", "safe_drop", "till_limit"]);
+    expect(drops.every((r) => r.category === "cash")).toBe(true);
+    const stock = await listReasonCodes(h.db, "sunpride");
+    expect(stock.some((r) => r.category === "cash")).toBe(false);
+    const asked = await call(viewer, "reason-codes?category=cash");
+    expect(asked.body.length).toBe(15);
+    expect((await call(viewer, "reason-codes?kind=no_sale")).body.map((/** @type {any} */ r) => r.code).sort()).toEqual(["change_request", "drawer_check", "other"]);
+    // a brand new organization gets them from the shipped defaults too
+    expect((await listReasonCodes(h.db, "acme-cash", { category: "cash" })).length).toBe(15);
+  });
+  it("a cash reason only works for its own movement; stock reasons never work for cash; a note is asked for where needed", async () => {
+    const ok = await requireReason(h.db, "sunpride", "till_limit", { cashKind: "drop", direction: "out" });
+    expect(ok.code).toBe("till_limit");
+    await expect(requireReason(h.db, "sunpride", "till_limit", { cashKind: "paid_out" })).rejects.toThrow("Choose a reason");
+    await expect(requireReason(h.db, "sunpride", "EXP", { cashKind: "drop" })).rejects.toThrow("Choose a reason");
+    await expect(requireReason(h.db, "sunpride", "till_limit", { direction: "out" })).rejects.toThrow("Choose a reason");
+    await expect(requireReason(h.db, "sunpride", "other", { cashKind: "paid_out" })).rejects.toThrow("needs one");
+    expect((await requireReason(h.db, "sunpride", "other", { cashKind: "paid_out", note: "Ice" })).code).toBe("other");
+  });
+  it("an admin can retire or edit a till reason through the same save route; a cash reason needs its movements", async () => {
+    const bad = await call(admin, "reason-codes/save", { code: "NEW-CASH", label: "New cash reason", category: "cash", direction: "out" });
+    expect(bad.status).toBe(422);
+    const good = await call(admin, "reason-codes/save", { code: "NEW-CASH", label: "New cash reason", category: "cash", direction: "out", cashKinds: ["drop"] });
+    expect(good.status).toBe(200);
+    const edit = await call(admin, "reason-codes/save", { code: "till_limit", label: "Drawer is full", category: "cash", direction: "out", cashKinds: ["drop"] });
+    expect(edit.body.code).toBe("till_limit");
+    expect(edit.body.label).toBe("Drawer is full");
+  });
+});

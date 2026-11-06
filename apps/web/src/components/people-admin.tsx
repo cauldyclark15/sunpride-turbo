@@ -62,6 +62,7 @@ export async function performPeopleAssignment(
   const positionId = String(data.get("positionId") ?? "");
   const supervisorId = String(data.get("supervisorId") ?? "");
   const employeeCode = String(data.get("employeeCode") ?? "").trim();
+  const phone = String(data.get("phone") ?? "").trim();
   return assign({
     profileId: selected._id,
     orgUnitId: String(data.get("orgUnitId")) as Id<"orgUnits">,
@@ -69,6 +70,7 @@ export async function performPeopleAssignment(
     ...(positionId ? { positionId: positionId as Id<"positions"> } : {}),
     ...(supervisorId ? { supervisorId: supervisorId as Id<"profiles"> } : {}),
     ...(!selected.employeeCode && employeeCode ? { employeeCode } : {}),
+    ...(phone !== (selected.phone ?? "") ? { phone: phone || null } : {}),
     reason,
   });
 }
@@ -412,6 +414,14 @@ export function PeopleAdmin() {
                 defaultValue={selected.employeeCode ?? ""}
                 disabled={!!selected.employeeCode}
                 placeholder="e.g. EMP-001"
+              />
+            </FormField>
+            <FormField label="Phone number">
+              <Input
+                name="phone"
+                type="tel"
+                defaultValue={selected.phone ?? ""}
+                placeholder="e.g. 0917 123 4567"
               />
             </FormField>
             <FormField label="Reason">

@@ -25,6 +25,7 @@ const { install } = await import("../src/domains/inventory/index.js");
 const { postMovement } = await import("../src/domains/inventory/posting.js");
 const { commands } = await import("../src/domains/inventory/commands.js");
 const { planDueCounts } = await import("../src/domains/inventory/counts.js");
+const { canClaimInventoryMedia } = await import("../src/domains/inventory/media.js");
 
 /** @type {import('./harness.js').Harness} */ let h;
 /** @type {ReturnType<typeof profileStore>} */ let profiles;
@@ -170,6 +171,8 @@ beforeAll(async () => {
   cs = caseUom.id;
   for (const role of ["operations", "manager"])
     await h.db`insert into fiscal_authority_rules(org_unit_id,kind,role,channel,min_centavos,max_centavos,self_limit_centavos,approver_roles,offline_allowed,effective_from,sample) values(${unit},'stock',${role},'*',0,100000000,0,${["approver"]},false,'2026-01-01',true)`;
+  // IP-INT2: an admin's own band (used when a till cashier's count is approved on the approver's authority).
+  await h.db`insert into fiscal_authority_rules(org_unit_id,kind,role,channel,min_centavos,max_centavos,self_limit_centavos,approver_roles,offline_allowed,effective_from,sample) values(${unit},'stock','admin','*',0,100000000,100000,${["super_admin"]},false,'2026-01-01',true)`;
 }, 30000);
 afterAll(async () => {
   await h?.close();
@@ -366,7 +369,7 @@ describe("count: save per line, found items, findings", () => {
     expect(again.body.created).toBe(false);
     expect(Number((await h.db`select counted_base from stock_count_lines where id=${add.body.lineId}`)[0].counted_base)).toBe(4);
     // A damaged finding with a photo.
-    const [file] = await h.db`insert into files (owner_id,purpose,sha256,mime,size,created_by) values (null,'truck-damage',${"a".repeat(64)},'image/jpeg',1234,${clerk.userId}) returning id`;
+    const [file] = await h.db`insert into files (owner_id,purpose,sha256,mime,size,status,created_by) values (null,'count-finding',${"a".repeat(64)},'image/jpeg',1234,'stored',${clerk.userId}) returning id`;
     const foreignPhoto = await command(clerk, "counts/save-lines", { sessionId: sid, lines: [{ lineId: ls.find((/** @type {any} */ l) => !l.lotNumber).id, countedBase: 8, finding: "damaged", photoFileId: crypto.randomUUID() }] });
     expect(foreignPhoto.status).toBe(422);
     const ok = await command(clerk, "counts/save-lines", { sessionId: sid, lines: [{ lineId: ls.find((/** @type {any} */ l) => !l.lotNumber).id, countedBase: 8, finding: "damaged", note: "2 dented", photoFileId: file.id }, { lineId: l1.id, countedBase: 12 }] });
@@ -464,7 +467,7 @@ describe("review: per line, sorted by peso difference, tolerance, recount, reaso
     const plan = await command(planner, "counts/plan", { locationId: loc, assignedTo: clerk.userId });
     const sid = plan.body.id;
     const ls = (await lines(clerk, sid)).lines;
-    const [photo] = await h.db`insert into files (owner_id,purpose,sha256,mime,size,created_by) values (null,'truck-damage',${"b".repeat(64)},'image/jpeg',99,${clerk.userId}) returning id`;
+    const [photo] = await h.db`insert into files (owner_id,purpose,sha256,mime,size,status,created_by) values (null,'count-finding',${"b".repeat(64)},'image/jpeg',99,'stored',${clerk.userId}) returning id`;
     await saveBy(clerk, sid, ls, { [a.id]: 20, [b.id]: 25 });
     await command(clerk, "counts/save-lines", { sessionId: sid, lines: [{ lineId: ls.find((/** @type {any} */ l) => l.productId === a.id).id, countedBase: 20, finding: "damaged" }] });
     expect((await command(clerk, "counts/submit", { sessionId: sid })).body.needsReview).toBe(2);
@@ -614,6 +617,100 @@ describe("rules that stay", () => {
     expect(await balance(loc, b)).toBe(9);
     // a left the shelf (-1) BEFORE it was counted 9: nothing to correct. The old engine would have refused the whole count.
     expect(await balance(loc, a)).toBe(9);
+  });
+});
+
+describe("IP-INT2 ask 7: a 150-line count is posted in batches of 100 and reversed in full", () => {
+  it("approve posts two movements; adjustments/reverse reverses both and puts every shelf back", async () => {
+    const loc = await location(`Rev-${crypto.randomUUID()}`);
+    /** @type {any[]} */ const ps = [];
+    for (let i = 0; i < 150; i++) ps.push(await product());
+    for (let i = 0; i < 150; i += 100)
+      await stockIn(loc, ps.slice(i, i + 100).map((p) => ({ p, qty: 10, cost: 100 })));
+    const plan = await command(planner, "counts/plan", { locationId: loc, assignedTo: clerk.userId, blindCount: true });
+    expect(plan.body.lines).toBe(150);
+    const sid = plan.body.id;
+    const ls = (await lines(clerk, sid, "limit=200")).lines;
+    expect(ls).toHaveLength(150);
+    const save = await command(clerk, "counts/save-lines", { sessionId: sid, lines: ls.map((/** @type {any} */ l) => ({ lineId: l.id, countedBase: 9 })) });
+    expect(save.status).toBe(200);
+    expect((await command(clerk, "counts/submit", { sessionId: sid })).status).toBe(200);
+    const done = await command(sup, "counts/approve", { sessionId: sid });
+    expect(done.status).toBe(200);
+    expect(done.body.posted).toBe(150);
+    const [session] = await h.db`select movement_ids from stock_count_sessions where id=${sid}`;
+    expect(session.movement_ids).toHaveLength(2);
+    expect(await balance(loc, ps[0])).toBe(9);
+    expect(await balance(loc, ps[149])).toBe(9);
+    // reversal: both batches come back, not just the first
+    const rev = await command(sup, "adjustments/reverse", { adjustmentId: done.body.adjustmentId, reason: "Counted the wrong aisle" });
+    expect(rev.status).toBe(200);
+    expect(rev.body.movementIds).toHaveLength(2);
+    for (const i of [0, 99, 100, 149]) expect(await balance(loc, ps[i])).toBe(10);
+    const moved = await h.db`select id,status from inventory_movements where id in ${h.db(session.movement_ids)}`;
+    expect(moved.every((/** @type {any} */ m) => m.status === "reversed")).toBe(true);
+    expect((await h.db`select status from inventory_adjustments where id=${done.body.adjustmentId}`)[0].status).toBe("reversed");
+    // and it cannot be reversed twice
+    const again = await command(sup, "adjustments/reverse", { adjustmentId: done.body.adjustmentId, reason: "Again" });
+    expect(again.status).toBeGreaterThanOrEqual(400);
+  }, 120000);
+});
+
+describe("IP-INT2 ask 2: a store cashier's till count can be approved", () => {
+  it("a sales-role counter (no stock band, no count capability) is approved by someone with a stock band; the counter and an approver above their limit are refused", async () => {
+    const loc = await location(`Till-${crypto.randomUUID()}`);
+    const [a, b] = [await product(), await product()];
+    await stockIn(loc, [{ p: a, qty: 10, cost: 100 }, { p: b, qty: 10, cost: 100 }]);
+    const [location_] = await h.db`select * from inventory_locations where id=${loc}`;
+    const cashier = await person("sales");
+    const ctxFor = (/** @type {any} */ db, /** @type {any} */ actor) => ({ db, actor, now: Date.now() });
+    await tx(h.db, async (db) => {
+      const started = await commands["counts/start"].run(ctxFor(db, cashier), { countType: "full", blindCount: true, idempotencyKey: "till-1" }, location_);
+      const [s] = await db`select * from stock_count_sessions where id=${started.id}`;
+      const rows = await db`select * from stock_count_lines where session_id=${s.id}`;
+      await commands["counts/submit"].run(
+        ctxFor(db, cashier),
+        { lines: rows.map((/** @type {any} */ r) => ({ lineId: r.id, countedBase: 8 })), idempotencyKey: "till-2" },
+        s,
+      );
+    });
+    const [s] = await h.db`select * from stock_count_sessions where location_id=${loc}`;
+    expect(s.status).toBe("submitted");
+    // the cashier cannot approve their own count (and cannot even reach the command)
+    expect((await command(cashier, "counts/approve", { sessionId: s.id })).status).toBe(403);
+    // a manager (adjustment capability, but a band of P0) is told, in plain words, to ask someone with a higher limit
+    const low = await command(planner, "counts/approve", { sessionId: s.id });
+    expect(low.status).toBe(409);
+    expect(low.body.error.message).toContain("more than you may approve");
+    expect(await balance(loc, a)).toBe(10);
+    // an admin (band P1,000) approves it: 4 pieces at P1.00 = P4.00
+    const ok = await command(admin, "counts/approve", { sessionId: s.id });
+    expect(ok.status).toBe(200);
+    expect(ok.body.posted).toBe(2);
+    expect(await balance(loc, a)).toBe(8);
+    expect(await balance(loc, b)).toBe(8);
+    const [done] = await h.db`select status from stock_count_sessions where id=${s.id}`;
+    expect(done.status).toBe("posted");
+  });
+});
+
+describe("IP-INT2 ask 4: count-finding photos", () => {
+  it("only a count-finding photo can be attached to a finding; only the counter may claim one for their open count", async () => {
+    const loc = await location(`Photo-${crypto.randomUUID()}`);
+    const p = await product();
+    await stockIn(loc, [{ p, qty: 5 }]);
+    const plan = await command(planner, "counts/plan", { locationId: loc, assignedTo: clerk.userId, blindCount: true });
+    const sid = plan.body.id;
+    const [line] = (await lines(clerk, sid)).lines;
+    const [other] = await h.db`insert into files (owner_id,purpose,sha256,mime,size,status,created_by) values (null,'truck-damage',${crypto.randomUUID().replaceAll("-", "").repeat(2)},'image/jpeg',10,'stored',${clerk.userId}) returning id`;
+    const wrong = await command(clerk, "counts/save-lines", { sessionId: sid, lines: [{ lineId: line.id, countedBase: 4, finding: "damaged", photoFileId: other.id }] });
+    expect(wrong.status).toBe(422);
+    const claim = (/** @type {any} */ who, /** @type {any} */ owner) => canClaimInventoryMedia(h.db, who, { purpose: "count-finding", ownerId: owner, deviceId: crypto.randomUUID() });
+    expect(await claim(clerk, sid)).toBe(true);
+    expect(await claim(clerk2, sid)).toBe(false);
+    expect(await claim(clerk, null)).toBe(false);
+    expect(await canClaimInventoryMedia(h.db, sup, { purpose: "disposition-photo", ownerId: null, deviceId: crypto.randomUUID() })).toBe(false); // an approver may not raise bad orders
+    expect(await canClaimInventoryMedia(h.db, planner, { purpose: "disposition-photo", ownerId: null, deviceId: crypto.randomUUID() })).toBe(true);
   });
 });
 

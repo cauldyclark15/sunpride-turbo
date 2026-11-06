@@ -1,6 +1,6 @@
 "use client";
 
-import { csvHref, useAnalytics } from "../api";
+import { csvHref, useAnalytics, useValuation, valuationCsvHref } from "../api";
 import {
   formatCases,
   formatCasesPieces,
@@ -20,7 +20,13 @@ import {
   StatusChip,
   type DrillColumn,
 } from "../kit";
-import type { StockResponse, StockRow } from "../types";
+import type {
+  Kpi,
+  StockResponse,
+  StockRow,
+  ValuationResponse,
+  ValuationRow,
+} from "../types";
 import { usePageQuery } from "./shared";
 
 const STATUS_RANK: Record<string, number> = {
@@ -61,10 +67,31 @@ export const stockColumns: DrillColumn<StockRow>[] = [
   },
   {
     key: "value",
-    label: "Value",
+    label: "Cost value",
     align: "right",
-    render: (r) => formatPhp(r.valueCentavos),
+    render: (r) =>
+      r.costKnown === false ? (
+        <span className="text-[#a15c07]" title="No cost recorded yet">
+          No cost yet
+        </span>
+      ) : (
+        formatPhp(r.valueCentavos)
+      ),
     sort: (r) => r.valueCentavos,
+  },
+  {
+    key: "sellingValue",
+    label: "Selling value",
+    align: "right",
+    render: (r) =>
+      r.sellingValueCentavos === undefined ? (
+        <span className="text-muted">—</span>
+      ) : r.sellingValueCentavos === null ? (
+        <span className="text-muted">No price yet</span>
+      ) : (
+        formatPhp(r.sellingValueCentavos)
+      ),
+    sort: (r) => r.sellingValueCentavos ?? null,
   },
   {
     key: "rate",
@@ -140,7 +167,157 @@ export const stockColumns: DrillColumn<StockRow>[] = [
   },
 ];
 
-export function StockView({ data, csv }: { data: StockResponse; csv: string }) {
+export type StockViewData = Pick<StockResponse, "kpis" | "locations" | "rows">;
+
+const stockKpi = (
+  key: string,
+  label: string,
+  unit: Kpi["unit"],
+  value: number | null,
+  definition: string,
+  status: Kpi["status"] = "ok",
+): Kpi => ({
+  key,
+  label,
+  value,
+  unit,
+  target: null,
+  prior: null,
+  deltaPct: null,
+  status: value === null ? "unknown" : status,
+  definition,
+});
+
+/**
+ * IP-INT2: the stock page's numbers (what is on hand, what it is worth) come from /inventory/valuation, the same figures
+ * as Stock on hand and the stock cards. Cost value is first, selling value second. Analytics only adds the selling-rate
+ * columns (days of cover, reach) for the same product, when it has them.
+ */
+export function stockFromValuation(
+  valuation: ValuationResponse,
+  sales: Pick<StockResponse, "rows"> | null,
+): StockViewData {
+  const byProduct = new Map<string, ValuationRow[]>();
+  for (const r of valuation.rows) {
+    const list = byProduct.get(r.productId) ?? [];
+    list.push(r);
+    byProduct.set(r.productId, list);
+  }
+  const analytics = new Map((sales?.rows ?? []).map((r) => [r.productId, r]));
+  const rows: StockRow[] = [...byProduct.values()].map((list) => {
+    const first = list[0]!;
+    const base = list.reduce((n, r) => n + r.onHand.base, 0);
+    const perCase = first.units?.basePerCase ?? null;
+    const onHand =
+      list.length === 1
+        ? {
+            cases: first.onHand.cases ?? 0,
+            pieces: first.onHand.pieces ?? 0,
+            display: first.onHand.display,
+          }
+        : perCase
+          ? {
+              cases: Math.floor(base / perCase),
+              pieces: base % perCase,
+              display: formatCasesPieces(
+                Math.floor(base / perCase),
+                base % perCase,
+              ),
+            }
+          : { cases: 0, pieces: base, display: `${base} pc` };
+    const known = list.every((r) => r.costKnown);
+    const priced = list.every((r) => r.sellingValueCentavos !== null);
+    const sold = analytics.get(first.productId);
+    return {
+      productId: first.productId,
+      code: first.code,
+      name: first.name,
+      category: first.category ?? "",
+      onHand,
+      valueCentavos: list.reduce((n, r) => n + r.costValueCentavos, 0),
+      costKnown: known,
+      sellingValueCentavos: priced
+        ? list.reduce((n, r) => n + (r.sellingValueCentavos ?? 0), 0)
+        : null,
+      avgDailySalesCases: sold?.avgDailySalesCases ?? null,
+      daysCover: sold?.daysCover ?? null,
+      numericDistributionPct: sold?.numericDistributionPct ?? null,
+      buyingReachPct: sold?.buyingReachPct ?? null,
+      weightedDistributionPct: sold?.weightedDistributionPct ?? null,
+      unmeasuredStores: sold?.unmeasuredStores,
+      oosStores: sold?.oosStores ?? 0,
+      status: sold?.status ?? "unknown",
+    };
+  });
+  const places = new Map<
+    string,
+    { label: string; valueCentavos: number; cases: number }
+  >();
+  for (const r of valuation.rows) {
+    const place = places.get(r.locationId) ?? {
+      label: r.locationName ?? "Place",
+      valueCentavos: 0,
+      cases: 0,
+    };
+    place.valueCentavos += r.costValueCentavos;
+    place.cases += r.onHand.cases ?? 0;
+    places.set(r.locationId, place);
+  }
+  const t = valuation.totals;
+  return {
+    kpis: [
+      stockKpi(
+        "stockValue",
+        "Stock value (at cost)",
+        "php",
+        t.costValueCentavos,
+        "Everything on hand valued at the weighted average cost the stock ledger keeps. Same figure as Stock on hand.",
+      ),
+      stockKpi(
+        "sellingValue",
+        "Selling value",
+        "php",
+        t.sellingValueCentavos,
+        "The same stock at today's selling price. Shown second; cost is the figure to trust.",
+      ),
+      stockKpi(
+        "withoutCost",
+        "Products with no cost yet",
+        "count",
+        t.rowsWithoutCost,
+        "Stock with no cost on record. Its value above is not real cost until a receipt or count gives it one.",
+        t.rowsWithoutCost ? "watch" : "ok",
+      ),
+      stockKpi(
+        "withoutPrice",
+        "Products with no price yet",
+        "count",
+        t.rowsWithoutPrice,
+        "Stock with no selling price. It is left out of the selling value, never counted as zero.",
+        t.rowsWithoutPrice ? "watch" : "ok",
+      ),
+    ],
+    locations: [...places].map(([locationId, p]) => ({
+      locationId,
+      label: p.label,
+      kind: /truck|van/i.test(p.label) ? "truck" : "depot",
+      valueCentavos: p.valueCentavos,
+      cases: p.cases,
+    })),
+    rows,
+  };
+}
+
+export function StockView({
+  data,
+  csv,
+  valuationCsv,
+}: {
+  data: StockViewData;
+  csv: string;
+  /** CSV of the valuation (pesos, cost value column first). When set it replaces the analytics Excel link. */
+  valuationCsv?: string;
+}) {
   return (
     <div className="grid gap-4">
       <KpiGrid kpis={data.kpis} />
@@ -184,9 +361,21 @@ export function StockView({ data, csv }: { data: StockResponse; csv: string }) {
         )}
       </Panel>
       <Panel
-        csvHref={csv}
+        {...(valuationCsv
+          ? {
+              actions: (
+                <a
+                  href={valuationCsv}
+                  download
+                  className="ck-noprint inline-flex h-8 items-center rounded-lg border border-border bg-surface px-3 text-[13px] font-medium text-foreground hover:bg-default-soft"
+                >
+                  Download CSV (pesos)
+                </a>
+              ),
+            }
+          : { csvHref: csv })}
         title="Every product"
-        question="Stock exceptions first. Quantities are cases and pieces."
+        question="Stock exceptions first. Quantities are cases and pieces; cost value comes first, selling value second."
         flush
       >
         <DrillTable
@@ -210,21 +399,28 @@ export function StockView({ data, csv }: { data: StockResponse; csv: string }) {
 
 export function StockPage() {
   const { query } = usePageQuery();
-  const result = useAnalytics("stock", query);
+  const valuation = useValuation(query);
+  const sales = useAnalytics("stock", query);
   return (
     <CockpitPage
       title="Products & stock"
       question="Is the right stock in the right place?"
-      header={result.data}
+      header={sales.data}
       bar={
         <PeriodScopeBar
           showChannel={false}
-          scopeLabel={result.data?.scope.label}
+          scopeLabel={sales.data?.scope.label}
         />
       }
     >
-      <PageData result={result} label="stock figures">
-        {(data) => <StockView data={data} csv={csvHref("stock", query)} />}
+      <PageData result={valuation} label="stock figures">
+        {(data) => (
+          <StockView
+            data={stockFromValuation(data, sales.data ?? null)}
+            csv={csvHref("stock", query)}
+            valuationCsv={valuationCsvHref(query)}
+          />
+        )}
       </PageData>
     </CockpitPage>
   );

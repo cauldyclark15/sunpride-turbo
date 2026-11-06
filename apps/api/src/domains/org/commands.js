@@ -149,6 +149,16 @@ export async function orgCommand(c, action, b) {
   return null;
 }
 
+/** A staff phone number: digits with an optional leading +, spaces, dashes and brackets; blank clears it. @param {any} value */
+export function phoneNumber(value) {
+  if (value === null || (typeof value === "string" && !value.trim()))
+    return null;
+  const text = required(value, "Phone number", 25);
+  if (!/^\+?[0-9][0-9 ()-]{5,24}$/.test(text))
+    rule("Enter the phone number with digits only, for example 0917 123 4567");
+  return text;
+}
+
 /** Single audited history path for assignments and invitations. @param {Ctx} c @param {Row} b */
 export async function assignPerson(c, b) {
   const target = await access(c, "people", uuid(b.profileId), "admin.manage");
@@ -201,6 +211,8 @@ export async function assignPerson(c, b) {
     }
     if (cursor) rule("Supervisor chain too long");
   }
+  // IP-INT2: the office keeps a phone number for staff (blank clears it).
+  const phone = b.phone === undefined ? undefined : phoneNumber(b.phone);
   const employeeCode =
     b.employeeCode === undefined ? target.employee_code : code(b.employeeCode);
   if (target.employee_code && employeeCode !== target.employee_code)
@@ -247,6 +259,7 @@ export async function assignPerson(c, b) {
   /** @type {Row} */ const projection = {
     employee_code: employeeCode,
     scope_epoch: Number(target.scope_epoch) + 1,
+    ...(phone === undefined ? {} : { phone }),
   };
   if (requestedFrom === undefined || from <= c.now)
     Object.assign(projection, {

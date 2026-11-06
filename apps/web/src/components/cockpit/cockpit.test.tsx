@@ -7,9 +7,15 @@ vi.mock("next/navigation", () => ({
   useSearchParams: () => new URLSearchParams(),
 }));
 
-import { csvHref, fixtureModeAllowed } from "./api";
+import {
+  csvHref,
+  fixtureModeAllowed,
+  valuationCsvHref,
+  valuationQuery,
+  VALUATION_PATH,
+} from "./api";
 import { breadcrumbs, decodeCrumbs, drillHref } from "./drill";
-import { analyticsFixture, fixtureNow } from "./fixtures";
+import { analyticsFixture, fixtureNow, valuationFromStock } from "./fixtures";
 import {
   formatCasesPieces,
   formatKpiValue,
@@ -25,7 +31,7 @@ import { AgentDayView, CoverageView } from "./pages/coverage";
 import { DecideView } from "./pages/decide";
 import { MoneyView } from "./pages/money";
 import { SalesView } from "./pages/sales";
-import { StockView } from "./pages/stock";
+import { StockView, stockColumns, stockFromValuation } from "./pages/stock";
 import { StoresView, StoreView } from "./pages/stores";
 import { TodayView } from "./pages/today";
 import { VansView } from "./pages/vans";
@@ -559,5 +565,119 @@ describe("F-602 F-605 one labelled measurement vocabulary", () => {
     expect(out).toContain(formatPct(80));
     expect(out).toContain(formatPct(90));
     expect(out).not.toContain("Stores carrying");
+  });
+});
+
+describe("IP-INT2: Products & stock reads the stock valuation, cost value first", () => {
+  it("asks /inventory/valuation for cost, one row per product, and links its pesos CSV", () => {
+    expect(VALUATION_PATH).toBe("/api/v1/inventory/valuation");
+    expect(valuationQuery({ ...MTD, channel: "gt" })).toEqual({
+      basis: "cost",
+      groupBy: "product",
+    });
+    expect(valuationCsvHref(MTD)).toContain("/api/v1/inventory/valuation");
+    expect(valuationCsvHref(MTD)).toContain("format=csv");
+  });
+
+  it("takes quantity and value from the valuation, not from analytics; cost value comes before selling value", () => {
+    const sales = analyticsFixture("stock", MTD, NOW);
+    const valuation = valuationFromStock(sales);
+    valuation.rows[0] = {
+      ...valuation.rows[0]!,
+      costValueCentavos: 123_456_00,
+      sellingValueCentavos: 150_000_00,
+      onHand: {
+        base: 99,
+        cases: 4,
+        pieces: 3,
+        display: "4 cs 3 pc",
+        valueCentavos: 123_456_00,
+      },
+    };
+    const view = stockFromValuation(valuation, sales);
+    const row = view.rows.find(
+      (r) => r.productId === valuation.rows[0]!.productId,
+    )!;
+    expect(row.valueCentavos).toBe(123_456_00);
+    expect(row.onHand.display).toBe("4 cs 3 pc");
+    expect(row.sellingValueCentavos).toBe(150_000_00);
+    // the selling-rate columns still come from analytics for the same product
+    expect(row.daysCover).toBe(
+      sales.rows.find((r) => r.productId === row.productId)!.daysCover,
+    );
+    expect(view.kpis.map((k) => k.label).slice(0, 2)).toEqual([
+      "Stock value (at cost)",
+      "Selling value",
+    ]);
+    const out = html(
+      <StockView data={view} csv="" valuationCsv={valuationCsvHref(MTD)} />,
+    );
+    const labels = stockColumns.map((c) => c.label);
+    expect(labels.indexOf("Cost value")).toBeGreaterThan(-1);
+    expect(labels.indexOf("Cost value")).toBeLessThan(
+      labels.indexOf("Selling value"),
+    );
+    expect(out).toContain("Cost value");
+    expect(out).toContain("4 cs 3 pc");
+    expect(out).toContain("Download CSV (pesos)");
+    expect(out).not.toContain("Download Excel");
+  });
+
+  it("stock with no cost or price says so instead of showing zero; products in two places are summed", () => {
+    const sales = analyticsFixture("stock", MTD, NOW);
+    const valuation = valuationFromStock(sales);
+    const a = valuation.rows[0]!;
+    valuation.rows = [
+      {
+        ...a,
+        locationId: "depot",
+        costKnown: false,
+        costValueCentavos: 0,
+        sellingValueCentavos: null,
+      },
+      {
+        ...valuation.rows[1]!,
+        locationId: "truck",
+        locationName: "Truck 1",
+        onHand: {
+          base: 30,
+          cases: 1,
+          pieces: 6,
+          display: "1 cs 6 pc",
+          valueCentavos: 1000,
+        },
+        units: { basePerCase: 24 },
+      },
+      {
+        ...valuation.rows[1]!,
+        locationId: "depot",
+        locationName: "Main depot",
+        onHand: {
+          base: 20,
+          cases: 0,
+          pieces: 20,
+          display: "20 pc",
+          valueCentavos: 1000,
+        },
+        units: { basePerCase: 24 },
+      },
+    ];
+    valuation.totals = {
+      ...valuation.totals,
+      rowsWithoutCost: 1,
+      rowsWithoutPrice: 1,
+    };
+    const view = stockFromValuation(valuation, null);
+    const out = html(<StockView data={view} csv="" valuationCsv="/x.csv" />);
+    expect(out).toContain("No cost yet");
+    expect(out).toContain("No price yet");
+    const merged = view.rows.find(
+      (r) => r.productId === valuation.rows[1]!.productId,
+    )!;
+    expect(merged.onHand).toMatchObject({ cases: 2, pieces: 2 });
+    expect(view.locations.map((l) => l.label).sort()).toEqual([
+      "Main depot",
+      "Truck 1",
+    ]);
   });
 });
