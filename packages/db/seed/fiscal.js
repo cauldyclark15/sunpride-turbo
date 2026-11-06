@@ -4,7 +4,7 @@ import { rowId } from "./store.js";
  * Sample registrations CANNOT enable live tax-document issuance.
  * @param {import('../src/client.js').Db} db */
 export async function seedFiscal(db) {
-  return tx(db, async (t) => {
+  const result = await tx(db, async (t) => {
     await t`select pg_advisory_xact_lock(4300019)`;
     await t`select set_config('sunpride.actor','system:sample-fiscal',true)`;
     const [admin] =
@@ -95,5 +95,67 @@ export async function seedFiscal(db) {
         await t`insert into sample_data_rows(batch,table_name,row_id,key) values('sunpride-fiscal-sample','fiscal_authority_rules',${id},${`fiscal_authority_rules:${id}`}) on conflict(batch,key) do nothing`;
       }
     return { registrations: count, status: "sample, not filed" };
+  });
+  return { ...result, stores: await seedStoreFiscal(db) };
+}
+
+/** Store tills sell from the register's org unit with no vehicle. Give every marked-sample unit that has an active store
+ * register the payment types the phone offers (cash, GCash, card) and one sales-invoice registration + series with no
+ * vehicle (the only kind the store bundle can allocate). Additive only: a method or a vehicle-less invoice series the
+ * unit already has (even a disabled or office-edited one) is left exactly as it is, so a second run adds nothing.
+ * Sample registrations stay `sample_not_filed`, so they still cannot enable live tax-document issuance.
+ * @param {import('../src/client.js').Db} db */
+export async function seedStoreFiscal(db) {
+  return tx(db, async (t) => {
+    await t`select pg_advisory_xact_lock(4300019)`;
+    await t`select set_config('sunpride.actor','system:sample-fiscal',true)`;
+    const [admin] =
+      await t`select p.id from profiles p join sample_data_rows m on m.table_name='profiles' and m.row_id=p.id::text where p.role in ('super_admin','admin') and p.status='active' and p.deleted_at is null order by (p.role='super_admin') desc,p.id limit 1`;
+    if (!admin)
+      return { tenders: 0, series: 0, reason: "Sample administrator missing" };
+    const units =
+      await t`select distinct u.id,u.code,u.name from org_units u join sample_data_rows m on m.table_name='org_units' and m.row_id=u.id::text join inventory_locations l on l.org_unit_id=u.id and l.type='store' and l.active and l.deleted_at is null join store_registers r on r.location_id=l.id where u.deleted_at is null order by u.id`;
+    let tenders = 0,
+      series = 0;
+    for (const u of units) {
+      for (const method of [
+        { code: "cash", label: "Cash", ref: null },
+        { code: "gcash", label: "GCash", ref: "GCash reference" },
+        {
+          code: "card",
+          label: "Card",
+          ref: "Terminal approval (never card number)",
+        },
+      ]) {
+        const [have] =
+          await t`select 1 from fiscal_tender_rules where org_unit_id=${u.id} and method=${method.code} limit 1`;
+        if (have) continue;
+        const id = rowId("fiscal_tender_rules", `${u.id}-${method.code}`);
+        await t`insert into fiscal_tender_rules(id,org_unit_id,method,label,reference_label,enabled,effective_from,sample,entered_by) values(${id},${u.id},${method.code},${method.label},${method.ref},true,'2026-01-01',true,${admin.id}) on conflict(id) do nothing`;
+        await t`insert into sample_data_rows(batch,table_name,row_id,key) values('sunpride-fiscal-sample','fiscal_tender_rules',${id},${"fiscal_tender_rules:" + id}) on conflict(batch,key) do nothing`;
+        tenders++;
+      }
+      const [open] =
+        await t`select 1 from fiscal_series s join fiscal_registrations r on r.id=s.registration_id where r.org_unit_id=${u.id} and r.document_type='sales_invoice' and s.vehicle_id is null limit 1`;
+      if (open) continue;
+      const id = rowId("fiscal_registrations", `${u.id}-store-sales_invoice`),
+        seriesId = rowId("fiscal_series", `${u.id}-store-sales_invoice`);
+      await t`insert into fiscal_registrations(id,org_unit_id,entity_name,branch_name,tin,address,document_type,status,effective_from,entered_by,sample,tax_basis_points)
+     values(${id},${u.id},'SAMPLE SUNPRIDE COMPANY - NOT REGISTERED',${u.name},'SAMPLE 000-000-000-000','Sample Cebu address - replace with registered address','sales_invoice','sample_not_filed','2026-01-01',${admin.id},true,1200) on conflict(id) do nothing`;
+      await t`insert into fiscal_series(id,registration_id,vehicle_id,prefix,first_serial,last_serial,next_allocate,effective_from)
+     values(${seriesId},${id},null,${`SAMPLE-${String(u.code)
+       .toUpperCase()
+       .replace(
+         /[^A-Z0-9-]/g,
+         "-",
+       )}-STORE-SI`},1,999999,1,'2026-01-01') on conflict(id) do nothing`;
+      for (const [table, row] of [
+        ["fiscal_registrations", id],
+        ["fiscal_series", seriesId],
+      ])
+        await t`insert into sample_data_rows(batch,table_name,row_id,key) values('sunpride-fiscal-sample',${table},${row},${`${table}:${row}`}) on conflict(batch,key) do nothing`;
+      series++;
+    }
+    return { tenders, series };
   });
 }
