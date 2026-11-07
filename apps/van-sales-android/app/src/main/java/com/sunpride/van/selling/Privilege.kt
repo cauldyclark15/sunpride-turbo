@@ -120,7 +120,8 @@ object Privilege {
     private fun mulDivRound(a: Long, b: Long, d: Long): Long {
         val n = java.math.BigInteger.valueOf(a).multiply(java.math.BigInteger.valueOf(b))
         val dd = java.math.BigInteger.valueOf(d)
-        return n.multiply(java.math.BigInteger.TWO).add(dd).divide(dd.multiply(java.math.BigInteger.TWO)).toLong()
+        val two = java.math.BigInteger.valueOf(2) // BigInteger.TWO needs API 33; the phones run API 29+
+        return n.multiply(two).add(dd).divide(dd.multiply(two)).toLong()
     }
 
     /**

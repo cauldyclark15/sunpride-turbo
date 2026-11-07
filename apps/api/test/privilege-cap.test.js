@@ -459,7 +459,7 @@ test("shared vectors: the reference allocation reproduces every number the Kotli
       ).toBe(x.netCentavos + x.privilegeDiscountCentavos);
   }
   const by = (/** @type {string} */ n) =>
-    vectors.vectors.find((/** @type {any} */ v) => v.name.startsWith(n)).expect;
+    /** @type {any} */ (vectors.vectors.find((/** @type {any} */ v) => v.name.startsWith(n))).expect;
   // PHP 1,000 VATable, senior: full = 714.29; with only PHP 500 of room 857.14; with PHP 300 of room 914.29; with none 1,000.
   expect(by("no limit on the phone").total).toBe(71429);
   expect(by("half the purchase fits").total).toBe(85714);
@@ -560,7 +560,7 @@ test("store sale from a phone that knows the limit: discount, ledger row, 'Weekl
     short_centavos: "0",
     claim_basis: "phone_cap",
   });
-  expect(rows[0].week_start.toISOString?.().slice(0, 10) ?? String(rows[0].week_start)).toBe(manilaWeekStart(Date.now()));
+  expect(new Date(/** @type {any} */ (rows[0]).week_start).toISOString().slice(0, 10)).toBe(manilaWeekStart(Date.now()));
   const model = await api(`/api/v1/fiscal/receipts/${id}/print-model`);
   expect(model.body.model.privilege).toMatchObject({
     type: "senior",
@@ -724,11 +724,11 @@ test("the store bundle carries `privilegeCap` inside storePos only for a handhel
     params: { serviceDate: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10), posMode: true, ...extra },
     now: Date.now(),
   });
-  const plain = await bundle(ctx({ handheld: true, vanDay: true }), {});
+  const plain = /** @type {any} */ (await bundle(ctx({ handheld: true, vanDay: true }), {}));
   expect(plain.policy.storePos.privilegeCap).toBeUndefined();
   expect(plain.policy.privilegeCap).toBeUndefined();
   expect(Object.keys(plain.policy.storePos)).not.toContain("privilegeCap");
-  const asked = await bundle(ctx({ handheld: true, vanDay: true, privilegeCap: true }), {});
+  const asked = /** @type {any} */ (await bundle(ctx({ handheld: true, vanDay: true, privilegeCap: true }), {}));
   expect(asked.policy.storePos.privilegeCap).toMatchObject({ version: 1, enabled: true, capCentavos: "130000", weekStart: manilaWeekStart(Date.now()) });
   expect(asked.policy.storePos.privilegeCap.used.length).toBeGreaterThan(0);
   // nothing else in the bundle changed for the phone that asked
@@ -766,7 +766,7 @@ async function reportBuild(code) {
     seller,
     "/api/sync/push",
     { version: 2, app: "van-android", deviceId: seller.deviceId, scopeId: unit, operations: [operation] },
-    code === null ? {} : { headers: { "x-app-version-code": code, "x-app-version-name": `1.0.0-beta.${code}` } },
+    code === null ? {} : { headers: { "x-app-version-code": String(code), "x-app-version-name": `1.0.0-beta.${code}` } },
   );
   expect(r.res.status).toBe(200);
   expect(["applied", "duplicate"]).toContain(r.body.results[0].status);
@@ -842,7 +842,7 @@ test("legacy Z gate: a phone on beta.30 or later is refused the no-PIN Z, end to
 
 test("legacy Z gate: the office can switch the old way off for every phone; the old way still works for an unreported phone until then; setting needs the office", async () => {
   // store_overrides is append-only, so the fixture PIN row stays: model an unreported phone with no PIN history on a second device
-  const second = await boundDevice(h, people, { app: "van-android", orgUnitId: unit, profileId: undefined });
+  const second = await boundDevice(h, people, { app: "van-android", orgUnitId: unit });
   expect(second.deviceId).toBeTruthy();
   expect(await refusal(() => assertLegacyZAllowed(h.db, { id: second.deviceId }))).toBeNull();
   await setGate("off");
