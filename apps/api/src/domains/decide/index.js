@@ -17,7 +17,9 @@ import { uploadCountPhoto } from "./count-photo.js";
  *
  * Kinds: load_difference, transfer_variance, reload_difference, load_in_difference, count_review, disposition,
  * cash_variance (store till counts and forced closes; van settlement variances are shown and opened, decided in the trip),
- * override_review (a second look at a void, refund, price or discount that was approved at the till).
+ * override_review (a second look at a void, refund, price or discount that was approved at the till),
+ * privilege_cap (a senior / PWD sale made on a phone that went past the weekly limit, or left the limit unused: the sale is
+ * already made and printed, so the inbox only records the office's decision; it never undoes the sale).
  */
 
 const KINDS = /** @type {const} */ ({
@@ -29,6 +31,7 @@ const KINDS = /** @type {const} */ ({
   disposition: "Bad order",
   cash_variance: "Cash difference",
   override_review: "Till override",
+  privilege_cap: "Senior / PWD weekly limit",
 });
 const OVERRIDE_KINDS = ["void_sale", "refund", "price", "discount", "void_line"];
 const OVERRIDE_WORDS = /** @type {Record<string,string>} */ ({
@@ -440,6 +443,63 @@ async function overrides(c, actor) {
   );
 }
 
+/** Senior / PWD sales that went past the weekly purchase limit (or were held back below it) when they reached the server.
+ * The sale stays; a supervisor who did not make it looks at it. @param {any} c @param {any} actor */
+async function capReviews(c, actor) {
+  if (!roleHas(actor.role, "van.cash.approve")) return [];
+  const scope = await scopeFilterForActor(c.db, actor);
+  const ids = scope.unitIds?.length ? scope.unitIds : ["00000000-0000-0000-0000-000000000000"];
+  const rows = await c.db`select l.id,l.source_type,l.privilege_type,l.sold_at,l.cap_centavos,l.used_before_centavos,l.applied_gross_centavos,
+      l.discount_centavos,l.overage_centavos,l.short_centavos,l.claim_basis,k.holder_name,k.id_number,k.recorded_by,d.document_number,p.name as seller
+    from privilege_cap_ledger l
+      join sale_discount_claims k on k.source_type=l.source_type and k.source_id=l.source_id
+      left join fiscal_documents d on d.id=l.fiscal_document_id
+      left join profiles p on p.id=k.recorded_by
+    where (l.overage_centavos>0 or l.short_centavos>0) and l.created_at>now()-${OVERRIDE_DAYS}*interval '1 day'
+      and not exists (select 1 from decide_log g where g.kind='privilege_cap' and g.ref_id=l.id::text)
+      and not exists (select 1 from fiscal_document_events e where e.document_id=l.fiscal_document_id and e.kind='void')
+      and (${scope.unitIds === null} or l.org_unit_id in ${c.db(ids)})
+    order by l.created_at limit 100`;
+  return /** @type {Item[]} */ (
+    rows.map((/** @type {any} */ r) => {
+      const over = Number(r.overage_centavos) > 0;
+      const involved = r.recorded_by === actor.profileId;
+      const label = r.privilege_type === "pwd" ? "PWD" : "Senior citizen";
+      const share = over
+        ? (Number(r.overage_centavos) * Number(r.discount_centavos)) / Math.max(1, Number(r.applied_gross_centavos))
+        : null;
+      return {
+        id: `privilege_cap:${r.id}`,
+        ref: r.id,
+        kind: "privilege_cap",
+        kindLabel: KINDS.privilege_cap,
+        title: over
+          ? `${label} ${r.holder_name} went over the weekly limit${r.document_number ? ` on ${r.document_number}` : ""}`
+          : `${label} ${r.holder_name} got less discount than the weekly limit allows${r.document_number ? ` on ${r.document_number}` : ""}`,
+        documentNumber: r.document_number ?? null,
+        askedBy: r.seller ?? null,
+        askedAt: ms(r.sold_at),
+        valueCentavos: share === null ? Number(r.short_centavos) : Math.round(share),
+        rule: over
+          ? `A senior or PWD discount is limited to ${peso(r.cap_centavos)} of purchases a week per ID. The sale was made on a phone that could not see the other sales this week, so the discount was already given.`
+          : "The phone held back part of the discount although the weekly limit still had room.",
+        makerChecker: "The person who made the sale cannot decide it. The system checks that for you.",
+        link: "/operations/stores-pos/receipts",
+        canDecide: !involved,
+        blockedReason: involved ? "You made this sale. Someone else must look at it." : null,
+        lines: [
+          { label: "ID", value: r.id_number },
+          { label: "Used before this sale", value: peso(r.used_before_centavos) },
+          { label: "Discounted in this sale", value: peso(r.applied_gross_centavos) },
+          ...(over ? [{ label: "Past the limit", value: peso(r.overage_centavos) }] : [{ label: "Left out", value: peso(r.short_centavos) }]),
+          { label: "Phone", value: r.claim_basis === "phone_uncapped" ? "Older app, no limit on the phone" : "Used the limit it knew about" },
+        ],
+        needs: {},
+      };
+    })
+  );
+}
+
 /** @param {any} router @param {any} c @param {any} actor */
 export async function gather(router, c, actor) {
   /** @type {Item[]} */ const items = [];
@@ -461,6 +521,7 @@ export async function gather(router, c, actor) {
   await take("disposition", () => dispositions(router, c, actor));
   await take("cash_variance", () => cashVariances(c, actor));
   await take("override_review", () => overrides(c, actor));
+  await take("privilege_cap", () => capReviews(c, actor));
   items.sort(
     (a, b) =>
       Number(Boolean(a.sentBack)) - Number(Boolean(b.sentBack)) ||
@@ -580,7 +641,8 @@ async function act(router, c) {
       });
       break;
     case "override_review":
-      break; // recorded below; there is no document verb for a second look
+    case "privilege_cap":
+      break; // recorded below; there is no document verb for a second look (the sale itself is never undone here)
   }
 
   const logKind =

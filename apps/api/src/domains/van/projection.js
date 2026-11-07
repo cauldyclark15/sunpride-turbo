@@ -7,6 +7,7 @@ import {
   hasConfiguredFlowsForApp,
 } from "../callflow/engine.js";
 import { tenderPolicy } from "../fiscal/tenders.js";
+import { capBundle } from "../fiscal/privilege-cap.js";
 import { fiscalBundle } from "../fiscal/transactions.js";
 import { routeBundle } from "./route-read.js";
 import { ApiError } from "../../core/errors.js";
@@ -144,6 +145,8 @@ export function vanProjection(env) {
         ...(p.handheld === true ? { handheld: true } : {}),
         // IP-VANDAY: roster, crew on this phone and the suggested/dispatched load; older apps never ask.
         ...(p.vanDay === true ? { vanDay: true } : {}),
+        // IP-SCPWD-CAP: the senior/PWD weekly limit and each card's use this week; only a phone that asks gets it.
+        ...(p.privilegeCap === true ? { privilegeCap: true } : {}),
       };
     },
     snapshot,
@@ -210,6 +213,9 @@ export async function bundle(ctx, env) {
       policy: {
         ...policy(env, null),
         ...(storePos ? { storePos } : {}),
+        ...(ctx.params.privilegeCap === true
+          ? { privilegeCap: await capBundle(db, Date.now()) }
+          : {}),
         ...(handheld
           ? {
               handheld: await handheldInfo(db, actor, device, null),
@@ -508,6 +514,9 @@ export async function bundle(ctx, env) {
       policy: {
         ...tripPolicy,
         ...(storePos ? { storePos } : {}),
+        ...(ctx.params.privilegeCap === true
+          ? { privilegeCap: await capBundle(db, Date.now()) }
+          : {}),
         ...(handheld
           ? {
               handheld: await handheldInfo(db, actor, device, trip),

@@ -6,14 +6,26 @@
  *   - the append-only sale_discount_claims row
  * All money here is integer centavos. Wire strings are converted by the callers.
  */
-import { computeLine, PRIVILEGE_TYPES, PRIVILEGE_LABELS } from "./privilege.js";
+import { PRIVILEGE_TYPES, PRIVILEGE_LABELS } from "./privilege.js";
 import { invoiceTaxSnapshot } from "./taxes.js";
 import { refuse, text, uuid } from "../van/model.js";
+import {
+  CAP_TYPES,
+  capSetting,
+  computeOne,
+  computeWithBudget,
+  idHash,
+  idKey,
+  lockWeek,
+  manilaWeekStart,
+  usedThisWeek,
+  weeklyLimitText,
+} from "./privilege-cap.js";
 
 const peso = (/** @type {number|bigint} */ c) =>
   `₱${(Number(c) / 100).toLocaleString("en-PH", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-/** @typedef {{type:string,idNumber:string,holderName:string,eligibleProductIds:string[]|null}} Claim */
+/** @typedef {{type:string,idNumber:string,holderName:string,eligibleProductIds:string[]|null,capBudget:number|null}} Claim */
 /** @typedef {{productId:string,description:string,grossCentavos:number,promoDiscountCentavos:number,taxTreatment:string|null,taxBasisPoints:number|null}} LegalLine */
 
 /** Validate the wire claim. Returns null when there is no claim. @param {any} raw @returns {Claim|null} */
@@ -54,7 +66,31 @@ export function normalizeClaim(raw) {
       uuid(id),
     );
   }
-  return { type: raw.type, idNumber, holderName, eligibleProductIds };
+  // IP-SCPWD-CAP: new phones say how much of the purchase they discounted (the weekly limit they knew about).
+  // Older phones send nothing: that means "no limit applied on the phone". Unknown keys are ignored (strict v1 wire).
+  let capBudget = null;
+  if (raw.capBasis !== undefined && raw.capBasis !== null) {
+    const v = raw.capBasis?.budgetCentavos;
+    if (
+      typeof raw.capBasis !== "object" ||
+      Array.isArray(raw.capBasis) ||
+      !(typeof v === "string"
+        ? /^(0|[1-9]\d{0,12})$/.test(v)
+        : Number.isSafeInteger(v) && v >= 0)
+    )
+      refuse(
+        "The weekly limit details are not readable. Enter the discount again.",
+        "discount_claim_invalid",
+      );
+    capBudget = Number(v);
+  }
+  return {
+    type: raw.type,
+    idNumber,
+    holderName,
+    eligibleProductIds,
+    capBudget,
+  };
 }
 
 /** Optional buyer override from the sale. @param {any} raw */
@@ -127,12 +163,23 @@ function zeroLine(l) {
 /**
  * Validate and recompute a discount claim. Without a claim returns { claim: null }.
  * @param {any} db
- * @param {{surface:'store'|'van',orgUnitId:string,routeId?:string|null,payload:any,at:number,lines:LegalLine[]}} q
+ * `capMode` (IP-SCPWD-CAP): "reconcile" (default) = a sale a phone already made: the phone's own weekly-limit number stands and an
+ * overage is only recorded; "authority" = the server decides: the discount goes only to the part that fits in what is left.
+ * @param {{surface:'store'|'van',orgUnitId:string,routeId?:string|null,payload:any,at:number,lines:LegalLine[],capMode?:'reconcile'|'authority',lockCap?:boolean}} q
  * @returns {Promise<any>}
  */
 export async function prepareLegalSale(
   db,
-  { surface, orgUnitId, routeId = null, payload, at, lines },
+  {
+    surface,
+    orgUnitId,
+    routeId = null,
+    payload,
+    at,
+    lines,
+    capMode = "reconcile",
+    lockCap = true,
+  },
 ) {
   const claim = normalizeClaim(payload.discountClaim);
   const buyerOverride = payload.buyer ?? null;
@@ -143,6 +190,7 @@ export async function prepareLegalSale(
       results: null,
       totals: null,
       assertMatches: () => {},
+      cap: null,
     };
   if (!(await surfaceEnabled(db, { orgUnitId, surface, routeId, at })))
     refuse(
@@ -163,23 +211,41 @@ export async function prepareLegalSale(
           "discount_claim_invalid",
         );
   }
-  const results = lines.map((l) => {
+  /** @param {LegalLine} l @param {number} gross @param {number} promo @param {boolean} withPrivilege */
+  const compute = (l, gross, promo, withPrivilege) => {
     if (l.grossCentavos === 0) return zeroLine(l);
     if (!l.taxTreatment)
       refuse(
         `${l.description} has no tax set-up, so the discount cannot be worked out. Ask the office to finish its price and tax set-up.`,
         "tax_setup_missing",
       );
-    const takes = eligible ? eligible.has(l.productId) : true;
-    return computeLine({
-      unitPriceCentavos: l.grossCentavos,
-      qty: 1,
-      vatRateBps: l.taxBasisPoints ?? 0,
-      taxTreatment: /** @type {any} */ (l.taxTreatment),
-      privilege: takes ? { type: claim.type } : null,
-      promoDiscountCentavos: l.promoDiscountCentavos,
-    });
-  });
+    return computeOne(l, gross, promo, withPrivilege ? claim.type : null);
+  };
+  // IP-SCPWD-CAP: how much of the purchase may carry the discount.
+  const capped = CAP_TYPES.includes(claim.type);
+  /** @type {any} */ let capState = null;
+  /** @type {number|null} */ let budget = null;
+  if (capped) {
+    const setting = await capSetting(db, at);
+    const key = idKey(claim.type, claim.idNumber);
+    const week = manilaWeekStart(at);
+    if (lockCap) await lockWeek(db, key, week);
+    const used = await usedThisWeek(db, key, week);
+    const remaining = setting.enabled
+      ? Math.max(0, setting.capCentavos - used)
+      : null;
+    budget =
+      capMode === "authority"
+        ? remaining
+        : claim.capBudget; // reconcile: the phone's receipt is already printed; null = an older phone, no limit on it
+    capState = { setting, key, week, used, remaining };
+  }
+  const { results, appliedGross, eligibleGross } = computeWithBudget(
+    lines,
+    compute,
+    (l) => (eligible ? eligible.has(l.productId) : true),
+    budget,
+  );
   const sum = (/** @type {keyof ReturnType<typeof zeroLine>} */ k) =>
     results.reduce((a, r) => a + /** @type {number} */ (r[k]), 0);
   const totals = {
@@ -191,6 +257,44 @@ export async function prepareLegalSale(
     applied: results.some((r) => r.privilegeType !== null),
   };
   const label = privilegeLabel(claim.type);
+  /** @type {any} */ let cap = null;
+  if (capState) {
+    const { setting, key, week, used, remaining } = capState;
+    const usedAfter = used + appliedGross;
+    const left = setting.enabled
+      ? Math.max(0, setting.capCentavos - usedAfter)
+      : null;
+    const overage =
+      remaining === null ? 0 : Math.max(0, appliedGross - remaining);
+    const phoneCapped = capMode === "reconcile" && claim.capBudget !== null;
+    const short =
+      phoneCapped && remaining !== null
+        ? Math.max(0, Math.min(eligibleGross, remaining) - appliedGross)
+        : 0;
+    cap = {
+      enabled: setting.enabled,
+      capCentavos: setting.capCentavos,
+      accountantConfirmed: setting.accountantConfirmed,
+      weekStart: week,
+      idKey: key,
+      idHash: idHash(key),
+      usedBeforeCentavos: used,
+      remainingBeforeCentavos: remaining,
+      eligibleGrossCentavos: eligibleGross,
+      appliedGrossCentavos: appliedGross,
+      overageCentavos: setting.enabled ? overage : 0,
+      shortCentavos: short,
+      leftCentavos: left,
+      limited: setting.enabled && appliedGross < eligibleGross,
+      message: left === null ? null : weeklyLimitText(left),
+      claimBasis:
+        capMode === "authority"
+          ? "server"
+          : claim.capBudget === null
+            ? "phone_uncapped"
+            : "phone_cap",
+    };
+  }
   /** Refuse when the phone's numbers differ from ours. @param {{totalCentavos?:bigint|number|string|null,privilegeDiscountCentavos?:any,vatRemovedCentavos?:any}} sent */
   const assertMatches = (sent) => {
     const same = (/** @type {any} */ a, /** @type {number} */ b) =>
@@ -216,10 +320,28 @@ export async function prepareLegalSale(
         "stock_conflict", // wire code the phone already treats as "refresh and try again"
       );
   };
-  return { claim, buyerOverride, results, totals, assertMatches };
+  return { claim, buyerOverride, results, totals, assertMatches, cap };
 }
 
 const BIG = (/** @type {any} */ v) => BigInt(v);
+/**
+ * IP-SCPWD-CAP: what the receipt keeps about the weekly limit, frozen with the invoice (so a reprint says what the
+ * original said). Empty when the claim type has no limit or the limit is switched off.
+ * @param {any} cap `legal.cap`
+ */
+export function weeklyLimitFacts(cap) {
+  if (!cap || !cap.enabled || cap.leftCentavos === null) return {};
+  return {
+    weeklyLimit: {
+      capMinor: String(cap.capCentavos),
+      usedMinor: String(cap.usedBeforeCentavos + cap.appliedGrossCentavos),
+      leftMinor: String(cap.leftCentavos),
+      weekStart: cap.weekStart,
+      limited: cap.limited === true,
+      text: cap.message,
+    },
+  };
+}
 /** Plain label for a privilege type. @param {string|null|undefined} type */
 export const privilegeLabel = (type) =>
   /** @type {Record<string,string>} */ (PRIVILEGE_LABELS)[type ?? ""] ??
@@ -346,7 +468,7 @@ export function buildTaxSnapshot(
 }
 
 /** Append the claim evidence row. Call inside the sale transaction, after the fiscal document exists.
- * @param {any} db @param {{sourceType:'store_sale'|'van_sale',sourceId:string,orgUnitId:string,legal:any,claimed:any,actorProfileId:string,documentId?:string|null}} q */
+ * @param {any} db @param {{sourceType:'store_sale'|'van_sale',sourceId:string,orgUnitId:string,legal:any,claimed:any,actorProfileId:string,documentId?:string|null,soldAtMs?:number|null}} q */
 export async function recordClaim(
   db,
   {
@@ -357,6 +479,7 @@ export async function recordClaim(
     claimed,
     actorProfileId,
     documentId = null,
+    soldAtMs = null,
   },
 ) {
   if (!legal?.claim) return null;
@@ -365,5 +488,13 @@ export async function recordClaim(
     await db`insert into sale_discount_claims(source_type,source_id,org_unit_id,privilege_type,id_number,holder_name,eligible_product_ids,applied,gross_centavos,promo_discount_centavos,privilege_discount_centavos,vat_removed_centavos,total_centavos,claimed,computed,fiscal_document_id,recorded_by)
     values(${sourceType},${sourceId},${orgUnitId},${claim.type},${claim.idNumber},${claim.holderName},${claim.eligibleProductIds ? JSON.stringify(claim.eligibleProductIds) : null}::jsonb,${totals.applied},${String(totals.gross)},${String(totals.promoDiscount)},${String(totals.privilegeDiscount)},${String(totals.vatRemoved)},${String(totals.total)},${claimed},${{ lines: results, totals }},${documentId},${actorProfileId})
     on conflict(source_type,source_id) do nothing returning id`;
+  // IP-SCPWD-CAP: what this sale used of the week's limit (every store and van, per ID). Append-only.
+  const cap = legal.cap;
+  if (row && cap && cap.appliedGrossCentavos > 0) {
+    const soldAt = new Date(soldAtMs ?? Date.now());
+    await db`insert into privilege_cap_ledger(source_type,source_id,org_unit_id,privilege_type,id_key,id_hash,week_start,sold_at,eligible_gross_centavos,applied_gross_centavos,discount_centavos,cap_centavos,used_before_centavos,overage_centavos,short_centavos,claim_basis,fiscal_document_id)
+      values(${sourceType},${sourceId},${orgUnitId},${claim.type},${cap.idKey},${cap.idHash},${cap.weekStart}::date,${soldAt},${String(cap.eligibleGrossCentavos)},${String(cap.appliedGrossCentavos)},${String(totals.privilegeDiscount)},${cap.enabled ? String(cap.capCentavos) : null},${String(cap.usedBeforeCentavos)},${String(cap.overageCentavos)},${String(cap.shortCentavos)},${cap.claimBasis},${documentId})
+      on conflict(source_type,source_id) do nothing`;
+  }
   return row?.id ?? null;
 }

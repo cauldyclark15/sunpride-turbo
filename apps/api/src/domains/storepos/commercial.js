@@ -10,6 +10,7 @@ import {
   resolveBuyer,
   recordClaim,
   privilegeLabel,
+  weeklyLimitFacts,
 } from "../fiscal/legal-sale.js";
 import { configuredTender } from "../fiscal/tenders.js";
 import { canonicalJson } from "../../core/util.js";
@@ -221,6 +222,7 @@ export async function recordSale(c) {
             idNumber: legal.claim.idNumber,
             holderName: legal.claim.holderName,
             applied: legal.totals.applied,
+            ...weeklyLimitFacts(legal.cap),
           },
           // IP-INT2: the shape the Z reading reads (storepos/readings.js privilegeOf)
           privilege: {
@@ -291,6 +293,7 @@ export async function recordSale(c) {
     claimed: p.discountClaim ?? {},
     actorProfileId: actor.profileId,
     documentId: document.id,
+    soldAtMs: p.deviceTime,
   });
   await enqueueSapPosting(db, document);
   return { entityId: id, movementId: movement.movementId };

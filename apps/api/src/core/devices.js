@@ -221,7 +221,16 @@ export async function verifyDeviceProof(ctx) {
     throw proofError();
   if (!(await consumeNonce(ctx.db, device.id, nonce))) throw proofError();
   await refund(ctx.db, subjectKey);
-  await ctx.db`update registered_devices set last_seen_at = now() where id = ${device.id}`;
+  // IP-SCPWD-CAP: a build from beta.32 says what it is; older builds never send these, so nothing is overwritten with a guess.
+  const codeText = h.get("x-app-version-code");
+  const code = codeText && /^[1-9]\d{0,5}$/.test(codeText) ? Number(codeText) : null;
+  const name = h.get("x-app-version-name");
+  const cleanName =
+    code !== null && name && /^[0-9A-Za-z._+-]{1,40}$/.test(name) ? name : null;
+  if (code !== null)
+    await ctx.db`update registered_devices set last_seen_at = now(), app_version_code = ${code}, app_version_name = ${cleanName}, app_version_seen_at = now() where id = ${device.id}`;
+  else
+    await ctx.db`update registered_devices set last_seen_at = now() where id = ${device.id}`;
   ctx.device = device;
   return device;
 }

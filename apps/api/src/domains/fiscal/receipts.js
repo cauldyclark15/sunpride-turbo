@@ -13,7 +13,21 @@ import { scopeFilterForActor } from "../org/scope.js";
 import { uuid, refuse, text, choice, date } from "../van/model.js";
 import { documentEvent } from "./series.js";
 import { loadPrintModel } from "./print-model.js";
-import { prepareLegalSale, privilegeLabel } from "./legal-sale.js";
+import {
+  prepareLegalSale,
+  privilegeLabel,
+  normalizeClaim,
+} from "./legal-sale.js";
+import {
+  CAP_TYPES,
+  DEFAULT_NOTE,
+  capSetting,
+  idKey,
+  manilaWeekStart,
+  manilaWeekEndsAt,
+  usedThisWeek,
+  weeklyLimitText,
+} from "./privilege-cap.js";
 
 const NONE = "00000000-0000-0000-0000-000000000000";
 
@@ -49,6 +63,35 @@ export const birCommands = {
     const routeId = p.routeId ? uuid(p.routeId) : null;
     const [row] =
       await db`insert into privilege_discount_settings(org_unit_id,surface,route_id,enabled,set_by) values(${orgUnitId},${surface},${routeId},${p.enabled},${actor.profileId}) returning id`;
+    return { id: row.id };
+  },
+  /**
+   * IP-SCPWD-CAP: set the weekly purchase limit on the senior / PWD discount (office, `admin.manage`). Append-only: every
+   * change is a new row with who and when. `accountantConfirmed` is the office's record that Sunpride's accountant confirmed
+   * the figure; until then the screens call the amount a default.
+   * @param {any} db @param {any} actor @param {any} p
+   */
+  "privilege/cap": async (db, actor, p) => {
+    actor = await currentActor(db, actor);
+    await requireCapability({ db, actor }, "admin.manage");
+    if (typeof p.enabled !== "boolean") refuse("Choose whether the weekly limit is on");
+    const pesos = typeof p.capPesos === "number" ? p.capPesos : NaN;
+    const centavos =
+      p.capCentavos !== undefined
+        ? p.capCentavos
+        : Number.isFinite(pesos)
+          ? Math.round(pesos * 100)
+          : undefined;
+    if (
+      !Number.isSafeInteger(centavos) ||
+      centavos <= 0 ||
+      centavos > 100000000
+    )
+      refuse("Enter the weekly limit in pesos, for example 2500 (more than 0, up to 1,000,000).");
+    if (p.accountantConfirmed !== undefined && typeof p.accountantConfirmed !== "boolean")
+      refuse("Say whether the accountant confirmed this amount");
+    const [row] =
+      await db`insert into privilege_cap_settings(enabled,cap_centavos,accountant_confirmed,note,set_by) values(${p.enabled},${String(centavos)},${p.accountantConfirmed === true},${text(p.note, 300)},${actor.profileId}) returning id`;
     return { id: row.id };
   },
   /** PTU / MIN / serial / accreditation / POS provider for a registration. @param {any} db @param {any} actor @param {any} p */
@@ -395,6 +438,8 @@ export function installBirRoutes(router, ctx) {
           routeId: b.routeId ? uuid(b.routeId) : null,
           payload: { discountClaim: b.discountClaim ?? null },
           at: Date.now(),
+          capMode: "authority",
+          lockCap: false,
           lines: b.lines.map((/** @type {any} */ l) => ({
             productId: uuid(l.productId),
             description: text(l.description, 150) ?? "Item",
@@ -409,6 +454,8 @@ export function installBirRoutes(router, ctx) {
           label: privilegeLabel(legal.claim.type),
           lines: legal.results,
           totals: legal.totals,
+          // IP-SCPWD-CAP: the server's own weekly-limit answer: what part gets the discount and what is left
+          cap: legal.cap,
         };
       }),
   );
@@ -432,6 +479,74 @@ export function installBirRoutes(router, ctx) {
           canManage: roleHas(actor.role, "admin.manage"),
         };
       }),
+  );
+
+  /**
+   * IP-SCPWD-CAP: the weekly limit in force, and (with `type` + `idNumber`) what one card has used this week across every
+   * store and van. Read by the settings screen and the till's online lookup.
+   */
+  router.get("/api/v1/fiscal/privilege/cap", async (/** @type {any} */ c) =>
+    tx(c.db, async (db) => {
+      const actor = await currentActor(db, c.actor);
+      await requireCapability({ db, actor }, "van.read");
+      const q = c.url.searchParams;
+      const now = Date.now();
+      const setting = await capSetting(db, now);
+      const history = await db`select s.enabled,s.cap_centavos::text,s.accountant_confirmed,s.note,s.effective_from,p.name as set_by_name
+        from privilege_cap_settings s join profiles p on p.id=s.set_by order by s.effective_from desc,s.created_at desc limit 20`;
+      /** @type {any} */ let card = null;
+      const type = q.get("type"),
+        idNumber = q.get("idNumber");
+      if (type || idNumber) {
+        const claim = normalizeClaim({
+          type,
+          idNumber,
+          holderName: "Lookup",
+        });
+        if (claim && CAP_TYPES.includes(claim.type)) {
+          const used = await usedThisWeek(
+            db,
+            idKey(claim.type, claim.idNumber),
+            manilaWeekStart(now),
+          );
+          const left = setting.enabled
+            ? Math.max(0, setting.capCentavos - used)
+            : null;
+          card = {
+            type: claim.type,
+            usedCentavos: used,
+            leftCentavos: left,
+            message: left === null ? null : weeklyLimitText(left),
+          };
+        }
+      }
+      return {
+        setting: {
+          enabled: setting.enabled,
+          capCentavos: setting.capCentavos,
+          accountantConfirmed: setting.accountantConfirmed,
+          isDefault: setting.isDefault,
+          note: setting.isDefault ? DEFAULT_NOTE : setting.note,
+          effectiveFrom: setting.effectiveFrom,
+        },
+        week: {
+          start: manilaWeekStart(now),
+          endsAt: manilaWeekEndsAt(now),
+          note: "Monday to Sunday, Manila time",
+        },
+        appliesTo: CAP_TYPES,
+        history: history.map((/** @type {any} */ r) => ({
+          enabled: r.enabled,
+          capCentavos: Number(r.cap_centavos),
+          accountantConfirmed: r.accountant_confirmed,
+          note: r.note,
+          effectiveFrom: new Date(r.effective_from).getTime(),
+          setBy: r.set_by_name,
+        })),
+        card,
+        canManage: roleHas(actor.role, "admin.manage"),
+      };
+    }),
   );
 
   router.get("/api/v1/fiscal/buyers", async (/** @type {any} */ c) =>

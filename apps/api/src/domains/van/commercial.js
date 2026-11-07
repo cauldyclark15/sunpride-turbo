@@ -15,6 +15,7 @@ import {
   resolveBuyer,
   recordClaim,
   privilegeLabel,
+  weeklyLimitFacts,
 } from "../fiscal/legal-sale.js";
 
 /** F-511 use the same effective role/channel/value band as every campaign quote.
@@ -220,6 +221,7 @@ export async function applyVanLegal(db, trip, customer, p, quoted, total, at) {
         idNumber: legal.claim.idNumber,
         holderName: legal.claim.holderName,
         applied: legal.totals.applied,
+        ...weeklyLimitFacts(legal.cap),
       },
     },
     /** @param {any} actor @param {string} saleId @param {string|null} documentId */
@@ -232,6 +234,7 @@ export async function applyVanLegal(db, trip, customer, p, quoted, total, at) {
         claimed: p.discountClaim,
         actorProfileId: actor.profileId,
         documentId,
+        soldAtMs: at,
       }),
   };
 }

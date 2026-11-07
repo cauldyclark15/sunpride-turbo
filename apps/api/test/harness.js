@@ -284,6 +284,7 @@ export async function signedPost(h, who, path, body, over = {}) {
       "x-device-nonce": nonce,
       "x-device-timestamp": String(timestamp),
       "x-device-signature": signature,
+      ...(over.headers ?? {}),
     },
     body: raw,
   });
