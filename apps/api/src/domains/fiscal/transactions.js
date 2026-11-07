@@ -88,16 +88,23 @@ export async function invoiceForSale(db, actor, trip, p, receipt, deviceId) {
   return document;
 }
 /** F-019 bootstrap carries already reserved ranges. Repeat download never resets the phone counter.
- * @param {any} db @param {any} actor @param {any} trip @param {string} deviceId @param {Record<string,string|undefined>} [env] */
-export async function fiscalBundle(db, actor, trip, deviceId, env) {
+ * IP-REFUND: `opts.creditMemo` (a phone that asked with `params.refunds`) also gets its credit-memo range; phones that
+ * keep at most two ranges never see a third.
+ * @param {any} db @param {any} actor @param {any} trip @param {string} deviceId @param {Record<string,string|undefined>} [env] @param {{creditMemo?:boolean}} [opts] */
+export async function fiscalBundle(db, actor, trip, deviceId, env, opts = {}) {
+  const types = [
+    "sales_invoice",
+    "official_receipt",
+    ...(opts.creditMemo ? ["credit_memo"] : []),
+  ];
   const candidates =
     await db`select s.*,r.document_type from fiscal_series s join fiscal_registrations r on r.id=s.registration_id
     where r.org_unit_id=${trip.org_unit_id} and (s.vehicle_id is null or s.vehicle_id=${trip.vehicle_id}) and s.effective_from<=now() and (s.effective_to is null or s.effective_to>now())
-    and r.document_type in ('sales_invoice','official_receipt') order by s.prefix limit 101`;
+    and r.document_type in ${db(types)} order by s.prefix limit 101`;
   if (candidates.length > 100)
     refuse("Too many active document series; narrow the branch");
   const ranges = [];
-  for (const type of ["sales_invoice", "official_receipt"]) {
+  for (const type of types) {
     const matches = candidates.filter(
       (/** @type {any} */ s) => s.document_type === type,
     );

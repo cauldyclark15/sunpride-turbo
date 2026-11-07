@@ -90,6 +90,8 @@ export function approvalCodeFor(key, message) {
 export function approvalMessage(kind, tripId, p) {
   if (kind === "void")
     return `VOID|v1|${tripId}|${p.receiptNumber}|${p.totalMinor}|${p.reasonCode}`;
+  if (kind === "refund")
+    return `REFUND|v1|${tripId}|${p.receiptNumber}|${p.totalMinor}|${p.reasonCode}|${p.refundNumber}`;
   if (kind === "cash")
     return `CASH|v1|${tripId}|${p.expectedMinor}|${p.declaredMinor}|${p.reasonCode}`;
   if (kind === "stock")
@@ -104,6 +106,20 @@ export function approvalFacts(kind, p) {
       totalMinor: String(integer(p.totalMinor)),
       reasonCode: choice(p.reasonCode, VOID_REASONS),
     };
+  if (kind === "refund") {
+    const n = Number(p.refundNumber);
+    if (!Number.isInteger(n) || n < 1 || n > 1000)
+      throw invalid("Enter which refund of this receipt this is (1 for the first)");
+    const reasonCode = text(p.reasonCode, 40, true);
+    if (!/^[A-Za-z0-9][A-Za-z0-9_-]{1,39}$/.test(reasonCode ?? ""))
+      throw invalid("Enter the refund reason code");
+    return {
+      receiptNumber: text(p.receiptNumber, 100, true),
+      totalMinor: String(integer(p.totalMinor, true)),
+      reasonCode,
+      refundNumber: n,
+    };
+  }
   if (kind === "cash")
     return {
       expectedMinor: String(integer(p.expectedMinor)),
@@ -133,12 +149,12 @@ export async function issueApproval(db, actor, env, kind, input) {
   const facts = approvalFacts(kind, input);
   let tripId = input.tripId;
   if (!tripId) {
-    const tripNumber =
-      kind === "void"
-        ? /^(.+)-[0-9A-F]{8}-\d{4,9}$/.exec(input.receiptNumber)?.[1]
-        : input.tripNumber;
+    const byReceipt = kind === "void" || kind === "refund";
+    const tripNumber = byReceipt
+      ? /^(.+)-[0-9A-F]{8}-\d{4,9}$/.exec(input.receiptNumber)?.[1]
+      : input.tripNumber;
     const [r] =
-      kind === "void"
+      byReceipt
         ? await db`select t.id from van_trips t join van_sales s on s.trip_id=t.id where s.receipt_number=${input.receiptNumber} and t.deleted_at is null`
         : await db`select id from van_trips where trip_number=${tripNumber ?? ""} and deleted_at is null`;
     tripId = r?.id;

@@ -6,11 +6,14 @@ import { fiscalBundle } from "../fiscal/transactions.js";
 import { tenderPolicy } from "../fiscal/tenders.js";
 import { STATUSES, STATUS_FIELDS } from "../inventory/common.js";
 import { refuse } from "../van/model.js";
+import { refundBundle } from "../fiscal/refunds.js";
 /** F-R03: cached quotes are replicas of shared SAP conditions, not a retail price list.
  * IP-INT3: `opts.taxFacts` (a handheld that asked with `params.handheld`) adds each product's governed tax treatment and
  * rate, taken from the same price condition a store sale is taxed with, so the phone's discount maths agrees with the
  * server. A product with no price, or a price with no tax set-up, carries none (the phone refuses to guess).
- * @param {any} db @param {any} actor @param {any} device @param {any} r @param {{taxFacts?:boolean}} [opts] */
+ * IP-REFUND: `opts.refunds` (a phone that asked with `params.refunds`) adds the refund reasons, the supervisor amount, the
+ * refunds already made on recent sales and its credit-memo number range. Older phones get none of it.
+ * @param {any} db @param {any} actor @param {any} device @param {any} r @param {{taxFacts?:boolean, refunds?:boolean}} [opts] */
 export async function sellingBundle(db, actor, device, r, opts = {}) {
   const [outlet] = r.outlet_id
     ? await db`select o.*,c.code as account_code from outlets o join outlet_customer_links k on k.outlet_id=o.id and k.deleted_at is null and k.effective_from<=now() and (k.effective_to is null or k.effective_to>now()) join customers c on c.id=k.customer_id and c.active and c.deleted_at is null where o.id=${r.outlet_id} and o.status='active' and o.deleted_at is null`
@@ -170,9 +173,36 @@ export async function sellingBundle(db, actor, device, r, opts = {}) {
       actor,
       { org_unit_id: r.org_unit_id, vehicle_id: null },
       device.id,
+      undefined,
+      { creditMemo: opts.refunds === true },
     ),
     sales,
+    ...(opts.refunds === true
+      ? {
+          refunds: await refundBundle(db, {
+            made: await recentRefunds(db, r.id),
+          }),
+        }
+      : {}),
     reads,
     transfers: incoming,
   };
+}
+
+/** Refunds made on this register's recent sales, so the phone can show "already refunded" without a sync of its own.
+ * @param {any} db @param {string} registerId */
+async function recentRefunds(db, registerId) {
+  const rows =
+    await db`select r.id,r.sale_id,r.credit_number,r.total_centavos::text as total,r.tenders,r.refunded_at,r.reason_code,(select coalesce(jsonb_agg(jsonb_build_object('lineIndex',l.line_index,'quantityBase',l.quantity_base::text,'amountCentavos',l.amount_centavos::text) order by l.line_index),'[]'::jsonb) from sale_refund_lines l where l.refund_id=r.id) as lines from sale_refunds r join store_shifts h on h.id=r.shift_id where h.register_id=${registerId} and r.refunded_at>=now()-interval '8 days' order by r.refunded_at desc limit 501`;
+  if (rows.length > 500) refuse("Refund cache exceeds 500 refunds; reconcile the terminal");
+  return rows.map((/** @type {any} */ x) => ({
+    id: x.id,
+    saleId: x.sale_id,
+    creditNumber: x.credit_number,
+    totalMinor: x.total,
+    reasonCode: x.reason_code,
+    tenders: x.tenders,
+    lines: x.lines,
+    at: +new Date(x.refunded_at),
+  }));
 }

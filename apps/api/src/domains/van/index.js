@@ -276,7 +276,7 @@ export function install(router, ctx) {
       command(request, ctx, action, cap, fn),
     );
   }
-  for (const kind of ["void", "cash", "stock"])
+  for (const kind of ["void", "refund", "cash", "stock"])
     router.post(
       `/api/v1/van/${kind}/approval-code`,
       (/** @type {any} */ request) =>

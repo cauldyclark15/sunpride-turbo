@@ -130,6 +130,7 @@ export const CAPABILITIES = Object.freeze({
   "van.load.approve": ["super_admin", "manager", "approver"],
   "van.damage.approve": ["super_admin", "manager", "approver"],
   "van.void.approve": ["super_admin", "manager", "approver"],
+  "van.refund.approve": ["super_admin", "manager", "approver"],
   "van.cash.approve": ["super_admin", "manager", "approver"],
   "van.stock.approve": ["super_admin", "manager", "approver"],
 });

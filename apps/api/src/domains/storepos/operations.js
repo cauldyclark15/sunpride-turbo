@@ -13,11 +13,13 @@ import { enqueueSapPosting } from "../fiscal/transactions.js";
 import { recordCashMovement } from "./cash.js";
 import { useSupervisor } from "./overrides.js";
 import { readingModel, generateZ, legacySnapshot } from "./readings.js";
+import { refundPart } from "./refunds.js";
 
 export const STORE_OPS = [
   "store.sale",
   "store.void",
   "store.refund",
+  "store.refund.part",
   "store.read",
   "store.receive",
   "store.count",
@@ -100,6 +102,8 @@ export async function storeOperation(c) {
       });
       return { entityId: result.id };
     }
+    case "store.refund.part":
+      return refundPart(ctx);
     case "store.void":
     case "store.refund": {
       const [sale] =
@@ -109,6 +113,13 @@ export async function storeOperation(c) {
       if (c.op.opType === "store.void" && sale.shift_id !== shift.id)
         refuse(
           "Void only during the original cashier session; request a refund instead",
+        );
+      // IP-REFUND: part of this sale already went back; a whole-sale void or refund would return that stock twice.
+      const [part] =
+        await db`select 1 from sale_refunds where sale_id=${sale.id} limit 1`;
+      if (part)
+        refuse(
+          "Part of this sale was already refunded. Refund the items that are left instead.",
         );
       const id = uuid(c.op.clientOpId);
       await db`insert into store_reversals(id,sale_id,shift_id,kind,reason,requested_by,status,request) values(${id},${sale.id},${shift.id},${c.op.opType === "store.void" ? "void" : "refund"},${text(p.reason, 300, true)},${actor.profileId},'pending',${p})`;
@@ -338,7 +349,13 @@ export async function decideReversal(db, actor, p) {
   )
     refuse("A second person must decide a pending reversal");
   const [sale] =
-    await db`select * from store_sales where id=${request.sale_id}`;
+    await db`select * from store_sales where id=${request.sale_id} for update`;
+  const [partRefund] =
+    await db`select 1 from sale_refunds where sale_id=${sale.id} limit 1`;
+  if (partRefund && p.decision !== "rejected")
+    refuse(
+      "Part of this sale was refunded after this request. Reject it and refund the items that are left.",
+    );
   const [shift] =
     await db`select * from store_shifts where id=${request.shift_id}`;
   const r = await registerFor(db, actor, shift.register_id, "van.cash.approve");

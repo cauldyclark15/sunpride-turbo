@@ -222,12 +222,26 @@ export async function readingModel(db, dayId, kind, record = false) {
     await db`select s.*,p.name as cashier_name,c.id as closure_id,c.declared_centavos,c.expected_centavos as closed_expected,c.variance_centavos,c.closed_at,c.kind as closure_kind,c.needs_review,d.decision,exists(select 1 from store_session_events e where e.shift_id=s.id and e.kind='suspended' and not exists(select 1 from store_session_events e2 where e2.shift_id=s.id and e2.kind='resumed' and e2.captured_at>e.captured_at)) as suspended from store_shifts s join profiles p on p.id=s.cashier_id left join store_shift_closures c on c.shift_id=s.id left join store_shift_decisions d on d.closure_id=c.id where s.till_day_id=${dayId} order by s.opened_at,s.id`;
   const salesRows =
     await db`select s.receipt_number as number,s.receipt,s.sold_at,o.status from store_sales s join orders o on o.id=s.order_id join store_shifts h on h.id=s.shift_id where h.till_day_id=${dayId} order by s.sold_at,s.id`;
-  const credits =
-    await db`select v.id,s.receipt,o.order_number as number from store_reversals v join store_sales s on s.id=v.sale_id join store_shifts h on h.id=v.shift_id left join orders o on o.id=v.order_id where h.till_day_id=${dayId} and v.status='approved' and v.kind='refund' order by v.created_at,v.id`;
-  const creditRows = credits.map((/** @type {any} */ c) => ({
-    number: c.number,
-    amount: String(c.receipt?.totalMinor ?? 0),
-  }));
+  const wholeCredits =
+    await db`select v.id,s.receipt,o.order_number as number,v.created_at as at from store_reversals v join store_sales s on s.id=v.sale_id join store_shifts h on h.id=v.shift_id left join orders o on o.id=v.order_id where h.till_day_id=${dayId} and v.status='approved' and v.kind='refund'`;
+  // IP-REFUND: refunds of part of a sale (their own credit memo each). Whole-sale refunds stay on their old path.
+  const partCredits =
+    await db`select r.id,r.credit_number as number,r.original_number,r.total_centavos::text as amount,r.refunded_at as at from sale_refunds r join store_shifts h on h.id=r.shift_id where h.till_day_id=${dayId} and r.surface='store'`;
+  /** @type {{number:string, amount:string, original:string, at:number}[]} */
+  const creditRows = [
+    ...wholeCredits.map((/** @type {any} */ c) => ({
+      number: c.number,
+      amount: String(c.receipt?.totalMinor ?? 0),
+      original: c.receipt?.receiptNumber,
+      at: +new Date(c.at),
+    })),
+    ...partCredits.map((/** @type {any} */ c) => ({
+      number: c.number,
+      amount: String(c.amount),
+      original: c.original_number,
+      at: +new Date(c.at),
+    })),
+  ].sort((a, b) => a.at - b.at || String(a.number).localeCompare(String(b.number)));
   const agg = aggregateSales(salesRows, creditRows);
   const tenderRows =
     await db`select t.method,max(t.label) as label,sum(t.amount_centavos)::text as amount from store_tenders t join store_shifts h on h.id=t.shift_id where h.till_day_id=${dayId} group by t.method order by t.method`;
@@ -310,12 +324,12 @@ export async function readingModel(db, dayId, kind, record = false) {
     status: s.status,
     snapshot: s.receipt,
   }));
-  for (const c of credits)
+  for (const c of creditRows)
     journal.push({
       kind: "refund",
       number: c.number,
-      original: c.receipt.receiptNumber,
-      amount: c.receipt.totalMinor,
+      original: c.original,
+      amount: c.amount,
     });
   const model = {
     kind,
@@ -410,7 +424,7 @@ export async function readingModel(db, dayId, kind, record = false) {
     journal,
     generatedAt: Date.now(),
   };
-  return { model, day, sessions, agg, next, salesRows, credits };
+  return { model, day, sessions, agg, next, salesRows, credits: creditRows };
 }
 
 /** @param {any} db @param {string} shiftId */

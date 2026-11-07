@@ -82,6 +82,7 @@ import {
   requireTemperature,
 } from "./route-evidence.js";
 import { submitSettlement } from "./settlement.js";
+import { vanRefund } from "./refunds.js";
 import { saleLots } from "./lots.js";
 import { validateReturnEvidence } from "./return-evidence.js";
 import { receiveReload } from "./reloads.js";
@@ -100,6 +101,7 @@ export const VAN_OPS = [
   "sale.record",
   "sale.void",
   "return.record",
+  "refund.record",
   "payment.record",
   "cash.reconcile",
   "stock.reconcile",
@@ -483,6 +485,9 @@ async function dispatchOperation(ctx, env) {
         break;
       case "sale.void":
         result = await voidSale(db, trip, actor, env, p, op.clientOpId);
+        break;
+      case "refund.record":
+        result = await vanRefund(db, trip, actor, env, p, op.clientOpId);
         break;
       case "return.record":
         result = await customerReturn(db, trip, actor, env, p, op.clientOpId);
@@ -1052,9 +1057,9 @@ async function voidSale(db, trip, actor, env, p, opId) {
   )
     refuse("Receipt facts do not match", "invalid_request");
   const [used] =
-    await db`select (exists(select 1 from van_sale_voids where sale_id=${id}) or exists(select 1 from van_returns where sale_id=${id}) or exists(select 1 from van_payments where sale_id=${id} and kind='collection')) as yes`;
+    await db`select (exists(select 1 from van_sale_voids where sale_id=${id}) or exists(select 1 from van_returns where sale_id=${id}) or exists(select 1 from sale_refunds where sale_id=${id}) or exists(select 1 from van_payments where sale_id=${id} and kind='collection')) as yes`;
   if (used.yes)
-    refuse("This sale has already been voided, returned or collected");
+    refuse("This sale has already been voided, returned, refunded or collected");
   const facts = {
     receiptNumber: s.receipt_number,
     totalMinor: String(s.total_centavos),
@@ -1156,7 +1161,10 @@ async function customerReturn(db, trip, actor, env, p, opId) {
     const qty = integer(l.quantityBase, true);
     const [r] =
       await db`select coalesce(sum(l.quantity_base),0)::text as qty from van_return_lines l join van_returns r on r.id=l.return_id where r.sale_id=${saleId} and l.product_id=${l.productId}`;
-    if (BigInt(r.qty) + qty > BigInt(original.quantityBase))
+    // IP-REFUND: stock already taken back by an item refund of this receipt counts as returned too.
+    const [taken] =
+      await db`select coalesce(sum(quantity_base),0)::text as qty from sale_refund_lines where sale_id=${saleId} and product_id=${l.productId}`;
+    if (BigInt(r.qty) + BigInt(taken.qty) + qty > BigInt(original.quantityBase))
       refuse("Returned quantity exceeds the original sale", "invalid_request");
     const legacyReasons = [
       "damaged",

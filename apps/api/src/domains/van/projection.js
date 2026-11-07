@@ -20,6 +20,8 @@ import { currentDeviceActor, tripFor, outletFor } from "./access.js";
 import { productFor, stockBearing } from "./facts.js";
 import { catalogueMetadata } from "../masters/catalogue.js";
 import { approvalKey } from "./approvals.js";
+import { refundBundle } from "../fiscal/refunds.js";
+import { tripRefunds } from "./refunds.js";
 import { vanDayBundle } from "./dayboard.js";
 import {
   date,
@@ -144,6 +146,8 @@ export function vanProjection(env) {
         ...(p.handheld === true ? { handheld: true } : {}),
         // IP-VANDAY: roster, crew on this phone and the suggested/dispatched load; older apps never ask.
         ...(p.vanDay === true ? { vanDay: true } : {}),
+        // IP-REFUND: refunds of part of a sale (reasons, supervisor amount, credit-memo range); older apps never ask.
+        ...(p.refunds === true ? { refunds: true } : {}),
       };
     },
     snapshot,
@@ -186,6 +190,7 @@ export async function bundle(ctx, env) {
       ctx.params.posMode === true
         ? await modeBundle(db, actor, device, posMode, {
             taxFacts: ctx.params.handheld === true,
+            refunds: ctx.params.refunds === true,
           })
         : null;
     let trips =
@@ -514,9 +519,25 @@ export async function bundle(ctx, env) {
               ...splitTenderFlag(ctx),
             }
           : {}),
+        ...(ctx.params.refunds === true
+          ? {
+              refunds: await refundBundle(db, {
+                approvalKey: (() => {
+                  try {
+                    return approvalKey(env, trip.id, "refund");
+                  } catch {
+                    return null;
+                  }
+                })(),
+                made: await tripRefunds(db, trip.id),
+              }),
+            }
+          : {}),
         paymentMethods: await tenderPolicy(db, trip.org_unit_id),
         fiscal: {
-          ...(await fiscalBundle(db, actor, trip, device.id, env)),
+          ...(await fiscalBundle(db, actor, trip, device.id, env, {
+            creditMemo: ctx.params.refunds === true,
+          })),
           customerChannels: Object.fromEntries(
             customerChannels.map((/** @type {any} */ c) => [c.id, c.channel]),
           ),

@@ -96,7 +96,11 @@ export async function seedFiscal(db) {
       }
     return { registrations: count, status: "sample, not filed" };
   });
-  return { ...result, stores: await seedStoreFiscal(db) };
+  return {
+    ...result,
+    stores: await seedStoreFiscal(db),
+    refundSeries: await seedRefundSeries(db),
+  };
 }
 
 /** Store tills sell from the register's org unit with no vehicle. Give every marked-sample unit that has an active store
@@ -157,5 +161,67 @@ export async function seedStoreFiscal(db) {
       series++;
     }
     return { tenders, series };
+  });
+}
+
+/** IP-REFUND: a refund is a credit memo with its own number series. Give every marked-sample store register unit one vehicle-less
+ * credit-memo registration + series, and every marked-sample vehicle one credit-memo series of its own, so a phone can number a
+ * refund offline like it numbers an invoice. Additive only: a credit-memo series the unit or vehicle already has (even
+ * office-edited or disabled) is left exactly as it is, so a second run adds nothing. Sample registrations stay
+ * `sample_not_filed`. Never raw SQL on a live database: run this helper (packages/db/scripts/seed-store-fiscal.js).
+ * @param {import('../src/client.js').Db} db */
+export async function seedRefundSeries(db) {
+  return tx(db, async (t) => {
+    await t`select pg_advisory_xact_lock(4300019)`;
+    await t`select set_config('sunpride.actor','system:sample-fiscal',true)`;
+    const [admin] =
+      await t`select p.id from profiles p join sample_data_rows m on m.table_name='profiles' and m.row_id=p.id::text where p.role in ('super_admin','admin') and p.status='active' and p.deleted_at is null order by (p.role='super_admin') desc,p.id limit 1`;
+    if (!admin)
+      return { stores: 0, vehicles: 0, reason: "Sample administrator missing" };
+    const units =
+      await t`select distinct u.id,u.code,u.name from org_units u join sample_data_rows m on m.table_name='org_units' and m.row_id=u.id::text join inventory_locations l on l.org_unit_id=u.id and l.type='store' and l.active and l.deleted_at is null join store_registers r on r.location_id=l.id where u.deleted_at is null order by u.id`;
+    let stores = 0,
+      vehiclesDone = 0;
+    for (const u of units) {
+      const [have] =
+        await t`select 1 from fiscal_series s join fiscal_registrations r on r.id=s.registration_id where r.org_unit_id=${u.id} and r.document_type='credit_memo' and s.vehicle_id is null limit 1`;
+      if (have) continue;
+      const id = rowId("fiscal_registrations", `${u.id}-store-credit_memo`),
+        seriesId = rowId("fiscal_series", `${u.id}-store-credit_memo`);
+      await t`insert into fiscal_registrations(id,org_unit_id,entity_name,branch_name,tin,address,document_type,status,effective_from,entered_by,sample,tax_basis_points)
+     values(${id},${u.id},'SAMPLE SUNPRIDE COMPANY - NOT REGISTERED',${u.name},'SAMPLE 000-000-000-000','Sample Cebu address - replace with registered address','credit_memo','sample_not_filed','2026-01-01',${admin.id},true,1200) on conflict(id) do nothing`;
+      await t`insert into fiscal_series(id,registration_id,vehicle_id,prefix,first_serial,last_serial,next_allocate,effective_from)
+     values(${seriesId},${id},null,${`SAMPLE-${String(u.code)
+       .toUpperCase()
+       .replace(/[^A-Z0-9-]/g, "-")}-STORE-CM`},1,999999,1,'2026-01-01') on conflict(id) do nothing`;
+      for (const [table, row] of [
+        ["fiscal_registrations", id],
+        ["fiscal_series", seriesId],
+      ])
+        await t`insert into sample_data_rows(batch,table_name,row_id,key) values('sunpride-fiscal-sample',${table},${row},${`${table}:${row}`}) on conflict(batch,key) do nothing`;
+      stores++;
+    }
+    const vehicles =
+      await t`select distinct v.id,v.vehicle_code,v.org_unit_id,u.name from vehicles v join org_units u on u.id=v.org_unit_id join sample_data_rows m on m.table_name='vehicles' and m.row_id=v.id::text join sample_data_rows mu on mu.table_name='org_units' and mu.row_id=v.org_unit_id::text where v.deleted_at is null order by v.id`;
+    for (const v of vehicles) {
+      const [have] =
+        await t`select 1 from fiscal_series s join fiscal_registrations r on r.id=s.registration_id where r.org_unit_id=${v.org_unit_id} and r.document_type='credit_memo' and s.vehicle_id=${v.id} limit 1`;
+      if (have) continue;
+      const id = rowId("fiscal_registrations", `${v.id}-credit_memo`),
+        seriesId = rowId("fiscal_series", `${v.id}-credit_memo`);
+      await t`insert into fiscal_registrations(id,org_unit_id,entity_name,branch_name,tin,address,document_type,status,effective_from,entered_by,sample,tax_basis_points)
+     values(${id},${v.org_unit_id},'SAMPLE SUNPRIDE COMPANY - NOT REGISTERED',${v.name},'SAMPLE 000-000-000-000','Sample Cebu address - replace with registered address','credit_memo','sample_not_filed','2026-01-01',${admin.id},true,1200) on conflict(id) do nothing`;
+      await t`insert into fiscal_series(id,registration_id,vehicle_id,prefix,first_serial,last_serial,next_allocate,effective_from)
+     values(${seriesId},${id},${v.id},${`SAMPLE-${String(v.vehicle_code)
+       .toUpperCase()
+       .replace(/[^A-Z0-9-]/g, "-")}-CM`},1,999999,1,'2026-01-01') on conflict(id) do nothing`;
+      for (const [table, row] of [
+        ["fiscal_registrations", id],
+        ["fiscal_series", seriesId],
+      ])
+        await t`insert into sample_data_rows(batch,table_name,row_id,key) values('sunpride-fiscal-sample',${table},${row},${`${table}:${row}`}) on conflict(batch,key) do nothing`;
+      vehiclesDone++;
+    }
+    return { stores, vehicles: vehiclesDone };
   });
 }

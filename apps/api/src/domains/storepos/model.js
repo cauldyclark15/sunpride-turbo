@@ -75,7 +75,7 @@ export function captureTime(c) {
   return Number(at);
 }
 /** F-R01: configuration rides the existing authorized van bundle, even with no trip.
- * @param {any} db @param {any} actor @param {any} device @param {any} mode @param {{taxFacts?:boolean}} [opts] */
+ * @param {any} db @param {any} actor @param {any} device @param {any} mode @param {{taxFacts?:boolean, refunds?:boolean}} [opts] */
 export async function modeBundle(db, actor, device, mode, opts = {}) {
   if (!mode) return null;
   if (mode.mode === "store")

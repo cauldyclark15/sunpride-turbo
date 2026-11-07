@@ -315,6 +315,8 @@ const DOCUMENT_TABLES = /** @type {Record<string,[string,string,string]>} */ ({
   reservation: ["inventory_reservations", "reservation_number", "Reservation"],
   store_sale: ["store_sales", "receipt_number", "Store sale"],
   van_sale: ["van_sales", "receipt_number", "Van sale"],
+  store_refund: ["sale_refunds", "credit_number", "Store refund"],
+  van_refund: ["sale_refunds", "credit_number", "Van refund"],
   disposition: ["inventory_dispositions", "disposition_number", "Disposition"],
 });
 const KIND_LABELS = /** @type {Record<string,string>} */ ({
