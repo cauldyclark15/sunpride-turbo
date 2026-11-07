@@ -713,6 +713,30 @@ test("the phone's bundle carries the limit and this week's use per card, hashed,
   expect(proj.params?.({ ...base, handheld: true, vanDay: true })).not.toHaveProperty("privilegeCap");
 });
 
+
+test("the store bundle carries `privilegeCap` inside storePos only for a handheld that asks; older asks see the same bundle as before", async () => {
+  const { bundle } = await import("../src/domains/van/projection.js");
+  const actor = await actorFor(h.db, seller.userId);
+  const ctx = (/** @type {any} */ extra) => ({
+    db: h.db,
+    actor,
+    device: { id: seller.deviceId },
+    params: { serviceDate: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10), posMode: true, ...extra },
+    now: Date.now(),
+  });
+  const plain = await bundle(ctx({ handheld: true, vanDay: true }), {});
+  expect(plain.policy.storePos.privilegeCap).toBeUndefined();
+  expect(plain.policy.privilegeCap).toBeUndefined();
+  expect(Object.keys(plain.policy.storePos)).not.toContain("privilegeCap");
+  const asked = await bundle(ctx({ handheld: true, vanDay: true, privilegeCap: true }), {});
+  expect(asked.policy.storePos.privilegeCap).toMatchObject({ version: 1, enabled: true, capCentavos: "130000", weekStart: manilaWeekStart(Date.now()) });
+  expect(asked.policy.storePos.privilegeCap.used.length).toBeGreaterThan(0);
+  // nothing else in the bundle changed for the phone that asked
+  const { privilegeCap: _p, ...rest } = asked.policy.storePos;
+  expect(Object.keys(rest).sort()).toEqual(Object.keys(plain.policy.storePos).sort());
+  expect(Object.keys(asked.policy).sort()).toEqual(Object.keys(plain.policy).sort());
+});
+
 test("a sale with no claim, or a claim on a phone from before this change, is unchanged on the wire", async () => {
   const plain = await ring(["VAT39"], "3900");
   expect(plain.result.status).toBe("applied");
@@ -720,6 +744,16 @@ test("a sale with no claim, or a claim on a phone from before this change, is un
   expect(old.result.status).toBe("applied");
   const [row] = await ledgerFor("SC-CAP-OLD");
   expect(row).toMatchObject({ claim_basis: "phone_uncapped", overage_centavos: "0", applied_gross_centavos: "3900" });
+});
+
+test("the Kotlin copy of the shared vectors is byte-identical, and the strict v1 wire fixture still lists storePos as stripped (privilegeCap rides inside it)", async () => {
+  const a = await Bun.file(new URL("./fixtures/privilege-cap-vectors.json", import.meta.url)).text();
+  const b = await Bun.file(new URL("../../van-sales-android/app/src/test/resources/privilege-cap-vectors.json", import.meta.url)).text();
+  expect(b).toBe(a);
+  const v1 = await Bun.file(new URL("./fixtures/van-wire-v1-policy-keys.json", import.meta.url)).json();
+  expect(v1.strippedBeforeValidation).toContain("storePos");
+  expect(v1.validatedKeys).not.toContain("privilegeCap");
+  expect(v1.strippedBeforeValidation).not.toContain("privilegeCap"); // never a policy key, so no v1 validator has to learn it
 });
 
 /** The legacy Z gate. */

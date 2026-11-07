@@ -103,7 +103,9 @@ data class CheckoutContext(val tripSelling: Boolean, val customers: List<Custome
     val cashCounted: Boolean = false, val promotions: List<com.sunpride.van.data.Promotion> = emptyList(),
     val stockCounted: Boolean = false,val previewOnly:Boolean = false,val governedPromotionsJson:String? = null,
     /** IP-HH2: how each product is taxed on this phone; null = unknown, so a discount claim is refused rather than guessed. */
-    val taxFacts: ((QuotedLine, String?) -> com.sunpride.van.selling.TaxFact?)? = null)
+    val taxFacts: ((QuotedLine, String?) -> com.sunpride.van.selling.TaxFact?)? = null,
+    /** IP-SCPWD-CAP: what is left of a senior/PWD card's weekly limit as this phone knows it; null = no limit known (the sale then carries no limit). */
+    val capRemaining: ((com.sunpride.van.selling.DiscountClaim) -> Long?)? = null)
 
 class CheckoutRefused(val issues: List<CheckoutIssue>) : IllegalStateException("Checkout refused")
 
@@ -198,7 +200,7 @@ object CheckoutRules {
         if (total > MAX_MINOR) issues += CheckoutIssue(CheckoutProblem.TOTAL_TOO_LARGE)
 
         // IP-HH2: an item that left the cart no longer counts as eligible (the server refuses a claim naming an item that is not in the sale).
-        val prunedClaim = request.claim?.let { c -> c.copy(eligibleProductIds = c.eligibleProductIds?.intersect(quoted.map { it.product.productId }.toSet())) }
+        val prunedClaim = request.claim?.let { c -> c.copy(eligibleProductIds = c.eligibleProductIds?.intersect(quoted.map { it.product.productId }.toSet()),capBudget = legalCart?.budget) }
         val split = request.split
         if (split != null) {
             // IP-HH2: cash plus one more tender. The other tender pays [split.amountMinor]; cash pays the rest and only cash gives change.
@@ -231,7 +233,7 @@ object CheckoutRules {
         }
         val facts = context.taxFacts
         val inputs = quoted.map { q -> com.sunpride.van.selling.LegalInput(q.product.productId,q.grossMinor,q.discountMinor,facts?.invoke(q,customer?.priceListId)) }
-        val cart = com.sunpride.van.selling.Privilege.cart(inputs,claim).getOrElse {
+        val cart = com.sunpride.van.selling.Privilege.cart(inputs,claim,context.capRemaining?.invoke(claim)).getOrElse {
             inputs.filter { it.gross > 0 && it.tax?.known != true }.forEach { issues += CheckoutIssue(CheckoutProblem.DISCOUNT_TAX_UNKNOWN,it.productId) }
             if (issues.none { it.problem == CheckoutProblem.DISCOUNT_TAX_UNKNOWN }) issues += CheckoutIssue(CheckoutProblem.DISCOUNT_TAX_UNKNOWN)
             return null

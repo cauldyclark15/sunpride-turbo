@@ -89,7 +89,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
             DangerButton("Cancel sale",c::cancelSale,Modifier.testTag("sale-cancel"),!c.busy)
         })
     if (claiming) ClaimSheet(items = draft.lines.map { l -> l.productId to (c.products.firstOrNull { it.productId == l.productId }?.name ?: "Item") },initial = draft.claim,
-        onApply = { c.setClaim(it); claiming = false },onRemove = if (draft.claim != null) ({ c.setClaim(null); claiming = false }) else null,onClose = { claiming = false })
+        onApply = { c.setClaim(it); claiming = false },onRemove = if (draft.claim != null) ({ c.setClaim(null); claiming = false }) else null,onClose = { claiming = false },
+        capLeft = { cl -> c.saleContext().capRemaining?.invoke(cl) })
     if (discounting) DiscountDialog(c) { discounting = false }
     if (changingPrice) PriceOverrideDialog(c) { changingPrice = false }
 }
@@ -216,7 +217,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
         Text("The sale is saved on this phone first. It doesn't need signal.",style = MaterialTheme.typography.bodyMedium)
     }
     if (claiming) ClaimSheet(items = draft.lines.map { l -> l.productId to (c.products.firstOrNull { it.productId == l.productId }?.name ?: "Item") },initial = draft.claim,
-        onApply = { c.setClaim(it); claiming = false },onRemove = if (draft.claim != null) ({ c.setClaim(null); claiming = false }) else null,onClose = { claiming = false })
+        onApply = { c.setClaim(it); claiming = false },onRemove = if (draft.claim != null) ({ c.setClaim(null); claiming = false }) else null,onClose = { claiming = false },
+        capLeft = { cl -> c.saleContext().capRemaining?.invoke(cl) })
     if (discounting) DiscountDialog(c) { discounting = false }
 }
 private const val SPLIT_ID = "split"

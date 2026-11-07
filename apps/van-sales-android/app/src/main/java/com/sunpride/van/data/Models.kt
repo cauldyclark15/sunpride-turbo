@@ -16,7 +16,9 @@ data class VanPolicy(val allowNegativeStock: Boolean = false,
     /** IP-HH2: the van day (opt-in `params.vanDay`): the truck this phone belongs to, the crew, the planned load to accept. Null on an older server. */
     val vanDay: com.sunpride.van.vanday.VanDayInfo? = null,
     /** IP-HH2: the office's server accepts a sale paid with two tenders (`payment.parts`); until it says so the van offers one tender only. */
-    val splitTender: Boolean = false)
+    val splitTender: Boolean = false,
+    /** IP-SCPWD-CAP: the senior/PWD weekly limit and each card's use this week (opt-in `params.privilegeCap`); null = no limit known. */
+    val privilegeCap: com.sunpride.van.selling.PrivilegeCapInfo? = null)
 /** IP-P0 (SPEC 5.3): the van this handheld is bound to and the supervisor to call; every part is optional. */
 data class HandheldInfo(val vehicleCode: String? = null, val plateNumber: String? = null, val supervisorName: String? = null, val supervisorPhone: String? = null) {
     /** "ABC-1234" when the plate is known, else the van code. */

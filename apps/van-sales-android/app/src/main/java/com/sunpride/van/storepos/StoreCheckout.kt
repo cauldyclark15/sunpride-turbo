@@ -42,8 +42,13 @@ object StoreCheckout {
         val lists=JSONObject();val units=JSONObject()
         objects(data.optJSONArray("catalogue")).forEach {p->lists.put(p.getString("productId"),p.opt("sourcePriceListId")?:JSONObject.NULL);units.put(p.getString("productId"),p.optJSONObject("units")?:JSONObject())}
         governed.put("priceLists",lists).put("units",units)
+        // IP-SCPWD-CAP: the weekly senior/PWD limit as this till knows it: the bundle's use per card plus what this phone sold since.
+        val cap=com.sunpride.van.selling.PrivilegeCapInfo.decode(data.optJSONObject("privilegeCap"))
+        val capUsed=com.sunpride.van.selling.PrivilegeCap.localUsed(cap,now,rows.filter {it.kind=="store.sale"}.mapNotNull {r->
+            JSONObject(r.operationJson).optJSONObject("payload")?.optJSONObject("discountClaim")?.let {Triple(r.status,r.createdAt,it)}})
         return CheckoutContext(true,listOfNotNull(customer),products(config),stock,prices,VanPolicy(),now,
-            promotions=emptyList(),governedPromotionsJson=governed.toString(),taxFacts=taxFacts(config))
+            promotions=emptyList(),governedPromotionsJson=governed.toString(),taxFacts=taxFacts(config),
+            capRemaining=com.sunpride.van.selling.PrivilegeCap.remainingFn(cap,capUsed,now))
     }
     /**
      * IP-HH2: how each catalogue product is taxed, when the office's bundle says so (`taxTreatment` + `taxBasisPoints` on the catalogue row).

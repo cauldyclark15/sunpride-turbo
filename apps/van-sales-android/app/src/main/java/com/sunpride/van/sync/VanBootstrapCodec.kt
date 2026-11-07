@@ -23,7 +23,8 @@ object VanBootstrapCodec {
         o.optJSONObject("tripClose")?.let { TripClosePolicy(it.getBoolean("requireCashCount"),it.getBoolean("requireStockCount"),
             it.getBoolean("requireUploadsSent"),it.getBoolean("exceptionsNeedReview")) },o.optInt("operationsVersion",0),o.optJSONObject("fiscal")?.toString(),o.optJSONObject("schemes")?.toString(),
         handheld = o.optJSONObject("handheld")?.let { h -> HandheldInfo(clean(h,"vehicleCode",40),clean(h,"plateNumber",40),clean(h,"supervisorName",80),clean(h,"supervisorPhone",30)) },
-        vanDay = com.sunpride.van.vanday.VanDayCodec.decode(o.optJSONObject("vanDay")),splitTender = o.optBoolean("splitTender",false))
+        vanDay = com.sunpride.van.vanday.VanDayCodec.decode(o.optJSONObject("vanDay")),splitTender = o.optBoolean("splitTender",false),
+        privilegeCap = com.sunpride.van.selling.PrivilegeCapInfo.decode(o.optJSONObject("storePos")?.optJSONObject("privilegeCap")))
     /** Optional display text: trimmed, bounded, no control characters; anything else is simply not shown. */
     private fun clean(o: JSONObject, key: String, max: Int): String? = if (o.isNull(key)) null else o.optString(key,"").trim().takeIf { it.isNotEmpty() && it.length <= max && it.none(Char::isISOControl) }
 

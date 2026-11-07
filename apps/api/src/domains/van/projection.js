@@ -185,12 +185,18 @@ export async function bundle(ctx, env) {
         422,
         "Update this POS to use Store mode",
       );
-    const storePos =
+    const modeFacts =
       ctx.params.posMode === true
         ? await modeBundle(db, actor, device, posMode, {
             taxFacts: ctx.params.handheld === true,
           })
         : null;
+    // IP-SCPWD-CAP: the senior/PWD weekly limit and each card's use rides inside `storePos` (already stripped from the frozen
+    // v1 policy by every build that asks for posMode), only for a phone that asks with `params.privilegeCap`.
+    const storePos =
+      modeFacts && ctx.params.privilegeCap === true
+        ? { ...modeFacts, privilegeCap: await capBundle(db, Date.now()) }
+        : modeFacts;
     let trips =
       storePos?.mode === "store"
         ? []
@@ -213,9 +219,6 @@ export async function bundle(ctx, env) {
       policy: {
         ...policy(env, null),
         ...(storePos ? { storePos } : {}),
-        ...(ctx.params.privilegeCap === true
-          ? { privilegeCap: await capBundle(db, Date.now()) }
-          : {}),
         ...(handheld
           ? {
               handheld: await handheldInfo(db, actor, device, null),
@@ -514,9 +517,6 @@ export async function bundle(ctx, env) {
       policy: {
         ...tripPolicy,
         ...(storePos ? { storePos } : {}),
-        ...(ctx.params.privilegeCap === true
-          ? { privilegeCap: await capBundle(db, Date.now()) }
-          : {}),
         ...(handheld
           ? {
               handheld: await handheldInfo(db, actor, device, trip),

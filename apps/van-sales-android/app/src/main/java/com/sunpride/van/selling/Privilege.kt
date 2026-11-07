@@ -29,11 +29,15 @@ enum class PrivilegeType(val wire: String, val label: String, val rateBps: Int, 
 }
 
 /** What the cashier typed: the type, the card's ID number and the name on it; [eligibleProductIds] null = every line. */
-data class DiscountClaim(val type: PrivilegeType, val idNumber: String, val holderName: String, val eligibleProductIds: Set<String>? = null) {
+data class DiscountClaim(val type: PrivilegeType, val idNumber: String, val holderName: String, val eligibleProductIds: Set<String>? = null,
+    /** IP-SCPWD-CAP: how much of the purchase this phone let carry the discount (the weekly limit it knew about); null = it knew of no limit. */
+    val capBudget: Long? = null) {
     fun json(privilegeDiscountKey: String, vatRemovedKey: String, totals: LegalCart?): JSONObject = JSONObject()
         .put("type", type.wire).put("idNumber", idNumber.trim()).put("holderName", holderName.trim())
         .apply { eligibleProductIds?.let { put("eligibleProductIds", JSONArray(it.sorted())) } }
         .apply { totals?.let { put(privilegeDiscountKey, it.privilegeDiscount.toString()).put(vatRemovedKey, it.vatRemoved.toString()) } }
+        // Opt-in wire field: an older server ignores it, and an older phone never sends it (the server then treats the sale as uncapped).
+        .apply { capBudget?.let { b -> put("capBasis", JSONObject().put("budgetCentavos", b.toString()).apply { totals?.let { put("appliedCentavos", it.appliedGross.toString()) } }) } }
 }
 
 object ClaimRules {
@@ -67,8 +71,9 @@ data class LegalLine(
     val privilegeDiscount: Long, val promoDiscount: Long, val net: Long, val vatRemoved: Long, val privilegeType: PrivilegeType?,
 )
 
+/** [appliedGross] = the regular price of the part that got the privilege discount (counts against the weekly limit); [budget] = the limit the phone worked with (null = none). */
 data class LegalCart(val lines: List<LegalLine>, val gross: Long, val promoDiscount: Long, val privilegeDiscount: Long,
-    val vatRemoved: Long, val total: Long, val applied: Boolean)
+    val vatRemoved: Long, val total: Long, val applied: Boolean, val appliedGross: Long = 0, val eligibleGross: Long = 0, val budget: Long? = null)
 
 object Privilege {
     /** Half-up integer division for non-negative numbers. */
@@ -106,21 +111,57 @@ object Privilege {
     /** A line with no gross (a free gift) carries no tax and no privilege. */
     private fun free(promo: Long) = LegalLine(0, 0, 0, 0, 0, 0, promo, 0, 0, null)
 
+    /** Add the two halves of a line the weekly limit split (same arithmetic as the server's `merge`). */
+    private fun merge(a: LegalLine, b: LegalLine) = LegalLine(a.gross + b.gross, a.vatable + b.vatable, a.vat + b.vat, a.vatExempt + b.vatExempt,
+        a.zeroRated + b.zeroRated, a.privilegeDiscount + b.privilegeDiscount, a.promoDiscount + b.promoDiscount, a.net + b.net,
+        a.vatRemoved + b.vatRemoved, a.privilegeType)
+
+    /** Half-up integer a*b/d for non-negative numbers (BigInteger: gross*take can pass 2^63 only in absurd carts, but never wrap). */
+    private fun mulDivRound(a: Long, b: Long, d: Long): Long {
+        val n = java.math.BigInteger.valueOf(a).multiply(java.math.BigInteger.valueOf(b))
+        val dd = java.math.BigInteger.valueOf(d)
+        return n.multiply(java.math.BigInteger.TWO).add(dd).divide(dd.multiply(java.math.BigInteger.TWO)).toLong()
+    }
+
     /**
      * The whole cart. Returns the plain-words problem as a [Result.failure] message when a line has no tax set-up (never guessed).
      * [claim] null = no privilege: the same lines, promo only (used for the server preview and the receipt).
+     *
+     * IP-SCPWD-CAP: [budget] is how many centavos of the regular price may carry the discount (the weekly limit left, as this phone
+     * knows it); null = no limit. Lines are taken in order. A line that does not fit whole is split: the part that fits gets the
+     * discount, the rest is a plain line (its promotion share pro rata, half up). Mirrors `computeWithBudget` in
+     * `apps/api/src/domains/fiscal/privilege-cap.js`; both are held to `privilege-cap-vectors.json`.
      */
-    fun cart(lines: List<LegalInput>, claim: DiscountClaim?): Result<LegalCart> = runCatching {
+    fun cart(lines: List<LegalInput>, claim: DiscountClaim?, budget: Long? = null): Result<LegalCart> = runCatching {
+        require(budget == null || budget >= 0)
+        var left = budget ?: Long.MAX_VALUE
+        var appliedGross = 0L; var eligibleGross = 0L
         val out = lines.map { l ->
             if (l.gross == 0L) free(l.promoDiscount)
             else {
                 val tax = l.tax?.takeIf { it.known } ?: throw IllegalStateException(NO_TAX_SETUP)
                 val takes = claim != null && (claim.eligibleProductIds?.contains(l.productId) ?: true)
-                line(l.gross, l.promoDiscount, tax, if (takes) claim?.type else null)
+                val full = line(l.gross, l.promoDiscount, tax, if (takes) claim?.type else null)
+                if (full.privilegeType == null) full
+                else {
+                    eligibleGross += l.gross
+                    val take = minOf(l.gross, left)
+                    when {
+                        take >= l.gross -> { left -= take; appliedGross += take; full }
+                        take <= 0L -> line(l.gross, l.promoDiscount, tax, null)
+                        else -> {
+                            val promoA = mulDivRound(l.promoDiscount, take, l.gross)
+                            val a = line(take, promoA, tax, claim?.type)
+                            val b = line(l.gross - take, l.promoDiscount - promoA, tax, null)
+                            if (a.privilegeType != null) { left -= take; appliedGross += take }
+                            merge(a, b)
+                        }
+                    }
+                }
             }
         }
         LegalCart(out, out.sumOf { it.gross }, out.sumOf { it.promoDiscount }, out.sumOf { it.privilegeDiscount }, out.sumOf { it.vatRemoved },
-            out.sumOf { it.net }, out.any { it.privilegeType != null })
+            out.sumOf { it.net }, out.any { it.privilegeType != null }, appliedGross, eligibleGross, budget)
     }
 
     const val NO_TAX_SETUP = "Some items have no tax set-up on this phone, so the discount cannot be worked out. Ask the office to finish the price and tax set-up, then sync."

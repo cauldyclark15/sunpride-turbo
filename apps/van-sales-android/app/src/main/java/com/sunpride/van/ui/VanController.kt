@@ -627,7 +627,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun saleContext(now: Long = System.currentTimeMillis()): CheckoutContext =
         CheckoutContext(VanRules.canSell(trip) && session.signedIn,customers,products,stock,prices,policy,now,trip?.serviceDate,
             paymentFacts.creditUsedMinor,paymentFacts.usedReferences,cashCounted,promotions,stockCounted,
-            taxFacts = policy?.fiscalJson?.let { com.sunpride.van.fiscal.FiscalTax.facts(JSONObject(it),now) })
+            taxFacts = policy?.fiscalJson?.let { com.sunpride.van.fiscal.FiscalTax.facts(JSONObject(it),now) },
+            capRemaining = com.sunpride.van.selling.PrivilegeCap.remainingFn(policy?.privilegeCap,paymentFacts.capUsedMinor,now))
     fun quote(payment: PaymentInput, split: SplitPayment? = null): CheckoutResult? = sale?.let { CheckoutRules.evaluate(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,payment,it.manualDiscount,it.priceOverride,it.creditOverride,it.claim,split),saleContext()) }
     /** Lines and total of the cart alone, before a payment is entered. */
     fun cartQuote(ignoreManual:Boolean=false,ignorePrices:Boolean=false): CheckoutQuote? = sale?.let { CheckoutRules.cartQuote(CheckoutRequest(it.saleId,it.customer.outletId,it.lines,PaymentInput(PaymentMethod.CASH.code),if(ignoreManual)null else it.manualDiscount,if(ignorePrices)null else it.priceOverride,it.creditOverride,it.claim),saleContext()) }
