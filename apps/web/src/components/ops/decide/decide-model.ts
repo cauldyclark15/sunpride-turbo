@@ -8,7 +8,8 @@ export type DecideKind =
   | "count_review"
   | "disposition"
   | "cash_variance"
-  | "override_review";
+  | "override_review"
+  | "privilege_cap";
 
 export type DecideItem = {
   id: string;
@@ -132,6 +133,8 @@ export function verdictLabels(kind: DecideKind, forced = false) {
         : { approve: "Accept the difference", reject: "Investigate" };
     case "override_review":
       return { approve: "Looks fine", reject: "Flag it" };
+    case "privilege_cap":
+      return { approve: "Customer keeps it", reject: "Flag it" };
     default:
       return { approve: "Approve", reject: "Reject" };
   }
@@ -160,6 +163,8 @@ export function openLabel(kind: DecideKind, openOnly = false): string {
       return "Open the till day";
     case "override_review":
       return "Open the overrides";
+    case "privilege_cap":
+      return "Open the receipts";
   }
 }
 

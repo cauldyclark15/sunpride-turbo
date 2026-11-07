@@ -99,6 +99,9 @@ export type ReceiptModel = {
     holderName: string;
     idNumber: string;
     applied: boolean;
+    /** IP-SCPWD-CAP: "Weekly limit: ₱300.00 left", frozen with the invoice; absent on older invoices. */
+    weeklyLimitText?: string;
+    weeklyLimitLeftMinor?: string;
   } | null;
   footer: string[];
   compliance: { complete: boolean; missing: string[] };

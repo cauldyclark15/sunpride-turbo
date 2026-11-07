@@ -42,6 +42,19 @@ describe("ReceiptPreview", () => {
     expect(out).not.toContain("REPRINT");
   });
 
+  it("prints the weekly limit left under the discount holder when the invoice kept it, and nothing on older invoices", () => {
+    const withLimit = html({
+      ...fixtureReceipt,
+      privilege: {
+        ...fixtureReceipt.privilege!,
+        weeklyLimitText: "Weekly limit: ₱300.00 left",
+        weeklyLimitLeftMinor: "30000",
+      },
+    });
+    expect(withLimit).toContain("Weekly limit: ₱300.00 left");
+    expect(html(fixtureReceipt)).not.toContain("Weekly limit");
+  });
+
   it("marks a reprint, a void and missing legal details in plain words", () => {
     const reprint = html({
       ...fixtureReceipt,
