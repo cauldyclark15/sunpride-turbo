@@ -1,6 +1,17 @@
 package com.sunpride.van.ui
 
 import androidx.compose.material3.*
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.layout.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -42,6 +53,8 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     fun send(e:SellEvent){flow=SellFlowReducer.reduce(flow,e)}
     var tender by remember {mutableStateOf("cash")}
     var tenderedMinor by remember {mutableStateOf<Long?>(null)}
+    // EXACT only marks "tendered = total"; it follows the total if a discount changes it, and a bill turns it off. It never saves.
+    var exact by remember {mutableStateOf(false)}
     var cashShare by remember {mutableStateOf("")}
     var cardShare by remember {mutableStateOf("")}
     var received by remember {mutableStateOf("")}
@@ -71,6 +84,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     val validRedemption=pointCount==0L || pointCount!=null&&pointCount<=StoreCheckout.availablePoints(config,c.storePos.rows)&&runCatching{StoreCheckout.normalizePhone(phone)}.getOrNull()==config.details.optJSONObject("customerLookup")?.optString("phone")
     val total=quote?.takeIf {pointCount!=null&&validRedemption}?.let {runCatching{StoreCheckout.total(config,it.totalMinor,employee,checkNotNull(pointCount))}.getOrNull()}
     val cashPart=when(tender){"cash"->total;"split"->VanRules.parseMoney(cashShare);else->null}
+    val tenderedNow=QuickCash.effectiveTenderedMinor(exact,total,tenderedMinor)
     fun buildTenders(n:Long,tendered:Long?):List<StoreTransactions.Tender>?=runCatching {
         val cash=when(tender){"cash"->n;"split"->checkNotNull(VanRules.parseMoney(cashShare));else->0}
         val card=when(tender){"card"->n;"split"->VanRules.parseMoney(cardShare)?:0;else->0}
@@ -83,9 +97,11 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
         }.also {require(n==0L||it.isNotEmpty())}
     }.getOrNull()
     val splitCashTendered=VanRules.parseMoney(received)
-    val tenders=total?.let{n->buildTenders(n,if(tender=="split")splitCashTendered else tenderedMinor)}
-    val cashReady=when(tender){"cash"->tenderedMinor!=null&&total!=null&&tenderedMinor!!>=total;else->true}
-    val canPay=total!=null&&tenders!=null&&cashReady&&c.storePos.shift!=null&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)
+    val tenders=total?.let{n->buildTenders(n,if(tender=="split")splitCashTendered else tenderedNow)}
+    val cashReady=when(tender){"cash"->tenderedNow!=null&&total!=null&&tenderedNow>=total;else->true}
+    val setupProblem=remember(config){StoreCheckout.setupProblem(config)}
+    val enabledTenders=remember(config){StoreCheckout.enabledTenders(config)}
+    val canPay=setupProblem==null&&total!=null&&tenders!=null&&cashReady&&c.storePos.shift!=null&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)
     /** One save path for Exact and the Complete button: nothing about the payload changes from the old Save sale. */
     fun pay(withTenders:List<StoreTransactions.Tender>,n:Long){
         send(SellEvent.PayTapped);savedFlag=false
@@ -100,9 +116,12 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     // A refused save (the controller shows why) re-enables the buttons.
     LaunchedEffect(c.busy){if(!c.busy&&flow.saving&&!savedFlag)send(SellEvent.SaveFailed)}
     BackHandler(enabled=flow.step==SellStep.PAYMENT&&!flow.saving){send(SellEvent.BackTapped)}
+    // The bottom bar hides while money is being taken (Payment and Complete share this page with the grid).
+    SideEffect{c.navHidden=flow.step==SellStep.PAYMENT||flow.step==SellStep.COMPLETE}
+    DisposableEffect(Unit){onDispose{c.navHidden=false}}
 
     fun newSale(){
-        cart=emptyList();saleId=UUID.randomUUID().toString();tender="cash";tenderedMinor=null;cashShare="";cardShare="";received="";walletRef="";cardRef="";phone="";points="";employee=false;pin="";more=false;claim=null;claiming=false;notice=null;completed=null;savedFlag=false
+        cart=emptyList();saleId=UUID.randomUUID().toString();tender="cash";tenderedMinor=null;exact=false;cashShare="";cardShare="";received="";walletRef="";cardRef="";phone="";points="";employee=false;pin="";more=false;claim=null;claiming=false;notice=null;completed=null;savedFlag=false
         send(SellEvent.NewSaleTapped)
     }
     val currency="PHP"
@@ -123,36 +142,45 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
         (evaluation.exceptionOrNull() as? CheckoutRefused)?.issues?.any{it.problem==CheckoutProblem.PROMOTION_NEEDS_OFFICE}==true->"This campaign needs office finance authority before selling"
         claim!=null&&(evaluation.exceptionOrNull() as? CheckoutRefused)?.issues?.firstOrNull{it.problem in setOf(CheckoutProblem.DISCOUNT_TAX_UNKNOWN,CheckoutProblem.DISCOUNT_CLAIM_INVALID,CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL)}!=null->
             (evaluation.exceptionOrNull() as CheckoutRefused).issues.first{it.problem in setOf(CheckoutProblem.DISCOUNT_TAX_UNKNOWN,CheckoutProblem.DISCOUNT_CLAIM_INVALID,CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL)}.let{VanRules.checkoutMessage(it.problem,it.productId?.let{id->products.firstOrNull{p->p.productId==id}?.name})}
-        else->null
+        else->setupProblem
     }
     if(claiming)ClaimSheet(items=cart.map{l->l.productId to (products.firstOrNull{it.productId==l.productId}?.name?:"Item")},initial=claim,
         onApply={claim=it;employee=false;pin="";points="";claiming=false},onRemove=if(claim!=null)({claim=null;claiming=false}) else null,onClose={claiming=false})
     when(flow.step){
         SellStep.BROWSE,SellStep.CART->SellingBrowse(
-            title="Store sale",subtitle=config.storeName?:"Store",onBack=c::back,place=SellingPlace.STORE,
+            title="Store sale",subtitle=config.storeName?:"Store",onBack=null,place=SellingPlace.STORE,
             search=index,scanProducts=products,currentLines={cart},
             onSetLine={id,base->if(!c.busy){c.dismissGenericMessage();cart=SellingCart.set(cart,id,base)}},
             rows=rows,totalLabel=browseTotal,chargeEnabled=quote!=null&&shiftOpen&&!c.busy&&!c.onHold,onCharge={send(SellEvent.ChargeTapped)},
             cartOpen=flow.step==SellStep.CART,onCartOpen={open->send(if(open)SellEvent.CartBarTapped else SellEvent.BackTapped)},
-            message=c.message?:notice?:reason,busy=c.busy)
-        SellStep.PAYMENT->PaymentStep(
-            title="Payment",totalMinor=total,
-            choices=listOf(TenderChoice("cash","Cash",TenderKind.CASH),TenderChoice("gcash","GCash / e-wallet",TenderKind.OTHER),TenderChoice("card","Card",TenderKind.OTHER),TenderChoice("split","Split",TenderKind.OTHER)),
-            selectedId=tender,onSelect={tender=it;tenderedMinor=null},tenderedMinor=tenderedMinor,onTendered={tenderedMinor=it},
+            message=c.message?:notice?:reason,busy=c.busy,cashierName=c.seller?.name,roleLabel="Cashier",syncBadge={SyncPill(c)})
+        SellStep.PAYMENT->{
+            val possible=StoreCheckout.claimsPossible(config)
+            val canDiscount=possible&&!c.busy&&cart.isNotEmpty()
+            val hasSupervisor=config.details.optJSONObject("supervisor")!=null
+            val customerDetail=when{phone.isNotBlank()->phone;employee->"Employee";else->null}
+            PaymentStep(
+            title="Payment",totalMinor=total,subtitle=config.storeName,
+            choices=listOf(TenderChoice("cash","Cash",TenderKind.CASH),TenderChoice("gcash","GCash",TenderKind.OTHER),TenderChoice("card","Card",TenderKind.OTHER),TenderChoice("split","Split",TenderKind.OTHER))
+                .filter{when(it.id){"split"->"cash" in enabledTenders&&"gcash" in enabledTenders;else->it.id in enabledTenders||it.id=="cash"}},
+            selectedId=tender,onSelect={tender=it;tenderedMinor=null;exact=false},tenderedMinor=tenderedNow,onTendered={exact=false;tenderedMinor=it},
             issues=buildList{
                 if(quote!=null&&total==null)add("Points or discounts do not match this basket.")
                 if(employee&&pin.length<6)add("Enter the supervisor PIN for the employee discount.")
                 if(!shiftOpen)add("Open a session before selling.")
+                setupProblem?.let{add(it)}
             },
-            saving=flow.saving,canPay=canPay,exactEnabled=total!=null&&tender=="cash"&&shiftOpen&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)&&buildTenders(total,total)!=null,
-            onExact={val n=total;val t=n?.let{buildTenders(it,it)};if(n!=null&&t!=null)pay(t,n)},
-            onPay={val n=total;val t=tenders;if(n!=null&&t!=null)pay(t,n)},onBack={send(SellEvent.BackTapped)},message=c.message?:notice){
+            saving=flow.saving,canPay=canPay,exactEnabled=setupProblem==null&&total!=null&&tender=="cash"&&shiftOpen&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)&&buildTenders(total,total)!=null,
+            exactActive=exact&&tender=="cash",
+            // EXACT only fills Tendered = Total (change ₱0.00). The cashier still adds a discount or a customer, then presses Complete.
+            onExact={if(total!=null){send(SellEvent.ExactTapped);exact=true;tenderedMinor=null}},
+            onPay={val n=total;val t=tenders;if(n!=null&&t!=null)pay(t,n)},onBack={send(SellEvent.BackTapped)},message=c.message?:notice,
+            options=listOf(
+                PayOption("Discount",claim?.type?.label,"store-claim",{claiming=true},enabled=canDiscount,active=claim!=null),
+                PayOption("Customer",customerDetail,"store-more",{more=true},enabled=!c.busy,active=customerDetail!=null)
+            )){
             claim?.let{cl->ClaimSummary(cl,quote?.legal,VanController.ClaimPreview.None,{claiming=true})}
-            if(claim==null){
-                val possible=StoreCheckout.claimsPossible(config)
-                SecondaryButton("Senior, PWD or other discount",{claiming=true},Modifier.testTag("store-claim"),enabled=possible&&!c.busy&&cart.isNotEmpty())
-                if(!possible)Text("Not available yet: this store's tax set-up has not reached the phone, so the discount cannot be worked out. Sync, or ask the office.",style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-claim-unavailable"))
-            }
+            if(!possible)Text("Discounts are not available yet: this store's tax set-up has not reached the phone. Sync, or ask the office.",style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-claim-unavailable"))
             if(tender=="split"){
                 SectionCard("Split tender"){
                     LabeledField("Cash part (₱)",cashShare,{cashShare=it},"store-split-cash",numeric=true,maxLength=16)
@@ -164,21 +192,13 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
             if(tender in setOf("gcash","split"))LabeledField("E-wallet confirmation reference",walletRef,{walletRef=it},"store-wallet-ref",maxLength=100)
             if(tender in setOf("card","split"))LabeledField("Card approval reference — never card number",cardRef,{cardRef=it},"store-card-ref",maxLength=100)
             if(tender!="cash")Text("E-wallet and card references await office confirmation; they are not bank settlement proof.",style=MaterialTheme.typography.bodyMedium)
-            SecondaryButton(if(more)"Hide customer & discounts" else "Customer, points & employee discount",{more=!more},Modifier.testTag("store-more"))
-            if(more){
-                LabeledField("Customer phone (optional)",phone,{phone=it},"store-sale-phone",numeric=true,maxLength=24)
-                if(claim==null&&config.details.optJSONObject("loyalty")?.optBoolean("enabled")==true){
-                    SecondaryButton("Look up customer & points",{scope.launch {notice=runCatching {c.repository.storeLookup(phone)?.let {"${it.getString("name")} · ${it.getString("points")} points"}?:"No customer found. Register them in Customers."}.getOrElse {"Connect to look up this customer."}}})
-                    config.details.optJSONObject("customerLookup")?.takeIf {it.optString("phone")==runCatching{StoreCheckout.normalizePhone(phone)}.getOrNull()}?.let {Text("${it.getString("name")} · ${StoreCheckout.availablePoints(config,c.storePos.rows)} points available")}
-                    LabeledField("Points to redeem",points,{points=it},"store-points",numeric=true,maxLength=9)
-                }
-                if(claim==null&&config.details.optJSONObject("supervisor")!=null){
-                    SecondaryButton(if(employee)"Remove employee discount" else "Employee discount",{employee=!employee;pin=""})
-                    if(employee)LabeledField("Supervisor PIN",pin,{pin=it},"store-supervisor-pin",password=true,maxLength=12)
-                }
-            }
-            Text("Saved before upload. Printing does not require a network. Any refused upload remains visible for review.",style=MaterialTheme.typography.bodyMedium)
-        }
+            if(more)StoreCustomerSheet(phone,{phone=it},notice,loyaltyOn=claim==null&&config.details.optJSONObject("loyalty")?.optBoolean("enabled")==true,
+                onLookup={scope.launch {notice=runCatching {c.repository.storeLookup(phone)?.let {"${it.getString("name")} · ${it.getString("points")} points"}?:"No customer found. Register them in Customers."}.getOrElse {"Connect to look up this customer."}}},
+                found=config.details.optJSONObject("customerLookup")?.takeIf {it.optString("phone")==runCatching{StoreCheckout.normalizePhone(phone)}.getOrNull()}?.let {"${it.getString("name")} · ${StoreCheckout.availablePoints(config,c.storePos.rows)} points available"},
+                points=points,onPoints={points=it},employeeOn=claim==null&&hasSupervisor,employee=employee,onToggleEmployee={employee=!employee;pin=""},pin=pin,onPin={pin=it},
+                claimNote=claim!=null,onClose={more=false})
+            Text("Saved on this register before upload. Printing does not need a network.",style=MaterialTheme.typography.bodyMedium)
+        }}
         SellStep.COMPLETE->{
             val done=completed
             val receipts=StoreTransactions.receipts(config,c.storePos.rows)
@@ -204,15 +224,43 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     }
 }
 
+/** Customer phone, points and the employee discount, as a bottom sheet over Payment (it used to be a long inline block under the Complete button). */
+@Composable internal fun StoreCustomerSheet(phone:String,onPhone:(String)->Unit,notice:String?,loyaltyOn:Boolean,onLookup:()->Unit,found:String?,points:String,onPoints:(String)->Unit,
+    employeeOn:Boolean,employee:Boolean,onToggleEmployee:()->Unit,pin:String,onPin:(String)->Unit,claimNote:Boolean,onClose:()->Unit){
+    LookSheet("Customer & points",onClose,tag="store-customer-sheet",closeTag="store-customer-close",footer={
+        PillButton("Done",onClose,Modifier.testTag("store-customer-done"),height=56.dp,fontSize=20.sp)
+    }){
+        Column(Modifier.padding(horizontal=20.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
+            LabeledField("Customer phone (optional)",phone,onPhone,"store-sale-phone",numeric=true,maxLength=24)
+            notice?.let{Text(it,style=MaterialTheme.typography.bodyLarge,fontWeight=FontWeight.SemiBold,modifier=Modifier.testTag("store-customer-notice"))}
+            if(loyaltyOn){
+                SecondaryButton("Look up customer & points",onLookup)
+                found?.let{Text(it)}
+                LabeledField("Points to redeem",points,onPoints,"store-points",numeric=true,maxLength=9)
+            }
+            if(employeeOn){
+                SecondaryButton(if(employee)"Remove employee discount" else "Employee discount",onToggleEmployee)
+                if(employee)LabeledField("Supervisor PIN",pin,onPin,"store-supervisor-pin",password=true,maxLength=12)
+            }
+            if(claimNote)Text("A Senior, PWD or other discount replaces points and the employee discount on this sale.",style=MaterialTheme.typography.bodyMedium)
+            if(!loyaltyOn&&!employeeOn&&!claimNote)Text("Loyalty and employee discounts are not turned on for this store. The phone number is saved with the receipt.",style=MaterialTheme.typography.bodyMedium)
+        }
+    }
+}
+
 /** F-R03 frozen receipt preview, print with "Did it print?", and independently approved reversal requests. */
 @Composable fun StoreReceiptsScreen(c:VanController){
     val config=c.storePos.config?:return
     var reason by remember{mutableStateOf("")}
     var reprinting by remember{mutableStateOf<JSONObject?>(null)}
     val receipts=StoreTransactions.receipts(config,c.storePos.rows)
-    ScreenFrame("Store receipts",c::back,message=c.message?:c.printMessage){
-        LabeledField("Void / refund reason",reason,{reason=it},"store-reversal-reason",maxLength=300)
-        Text("A second person approves voids and receipt-linked refunds in the office. Voids are only for the original open session; refunds return stock into quality hold.")
+    ScreenFrame("Sales",message=c.message?:c.printMessage,trailing={SyncPill(c)}){
+        if(receipts.isEmpty())EmptyState(GlyphKind.RECEIPT,"No receipts yet","Sales you complete here show up as receipts. You can print or reprint them, or ask for a void or refund.",Modifier.testTag("store-no-receipts"),
+            actionLabel="Go to Sell",onAction={c.open(Page.STORE_SALE)},actionTag="sales-go-sell")
+        else{
+            LabeledField("Void / refund reason",reason,{reason=it},"store-reversal-reason",maxLength=300)
+            Text("A second person approves voids and receipt-linked refunds in the office. Voids are only for the original open session; refunds return stock into quality hold.",style=MaterialTheme.typography.bodyMedium)
+        }
         receipts.forEach {r->SectionCard(r.getString("receiptNumber")){
             Text(r.optString("customer","Walk-in"));Text(pesos(r.getString("totalMinor").toLong()),style=MaterialTheme.typography.titleLarge)
             StoreCheckout.objects(r.getJSONArray("lines")).forEach {Text("${it.getString("description")} · ${it.get("quantity")} ${it.getString("uom")}")}
@@ -229,11 +277,10 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
                 else->Text("Reprinted ${ReprintRules.MAX_REPRINTS} times. Ask the office for a copy.")
             }
             if(r.optString("_status")!="voided"){
-                SecondaryButton("Request void before close",{c.saveStoreAction("store.void",JSONObject().put("saleId",r.getString("saleId")).put("reason",reason))},enabled=reason.isNotBlank()&&c.storePos.shift!=null&&!c.busy)
-                SecondaryButton("Request receipt refund",{c.saveStoreAction("store.refund",JSONObject().put("saleId",r.getString("saleId")).put("reason",reason))},enabled=reason.isNotBlank()&&c.storePos.shift!=null&&!c.busy)
+                DangerButton("Request void before close",{c.saveStoreAction("store.void",JSONObject().put("saleId",r.getString("saleId")).put("reason",reason))},enabled=reason.isNotBlank()&&c.storePos.shift!=null&&!c.busy)
+                DangerButton("Request receipt refund",{c.saveStoreAction("store.refund",JSONObject().put("saleId",r.getString("saleId")).put("reason",reason))},enabled=reason.isNotBlank()&&c.storePos.shift!=null&&!c.busy)
             }else Text("Voided · retained in the immutable journal")
         }}
-        if(receipts.isEmpty())Text("No store receipts saved yet.")
     }
     reprinting?.let {r->
         val history=c.storePrints[r.getString("saleId")].orEmpty()
@@ -242,44 +289,105 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     }
 }
 
-/** F-R04 physical receiving and blind full/cycle capture feed canonical inventory commands. */
+/**
+ * F-R04 physical receiving and blind full/cycle capture feed canonical inventory commands.
+ * POS v2 (beta.31): three places under a short title (Receive, Count, Transfers), one sticky action per place, the explanation
+ * collapsed behind "How this works", and a product picker instead of a button per product. The saved commands are unchanged.
+ */
 @Composable fun StoreStockScreen(c:VanController){
     val config=c.storePos.config?:return
     val catalogue=StoreCheckout.objects(config.details.optJSONArray("catalogue"))
     val transfers=StoreCheckout.objects(config.details.optJSONArray("transfers"))
-    var mode by remember{mutableStateOf("receive")}
+    var mode by remember{mutableStateOf(if(transfers.isNotEmpty())"transfers" else "receive")}
+    var kind by remember{mutableStateOf("full")}
     var po by remember{mutableStateOf("")}
     var product by remember{mutableStateOf(catalogue.firstOrNull()?.getString("productId")?:"")}
     var amount by remember{mutableStateOf("")}
     var lot by remember{mutableStateOf("")}
     var expiry by remember{mutableStateOf("")}
     var counts by remember{mutableStateOf(emptyMap<String,String>())}
-    ScreenFrame("Receiving & counts",c::back,message=c.message){
-        SecondaryButton("Receiving",{mode="receive"});SecondaryButton("Full count",{mode="full"});SecondaryButton("Cycle count",{mode="cycle"})
-        if(mode=="receive"){
-            transfers.forEach {t->SectionCard(t.getString("name")){
-                StoreCheckout.objects(t.getJSONArray("lines")).forEach {Text("${it.getString("name")} · ${it.getString("quantityBase")} base units")}
-                SecondaryButton("Receive the listed shipped quantities",{c.saveStoreAction("store.receive",JSONObject().put("transferId",t.getString("id")).put("lines",JSONArray(StoreCheckout.objects(t.getJSONArray("lines")).map {JSONObject().put("lineId",it.getString("lineId")).put("receivedBase",it.getString("quantityBase").toLong()).put("rejectedBase",0).put("shortBase",0)})))},enabled=c.storePos.shift!=null&&!c.busy)
-            }}
-            Text("Receive against a PO reference below. Lot and expiry checks use the existing inventory policy; stock may enter quality hold.")
-            LabeledField("Purchase order reference",po,{po=it},"store-po-reference",maxLength=100)
-            catalogue.forEach {p->SecondaryButton((if(product==p.getString("productId"))"Selected · " else "")+p.getString("name"),{product=p.getString("productId")})}
-            LabeledField("Accepted base units",amount,{amount=it},"store-receive-quantity",numeric=true,maxLength=12)
-            LabeledField("Batch / lot, if required",lot,{lot=it},"store-receive-lot",maxLength=100)
-            LabeledField("Expiry YYYY-MM-DD, if required",expiry,{expiry=it},"store-receive-expiry",maxLength=10)
-            SecondaryButton("Save PO receiving",{c.saveStoreAction("store.receive",JSONObject().put("purchaseOrder",po).put("lines",JSONArray().put(JSONObject().put("productId",product).put("quantityBase",amount.toLong()).put("lotNumber",lot).apply{if(expiry.isNotBlank())put("expiresAt",java.time.LocalDate.parse(expiry).atStartOfDay(java.time.ZoneId.of("Asia/Manila")).toInstant().toEpochMilli())})))},enabled=po.isNotBlank()&&product.isNotBlank()&&(amount.toLongOrNull()?:0)>0&&c.storePos.shift!=null&&!c.busy&&(expiry.isBlank()||runCatching{java.time.LocalDate.parse(expiry)}.isSuccess))
-        }else{
-            Text("Count physical stock. Expected quantities are hidden. The office must independently approve any variance before posting.")
-            if(mode=="cycle")catalogue.forEach {p->SecondaryButton((if(product==p.getString("productId"))"Selected · " else "")+p.getString("name"),{product=p.getString("productId")})}
-            val selected=if(mode=="cycle")catalogue.filter {it.getString("productId")==product}else catalogue
-            val entries=selected.flatMap {p->StoreCheckout.objects(p.getJSONArray("stockLines")).map {l->p to l}}
-            fun key(p:JSONObject,l:JSONObject)="${p.getString("productId")}:${l.optString("lotId")}:${l.getString("stockStatus")}"
-            entries.forEach {(p,l)->val k=key(p,l)
-                LabeledField("${p.getString("name")} · ${l.optString("lotNumber",l.getString("stockStatus"))} · ${p.getString("uomCode")}",counts[k]?:"",{counts=counts+(k to it)},"store-count-${p.getString("code")}",numeric=true,maxLength=12)
+    val open=c.storePos.shift!=null&&!c.busy
+    val selected=if(kind=="cycle")catalogue.filter {it.getString("productId")==product}else catalogue
+    val entries=if(mode=="count")selected.flatMap {p->StoreCheckout.objects(p.getJSONArray("stockLines")).map {l->p to l}} else emptyList()
+    fun key(p:JSONObject,l:JSONObject)="${p.getString("productId")}:${l.optString("lotId")}:${l.getString("stockStatus")}"
+    val receiveOk=po.isNotBlank()&&product.isNotBlank()&&(amount.toLongOrNull()?:0)>0&&open&&(expiry.isBlank()||runCatching{java.time.LocalDate.parse(expiry)}.isSuccess)
+    val countOk=entries.isNotEmpty()&&entries.all {(p,l)->quantity(counts[key(p,l)]?:"",p.getString("quantityScale").toLong())!=null}&&open
+    val saveReceive={c.saveStoreAction("store.receive",JSONObject().put("purchaseOrder",po).put("lines",JSONArray().put(JSONObject().put("productId",product).put("quantityBase",amount.toLong()).put("lotNumber",lot).apply{if(expiry.isNotBlank())put("expiresAt",java.time.LocalDate.parse(expiry).atStartOfDay(java.time.ZoneId.of("Asia/Manila")).toInstant().toEpochMilli())})))}
+    val submitCount={c.saveStoreAction("store.count",JSONObject().put("countType",kind).put("lines",JSONArray(entries.map {(p,l)->JSONObject().put("productId",p.getString("productId")).put("lotId",l.opt("lotId")).put("stockStatus",l.getString("stockStatus")).put("version",l.getString("version")).put("countedBase",checkNotNull(quantity(counts[key(p,l)]?:"",p.getString("quantityScale").toLong())))})))}
+    ScreenFrame("Stock",message=c.message,trailing={SyncPill(c)},
+        action=when(mode){"receive"->"Save receiving";"count"->"Submit count";else->null},actionTag="store-stock-save",
+        onAction={if(mode=="receive")saveReceive() else submitCount()},enabled=if(mode=="receive")receiveOk else countOk){
+        SegmentedChips(listOf("receive" to "Receive","count" to "Count","transfers" to (if(transfers.isEmpty())"Transfers" else "Transfers (${transfers.size})")),mode,{mode=it},"store-stock-mode")
+        if(c.storePos.shift==null)Text("Open the till (Till tab) to save stock changes.",style=MaterialTheme.typography.bodyLarge,color=Look.muted,modifier=Modifier.testTag("store-stock-needs-till"))
+        when(mode){
+            "receive"->{
+                HelpDisclosure("How receiving works","Receive against a purchase order reference. Lot and expiry checks follow the inventory policy, and stock may enter quality hold. Type the expiry date as YYYY-MM-DD.","store-stock-help")
+                LabeledField("Purchase order reference",po,{po=it},"store-po-reference",maxLength=100)
+                StockProductPicker(catalogue,product,{product=it},"store-product")
+                LabeledField("Quantity received (base units)",amount,{amount=it},"store-receive-quantity",numeric=true,maxLength=12)
+                Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
+                    Box(Modifier.weight(1f)){LabeledField("Lot, if required",lot,{lot=it},"store-receive-lot",maxLength=100)}
+                    Box(Modifier.weight(1f)){LabeledField("Expiry date",expiry,{expiry=it},"store-receive-expiry",maxLength=10)}
+                }
+                if(expiry.isNotBlank()&&runCatching{java.time.LocalDate.parse(expiry)}.isFailure)Text("Type the expiry date as YYYY-MM-DD, for example 2026-12-31.",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-receive-expiry-problem"))
             }
-            SecondaryButton("Submit blind ${mode} count",{
-                c.saveStoreAction("store.count",JSONObject().put("countType",mode).put("lines",JSONArray(entries.map {(p,l)->JSONObject().put("productId",p.getString("productId")).put("lotId",l.opt("lotId")).put("stockStatus",l.getString("stockStatus")).put("version",l.getString("version")).put("countedBase",checkNotNull(quantity(counts[key(p,l)]?:"",p.getString("quantityScale").toLong())))})))
-            },enabled=entries.isNotEmpty()&&entries.all {(p,l)->quantity(counts[key(p,l)]?:"",p.getString("quantityScale").toLong())!=null}&&c.storePos.shift!=null&&!c.busy)
+            "count"->{
+                HelpDisclosure("How counting works","Count what is on the shelf. Expected quantities are hidden. The office must independently approve any variance before posting.","store-stock-help")
+                SegmentedChips(listOf("full" to "All products","cycle" to "One product"),kind,{kind=it},"store-count-kind")
+                if(kind=="cycle")StockProductPicker(catalogue,product,{product=it},"store-count-product")
+                entries.forEach {(p,l)->val k=key(p,l)
+                    LabeledField("${p.getString("name")} · ${l.optString("lotNumber",l.getString("stockStatus"))} · ${p.getString("uomCode")}",counts[k]?:"",{counts=counts+(k to it)},"store-count-${p.getString("code")}",numeric=true,maxLength=12)
+                }
+                if(entries.isEmpty())EmptyState(GlyphKind.BOX,"Nothing to count","There is no stock on this phone for that choice. Sync to refresh the list.")
+                Spacer(Modifier.height(8.dp))
+            }
+            else->{
+                HelpDisclosure("How transfers work","Receive marks every line as received in full, as shipped.","store-stock-help")
+                transfers.forEach {t->SectionCard(t.getString("name")){
+                    StoreCheckout.objects(t.getJSONArray("lines")).forEach {Text("${it.getString("name")} · ${it.getString("quantityBase")} base units",style=MaterialTheme.typography.bodyLarge)}
+                    PillButton("Receive all shipped",{c.saveStoreAction("store.receive",JSONObject().put("transferId",t.getString("id")).put("lines",JSONArray(StoreCheckout.objects(t.getJSONArray("lines")).map {JSONObject().put("lineId",it.getString("lineId")).put("receivedBase",it.getString("quantityBase").toLong()).put("rejectedBase",0).put("shortBase",0)})))},Modifier.testTag("store-transfer-receive"),enabled=open,height=52.dp,fontSize=17.sp)
+                }}
+                if(transfers.isEmpty())EmptyState(GlyphKind.TRUCK,"No transfers on the way","Shipments sent to this store show up here, ready to receive.")
+            }
+        }
+    }
+}
+
+/** A one-line "How this works" row that opens its text in place. Collapsed by default so the form is the first thing on screen. */
+@Composable fun HelpDisclosure(title:String,text:String,tag:String){
+    var open by rememberSaveable{mutableStateOf(false)}
+    val shape=androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
+    Column(Modifier.fillMaxWidth().clip(shape).background(Look.card).border(1.dp,Look.hairline,shape).testTag(tag)){
+        Row(Modifier.fillMaxWidth().heightIn(min=48.dp).clickable(onClickLabel=if(open)"Hide help" else "Show help"){open=!open}.padding(horizontal=16.dp).testTag("$tag-toggle"),verticalAlignment=Alignment.CenterVertically){
+            Text(title,Modifier.weight(1f),style=MaterialTheme.typography.bodyLarge,fontWeight=FontWeight.SemiBold)
+            Glyph(GlyphKind.CHEVRON,Look.muted,20.dp,Modifier.rotate(if(open)90f else 0f))
+        }
+        if(open)Text(text,Modifier.padding(start=16.dp,end=16.dp,bottom=14.dp).testTag("$tag-text"),style=MaterialTheme.typography.bodyMedium)
+    }
+}
+
+/** The chosen product as a pill; tapping it opens a list, so the form is not pushed down by one button per product. */
+@Composable fun StockProductPicker(products:List<JSONObject>,selected:String,onSelect:(String)->Unit,tag:String){
+    var open by remember{mutableStateOf(false)}
+    val current=products.firstOrNull {it.getString("productId")==selected}?.getString("name")
+    val shape=androidx.compose.foundation.shape.RoundedCornerShape(Look.pill)
+    Row(Modifier.fillMaxWidth().heightIn(min=56.dp).clip(shape).border(1.5.dp,Look.hairline,shape).clickable(onClickLabel="Choose a product"){open=true}.padding(start=16.dp,end=12.dp,top=6.dp,bottom=6.dp).testTag(tag),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(8.dp)){
+        Column(Modifier.weight(1f)){
+            Text("Product",color=Look.muted,fontSize=13.sp,fontWeight=FontWeight.SemiBold,maxLines=1)
+            FitText(current?:"Choose a product",16.sp,minSize=13.sp,fontWeight=FontWeight.SemiBold,color=Look.ink)
+        }
+        Glyph(GlyphKind.CHEVRON,Look.muted,20.dp)
+    }
+    if(open)LookSheet("Choose a product",{open=false},tag="$tag-sheet",closeTag="$tag-close",footer={PillButton("Cancel",{open=false},Modifier.testTag("$tag-cancel"),filled=false,height=52.dp)}){
+        Column(Modifier.padding(horizontal=20.dp).padding(top=14.dp,bottom=20.dp),verticalArrangement=Arrangement.spacedBy(8.dp)){
+            products.forEach {p->
+                val id=p.getString("productId");val on=id==selected
+                val row=androidx.compose.foundation.shape.RoundedCornerShape(18.dp)
+                Row(Modifier.fillMaxWidth().heightIn(min=56.dp).clip(row).background(if(on)Look.tint else Look.card).border(if(on)2.dp else 1.dp,if(on)Look.accent else Look.hairline,row).clickable{onSelect(id);open=false}.padding(horizontal=16.dp,vertical=8.dp).testTag("$tag-$id"),verticalAlignment=Alignment.CenterVertically,horizontalArrangement=Arrangement.spacedBy(10.dp)){
+                    Text(p.getString("name"),Modifier.weight(1f),fontSize=17.sp,fontWeight=FontWeight.SemiBold)
+                    if(on)Glyph(GlyphKind.CHECK,Look.accent,22.dp)
+                }
+            }
         }
     }
 }

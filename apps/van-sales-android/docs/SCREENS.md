@@ -6,6 +6,19 @@
 
 `SunprideTokens` and `SystemBars` are exact field-app ports (only the package changes). Calm cards/rows use the same palette/shapes and 16dp margins; primary buttons use the existing monochrome secondary ink/snow tokens, not a new brand color. Minimum button height is 56dp; navigation/list rows are at least 64dp. Read-only quantity fields retain high-contrast text. Content scrolls within Scaffold inner padding, consumed system insets, and IME padding. The primary footer includes navigation-bar padding and remains outside the scroll viewport.
 
+## Navigation (POS v2, beta.30)
+
+Both modes have a Material 3 bottom bar (`ui/AppNav.kt`, tested in `AppNavTest`); the old long Home menus are gone. Design rules: `DESIGN.md`.
+
+| Mode | Tabs (left to right) | Notes |
+|---|---|---|
+| Store | Sell · Sales · Till · Stock · More | Opens on Sell once a cashier session is open, on Till while it is closed. Sell before the till opens shows "Open the till". Till = status, open/close the till, X/Z and cash drawer, cash deposit. Sales = receipts, reprint, void/refund. Stock = three places under a short title: Receive (PO reference, product picker, quantity, lot/expiry, sticky Save receiving), Count (all products or one product, blind quantities, sticky Submit count) and Transfers (shipments on the way, Receive all shipped; opens here when one is waiting). The explanation sits behind a collapsed "How this works" row. More = sync now, Sync & posting, printer and scanner, customers and points, POS mode, account, sign out. |
+| Van | Today · Sell · Stock · Receipts · More | Today = next step, trip, end-of-trip jobs (count cash, count stock, close trip, route controls). Sell = customers (and walk-in), customer, sale, returns. Stock = find product, catalogue, truck stock and damage. More = as above plus messages and report an issue. |
+
+The bar hides on Payment and Complete (both modes), on the two focused cash steps (open the till, count the drawer), while the keyboard is up, and under dialog sheets. A small sync badge ("All sent", "3 waiting", "2 to review") sits in every tab's title bar and on the More tab.
+
+**Payment (store and van):** EXACT only fills Tendered with the total (change ₱0.00); it never saves. The discount (Senior, PWD, ...), customer (store) and line discount (van) tiles sit above the Complete button, which is always on screen. Complete is the only control that saves the sale. Quick cash offers EXACT, the next round-ups and always ₱100, ₱500, ₱1,000 when they cover the total (at most five bills).
+
 ## Behaviors
 
 - **Sign in:** Email/password, plain setup warning and disabled action if endpoints are missing. No endpoint, token or arbitrary exception text is displayed.

@@ -47,12 +47,19 @@ object SunprideTokens {
         large = RoundedCornerShape(16.dp)
     )
     // sp participates in the platform font scale; no unlicensed bundled font.
+    // POS v2 type scale (sp, so it follows the system font size): 13 / 14 / 15 / 17 / 18 / 24 / 26 / 30 / 44. Roles, never per-screen sizes:
+    // display = totals read at arm's length, headline = key figures, title = screen and card titles, body = reading, label = controls and captions.
     val typography = Typography(
-        bodyLarge = TextStyle(fontSize = 17.sp, lineHeight = 24.sp),
+        bodySmall = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
         bodyMedium = TextStyle(fontSize = 15.sp, lineHeight = 21.sp),
+        bodyLarge = TextStyle(fontSize = 17.sp, lineHeight = 24.sp),
+        labelSmall = TextStyle(fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold),
+        labelMedium = TextStyle(fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold),
         labelLarge = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
+        titleSmall = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.Bold),
         titleMedium = TextStyle(fontSize = 18.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold),
-        titleLarge = TextStyle(fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold),
+        titleLarge = TextStyle(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold),
+        headlineSmall = TextStyle(fontSize = 26.sp, lineHeight = 32.sp, fontWeight = FontWeight.Bold),
         headlineMedium = TextStyle(fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.Bold),
         // IP-HH1 outdoor theme: totals are read at arm's length in direct sun.
         headlineLarge = TextStyle(fontSize = 44.sp, lineHeight = 50.sp, fontWeight = FontWeight.ExtraBold)
@@ -66,7 +73,7 @@ object SunprideTokens {
     val lightColors = lightColorScheme(
         primary = accessibleRed, onPrimary = snow,
         secondary = ink, onSecondary = snow,
-        background = canvas, onBackground = ink,
+        background = Color.White, onBackground = ink,
         surface = surface, onSurface = ink,
         surfaceVariant = disabledLight, onSurfaceVariant = muted,
         error = danger, onError = snow,

@@ -280,7 +280,7 @@ class VanUiDeviceTest {
     @Test fun productSearchFindsByNameCodeAndBarcodeWithStockAndPrice() {
         mount(); loadAndStart()
         open(Page.HOME)
-        rule.onNodeWithTag("open-products").performScrollTo().performClick()
+        open(Page.STOCK); rule.onNodeWithTag("open-products").performClick()
         rule.onNodeWithTag("screen-title").assertTextEquals("Find product")
         rule.onNodeWithTag("product-count").assertTextContains("2 products",substring = true)
         // Products on the truck come first; prices come from the governed bootstrap snapshot.
@@ -459,7 +459,7 @@ class VanUiDeviceTest {
         // The sale itself is unchanged: one saved sale, stock deducted once.
         assertEquals(1,c.sync.savedSales)
         rule.onNodeWithTag("sale-done").performClick()
-        rule.onNodeWithTag("open-receipts").performScrollTo().performClick()
+        open(Page.RECEIPTS)
         rule.waitUntil(10_000) { c.savedSales.size == 1 }
         rule.onNodeWithTag("receipt-0-state",useUnmergedTree = true).assertTextEquals("Printed · reprinted 1× · 2 reprints left")
         captureVanScreenshot(rule,"35-receipts")
@@ -510,8 +510,9 @@ class VanUiDeviceTest {
         mount(features = VanFeatures.forBuild(debug = false,webUrl = "https://beta.sunpride.example"))
         assertFalse(VanFeature.DEVELOPER_TOOLS in c.features)
         rule.onNodeWithTag("new-sale").performScrollTo().assertExists()
-        rule.onNodeWithTag("report-issue").performScrollTo().assertIsDisplayed()
         captureVanScreenshot(rule,"40-beta-home","home-primary")
+        open(Page.MORE)
+        rule.onNodeWithTag("report-issue").performScrollTo().assertIsDisplayed()
     }
     @Test fun devBuildHidesReportWithoutWebUrl() {
         mount()
@@ -537,10 +538,10 @@ class VanUiDeviceTest {
         rule.waitUntil(10_000) { c.prices.map { it.priceListId to it.productId } == listOf("PL-PRACTICE" to juice) }
     }
     /**
-     * IP-HH1 tap budget (compiled, run on a handheld later): after the scan, a 1-item exact-cash sale is Charge, Exact, New sale
-     * (3 taps; 4 if the seller also answers "Did it print?"). The scan is a vendor broadcast, never a tap.
+     * Tap budget (compiled, run on a handheld later): after the scan, a 1-item exact-cash sale is Charge, Exact, Complete, New sale
+     * (4 taps; 5 if the seller also answers "Did it print?"). EXACT only fills Tendered; Complete saves. The scan is a vendor broadcast, never a tap.
      */
-    @Test fun oneScannedItemExactCashSaleIsAtMostFourTapsAfterTheScan() {
+    @Test fun oneScannedItemExactCashSaleIsAtMostFiveTapsAfterTheScan() {
         val printer = com.sunpride.van.printing.FakeReceiptPrinter()
         mount(printer = printer); loadAndStart()
         val juice = c.products.single { it.code == "SP-PJ-1L" }
@@ -550,17 +551,21 @@ class VanUiDeviceTest {
         rule.waitUntil(10_000) { c.page == Page.SALE && c.retailLoaded }
         scanBroadcast("4800000000017")
         rule.waitUntil(5_000) { c.sale?.lines?.singleOrNull()?.quantityBase == 1L }
-        rule.onNodeWithTag("cart-bar-count",useUnmergedTree = true).assertTextContains("1 item",substring = true)
+        rule.onNodeWithTag("cart-bar-count",useUnmergedTree = true).assertTextContains("1 product",substring = true)
         var taps = 0
-        fun tap(tag: String) { rule.onNodeWithTag(tag).performScrollTo().performClick(); taps++ }
+        fun tap(tag: String) { val node = rule.onNodeWithTag(tag); runCatching { node.performScrollTo() }; node.performClick(); taps++ }
         tap("checkout"); tap("pay-exact")
+        // EXACT does not complete the sale: Tendered = Total, Change = 0, still on Payment until Complete is pressed.
+        rule.onNodeWithTag("checkout-change",useUnmergedTree = true).assertTextEquals("₱0.00")
+        assertEquals(Page.CHECKOUT,c.page); assertTrue(c.savedSales.isEmpty())
+        tap("complete-sale")
         rule.waitUntil(10_000) { c.page == Page.SALE_DONE && !c.printing && c.savedSales.isNotEmpty() }
         rule.onNodeWithTag("receipt-total",useUnmergedTree = true).assertTextEquals("₱85.00")
         rule.onNodeWithTag("receipt-change",useUnmergedTree = true).assertTextEquals("₱0.00")
         tap("print-yes")
         rule.waitUntil(10_000) { c.printQuestionSaleId == null }
         tap("new-sale")
-        assertTrue("taps after the scan: $taps",taps <= 4)
+        assertTrue("taps after the scan: $taps",taps <= 5)
         rule.waitUntil(10_000) { c.page == Page.SALE && c.sale?.lines?.isEmpty() == true }
         assertEquals(1,c.sync.savedSales)
     }
@@ -603,8 +608,8 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("new-sale").performScrollTo().performClick()
         rule.onNodeWithTag("customer-route-0").performClick()
         rule.onNodeWithTag("start-sale").assertIsEnabled().performClick()
-        rule.onNodeWithTag("sale-customer").assertTextEquals("Aling Nena Store")
-        rule.onNodeWithTag("checkout").assertIsNotEnabled()
+        rule.onNodeWithTag("sale-customer").assertTextEquals("Aling Nena Store · O-1001")
+        rule.onAllNodesWithTag("checkout").assertCountEquals(0) // the cart bar appears with the first item
         addByPalette("sppj1l",taps = 2); addByPalette("chunks")
         rule.onNodeWithTag("cart-bar").performClick()
         rule.onNodeWithTag("sale-line-total-0",useUnmergedTree = true).assertTextEquals("₱170.00")
@@ -649,7 +654,7 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("sync-line").assertTextContains("1 sale saved on this phone",substring = true)
         // VAN-025: phone, office and SAP answered separately; the sale is on the phone only and not posted to SAP.
         rule.onNodeWithTag("sync-line").assertTextContains("SAP: ",substring = true)
-        rule.onNodeWithTag("open-sync").performScrollTo().performClick()
+        open(Page.MORE); rule.onNodeWithTag("open-sync").performScrollTo().performClick()
         rule.waitUntil(5_000) { c.page == Page.SYNC }
         rule.onNodeWithTag("health-item-office-0",useUnmergedTree = true).assertTextEquals("Office: Saved on this phone — office upload not available yet")
         rule.onNodeWithTag("health-item-sap-0",useUnmergedTree = true).assertTextEquals("SAP: Not posted to SAP yet")
@@ -903,7 +908,7 @@ class VanUiDeviceTest {
         captureVanScreenshot(rule,"03-enrollment-removed","check-again")
         rule.runOnUiThread { host = Host(newController(),true) }; ready()
         captureVanScreenshot(rule,"04-home-loading","home-primary")
-        rule.onNodeWithTag("open-printer").performScrollTo()
+        open(Page.MORE); rule.onNodeWithTag("open-printer").performScrollTo(); open(Page.HOME)
         captureVanScreenshot(rule,"05-home-actions","home-primary")
         open(Page.LOAD)
         captureVanScreenshot(rule,"06-check-load","confirm-load")
@@ -923,7 +928,7 @@ class VanUiDeviceTest {
         rule.waitUntil(10_000) { c.trip?.startPending == true && !c.busy }
         sync(); rule.waitUntil(10_000) { c.trip?.status == "active" }
         captureVanScreenshot(rule,"13-home-on-route","home-primary")
-        open(Page.STOCK); captureVanScreenshot(rule,"14-truck-stock","stock-sync")
+        open(Page.STOCK); captureVanScreenshot(rule,"14-truck-stock","open-products")
         rule.onNodeWithTag("damage-0").performClick()
         captureVanScreenshot(rule,"15-record-damage","save-damage")
         rule.onNodeWithTag("damage-quantity").performTextInput("49"); hideKeyboard()

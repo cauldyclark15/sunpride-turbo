@@ -23,7 +23,7 @@ class MainActivityDeviceTest {
             rule.waitUntil(20_000) { rule.onAllNodesWithTag("trip-number").fetchSemanticsNodes().isNotEmpty() }
             rule.onNodeWithTag("trip-number").assertTextEquals("TRIP-20261007-V014-1")
             rule.onNodeWithTag("home-primary").assertTextContains("Check the load")
-            rule.onNodeWithTag("open-customers").performScrollTo().performClick()
+            rule.onNodeWithTag("nav-sell").performClick()
             rule.onNodeWithText("Today's route").assertExists()
         }
     }

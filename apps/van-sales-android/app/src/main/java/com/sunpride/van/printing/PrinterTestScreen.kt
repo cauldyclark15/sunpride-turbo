@@ -79,36 +79,33 @@ fun PrinterTestScreen(
     }
     LaunchedEffect(printer) { check() }
     LaunchedEffect(scanner) { scanner.scans.collect { scan = it } }
-    MaterialTheme(colorScheme = PrinterMonochrome) {
+    run {
         if (camera) {
             CameraScanScreen(
                 onCode = { scanner.inputs.cameraCode(it); camera = false },
                 onClose = { camera = false },
                 modifier = modifier,
             )
-        } else Scaffold(modifier = modifier, contentWindowInsets = WindowInsets.systemBars) { padding ->
+        } else Scaffold(modifier = modifier, containerColor = androidx.compose.ui.graphics.Color.Transparent, contentWindowInsets = WindowInsets.systemBars) { padding ->
             Column(
-                Modifier.fillMaxSize().padding(padding).padding(20.dp).verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(20.dp),
+                Modifier.fillMaxSize().padding(padding).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                Text("Printer & scanner", style = MaterialTheme.typography.headlineSmall)
-                Text("Printer check", style = MaterialTheme.typography.titleMedium)
-                Text("Connection: ${state.displayText()}", Modifier.testTag("printer-connection"))
-                Text("Paper: ${paper?.let(PrinterWords::paper) ?: "Checking…"}", Modifier.testTag("printer-paper"))
-                Text("Last receipt: ${lastPrint ?: "None printed yet"}", Modifier.testTag("printer-last"))
-                details.forEachIndexed { index, line -> Text(line, Modifier.testTag("printer-detail-$index")) }
-                Text("${printer.capabilities.paperWidthMm} mm paper · ${printer.capabilities.charactersPerLine} characters a line" +
-                    if (printer.capabilities.cutter) "" else " · tear the paper by hand")
-                Button(
-                    onClick = { scope.launch { check() } },
-                    enabled = !busy && !checking,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("check-printer"),
-                ) { Text(if (checking) "Checking…" else "Check printer") }
+                // POS v2: the same cards, pills and sentence-case copy as the rest of the app; the screen's tags are unchanged.
+                com.sunpride.van.ui.SectionCard("Printer") {
+                    Text("Connection: ${state.displayText()}", Modifier.testTag("printer-connection"), style = MaterialTheme.typography.titleSmall)
+                    Text("Paper: ${paper?.let(PrinterWords::paper) ?: "Checking…"}", Modifier.testTag("printer-paper"))
+                    Text("Last receipt: ${lastPrint ?: "None printed yet"}", Modifier.testTag("printer-last"))
+                    details.forEachIndexed { index, line -> Text(line, Modifier.testTag("printer-detail-$index"), style = MaterialTheme.typography.bodyMedium) }
+                    Text("${printer.capabilities.paperWidthMm} mm paper · ${printer.capabilities.charactersPerLine} characters a line" +
+                        if (printer.capabilities.cutter) "" else " · tear the paper by hand", style = MaterialTheme.typography.bodyMedium)
+                }
+                com.sunpride.van.ui.PillButton(if (checking) "Checking…" else "Check printer", { scope.launch { check() } }, Modifier.testTag("check-printer"), enabled = !busy && !checking, filled = false)
                 if (printer is SelectablePrinter) {
                     BluetoothPrinterSetup(printer, enabled = !busy && !checking, onChanged = { scope.launch { check() } })
                 }
-                Button(
-                    onClick = {
+                com.sunpride.van.ui.PillButton(if (busy) "Printing…" else "Print test receipt",
+                    {
                         scope.launch {
                             busy = true
                             try {
@@ -125,19 +122,16 @@ fun PrinterTestScreen(
                                 val d = printer.diagnostics(); state = d.status; paper = d.paper; details = d.details
                             } finally { busy = false }
                         }
-                    },
-                    enabled = !busy && !checking,
-                    modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp).testTag("print-test"),
-                ) { Text(if (busy) "Printing…" else "Print test receipt") }
-                result?.let { Text(it) }
-                Text("Delivery receipt only. Not a BIR official receipt.")
-                Text("Last scanned code", style = MaterialTheme.typography.titleMedium)
-                Text(scan?.code ?: "No scan yet")
-                scan?.let { Text("Source: ${it.source.name.lowercase()}") }
-                WedgeScanField(scanner.inputs)
-                Button(onClick = { camera = true }, modifier = Modifier.fillMaxWidth().heightIn(min = 56.dp)) {
-                    Text("Scan with camera")
+                    }, Modifier.testTag("print-test"), enabled = !busy && !checking)
+                result?.let { Text(it, style = MaterialTheme.typography.bodyLarge) }
+                Text("Delivery receipt only. Not a BIR official receipt.", style = MaterialTheme.typography.bodyMedium)
+                com.sunpride.van.ui.SectionCard("Scanner") {
+                    Text("Last scanned code", style = MaterialTheme.typography.bodyMedium)
+                    Text(scan?.code ?: "No scan yet", style = MaterialTheme.typography.titleSmall)
+                    scan?.let { Text("Source: ${it.source.name.lowercase()}", style = MaterialTheme.typography.bodyMedium) }
+                    WedgeScanField(scanner.inputs)
                 }
+                com.sunpride.van.ui.PillButton("Scan with camera", { camera = true }, filled = false)
             }
         }
     }

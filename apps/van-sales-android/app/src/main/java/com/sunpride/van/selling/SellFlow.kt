@@ -11,7 +11,9 @@ sealed interface SellEvent {
     data object CartBarTapped : SellEvent
     /** Charge on the cart bar or at the foot of the cart. */
     data object ChargeTapped : SellEvent
-    /** Exact, a quick-cash amount or the pay button: starts saving. */
+    /** EXACT: fills Tendered with the total (like a quick-cash bill). It is a tap, but it never saves the sale. */
+    data object ExactTapped : SellEvent
+    /** The big Complete button: the only thing that starts saving. */
     data object PayTapped : SellEvent
     data object SaleSaved : SellEvent
     data object SaveFailed : SellEvent
@@ -30,6 +32,7 @@ object SellFlowReducer {
         SellEvent.GridTapped, SellEvent.SearchRowTapped -> s.tap()
         SellEvent.CartBarTapped -> if (s.step == SellStep.BROWSE) s.tap().copy(step = SellStep.CART) else s
         SellEvent.ChargeTapped -> if (s.step == SellStep.BROWSE || s.step == SellStep.CART) s.tap().copy(step = SellStep.PAYMENT, cameFromCart = s.step == SellStep.CART) else s
+        SellEvent.ExactTapped -> if (s.step == SellStep.PAYMENT && !s.saving) s.tap() else s
         SellEvent.PayTapped -> if (s.step == SellStep.PAYMENT && !s.saving) s.tap().copy(saving = true) else s
         SellEvent.SaleSaved -> if (s.step == SellStep.PAYMENT) s.copy(step = SellStep.COMPLETE, saving = false) else s
         SellEvent.SaveFailed -> s.copy(saving = false)

@@ -7,30 +7,43 @@ import org.junit.Test
 class SellFlowTest {
     private fun run(vararg events: SellEvent): SellFlow = events.fold(SellFlow()) { s, e -> SellFlowReducer.reduce(s, e) }
 
-    @Test fun oneItemExactCashSaleIsThreeTapsAfterTheScan() {
-        // scan (not a tap) -> Charge -> Exact -> (sale saved) -> New sale
-        val done = run(SellEvent.Scanned, SellEvent.ChargeTapped, SellEvent.PayTapped, SellEvent.SaleSaved)
+    @Test fun exactNeverCompletesTheSale() {
+        // Charge -> Exact: the screen stays on Payment, not saving, so a discount or a customer can still be added.
+        val s = run(SellEvent.Scanned, SellEvent.ChargeTapped, SellEvent.ExactTapped)
+        assertEquals(SellStep.PAYMENT, s.step)
+        assertFalse(s.saving)
+        assertEquals(2, s.taps)
+    }
+
+    @Test fun oneItemExactCashSaleIsFourTapsAfterTheScan() {
+        // scan (not a tap) -> Charge -> Exact (fills Tendered only) -> Complete -> (sale saved) -> New sale
+        val done = run(SellEvent.Scanned, SellEvent.ChargeTapped, SellEvent.ExactTapped, SellEvent.PayTapped, SellEvent.SaleSaved)
         assertEquals(SellStep.COMPLETE, done.step)
         val fresh = SellFlowReducer.reduce(done, SellEvent.NewSaleTapped)
-        assertEquals(3, fresh.taps)
+        assertEquals(4, fresh.taps)
         assertEquals(SellStep.BROWSE, fresh.step)
     }
 
-    @Test fun answeringDidItPrintStillFitsTheFourTapBudget() {
-        val s = run(SellEvent.Scanned, SellEvent.ChargeTapped, SellEvent.PayTapped, SellEvent.SaleSaved, SellEvent.PrintAnswered, SellEvent.NewSaleTapped)
-        assertEquals(4, s.taps)
+    @Test fun answeringDidItPrintAddsOneTap() {
+        val s = run(SellEvent.Scanned, SellEvent.ChargeTapped, SellEvent.ExactTapped, SellEvent.PayTapped, SellEvent.SaleSaved, SellEvent.PrintAnswered, SellEvent.NewSaleTapped)
+        assertEquals(5, s.taps)
     }
 
     @Test fun tenScansNeedNoExtraTapsPerItem() {
         val scans = Array<SellEvent>(10) { SellEvent.Scanned }
-        val s = run(*scans, SellEvent.ChargeTapped, SellEvent.PayTapped, SellEvent.SaleSaved, SellEvent.NewSaleTapped)
-        assertEquals("same three closing taps as a one-item sale", 3, s.taps)
+        val s = run(*scans, SellEvent.ChargeTapped, SellEvent.ExactTapped, SellEvent.PayTapped, SellEvent.SaleSaved, SellEvent.NewSaleTapped)
+        assertEquals("same four closing taps as a one-item sale", 4, s.taps)
     }
 
-    @Test fun aBillInsteadOfExactCostsOneMoreTap() {
-        // Charge -> $100 (fills Tendered, no save) -> Complete -> New sale
-        val s = run(SellEvent.Scanned, SellEvent.ChargeTapped, SellEvent.PayTapped, SellEvent.SaleSaved, SellEvent.NewSaleTapped)
-        assertEquals(3, s.taps) // the bill tap is a tender edit, the Complete tap is the PayTapped above
+    @Test fun aBillCostsTheSameTapsAsExact() {
+        // Charge -> bill (fills Tendered, no save) -> Complete -> New sale; the bill tap is the same kind of tap as Exact.
+        val s = run(SellEvent.Scanned, SellEvent.ChargeTapped, SellEvent.ExactTapped, SellEvent.PayTapped, SellEvent.SaleSaved, SellEvent.NewSaleTapped)
+        assertEquals(4, s.taps)
+    }
+
+    @Test fun exactWhileSavingIsIgnored() {
+        val s = run(SellEvent.ChargeTapped, SellEvent.PayTapped, SellEvent.ExactTapped)
+        assertTrue(s.saving); assertEquals(2, s.taps)
     }
 
     @Test fun viewingTheCartFirstAddsTheCartTapOnly() {

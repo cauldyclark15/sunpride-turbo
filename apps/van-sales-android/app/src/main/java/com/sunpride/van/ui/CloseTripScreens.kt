@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.input.KeyboardType
 import com.sunpride.van.pos.*
@@ -42,9 +43,12 @@ import java.time.format.DateTimeFormatter
                 Text("Trip ${summary.tripNumber}",style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("close-trip-number"))
                 SectionCard("Before you close") {
                     checklist!!.steps.forEach { step ->
-                        val mark = if (step.done) "✓" else if (step.required) "✗" else "–"
-                        Text("$mark ${VanRules.closeStepLabel(step)}",style = MaterialTheme.typography.bodyLarge,
-                            modifier = Modifier.testTag("close-step-${step.step.name.lowercase()}"))
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            if (step.done) Glyph(GlyphKind.CHECK,SunprideTokens.stockGreen,22.dp)
+                            else if (step.required) Glyph(GlyphKind.CLOSE,SunprideTokens.emptyRed,22.dp)
+                            else Text("–",style = MaterialTheme.typography.bodyLarge)
+                            Text(VanRules.closeStepLabel(step),style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("close-step-${step.step.name.lowercase()}"))
+                        }
                     }
                     val blocked = checklist.blockers.map { it.step }.toSet()
                     if (CloseStep.CASH_COUNTED in blocked) SecondaryButton("Count cash",{ c.open(Page.CASH) },Modifier.testTag("close-go-cash"),!c.busy)

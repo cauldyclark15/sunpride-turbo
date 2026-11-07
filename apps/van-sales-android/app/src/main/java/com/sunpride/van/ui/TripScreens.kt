@@ -38,57 +38,48 @@ import java.time.format.DateTimeFormatter
             StepTarget.STOCK_COUNT -> c.open(Page.STOCK_COUNT); StepTarget.CLOSE_TRIP -> c.open(Page.CLOSE_TRIP); StepTarget.NONE -> {}
         }
     }
-    ScreenFrame("Today",action = step.button ?: "Sync now",actionTag = "home-primary",
-        enabled = !c.busy,onAction = { if (step.button == null) c.syncNow() else go() },footer = status,message = c.message) {
+    ScreenFrame("Today",message = c.message,trailing = { SyncPill(c) }) {
         val trip = c.trip
         if (!c.onHold || trip != null) NextStepCard(step,!c.busy,go)
         PhoneCrewCard(c)
         if (trip == null && c.onHold) {
             Text("Your trip is paused until the office confirms this phone. Tap Sync now. Your saved work is kept here.",
                 style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("on-hold"))
+            PillButton(if (c.busy) "Syncing…" else "Sync now",c::syncNow,Modifier.testTag("on-hold-sync"),enabled = !c.busy)
         } else if (trip == null) {
             NoTripPanel(c,"No trip","no-trip")
         } else {
             SectionCard("Your trip") {
-                Text(trip.tripNumber,style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("trip-number"))
                 Text(if (c.tripClosed) "Closed on this phone" else VanRules.status(trip,c.load),style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("trip-status"))
+                Text(trip.tripNumber,style = MaterialTheme.typography.bodyMedium,color = Look.muted,modifier = Modifier.testTag("trip-number"))
                 Text(trip.vehicle?.let { "Truck ${it.vehicleCode} · ${it.plateNumber}" } ?: "Truck not assigned")
                 Text(trip.route?.let { "Route · ${it.name}" } ?: "Route not assigned")
-                Text(listOfNotNull(c.seller?.name,trip.driverName?.let { "Driver: $it" },trip.helperName?.let { "Helper: $it" }).joinToString("\n"),style = MaterialTheme.typography.bodyMedium)
+                Text(listOfNotNull(c.seller?.name?.let { "Seller: $it" },trip.driverName?.let { "Driver: $it" },trip.helperName?.let { "Helper: $it" }).joinToString("\n"),style = MaterialTheme.typography.bodyMedium)
             }
             // SP-0137: visible while the trip is on the road.
             LocationSharingRow(c)
-            ListRow("Product catalogue","Offline details, images and pack hierarchy","open-catalogue",onClick = { c.open(Page.CATALOGUE) })
-            ListRow("Find product","Search or scan · stock and price","open-products",onClick = { c.open(Page.PRODUCTS) })
-            ListRow("Truck stock","Available and damaged","open-stock",onClick = { c.open(Page.STOCK) })
-            if (c.policy?.operationsVersion==1) ListRow("Route controls","Temperature, batches, containers, reload and unload","open-route-ops",onClick = { c.open(Page.ROUTE_OPS) })
-            ListRow("Customers","Your route and nearby stores","open-customers",onClick = { c.open(Page.CUSTOMERS) })
-            ListRow("Receipts","Print or reprint a receipt from this trip","open-receipts",onClick = { c.open(Page.RECEIPTS) })
-            ListRow("Printer & scanner","Check the printer and paper","open-printer",onClick = { c.open(Page.PRINTER) })
-            ListRow("Sync now","Send saved work and check for changes","sync-now",onClick = c::syncNow,enabled = !c.busy)
             val selling = VanRules.canSell(trip) && !c.cashCounted && !c.stockCounted && !c.tripClosed
-            if (c.sale != null && selling) ListRow("Continue sale",c.sale!!.customer.name,"new-sale",enabled = !c.busy,onClick = c::continueSale)
+            // The Sell tab is the home of selling; this row is the quick way in from Today.
+            if (c.sale != null && selling) ListRow("Continue sale",c.sale!!.customer.name,"new-sale",enabled = !c.busy,onClick = c::continueSale,glyph = GlyphKind.CART)
             else ListRow("New sale",when { c.tripClosed -> "Trip closed — no more sales on this trip"; c.cashCounted -> "Cash counted — no more sales on this trip"; c.stockCounted -> "Stock counted — no more sales on this trip"; selling -> "Choose the customer, then add products"; else -> "Start the trip to sell" },
-                "new-sale",enabled = selling && !c.busy,onClick = { c.open(Page.CUSTOMERS) })
+                "new-sale",enabled = selling && !c.busy,onClick = { c.open(Page.CUSTOMERS) },glyph = GlyphKind.CART)
+            if (c.policy?.operationsVersion==1) ListRow("Route controls","Temperature, batches, containers, reload and unload","open-route-ops",onClick = { c.open(Page.ROUTE_OPS) },glyph = GlyphKind.FLAG)
             // VAN-022: end of trip. Open once the trip is on the road; after saving it shows the count.
             val countable = c.cashCounted || VanRules.canCountCash(trip) && !c.tripClosed
-            ListRow("Count cash",if (c.cashCounted) "Counted — see the result" else if (countable) "End of trip: count the cash you collected" else "Start the trip first",
-                "open-cash",enabled = countable && !c.busy,onClick = { c.open(Page.CASH) })
+            // The end-of-trip jobs only appear once the trip is on the road (they are noise while the truck is still being loaded).
+            if (countable || c.stockCounted || c.tripClosed) Text("End of trip",style = MaterialTheme.typography.titleMedium,modifier = Modifier.padding(top = 4.dp))
+            if (countable || c.stockCounted || c.tripClosed) ListRow("Count cash",if (c.cashCounted) "Counted — see the result" else if (countable) "Count the cash you collected" else "Start the trip first",
+                "open-cash",enabled = countable && !c.busy,onClick = { c.open(Page.CASH) },glyph = GlyphKind.WALLET)
             val stockCountable = c.stockCounted || VanRules.canCountStock(trip) && !c.tripClosed
-            ListRow("Count stock",if (c.stockCounted) "Stock counted — see the result" else if (stockCountable) "End of trip: compare truck stock with the physical count" else "Start the trip first",
-                "open-stock-count",enabled = stockCountable && !c.busy,onClick = { c.open(Page.STOCK_COUNT) })
+            if (countable || c.stockCounted || c.tripClosed) ListRow("Count stock",if (c.stockCounted) "Counted — see the result" else if (stockCountable) "Compare truck stock with the physical count" else "Start the trip first",
+                "open-stock-count",enabled = stockCountable && !c.busy,onClick = { c.open(Page.STOCK_COUNT) },glyph = GlyphKind.BOX)
             // VAN-024: last step of the day. Opens once the trip is on the road; after closing it shows the close.
             val closable = c.tripClosed || VanRules.canCountCash(trip)
-            ListRow("Close trip",when { c.tripClosed -> "Closed — see the close"; closable -> "End of trip: check everything, then close"; else -> "Start the trip first" },
-                "open-close-trip",enabled = closable && !c.busy,onClick = { c.open(Page.CLOSE_TRIP) })
+            if (countable || c.stockCounted || c.tripClosed) ListRow("Close trip",when { c.tripClosed -> "Closed — see the close"; closable -> "Check everything, then close"; else -> "Start the trip first" },
+                "open-close-trip",enabled = closable && !c.busy,onClick = { c.open(Page.CLOSE_TRIP) },glyph = GlyphKind.TRUCK)
         }
-        ListRow("Sync & posting","What is on this phone, with the office and in SAP","open-sync",onClick = { c.open(Page.SYNC) })
-        if (!c.fixtureMode) com.sunpride.van.chat.VanMessagesEntry() // SP-0146 v2 messaging (not in practice-data mode)
-        val context = LocalContext.current
-        c.features.reportIssueUrl?.let { url -> ListRow("Report an issue","Tell the Sunpride team what went wrong","report-issue",onClick = { openLink(context,url) }) }
-        ListRow("POS mode","Van or Store · set by the office","open-pos-mode",onClick = { c.open(Page.POS_MODE) })
-        ListRow("Account","Password and sign out","open-account",onClick = { c.open(Page.ACCOUNT) })
-        SecondaryButton("Sign out",c::signOut,Modifier.testTag("sign-out"),!c.busy)
+        // VAN-025: phone, office and SAP stay on separate lines (details on Sync & posting).
+        Text(status,style = MaterialTheme.typography.bodyMedium,color = Look.muted,modifier = Modifier.padding(top = 4.dp).testTag("sync-line"))
     }
 }
 private data class LoadDraft(val quantity: String, val reason: String?)

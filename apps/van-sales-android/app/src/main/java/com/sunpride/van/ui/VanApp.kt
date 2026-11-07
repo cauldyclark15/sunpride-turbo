@@ -68,47 +68,61 @@ import kotlinx.coroutines.delay
             controller.enrollment !is EnrollmentState.Ready -> EnrollmentScreen(controller)
             // SP-0146 v2 messaging: the shared chat module, opened from Home; Back inside it steps back, Back on its list returns Home.
             com.sunpride.van.chat.VanChat.open && !controller.storeMode -> com.sunpride.van.chat.VanMessages(chatTap)
-            controller.storeMode && controller.page !in setOf(Page.ACCOUNT,Page.CHANGE_PASSWORD,Page.PRINTER,Page.SYNC,Page.STORE_OPEN,Page.STORE_CLOSE,Page.POS_MODE,Page.STORE_SALE,Page.STORE_READS,Page.STORE_RECEIPTS,Page.STORE_STOCK,Page.STORE_DEPOSIT,Page.STORE_CUSTOMERS) -> StoreHomeScreen(controller)
-            else -> when (controller.page) {
-                Page.STORE_SALE -> StoreSaleScreen(controller)
-                Page.STORE_READS -> StoreReadsScreen(controller)
-                Page.STORE_RECEIPTS -> StoreReceiptsScreen(controller)
-                Page.STORE_STOCK -> StoreStockScreen(controller)
-                Page.STORE_DEPOSIT -> StoreDepositScreen(controller)
-                Page.STORE_CUSTOMERS -> StoreCustomersScreen(controller)
-                Page.STORE_OPEN -> OpenSessionScreen(controller)
-                Page.STORE_CLOSE -> CloseSessionScreen(controller)
-                Page.POS_MODE -> PosModeScreen(controller)
-                Page.ACCOUNT -> AccountScreen(controller)
-                Page.CHANGE_PASSWORD -> ChangePasswordScreen(controller)
-                Page.HOME -> HomeScreen(controller)
-                Page.ROUTE_OPS -> RouteOpsScreen(controller)
-                Page.ACCEPT_LOAD -> AcceptLoadScreen(controller)
-                Page.LOAD -> CheckLoadScreen(controller)
-                Page.START -> StartTripScreen(controller)
-                Page.STOCK -> TruckStockScreen(controller)
-                Page.STOCK_COUNT -> StockCountScreen(controller)
-                Page.CUSTOMERS -> CustomersScreen(controller)
-                Page.WALK_IN -> WalkInScreen(controller)
-                Page.CUSTOMER -> CustomerDetailScreen(controller)
-                Page.PRINTER -> PrinterScreen(controller)
-                Page.CATALOGUE -> VanCatalogue(controller)
-                Page.PRODUCTS -> ProductSearchScreen(controller)
-                Page.SALE -> SaleScreen(controller)
-                Page.CHECKOUT -> CheckoutScreen(controller)
-                Page.SALE_DONE -> SaleDoneScreen(controller)
-                Page.RETURN -> ReturnScreen(controller)
-                Page.RETURN_DONE -> ReturnDoneScreen(controller)
-                Page.RECEIPTS -> ReceiptsScreen(controller)
-                Page.CASH -> CashCountScreen(controller)
-                Page.CLOSE_TRIP -> CloseTripScreen(controller)
-                Page.SYNC -> SyncHealthScreen(controller)
-                Page.LOCATION_CONSENT -> LocationConsentScreen(controller)
-            }
+            else -> AppShell(controller) { MainContent(controller) }
         }
         // IP-P0: asked after every print, on whichever screen the cashier is on.
         controller.printQuestionSaleId?.let { DidItPrintSheet(controller) }
     }
+    }
+}
+/** The signed-in screens. In Store mode Home is the Till tab; the bottom bar around this is [AppShell]. */
+@Composable private fun MainContent(controller: VanController) {
+    // Land on Sell once a cashier session is open (at start-up and right after opening); Till is the home while it is closed.
+    val sessionOpen = controller.storeMode && controller.storePos.shift != null
+    var landed by remember { mutableStateOf(false) }
+    LaunchedEffect(sessionOpen, controller.page) {
+        if (!sessionOpen) landed = false
+        else if (!landed) { landed = true; if (controller.page == Page.HOME) controller.open(Page.STORE_SALE) }
+    }
+    when {
+        controller.storeMode && controller.page !in setOf(Page.ACCOUNT,Page.CHANGE_PASSWORD,Page.PRINTER,Page.SYNC,Page.STORE_OPEN,Page.STORE_CLOSE,Page.POS_MODE,Page.STORE_SALE,Page.STORE_READS,Page.STORE_RECEIPTS,Page.STORE_STOCK,Page.STORE_DEPOSIT,Page.STORE_CUSTOMERS,Page.MORE) -> StoreHomeScreen(controller)
+        else -> when (controller.page) {
+            Page.STORE_SALE -> if (controller.storePos.shift == null) StoreSellLocked(controller) else StoreSaleScreen(controller)
+            Page.STORE_READS -> StoreReadsScreen(controller)
+            Page.STORE_RECEIPTS -> StoreReceiptsScreen(controller)
+            Page.STORE_STOCK -> StoreStockScreen(controller)
+            Page.STORE_DEPOSIT -> StoreDepositScreen(controller)
+            Page.STORE_CUSTOMERS -> StoreCustomersScreen(controller)
+            Page.STORE_OPEN -> OpenSessionScreen(controller)
+            Page.STORE_CLOSE -> CloseSessionScreen(controller)
+            Page.POS_MODE -> PosModeScreen(controller)
+            Page.ACCOUNT -> AccountScreen(controller)
+            Page.CHANGE_PASSWORD -> ChangePasswordScreen(controller)
+            Page.MORE -> MoreScreen(controller)
+            Page.HOME -> HomeScreen(controller)
+            Page.ROUTE_OPS -> RouteOpsScreen(controller)
+            Page.ACCEPT_LOAD -> AcceptLoadScreen(controller)
+            Page.LOAD -> CheckLoadScreen(controller)
+            Page.START -> StartTripScreen(controller)
+            Page.STOCK -> TruckStockScreen(controller)
+            Page.STOCK_COUNT -> StockCountScreen(controller)
+            Page.CUSTOMERS -> CustomersScreen(controller)
+            Page.WALK_IN -> WalkInScreen(controller)
+            Page.CUSTOMER -> CustomerDetailScreen(controller)
+            Page.PRINTER -> PrinterScreen(controller)
+            Page.CATALOGUE -> VanCatalogue(controller)
+            Page.PRODUCTS -> ProductSearchScreen(controller)
+            Page.SALE -> SaleScreen(controller)
+            Page.CHECKOUT -> CheckoutScreen(controller)
+            Page.SALE_DONE -> SaleDoneScreen(controller)
+            Page.RETURN -> ReturnScreen(controller)
+            Page.RETURN_DONE -> ReturnDoneScreen(controller)
+            Page.RECEIPTS -> ReceiptsScreen(controller)
+            Page.CASH -> CashCountScreen(controller)
+            Page.CLOSE_TRIP -> CloseTripScreen(controller)
+            Page.SYNC -> SyncHealthScreen(controller)
+            Page.LOCATION_CONSENT -> LocationConsentScreen(controller)
+        }
     }
 }
 @Composable private fun SignInScreen(c: VanController) {
@@ -178,7 +192,7 @@ import kotlinx.coroutines.delay
 @Composable private fun PrinterScreen(c: VanController) {
     // VAN-017: the shared printer (also used for sale receipts); the Activity owns and closes it. The scanner is the app's one.
     val scanner = checkNotNull(LocalScannerInput.current)
-    ScreenFrame("Settings",c::back,action = "Done",onAction = c::back,actionTag = "printer-done",scroll = false) {
+    ScreenFrame("Printer & scanner",c::back,action = "Done",onAction = c::back,actionTag = "printer-done",scroll = false) {
         PrinterTestScreen(c.printer,scanner,Modifier.fillMaxSize(),lastPrint = c.lastPrint?.let { last ->
             java.time.Instant.ofEpochMilli(last.at).atZone(java.time.ZoneId.systemDefault()).format(java.time.format.DateTimeFormatter.ofPattern("h:mm a")) + " · " + last.text
         })

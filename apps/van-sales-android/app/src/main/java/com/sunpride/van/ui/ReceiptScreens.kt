@@ -70,9 +70,11 @@ import java.time.format.DateTimeFormatter
     var voiding by remember { mutableStateOf<SavedSale?>(null) }
     var collecting by remember { mutableStateOf<SavedSale?>(null) }
     val time = remember { DateTimeFormatter.ofPattern("h:mm a") }
-    ScreenFrame("Receipts",c::back,message = c.message ?: c.printMessage) {
-        Text("Sales saved on this trip. After you confirm the first print, any further copy is marked REPRINT. Voided sales print only VOID slips.",style = MaterialTheme.typography.bodyMedium)
-        if (c.savedSales.isEmpty()) Text("No sales on this trip yet.",style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("no-receipts"))
+    ScreenFrame("Receipts",message = c.message ?: c.printMessage,trailing = { SyncPill(c) }) {
+        if (c.savedSales.isEmpty()) {
+            EmptyState(GlyphKind.RECEIPT,"No receipts yet","Sales you complete on this trip show up here, so you can print or reprint them.",Modifier.testTag("no-receipts"),
+                actionLabel = if (VanRules.canSell(c.trip) && !c.tripClosed) "Start a sale" else null,onAction = { c.open(Page.CUSTOMERS) },actionTag = "receipts-start-sale")
+        } else Text("After you confirm the first print, any further copy is marked REPRINT. Voided sales print only VOID slips.",style = MaterialTheme.typography.bodyMedium)
         c.savedSales.forEachIndexed { index, saved ->
             val r = saved.receipt
             SectionCard(Instant.ofEpochMilli(r.createdAt).atZone(ZoneId.systemDefault()).format(time)) {
@@ -97,7 +99,7 @@ import java.time.format.DateTimeFormatter
                 if (!saved.isCollection && saved.void == null && r.paymentKind == com.sunpride.van.data.PaymentKind.CREDIT && !c.tripClosed)
                     SecondaryButton("Collect payment & issue OR",{collecting=saved},Modifier.testTag("receipt-$index-collect"),enabled=!c.busy)
                 if (!saved.isCollection && saved.void == null && c.policy?.let { VoidRules.offered(it).isNotEmpty() } == true)
-                    SecondaryButton("Void sale",{ voiding = saved },Modifier.testTag("receipt-$index-void-sale"),enabled = !c.busy && !c.printing)
+                    DangerButton("Void sale",{ voiding = saved },Modifier.testTag("receipt-$index-void-sale"),enabled = !c.busy && !c.printing)
             }
         }
     }

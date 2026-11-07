@@ -54,7 +54,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     }
     fun saveStoreAction(kind:String,payload:org.json.JSONObject) = command("Saved securely on this phone. Sync when connected.") {repository.storeAction(kind,payload);page=Page.HOME}
     /** IP-HH1: the sale screen stays up and shows its Complete step; [onSaved] runs once the sale is durably saved. */
-    fun saveStoreSale(id:String,lines:List<CartLine>,tenders:List<com.sunpride.van.storepos.StoreTransactions.Tender>,total:Long,phone:String?,pin:String?,points:Long,onSaved:()->Unit={},claim:com.sunpride.van.selling.DiscountClaim?=null) = command("Store sale saved. Printing the receipt…") {
+    fun saveStoreSale(id:String,lines:List<CartLine>,tenders:List<com.sunpride.van.storepos.StoreTransactions.Tender>,total:Long,phone:String?,pin:String?,points:Long,onSaved:()->Unit={},claim:com.sunpride.van.selling.DiscountClaim?=null) = command("Store sale saved. Printing the receipt…",failure={UserMessages.forStoreSale(it)}) {
         repository.storeSale(id,lines,tenders,total,phone,pin,points,claim)
         // IP-P0 (SPEC 6.5): the invoice prints by itself; the cashier then answers "Did it print?".
         startPrint(id,explicit=false,reason=null,store=true)
@@ -69,6 +69,11 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun printStoreReceipt(id:String,reason:String?=null) = startPrint(id,explicit=true,reason=reason,store=true)
     var page by mutableStateOf(Page.HOME)
         private set
+    /** A selling host sets this while the bottom bar must stay hidden (Payment and Complete). Never saved. */
+    var navHidden by mutableStateOf(false)
+    /** Work still waiting to leave this phone, and work the office wants a person to look at; for the small sync badge. */
+    val syncWaiting: Int get() = if (storeMode) storePos.queued else sync.queued + sync.sending
+    val syncReview: Int get() = if (storeMode) storePos.review else sync.review
     var session by mutableStateOf(SessionState())
         private set
     var enrollment by mutableStateOf<EnrollmentState>(EnrollmentState.SignedOut)
@@ -277,7 +282,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             Page.RETURN -> Page.CUSTOMER
             Page.STOCK_COUNT -> Page.HOME
             Page.LOCATION_CONSENT -> if (pendingStart != null) Page.START else Page.HOME
-            Page.PRODUCTS -> if (pickingForSale && sale != null) Page.SALE else Page.HOME
+            Page.PRODUCTS -> if (pickingForSale && sale != null) Page.SALE else Page.STOCK
+            Page.CATALOGUE -> Page.STOCK
             else -> Page.HOME
         }
         if (page == Page.PRODUCTS) pickingForSale = false

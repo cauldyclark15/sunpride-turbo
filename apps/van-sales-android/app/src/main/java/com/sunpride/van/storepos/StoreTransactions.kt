@@ -50,13 +50,13 @@ class StoreTransactions(private val store:RoomVanStore) {
         val quote=StoreCheckout.quote(config,rows,cart,store.now(),claim)
         val total=StoreCheckout.total(config,quote.totalMinor,employeePin!=null,points)
         check(expected==total && total<=StorePosStore.MAX_MONEY){"Prices or discount changed"}
-        require((total==0L||tenders.isNotEmpty())&&tenders.map {it.method}.distinct().size==tenders.size)
+        require((total==0L||tenders.isNotEmpty())&&tenders.map {it.method}.distinct().size==tenders.size){"Choose how the customer pays"}
         val allowed=StoreCheckout.objects(config.details.optJSONArray("paymentMethods"))
         require(tenders.fold(0L){n,t->Math.addExact(n,t.amount)}==total){"Tenders must equal the total"}
         val methods=JSONArray()
         tenders.forEach {t->
             val rule=allowed.singleOrNull {it.getString("code")==t.method}?:error("Tender is not enabled")
-            require(t.amount>0)
+            require(t.amount>0){"Each payment must be more than zero"}
             val ref=if(rule.getBoolean("referenceRequired"))checkNotNull(PaymentReference.normalize(t.reference)){"Enter the provider reference"} else null
             require(t.method!="card"||ref.orEmpty().count {it.isDigit()}<12){"Use the approval reference, never a card number"}
             if(t.method=="cash")require((t.tendered?:t.amount)>=t.amount){"Cash received is short"}
