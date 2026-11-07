@@ -149,7 +149,8 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
         else->setupProblem
     }
     if(claiming)ClaimSheet(items=cart.map{l->l.productId to (products.firstOrNull{it.productId==l.productId}?.name?:"Item")},initial=claim,
-        onApply={claim=it;employee=false;pin="";points="";claiming=false},onRemove=if(claim!=null)({claim=null;claiming=false}) else null,onClose={claiming=false})
+        onApply={claim=it;employee=false;pin="";points="";claiming=false},onRemove=if(claim!=null)({claim=null;claiming=false}) else null,onClose={claiming=false},
+        capLeft={cl->context.getOrNull()?.capRemaining?.invoke(cl)})
     when(flow.step){
         SellStep.BROWSE,SellStep.CART->SellingBrowse(
             title="Store sale",subtitle=config.storeName?:"Store",onBack=null,place=SellingPlace.STORE,

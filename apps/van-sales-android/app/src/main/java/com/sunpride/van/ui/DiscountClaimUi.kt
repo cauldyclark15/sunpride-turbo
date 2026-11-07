@@ -26,6 +26,7 @@ import com.sunpride.van.selling.ClaimRules
 import com.sunpride.van.selling.DiscountClaim
 import com.sunpride.van.selling.LegalCart
 import com.sunpride.van.selling.Peso
+import com.sunpride.van.selling.PrivilegeCap
 import com.sunpride.van.selling.PrivilegeType
 
 /**
@@ -33,7 +34,9 @@ import com.sunpride.van.selling.PrivilegeType
  * types the name on the ID and the ID number (both required) and, in a mixed cart, which items qualify. Nothing is worked out here:
  * [com.sunpride.van.selling.Privilege] does it and the checkout shows the result.
  */
-@Composable fun ClaimSheet(items: List<Pair<String, String>>, initial: DiscountClaim?, onApply: (DiscountClaim) -> Unit, onRemove: (() -> Unit)?, onClose: () -> Unit) {
+@Composable fun ClaimSheet(items: List<Pair<String, String>>, initial: DiscountClaim?, onApply: (DiscountClaim) -> Unit, onRemove: (() -> Unit)?, onClose: () -> Unit,
+    /** IP-SCPWD-CAP: what is left of this card's weekly limit as the phone knows it (null = no limit known). Shown once the card is typed. */
+    capLeft: ((DiscountClaim) -> Long?)? = null) {
     var type by remember { mutableStateOf(initial?.type) }
     var name by remember { mutableStateOf(initial?.holderName ?: "") }
     var id by remember { mutableStateOf(initial?.idNumber ?: "") }
@@ -78,6 +81,9 @@ import com.sunpride.van.selling.PrivilegeType
             Text("Enter the details", Modifier.padding(top = 8.dp), fontSize = 15.sp, fontWeight = FontWeight.Bold, color = Look.muted)
             LabeledField("Name on the ID", name, { name = it }, "claim-name", maxLength = 120)
             LabeledField("ID number, as printed on the card", id, { id = it }, "claim-id", maxLength = 40)
+            if (claim != null && problem == null) capLeft?.invoke(claim)?.let { left ->
+                Text(PrivilegeCap.leftText(left), fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("claim-weekly-limit"))
+            }
             if (items.size > 1) {
                 Confirmation("Only some items get the discount", some, { some = it }, "claim-some")
                 if (some) items.forEach { (pid, label) ->
@@ -98,7 +104,13 @@ import com.sunpride.van.selling.PrivilegeType
             if (legal.applied) {
                 Text("Discount −${Peso.format(legal.privilegeDiscount)}" + (if (legal.vatRemoved > 0) " · VAT removed ${Peso.format(legal.vatRemoved)}" else ""), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("claim-amounts"))
                 Text("To pay ${Peso.format(legal.total)}$tail", style = MaterialTheme.typography.bodyLarge)
-            } else Text("A promotion on these items is better than the discount, so no discount is taken.", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("claim-not-applied"))
+            } else if (legal.budget != null && legal.eligibleGross > 0L) Text("The weekly limit is used up, so no discount is taken.", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("claim-not-applied"))
+            else Text("A promotion on these items is better than the discount, so no discount is taken.", style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("claim-not-applied"))
+            // IP-SCPWD-CAP: the weekly limit, in the same plain words the receipt prints.
+            legal.budget?.let { b ->
+                if (legal.eligibleGross > legal.appliedGross && legal.applied) Text("The weekly limit covers only ${Peso.format(legal.appliedGross)} of this sale, so the discount is on that part.", style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("claim-limit-note"))
+                Text(PrivilegeCap.leftText(maxOf(0L, b - legal.appliedGross)), style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("claim-weekly-limit-left"))
+            }
         }
         val line = when (preview) {
             VanController.ClaimPreview.None -> null

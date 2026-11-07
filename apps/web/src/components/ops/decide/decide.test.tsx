@@ -59,6 +59,7 @@ const data = (items: DecideItem[]): DecideInboxData => ({
     disposition: "Bad order",
     cash_variance: "Cash difference",
     override_review: "Till override",
+    privilege_cap: "Senior / PWD weekly limit",
   },
   items,
   warnings: [],
@@ -207,6 +208,8 @@ describe("Decide model", () => {
     expect(verdictLabels("cash_variance")).toEqual({ approve: "Accept the difference", reject: "Investigate" });
     expect(verdictLabels("cash_variance", true).approve).toBe("Accept the close");
     expect(verdictLabels("load_difference")).toEqual({ approve: "Approve", reject: "Reject" });
+    // IP-SCPWD-CAP: the sale is already made; the supervisor only says whether the customer keeps the discount
+    expect(verdictLabels("privilege_cap")).toEqual({ approve: "Customer keeps it", reject: "Flag it" });
     expect(ageText(NOW - 30000, NOW)).toBe("just now");
     expect(ageText(NOW - 5 * 60000, NOW)).toBe("5 min");
     expect(ageText(NOW - 3 * 86400000, NOW)).toBe("3 days");

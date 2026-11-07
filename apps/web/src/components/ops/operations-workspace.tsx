@@ -18,6 +18,7 @@ import { canAccessWebModule } from "@/lib/module-access";
 import { ReceiptsScreen } from "./receipts";
 import { StoreDayScreens } from "../storepos/store-day-screens";
 import { OverridesScreen } from "../storepos/overrides-review";
+import { DiscountRulesScreen } from "../storepos/discount-rules";
 import { TillDaysScreen, ZHistoryScreen } from "../storepos/till-days";
 import { TaxPeriodSummaryScreen } from "../fiscal/tax-period-summary";
 import { PanelErrorBoundary } from "../panel-error-boundary";
@@ -263,6 +264,7 @@ function Screen({ path, role }: { path: string[]; role: string }) {
       if (screen === "overrides") return <OverridesScreen />;
       if (screen === "receipts") return <ReceiptsScreen />;
       if (screen === "tax") return <TaxPeriodSummaryScreen />;
+      if (screen === "rules") return <DiscountRulesScreen />;
       if (screen === "all") return <StoreDayScreens />;
       break;
     case "decide":

@@ -22,7 +22,9 @@ const val SALE_PARKED = "parked"
 /** A disagreement between a saved sale and its truck-stock deduction (VAN-018); a healthy phone has none. */
 data class SaleStockIssue(val saleId: String?, val movementId: String?, val code: String)
 /** VAN-012 credit sold here per customer (not yet acknowledged by the office) and `method|REFERENCE` keys already used. */
-data class PaymentFacts(val creditUsedMinor: Map<String,Long> = emptyMap(), val usedReferences: Set<String> = emptySet())
+data class PaymentFacts(val creditUsedMinor: Map<String,Long> = emptyMap(), val usedReferences: Set<String> = emptySet(),
+    /** IP-SCPWD-CAP: senior/PWD purchase this phone discounted that the bundle cannot include yet, per card key (see `PrivilegeCap.localUsed`). */
+    val capUsedMinor: Map<String,Long> = emptyMap())
 private fun CustomerRow.toCustomer() = Customer(outletId,code,name,address,sequence,source,reason,localOnly,
     if (creditTermsDays != null && creditAvailableMinor != null) CustomerCredit(creditTermsDays,creditAvailableMinor) else null,
     priceListId,when (priceListMode) {
@@ -266,7 +268,8 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             meta?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) }, clock(), t?.serviceDate,
             facts.creditUsedMinor, facts.usedReferences, counted,
             dao.promotionRows(s,d).map { VanBootstrapCodec.promotion(JSONObject(it.json)) }, stockCounted,
-            taxFacts = meta?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)).fiscalJson }?.let { com.sunpride.van.fiscal.FiscalTax.facts(JSONObject(it),clock()) })
+            taxFacts = meta?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)).fiscalJson }?.let { com.sunpride.van.fiscal.FiscalTax.facts(JSONObject(it),clock()) },
+            capRemaining = com.sunpride.van.selling.PrivilegeCap.remainingFn(meta?.policyJson?.let { runCatching { VanBootstrapCodec.policy(JSONObject(it)).privilegeCap }.getOrNull() },facts.capUsedMinor,clock()))
     }
 
     /**
@@ -285,7 +288,14 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             if (p.status == PaymentState.ON_ACCOUNT.wire && sale.idempotencyKey !in acked)
                 credit[sale.customerId] = Math.addExact(credit[sale.customerId] ?: 0L,p.amountMinor ?: 0L)
         }
-        return PaymentFacts(credit,references)
+        val cap = dao.meta(s,d)?.policyJson?.let { runCatching { VanBootstrapCodec.policy(JSONObject(it)).privilegeCap }.getOrNull() }
+        val now = clock()
+        val claims = dao.outboxRows(s,d).filter { it.kind == "sale.record" }.mapNotNull { r ->
+            val p = JSONObject(r.operationJson).optJSONObject("payload") ?: return@mapNotNull null
+            if (p.optString("saleId") in voided) return@mapNotNull null
+            p.optJSONObject("discountClaim")?.let { Triple(r.status,r.createdAt,it) }
+        }
+        return PaymentFacts(credit,references,com.sunpride.van.selling.PrivilegeCap.localUsed(cap,now,claims))
     }
 
     /**

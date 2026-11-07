@@ -38,6 +38,7 @@ import {
   zView,
 } from "./readings.js";
 import { loadTillDay } from "./till-days.js";
+import { installLegacyZ } from "./legacy-z.js";
 
 /** Office and supervisors only: expected cash and variance are not for the cashier being counted. @param {any} db @param {any} actor */
 async function requireOffice(db, actor) {
@@ -114,6 +115,9 @@ export function installZday(router, platform) {
       for (const t of topics) c.publish(t);
       return response;
     });
+
+  // IP-SCPWD-CAP: the no-PIN Z gate and the report of tills still on old builds.
+  installLegacyZ(router, platform, command);
 
   // ---- day-end ---------------------------------------------------------
   command(

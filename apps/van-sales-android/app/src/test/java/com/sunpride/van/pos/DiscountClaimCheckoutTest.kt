@@ -109,4 +109,26 @@ class DiscountClaimCheckoutTest {
         val q = CheckoutRules.cartQuote(request(listOf(CartLine("p1", 1)), PaymentInput("cash"), senior(), SplitPayment("gcash", 1_000, "R-9")), context())
         assertEquals(2_786L, q!!.totalMinor); assertNull(q.split)
     }
+
+    // IP-SCPWD-CAP: the weekly limit inside the same checkout engine the screens and the store use.
+    @Test fun theWeeklyLimitGivesTheDiscountOnlyToWhatIsLeftAndTheClaimCarriesTheBudget() {
+        val ctx = context().copy(capRemaining = { 1_000L })
+        val q = CheckoutRules.evaluate(request(listOf(CartLine("p1", 1)), PaymentInput("cash", 3_900), senior()), ctx).quote!!
+        assertEquals(3_614L, q.totalMinor); assertEquals(179L, q.legal!!.privilegeDiscount); assertEquals(107L, q.legal!!.vatRemoved)
+        assertEquals(1_000L, q.legal!!.appliedGross); assertEquals(3_900L, q.legal!!.eligibleGross)
+        assertEquals(1_000L, q.claim!!.capBudget)
+        val wire = q.claim!!.json("privilegeDiscountCentavos", "vatRemovedCentavos", q.legal)
+        assertEquals("1000", wire.getJSONObject("capBasis").getString("budgetCentavos"))
+        // nothing left: the case sells at the shelf price and the claim still says the phone worked with a limit of 0
+        val none = CheckoutRules.evaluate(request(listOf(CartLine("p1", 1)), PaymentInput("cash", 3_900), senior()), context().copy(capRemaining = { 0L })).quote!!
+        assertEquals(3_900L, none.totalMinor); assertFalse(none.legal!!.applied); assertEquals(0L, none.claim!!.capBudget)
+    }
+
+    @Test fun aPhoneThatKnowsOfNoLimitSellsAndSendsExactlyWhatItDidBefore() {
+        for (ctx in listOf(context(), context().copy(capRemaining = { null }))) {
+            val q = CheckoutRules.evaluate(request(listOf(CartLine("p1", 1)), PaymentInput("cash", 3_000), senior()), ctx).quote!!
+            assertEquals(2_786L, q.totalMinor); assertNull(q.claim!!.capBudget)
+            assertFalse(q.claim!!.json("privilegeDiscountCentavos", "vatRemovedCentavos", q.legal).has("capBasis"))
+        }
+    }
 }

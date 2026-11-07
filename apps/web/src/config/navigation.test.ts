@@ -154,6 +154,7 @@ describe("Operations: verbs first (IP-NAV)", () => {
         "Overrides",
         "Receipts",
         "Tax summary",
+        "Discount & Z rules",
       ]),
     );
   });

@@ -262,7 +262,7 @@ export async function bind(
  * @param {Harness} h
  * @param {{ access: string, deviceId: string, key: Awaited<ReturnType<typeof deviceKey>> }} who
  * @param {string} path @param {unknown} body
- * @param {{ nonce?: string, timestamp?: number, signedBody?: string }} [over]
+ * @param {{ nonce?: string, timestamp?: number, signedBody?: string, headers?: Record<string,string> }} [over]
  */
 export async function signedPost(h, who, path, body, over = {}) {
   const raw = JSON.stringify(body);
@@ -284,6 +284,7 @@ export async function signedPost(h, who, path, body, over = {}) {
       "x-device-nonce": nonce,
       "x-device-timestamp": String(timestamp),
       "x-device-signature": signature,
+      ...(over.headers ?? {}),
     },
     body: raw,
   });

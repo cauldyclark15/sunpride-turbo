@@ -126,6 +126,11 @@ export const OPERATIONS_SECTIONS = [
         href: "/operations/stores-pos/receipts",
       },
       { id: "tax", label: "Tax summary", href: "/operations/stores-pos/tax" },
+      {
+        id: "rules",
+        label: "Discount & Z rules",
+        href: "/operations/stores-pos/rules",
+      },
     ],
   },
   {

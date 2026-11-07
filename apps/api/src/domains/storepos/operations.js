@@ -14,6 +14,7 @@ import { recordCashMovement } from "./cash.js";
 import { useSupervisor } from "./overrides.js";
 import { readingModel, generateZ, legacySnapshot } from "./readings.js";
 import { refundPart } from "./refunds.js";
+import { assertLegacyZAllowed } from "./legacy-z.js";
 
 export const STORE_OPS = [
   "store.sale",
@@ -192,6 +193,8 @@ async function read(c) {
     // it is accepted only when the day has nothing left to settle (generateZ refuses open sessions and pending voids)
     // and it leaves a `z_legacy_no_pin` override row naming the cashier. A request that carries a proof stays strict.
     if (p.supervisor == null) {
+      // IP-SCPWD-CAP: refused for phones that can sign with a PIN (office switch + build gate, storepos/legacy-z.js).
+      await assertLegacyZAllowed(db, c.device);
       await generateZ(db, r, c.actor, {
         dayId: shift.till_day_id,
         readId: id,

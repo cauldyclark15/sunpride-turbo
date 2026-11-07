@@ -7,6 +7,7 @@ import {
   hasConfiguredFlowsForApp,
 } from "../callflow/engine.js";
 import { tenderPolicy } from "../fiscal/tenders.js";
+import { capBundle } from "../fiscal/privilege-cap.js";
 import { fiscalBundle } from "../fiscal/transactions.js";
 import { routeBundle } from "./route-read.js";
 import { ApiError } from "../../core/errors.js";
@@ -148,6 +149,8 @@ export function vanProjection(env) {
         ...(p.vanDay === true ? { vanDay: true } : {}),
         // IP-REFUND: refunds of part of a sale (reasons, supervisor amount, credit-memo range); older apps never ask.
         ...(p.refunds === true ? { refunds: true } : {}),
+        // IP-SCPWD-CAP: the senior/PWD weekly limit and each card's use this week; only a phone that asks gets it.
+        ...(p.privilegeCap === true ? { privilegeCap: true } : {}),
       };
     },
     snapshot,
@@ -186,13 +189,19 @@ export async function bundle(ctx, env) {
         422,
         "Update this POS to use Store mode",
       );
-    const storePos =
+    const modeFacts =
       ctx.params.posMode === true
         ? await modeBundle(db, actor, device, posMode, {
             taxFacts: ctx.params.handheld === true,
             refunds: ctx.params.refunds === true,
           })
         : null;
+    // IP-SCPWD-CAP: the senior/PWD weekly limit and each card's use rides inside `storePos` (already stripped from the frozen
+    // v1 policy by every build that asks for posMode), only for a phone that asks with `params.privilegeCap`.
+    const storePos =
+      modeFacts && ctx.params.privilegeCap === true
+        ? { ...modeFacts, privilegeCap: await capBundle(db, Date.now()) }
+        : modeFacts;
     let trips =
       storePos?.mode === "store"
         ? []

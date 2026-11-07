@@ -65,7 +65,7 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
         // The server deliberately refuses van deltas. A complete, bounded snapshot is required every cycle.
         val request = envelope().put("since",JSONObject.NULL).put("pageCursor",JSONObject.NULL).put("limit",100)
             .put("scopes",JSONArray().put(JSONObject().put("scopeId",identity.scopeId).put("projection","van.bundle")
-                .put("params",JSONObject().put("serviceDate",day).put("catalogue",true).put("schemeEngine",1).put("posMode",true).put("handheld",true).put("vanDay",true).put("categories",true).put("refunds",true))))
+                .put("params",JSONObject().put("serviceDate",day).put("catalogue",true).put("schemeEngine",1).put("posMode",true).put("handheld",true).put("vanDay",true).put("categories",true).put("refunds",true).put("privilegeCap",true))))
         val response = JSONObject(send(PULL,request.toString().toByteArray()))
         val local = V2VanCodec.snapshot(response,identity,clock())
         tripId = local.optJSONObject("trip")?.getString("tripId")
@@ -111,7 +111,8 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
             val bearer = transport.token(attempt > 0)
             val (nonce,expiresAt) = transport.challenge(deviceId)
             val timestamp = expiresAt-Enrollment.CHALLENGE_TTL_MS
-            val response = transport.post(path,body,RequestSigner.headers(signer,deviceId,path,body,nonce,timestamp),bearer)
+            // IP-SCPWD-CAP: say which build this is, so the office can see which tills are still on an old one. Not part of the signed message.
+            val response = transport.post(path,body,RequestSigner.headers(signer,deviceId,path,body,nonce,timestamp)+versionHeaders(),bearer)
             if (response.first == 401 && attempt == 0) continue
             if (response.first in 200..299) return response.second
             throw error(response.first,response.second)
@@ -119,6 +120,9 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
         throw VanSyncFailure("unauthorized",false)
     }
     companion object {
+        /** Beta N reports version code N (`betaBuild`), so the server can tell beta.29 from beta.30. */
+        fun versionHeaders(): Map<String,String> = mapOf("x-app-version-code" to com.sunpride.van.BuildConfig.VERSION_CODE.toString(),
+            "x-app-version-name" to com.sunpride.van.BuildConfig.VERSION_NAME)
         const val PULL = "/api/sync/pull"
         const val PUSH = "/api/sync/push"
         const val CLAIMS = "/api/media/claims"

@@ -158,6 +158,9 @@ export function ReceiptPreview({ model }: { model: ReceiptModel }) {
           <p className="font-bold">{model.privilege.label} discount</p>
           <p>Name: {model.privilege.holderName}</p>
           <p>ID no.: {model.privilege.idNumber}</p>
+          {model.privilege.weeklyLimitText ? (
+            <p data-testid="weekly-limit">{model.privilege.weeklyLimitText}</p>
+          ) : null}
           <p className="mt-3">Signature: ______________________</p>
         </section>
       ) : null}

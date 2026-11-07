@@ -279,6 +279,13 @@ export function buildPrintModel({
           holderName: claim.holderName,
           idNumber: claim.idNumber,
           applied: claim.applied !== false,
+          // IP-SCPWD-CAP: frozen with the invoice; absent for old documents and for types with no weekly limit
+          ...(claim.weeklyLimit
+            ? {
+                weeklyLimitLeftMinor: String(claim.weeklyLimit.leftMinor),
+                weeklyLimitText: String(claim.weeklyLimit.text),
+              }
+            : {}),
         }
       : null,
     footer,

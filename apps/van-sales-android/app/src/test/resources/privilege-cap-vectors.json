@@ -1,0 +1,647 @@
+{
+ "source": "apps/api/src/domains/fiscal/privilege-cap.js computeWithBudget; the Kotlin mirror (Privilege.cart) must give the same numbers. Money is integer centavos.",
+ "vectors": [
+  {
+   "name": "no limit on the phone (null budget), one VATable line",
+   "type": "senior",
+   "budget": null,
+   "lines": [
+    {
+     "productId": "a",
+     "gross": 100000,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    }
+   ],
+   "expect": {
+    "appliedGross": 100000,
+    "eligibleGross": 100000,
+    "total": 71429,
+    "privilegeDiscount": 17857,
+    "vatRemoved": 10714,
+    "lines": [
+     {
+      "net": 71429,
+      "privilegeDiscount": 17857,
+      "vatRemoved": 10714,
+      "vatable": 0,
+      "vat": 0,
+      "exempt": 89286,
+      "zero": 0,
+      "promo": 0,
+      "privileged": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "budget bigger than the purchase changes nothing",
+   "type": "senior",
+   "budget": 130000,
+   "lines": [
+    {
+     "productId": "a",
+     "gross": 100000,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    }
+   ],
+   "expect": {
+    "appliedGross": 100000,
+    "eligibleGross": 100000,
+    "total": 71429,
+    "privilegeDiscount": 17857,
+    "vatRemoved": 10714,
+    "lines": [
+     {
+      "net": 71429,
+      "privilegeDiscount": 17857,
+      "vatRemoved": 10714,
+      "vatable": 0,
+      "vat": 0,
+      "exempt": 89286,
+      "zero": 0,
+      "promo": 0,
+      "privileged": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "half the purchase fits: the line is split",
+   "type": "senior",
+   "budget": 50000,
+   "lines": [
+    {
+     "productId": "a",
+     "gross": 100000,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    }
+   ],
+   "expect": {
+    "appliedGross": 50000,
+    "eligibleGross": 100000,
+    "total": 85714,
+    "privilegeDiscount": 8929,
+    "vatRemoved": 5357,
+    "lines": [
+     {
+      "net": 85714,
+      "privilegeDiscount": 8929,
+      "vatRemoved": 5357,
+      "vatable": 44643,
+      "vat": 5357,
+      "exempt": 44643,
+      "zero": 0,
+      "promo": 0,
+      "privileged": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "only 30,000 left: split with odd centavos",
+   "type": "pwd",
+   "budget": 30000,
+   "lines": [
+    {
+     "productId": "a",
+     "gross": 100000,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    }
+   ],
+   "expect": {
+    "appliedGross": 30000,
+    "eligibleGross": 100000,
+    "total": 91429,
+    "privilegeDiscount": 5357,
+    "vatRemoved": 3214,
+    "lines": [
+     {
+      "net": 91429,
+      "privilegeDiscount": 5357,
+      "vatRemoved": 3214,
+      "vatable": 62500,
+      "vat": 7500,
+      "exempt": 26786,
+      "zero": 0,
+      "promo": 0,
+      "privileged": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "nothing left: plain price, no privilege",
+   "type": "senior",
+   "budget": 0,
+   "lines": [
+    {
+     "productId": "a",
+     "gross": 100000,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    }
+   ],
+   "expect": {
+    "appliedGross": 0,
+    "eligibleGross": 100000,
+    "total": 100000,
+    "privilegeDiscount": 0,
+    "vatRemoved": 0,
+    "lines": [
+     {
+      "net": 100000,
+      "privilegeDiscount": 0,
+      "vatRemoved": 0,
+      "vatable": 89286,
+      "vat": 10714,
+      "exempt": 0,
+      "zero": 0,
+      "promo": 0,
+      "privileged": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "two lines, the first fits whole, the second is split",
+   "type": "senior",
+   "budget": 70000,
+   "lines": [
+    {
+     "productId": "a",
+     "gross": 40000,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    },
+    {
+     "productId": "b",
+     "gross": 60000,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    }
+   ],
+   "expect": {
+    "appliedGross": 70000,
+    "eligibleGross": 100000,
+    "total": 80000,
+    "privilegeDiscount": 12500,
+    "vatRemoved": 7500,
+    "lines": [
+     {
+      "net": 28571,
+      "privilegeDiscount": 7143,
+      "vatRemoved": 4286,
+      "vatable": 0,
+      "vat": 0,
+      "exempt": 35714,
+      "zero": 0,
+      "promo": 0,
+      "privileged": true
+     },
+     {
+      "net": 51429,
+      "privilegeDiscount": 5357,
+      "vatRemoved": 3214,
+      "vatable": 26786,
+      "vat": 3214,
+      "exempt": 26786,
+      "zero": 0,
+      "promo": 0,
+      "privileged": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "budget used up by the first line, the second is plain",
+   "type": "senior",
+   "budget": 40000,
+   "lines": [
+    {
+     "productId": "a",
+     "gross": 40000,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    },
+    {
+     "productId": "b",
+     "gross": 60000,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    }
+   ],
+   "expect": {
+    "appliedGross": 40000,
+    "eligibleGross": 100000,
+    "total": 88571,
+    "privilegeDiscount": 7143,
+    "vatRemoved": 4286,
+    "lines": [
+     {
+      "net": 28571,
+      "privilegeDiscount": 7143,
+      "vatRemoved": 4286,
+      "vatable": 0,
+      "vat": 0,
+      "exempt": 35714,
+      "zero": 0,
+      "promo": 0,
+      "privileged": true
+     },
+     {
+      "net": 60000,
+      "privilegeDiscount": 0,
+      "vatRemoved": 0,
+      "vatable": 53571,
+      "vat": 6429,
+      "exempt": 0,
+      "zero": 0,
+      "promo": 0,
+      "privileged": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "a promotion that beats the privilege never uses the limit",
+   "type": "senior",
+   "budget": 15000,
+   "lines": [
+    {
+     "productId": "a",
+     "gross": 10000,
+     "promo": 3000,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    },
+    {
+     "productId": "b",
+     "gross": 20000,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    }
+   ],
+   "expect": {
+    "appliedGross": 15000,
+    "eligibleGross": 20000,
+    "total": 22714,
+    "privilegeDiscount": 2679,
+    "vatRemoved": 1607,
+    "lines": [
+     {
+      "net": 7000,
+      "privilegeDiscount": 0,
+      "vatRemoved": 0,
+      "vatable": 6250,
+      "vat": 750,
+      "exempt": 0,
+      "zero": 0,
+      "promo": 3000,
+      "privileged": false
+     },
+     {
+      "net": 15714,
+      "privilegeDiscount": 2679,
+      "vatRemoved": 1607,
+      "vatable": 4464,
+      "vat": 536,
+      "exempt": 13393,
+      "zero": 0,
+      "promo": 0,
+      "privileged": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "promo share goes pro rata to a split line",
+   "type": "senior",
+   "budget": 60000,
+   "lines": [
+    {
+     "productId": "a",
+     "gross": 100000,
+     "promo": 5000,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    }
+   ],
+   "expect": {
+    "appliedGross": 60000,
+    "eligibleGross": 100000,
+    "total": 80857,
+    "privilegeDiscount": 10714,
+    "vatRemoved": 6429,
+    "lines": [
+     {
+      "net": 80857,
+      "privilegeDiscount": 10714,
+      "vatRemoved": 6429,
+      "vatable": 33929,
+      "vat": 4071,
+      "exempt": 53571,
+      "zero": 0,
+      "promo": 2000,
+      "privileged": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "exempt and zero-rated lines count their full price",
+   "type": "pwd",
+   "budget": 14000,
+   "lines": [
+    {
+     "productId": "a",
+     "gross": 11200,
+     "promo": 0,
+     "treatment": "exempt",
+     "vatBps": 0,
+     "eligible": true
+    },
+    {
+     "productId": "b",
+     "gross": 5000,
+     "promo": 0,
+     "treatment": "zero_rated",
+     "vatBps": 0,
+     "eligible": true
+    },
+    {
+     "productId": "c",
+     "gross": 3900,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    }
+   ],
+   "expect": {
+    "appliedGross": 14000,
+    "eligibleGross": 20100,
+    "total": 17300,
+    "privilegeDiscount": 2800,
+    "vatRemoved": 0,
+    "lines": [
+     {
+      "net": 8960,
+      "privilegeDiscount": 2240,
+      "vatRemoved": 0,
+      "vatable": 0,
+      "vat": 0,
+      "exempt": 11200,
+      "zero": 0,
+      "promo": 0,
+      "privileged": true
+     },
+     {
+      "net": 4440,
+      "privilegeDiscount": 560,
+      "vatRemoved": 0,
+      "vatable": 0,
+      "vat": 0,
+      "exempt": 0,
+      "zero": 5000,
+      "promo": 0,
+      "privileged": true
+     },
+     {
+      "net": 3900,
+      "privilegeDiscount": 0,
+      "vatRemoved": 0,
+      "vatable": 3482,
+      "vat": 418,
+      "exempt": 0,
+      "zero": 0,
+      "promo": 0,
+      "privileged": false
+     }
+    ]
+   }
+  },
+  {
+   "name": "a line left out by the cashier does not use the limit",
+   "type": "senior",
+   "budget": 20000,
+   "lines": [
+    {
+     "productId": "a",
+     "gross": 50000,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": false
+    },
+    {
+     "productId": "b",
+     "gross": 30000,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    }
+   ],
+   "expect": {
+    "appliedGross": 20000,
+    "eligibleGross": 30000,
+    "total": 74286,
+    "privilegeDiscount": 3571,
+    "vatRemoved": 2143,
+    "lines": [
+     {
+      "net": 50000,
+      "privilegeDiscount": 0,
+      "vatRemoved": 0,
+      "vatable": 44643,
+      "vat": 5357,
+      "exempt": 0,
+      "zero": 0,
+      "promo": 0,
+      "privileged": false
+     },
+     {
+      "net": 24286,
+      "privilegeDiscount": 3571,
+      "vatRemoved": 2143,
+      "vatable": 8929,
+      "vat": 1071,
+      "exempt": 17857,
+      "zero": 0,
+      "promo": 0,
+      "privileged": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "free gift line (gross 0) carries nothing",
+   "type": "senior",
+   "budget": 10000,
+   "lines": [
+    {
+     "productId": "g",
+     "gross": 0,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    },
+    {
+     "productId": "a",
+     "gross": 25000,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    }
+   ],
+   "expect": {
+    "appliedGross": 10000,
+    "eligibleGross": 25000,
+    "total": 22143,
+    "privilegeDiscount": 1786,
+    "vatRemoved": 1071,
+    "lines": [
+     {
+      "net": 0,
+      "privilegeDiscount": 0,
+      "vatRemoved": 0,
+      "vatable": 0,
+      "vat": 0,
+      "exempt": 0,
+      "zero": 0,
+      "promo": 0,
+      "privileged": false
+     },
+     {
+      "net": 22143,
+      "privilegeDiscount": 1786,
+      "vatRemoved": 1071,
+      "vatable": 13393,
+      "vat": 1607,
+      "exempt": 8929,
+      "zero": 0,
+      "promo": 0,
+      "privileged": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "athlete keeps VAT, split line",
+   "type": "athlete",
+   "budget": 25001,
+   "lines": [
+    {
+     "productId": "a",
+     "gross": 100000,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    }
+   ],
+   "expect": {
+    "appliedGross": 25001,
+    "eligibleGross": 100000,
+    "total": 95536,
+    "privilegeDiscount": 4464,
+    "vatRemoved": 0,
+    "lines": [
+     {
+      "net": 95536,
+      "privilegeDiscount": 4464,
+      "vatRemoved": 0,
+      "vatable": 89285,
+      "vat": 10715,
+      "exempt": 0,
+      "zero": 0,
+      "promo": 0,
+      "privileged": true
+     }
+    ]
+   }
+  },
+  {
+   "name": "odd one-centavo budget",
+   "type": "senior",
+   "budget": 3901,
+   "lines": [
+    {
+     "productId": "a",
+     "gross": 3900,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    },
+    {
+     "productId": "b",
+     "gross": 3900,
+     "promo": 0,
+     "treatment": "vatable",
+     "vatBps": 1200,
+     "eligible": true
+    }
+   ],
+   "expect": {
+    "appliedGross": 3900,
+    "eligibleGross": 7800,
+    "total": 6686,
+    "privilegeDiscount": 696,
+    "vatRemoved": 418,
+    "lines": [
+     {
+      "net": 2786,
+      "privilegeDiscount": 696,
+      "vatRemoved": 418,
+      "vatable": 0,
+      "vat": 0,
+      "exempt": 3482,
+      "zero": 0,
+      "promo": 0,
+      "privileged": true
+     },
+     {
+      "net": 3900,
+      "privilegeDiscount": 0,
+      "vatRemoved": 0,
+      "vatable": 3482,
+      "vat": 418,
+      "exempt": 0,
+      "zero": 0,
+      "promo": 0,
+      "privileged": false
+     }
+    ]
+   }
+  }
+ ]
+}
