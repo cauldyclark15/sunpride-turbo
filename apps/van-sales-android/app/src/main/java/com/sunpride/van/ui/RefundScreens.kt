@@ -6,6 +6,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -55,6 +56,9 @@ private fun pesos(minor: Long) = PosMoney.format(minor, "PHP")
     var pin by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
     val chosen = picks.filterValues { it > 0L }
+    // The PIN pad appears under the supervisor names, below the footer's edge: bring it into view once a supervisor is picked.
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    LaunchedEffect(supervisor?.profileId) { if (supervisor != null) { withFrameNanos { }; withFrameNanos { }; listState.animateScrollToItem(maxOf(0, listState.layoutInfo.totalItemsCount - 1)); listState.scrollBy(100_000f) } }
     val plan = remember(chosen, model) { if (chosen.isEmpty()) null else runCatching { RefundMath.plan(model.receipt, model.prior, chosen) }.getOrNull() }
     val total = plan?.totalMinor ?: 0L
     val reason = model.policy.reason(reasonCode)
@@ -77,10 +81,10 @@ private fun pesos(minor: Long) = PosMoney.format(minor, "PHP")
             if (plan != null && reason != null) onConfirm(RefundSubmission(chosen, reason, note.trim().takeIf { it.isNotEmpty() }, total, supervisor.takeIf { needsApproval && approval == RefundApprovalKind.PIN }, pin, if (needsApproval && approval == RefundApprovalKind.CODE) code else ""))
         }, Modifier.testTag("refund-confirm"), enabled = problem == null && !busy, height = 64.dp, fontSize = 22.sp)
     }) {
-        LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("refund-lines"), contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("refund-lines"), state = listState, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text("Receipt ${model.receiptNumber}", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Look.ink, modifier = Modifier.testTag("refund-receipt"))
+                    Text("Receipt ${model.receiptNumber}", fontSize = 16.sp, fontWeight = FontWeight.Bold, color = Look.ink, modifier = Modifier.testTag("refund-receipt"))
                     model.customerName?.takeIf { it.isNotBlank() }?.let { Text(it, fontSize = 15.sp, color = Look.muted) }
                     Text("Choose how many pieces the customer is returning. Prices include any discount they got.", fontSize = 14.sp, color = Look.muted)
                 }
@@ -151,7 +155,7 @@ private fun pesos(minor: Long) = PosMoney.format(minor, "PHP")
     }) {
         Column(Modifier.fillMaxWidth().padding(20.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(pesos(totalMinor), fontSize = 40.sp, fontWeight = FontWeight.ExtraBold, color = Look.ink, modifier = Modifier.testTag("refund-done-total"))
-            Text("Credit memo $creditNumber", fontSize = 18.sp, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("refund-done-number"))
+            Text("Credit memo $creditNumber", fontSize = 16.sp, fontWeight = FontWeight.Bold, modifier = Modifier.testTag("refund-done-number"))
             Text("Takes back receipt $receiptNumber", fontSize = 15.sp, color = Look.muted)
             if (cashMinor > 0) Text("Give the customer ${pesos(cashMinor)} in cash.", fontSize = 17.sp, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("refund-done-cash"))
             if (totalMinor - cashMinor > 0) Text("${pesos(totalMinor - cashMinor)} goes back by the way they paid.", fontSize = 15.sp)

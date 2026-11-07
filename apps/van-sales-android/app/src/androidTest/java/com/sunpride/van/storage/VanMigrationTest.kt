@@ -170,4 +170,22 @@ class VanMigrationTest {
             database.query("SELECT operationJson,status FROM outbox").use { assertTrue(it.moveToFirst()); assertEquals("immutable bytes",it.getString(0)); assertEquals("done",it.getString(1)) }
         }
     }
+    /** IP-HOLD: v10 -> v11 adds only the device-local held_cart table; every saved row and operation byte stays as it was. */
+    @Test fun exportedV10MigratesToTheHeldCartTable() {
+        val name = "van-migration-held-v10.db"
+        helper.createDatabase(name,10).apply {
+            execSQL("INSERT INTO outbox (fullAuthSubject,deviceId,clientRequestId,tripId,kind,operationJson,createdAt,status) VALUES ('issuer|subject','d','sale-key','trip','sale.record','immutable bytes',1,'pending')")
+            close()
+        }
+        helper.runMigrationsAndValidate(name,11,true,VanDatabase.MIGRATION_10_11).use { database ->
+            database.query("SELECT COUNT(*) FROM held_cart").use { assertTrue(it.moveToFirst()); assertEquals(0,it.getInt(0)) }
+            database.query("PRAGMA table_info(`held_cart`)").use { cursor ->
+                val columns = mutableListOf<String>(); while (cursor.moveToNext()) columns += cursor.getString(1)
+                assertEquals(listOf("fullAuthSubject","deviceId","holdId","surface","name","note","customerId","customerName","linesJson","totalLabel","createdAt"),columns)
+            }
+            database.query("SELECT operationJson,status FROM outbox").use { assertTrue(it.moveToFirst()); assertEquals("immutable bytes",it.getString(0)); assertEquals("pending",it.getString(1)) }
+            database.execSQL("INSERT INTO held_cart (fullAuthSubject,deviceId,holdId,surface,name,linesJson,totalLabel,createdAt) VALUES ('issuer|subject','d','h1','van','Held 1','[]','PHP 0.00',1)")
+            database.query("SELECT COUNT(*) FROM held_cart").use { assertTrue(it.moveToFirst()); assertEquals(1,it.getInt(0)) }
+        }
+    }
 }

@@ -69,15 +69,18 @@ data class RefundPlan(val totalMinor: Long, val lines: List<RefundedLine>, val v
 data class RefundTender(val method: String, val label: String, val amountMinor: Long)
 
 object RefundMath {
+    // BigInteger.TWO (API 33) and longValueExact (API 31) are missing on the phones we support (minSdk 29).
+    private val TWO: BigInteger = BigInteger.valueOf(2)
+    private fun BigInteger.exactLong(): Long { if (bitLength() > 63) throw ArithmeticException("BigInteger out of long range"); return toLong() }
     private fun big(v: Long) = BigInteger.valueOf(v)
-    private fun divRound(n: BigInteger, d: BigInteger): BigInteger = n.multiply(BigInteger.TWO).add(d).divide(d.multiply(BigInteger.TWO))
+    private fun divRound(n: BigInteger, d: BigInteger): BigInteger = n.multiply(TWO).add(d).divide(d.multiply(TWO))
     private fun money(o: JSONObject, key: String): Long = if (!o.has(key) || o.isNull(key)) 0L else o.get(key).toString().toLong()
 
     /** The refunded part of [amount] when [before] of [sold] units were already refunded and [now] more are. */
     fun share(amount: Long, before: Long, now: Long, sold: Long): Long {
         if (sold <= 0L || amount == 0L) return 0L
         val a = big(amount)
-        return divRound(a.multiply(big(before + now)), big(sold)).subtract(divRound(a.multiply(big(before)), big(sold))).longValueExact()
+        return divRound(a.multiply(big(before + now)), big(sold)).subtract(divRound(a.multiply(big(before)), big(sold))).exactLong()
     }
 
     /** Store and van receipts hold lines in two shapes; this reads both (same rule as `saleLines` on the office side). */
@@ -134,7 +137,7 @@ object RefundMath {
                 val treatment = tl.optString("treatment")
                 bucket = if (treatment == "zero_rated") "zero" else if (treatment == "exempt" || removesVat) "exempt" else "vatable"
             } else if (saleTotal > 0L) {
-                lineVat = divRound(big(amount).multiply(big(money(saleTax, "vatMinor"))), big(saleTotal)).longValueExact()
+                lineVat = divRound(big(amount).multiply(big(money(saleTax, "vatMinor"))), big(saleTotal)).exactLong()
                 bucket = if (money(saleTax, "vatableSalesMinor") > 0L) "vatable" else if (money(saleTax, "zeroRatedMinor") > 0L) "zero" else "exempt"
             }
             var bucketAmount = if (tl != null && tl.has("netMinor") && !tl.isNull("netMinor"))

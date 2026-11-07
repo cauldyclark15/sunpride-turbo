@@ -96,7 +96,7 @@ export async function ensureDefaultReasonCodes(db, org) {
 
 /**
  * @param {any} db @param {string} org
- * @param {{category?:string, direction?:string, activeOnly?:boolean, cashKind?:string}} [filter]
+ * @param {{category?:string, direction?:string, activeOnly?:boolean, cashKind?:string, refund?:boolean}} [filter]
  * @returns {Promise<ReasonCode[]>} a direction filter also returns codes marked "both"
  */
 export async function listReasonCodes(
