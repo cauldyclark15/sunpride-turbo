@@ -143,8 +143,13 @@ export async function refundPart(c) {
   const status = reason.destination === "damaged" ? "damaged" : "available";
   const stock = [];
   for (const o of plan.lines) {
+    // Goods go back at the cost the sale took them out at, so the store's average cost does not move. A sale with no
+    // costed line for the product (an old or seeded sale) falls back to the store's current average, never to zero.
     const [unit] =
-      await db`select l.unit_cost_minor from inventory_movement_lines l where l.movement_id=${sale.movement_id} and l.product_id=${o.productId} limit 1`;
+      await db`select l.unit_cost_minor from inventory_movement_lines l where l.movement_id=${sale.movement_id} and l.product_id=${o.productId} and l.from_location_id=${r.location_id} order by l.line_number limit 1`;
+    const [now] = unit
+      ? []
+      : await db`select weighted_average_cost_minor from inventory_balances where location_id=${r.location_id} and product_id=${o.productId}`;
     stock.push(
       ...(await refundLotLines(db, {
         saleSource: "store_sale",
@@ -154,7 +159,9 @@ export async function refundPart(c) {
         quantity: o.quantityBase,
         status,
         uom: "base",
-        unitCostMinor: Number(unit?.unit_cost_minor ?? 0),
+        unitCostMinor: Number(
+          unit?.unit_cost_minor ?? now?.weighted_average_cost_minor ?? 0,
+        ),
       })),
     );
   }

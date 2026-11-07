@@ -196,6 +196,24 @@ export async function soldLotLines(db, trip, saleId, l, quantity, status) {
     refuse("Returned quantity exceeds the sold lots", "invalid_request");
   return lines;
 }
+/**
+ * Goods that go back on the truck (void, linked return) go back at the cost the sale took them out at, so the truck's
+ * average cost does not move (a line with no cost would be valued at zero and dilute it, as a refund once did).
+ * A product the sale has no costed line for keeps the line as it was.
+ * @param {any} db @param {any} trip @param {string} saleId @param {any[]} lines
+ */
+export async function atSaleCost(db, trip, saleId, lines) {
+  const rows =
+    await db`select l.product_id,l.unit_cost_minor::text as cost from inventory_movement_lines l join inventory_movements m on m.id=l.movement_id where m.source_type='van_sale' and m.source_document_id=${saleId}::text and l.from_location_id=${trip.truck_location_id} order by l.line_number`;
+  /** @type {Map<string,string>} */ const cost = new Map();
+  for (const r of rows)
+    if (!cost.has(r.product_id)) cost.set(r.product_id, r.cost);
+  return lines.map((l) =>
+    l.unitCostMinor != null || !cost.has(l.productId)
+      ? l
+      : { ...l, unitCostMinor: Number(cost.get(l.productId)) },
+  );
+}
 /** @param {any} trip @param {any} l @param {bigint} quantity @param {boolean} inward @param {string} [status] */
 const stockLine = (trip, l, quantity, inward, status = "available") => ({
   productId: l.productId,
@@ -1087,13 +1105,18 @@ async function voidSale(db, trip, actor, env, p, opId) {
     actor,
     "pos_void",
     v.id,
-    (
-      await Promise.all(
-        lines.map((l) =>
-          soldLotLines(db, trip, id, l, BigInt(l.quantityBase), "available"),
-        ),
-      )
-    ).flat(),
+    await atSaleCost(
+      db,
+      trip,
+      id,
+      (
+        await Promise.all(
+          lines.map((l) =>
+            soldLotLines(db, trip, id, l, BigInt(l.quantityBase), "available"),
+          ),
+        )
+      ).flat(),
+    ),
     opId,
   );
   await explainStock(
@@ -1283,31 +1306,36 @@ async function customerReturn(db, trip, actor, env, p, opId) {
     actor,
     "pos_return",
     id,
-    // Lot-tracked goods come back under the lots the original sale took.
-    (
-      await Promise.all(
-        posting.map((l) =>
-          p.settlementVersion === 1 && l.allocations?.length
-            ? l.allocations.map((/** @type {any} */ a) =>
-                stockLine(
+    // Lot-tracked goods come back under the lots the original sale took, at the cost the sale took them out at.
+    await atSaleCost(
+      db,
+      trip,
+      saleId,
+      (
+        await Promise.all(
+          posting.map((l) =>
+            p.settlementVersion === 1 && l.allocations?.length
+              ? l.allocations.map((/** @type {any} */ a) =>
+                  stockLine(
+                    trip,
+                    { ...l.frozen, lotId: a.lotId },
+                    BigInt(a.quantityBase),
+                    true,
+                    l.stockEffect,
+                  ),
+                )
+              : soldLotLines(
+                  db,
                   trip,
-                  { ...l.frozen, lotId: a.lotId },
-                  BigInt(a.quantityBase),
-                  true,
+                  saleId,
+                  l.frozen,
+                  BigInt(l.quantityBase),
                   l.stockEffect,
                 ),
-              )
-            : soldLotLines(
-                db,
-                trip,
-                saleId,
-                l.frozen,
-                BigInt(l.quantityBase),
-                l.stockEffect,
-              ),
-        ),
-      )
-    ).flat(),
+          ),
+        )
+      ).flat(),
+    ),
     opId,
   );
   await explainStock(

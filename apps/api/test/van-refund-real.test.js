@@ -457,3 +457,77 @@ test("a refund list over 500 is trimmed to the most recent 500 and flagged, neve
   expect(store.made[0].id).toBe("r0"); // newest first on the till, as before
   expect((await recentRefunds(/** @type {any} */ (fake(2)), "reg")).madeComplete).toBe(true);
 });
+
+// IP-RCOST: the other van ways to put a sale back (a linked return, a whole-sale void) also restock at the sale's cost.
+const saleLineCost = async (/** @type {string} */ saleId) =>
+  Number(
+    (
+      await h.db`select l.unit_cost_minor::text as c from inventory_movement_lines l join inventory_movements m on m.id=l.movement_id where m.source_type='van_sale' and m.source_document_id=${saleId} and l.product_id=${product} limit 1`
+    )[0].c,
+  );
+const backCost = async (/** @type {string} */ type, /** @type {string} */ id) =>
+  (
+    await h.db`select l.unit_cost_minor::text as c from inventory_movement_lines l join inventory_movements m on m.id=l.movement_id where m.source_type=${type} and m.source_document_id=${id} and l.product_id=${product}`
+  ).map((/** @type {any} */ r) => Number(r.c));
+
+test("a linked van return restocks at the sale's cost: the truck's weighted average cost does not move", async () => {
+  const s = salePayload(20, 4);
+  await apply(op("sale.record", s));
+  const before = await bal();
+  const returnId = crypto.randomUUID();
+  await apply(
+    op("return.record", {
+      tripId: trip.tripId,
+      returnId,
+      returnNumber: `${trip.tripNumber}-AABBCCDD-0021`,
+      customer: { outletId: outlet },
+      originalSale: { saleId: s.saleId, receiptNumber: s.receiptNumber },
+      lines: [
+        {
+          productId: product,
+          quantityBase: "2",
+          stockEffect: "available",
+          reason: "wrong_item",
+          disposition: "resellable",
+          approvalRequired: false,
+        },
+      ],
+    }),
+  );
+  const after = await bal();
+  expect(Number(after.p)).toBe(Number(before.p) + 2);
+  const cost = await saleLineCost(s.saleId);
+  expect(cost).toBeGreaterThan(0);
+  expect(await backCost("van_return", returnId)).toEqual([cost]);
+  expect(after.wac).toBe(before.wac);
+  expect(Number(after.val)).toBe(Number(before.val) + 2 * cost);
+});
+
+test("a van whole-sale void restocks at the sale's cost: the truck's weighted average cost does not move", async () => {
+  const s = salePayload(22, 5);
+  await apply(op("sale.record", s));
+  const before = await bal();
+  const facts = {
+    receiptNumber: s.receiptNumber,
+    totalMinor: s.totalMinor,
+    reasonCode: "wrong_items",
+  };
+  await h.db`insert into fiscal_authority_rules(org_unit_id,kind,role,channel,min_centavos,max_centavos,self_limit_centavos,approver_roles,offline_allowed,effective_from,sample) values(${unit},'void','sales','GT',0,100000000,0,${["super_admin"]},true,now()-interval '1 day',true)`;
+  const issued = await web("void/approval-code", facts);
+  expect(issued.status, JSON.stringify(issued.body)).toBe(200);
+  await apply(
+    op("sale.void", {
+      tripId: trip.tripId,
+      saleId: s.saleId,
+      ...facts,
+      approval: { method: "supervisor_code", code: issued.body.code },
+    }),
+  );
+  const [v] = await h.db`select id from van_sale_voids where sale_id=${s.saleId}`;
+  const after = await bal();
+  expect(Number(after.p)).toBe(Number(before.p) + 5);
+  const cost = await saleLineCost(s.saleId);
+  expect(await backCost("van_sale_void", v.id)).toEqual([cost]);
+  expect(after.wac).toBe(before.wac);
+  expect(Number(after.val)).toBe(Number(before.val) + 5 * cost);
+});
