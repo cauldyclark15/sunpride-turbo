@@ -182,8 +182,9 @@ test("senior sale: privilege discount, VAT removed and VAT-exempt follow the sha
     picks: [{ lineIndex: 0, quantityBase: 1 }],
   });
   expect(one.total).toBe(2786n);
+  // buckets = refund + privilege discount exactly (2786 + 697); the rest of the line then shows 3481, so both add up to 6964
   expect(one.tax).toMatchObject({
-    vatExemptMinor: "3482",
+    vatExemptMinor: "3483",
     vatMinor: "0",
     privilegeDiscountMinor: "697",
     vatRemovedMinor: "418",
@@ -303,11 +304,68 @@ test("the money goes back cash first, then the other methods, within what each m
 test("a refund needs a supervisor only above the policy amount", () => {
   expect(needsSupervisor(50000n, "50000")).toBe(false);
   expect(needsSupervisor(50001n, 50000n)).toBe(true);
+  // what the sale has already had refunded counts, so small refunds cannot be split around the amount
+  expect(needsSupervisor(37575n, 50000n, 0n)).toBe(false);
+  expect(needsSupervisor(37575n, 50000n, 37575n)).toBe(true);
+  expect(needsSupervisor(1n, 50000n, 50000n)).toBe(true);
+  expect(needsSupervisor(1n, 50000n, "49999")).toBe(false);
+});
+
+test("credit memo buckets add up exactly to the refund plus its privilege discount, over many partial refunds of SC/PWD and promo sales", () => {
+  let seed = 123456789;
+  const next = () => {
+    seed = (seed + 0x6d2b79f5) | 0;
+    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+  const rnd = (/** @type {number} */ n) => Math.floor(next() * n);
+  let off = 0;
+  for (let it = 0; it < 3000; it++) {
+    const lines = [], taxLines = [];
+    let sum = 0;
+    for (let i = 0, nl = 1 + rnd(4); i < nl; i++) {
+      const q = 1 + rnd(12), unit = 100 + rnd(20000), gross = q * unit;
+      const promo = rnd(3) === 0 ? rnd(Math.floor(gross / 4)) : 0;
+      const priv = rnd(2) === 0, rate = [0, 1200][rnd(2)];
+      const base = gross - promo;
+      let vat = rate ? Math.round((base * rate) / (10000 + rate)) : 0;
+      let payable = base, removed = 0, pd = 0;
+      if (priv) {
+        removed = vat;
+        pd = Math.round((base - vat) * 0.2);
+        payable = base - vat - pd;
+        vat = 0;
+      }
+      lines.push({ productId: "p" + i, quantityBase: String(q), totalMinor: String(payable), grossMinor: String(gross), discountMinor: String(promo), name: "x", code: "c", uomCode: "PC", unitPriceMinor: String(unit) });
+      taxLines.push({ netMinor: String(priv ? base - removed : base - vat), vatMinor: String(vat), vatRemovedMinor: String(removed), privilegeDiscountMinor: String(pd), treatment: rate ? "vatable" : "exempt", privilegeType: priv ? "senior" : null });
+      sum += payable;
+    }
+    const receipt = { lines, tax: { lines: taxLines, vatMinor: "0", totalMinor: String(sum) }, totalMinor: String(sum) };
+    const prior = new Map();
+    const left = lines.map((l) => BigInt(l.quantityBase));
+    for (let guard = 0; left.some((r) => r > 0n) && guard < 400; guard++) {
+      /** @type {{lineIndex:number, quantityBase:bigint}[]} */ const picks = [];
+      lines.forEach((_, i) => {
+        if (left[i] > 0n && rnd(2)) picks.push({ lineIndex: i, quantityBase: 1n + BigInt(rnd(Number(left[i]))) });
+      });
+      if (!picks.length) continue;
+      const plan = planRefund({ receipt, prior, picks });
+      for (const o of plan.lines) {
+        prior.set(o.lineIndex, (prior.get(o.lineIndex) ?? 0n) + o.quantityBase);
+        left[o.lineIndex] -= o.quantityBase;
+      }
+      const t = plan.tax;
+      const buckets = BigInt(t.vatableSalesMinor) + BigInt(t.vatMinor) + BigInt(t.vatExemptMinor) + BigInt(t.zeroRatedMinor);
+      if (buckets !== plan.total + BigInt(t.privilegeDiscountMinor)) off++;
+    }
+  }
+  expect(off).toBe(0);
 });
 
 test("the shared cases the phone also answers (fixtures/refund-math-cases.json) are what this maths gives", async () => {
   const { readFileSync } = await import("node:fs");
-  const { cases, tenders } = await import("./refund-math-fixture.js");
+  const { cases, tenders, supervisor } = await import("./refund-math-fixture.js");
   const file = JSON.parse(
     readFileSync(new URL("./fixtures/refund-math-cases.json", import.meta.url), "utf8"),
   );
@@ -315,6 +373,8 @@ test("the shared cases the phone also answers (fixtures/refund-math-cases.json) 
   // RefundMathTest passes against it
   expect(file.cases).toEqual(JSON.parse(JSON.stringify(cases)));
   expect(file.tenders).toEqual(JSON.parse(JSON.stringify(tenders)));
+  expect(file.supervisor).toEqual(JSON.parse(JSON.stringify(supervisor)));
+  expect(file.supervisor.length).toBeGreaterThanOrEqual(6);
   expect(file.cases.length).toBeGreaterThanOrEqual(10);
 });
 

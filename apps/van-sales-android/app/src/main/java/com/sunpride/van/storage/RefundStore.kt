@@ -23,6 +23,8 @@ data class RefundContext(
     val problem: String?,
 ) {
     val fullyRefunded: Boolean get() = lines.all { (prior[it.index] ?: 0L) >= it.quantityBase }
+    /** Money this sale has already had refunded by item (counts toward the supervisor amount). */
+    val refundedMinor: Long get() = refundedByMethod.values.sum()
     fun left(line: SoldLine): Long = maxOf(0L, line.quantityBase - (prior[line.index] ?: 0L))
 }
 
@@ -148,7 +150,7 @@ class RefundStore(private val store: RoomVanStore) {
         if (plan.totalMinor != request.expectedMinor) throw RefundNotAllowed("The refund amount changed. Check the items and try again.")
         val tenders = try { RefundMath.tenders(ctx.tenders, ctx.refundedByMethod, plan.totalMinor) } catch (e: RefundRefused) { throw RefundNotAllowed(e.message ?: "Check the items.") }
         val approval = JSONObject()
-        if (RefundMath.needsSupervisor(plan.totalMinor, ctx.policy.supervisorOverMinor)) {
+        if (RefundMath.needsSupervisor(plan.totalMinor, ctx.policy.supervisorOverMinor, ctx.refundedMinor)) {
             val k = ctx.policy.approvalKey ?: throw RefundNotAllowed("Approval codes are not available. Sync, then try again.")
             val code = request.approvalCode?.let { VoidApprovalCodes.normalize(it) } ?: throw RefundNotAllowed("Ask your supervisor for the 8-digit approval code.")
             val ok = try { RefundApprovalCodes.verify(k, ctx.tripId, ctx.receiptNumber, plan.totalMinor, reason.code, ctx.refundNumber, code) } catch (_: IllegalArgumentException) { throw RefundNotAllowed("Approval codes are not available. Sync, then try again.") }

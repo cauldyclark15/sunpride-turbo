@@ -85,16 +85,19 @@ class PrivilegeCapTest {
         // the same key and hash the server computes for this card (apps/api test: idHash(idKey("senior","SC-2026-004411")))
         assertEquals("senior:SC2026004411", PrivilegeCap.idKey(PrivilegeType.SENIOR, "SC-2026-004411"))
         assertEquals("senior:SC2026004411", PrivilegeCap.idKey(PrivilegeType.SENIOR, "sc 2026/004411."))
-        assertEquals("1caffdc2449f3bcb102807539cdbb114", PrivilegeCap.idHash(PrivilegeCap.idKey(PrivilegeType.SENIOR, "SC-2026-004411")))
+        // keyed hash: HMAC-SHA256(week key, idKey), first 128 bits (apps/api test: keyedIdHash("A".repeat(43), idKey(...)))
+        assertEquals("d833e978c79a9f32aa662ca7a50f8120", PrivilegeCap.idHash("A".repeat(43), PrivilegeCap.idKey(PrivilegeType.SENIOR, "SC-2026-004411")))
+        assertNotEquals(PrivilegeCap.idHash("A".repeat(43), "senior:SC2026004411"), PrivilegeCap.idHash("B".repeat(43), "senior:SC2026004411"))
         assertNotEquals(PrivilegeCap.idKey(PrivilegeType.PWD, "SC-2026-004411"), PrivilegeCap.idKey(PrivilegeType.SENIOR, "SC-2026-004411"))
     }
 
     private val now = ms("2026-11-05T10:00:00+08:00")
     private fun bundle(used: Map<String, Long> = emptyMap(), week: String = "2026-11-02", enabled: Boolean = true, asOf: Long = now - 60_000): JSONObject = JSONObject()
-        .put("version", 1).put("enabled", enabled).put("capCentavos", "130000").put("confirmed", false).put("weekStart", week).put("weekEndsAt", now + 1).put("asOf", asOf).put("complete", true)
+        .put("version", 1).put("enabled", enabled).put("capCentavos", "130000").put("confirmed", false).put("weekStart", week).put("weekEndsAt", now + 1).put("asOf", asOf).put("complete", true).put("hashKey", weekKey)
         .put("used", JSONArray(used.map { (k, v) -> JSONObject().put("k", k).put("v", v.toString()) }))
     private val senior = DiscountClaim(PrivilegeType.SENIOR, "SC-2026-004411", "Juana")
-    private val hash = PrivilegeCap.idHash(PrivilegeCap.idKey(PrivilegeType.SENIOR, "SC-2026-004411"))
+    private val weekKey = "A".repeat(43)
+    private val hash = PrivilegeCap.idHash(weekKey, PrivilegeCap.idKey(PrivilegeType.SENIOR, "SC-2026-004411"))
 
     @Test fun whatIsLeftIsTheLimitMinusTheBundlesUseMinusWhatThisPhoneSoldSince() {
         val info = PrivilegeCapInfo.decode(bundle(mapOf(hash to 100_000)))!!
@@ -114,6 +117,16 @@ class PrivilegeCapTest {
         assertNull(PrivilegeCap.remaining(PrivilegeCapInfo.decode(bundle(enabled = false)), senior, emptyMap(), now))
         assertNull(PrivilegeCap.remaining(PrivilegeCapInfo.decode(bundle()), senior.copy(type = PrivilegeType.SOLO_PARENT), emptyMap(), now))
         assertNull(PrivilegeCap.remainingFn(null, emptyMap(), now))
+    }
+
+    @Test fun aBundleWithoutThisWeeksKeyCannotLookUpACard() {
+        val info = PrivilegeCapInfo.decode(bundle(mapOf(hash to 100_000)).put("hashKey", JSONObject.NULL))!!
+        assertNull(info.hashKey)
+        assertEquals(130_000L, PrivilegeCap.remaining(info, senior, emptyMap(), now))
+        assertNull(PrivilegeCapInfo.decode(bundle().put("hashKey", "short")))
+        // a hash made under another week's key matches nothing
+        val other = PrivilegeCapInfo.decode(bundle(mapOf(PrivilegeCap.idHash("B".repeat(43), PrivilegeCap.idKey(PrivilegeType.SENIOR, "SC-2026-004411")) to 100_000)))!!
+        assertEquals(130_000L, PrivilegeCap.remaining(other, senior, emptyMap(), now))
     }
 
     @Test fun aBundleFromLastWeekSaysNothingAboutThisWeek() {

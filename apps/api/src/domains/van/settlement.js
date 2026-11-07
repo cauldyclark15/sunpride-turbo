@@ -120,7 +120,7 @@ export async function submitSettlement(db, trip, actor, p) {
     refuse("This trip already has a submitted settlement");
   const policy = await routePolicy(db, trip, "variance", at);
   const [sales] =
-    await db`select coalesce(sum(s.total_centavos),0)::text as total from van_sales s where s.trip_id=${trip.id} and not exists(select 1 from van_sale_voids v where v.sale_id=s.id)`;
+    await db`select (coalesce(sum(s.total_centavos),0)-(select coalesce(sum(r.total_centavos),0) from sale_refunds r where r.trip_id=${trip.id}))::text as total from van_sales s where s.trip_id=${trip.id} and not exists(select 1 from van_sale_voids v where v.sale_id=s.id)`;
   const countLines =
     await db`select * from van_stock_count_lines where count_id=${stock.id} order by product_id,stock_status`;
   const events =

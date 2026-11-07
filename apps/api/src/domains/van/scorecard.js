@@ -1,9 +1,10 @@
 import { dayString, refuse } from "./model.js";
 
 /** F-122 governed by frozen receipts and actual stops, not a checkout-outcome shortcut.
- * @param {{sales:any[],stops:any[],payments:any[],returnDocuments:number,varianceCentavos:string|null,plannedCalls:number}} input
+ * @param {{sales:any[],stops:any[],payments:any[],returnDocuments:number,varianceCentavos:string|null,plannedCalls:number,refundedCentavos?:string|bigint}} input
  */
 export function scorecardMetrics(input) {
+  const refunded = BigInt(input.refundedCentavos ?? 0);
   const sales = input.sales.filter((s) => !s.voided),
     stores = new Set(
       sales.filter((s) => BigInt(s.totalCentavos) > 0n).map((s) => s.outletId),
@@ -11,7 +12,8 @@ export function scorecardMetrics(input) {
   const called = new Set(
     input.stops.filter((s) => s.phase === "arrival").map((s) => s.outletId),
   );
-  const salesCentavos = sales.reduce((n, s) => n + BigInt(s.totalCentavos), 0n);
+  const salesCentavos =
+    sales.reduce((n, s) => n + BigInt(s.totalCentavos), 0n) - refunded;
   const collected = input.payments
     .filter((p) => p.method !== "credit")
     .reduce(
@@ -68,6 +70,8 @@ export async function tripScorecard(db, trip) {
     refuse("The trip exceeds the supported scorecard bound");
   const [returns] =
     await db`select count(*)::int as n from van_returns where trip_id=${trip.id}`;
+  const [refunds] =
+    await db`select coalesce(sum(total_centavos),0)::text as total from sale_refunds where trip_id=${trip.id}`;
   const [variance] =
     await db`select facts->>'varianceCentavos' as amount from van_settlements where trip_id=${trip.id} order by version desc limit 1`;
   const day = dayString(trip.service_date),
@@ -77,19 +81,20 @@ export async function tripScorecard(db, trip) {
     ? await db`select count(distinct outlet_id)::int as n from outlet_assignments where route_id=${trip.route_id} and effective_from<=${at} and (effective_to is null or effective_to>${at}) and deleted_at is null`
     : [{ n: 0 }];
   const trend =
-    await db`select t.service_date as date,coalesce(sum(s.total_centavos) filter(where v.id is null),0)::text as "salesCentavos" from van_trips t left join van_sales s on s.trip_id=t.id left join van_sale_voids v on v.sale_id=s.id where t.salesperson_profile_id=${trip.salesperson_profile_id} and t.org_unit_id=${trip.org_unit_id} and t.deleted_at is null and t.status<>'cancelled' and t.service_date between ${day}::date-13 and ${day}::date group by t.service_date order by t.service_date`;
+    await db`select t.service_date as date,(coalesce(sum(s.total_centavos) filter(where v.id is null),0)-coalesce((select sum(r.total_centavos) from sale_refunds r join van_trips x on x.id=r.trip_id where x.service_date=t.service_date and x.salesperson_profile_id=${trip.salesperson_profile_id} and x.org_unit_id=${trip.org_unit_id} and x.deleted_at is null and x.status<>'cancelled'),0))::text as "salesCentavos" from van_trips t left join van_sales s on s.trip_id=t.id left join van_sale_voids v on v.sale_id=s.id where t.salesperson_profile_id=${trip.salesperson_profile_id} and t.org_unit_id=${trip.org_unit_id} and t.deleted_at is null and t.status<>'cancelled' and t.service_date between ${day}::date-13 and ${day}::date group by t.service_date order by t.service_date`;
   const [prior] =
-    await db`select t.service_date as date,coalesce(sum(s.total_centavos) filter(where v.id is null),0)::text as "salesCentavos" from van_trips t left join van_sales s on s.trip_id=t.id left join van_sale_voids v on v.sale_id=s.id where t.salesperson_profile_id=${trip.salesperson_profile_id} and t.org_unit_id=${trip.org_unit_id} and t.deleted_at is null and t.status<>'cancelled' and t.service_date<${day} group by t.service_date order by t.service_date desc limit 1`;
+    await db`select t.service_date as date,(coalesce(sum(s.total_centavos) filter(where v.id is null),0)-coalesce((select sum(r.total_centavos) from sale_refunds r join van_trips x on x.id=r.trip_id where x.service_date=t.service_date and x.salesperson_profile_id=${trip.salesperson_profile_id} and x.org_unit_id=${trip.org_unit_id} and x.deleted_at is null and x.status<>'cancelled'),0))::text as "salesCentavos" from van_trips t left join van_sales s on s.trip_id=t.id left join van_sale_voids v on v.sale_id=s.id where t.salesperson_profile_id=${trip.salesperson_profile_id} and t.org_unit_id=${trip.org_unit_id} and t.deleted_at is null and t.status<>'cancelled' and t.service_date<${day} group by t.service_date order by t.service_date desc limit 1`;
   const targets =
     await db`select coalesce(amount_centavos,round(value*100)::bigint)::text as amount from sales_targets where profile_id=${trip.salesperson_profile_id} and metric='sales_value' and period='monthly' and deleted_at is null and (month=${month} or (month is null and effective_from<=${at} and (effective_to is null or effective_to>${at}))) limit 2`;
   const [mtd] =
-    await db`select coalesce(sum(s.total_centavos),0)::text as amount from van_sales s join van_trips t on t.id=s.trip_id where t.salesperson_profile_id=${trip.salesperson_profile_id} and t.org_unit_id=${trip.org_unit_id} and t.deleted_at is null and t.status<>'cancelled' and t.service_date between ${month + "-01"} and ${day} and not exists(select 1 from van_sale_voids v where v.sale_id=s.id)`;
+    await db`select (coalesce(sum(s.total_centavos),0)-coalesce((select sum(r.total_centavos) from sale_refunds r join van_trips x on x.id=r.trip_id where x.salesperson_profile_id=${trip.salesperson_profile_id} and x.org_unit_id=${trip.org_unit_id} and x.deleted_at is null and x.status<>'cancelled' and x.service_date between ${month + "-01"} and ${day}),0))::text as amount from van_sales s join van_trips t on t.id=s.trip_id where t.salesperson_profile_id=${trip.salesperson_profile_id} and t.org_unit_id=${trip.org_unit_id} and t.deleted_at is null and t.status<>'cancelled' and t.service_date between ${month + "-01"} and ${day} and not exists(select 1 from van_sale_voids v where v.sale_id=s.id)`;
   return {
     ...scorecardMetrics({
       sales,
       stops,
       payments,
       returnDocuments: returns.n,
+      refundedCentavos: refunds.total,
       varianceCentavos: variance?.amount ?? null,
       plannedCalls: planned.n,
     }),

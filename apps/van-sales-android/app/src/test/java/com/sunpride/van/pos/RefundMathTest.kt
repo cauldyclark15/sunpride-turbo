@@ -90,6 +90,31 @@ class RefundMathTest {
         assertTrue(RefundMath.needsSupervisor(50_001L, 50_000L))
     }
 
+    @Test fun shared_supervisor_cases_give_the_office_answer() {
+        val cases = fixture.getJSONArray("supervisor")
+        assertTrue(cases.length() >= 6)
+        for (i in 0 until cases.length()) {
+            val c = cases.getJSONObject(i)
+            assertEquals(c.getString("name"), c.getBoolean("expected"),
+                RefundMath.needsSupervisor(c.getString("totalMinor").toLong(), c.getString("overMinor").toLong(), c.getString("alreadyRefundedMinor").toLong()))
+        }
+    }
+
+    @Test fun splitting_a_receipt_into_small_refunds_still_needs_a_supervisor() {
+        assertFalse(RefundMath.needsSupervisor(37_575L, 50_000L, 0L))
+        assertTrue(RefundMath.needsSupervisor(37_575L, 50_000L, 37_575L))
+        // the context counts the money of every method already given back on the sale
+        assertEquals(49_999L, mapOf("cash" to 30_000L, "gcash" to 19_999L).values.sum())
+    }
+
+    @Test fun credit_memo_buckets_add_up_to_the_refund_plus_the_privilege_discount() {
+        val senior = fixture.getJSONArray("cases").let { a -> (0 until a.length()).map { a.getJSONObject(it) }.first { it.getString("name").startsWith("senior: one piece") } }.getJSONObject("receipt")
+        for (done in 0L..3L) for (now in 1L..(4L - done)) {
+            val p = RefundMath.plan(senior, mapOf(0 to done), mapOf(0 to now))
+            assertEquals(p.totalMinor + p.privilegeDiscountMinor, p.vatableMinor + p.vatMinor + p.vatExemptMinor + p.zeroRatedMinor)
+        }
+    }
+
     @Test fun already_refunded_counts_what_the_office_knows_plus_what_is_saved_here() {
         val made = listOf(MadeRefund("r1", "sale-1", "CM-1", 100L, mapOf(0 to 1L), mapOf("cash" to 100L)), MadeRefund("r2", "other", "CM-2", 5L, mapOf(0 to 9L), emptyMap()))
         val so = RefundMath.refundedSoFar("sale-1", made, listOf(mapOf(0 to 1L, 1 to 2L)))

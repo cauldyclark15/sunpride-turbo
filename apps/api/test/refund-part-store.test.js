@@ -7,6 +7,7 @@ import {
   boundDevice,
   createUser,
   signedPost,
+  CURSOR_SECRET,
 } from "./harness.js";
 import { install } from "../src/domains/storepos/index.js";
 import { install as installFiscal } from "../src/domains/fiscal/index.js";
@@ -581,7 +582,8 @@ test("a senior sale refunds proportionally: discount, VAT removed and VAT-exempt
     refunds.map((/** @type {any} */ r) => String(r.total_centavos)),
   ).toEqual(["2786", "2785"]);
   expect(refunds[0].tax).toMatchObject({
-    vatExemptMinor: "3482",
+    // bucket = refund + privilege discount exactly (2786 + 697); the second refund shows the rest (3481), so both add up to 6964
+    vatExemptMinor: "3483",
     privilegeDiscountMinor: "697",
     vatRemovedMinor: "418",
     vatMinor: "0",
@@ -614,7 +616,7 @@ test("a senior sale refunds proportionally: discount, VAT removed and VAT-exempt
 });
 
 test("a partial refund of a senior sale gives back its share of the weekly limit, the last piece gives back the rest, the refunds together give back exactly what the sale used", async () => {
-  const { usedThisWeek, idKey, capBundle, idHash } =
+  const { usedThisWeek, idKey, capBundle, keyedIdHash } =
     await import("../src/domains/fiscal/privilege-cap.js");
   const [a] =
     await h.db`select next_issue from fiscal_allocations where id=${siAllocation}`;
@@ -646,8 +648,8 @@ test("a partial refund of a senior sale gives back its share of the weekly limit
   expect(Math.abs(applied - afterOne - applied / 2)).toBeLessThanOrEqual(1);
   expect(afterOne).toBeGreaterThan(0);
   // the phone bundle sees the same figure (hashed card)
-  const bundle = await capBundle(h.db, Date.now());
-  expect(bundle.used.find((/** @type {any} */ u) => u.k === idHash(key))?.v).toBe(String(afterOne));
+  const bundle = await capBundle(h.db, Date.now(), { SYNC_CURSOR_SECRET: CURSOR_SECRET });
+  expect(bundle.used.find((/** @type {any} */ u) => u.k === keyedIdHash(/** @type {string} */ (bundle.hashKey), key))?.v).toBe(String(afterOne));
   await push(await refundOp(id, VAT("1"), "RF-CHANGED-MIND", "2785"));
   expect(await usedThisWeek(h.db, key, ledger.week)).toBe(0);
   const rel =
@@ -690,6 +692,24 @@ test("a sale already under a whole-sale refund cannot be refunded by item, and t
   const [r] =
     await h.db`select status from store_reversals where id=${request.clientOpId}`;
   expect(r.status).toBe("approved");
+});
+
+test("splitting a receipt into refunds that are each under the supervisor amount still needs a supervisor once the total is over it", async () => {
+  // amount 50.00; one piece is 39.00, two are 78.00
+  await h.db`update refund_policies set supervisor_over_centavos=5000 where organization_id='sunpride'`;
+  try {
+    const sid = await bigSale();
+    const one = await refundOp(sid, VAT("1"), "RF-CHANGED-MIND", "3900");
+    expect((await send(one)).status).toBe("applied");
+    // 39.00 already refunded + 39.00 is over 50.00: refused without a PIN proof
+    const bare = await refundOp(sid, VAT("1"), "RF-CHANGED-MIND", "3900");
+    expect((await send(bare)).status).toBe("rejected");
+    expect(
+      (await h.db`select count(*)::int as n from sale_refunds where sale_id=${sid}`)[0].n,
+    ).toBe(1);
+  } finally {
+    await h.db`update refund_policies set supervisor_over_centavos=50000 where organization_id='sunpride'`;
+  }
 });
 
 test("a partial refund after the session closed is refused", async () => {
@@ -740,9 +760,9 @@ test("the Z reading freezes the refund count, total and credit memo range for th
   await web(`days/${day.id}/z`, {});
   const [z] =
     await h.db`select refunds_count,refunds_centavos::text as total,beginning_refund,ending_refund from store_z_readings where till_day_id=${day.id}`;
-  // 3 refunds of the first sale (19,000), 2 of the senior sale (5,571), 2 of the second senior sale (5,571, IP-INT5 weekly-limit test), 1 of the next (3,900), and one whole-sale refund (19,000)
-  expect(z.refunds_count).toBe(9);
-  expect(z.total).toBe(String(19000 + 5571 + 5571 + 3900 + 19000));
+  // 3 refunds of the first sale (19,000), 2 of the senior sale (5,571), 2 of the second senior sale (5,571, IP-INT5 weekly-limit test), 1 of the next (3,900), 1 of the split-around receipt (3,900), and one whole-sale refund (19,000)
+  expect(z.refunds_count).toBe(10);
+  expect(z.total).toBe(String(19000 + 5571 + 5571 + 3900 + 3900 + 19000));
   expect(z.beginning_refund).toBe(`${cmPrefix}-000000001`);
   expect(z.ending_refund).toMatch(/^REF-CM-0000000\d\d$/);
 });

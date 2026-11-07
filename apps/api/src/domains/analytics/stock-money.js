@@ -40,7 +40,7 @@ export async function readVans(db, p, s) {
       db`select t.id trip_id,c.expected_centavos,c.declared_centavos,c.variance_centavos,r.amount_centavos remitted,
       (select case when count(*)>0 or t.opening_float_centavos>0 then coalesce(sum(case when kind in ('refund','void_refund') then -amount_centavos else amount_centavos end),0)+t.opening_float_centavos end from van_payments where trip_id=t.id and method='cash') expected
       from van_trips t left join van_cash_counts c on c.trip_id=t.id left join van_cash_remittances r on r.trip_id=t.id where t.id in ${db(tripIds)}`,
-      db`select s.trip_id,count(*) total,count(v.id) voids,coalesce(sum(s.total_centavos) filter(where v.id is null),0) sales,coalesce(sum(s.discount_centavos) filter(where v.id is null),0) discounts from van_sales s left join van_sale_voids v on v.sale_id=s.id where s.trip_id in ${db(tripIds)} group by s.trip_id`,
+      db`select s.trip_id,count(*) total,count(v.id) voids,coalesce(sum(s.total_centavos) filter(where v.id is null),0)-coalesce((select sum(r.total_centavos) from sale_refunds r where r.trip_id=s.trip_id),0) sales,coalesce(sum(s.discount_centavos) filter(where v.id is null),0) discounts from van_sales s left join van_sale_voids v on v.sale_id=s.id where s.trip_id in ${db(tripIds)} group by s.trip_id`,
     ]);
   const casesFor = (
     /** @type {any[]} */ rows,

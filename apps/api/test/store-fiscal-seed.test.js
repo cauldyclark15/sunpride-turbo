@@ -96,6 +96,10 @@ test("the refund series helper gives every sample store and sample vehicle one c
   await h.db`insert into fiscal_series(registration_id,vehicle_id,prefix,first_serial,last_serial,next_allocate,effective_from) values(${reg.id},null,'OFFICE-CM',1,50,1,'2026-01-01')`;
   // the earlier test's seedFiscal already numbered `bare` and `seeded`; only the new store and the vehicle are new work
 
+  // a dry run says what it would do and writes nothing
+  const before = (await h.db`select count(*)::int as n from fiscal_series`)[0].n;
+  expect(await seedRefundSeries(h.db, { dryRun: true })).toEqual({ stores: 1, vehicles: 1, dryRun: true });
+  expect((await h.db`select count(*)::int as n from fiscal_series`)[0].n).toBe(before);
   const first = await seedRefundSeries(h.db);
   expect(first).toEqual({ stores: 1, vehicles: 1 });
   expect(await seedRefundSeries(h.db)).toEqual({ stores: 0, vehicles: 0 });

@@ -20,6 +20,7 @@
  * Everything is integer centavos. The allocation below is mirrored in Kotlin (`Privilege.cart`) and both are tested against
  * `test/fixtures/privilege-cap-vectors.json`.
  */
+import { createHmac } from "node:crypto";
 import { computeLine } from "./privilege.js";
 import { saleLines, taxLinesFor } from "./refund-math.js";
 
@@ -61,7 +62,33 @@ export function idKey(type, idNumber) {
   return `${type}:${String(idNumber).toUpperCase().replace(/[^A-Z0-9]/g, "")}`;
 }
 
-/** The only form of an ID that leaves the server toward a phone. @param {string} key */
+/**
+ * IP-INT5FIX: the card number never leaves the server in a form anyone can compute without a secret. Phones get, with the
+ * bundle, a key for THIS week only (an HMAC of the week under the server's existing `SYNC_CURSOR_SECRET`; nothing new is stored
+ * or kept in the repo) and look a card up by `keyedIdHash(weekKey, idKey)`. A hash from another week, another server, or the
+ * old unsalted scheme matches nothing, and no table of card numbers can be built ahead of time.
+ * Honest limit: a phone that holds a bundle can still test guesses for the cards used THIS week (it needs the key to look
+ * cards up offline). That is why the bundle is only sent to an enrolled, signed-in device that asks for it.
+ * @param {Record<string,string|undefined>|undefined} env @param {string} week  Manila Monday, YYYY-MM-DD
+ * @returns {string|null} base64url 32-byte key, null when the server has no secret configured
+ */
+export function capHashKey(env, week) {
+  const secret = env?.SYNC_CURSOR_SECRET;
+  if (!secret || secret.length < 32) return null;
+  return createHmac("sha256", secret)
+    .update(`sunpride/privcap-hash/v2|${week}`)
+    .digest("base64url");
+}
+
+/** What the phone and the bundle both compute: first 128 bits of HMAC-SHA256(weekKey, idKey), hex. @param {string} weekKey @param {string} key */
+export function keyedIdHash(weekKey, key) {
+  return createHmac("sha256", Buffer.from(weekKey, "base64url"))
+    .update(key)
+    .digest("hex")
+    .slice(0, 32);
+}
+
+/** Server-side only (the ledger's own column; it never goes to a phone). @param {string} key */
 export function idHash(key) {
   return new Bun.CryptoHasher("sha256")
     .update(`sunpride-privcap-v1|${key}`)
@@ -177,14 +204,19 @@ export function computeOne(l, gross, promo, type) {
   });
 }
 
-/** What a phone's bundle needs: this week's limit and each ID's use so far (hashed, newest week only). @param {any} db @param {number} at */
-export async function capBundle(db, at) {
+/** What a phone's bundle needs: this week's limit, this week's key and each card's use so far (keyed hash, newest week only).
+ * Without a configured server secret no card use is sent (`hashKey` null, `complete` false): the phone then sells with no
+ * look-up and the server still records and flags any overage. @param {any} db @param {number} at @param {Record<string,string|undefined>} [env] */
+export async function capBundle(db, at, env) {
   const setting = await capSetting(db, at);
   const week = manilaWeekStart(at);
-  const rows = await db`select l.id_hash,sum(l.applied_gross_centavos - (select coalesce(sum(x.released_gross_centavos),0) from privilege_cap_releases x where x.ledger_id=l.id))::text as used from privilege_cap_ledger l
+  const hashKey = capHashKey(env, week);
+  const rows = hashKey
+    ? await db`select l.id_key,sum(l.applied_gross_centavos - (select coalesce(sum(x.released_gross_centavos),0) from privilege_cap_releases x where x.ledger_id=l.id))::text as used from privilege_cap_ledger l
     where l.week_start=${week}::date
       and not exists (select 1 from fiscal_document_events e where e.document_id=l.fiscal_document_id and e.kind='void')
-    group by l.id_hash order by sum(l.applied_gross_centavos - (select coalesce(sum(x.released_gross_centavos),0) from privilege_cap_releases x where x.ledger_id=l.id)) desc limit 2001`;
+    group by l.id_key order by sum(l.applied_gross_centavos - (select coalesce(sum(x.released_gross_centavos),0) from privilege_cap_releases x where x.ledger_id=l.id)) desc limit 2001`
+    : [];
   return {
     version: 1,
     enabled: setting.enabled,
@@ -193,8 +225,14 @@ export async function capBundle(db, at) {
     weekStart: week,
     weekEndsAt: manilaWeekEndsAt(at),
     asOf: at,
-    complete: rows.length <= 2000,
-    used: rows.slice(0, 2000).map((/** @type {any} */ r) => ({ k: r.id_hash, v: r.used })),
+    complete: Boolean(hashKey) && rows.length <= 2000,
+    hashKey,
+    used: rows
+      .slice(0, 2000)
+      .map((/** @type {any} */ r) => ({
+        k: keyedIdHash(/** @type {string} */ (hashKey), r.id_key),
+        v: r.used,
+      })),
   };
 }
 

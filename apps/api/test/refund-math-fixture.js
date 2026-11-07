@@ -1,6 +1,6 @@
 // Builds apps/api/test/fixtures/refund-math-cases.json: refund cases answered by the office maths (fiscal/refund-math.js).
 // The phone's RefundMathTest.kt must give the same answers. Regenerate: bun test/refund-math-fixture.js
-import { planRefund, refundTenders } from "../src/domains/fiscal/refund-math.js";
+import { planRefund, refundTenders, needsSupervisor } from "../src/domains/fiscal/refund-math.js";
 
 const store = {
   totalMinor: "35600",
@@ -37,7 +37,7 @@ const senior = {
   tax: {
     privilegeType: "senior_citizen",
     lines: [
-      { treatment: "vatable", privilegeType: "senior_citizen", rateBasisPoints: 1200, netMinor: "11161", vatMinor: "1339", totalMinor: "8929", privilegeDiscountMinor: "2232", vatRemovedMinor: "1339" },
+      { treatment: "vatable", privilegeType: "senior_citizen", rateBasisPoints: 1200, netMinor: "11161", vatMinor: "0", totalMinor: "8929", privilegeDiscountMinor: "2232", vatRemovedMinor: "1339" },
     ],
     vatableSalesMinor: "0", vatMinor: "0", vatExemptMinor: "11161", zeroRatedMinor: "0", totalMinor: "8929", privilegeDiscountMinor: "2232", vatRemovedMinor: "1339",
   },
@@ -93,11 +93,23 @@ const tenders = [
 ].map((t) => {
   return { ...t, expected: refundTenders(t.tenders, new Map(Object.entries(t.refunded).map(([k, v]) => [k, BigInt(v)])), BigInt(t.total)).map((x) => ({ method: x.method, amount: String(x.amountCentavos) })) };
 });
-export { cases, tenders };
+// Supervisor amount: the sale's already-refunded money counts (split-around). The phone answers the same.
+const supervisor = [
+  ["a refund at the amount needs no supervisor", "50000", "0", "50000"],
+  ["one centavo over needs one", "50000", "0", "50001"],
+  ["split-around: 375.75 after 375.75 already refunded is over 500.00", "50000", "37575", "37575"],
+  ["split-around: the first of two small refunds is fine", "50000", "0", "37575"],
+  ["split-around: any refund after the amount was already reached", "50000", "50000", "1"],
+  ["split-around: exactly reaching the amount is still fine", "50000", "12425", "37575"],
+].map(([name, over, already, total]) => ({
+  name, overMinor: over, alreadyRefundedMinor: already, totalMinor: total,
+  expected: needsSupervisor(BigInt(total), BigInt(over), BigInt(already)),
+}));
+export { cases, tenders, supervisor };
 
 if (import.meta.main) {
   const { writeFileSync } = await import("node:fs");
   const out = new URL("./fixtures/refund-math-cases.json", import.meta.url);
-  writeFileSync(out, JSON.stringify({ source: "apps/api/test/refund-math-fixture.js (office maths: fiscal/refund-math.js)", cases, tenders }, null, 2) + "\n");
-  console.log("wrote", cases.length, "cases", tenders.length, "tender cases");
+  writeFileSync(out, JSON.stringify({ source: "apps/api/test/refund-math-fixture.js (office maths: fiscal/refund-math.js)", cases, tenders, supervisor }, null, 2) + "\n");
+  console.log("wrote", cases.length, "cases", tenders.length, "tender cases", supervisor.length, "supervisor cases");
 }

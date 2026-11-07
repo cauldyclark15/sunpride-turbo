@@ -179,9 +179,7 @@ export async function sellingBundle(db, actor, device, r, opts = {}) {
     sales,
     ...(opts.refunds === true
       ? {
-          refunds: await refundBundle(db, {
-            made: await recentRefunds(db, r.id),
-          }),
+          refunds: await refundBundle(db, await recentRefunds(db, r.id)),
         }
       : {}),
     reads,
@@ -191,12 +189,12 @@ export async function sellingBundle(db, actor, device, r, opts = {}) {
 
 /** Refunds made on this register's recent sales, so the phone can show "already refunded" without a sync of its own.
  * @param {any} db @param {string} registerId */
-async function recentRefunds(db, registerId) {
+export async function recentRefunds(db, registerId) {
   const rows =
     await db`select r.id,r.sale_id,r.credit_number,r.total_centavos::text as total,r.tenders,r.refunded_at,r.reason_code,(select coalesce(jsonb_agg(jsonb_build_object('lineIndex',l.line_index,'quantityBase',l.quantity_base::text,'amountCentavos',l.amount_centavos::text) order by l.line_index),'[]'::jsonb) from sale_refund_lines l where l.refund_id=r.id) as lines from sale_refunds r join store_shifts h on h.id=r.shift_id where h.register_id=${registerId} and r.refunded_at>=now()-interval '8 days' order by r.refunded_at desc limit 501`;
-  if (rows.length > 500)
-    refuse("Refund cache exceeds 500 refunds; reconcile the terminal");
-  return rows.map((/** @type {any} */ x) => ({
+  // Newest first; past 500 the phone gets the most recent 500 and `madeComplete:false` (the office still checks every refund).
+  const complete = rows.length <= 500;
+  return { made: rows.slice(0, 500).map((/** @type {any} */ x) => ({
     id: x.id,
     saleId: x.sale_id,
     creditNumber: x.credit_number,
@@ -205,5 +203,5 @@ async function recentRefunds(db, registerId) {
     tenders: x.tenders,
     lines: x.lines,
     at: +new Date(x.refunded_at),
-  }));
+  })), madeComplete: complete };
 }

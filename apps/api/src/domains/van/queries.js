@@ -112,10 +112,15 @@ export async function tripDetail(db, actor, tripId) {
   const [remittance] =
     await db`select * from van_cash_remittances where trip_id=${tripId}`;
   const correctedCash = await effectiveCash(db, tripId);
+  // Part refunds (IP-REFUND) take their money out of the trip's sales figure, like a void does.
+  const [refunded] =
+    await db`select coalesce(sum(total_centavos),0)::text as total from sale_refunds where trip_id=${tripId}`;
   const expected = await cashExpectation(db, tripId),
-    netSales = sales
-      .filter((s) => !s.void_id)
-      .reduce((a, s) => a + BigInt(s.total_centavos), 0n);
+    netSales =
+      sales
+        .filter((s) => !s.void_id)
+        .reduce((a, s) => a + BigInt(s.total_centavos), 0n) -
+      BigInt(refunded.total);
   const legacySettlementStatus =
     trip.status === "closed"
       ? "settled"
@@ -273,7 +278,7 @@ export async function tripsForDay(ctx) {
     const from = new Date(serviceDate);
     from.setUTCDate(from.getUTCDate() - 13);
     /** @type {any[]} */ const trend =
-      await db`select t.service_date,coalesce(sum(s.total_centavos) filter(where v.id is null),0)::text as sales from van_trips t left join van_sales s on s.trip_id=t.id left join van_sale_voids v on v.sale_id=s.id where t.service_date between ${from.toISOString().slice(0, 10)} and ${serviceDate} and t.deleted_at is null and (${all} or t.org_unit_id in ${db(ids)}) and (${actor.role !== "sales"} or t.salesperson_profile_id=${actor.profileId}) group by t.service_date order by t.service_date`;
+      await db`select t.service_date,(coalesce(sum(s.total_centavos) filter(where v.id is null),0)-coalesce((select sum(r.total_centavos) from sale_refunds r join van_trips x on x.id=r.trip_id where x.service_date=t.service_date and x.deleted_at is null and (${all} or x.org_unit_id in ${db(ids)}) and (${actor.role !== "sales"} or x.salesperson_profile_id=${actor.profileId})),0))::text as sales from van_trips t left join van_sales s on s.trip_id=t.id left join van_sale_voids v on v.sale_id=s.id where t.service_date between ${from.toISOString().slice(0, 10)} and ${serviceDate} and t.deleted_at is null and (${all} or t.org_unit_id in ${db(ids)}) and (${actor.role !== "sales"} or t.salesperson_profile_id=${actor.profileId}) group by t.service_date order by t.service_date`;
     const priorDate = new Date(serviceDate);
     priorDate.setUTCDate(priorDate.getUTCDate() - 1);
     return {

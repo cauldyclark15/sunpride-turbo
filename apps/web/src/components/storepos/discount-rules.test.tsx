@@ -12,6 +12,9 @@ import {
   CardLookup,
   DEFAULT_WORDS,
   LegacyZCard,
+  RefundPolicyCard,
+  refundPesosToCentavos,
+  type RefundPolicyData,
   WeeklyLimitCard,
   limitStatusWords,
   pesosToCentavos,
@@ -170,5 +173,42 @@ describe("no-PIN Z gate and old-build report", () => {
     expect(out).toContain("Allow it only on older builds");
     expect(out).toContain("Switch it off for every till");
     expect(out).toContain("First build that can use a PIN");
+  });
+});
+
+const refundData = (over: Partial<RefundPolicyData> = {}): RefundPolicyData => ({
+  supervisorOverCentavos: 50000,
+  isDefault: true,
+  updatedAt: null,
+  updatedBy: null,
+  canManage: true,
+  ...over,
+});
+
+describe("refund approval amount", () => {
+  it("shows the shipped amount as a default and offers the form to the office", () => {
+    const out = html(<RefundPolicyCard data={refundData()} />);
+    expect(out).toContain("Above ₱500.00");
+    expect(out).toContain("Default — confirm with Sunpride");
+    expect(out).toContain("already had refunded");
+    expect(out).toContain("Save the refund amount");
+  });
+  it("says who set it once the office changed it; 0 means every refund", () => {
+    const out = html(<RefundPolicyCard data={refundData({ isDefault: false, updatedBy: "Office Admin", updatedAt: Date.parse("2026-11-06T02:00:00Z"), supervisorOverCentavos: 0 })} />);
+    expect(out).toContain("Every refund needs a supervisor");
+    expect(out).toContain("Set by Office Admin");
+  });
+  it("a person who cannot manage sees no form", () => {
+    const out = html(<RefundPolicyCard data={refundData({ canManage: false })} />);
+    expect(out).not.toContain("Save the refund amount");
+    expect(out).toContain("Only the office can change the refund amount.");
+  });
+  it("turns typed pesos into centavos, allows 0 and refuses nonsense", () => {
+    expect(refundPesosToCentavos("500")).toBe(50000);
+    expect(refundPesosToCentavos("₱1,250.50")).toBe(125050);
+    expect(refundPesosToCentavos("0")).toBe(0);
+    expect(refundPesosToCentavos("-5")).toBeNull();
+    expect(refundPesosToCentavos("abc")).toBeNull();
+    expect(refundPesosToCentavos("2000000")).toBeNull();
   });
 });

@@ -75,6 +75,14 @@ export type LegacyZData = {
   quietDays: number;
 };
 
+export type RefundPolicyData = {
+  supervisorOverCentavos: number;
+  isDefault: boolean;
+  updatedAt: number | null;
+  updatedBy: string | null;
+  canManage: boolean;
+};
+
 export const DEFAULT_WORDS = "Default — confirm with Sunpride accountant";
 
 /** ₱ with two decimals from centavos. */
@@ -94,6 +102,14 @@ export function pesosToCentavos(text: string): number | null {
   if (!/^\d{1,7}(\.\d{1,2})?$/.test(t)) return null;
   const c = Math.round(Number(t) * 100);
   return c > 0 && c <= 100_000_000 ? c : null;
+}
+
+/** Refund amount typed in pesos to centavos; 0 is allowed (every refund needs a supervisor). */
+export function refundPesosToCentavos(text: string): number | null {
+  const t = text.replace(/[,\s₱]/g, "");
+  if (!/^\d{1,7}(\.\d{1,2})?$/.test(t)) return null;
+  const c = Math.round(Number(t) * 100);
+  return c >= 0 && c <= 100_000_000 ? c : null;
 }
 
 const when = (ms: number | null) =>
@@ -430,8 +446,85 @@ export function LegacyZCard({
   );
 }
 
+/** The refund amount above which a supervisor has to approve. It counts what the receipt already had refunded. */
+export function RefundPolicyCard({
+  data,
+  onSave,
+  busy = false,
+  notice = "",
+}: {
+  data: RefundPolicyData;
+  onSave?: (v: { supervisorOverCentavos: number }) => void;
+  busy?: boolean;
+  notice?: string;
+}) {
+  const [amount, setAmount] = useState(String(data.supervisorOverCentavos / 100));
+  const centavos = refundPesosToCentavos(amount);
+  const submit = (e: FormEvent) => {
+    e.preventDefault();
+    if (centavos !== null && onSave) onSave({ supervisorOverCentavos: centavos });
+  };
+  return (
+    <section aria-labelledby="refund-policy-title" className="grid gap-3 rounded-lg border border-border p-4">
+      <h2 id="refund-policy-title" className="text-lg font-bold">
+        Refund approval amount
+      </h2>
+      <p className="text-sm text-muted">
+        A refund by item needs a supervisor once it goes above this amount. The amount counts
+        what the same receipt has already had refunded, so a receipt cannot be refunded in
+        small pieces to get around it.
+      </p>
+      <p className="text-2xl font-bold" data-testid="refund-amount">
+        {data.supervisorOverCentavos === 0
+          ? "Every refund needs a supervisor"
+          : `Above ${peso(data.supervisorOverCentavos)}`}
+      </p>
+      <p
+        className={`text-sm font-semibold ${data.isDefault ? "text-[#B45309]" : "text-muted"}`}
+        data-testid="refund-status"
+      >
+        {data.isDefault
+          ? "Default — confirm with Sunpride"
+          : `Set by ${data.updatedBy ?? "the office"}${data.updatedAt ? `, ${when(data.updatedAt)}` : ""}`}
+      </p>
+      {data.canManage ? (
+        <form onSubmit={submit} className="grid gap-3" aria-label="Change the refund approval amount">
+          <label className="grid max-w-xs gap-1 text-sm">
+            Amount in pesos
+            <input
+              inputMode="decimal"
+              className={control}
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              aria-invalid={centavos === null}
+            />
+          </label>
+          {centavos === null ? (
+            <p role="alert" className="text-sm text-red-700">
+              Enter the amount in pesos, for example 500. Use 0 for every refund.
+            </p>
+          ) : null}
+          <div>
+            <button type="submit" className={button} disabled={busy || centavos === null}>
+              Save the refund amount
+            </button>
+          </div>
+        </form>
+      ) : (
+        <p className="text-sm text-muted">Only the office can change the refund amount.</p>
+      )}
+      {notice ? (
+        <p role="status" className="text-sm">
+          {notice}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 const capKey = ["fiscal", "privilege-cap"] as const;
 const zKey = ["storepos", "legacy-z"] as const;
+const refundKey = ["fiscal", "refund-policy"] as const;
 
 /** Stores POS ▸ Discount and Z rules. */
 export function DiscountRulesScreen() {
@@ -441,7 +534,9 @@ export function DiscountRulesScreen() {
     : "/api/v1/fiscal/privilege/cap";
   const cap = useApi<CapData>([...capKey, lookup?.type ?? "", lookup?.id ?? ""], capPath);
   const z = useApi<LegacyZData>(zKey, "/api/v1/storepos/legacy-z");
-  useLive(["fiscal", "storepos"], [capKey, zKey]);
+  const refund = useApi<RefundPolicyData>(refundKey, "/api/v1/fiscal/refunds/policy");
+  useLive(["fiscal", "storepos"], [capKey, zKey, refundKey]);
+  const [refundNotice, setRefundNotice] = useState("");
   const [capNotice, setCapNotice] = useState("");
   const [zNotice, setZNotice] = useState("");
   const [busy, setBusy] = useState(false);
@@ -487,6 +582,26 @@ export function DiscountRulesScreen() {
       ) : (
         <p role={cap.error ? "alert" : undefined} className="text-sm">
           {cap.error ? "Could not load the weekly limit." : "Loading the weekly limit…"}
+        </p>
+      )}
+      {refund.data ? (
+        <RefundPolicyCard
+          data={refund.data}
+          busy={busy}
+          notice={refundNotice}
+          onSave={(v) =>
+            run(
+              "/api/v1/fiscal/refunds/policy",
+              v,
+              setRefundNotice,
+              "Saved. Phones get the new amount the next time they sync.",
+              refund.refetch,
+            )
+          }
+        />
+      ) : (
+        <p role={refund.error ? "alert" : undefined} className="text-sm">
+          {refund.error ? "Could not load the refund amount." : "Loading the refund amount…"}
         </p>
       )}
       {z.data ? (

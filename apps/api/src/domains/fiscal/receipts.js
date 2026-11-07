@@ -6,6 +6,7 @@
  * Writes run in one transaction with the actor set for the audit trigger, record a change and publish "fiscal".
  */
 import { tx } from "@sunpride/db/client";
+import { forbidden } from "../../core/errors.js";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { recordChange } from "../../core/sync.js";
 import { currentActor } from "../van/access.js";
@@ -93,6 +94,31 @@ export const birCommands = {
     const [row] =
       await db`insert into privilege_cap_settings(enabled,cap_centavos,accountant_confirmed,note,set_by) values(${p.enabled},${String(centavos)},${p.accountantConfirmed === true},${text(p.note, 300)},${actor.profileId}) returning id`;
     return { id: row.id };
+  },
+  /**
+   * IP-INT5FIX: set the refund amount above which a supervisor must approve (office, `admin.manage`). The amount counts what
+   * the sale has already had refunded, so it cannot be split around. One row per organization, `updated_by` says who last set it.
+   * @param {any} db @param {any} actor @param {any} p
+   */
+  "refunds/policy": async (db, actor, p) => {
+    actor = await currentActor(db, actor);
+    await requireCapability({ db, actor }, "admin.manage");
+    const pesos = typeof p.supervisorOverPesos === "number" ? p.supervisorOverPesos : NaN;
+    const centavos =
+      p.supervisorOverCentavos !== undefined
+        ? p.supervisorOverCentavos
+        : Number.isFinite(pesos)
+          ? Math.round(pesos * 100)
+          : undefined;
+    if (
+      !Number.isSafeInteger(centavos) ||
+      centavos < 0 ||
+      centavos > 100000000
+    )
+      refuse("Enter the refund amount in pesos, for example 500 (0 means every refund needs a supervisor; up to 1,000,000).");
+    await db`insert into refund_policies(organization_id,supervisor_over_centavos,updated_by) values('sunpride',${String(centavos)},${actor.profileId})
+      on conflict(organization_id) do update set supervisor_over_centavos=excluded.supervisor_over_centavos,updated_by=excluded.updated_by,updated_at=now()`;
+    return { supervisorOverCentavos: centavos };
   },
   /** PTU / MIN / serial / accreditation / POS provider for a registration. @param {any} db @param {any} actor @param {any} p */
   "registrations/identifiers": async (db, actor, p) => {
@@ -498,6 +524,13 @@ export function installBirRoutes(router, ctx) {
       const type = q.get("type"),
         idNumber = q.get("idNumber");
       if (type || idNumber) {
+        // A card's use this week is a customer's purchase history: only roles that sell, approve or manage may look one up.
+        if (
+          !["van.operate", "van.cash.approve", "admin.manage"].some((cap) =>
+            roleHas(actor.role, cap),
+          )
+        )
+          throw forbidden("Looking up a card needs a seller, approver or admin role");
         const claim = normalizeClaim({
           type,
           idNumber,
@@ -544,6 +577,23 @@ export function installBirRoutes(router, ctx) {
           setBy: r.set_by_name,
         })),
         card,
+        canManage: roleHas(actor.role, "admin.manage"),
+      };
+    }),
+  );
+
+  /** The refund supervisor amount in force, for the office screen. Anyone who can read the van sees it; `canManage` says who can change it. */
+  router.get("/api/v1/fiscal/refunds/policy", async (/** @type {any} */ c) =>
+    tx(c.db, async (db) => {
+      const actor = await currentActor(db, c.actor);
+      await requireCapability({ db, actor }, "van.read");
+      const [row] =
+        await db`select p.supervisor_over_centavos::text as over,p.updated_at,p.updated_by,u.name as updated_by_name from refund_policies p left join profiles u on u.id::text=p.updated_by where p.organization_id='sunpride'`;
+      return {
+        supervisorOverCentavos: Number(row?.over ?? 50000),
+        isDefault: !row || row.updated_by === "system:default",
+        updatedAt: row ? new Date(row.updated_at).getTime() : null,
+        updatedBy: row?.updated_by_name ?? null,
         canManage: roleHas(actor.role, "admin.manage"),
       };
     }),

@@ -66,7 +66,10 @@ export async function priorRefunds(db, saleId) {
   const byMethod = new Map(
     tenders.map((/** @type {any} */ r) => [r.method, BigInt(r.amount)]),
   );
-  return { byLine, byMethod };
+  const [sum] =
+    await db`select coalesce(sum(total_centavos),0)::text as total from sale_refunds where sale_id=${saleId}`;
+  // `total`: money this sale has already had refunded by item (the supervisor amount counts it, see needsSupervisor).
+  return { byLine, byMethod, total: BigInt(sum?.total ?? 0) };
 }
 
 /**

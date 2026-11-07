@@ -835,7 +835,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             try {
                 val ctx = repository.refundContext(saleId)
                 refundSaleId = saleId; refundId = java.util.UUID.randomUUID().toString(); refundError = null
-                refundModel = RefundSheetModel(ctx.receiptNumber, ctx.customerName, ctx.receipt, ctx.lines, ctx.prior, ctx.policy, ctx.problem ?: if (ctx.fullyRefunded) "Everything on this receipt is already refunded." else null, ctx.refundNumber)
+                refundModel = RefundSheetModel(ctx.receiptNumber, ctx.customerName, ctx.receipt, ctx.lines, ctx.prior, ctx.policy, ctx.problem ?: if (ctx.fullyRefunded) "Everything on this receipt is already refunded." else null, ctx.refundNumber, ctx.refundedMinor)
             } catch (e: CancellationException) { throw e } catch (e: com.sunpride.van.storage.RefundNotAllowed) { message = e.message } catch (e: Exception) { message = UserMessages.forFailure(e) }
         }
     }
@@ -873,7 +873,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         val ctx = com.sunpride.van.storepos.StoreRefunds.context(config, storePos.rows, receipt, storePos.shift != null, receipt.optString("_status") == "voided")
         storeRefundSale = receipt.getString("saleId"); storeRefundId = UUID.randomUUID().toString(); storeRefundError = null
         storeRefundModel = RefundSheetModel(receipt.getString("receiptNumber"), receipt.optString("customer").ifEmpty { null }, receipt, ctx.lines, ctx.prior, ctx.policy,
-            ctx.problem ?: if (ctx.fullyRefunded) "Everything on this receipt is already refunded." else null, ctx.refundNumber)
+            ctx.problem ?: if (ctx.fullyRefunded) "Everything on this receipt is already refunded." else null, ctx.refundNumber, ctx.refundedMinor)
     }
     fun cancelStoreRefund() { storeRefundModel = null; storeRefundError = null; storeRefundSale = null }
     fun confirmStoreRefund(sub: RefundSubmission) {

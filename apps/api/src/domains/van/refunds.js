@@ -33,9 +33,10 @@ export const refundApprovalFacts = (s, total, reasonCode, refundNumber) => ({
 /** Refunds already made on this trip, for the phone's "already refunded" figures. @param {any} db @param {string} tripId */
 export async function tripRefunds(db, tripId) {
   const rows =
-    await db`select r.id,r.sale_id,r.credit_number,r.total_centavos::text as total,r.tenders,r.refunded_at,r.reason_code,(select coalesce(jsonb_agg(jsonb_build_object('lineIndex',l.line_index,'quantityBase',l.quantity_base::text,'amountCentavos',l.amount_centavos::text) order by l.line_index),'[]'::jsonb) from sale_refund_lines l where l.refund_id=r.id) as lines from sale_refunds r where r.trip_id=${tripId} order by r.refunded_at limit 501`;
-  if (rows.length > 500) refuse("Too many refunds on one trip; reconcile it");
-  return rows.map((/** @type {any} */ x) => ({
+    await db`select r.id,r.sale_id,r.credit_number,r.total_centavos::text as total,r.tenders,r.refunded_at,r.reason_code,(select coalesce(jsonb_agg(jsonb_build_object('lineIndex',l.line_index,'quantityBase',l.quantity_base::text,'amountCentavos',l.amount_centavos::text) order by l.line_index),'[]'::jsonb) from sale_refund_lines l where l.refund_id=r.id) as lines from sale_refunds r where r.trip_id=${tripId} order by r.refunded_at desc limit 501`;
+  // Most recent 500 (oldest first, as before); past that the phone is told the list is not complete (`madeComplete:false`).
+  const complete = rows.length <= 500;
+  const made = rows.slice(0, 500).reverse().map((/** @type {any} */ x) => ({
     id: x.id,
     saleId: x.sale_id,
     creditNumber: x.credit_number,
@@ -45,6 +46,7 @@ export async function tripRefunds(db, tripId) {
     lines: x.lines,
     at: +new Date(x.refunded_at),
   }));
+  return { made, madeComplete: complete };
 }
 
 /**
@@ -122,7 +124,9 @@ export async function vanRefund(db, trip, actor, env, p, opId) {
   let approvalId = null;
   const [{ n: made }] =
     await db`select count(*)::int as n from sale_refunds where sale_id=${saleId}`;
-  if (needsSupervisor(plan.total, policy.supervisorOverCentavos)) {
+  if (
+    needsSupervisor(plan.total, policy.supervisorOverCentavos, prior.total)
+  ) {
     if (p.refundNumber !== made + 1)
       refuse("Refunds of this receipt arrived out of order", "stock_conflict");
     approvalId = await consumeApproval(
@@ -192,7 +196,10 @@ export async function vanRefund(db, trip, actor, env, p, opId) {
     refuse("Credit memo number differs from its fiscal allocation");
   const status = reason.destination === "damaged" ? "damaged" : "available";
   /** @type {any[]} */ const stock = [];
-  for (const o of plan.lines)
+  for (const o of plan.lines) {
+    // Goods go back at the cost the sale took them out at (as the till does), so the truck's average cost does not move.
+    const [unit] =
+      await db`select l.unit_cost_minor from inventory_movement_lines l join inventory_movements m on m.id=l.movement_id where m.source_type='van_sale' and m.source_document_id=${saleId}::text and l.product_id=${o.productId} and l.from_location_id=${trip.truck_location_id} order by l.line_number limit 1`;
     stock.push(
       ...(await refundLotLines(db, {
         saleSource: "van_sale",
@@ -202,8 +209,12 @@ export async function vanRefund(db, trip, actor, env, p, opId) {
         quantity: o.quantityBase,
         status,
         uom: o.line.raw.uomCode ?? "PC",
+        ...(unit?.unit_cost_minor == null
+          ? {}
+          : { unitCostMinor: Number(unit.unit_cost_minor) }),
       })),
     );
+  }
   const result = await postMovement(db, {
     kind: "pos_return",
     sourceType: "van_refund",

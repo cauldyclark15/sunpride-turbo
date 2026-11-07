@@ -119,7 +119,9 @@ object RefundMath {
         val saleTax = receipt.optJSONObject("tax") ?: JSONObject()
         val taxLines = taxLinesFor(lines, receipt.optJSONObject("tax"))
         val saleTotal = lines.sumOf { it.payableMinor }
-        var total = 0L; var vatable = 0L; var vat = 0L; var exempt = 0L; var zero = 0L; var privilege = 0L
+        var total = 0L; var privilege = 0L
+        class Bucket(val index: Int, val bucket: String, var amount: Long, val vat: Long)
+        val buckets = ArrayList<Bucket>()
         val out = ArrayList<RefundedLine>()
         for ((index, q) in picks.toSortedMap()) {
             val line = lines.getOrNull(index) ?: throw RefundRefused("That item is not on the original receipt")
@@ -146,13 +148,19 @@ object RefundMath {
             if (lineVat > bucketAmount) lineVat = bucketAmount
             val lineGross = share(line.grossMinor, done, q, line.quantityBase)
             val linePromo = share(line.promoMinor, done, q, line.quantityBase)
-            when (bucket) {
-                "vatable" -> { vatable += bucketAmount - lineVat; vat += lineVat }
-                "exempt" -> exempt += bucketAmount
-                else -> zero += bucketAmount
-            }
+            buckets.add(Bucket(index, bucket, bucketAmount, lineVat))
             total += amount; privilege += linePriv
             out.add(RefundedLine(line, q, amount, lineVat, bucket, lineGross, linePromo, linePriv, removed, line.quantityBase - done - q))
+        }
+        // The buckets are prorated line by line, so they can sit a few centavos off refund + privilege discount: the residual goes to the
+        // highest line index (same rule as the office's planRefund), so vatable + VAT + exempt + zero-rated = refund total + privilege discount exactly.
+        val residual = total + privilege - buckets.sumOf { it.amount }
+        if (residual != 0L) buckets.maxByOrNull { it.index }!!.amount += residual
+        var vatable = 0L; var vat = 0L; var exempt = 0L; var zero = 0L
+        for (b in buckets) when (b.bucket) {
+            "vatable" -> { vatable += b.amount - b.vat; vat += b.vat }
+            "exempt" -> exempt += b.amount
+            else -> zero += b.amount
         }
         return RefundPlan(total, out, vatable, vat, exempt, zero, privilege)
     }
@@ -173,8 +181,8 @@ object RefundMath {
         return out
     }
 
-    /** A refund above the office's amount needs a supervisor. */
-    fun needsSupervisor(totalMinor: Long, overMinor: Long): Boolean = totalMinor > overMinor
+    /** A refund needs a supervisor when what this sale has ALREADY had refunded plus this refund is above the office's amount (no splitting around it). */
+    fun needsSupervisor(totalMinor: Long, overMinor: Long, alreadyRefundedMinor: Long = 0L): Boolean = Math.addExact(alreadyRefundedMinor, totalMinor) > overMinor
 
     /** Pieces of each receipt line already refunded: what the office told this phone plus refunds saved here and not yet sent. */
     fun refundedSoFar(saleId: String, made: List<MadeRefund>, pending: List<Map<Int, Long>>): Map<Int, Long> {

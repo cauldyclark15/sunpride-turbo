@@ -10,6 +10,8 @@ import org.json.JSONObject
 data class StoreRefundContext(val receipt: JSONObject, val lines: List<SoldLine>, val prior: Map<Int, Long>, val refundedByMethod: Map<String, Long>,
     val policy: RefundPolicy, val tenders: List<RefundTender>, val refundNumber: Int, val problem: String?) {
     val fullyRefunded: Boolean get() = lines.all { (prior[it.index] ?: 0L) >= it.quantityBase }
+    /** Money this sale has already had refunded by item (counts toward the supervisor amount). */
+    val refundedMinor: Long get() = refundedByMethod.values.sum()
 }
 
 /** IP-REFUND (till): who has refunded what of a receipt. The office sends refunds already made (`refunds.made`); this phone adds the ones it saved and has not sent. */

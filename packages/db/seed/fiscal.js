@@ -169,15 +169,32 @@ export async function seedStoreFiscal(db) {
  * refund offline like it numbers an invoice. Additive only: a credit-memo series the unit or vehicle already has (even
  * office-edited or disabled) is left exactly as it is, so a second run adds nothing. Sample registrations stay
  * `sample_not_filed`. Never raw SQL on a live database: run this helper (packages/db/scripts/seed-store-fiscal.js).
- * @param {import('../src/client.js').Db} db */
-export async function seedRefundSeries(db) {
+ * `{ dryRun: true }` does everything inside the transaction and rolls it back, so the counts are exact and nothing is written.
+ * @param {import('../src/client.js').Db} db @param {{dryRun?:boolean}} [opts] */
+export async function seedRefundSeries(db, opts = {}) {
+  /** @type {any} */ let planned = null;
+  try {
+    return await refundSeriesPass(db, opts, (r) => (planned = r));
+  } catch (e) {
+    // dry run: the pass finished and rolled back on purpose; report what it WOULD have created
+    if (opts.dryRun && planned && /** @type {any} */ (e)?.dryRun === true)
+      return { ...planned, dryRun: true };
+    throw e;
+  }
+}
+
+/** @param {import('../src/client.js').Db} db @param {{dryRun?:boolean}} opts @param {(r:any)=>void} report */
+async function refundSeriesPass(db, opts, report) {
   return tx(db, async (t) => {
     await t`select pg_advisory_xact_lock(4300019)`;
     await t`select set_config('sunpride.actor','system:sample-fiscal',true)`;
     const [admin] =
       await t`select p.id from profiles p join sample_data_rows m on m.table_name='profiles' and m.row_id=p.id::text where p.role in ('super_admin','admin') and p.status='active' and p.deleted_at is null order by (p.role='super_admin') desc,p.id limit 1`;
-    if (!admin)
-      return { stores: 0, vehicles: 0, reason: "Sample administrator missing" };
+    if (!admin) {
+      const none = { stores: 0, vehicles: 0, reason: "Sample administrator missing" };
+      report(none);
+      return none;
+    }
     const units =
       await t`select distinct u.id,u.code,u.name from org_units u join sample_data_rows m on m.table_name='org_units' and m.row_id=u.id::text join inventory_locations l on l.org_unit_id=u.id and l.type='store' and l.active and l.deleted_at is null join store_registers r on r.location_id=l.id where u.deleted_at is null order by u.id`;
     let stores = 0,
@@ -228,6 +245,11 @@ export async function seedRefundSeries(db) {
         await t`insert into sample_data_rows(batch,table_name,row_id,key) values('sunpride-fiscal-sample',${table},${row},${`${table}:${row}`}) on conflict(batch,key) do nothing`;
       vehiclesDone++;
     }
-    return { stores, vehicles: vehiclesDone };
+    const result = { stores, vehicles: vehiclesDone };
+    if (opts.dryRun) {
+      report(result);
+      throw Object.assign(new Error("dry run"), { dryRun: true });
+    }
+    return result;
   });
 }

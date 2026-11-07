@@ -55,7 +55,7 @@ class StoreTransactions(private val store:RoomVanStore) {
         val cleanNote=note?.trim()?.takeIf {it.isNotEmpty()}
         if(cleanNote!=null&&(cleanNote.length>300||cleanNote.any(Char::isISOControl))) throw RefundNotAllowed("The note is too long.")
         val (plan,reason,tenders)=StoreRefunds.check(ctx,picks,reasonCode,cleanNote,expectedCentavos)
-        if(RefundMath.needsSupervisor(plan.totalMinor,ctx.policy.supervisorOverMinor)&&supervise==null) throw RefundNotAllowed("A supervisor has to approve this refund with their PIN.")
+        if(RefundMath.needsSupervisor(plan.totalMinor,ctx.policy.supervisorOverMinor,ctx.refundedMinor)&&supervise==null) throw RefundNotAllowed("A supervisor has to approve this refund with their PIN.")
         val now=store.now()
         val issued=try {FiscalNumbers.issue(store.db,store.scope,JSONObject(checkNotNull(dao.meta(s,d)?.policyJson)),"credit_memo",now)}
             catch(e:IllegalStateException){throw RefundNotAllowed(if(e.message?.contains("range")==true)"No credit memo numbers left on this phone. Sync to get more." else "No credit memo numbers on this phone. Sync to get them.")}

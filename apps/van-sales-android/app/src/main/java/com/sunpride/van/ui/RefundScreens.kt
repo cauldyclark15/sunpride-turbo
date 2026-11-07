@@ -31,6 +31,8 @@ data class RefundSheetModel(
     /** Plain words why nothing can be refunded (trip counted, sale voided...), else null. */
     val problem: String? = null,
     val refundNumber: Int = 1,
+    /** Money this sale has already had refunded by item: counts toward the supervisor amount. */
+    val refundedMinor: Long = 0L,
 )
 
 /** How a refund over the office amount is approved: a supervisor's PIN on the till, an 8-digit code read out on the van. */
@@ -62,7 +64,7 @@ private fun pesos(minor: Long) = PosMoney.format(minor, "PHP")
     val plan = remember(chosen, model) { if (chosen.isEmpty()) null else runCatching { RefundMath.plan(model.receipt, model.prior, chosen) }.getOrNull() }
     val total = plan?.totalMinor ?: 0L
     val reason = model.policy.reason(reasonCode)
-    val needsApproval = plan != null && RefundMath.needsSupervisor(total, model.policy.supervisorOverMinor)
+    val needsApproval = plan != null && RefundMath.needsSupervisor(total, model.policy.supervisorOverMinor, model.refundedMinor)
     val approved = when (approval) {
         RefundApprovalKind.PIN -> supervisor != null && pin.length >= 6
         RefundApprovalKind.CODE -> VoidApprovalCodes.normalize(code) != null
@@ -131,7 +133,7 @@ private fun pesos(minor: Long) = PosMoney.format(minor, "PHP")
             }
             if (needsApproval) item {
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Text("This refund is over ${pesos(model.policy.supervisorOverMinor)}, so a supervisor has to approve it.", fontSize = 15.sp, color = Look.ink, modifier = Modifier.testTag("refund-needs-approval"))
+                    Text(if (model.refundedMinor > 0L) "With the ${pesos(model.refundedMinor)} already refunded on this receipt, this is over ${pesos(model.policy.supervisorOverMinor)}, so a supervisor has to approve it." else "This refund is over ${pesos(model.policy.supervisorOverMinor)}, so a supervisor has to approve it.", fontSize = 15.sp, color = Look.ink, modifier = Modifier.testTag("refund-needs-approval"))
                     when (approval) {
                         RefundApprovalKind.PIN -> SupervisorPinBlock(supervisors, supervisor, { supervisor = it }, pin, { pin = it }, error, !busy)
                         RefundApprovalKind.CODE -> {

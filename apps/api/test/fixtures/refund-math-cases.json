@@ -620,7 +620,7 @@
               "privilegeType": "senior_citizen",
               "rateBasisPoints": 1200,
               "netMinor": "11161",
-              "vatMinor": "1339",
+              "vatMinor": "0",
               "totalMinor": "8929",
               "privilegeDiscountMinor": "2232",
               "vatRemovedMinor": "1339"
@@ -643,7 +643,7 @@
         "total": "2232",
         "vatableSalesMinor": "0",
         "vatMinor": "0",
-        "vatExemptMinor": "3125",
+        "vatExemptMinor": "2790",
         "zeroRatedMinor": "0",
         "privilegeDiscountMinor": "558",
         "lines": [
@@ -685,7 +685,7 @@
               "privilegeType": "senior_citizen",
               "rateBasisPoints": 1200,
               "netMinor": "11161",
-              "vatMinor": "1339",
+              "vatMinor": "0",
               "totalMinor": "8929",
               "privilegeDiscountMinor": "2232",
               "vatRemovedMinor": "1339"
@@ -710,7 +710,7 @@
         "total": "6697",
         "vatableSalesMinor": "0",
         "vatMinor": "0",
-        "vatExemptMinor": "9375",
+        "vatExemptMinor": "8371",
         "zeroRatedMinor": "0",
         "privilegeDiscountMinor": "1674",
         "lines": [
@@ -870,6 +870,50 @@
           "amount": "2500"
         }
       ]
+    }
+  ],
+  "supervisor": [
+    {
+      "name": "a refund at the amount needs no supervisor",
+      "overMinor": "50000",
+      "alreadyRefundedMinor": "0",
+      "totalMinor": "50000",
+      "expected": false
+    },
+    {
+      "name": "one centavo over needs one",
+      "overMinor": "50000",
+      "alreadyRefundedMinor": "0",
+      "totalMinor": "50001",
+      "expected": true
+    },
+    {
+      "name": "split-around: 375.75 after 375.75 already refunded is over 500.00",
+      "overMinor": "50000",
+      "alreadyRefundedMinor": "37575",
+      "totalMinor": "37575",
+      "expected": true
+    },
+    {
+      "name": "split-around: the first of two small refunds is fine",
+      "overMinor": "50000",
+      "alreadyRefundedMinor": "0",
+      "totalMinor": "37575",
+      "expected": false
+    },
+    {
+      "name": "split-around: any refund after the amount was already reached",
+      "overMinor": "50000",
+      "alreadyRefundedMinor": "50000",
+      "totalMinor": "1",
+      "expected": true
+    },
+    {
+      "name": "split-around: exactly reaching the amount is still fine",
+      "overMinor": "50000",
+      "alreadyRefundedMinor": "12425",
+      "totalMinor": "37575",
+      "expected": false
     }
   ]
 }

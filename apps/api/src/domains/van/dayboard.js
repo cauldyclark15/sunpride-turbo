@@ -104,7 +104,7 @@ export async function dayBoard(ctx) {
         ? await db`select transfer_number,status,variance_status from stock_transfers where id=${plan.stock_transfer_id}`
         : [];
       const [sold] =
-        await db`select coalesce(sum(s.total_centavos) filter (where v.id is null),0)::bigint as sales from van_sales s left join van_sale_voids v on v.sale_id=s.id where s.trip_id=${t.id}`;
+        await db`select (coalesce(sum(s.total_centavos) filter (where v.id is null),0)-(select coalesce(sum(r.total_centavos),0) from sale_refunds r where r.trip_id=${t.id}))::bigint as sales from van_sales s left join van_sale_voids v on v.sale_id=s.id where s.trip_id=${t.id}`;
       const [remit] =
         await db`select amount_centavos from van_cash_remittances where trip_id=${t.id}`;
       const [loadIn] =

@@ -79,7 +79,11 @@ export async function refundPart(c) {
     refId: id,
     amountCentavos: String(plan.total),
     reason: `${reason.label}${reason.note ? `: ${reason.note}` : ""}`,
-    required: needsSupervisor(plan.total, policy.supervisorOverCentavos),
+    required: needsSupervisor(
+      plan.total,
+      policy.supervisorOverCentavos,
+      prior.total,
+    ),
   });
   const tenders = refundTenders(
     sale.receipt.tenders ?? [],

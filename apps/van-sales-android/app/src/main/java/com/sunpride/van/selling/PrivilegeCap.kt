@@ -1,7 +1,9 @@
 package com.sunpride.van.selling
 
 import org.json.JSONObject
-import java.security.MessageDigest
+import java.util.Base64
+import javax.crypto.Mac
+import javax.crypto.spec.SecretKeySpec
 import java.time.DayOfWeek
 import java.time.Instant
 import java.time.ZoneId
@@ -11,7 +13,7 @@ import java.time.temporal.TemporalAdjusters
  * IP-SCPWD-CAP: the weekly purchase limit on the senior citizen / PWD discount, as the phone knows it.
  *
  * The server is the authority (it adds up every store and van by ID number). The phone gets, with its bundle, the limit and what each
- * card used so far this week (`storePos.privilegeCap`, opt-in via `params.privilegeCap`; the card number is only ever a hash), and adds
+ * card used so far this week (`storePos.privilegeCap`, opt-in via `params.privilegeCap`; the card number is only ever a keyed hash under this week's key), and adds
  * the sales it made itself that the bundle cannot know yet. What is left is the BEST KNOWN: offline, another store or van may have sold
  * to the same card meanwhile. The sale is still printed and accepted; the server flags any overage in the office's Decide inbox.
  *
@@ -21,6 +23,8 @@ import java.time.temporal.TemporalAdjusters
 data class PrivilegeCapInfo(
     val enabled: Boolean, val capMinor: Long, val confirmed: Boolean, val weekStart: String, val weekEndsAt: Long,
     val asOf: Long, val complete: Boolean, val used: Map<String, Long>,
+    /** This week's key (base64url, 32 bytes): cards are looked up by [PrivilegeCap.idHash] under it. Null = the server sent none, so no card can be looked up. */
+    val hashKey: String? = null,
 ) {
     companion object {
         /** Null (no limit known) for a missing or unreadable block: an older server, or a bundle cached before this existed. */
@@ -37,8 +41,10 @@ data class PrivilegeCapInfo(
                 }
                 val cap = o.getString("capCentavos").toLong()
                 require(cap > 0)
+                val hashKey = if (o.isNull("hashKey")) null else o.optString("hashKey").takeIf { it.isNotEmpty() }
+                require(hashKey == null || Regex("^[A-Za-z0-9_-]{43}$").matches(hashKey))
                 PrivilegeCapInfo(o.getBoolean("enabled"), cap, o.optBoolean("confirmed"), o.getString("weekStart"), o.getLong("weekEndsAt"),
-                    o.getLong("asOf"), o.optBoolean("complete", true), used)
+                    o.getLong("asOf"), o.optBoolean("complete", true), used, hashKey)
             }.getOrNull()
         }
     }
@@ -59,8 +65,11 @@ object PrivilegeCap {
     /** `senior:SC2026004411`: the type plus the card number with everything but letters and digits removed, upper case. */
     fun idKey(type: PrivilegeType, idNumber: String): String = type.wire + ":" + idNumber.uppercase().filter { it in 'A'..'Z' || it in '0'..'9' }
 
-    fun idHash(key: String): String = MessageDigest.getInstance("SHA-256").digest("sunpride-privcap-v1|$key".toByteArray())
-        .joinToString("") { "%02x".format(it.toInt() and 255) }.take(32)
+    /** First 128 bits of HMAC-SHA256(this week's key, [idKey]) as hex: the same as `keyedIdHash` on the server. */
+    fun idHash(hashKeyB64url: String, key: String): String {
+        val mac = Mac.getInstance("HmacSHA256").apply { init(SecretKeySpec(Base64.getUrlDecoder().decode(hashKeyB64url), "HmacSHA256")) }
+        return mac.doFinal(key.toByteArray(Charsets.UTF_8)).joinToString("") { "%02x".format(it.toInt() and 255) }.take(32)
+    }
 
     /**
      * What is left of this card's week, best known on this phone; null = no limit applies (no bundle info, switched off, or a
@@ -71,7 +80,7 @@ object PrivilegeCap {
         if (info == null || !info.enabled || !applies(claim.type)) return null
         val key = idKey(claim.type, claim.idNumber)
         // A bundle from last week says nothing about this week.
-        val fromBundle = if (weekStart(now) == info.weekStart) info.used[idHash(key)] ?: 0L else 0L
+        val fromBundle = if (weekStart(now) == info.weekStart && info.hashKey != null) info.used[idHash(info.hashKey, key)] ?: 0L else 0L
         return maxOf(0L, info.capMinor - fromBundle - (localUsed[key] ?: 0L))
     }
 

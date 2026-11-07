@@ -200,7 +200,7 @@ export async function bundle(ctx, env) {
     // v1 policy by every build that asks for posMode), only for a phone that asks with `params.privilegeCap`.
     const storePos =
       modeFacts && ctx.params.privilegeCap === true
-        ? { ...modeFacts, privilegeCap: await capBundle(db, Date.now()) }
+        ? { ...modeFacts, privilegeCap: await capBundle(db, Date.now(), env) }
         : modeFacts;
     let trips =
       storePos?.mode === "store"
@@ -538,7 +538,7 @@ export async function bundle(ctx, env) {
                     return null;
                   }
                 })(),
-                made: await tripRefunds(db, trip.id),
+                ...(await tripRefunds(db, trip.id)),
               }),
             }
           : {}),

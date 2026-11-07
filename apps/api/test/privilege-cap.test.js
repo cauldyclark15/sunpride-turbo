@@ -6,6 +6,7 @@ import {
   boundDevice,
   createUser,
   signedPost,
+  CURSOR_SECRET,
 } from "./harness.js";
 import { install as installStore } from "../src/domains/storepos/index.js";
 import { install as installFiscal } from "../src/domains/fiscal/index.js";
@@ -31,6 +32,8 @@ import {
   computeOne,
   computeWithBudget,
   idHash,
+  keyedIdHash,
+  capHashKey,
   idKey,
   manilaWeekStart,
   manilaWeekEndsAt,
@@ -481,6 +484,14 @@ test("week = Monday to Sunday in Manila time; the ID key ignores spacing, dashes
   expect(idKey("pwd", "SC-2026-004411")).not.toBe(idKey("senior", "SC-2026-004411"));
   expect(idHash(idKey("senior", "sc 2026 004411"))).toBe(idHash(idKey("senior", "SC-2026-004411")));
   expect(idHash("senior:X")).toMatch(/^[0-9a-f]{32}$/);
+  // IP-INT5FIX: what phones get is a keyed hash under a key for that week (literal shared with PrivilegeCapTest.kt)
+  expect(keyedIdHash("A".repeat(43), "senior:SC2026004411")).toBe("d833e978c79a9f32aa662ca7a50f8120");
+  const wk = capHashKey({ SYNC_CURSOR_SECRET: "s".repeat(40) }, "2026-11-02");
+  expect(wk).toMatch(/^[A-Za-z0-9_-]{43}$/);
+  expect(capHashKey({ SYNC_CURSOR_SECRET: "s".repeat(40) }, "2026-11-09")).not.toBe(wk);
+  expect(capHashKey({ SYNC_CURSOR_SECRET: "t".repeat(40) }, "2026-11-02")).not.toBe(wk);
+  expect(capHashKey({}, "2026-11-02")).toBeNull();
+  expect(keyedIdHash(/** @type {string} */ (wk), "senior:X")).not.toBe(idHash("senior:X"));
   expect(weeklyLimitText(130000)).toBe("Weekly limit: ₱1,300.00 left");
   expect(weeklyLimitText(0)).toBe("Weekly limit: ₱0.00 left");
 });
@@ -697,14 +708,61 @@ test("only the 5% basic-necessities discount has a weekly limit: solo parent, at
   expect(soloPreview.body.cap).toBeNull();
 });
 
+test("IP-INT5FIX: the refund supervisor amount is editable by admin only; a card lookup needs a seller, approver or admin", async () => {
+  const cur = await api("/api/v1/fiscal/refunds/policy");
+  expect(cur.status).toBe(200);
+  expect(cur.body).toMatchObject({ supervisorOverCentavos: 50000, isDefault: true, canManage: true });
+  /** @param {string} cookieOf @param {any} body */
+  const post = (cookieOf, body) =>
+    h.fetch("/api/v1/fiscal/refunds/policy", {
+      method: "POST",
+      headers: { cookie: cookieOf, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  expect((await post(cookieSales, { supervisorOverPesos: 100 })).status).toBe(403);
+  for (const bad of [{ supervisorOverPesos: -1 }, { supervisorOverPesos: "abc" }, { supervisorOverCentavos: 1.5 }, { supervisorOverPesos: 2000000 }, {}])
+    expect((await post(cookie, bad)).status).toBe(422);
+  expect((await post(cookie, { supervisorOverPesos: 750 })).status).toBe(200);
+  const after = await api("/api/v1/fiscal/refunds/policy");
+  expect(after.body).toMatchObject({ supervisorOverCentavos: 75000, isDefault: false, updatedBy: "Sample supervisor" });
+  const seen = await h.fetch("/api/v1/fiscal/refunds/policy", { headers: { cookie: cookieSales } });
+  expect((await seen.json()).canManage).toBe(false);
+  // the phone's bundle policy reads the same row
+  const { refundPolicy } = await import("../src/domains/fiscal/refunds.js");
+  expect((await refundPolicy(h.db)).supervisorOverCentavos).toBe(75000n);
+  expect((await post(cookie, { supervisorOverCentavos: 50000 })).status).toBe(200);
+
+  // card lookup: a viewer (van.read only) may read the setting but not one card's use
+  const viewerId = await createUser(h, "cap-viewer@example.com", "fixture password only");
+  await persist({ userId: viewerId, email: "cap-viewer@example.com", profile: people.set(viewerId, { role: "viewer", orgUnitId: unit, name: "Sample viewer" }) });
+  const vlogin = await h.fetch("/api/auth/sign-in", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: "cap-viewer@example.com", password: "fixture password only" }),
+  });
+  const cookieViewer = (vlogin.headers.get("set-cookie") ?? "").split(";")[0];
+  const card = "/api/v1/fiscal/privilege/cap?type=senior&idNumber=SC-CAP-0001";
+  expect((await h.fetch("/api/v1/fiscal/privilege/cap", { headers: { cookie: cookieViewer } })).status).toBe(200);
+  expect((await h.fetch(card, { headers: { cookie: cookieViewer } })).status).toBe(403);
+  expect((await h.fetch(card, { headers: { cookie: cookieSales } })).status).toBe(200);
+  expect((await h.fetch(card, { headers: { cookie } })).status).toBe(200);
+});
+
 test("the phone's bundle carries the limit and this week's use per card, hashed, and only for a phone that asks", async () => {
-  const bundle = await capBundle(h.db, Date.now());
+  const bundle = await capBundle(h.db, Date.now(), { SYNC_CURSOR_SECRET: CURSOR_SECRET });
   expect(bundle).toMatchObject({ version: 1, enabled: true, capCentavos: "130000", confirmed: false, weekStart: manilaWeekStart(Date.now()), complete: true });
   expect(bundle.weekEndsAt).toBe(manilaWeekEndsAt(Date.now()));
   const used = Object.fromEntries(bundle.used.map((/** @type {any} */ u) => [u.k, u.v]));
   // SC-CAP-0001: first sale voided, second sale 100,000 counts
-  expect(used[idHash(idKey("senior", "SC-CAP-0001"))]).toBe("100000");
-  expect(used[idHash(idKey("senior", "SC-CAP-0003"))]).toBe("30000");
+  const wkKey = /** @type {string} */ (capHashKey({ SYNC_CURSOR_SECRET: CURSOR_SECRET }, manilaWeekStart(Date.now())));
+  expect(bundle.hashKey).toBe(wkKey);
+  const hashOf = (/** @type {string} */ id) => keyedIdHash(wkKey, idKey("senior", id));
+  expect(used[hashOf("SC-CAP-0001")]).toBe("100000");
+  expect(used[hashOf("SC-CAP-0003")]).toBe("30000");
+  // the old unsalted hash is no longer anywhere in the bundle, and without a server secret no card use is sent at all
+  expect(used[idHash(idKey("senior", "SC-CAP-0001"))]).toBeUndefined();
+  const noSecret = await capBundle(h.db, Date.now(), {});
+  expect(noSecret).toMatchObject({ hashKey: null, complete: false, used: [] });
   expect(JSON.stringify(bundle)).not.toContain("CAP-0001");
   const proj = vanProjection({});
   const base = { serviceDate: new Date().toISOString().slice(0, 10) };
@@ -728,7 +786,7 @@ test("the store bundle carries `privilegeCap` inside storePos only for a handhel
   expect(plain.policy.storePos.privilegeCap).toBeUndefined();
   expect(plain.policy.privilegeCap).toBeUndefined();
   expect(Object.keys(plain.policy.storePos)).not.toContain("privilegeCap");
-  const asked = /** @type {any} */ (await bundle(ctx({ handheld: true, vanDay: true, privilegeCap: true }), {}));
+  const asked = /** @type {any} */ (await bundle(ctx({ handheld: true, vanDay: true, privilegeCap: true }), { SYNC_CURSOR_SECRET: CURSOR_SECRET }));
   expect(asked.policy.storePos.privilegeCap).toMatchObject({ version: 1, enabled: true, capCentavos: "130000", weekStart: manilaWeekStart(Date.now()) });
   expect(asked.policy.storePos.privilegeCap.used.length).toBeGreaterThan(0);
   // nothing else in the bundle changed for the phone that asked

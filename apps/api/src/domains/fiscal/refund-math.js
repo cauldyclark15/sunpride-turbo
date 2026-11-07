@@ -92,6 +92,7 @@ export function planRefund({ receipt, prior = new Map(), picks }) {
     removed = 0n;
   const seen = new Set();
   const out = [];
+  /** @type {{lineIndex:number, bucket:"vatable"|"exempt"|"zero", amount:bigint, vat:bigint}[]} */ const buckets = [];
   for (const pick of picks) {
     const line = lines[pick.lineIndex];
     if (!line || !Number.isInteger(pick.lineIndex))
@@ -154,11 +155,12 @@ export function planRefund({ receipt, prior = new Map(), picks }) {
     if (lineVat > bucketAmount) lineVat = bucketAmount;
     const lineGross = share(line.gross, done, q, line.quantityBase);
     const linePromo = share(line.promo, done, q, line.quantityBase);
-    if (lineBucket === "vatable") {
-      vatable += bucketAmount - lineVat;
-      vat += lineVat;
-    } else if (lineBucket === "exempt") exempt += bucketAmount;
-    else zero += bucketAmount;
+    buckets.push({
+      lineIndex: pick.lineIndex,
+      bucket: lineBucket,
+      amount: bucketAmount,
+      vat: lineVat,
+    });
     total += amount;
     gross += lineGross;
     promo += linePromo;
@@ -179,6 +181,22 @@ export function planRefund({ receipt, prior = new Map(), picks }) {
       line,
       taxLine: tl,
     });
+  }
+  // Every line's bucket amount is prorated separately from its refund amount, so the buckets can be a few centavos away from
+  // refund + privilege discount. The residual goes to the line with the highest index (same rule in pos/Refunds.kt), so the
+  // buckets add up exactly: vatable + VAT + exempt + zero-rated = refund total + privilege discount.
+  const residual =
+    total + privilege - buckets.reduce((n, b) => n + b.amount, 0n);
+  if (residual !== 0n) {
+    const last = buckets.reduce((a, b) => (b.lineIndex > a.lineIndex ? b : a));
+    last.amount += residual;
+  }
+  for (const b of buckets) {
+    if (b.bucket === "vatable") {
+      vatable += b.amount - b.vat;
+      vat += b.vat;
+    } else if (b.bucket === "exempt") exempt += b.amount;
+    else zero += b.amount;
   }
   return {
     total,
@@ -256,6 +274,10 @@ export function refundTenders(tenders, refunded, total) {
   return out;
 }
 
-/** A refund above the policy amount needs a supervisor. @param {bigint} total @param {bigint|string|number} overCentavos */
-export const needsSupervisor = (total, overCentavos) =>
-  total > big(overCentavos);
+/**
+ * A refund needs a supervisor when what this sale has ALREADY had refunded plus this refund goes above the policy amount
+ * (so a receipt cannot be emptied in several small refunds). Phone copy: RefundMath.needsSupervisor in pos/Refunds.kt.
+ * @param {bigint} total this refund @param {bigint|string|number} overCentavos @param {bigint|string|number} [alreadyRefunded] money already refunded on the same sale
+ */
+export const needsSupervisor = (total, overCentavos, alreadyRefunded = 0n) =>
+  big(alreadyRefunded) + total > big(overCentavos);
