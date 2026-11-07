@@ -901,12 +901,12 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun finishStoreRefund() { storeRefundDone = null; printMessage = null }
     private fun printRefundFacts(facts: RefundSlipFacts, reprint: Boolean) {
         val s = scope ?: return
+        if (printing) return
         s.launch {
-            printMessage = "Printing…"
-            printMessage = try { when (printer.print(RefundSlip.document(facts, reprint))) {
-                is com.sunpride.van.printing.PrintResult.Success -> "Slip sent to the printer."
-                else -> "Could not print. Check the printer and try again." } }
-                catch (e: CancellationException) { throw e } catch (_: Exception) { "Could not print. Check the printer and try again." }
+            printing = true; printMessage = "Printing…"
+            printMessage = try { printRefundSlipWords(printer, RefundSlip.document(facts, reprint)) }
+                catch (e: CancellationException) { throw e } catch (_: Throwable) { "Could not print. Check the printer and try again." }
+            printing = false
         }
     }
     /** VAN-019: the return being captured. In memory only; [ReturnDraft.returnId] makes Save return safe to repeat. */
@@ -1101,3 +1101,17 @@ const val REFUND_FAILED = "The refund could not be saved. Nothing was taken. Try
 data class SaleDraft(val saleId: String, val customer: Customer, val lines: List<CartLine>,val manualDiscount:ManualDiscountInput? = null,val priceOverride:SalePriceOverride?=null,val creditOverride:FinancialOverride?=null,
     /** IP-HH2: the statutory discount the cashier entered (type, ID, name); worked out by [com.sunpride.van.selling.Privilege]. */
     val claim: com.sunpride.van.selling.DiscountClaim? = null)
+
+/**
+ * The refund slip goes through the same connect-then-print steps as a receipt (a printer that was never connected in this session
+ * reports Disconnected otherwise). Plain words for the cashier; the H10P cannot report paper, so success never claims paper.
+ */
+suspend fun printRefundSlipWords(printer: com.sunpride.van.printing.ReceiptPrinter, document: com.sunpride.van.printing.ReceiptDocument): String =
+    when (val state = printer.connect()) {
+        is com.sunpride.van.printing.PrinterStatus.Ready -> when (val result = printer.print(document)) {
+            is com.sunpride.van.printing.PrintResult.Success -> "Slip sent to the printer. Check that it came out: this printer cannot tell if the paper ran out."
+            is com.sunpride.van.printing.PrintResult.Error -> "Could not print: ${com.sunpride.van.printing.PrinterWords.status(result.status)}. Tap Print refund slip again."
+            is com.sunpride.van.printing.PrintResult.Unsupported -> "Could not print. Check the printer and try again."
+        }
+        else -> "Could not print: ${com.sunpride.van.printing.PrinterWords.status(state)}. Tap Print refund slip again."
+    }
