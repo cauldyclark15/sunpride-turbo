@@ -241,7 +241,9 @@ export async function readingModel(db, dayId, kind, record = false) {
       original: c.original_number,
       at: +new Date(c.at),
     })),
-  ].sort((a, b) => a.at - b.at || String(a.number).localeCompare(String(b.number)));
+  ].sort(
+    (a, b) => a.at - b.at || String(a.number).localeCompare(String(b.number)),
+  );
   const agg = aggregateSales(salesRows, creditRows);
   const tenderRows =
     await db`select t.method,max(t.label) as label,sum(t.amount_centavos)::text as amount from store_tenders t join store_shifts h on h.id=t.shift_id where h.till_day_id=${dayId} group by t.method order by t.method`;

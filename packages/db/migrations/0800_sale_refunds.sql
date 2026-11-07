@@ -73,3 +73,8 @@ create table sale_refund_lines (
 create index sale_refund_lines_sale on sale_refund_lines (sale_id, line_index);
 
 create trigger sale_refund_audit after insert on sale_refunds for each row execute function fiscal_capture_change();
+
+-- 4. A van refund over the supervisor amount uses the same offline approval code as a void: one more kind of code.
+alter table van_approval_codes drop constraint van_approval_codes_kind_check;
+alter table van_approval_codes
+  add constraint van_approval_codes_kind_check check (kind in ('void', 'cash', 'stock', 'discount', 'refund'));

@@ -16,7 +16,8 @@ export async function refundPolicy(db, org = REFUND_ORG) {
 export async function refundReasons(db, org = REFUND_ORG) {
   const rows =
     await db`select code,label,requires_note,refund_destination from inventory_reason_codes where organization_id=${org} and active and refund_destination is not null order by label limit 51`;
-  if (rows.length > 50) refuse("Too many refund reasons; the office must trim the list");
+  if (rows.length > 50)
+    refuse("Too many refund reasons; the office must trim the list");
   return rows.map((/** @type {any} */ r) => ({
     code: r.code,
     label: r.label,

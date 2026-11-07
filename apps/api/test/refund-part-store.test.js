@@ -25,6 +25,7 @@ import {
 } from "../src/domains/storepos/overrides.js";
 import { expectedCash } from "../src/domains/storepos/cash.js";
 import { readingModel } from "../src/domains/storepos/readings.js";
+import { modeBundle } from "../src/domains/storepos/model.js";
 
 /** IP-REFUND: refund part of a store sale. Every figure is checked against the frozen original sale. */
 /** @type {any} */ let h;
@@ -136,7 +137,11 @@ async function bigSale() {
     fiscal: { allocationId: siAllocation, serial },
     tenders: [
       { method: "cash", amountCentavos: "15000" },
-      { method: "gcash", amountCentavos: "4000", reference: "REF-" + id.slice(0, 8) },
+      {
+        method: "gcash",
+        amountCentavos: "4000",
+        reference: "REF-" + id.slice(0, 8),
+      },
     ],
   });
   await push(operation);
@@ -171,7 +176,10 @@ beforeAll(async () => {
   h.setHooks({ unitInScope: async () => true });
   await h.db`insert into org_units(id,organization_id,code,name,type_code,status,effective_from) values(${unit},'sunpride','SUNPRIDE','SAMPLE Cebu','national','active',now()-interval '1 day')`;
   await h.db`insert into sample_data_rows(batch,table_name,row_id,key) values('refund-test','org_units',${unit},'unit')`;
-  seller = await boundDevice(h, people, { app: "van-android", orgUnitId: unit });
+  seller = await boundDevice(h, people, {
+    app: "van-android",
+    orgUnitId: unit,
+  });
   await persist(seller);
   const userId = await createUser(
     h,
@@ -193,16 +201,24 @@ beforeAll(async () => {
   const login = await h.fetch("/api/auth/sign-in", {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ email: boss.email, password: "fixture password only" }),
+    body: JSON.stringify({
+      email: boss.email,
+      password: "fixture password only",
+    }),
   });
   cookie = (login.headers.get("set-cookie") ?? "").split(";")[0];
   const material = sampleMasters.find((m) => m.kind === "material");
   const condition = sampleMasters.find((m) => m.kind === "condition");
   let n = 0;
-  for (const [code, name, price, treatment] of [
+  for (const [
+    code,
+    name,
+    price,
+    treatment,
+  ] of /** @type {[string,string,number,string][]} */ ([
     ["REF-VAT39", "Frozen nuggets 39", 3900, "vatable"],
     ["REF-EXM112", "Exempt item 112", 11200, "exempt"],
-  ]) {
+  ])) {
     await ingestMaster(
       h.db,
       sampleMaster("material", code, {
@@ -234,10 +250,16 @@ beforeAll(async () => {
       }),
     );
   }
-  await ingestMaster(h.db, sampleMasters.find((m) => m.kind === "customer"));
+  await ingestMaster(
+    h.db,
+    sampleMasters.find((m) => m.kind === "customer"),
+  );
   productA = (await h.db`select id from products where code='REF-VAT39'`)[0].id;
-  productB = (await h.db`select id from products where code='REF-EXM112'`)[0].id;
-  const customer = (await h.db`select id from customers where code='MOCK-C1'`)[0].id;
+  productB = (await h.db`select id from products where code='REF-EXM112'`)[0]
+    .id;
+  const customer = (
+    await h.db`select id from customers where code='MOCK-C1'`
+  )[0].id;
   await h.db`insert into outlets(id,organization_id,code,name,status,custodian_org_unit_id,channel,created_by) values(${outlet},'sunpride','STORE','Sample store','active',${unit},'gt',${seller.userId})`;
   await h.db`insert into outlet_customer_links(outlet_id,customer_id,source,effective_from,actor_subject,reason) values(${outlet},${customer},'sample',now()-interval '1 day','fixture','fixture')`;
   await h.db`insert into inventory_locations(id,organization_id,org_unit_id,site_code,code,name,type,active,allows_picking,allows_receiving,allows_sale,allows_production) values(${location},'sunpride',${unit},'CEBU','STORE','STORE','store',true,true,true,true,false)`;
@@ -360,7 +382,8 @@ test("a refund of one piece pays back its share, restocks it, lowers the till's 
   const before = await stock(productA);
   first = await refundOp(saleId, VAT("1"), "RF-CHANGED-MIND", "3900");
   await push(first);
-  const [r] = await h.db`select * from sale_refunds where id=${first.clientOpId}`;
+  const [r] =
+    await h.db`select * from sale_refunds where id=${first.clientOpId}`;
   expect(r).toMatchObject({
     surface: "store",
     sale_id: saleId,
@@ -403,7 +426,8 @@ test("a refund of one piece pays back its share, restocks it, lowers the till's 
   expect(model.totals.totalDueMinor).toBe("3900");
   expect(model.totals.vatMinor).toBe("418");
   // the original sale and its receipt are untouched
-  const [again] = await h.db`select receipt from store_sales where id=${saleId}`;
+  const [again] =
+    await h.db`select receipt from store_sales where id=${saleId}`;
   expect(again.receipt).toEqual(sale.receipt);
   // canonical credit order keeps analytics net of the refund
   const [order] =
@@ -413,14 +437,19 @@ test("a refund of one piece pays back its share, restocks it, lowers the till's 
   // stock card shows it as a customer return
   const [mv] =
     await h.db`select movement_type,source_type from inventory_movements where id=${r.movement_id}`;
-  expect(mv).toMatchObject({ movement_type: "pos_return", source_type: "store_refund" });
+  expect(mv).toMatchObject({
+    movement_type: "pos_return",
+    source_type: "store_refund",
+  });
 });
 
 test("a replay of the same refund changes nothing", async () => {
   const dup = await send(first);
   expect(dup.status).toBe("duplicate");
   expect(
-    (await h.db`select count(*)::int as n from sale_refunds where sale_id=${saleId}`)[0].n,
+    (
+      await h.db`select count(*)::int as n from sale_refunds where sale_id=${saleId}`
+    )[0].n,
   ).toBe(1);
 });
 
@@ -436,7 +465,9 @@ test("quantity is capped at sold minus already refunded, and a wrong amount or r
   const noNote = await refundOp(saleId, VAT("1"), "RF-QUALITY", "3900");
   expect((await send(noNote)).status).toBe("rejected");
   expect(
-    (await h.db`select count(*)::int as n from sale_refunds where sale_id=${saleId}`)[0].n,
+    (
+      await h.db`select count(*)::int as n from sale_refunds where sale_id=${saleId}`
+    )[0].n,
   ).toBe(1);
 });
 
@@ -459,7 +490,11 @@ test("above the supervisor amount a refund needs a matching supervisor PIN proof
   // the override is on the log for the office
   const [o] =
     await h.db`select kind,amount_centavos::text as amount,supervisor_profile_id from store_overrides where ref_id=${good.clientOpId}`;
-  expect(o).toMatchObject({ kind: "refund", amount: "3900", supervisor_profile_id: boss.profile.id });
+  expect(o).toMatchObject({
+    kind: "refund",
+    amount: "3900",
+    supervisor_profile_id: boss.profile.id,
+  });
   await h.db`update refund_policies set supervisor_over_centavos=50000 where organization_id='sunpride'`;
 });
 
@@ -475,7 +510,10 @@ test("the last line comes back cash first, then GCash; the refunds add up to the
     { method: "gcash", label: "gcash", amountCentavos: "4000" },
   ]);
   const sum = (/** @type {string} */ k) =>
-    refunds.reduce((/** @type {bigint} */ n, /** @type {any} */ r) => n + BigInt(r.tax[k]), 0n);
+    refunds.reduce(
+      (/** @type {bigint} */ n, /** @type {any} */ r) => n + BigInt(r.tax[k]),
+      0n,
+    );
   for (const k of [
     "totalMinor",
     "vatableSalesMinor",
@@ -503,7 +541,9 @@ test("the X reading counts the refunds and their credit memo range", async () =>
     beginning: `${cmPrefix}-000000001`,
     ending: `${cmPrefix}-000000003`,
   });
-  expect(model.journal.filter((/** @type {any} */ j) => j.kind === "refund")).toHaveLength(3);
+  expect(
+    model.journal.filter((/** @type {any} */ j) => j.kind === "refund"),
+  ).toHaveLength(3);
 });
 
 test("a senior sale refunds proportionally: discount, VAT removed and VAT-exempt buckets add back to the original", async () => {
@@ -537,7 +577,9 @@ test("a senior sale refunds proportionally: discount, VAT removed and VAT-exempt
   await push(await refundOp(id, VAT("1"), "RF-CHANGED-MIND", "2785"));
   const refunds =
     await h.db`select * from sale_refunds where sale_id=${id} order by refunded_at,created_at`;
-  expect(refunds.map((/** @type {any} */ r) => String(r.total_centavos))).toEqual(["2786", "2785"]);
+  expect(
+    refunds.map((/** @type {any} */ r) => String(r.total_centavos)),
+  ).toEqual(["2786", "2785"]);
   expect(refunds[0].tax).toMatchObject({
     vatExemptMinor: "3482",
     privilegeDiscountMinor: "697",
@@ -555,23 +597,32 @@ test("a senior sale refunds proportionally: discount, VAT removed and VAT-exempt
   ])
     expect(
       String(
-        refunds.reduce((/** @type {bigint} */ n, /** @type {any} */ r) => n + BigInt(r.tax[k]), 0n),
+        refunds.reduce(
+          (/** @type {bigint} */ n, /** @type {any} */ r) =>
+            n + BigInt(r.tax[k]),
+          0n,
+        ),
       ),
     ).toBe(String(BigInt(sale.receipt.tax[k])));
   // the credit memo keeps the holder, so the SC/PWD book can show the return
   const [doc] =
     await h.db`select snapshot from fiscal_documents where source_id=${refunds[0].id}`;
-  expect(doc.snapshot.discountClaim).toMatchObject({ type: "senior", idNumber: "SC-2026-004411" });
+  expect(doc.snapshot.discountClaim).toMatchObject({
+    type: "senior",
+    idNumber: "SC-2026-004411",
+  });
 });
 
 test("a sale that was partly refunded can no longer be voided or refunded whole", async () => {
   const id = await bigSale();
   await push(await refundOp(id, VAT("1"), "RF-CHANGED-MIND", "3900"));
   expect(
-    (await send(op("store.void", { saleId: id, reason: "SAMPLE void" }))).status,
+    (await send(op("store.void", { saleId: id, reason: "SAMPLE void" })))
+      .status,
   ).toBe("rejected");
   expect(
-    (await send(op("store.refund", { saleId: id, reason: "SAMPLE whole" }))).status,
+    (await send(op("store.refund", { saleId: id, reason: "SAMPLE whole" })))
+      .status,
   ).toBe("rejected");
 });
 
@@ -581,8 +632,12 @@ test("a sale already under a whole-sale refund cannot be refunded by item, and t
   await push(request);
   const part = await refundOp(id, VAT("1"), "RF-CHANGED-MIND", "3900");
   expect((await send(part)).status).toBe("rejected");
-  await web("reversals/decide", { id: request.clientOpId, decision: "approved" });
-  const [r] = await h.db`select status from store_reversals where id=${request.clientOpId}`;
+  await web("reversals/decide", {
+    id: request.clientOpId,
+    decision: "approved",
+  });
+  const [r] =
+    await h.db`select status from store_reversals where id=${request.clientOpId}`;
   expect(r.status).toBe("approved");
 });
 
@@ -591,4 +646,52 @@ test("a partial refund after the session closed is refused", async () => {
   await push(op("store.shift.close", { declaredCentavos: "10000" }));
   const part = await refundOp(id, VAT("1"), "RF-CHANGED-MIND", "3900");
   expect((await send(part)).status).toBe("rejected");
+});
+
+test("the store bundle carries refunds, reasons and the credit-memo range only for a phone that asks", async () => {
+  const [m] =
+    await h.db`select * from pos_device_modes where device_id=${seller.deviceId} and effective_to is null`;
+  const device = { id: seller.deviceId };
+  /** @type {any} */ const old = await modeBundle(h.db, actor, device, m, {
+    taxFacts: true,
+  });
+  expect(old.refunds).toBeUndefined();
+  expect(
+    old.fiscal.ranges.map((/** @type {any} */ x) => x.documentType),
+  ).toEqual(["sales_invoice"]);
+  /** @type {any} */ const nu = await modeBundle(h.db, actor, device, m, {
+    taxFacts: true,
+    refunds: true,
+  });
+  expect(
+    nu.fiscal.ranges.map((/** @type {any} */ x) => x.documentType).sort(),
+  ).toEqual(["credit_memo", "sales_invoice"]);
+  expect(nu.refunds.supervisorOverMinor).toBe("50000");
+  expect(nu.refunds.reasons).toHaveLength(5);
+  expect(
+    nu.refunds.reasons.find((/** @type {any} */ x) => x.code === "RF-QUALITY"),
+  ).toMatchObject({ destination: "damaged", requiresNote: true });
+  // refunds already made on recent sales, per receipt line, so the phone shows "already refunded"
+  expect(nu.refunds.made.length).toBeGreaterThan(5);
+  const mine = nu.refunds.made.find(
+    (/** @type {any} */ x) => x.id === first.clientOpId,
+  );
+  expect(mine).toMatchObject({
+    saleId,
+    totalMinor: "3900",
+    lines: [{ lineIndex: 0, quantityBase: "1", amountCentavos: "3900" }],
+  });
+});
+
+test("the Z reading freezes the refund count, total and credit memo range for the whole day", async () => {
+  const [day] =
+    await h.db`select id from store_till_days where register_id=${register} and status<>'z_done'`;
+  await web(`days/${day.id}/z`, {});
+  const [z] =
+    await h.db`select refunds_count,refunds_centavos::text as total,beginning_refund,ending_refund from store_z_readings where till_day_id=${day.id}`;
+  // 3 refunds of the first sale (19,000), 2 of the senior sale (5,571), 1 of the next (3,900), and one whole-sale refund (19,000)
+  expect(z.refunds_count).toBe(7);
+  expect(z.total).toBe(String(19000 + 5571 + 3900 + 19000));
+  expect(z.beginning_refund).toBe(`${cmPrefix}-000000001`);
+  expect(z.ending_refund).toMatch(/^REF-CM-0000000\d\d$/);
 });

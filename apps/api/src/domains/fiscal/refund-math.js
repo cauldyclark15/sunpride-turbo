@@ -49,9 +49,7 @@ export function saleLines(receipt) {
       promo: van
         ? big(l.discountMinor)
         : big(l.promoDiscountCentavos ?? l.discountCentavos),
-      unitPrice: String(
-        (van ? l.unitPriceMinor : l.unitPriceCentavos) ?? "0",
-      ),
+      unitPrice: String((van ? l.unitPriceMinor : l.unitPriceCentavos) ?? "0"),
       raw: l,
     };
   });
@@ -98,8 +96,7 @@ export function planRefund({ receipt, prior = new Map(), picks }) {
     const line = lines[pick.lineIndex];
     if (!line || !Number.isInteger(pick.lineIndex))
       refuse("That item is not on the original receipt");
-    if (seen.has(pick.lineIndex))
-      refuse("Each item appears once in a refund");
+    if (seen.has(pick.lineIndex)) refuse("Each item appears once in a refund");
     seen.add(pick.lineIndex);
     if (pick.productId !== undefined && pick.productId !== line.productId)
       refuse("That item is not on the original receipt");
@@ -121,12 +118,7 @@ export function planRefund({ receipt, prior = new Map(), picks }) {
       linePriv = 0n;
     if (tl) {
       lineVat = share(big(tl.vatMinor), done, q, line.quantityBase);
-      lineRemoved = share(
-        big(tl.vatRemovedMinor),
-        done,
-        q,
-        line.quantityBase,
-      );
+      lineRemoved = share(big(tl.vatRemovedMinor), done, q, line.quantityBase);
       linePriv = share(
         big(tl.privilegeDiscountMinor),
         done,
@@ -156,12 +148,7 @@ export function planRefund({ receipt, prior = new Map(), picks }) {
     // exactly half of what the invoice showed; without line facts it is the refund plus its privilege discount.
     const bucketAmount =
       tl && tl.netMinor !== undefined
-        ? share(
-            big(tl.netMinor) + big(tl.vatMinor),
-            done,
-            q,
-            line.quantityBase,
-          )
+        ? share(big(tl.netMinor) + big(tl.vatMinor), done, q, line.quantityBase)
         : amount + linePriv;
     if (lineBucket !== "vatable") lineVat = 0n;
     if (lineVat > bucketAmount) lineVat = bucketAmount;

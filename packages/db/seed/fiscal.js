@@ -193,7 +193,10 @@ export async function seedRefundSeries(db) {
       await t`insert into fiscal_series(id,registration_id,vehicle_id,prefix,first_serial,last_serial,next_allocate,effective_from)
      values(${seriesId},${id},null,${`SAMPLE-${String(u.code)
        .toUpperCase()
-       .replace(/[^A-Z0-9-]/g, "-")}-STORE-CM`},1,999999,1,'2026-01-01') on conflict(id) do nothing`;
+       .replace(
+         /[^A-Z0-9-]/g,
+         "-",
+       )}-STORE-CM`},1,999999,1,'2026-01-01') on conflict(id) do nothing`;
       for (const [table, row] of [
         ["fiscal_registrations", id],
         ["fiscal_series", seriesId],
@@ -214,7 +217,10 @@ export async function seedRefundSeries(db) {
       await t`insert into fiscal_series(id,registration_id,vehicle_id,prefix,first_serial,last_serial,next_allocate,effective_from)
      values(${seriesId},${id},${v.id},${`SAMPLE-${String(v.vehicle_code)
        .toUpperCase()
-       .replace(/[^A-Z0-9-]/g, "-")}-CM`},1,999999,1,'2026-01-01') on conflict(id) do nothing`;
+       .replace(
+         /[^A-Z0-9-]/g,
+         "-",
+       )}-CM`},1,999999,1,'2026-01-01') on conflict(id) do nothing`;
       for (const [table, row] of [
         ["fiscal_registrations", id],
         ["fiscal_series", seriesId],

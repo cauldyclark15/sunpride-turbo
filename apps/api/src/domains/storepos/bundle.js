@@ -194,7 +194,8 @@ export async function sellingBundle(db, actor, device, r, opts = {}) {
 async function recentRefunds(db, registerId) {
   const rows =
     await db`select r.id,r.sale_id,r.credit_number,r.total_centavos::text as total,r.tenders,r.refunded_at,r.reason_code,(select coalesce(jsonb_agg(jsonb_build_object('lineIndex',l.line_index,'quantityBase',l.quantity_base::text,'amountCentavos',l.amount_centavos::text) order by l.line_index),'[]'::jsonb) from sale_refund_lines l where l.refund_id=r.id) as lines from sale_refunds r join store_shifts h on h.id=r.shift_id where h.register_id=${registerId} and r.refunded_at>=now()-interval '8 days' order by r.refunded_at desc limit 501`;
-  if (rows.length > 500) refuse("Refund cache exceeds 500 refunds; reconcile the terminal");
+  if (rows.length > 500)
+    refuse("Refund cache exceeds 500 refunds; reconcile the terminal");
   return rows.map((/** @type {any} */ x) => ({
     id: x.id,
     saleId: x.sale_id,

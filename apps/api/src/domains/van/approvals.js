@@ -109,7 +109,9 @@ export function approvalFacts(kind, p) {
   if (kind === "refund") {
     const n = Number(p.refundNumber);
     if (!Number.isInteger(n) || n < 1 || n > 1000)
-      throw invalid("Enter which refund of this receipt this is (1 for the first)");
+      throw invalid(
+        "Enter which refund of this receipt this is (1 for the first)",
+      );
     const reasonCode = text(p.reasonCode, 40, true);
     if (!/^[A-Za-z0-9][A-Za-z0-9_-]{1,39}$/.test(reasonCode ?? ""))
       throw invalid("Enter the refund reason code");
@@ -153,10 +155,9 @@ export async function issueApproval(db, actor, env, kind, input) {
     const tripNumber = byReceipt
       ? /^(.+)-[0-9A-F]{8}-\d{4,9}$/.exec(input.receiptNumber)?.[1]
       : input.tripNumber;
-    const [r] =
-      byReceipt
-        ? await db`select t.id from van_trips t join van_sales s on s.trip_id=t.id where s.receipt_number=${input.receiptNumber} and t.deleted_at is null`
-        : await db`select id from van_trips where trip_number=${tripNumber ?? ""} and deleted_at is null`;
+    const [r] = byReceipt
+      ? await db`select t.id from van_trips t join van_sales s on s.trip_id=t.id where s.receipt_number=${input.receiptNumber} and t.deleted_at is null`
+      : await db`select id from van_trips where trip_number=${tripNumber ?? ""} and deleted_at is null`;
     tripId = r?.id;
   }
   if (!tripId) throw invalid("No trip matches this reference");

@@ -1059,7 +1059,9 @@ async function voidSale(db, trip, actor, env, p, opId) {
   const [used] =
     await db`select (exists(select 1 from van_sale_voids where sale_id=${id}) or exists(select 1 from van_returns where sale_id=${id}) or exists(select 1 from sale_refunds where sale_id=${id}) or exists(select 1 from van_payments where sale_id=${id} and kind='collection')) as yes`;
   if (used.yes)
-    refuse("This sale has already been voided, returned, refunded or collected");
+    refuse(
+      "This sale has already been voided, returned, refunded or collected",
+    );
   const facts = {
     receiptNumber: s.receipt_number,
     totalMinor: String(s.total_centavos),
