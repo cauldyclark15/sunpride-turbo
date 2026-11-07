@@ -396,8 +396,9 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         check(dao.outboxRows(s,d).none {it.kind=="payment.record" && JSONObject(it.operationJson).getJSONObject("payload").optString("saleId")==saleId}) { "This invoice has a collection; reconcile it with the office before cancellation" }
         // VAN-019 x VAN-021: goods already returned against this sale are back on the truck; voiding the whole sale
         // would put them back a second time. The rest goes through a return instead.
-        if (dao.outboxRows(s,d).any { it.kind == RETURN_KIND &&
-                JSONObject(it.operationJson).getJSONObject("payload").optJSONObject("originalSale")?.optString("saleId") == saleId })
+        if (dao.outboxRows(s,d).any { (it.kind == RETURN_KIND || (it.kind == REFUND_KIND && it.status !in setOf("rejected","conflict"))) &&
+                JSONObject(it.operationJson).getJSONObject("payload").optJSONObject("originalSale")?.optString("saleId") == saleId } ||
+            dao.meta(s,d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)).refunds?.made?.any { m -> m.saleId == saleId } } == true)
             throw VoidRefused(VoidProblem.SALE_HAS_RETURNS)
         val policy = dao.meta(s,d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) } ?: VanPolicy()
         val total = checkNotNull(sale.totalMinor)

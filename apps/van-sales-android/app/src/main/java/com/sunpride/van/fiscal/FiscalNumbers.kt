@@ -11,7 +11,7 @@ object FiscalNumbers {
     data class Issued(val number: String, val allocationId: String, val serial: Long, val registration: JSONObject)
     fun ranges(policy: JSONObject): List<JSONObject> = policy.optJSONObject("fiscal")?.getJSONArray("ranges")?.let { a ->
         (0 until a.length()).map { a.getJSONObject(it) }.also { rows ->
-            require(rows.size <= 2 && rows.map { it.getString("documentType") }.distinct().size == rows.size)
+            require(rows.size <= 3 && rows.map { it.getString("documentType") }.distinct().size == rows.size)
             rows.forEach { r ->
                 UUID.fromString(r.getString("allocationId")); UUID.fromString(r.getString("seriesId"))
                 require(r.getString("firstSerial").toLong() > 0 && r.getString("lastSerial").toLong() >= r.getString("firstSerial").toLong())

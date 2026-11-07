@@ -1,0 +1,875 @@
+{
+  "source": "apps/api/test/refund-math-fixture.js (office maths: fiscal/refund-math.js)",
+  "cases": [
+    {
+      "name": "store: one piece of a promo line",
+      "receipt": {
+        "totalMinor": "35600",
+        "lines": [
+          {
+            "productId": "p1",
+            "description": "Nuggets",
+            "uom": "PC",
+            "quantity": 3,
+            "quantityBase": 3,
+            "unitPriceCentavos": 10000,
+            "lineTotalCentavos": 29000,
+            "discountCentavos": 1000,
+            "promoDiscountCentavos": 1000
+          },
+          {
+            "productId": "p2",
+            "description": "Rice",
+            "uom": "PC",
+            "quantity": 1,
+            "quantityBase": 1,
+            "unitPriceCentavos": 5600,
+            "lineTotalCentavos": 5600,
+            "discountCentavos": 0
+          },
+          {
+            "productId": "p3",
+            "description": "Free gift",
+            "uom": "PC",
+            "quantity": 1,
+            "quantityBase": 1,
+            "unitPriceCentavos": 0,
+            "lineTotalCentavos": 0,
+            "discountCentavos": 0
+          }
+        ],
+        "tax": {
+          "lines": [
+            {
+              "treatment": "vatable",
+              "rateBasisPoints": 1200,
+              "netMinor": "25893",
+              "vatMinor": "3107",
+              "totalMinor": "29000"
+            },
+            {
+              "treatment": "exempt",
+              "rateBasisPoints": 0,
+              "netMinor": "5600",
+              "vatMinor": "0",
+              "totalMinor": "5600"
+            }
+          ],
+          "vatableSalesMinor": "25893",
+          "vatMinor": "3107",
+          "vatExemptMinor": "5600",
+          "zeroRatedMinor": "0",
+          "totalMinor": "34600"
+        }
+      },
+      "prior": {},
+      "picks": {
+        "0": 1
+      },
+      "expected": {
+        "total": "9667",
+        "vatableSalesMinor": "8631",
+        "vatMinor": "1036",
+        "vatExemptMinor": "0",
+        "zeroRatedMinor": "0",
+        "privilegeDiscountMinor": "0",
+        "lines": [
+          {
+            "lineIndex": 0,
+            "amount": "9667",
+            "vat": "1036",
+            "bucket": "vatable",
+            "gross": "10000",
+            "promo": "333",
+            "privilege": "0",
+            "removed": "0",
+            "remaining": "2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "store: two pieces of a line, then the rest of it",
+      "receipt": {
+        "totalMinor": "35600",
+        "lines": [
+          {
+            "productId": "p1",
+            "description": "Nuggets",
+            "uom": "PC",
+            "quantity": 3,
+            "quantityBase": 3,
+            "unitPriceCentavos": 10000,
+            "lineTotalCentavos": 29000,
+            "discountCentavos": 1000,
+            "promoDiscountCentavos": 1000
+          },
+          {
+            "productId": "p2",
+            "description": "Rice",
+            "uom": "PC",
+            "quantity": 1,
+            "quantityBase": 1,
+            "unitPriceCentavos": 5600,
+            "lineTotalCentavos": 5600,
+            "discountCentavos": 0
+          },
+          {
+            "productId": "p3",
+            "description": "Free gift",
+            "uom": "PC",
+            "quantity": 1,
+            "quantityBase": 1,
+            "unitPriceCentavos": 0,
+            "lineTotalCentavos": 0,
+            "discountCentavos": 0
+          }
+        ],
+        "tax": {
+          "lines": [
+            {
+              "treatment": "vatable",
+              "rateBasisPoints": 1200,
+              "netMinor": "25893",
+              "vatMinor": "3107",
+              "totalMinor": "29000"
+            },
+            {
+              "treatment": "exempt",
+              "rateBasisPoints": 0,
+              "netMinor": "5600",
+              "vatMinor": "0",
+              "totalMinor": "5600"
+            }
+          ],
+          "vatableSalesMinor": "25893",
+          "vatMinor": "3107",
+          "vatExemptMinor": "5600",
+          "zeroRatedMinor": "0",
+          "totalMinor": "34600"
+        }
+      },
+      "prior": {
+        "0": 1
+      },
+      "picks": {
+        "0": 2
+      },
+      "expected": {
+        "total": "19333",
+        "vatableSalesMinor": "17262",
+        "vatMinor": "2071",
+        "vatExemptMinor": "0",
+        "zeroRatedMinor": "0",
+        "privilegeDiscountMinor": "0",
+        "lines": [
+          {
+            "lineIndex": 0,
+            "amount": "19333",
+            "vat": "2071",
+            "bucket": "vatable",
+            "gross": "20000",
+            "promo": "667",
+            "privilege": "0",
+            "removed": "0",
+            "remaining": "0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "store: the last piece after two single refunds (cumulative rounding)",
+      "receipt": {
+        "totalMinor": "35600",
+        "lines": [
+          {
+            "productId": "p1",
+            "description": "Nuggets",
+            "uom": "PC",
+            "quantity": 3,
+            "quantityBase": 3,
+            "unitPriceCentavos": 10000,
+            "lineTotalCentavos": 29000,
+            "discountCentavos": 1000,
+            "promoDiscountCentavos": 1000
+          },
+          {
+            "productId": "p2",
+            "description": "Rice",
+            "uom": "PC",
+            "quantity": 1,
+            "quantityBase": 1,
+            "unitPriceCentavos": 5600,
+            "lineTotalCentavos": 5600,
+            "discountCentavos": 0
+          },
+          {
+            "productId": "p3",
+            "description": "Free gift",
+            "uom": "PC",
+            "quantity": 1,
+            "quantityBase": 1,
+            "unitPriceCentavos": 0,
+            "lineTotalCentavos": 0,
+            "discountCentavos": 0
+          }
+        ],
+        "tax": {
+          "lines": [
+            {
+              "treatment": "vatable",
+              "rateBasisPoints": 1200,
+              "netMinor": "25893",
+              "vatMinor": "3107",
+              "totalMinor": "29000"
+            },
+            {
+              "treatment": "exempt",
+              "rateBasisPoints": 0,
+              "netMinor": "5600",
+              "vatMinor": "0",
+              "totalMinor": "5600"
+            }
+          ],
+          "vatableSalesMinor": "25893",
+          "vatMinor": "3107",
+          "vatExemptMinor": "5600",
+          "zeroRatedMinor": "0",
+          "totalMinor": "34600"
+        }
+      },
+      "prior": {
+        "0": 2
+      },
+      "picks": {
+        "0": 1
+      },
+      "expected": {
+        "total": "9667",
+        "vatableSalesMinor": "8631",
+        "vatMinor": "1036",
+        "vatExemptMinor": "0",
+        "zeroRatedMinor": "0",
+        "privilegeDiscountMinor": "0",
+        "lines": [
+          {
+            "lineIndex": 0,
+            "amount": "9667",
+            "vat": "1036",
+            "bucket": "vatable",
+            "gross": "10000",
+            "promo": "333",
+            "privilege": "0",
+            "removed": "0",
+            "remaining": "0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "store: exempt line and the free gift together",
+      "receipt": {
+        "totalMinor": "35600",
+        "lines": [
+          {
+            "productId": "p1",
+            "description": "Nuggets",
+            "uom": "PC",
+            "quantity": 3,
+            "quantityBase": 3,
+            "unitPriceCentavos": 10000,
+            "lineTotalCentavos": 29000,
+            "discountCentavos": 1000,
+            "promoDiscountCentavos": 1000
+          },
+          {
+            "productId": "p2",
+            "description": "Rice",
+            "uom": "PC",
+            "quantity": 1,
+            "quantityBase": 1,
+            "unitPriceCentavos": 5600,
+            "lineTotalCentavos": 5600,
+            "discountCentavos": 0
+          },
+          {
+            "productId": "p3",
+            "description": "Free gift",
+            "uom": "PC",
+            "quantity": 1,
+            "quantityBase": 1,
+            "unitPriceCentavos": 0,
+            "lineTotalCentavos": 0,
+            "discountCentavos": 0
+          }
+        ],
+        "tax": {
+          "lines": [
+            {
+              "treatment": "vatable",
+              "rateBasisPoints": 1200,
+              "netMinor": "25893",
+              "vatMinor": "3107",
+              "totalMinor": "29000"
+            },
+            {
+              "treatment": "exempt",
+              "rateBasisPoints": 0,
+              "netMinor": "5600",
+              "vatMinor": "0",
+              "totalMinor": "5600"
+            }
+          ],
+          "vatableSalesMinor": "25893",
+          "vatMinor": "3107",
+          "vatExemptMinor": "5600",
+          "zeroRatedMinor": "0",
+          "totalMinor": "34600"
+        }
+      },
+      "prior": {},
+      "picks": {
+        "1": 1,
+        "2": 1
+      },
+      "expected": {
+        "total": "5600",
+        "vatableSalesMinor": "0",
+        "vatMinor": "0",
+        "vatExemptMinor": "5600",
+        "zeroRatedMinor": "0",
+        "privilegeDiscountMinor": "0",
+        "lines": [
+          {
+            "lineIndex": 1,
+            "amount": "5600",
+            "vat": "0",
+            "bucket": "exempt",
+            "gross": "5600",
+            "promo": "0",
+            "privilege": "0",
+            "removed": "0",
+            "remaining": "0"
+          },
+          {
+            "lineIndex": 2,
+            "amount": "0",
+            "vat": "0",
+            "bucket": "vatable",
+            "gross": "0",
+            "promo": "0",
+            "privilege": "0",
+            "removed": "0",
+            "remaining": "0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "store: everything at once",
+      "receipt": {
+        "totalMinor": "35600",
+        "lines": [
+          {
+            "productId": "p1",
+            "description": "Nuggets",
+            "uom": "PC",
+            "quantity": 3,
+            "quantityBase": 3,
+            "unitPriceCentavos": 10000,
+            "lineTotalCentavos": 29000,
+            "discountCentavos": 1000,
+            "promoDiscountCentavos": 1000
+          },
+          {
+            "productId": "p2",
+            "description": "Rice",
+            "uom": "PC",
+            "quantity": 1,
+            "quantityBase": 1,
+            "unitPriceCentavos": 5600,
+            "lineTotalCentavos": 5600,
+            "discountCentavos": 0
+          },
+          {
+            "productId": "p3",
+            "description": "Free gift",
+            "uom": "PC",
+            "quantity": 1,
+            "quantityBase": 1,
+            "unitPriceCentavos": 0,
+            "lineTotalCentavos": 0,
+            "discountCentavos": 0
+          }
+        ],
+        "tax": {
+          "lines": [
+            {
+              "treatment": "vatable",
+              "rateBasisPoints": 1200,
+              "netMinor": "25893",
+              "vatMinor": "3107",
+              "totalMinor": "29000"
+            },
+            {
+              "treatment": "exempt",
+              "rateBasisPoints": 0,
+              "netMinor": "5600",
+              "vatMinor": "0",
+              "totalMinor": "5600"
+            }
+          ],
+          "vatableSalesMinor": "25893",
+          "vatMinor": "3107",
+          "vatExemptMinor": "5600",
+          "zeroRatedMinor": "0",
+          "totalMinor": "34600"
+        }
+      },
+      "prior": {},
+      "picks": {
+        "0": 3,
+        "1": 1,
+        "2": 1
+      },
+      "expected": {
+        "total": "34600",
+        "vatableSalesMinor": "25893",
+        "vatMinor": "3107",
+        "vatExemptMinor": "5600",
+        "zeroRatedMinor": "0",
+        "privilegeDiscountMinor": "0",
+        "lines": [
+          {
+            "lineIndex": 0,
+            "amount": "29000",
+            "vat": "3107",
+            "bucket": "vatable",
+            "gross": "30000",
+            "promo": "1000",
+            "privilege": "0",
+            "removed": "0",
+            "remaining": "0"
+          },
+          {
+            "lineIndex": 1,
+            "amount": "5600",
+            "vat": "0",
+            "bucket": "exempt",
+            "gross": "5600",
+            "promo": "0",
+            "privilege": "0",
+            "removed": "0",
+            "remaining": "0"
+          },
+          {
+            "lineIndex": 2,
+            "amount": "0",
+            "vat": "0",
+            "bucket": "vatable",
+            "gross": "0",
+            "promo": "0",
+            "privilege": "0",
+            "removed": "0",
+            "remaining": "0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "van: one of three pieces",
+      "receipt": {
+        "totalMinor": "37575",
+        "lines": [
+          {
+            "productId": "v1",
+            "name": "Frozen nuggets 1kg",
+            "uomCode": "PC",
+            "quantityBase": 3,
+            "unitPriceMinor": "12525",
+            "totalMinor": "37575",
+            "grossMinor": "37575",
+            "discountMinor": "0"
+          }
+        ],
+        "tax": {
+          "lines": [
+            {
+              "treatment": "vatable",
+              "rateBasisPoints": 1200,
+              "netMinor": "33549",
+              "vatMinor": "4026",
+              "totalMinor": "37575"
+            }
+          ],
+          "vatableSalesMinor": "33549",
+          "vatMinor": "4026",
+          "vatExemptMinor": "0",
+          "zeroRatedMinor": "0",
+          "totalMinor": "37575"
+        }
+      },
+      "prior": {},
+      "picks": {
+        "0": 1
+      },
+      "expected": {
+        "total": "12525",
+        "vatableSalesMinor": "11183",
+        "vatMinor": "1342",
+        "vatExemptMinor": "0",
+        "zeroRatedMinor": "0",
+        "privilegeDiscountMinor": "0",
+        "lines": [
+          {
+            "lineIndex": 0,
+            "amount": "12525",
+            "vat": "1342",
+            "bucket": "vatable",
+            "gross": "12525",
+            "promo": "0",
+            "privilege": "0",
+            "removed": "0",
+            "remaining": "2"
+          }
+        ]
+      }
+    },
+    {
+      "name": "van: the last piece after two refunds",
+      "receipt": {
+        "totalMinor": "37575",
+        "lines": [
+          {
+            "productId": "v1",
+            "name": "Frozen nuggets 1kg",
+            "uomCode": "PC",
+            "quantityBase": 3,
+            "unitPriceMinor": "12525",
+            "totalMinor": "37575",
+            "grossMinor": "37575",
+            "discountMinor": "0"
+          }
+        ],
+        "tax": {
+          "lines": [
+            {
+              "treatment": "vatable",
+              "rateBasisPoints": 1200,
+              "netMinor": "33549",
+              "vatMinor": "4026",
+              "totalMinor": "37575"
+            }
+          ],
+          "vatableSalesMinor": "33549",
+          "vatMinor": "4026",
+          "vatExemptMinor": "0",
+          "zeroRatedMinor": "0",
+          "totalMinor": "37575"
+        }
+      },
+      "prior": {
+        "0": 2
+      },
+      "picks": {
+        "0": 1
+      },
+      "expected": {
+        "total": "12525",
+        "vatableSalesMinor": "11183",
+        "vatMinor": "1342",
+        "vatExemptMinor": "0",
+        "zeroRatedMinor": "0",
+        "privilegeDiscountMinor": "0",
+        "lines": [
+          {
+            "lineIndex": 0,
+            "amount": "12525",
+            "vat": "1342",
+            "bucket": "vatable",
+            "gross": "12525",
+            "promo": "0",
+            "privilege": "0",
+            "removed": "0",
+            "remaining": "0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "senior: one piece mirrors the privilege discount and VAT removal",
+      "receipt": {
+        "totalMinor": "8929",
+        "lines": [
+          {
+            "productId": "s1",
+            "description": "Biscuits",
+            "uom": "PC",
+            "quantity": 4,
+            "quantityBase": 4,
+            "unitPriceCentavos": 3125,
+            "lineTotalCentavos": 8929,
+            "discountCentavos": 3571
+          }
+        ],
+        "tax": {
+          "privilegeType": "senior_citizen",
+          "lines": [
+            {
+              "treatment": "vatable",
+              "privilegeType": "senior_citizen",
+              "rateBasisPoints": 1200,
+              "netMinor": "11161",
+              "vatMinor": "1339",
+              "totalMinor": "8929",
+              "privilegeDiscountMinor": "2232",
+              "vatRemovedMinor": "1339"
+            }
+          ],
+          "vatableSalesMinor": "0",
+          "vatMinor": "0",
+          "vatExemptMinor": "11161",
+          "zeroRatedMinor": "0",
+          "totalMinor": "8929",
+          "privilegeDiscountMinor": "2232",
+          "vatRemovedMinor": "1339"
+        }
+      },
+      "prior": {},
+      "picks": {
+        "0": 1
+      },
+      "expected": {
+        "total": "2232",
+        "vatableSalesMinor": "0",
+        "vatMinor": "0",
+        "vatExemptMinor": "3125",
+        "zeroRatedMinor": "0",
+        "privilegeDiscountMinor": "558",
+        "lines": [
+          {
+            "lineIndex": 0,
+            "amount": "2232",
+            "vat": "0",
+            "bucket": "exempt",
+            "gross": "3125",
+            "promo": "893",
+            "privilege": "558",
+            "removed": "335",
+            "remaining": "3"
+          }
+        ]
+      }
+    },
+    {
+      "name": "senior: the last three pieces after one",
+      "receipt": {
+        "totalMinor": "8929",
+        "lines": [
+          {
+            "productId": "s1",
+            "description": "Biscuits",
+            "uom": "PC",
+            "quantity": 4,
+            "quantityBase": 4,
+            "unitPriceCentavos": 3125,
+            "lineTotalCentavos": 8929,
+            "discountCentavos": 3571
+          }
+        ],
+        "tax": {
+          "privilegeType": "senior_citizen",
+          "lines": [
+            {
+              "treatment": "vatable",
+              "privilegeType": "senior_citizen",
+              "rateBasisPoints": 1200,
+              "netMinor": "11161",
+              "vatMinor": "1339",
+              "totalMinor": "8929",
+              "privilegeDiscountMinor": "2232",
+              "vatRemovedMinor": "1339"
+            }
+          ],
+          "vatableSalesMinor": "0",
+          "vatMinor": "0",
+          "vatExemptMinor": "11161",
+          "zeroRatedMinor": "0",
+          "totalMinor": "8929",
+          "privilegeDiscountMinor": "2232",
+          "vatRemovedMinor": "1339"
+        }
+      },
+      "prior": {
+        "0": 1
+      },
+      "picks": {
+        "0": 3
+      },
+      "expected": {
+        "total": "6697",
+        "vatableSalesMinor": "0",
+        "vatMinor": "0",
+        "vatExemptMinor": "9375",
+        "zeroRatedMinor": "0",
+        "privilegeDiscountMinor": "1674",
+        "lines": [
+          {
+            "lineIndex": 0,
+            "amount": "6697",
+            "vat": "0",
+            "bucket": "exempt",
+            "gross": "9375",
+            "promo": "2678",
+            "privilege": "1674",
+            "removed": "1004",
+            "remaining": "0"
+          }
+        ]
+      }
+    },
+    {
+      "name": "old receipt without tax lines: sale mix",
+      "receipt": {
+        "totalMinor": "20000",
+        "lines": [
+          {
+            "productId": "o1",
+            "description": "Soda",
+            "uom": "PC",
+            "quantity": 2,
+            "quantityBase": 2,
+            "lineTotalCentavos": 10000,
+            "discountCentavos": 0
+          },
+          {
+            "productId": "o2",
+            "description": "Chips",
+            "uom": "PC",
+            "quantity": 5,
+            "quantityBase": 5,
+            "lineTotalCentavos": 10000,
+            "discountCentavos": 0
+          }
+        ],
+        "tax": {
+          "vatableSalesMinor": "17857",
+          "vatMinor": "2143",
+          "vatExemptMinor": "0",
+          "zeroRatedMinor": "0",
+          "totalMinor": "20000"
+        }
+      },
+      "prior": {},
+      "picks": {
+        "0": 1,
+        "1": 2
+      },
+      "expected": {
+        "total": "9000",
+        "vatableSalesMinor": "8035",
+        "vatMinor": "965",
+        "vatExemptMinor": "0",
+        "zeroRatedMinor": "0",
+        "privilegeDiscountMinor": "0",
+        "lines": [
+          {
+            "lineIndex": 0,
+            "amount": "5000",
+            "vat": "536",
+            "bucket": "vatable",
+            "gross": "5000",
+            "promo": "0",
+            "privilege": "0",
+            "removed": "0",
+            "remaining": "1"
+          },
+          {
+            "lineIndex": 1,
+            "amount": "4000",
+            "vat": "429",
+            "bucket": "vatable",
+            "gross": "4000",
+            "promo": "0",
+            "privilege": "0",
+            "removed": "0",
+            "remaining": "3"
+          }
+        ]
+      }
+    }
+  ],
+  "tenders": [
+    {
+      "name": "cash only",
+      "tenders": [
+        {
+          "method": "cash",
+          "label": "Cash",
+          "amountCentavos": "10000"
+        }
+      ],
+      "refunded": {},
+      "total": "4000",
+      "expected": [
+        {
+          "method": "cash",
+          "amount": "4000"
+        }
+      ]
+    },
+    {
+      "name": "cash goes first, the rest from the card",
+      "tenders": [
+        {
+          "method": "card",
+          "label": "Card",
+          "amountCentavos": "5000"
+        },
+        {
+          "method": "cash",
+          "label": "Cash",
+          "amountCentavos": "3000"
+        }
+      ],
+      "refunded": {},
+      "total": "6000",
+      "expected": [
+        {
+          "method": "cash",
+          "amount": "3000"
+        },
+        {
+          "method": "card",
+          "amount": "3000"
+        }
+      ]
+    },
+    {
+      "name": "earlier refunds used up the cash",
+      "tenders": [
+        {
+          "method": "cash",
+          "label": "Cash",
+          "amountCentavos": "3000"
+        },
+        {
+          "method": "card",
+          "label": "Card",
+          "amountCentavos": "5000"
+        }
+      ],
+      "refunded": {
+        "cash": "3000",
+        "card": "1000"
+      },
+      "total": "2500",
+      "expected": [
+        {
+          "method": "card",
+          "amount": "2500"
+        }
+      ]
+    }
+  ]
+}

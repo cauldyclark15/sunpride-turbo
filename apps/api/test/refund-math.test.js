@@ -304,3 +304,26 @@ test("a refund needs a supervisor only above the policy amount", () => {
   expect(needsSupervisor(50000n, "50000")).toBe(false);
   expect(needsSupervisor(50001n, 50000n)).toBe(true);
 });
+
+test("the shared cases the phone also answers (fixtures/refund-math-cases.json) are what this maths gives", async () => {
+  const { readFileSync } = await import("node:fs");
+  const { cases, tenders } = await import("./refund-math-fixture.js");
+  const file = JSON.parse(
+    readFileSync(new URL("./fixtures/refund-math-cases.json", import.meta.url), "utf8"),
+  );
+  // a change to the maths fails here until the fixture is regenerated (bun test/refund-math-fixture.js) AND the phone's
+  // RefundMathTest passes against it
+  expect(file.cases).toEqual(JSON.parse(JSON.stringify(cases)));
+  expect(file.tenders).toEqual(JSON.parse(JSON.stringify(tenders)));
+  expect(file.cases.length).toBeGreaterThanOrEqual(10);
+});
+
+test("a refund approval code is the 8 digits the phone's RefundApprovalCodes also computes (literal shared with RefundMathTest.kt)", async () => {
+  const { approvalCodeFor, approvalMessage } = await import("../src/domains/van/approvals.js");
+  const key = "A".repeat(43);
+  const facts = { receiptNumber: "R-1", totalMinor: "12525", reasonCode: "RF-DAMAGED", refundNumber: 2 };
+  expect(approvalCodeFor(key, approvalMessage("refund", "trip-1", facts))).toBe("46253550");
+  // every fact is bound
+  for (const other of [{ refundNumber: 3 }, { totalMinor: "12526" }, { reasonCode: "RF-QUALITY" }, { receiptNumber: "R-2" }])
+    expect(approvalCodeFor(key, approvalMessage("refund", "trip-1", { ...facts, ...other }))).not.toBe("46253550");
+});

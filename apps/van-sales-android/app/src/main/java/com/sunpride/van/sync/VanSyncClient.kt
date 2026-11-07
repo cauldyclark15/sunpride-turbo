@@ -65,7 +65,7 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
         // The server deliberately refuses van deltas. A complete, bounded snapshot is required every cycle.
         val request = envelope().put("since",JSONObject.NULL).put("pageCursor",JSONObject.NULL).put("limit",100)
             .put("scopes",JSONArray().put(JSONObject().put("scopeId",identity.scopeId).put("projection","van.bundle")
-                .put("params",JSONObject().put("serviceDate",day).put("catalogue",true).put("schemeEngine",1).put("posMode",true).put("handheld",true).put("vanDay",true).put("categories",true))))
+                .put("params",JSONObject().put("serviceDate",day).put("catalogue",true).put("schemeEngine",1).put("posMode",true).put("handheld",true).put("vanDay",true).put("categories",true).put("refunds",true))))
         val response = JSONObject(send(PULL,request.toString().toByteArray()))
         val local = V2VanCodec.snapshot(response,identity,clock())
         tripId = local.optJSONObject("trip")?.getString("tripId")
@@ -138,7 +138,7 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
 }
 
 object V2VanCodec {
-    val BUSINESS_OPS = setOf("load.accept","crew.switch","payment.record","delivery.confirm","delivery.timing","availability.record","availability.proposal","fiscal.print","trip.start","load.confirm","truck.damage","sale.record","sale.void","return.record","cash.reconcile","stock.reconcile","trip.close","call.start","call.step","call.close") + com.sunpride.van.storage.RouteOpsStore.KINDS + com.sunpride.van.storepos.StorePosStore.KINDS
+    val BUSINESS_OPS = setOf("load.accept","crew.switch","payment.record","delivery.confirm","delivery.timing","availability.record","availability.proposal","fiscal.print","trip.start","load.confirm","truck.damage","sale.record","sale.void","return.record","refund.record","cash.reconcile","stock.reconcile","trip.close","call.start","call.step","call.close") + com.sunpride.van.storage.RouteOpsStore.KINDS + com.sunpride.van.storepos.StorePosStore.KINDS
     fun operation(row: OutboxRow): JSONObject {
         require(row.kind in BUSINESS_OPS)
         val old = JSONObject(row.operationJson)

@@ -144,6 +144,23 @@ export async function vanRefund(db, trip, actor, env, p, opId) {
     prior.byMethod,
     plan.total,
   );
+  // The phone says where it thinks the money goes (it lowers its own expected cash by the cash part); the two must agree.
+  if (Array.isArray(p.tenders)) {
+    const mine = canonicalJson(
+      tenders.map((t) => ({ method: t.method, amountCentavos: String(t.amountCentavos) })),
+    );
+    const theirs = canonicalJson(
+      p.tenders.map((/** @type {any} */ t) => ({
+        method: t?.method,
+        amountCentavos: String(t?.amountCentavos),
+      })),
+    );
+    if (mine !== theirs)
+      refuse(
+        "The refund amount changed. Check the items and try again.",
+        "stock_conflict",
+      );
+  }
   const [registration] =
     await db`select r.org_unit_id from fiscal_allocations a join fiscal_series s on s.id=a.series_id join fiscal_registrations r on r.id=s.registration_id where a.id=${uuid(p.fiscal?.allocationId)}`;
   if (!registration || registration.org_unit_id !== trip.org_unit_id)

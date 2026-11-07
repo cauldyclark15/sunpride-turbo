@@ -130,7 +130,7 @@ object VanRules {
         com.sunpride.van.pos.VoidProblem.NOT_THIS_TRIP -> "Only sales from this trip can be voided on this phone. Ask the office."
         com.sunpride.van.pos.VoidProblem.HELD -> "Sign in and sync before voiding a sale."
         com.sunpride.van.pos.VoidProblem.ALREADY_VOIDED -> "This sale is already voided."
-        com.sunpride.van.pos.VoidProblem.SALE_HAS_RETURNS -> "Goods from this sale were already returned, so it cannot be voided. Record a return for the rest."
+        com.sunpride.van.pos.VoidProblem.SALE_HAS_RETURNS -> "Part of this sale was already returned or refunded, so it cannot be voided. Refund the items that are left instead."
         com.sunpride.van.pos.VoidProblem.REASON_REQUIRED -> "Choose why you are voiding this sale."
         com.sunpride.van.pos.VoidProblem.NOTE_REQUIRED -> "Explain why you are voiding this sale."
         com.sunpride.van.pos.VoidProblem.NOTE_INVALID -> "Use plain text for the note (300 characters at most)."

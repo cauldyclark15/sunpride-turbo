@@ -39,12 +39,13 @@ object SyncHealth {
     /** Most recent items listed on the status screen; the counts always cover every row. */
     const val MAX_ITEMS = 50
     /** Van kinds that become an SAP document or stock/cash posting once van SAP posting is switched on. */
-    val SAP_KINDS = setOf("sale.record", "sale.void", "return.record", "cash.reconcile", "load.confirm", "truck.damage")
+    val SAP_KINDS = setOf("sale.record", "sale.void", "return.record", "refund.record", "cash.reconcile", "load.confirm", "truck.damage")
 
     fun title(kind: String): String = when (kind) {
         "sale.record" -> "Sale"
         "sale.void" -> "Cancelled sale"
         "return.record" -> "Customer return"
+        "refund.record", "store.refund.part" -> "Item refund"
         "stock.reconcile" -> "Stock count"
         "trip.close" -> "Trip close"
         "cash.reconcile" -> "Cash count"
