@@ -121,6 +121,15 @@ describe("reason codes", () => {
         .direction,
     ).toBe("both");
   });
+  it("IP-REFUND: reasons only a customer refund uses are hidden from stock pickers and refused for stock changes, but a refund can list them", async () => {
+    const refundOnly = ["RF-CHANGED-MIND", "RF-DAMAGED", "RF-EXPIRED", "RF-QUALITY", "RF-WRONG-ITEM"];
+    const picker = (await listReasonCodes(h.db, "sunpride", { direction: "in" })).map((r) => r.code);
+    for (const code of refundOnly) expect(picker).not.toContain(code);
+    const asked = (await listReasonCodes(h.db, "sunpride", { refund: true })).map((r) => r.code);
+    for (const code of refundOnly) expect(asked).toContain(code);
+    const e = await requireReason(h.db, "sunpride", "RF-DAMAGED", { direction: "in", note: "x" }).catch((x) => x);
+    expect(e.code).toBe("reason_code_invalid");
+  });
   it("lazily seeds a new organization once and never overwrites edits", async () => {
     expect((await listReasonCodes(h.db, "acme")).length).toBe(10);
     await h.db`update inventory_reason_codes set label='Edited' where organization_id='acme' and code='EXP'`;

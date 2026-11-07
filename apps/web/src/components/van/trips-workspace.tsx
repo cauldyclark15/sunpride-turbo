@@ -9,6 +9,7 @@ import { usePermissions } from "../../lib/auth";
 import { VanCashApproval } from "../van-cash-approval";
 import { VanStockApproval } from "../van-stock-approval";
 import { VanVoidApproval } from "../van-void-approval";
+import { VanRefundApproval } from "../van-refund-approval";
 import { VanDamageApprovals } from "../van-damage-approvals";
 import type { TripSettlement, TripsDay } from "./model";
 import { CashHandIn } from "./cash-hand-in";
@@ -623,6 +624,7 @@ export function VanTripsWorkspace({
           <div className="grid gap-5 print:hidden">
             <VanDamageApprovals />
             <VanVoidApproval />
+            <VanRefundApproval />
             <VanStockApproval />
             <VanCashApproval />
           </div>

@@ -54,6 +54,7 @@ describe("module access mirrors apps/api capabilities.js", () => {
         "van.load.approve",
         "van.damage.approve",
         "van.void.approve",
+        "van.refund.approve",
         "van.cash.approve",
         "van.stock.approve",
       ],

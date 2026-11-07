@@ -35,6 +35,7 @@ Every POST needs `Idempotency-Key`. Payloads below are JSON; UUIDs remain string
 | POST `credit/set`                | `{outletId,effectiveFrom:<epoch-ms>,sourceRef,terms:null                                          | {termsDays,creditLimitMinor}}`           | van.manage at current outlet owner |
 | POST `cash/remit`                | `{tripId,amountMinor,reference}`                                                                  | van.cash.approve; not seller             |
 | POST `void/approval-code`        | `{receiptNumber,totalMinor,reasonCode}`                                                           | van.void.approve; not seller             |
+| POST `refund/approval-code`      | `{receiptNumber,totalMinor,reasonCode,refundNumber}`                                              | van.refund.approve; not seller           |
 | POST `cash/approval-code`        | `{tripNumber,expectedMinor,declaredMinor,reasonCode}`                                             | van.cash.approve; not seller             |
 | POST `stock/approval-code`       | `{tripNumber,countCode,varianceLines,shortBase,overBase}`                                         | van.stock.approve; not seller            |
 

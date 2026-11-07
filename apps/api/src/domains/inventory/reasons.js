@@ -102,13 +102,14 @@ export async function ensureDefaultReasonCodes(db, org) {
 export async function listReasonCodes(
   db,
   org,
-  { category, direction, activeOnly = true, cashKind } = {},
+  { category, direction, activeOnly = true, cashKind, refund = false } = {},
 ) {
   await ensureDefaultReasonCodes(db, org);
-  // Stock pickers never see till cash reasons unless they ask for the cash category (or one cash movement kind).
+  // Stock pickers never see till cash reasons unless they ask for the cash category (or one cash movement kind), nor
+  // the reasons only a customer refund uses (IP-REFUND: `refund_destination` set) unless they ask with `refund`.
   const wantCash = category === "cash" || Boolean(cashKind);
   const rows =
-    await db`select * from inventory_reason_codes where organization_id=${org} and (${activeOnly}::boolean is false or active) and (${category ?? null}::text is null or category=${category ?? null}) and (${wantCash}::boolean or category<>'cash') and (${cashKind ?? null}::text is null or ${cashKind ?? null}=any(cash_kinds)) and (${direction ?? null}::text is null or direction in (${direction ?? null},'both')) order by category,code`;
+    await db`select * from inventory_reason_codes where organization_id=${org} and (${activeOnly}::boolean is false or active) and (${category ?? null}::text is null or category=${category ?? null}) and (${wantCash}::boolean or category<>'cash') and (${refund}::boolean or refund_destination is null) and (${cashKind ?? null}::text is null or ${cashKind ?? null}=any(cash_kinds)) and (${direction ?? null}::text is null or direction in (${direction ?? null},'both')) order by category,code`;
   return rows.map(present);
 }
 
@@ -134,6 +135,8 @@ export async function requireReason(
     !row ||
     !row.active ||
     (row.category === "cash") !== Boolean(cashKind) ||
+    // a refund-only reason is not a stock-adjustment reason: it only works through a refund
+    row.refund_destination ||
     (cashKind && !(row.cash_kinds ?? []).includes(cashKind))
   )
     return invalid("Choose a reason from the list.", "reason_code_invalid");

@@ -40,6 +40,7 @@ import { VanCashApproval } from "./van-cash-approval";
 import { VanDamageApprovals } from "./van-damage-approvals";
 import { VanStockApproval } from "./van-stock-approval";
 import { VanVoidApproval } from "./van-void-approval";
+import { VanRefundApproval } from "./van-refund-approval";
 
 /**
  * The Work and Setup pages (`app/(dashboard)/[module]`). The owner pages have
@@ -203,6 +204,7 @@ function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
             <VanDamageApprovals />
           </PanelErrorBoundary>
           <VanVoidApproval />
+          <VanRefundApproval />
           <VanCashApproval />
           <VanStockApproval />
           <CensusReview />

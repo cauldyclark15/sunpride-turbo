@@ -118,6 +118,7 @@ const EXPECTED = {
   "van.load.approve": ["super_admin", "manager", "approver"],
   "van.damage.approve": ["super_admin", "manager", "approver"],
   "van.void.approve": ["super_admin", "manager", "approver"],
+  "van.refund.approve": ["super_admin", "manager", "approver"],
   "van.cash.approve": ["super_admin", "manager", "approver"],
   "van.stock.approve": ["super_admin", "manager", "approver"],
 };
@@ -152,8 +153,8 @@ async function outcome(p) {
 }
 
 describe("capability table", () => {
-  test("F-209/F-210/F-222/F-613/F-615 and messaging: 65 grants, 8 roles", () => {
-    expect(Object.keys(CAPABILITIES).length).toBe(65);
+  test("F-209/F-210/F-222/F-613/F-615 and messaging: 66 grants, 8 roles", () => {
+    expect(Object.keys(CAPABILITIES).length).toBe(66);
     expect(/** @type {string[]} */ ([...ROLES])).toEqual(A);
     expect(Object.keys(CAPABILITIES).sort()).toEqual(
       Object.keys(EXPECTED).sort(),
@@ -192,7 +193,7 @@ describe("requireCapability matrix", () => {
         }).toEqual({ cap, role, got: want });
         checked++;
       }
-    expect(checked).toBe(65 * 8);
+    expect(checked).toBe(66 * 8);
   });
 
   test("every grant × role with an out-of-scope target: only super_admin and analyst bypass", async () => {

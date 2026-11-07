@@ -22,6 +22,7 @@ vi.mock("../../lib/auth", () => ({
 vi.mock("../van-cash-approval", () => ({ VanCashApproval: () => null }));
 vi.mock("../van-stock-approval", () => ({ VanStockApproval: () => null }));
 vi.mock("../van-void-approval", () => ({ VanVoidApproval: () => null }));
+vi.mock("../van-refund-approval", () => ({ VanRefundApproval: () => null }));
 vi.mock("../van-damage-approvals", () => ({ VanDamageApprovals: () => null }));
 vi.mock("@heroui/react", () => ({
   Button: ({ children }: { children: React.ReactNode }) =>
