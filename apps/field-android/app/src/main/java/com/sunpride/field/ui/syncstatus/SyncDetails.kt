@@ -36,7 +36,7 @@ fun manilaTime(time: Long?): String = time?.let { stamp.format(Instant.ofEpochMi
 @Composable
 fun SyncDetails(status: SyncStatus, onDismiss: () -> Unit, onSync: () -> Unit = {},
     busy: Boolean = false, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
+    Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SectionCard("Status") {
@@ -67,9 +67,13 @@ fun SyncDetails(status: SyncStatus, onDismiss: () -> Unit, onSync: () -> Unit = 
 fun SupportDetails(status: SyncStatus, onDismiss: () -> Unit, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val text = SupportInfo(context).text(status)
-    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
-        Text(text, modifier = Modifier.weight(1f).verticalScroll(rememberScrollState())
-            .padding(bottom = 16.dp).testTag("support-text"))
+    Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp)) {
+            com.sunpride.field.ui.SectionCard("For the Sunpride team") {
+                Text(text, style = androidx.compose.material3.MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.padding(16.dp).testTag("support-text"))
+            }
+        }
         androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
         com.sunpride.field.ui.SecondaryButton("Copy support info", onClick = {
             (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)

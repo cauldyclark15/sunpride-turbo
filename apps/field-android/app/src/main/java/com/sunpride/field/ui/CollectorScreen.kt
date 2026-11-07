@@ -63,48 +63,50 @@ object CollectorDraft {
  fun send(payload:JSONObject){scope.launch{c.queueDomain("collections.capture",payload,UUID.randomUUID().toString()).join();message=if(c.error==null)"Saved on this phone, awaiting office acknowledgement."else c.error;data=withContext(Dispatchers.IO){c.domainForms("collections",false)}}}
  fun attempt(block:()->Unit){try{message=null;block()}catch(e:IllegalArgumentException){message=e.message}catch(e:IllegalStateException){message=e.message}}
  Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("collector-agenda"),verticalArrangement=Arrangement.spacedBy(10.dp)){
-  Text("Collector agenda",style=MaterialTheme.typography.headlineSmall)
-  Text("Your assigned collection stops. Promises and cheque evidence do not reduce SAP AR or certify bank clearance.")
-  OutlinedButton({refresh++},enabled=!loading&&!c.busy){Text(if(loading)"Refreshing…"else"Refresh assigned route")}
-  c.error?.let{Text(it)};message?.let{Text(it)}
+  NoticeCard("Your assigned collection stops. Promises and cheque evidence do not reduce SAP AR or certify bank clearance.")
+  FieldButton({refresh++},Modifier.fillMaxWidth(),enabled=!loading&&!c.busy){Text(if(loading)"Refreshing…"else"Refresh assigned route")}
+  c.error?.let{NoticeCard(it,tone=Look.Tone.BAD)};message?.let{NoticeCard(it)}
   val d=data?.takeIf{it.optLong("authorizationExpiresAt")>now}
-  if(d==null){Text("Connect to verify today's collector assignment. Held or expired data cannot record.");return@Column}
-  Text(d.getString("warning"),style=MaterialTheme.typography.bodySmall)
+  if(d==null){NoticeCard("Connect to verify today's collector assignment. Held or expired data cannot record.",tone=Look.Tone.WARN,glyph=GlyphKind.LOCK);return@Column}
+  Text(d.getString("warning"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
   val stops=rows(d.optJSONArray("stops"));val local=rows(d.optJSONArray("localOperations"))
-  Text("${stops.size} stops · ${local.count{it.getString("state") in setOf("pending","sending")}} queued · ${local.count{it.getString("state") in setOf("review","held")}} need reconciliation")
+  Text("${stops.size} stops · ${local.count{it.getString("state") in setOf("pending","sending")}} queued · ${local.count{it.getString("state") in setOf("review","held")}} need reconciliation",style=MaterialTheme.typography.titleSmall)
   val shown=page.coerceIn(0,maxOf(0,(stops.size-1)/6))
   for(s in stops.drop(shown*6).take(6)){
-   OutlinedButton({selected=s.getString("customerCode")},enabled=!c.busy){Text("${s.getInt("sequence")}. ${s.getString("name")} · ${s.getString("reason").replace('_',' ')}")}
+   ChoiceRow("${s.getInt("sequence")}. ${s.getString("name")} · ${s.getString("reason").replace('_',' ')}",selected==s.getString("customerCode"),{selected=s.getString("customerCode")},enabled=!c.busy)
    val index=stops.indexOf(s)
    if(index>0)TextButton({val order=stops.map{it.getString("customerCode")}.toMutableList();java.util.Collections.swap(order,index,index-1);send(JSONObject().put("action","route.order").put("serviceDate",d.getString("serviceDate")).put("customerCodes",JSONArray(order)))},enabled=!c.busy&&local.none{it.getString("state") in setOf("pending","sending")}){Text("Visit before previous stop")}
   }
-  if(stops.size>6)Row{OutlinedButton({page=shown-1},enabled=shown>0){Text("Previous stops")};OutlinedButton({page=shown+1},enabled=(shown+1)*6<stops.size){Text("Next stops")}}
-  if(stops.isEmpty())Text("No collection route assigned for today. The office plans it in Money.")
+  if(stops.size>6)Row{FieldButton({page=shown-1},enabled=shown>0){Text("Previous stops")};FieldButton({page=shown+1},enabled=(shown+1)*6<stops.size){Text("Next stops")}}
+  if(stops.isEmpty())EmptyState("No stops today","No collection route assigned for today. The office plans it in Money.",GlyphKind.ROUTE)
   val s=stops.firstOrNull{it.getString("customerCode")==selected}?:return@Column
   val code=s.getString("customerCode");val day=d.getString("serviceDate")
+  HorizontalDivider(color=Look.hairline)
   Text(s.getString("name"),style=MaterialTheme.typography.titleLarge)
   val ar=s.optJSONObject("ar")
-  Text(ar?.getString("source")?:"AR unknown: no current replicated open item. This does not mean paid.")
-  if(ar!=null)Text("${ar.getString("freshness")} · source day ${ar.getString("asOfDate")}",style=MaterialTheme.typography.bodySmall)
-  for(i in rows(ar?.optJSONArray("items")))OutlinedButton({item=i.getString("ref")}){Text((if(item==i.getString("ref"))"✓ "else"")+i.optString("documentNumber","Open item")+" · due "+i.getString("dueDate")+" · ₱"+BigDecimal.valueOf(i.getLong("remainingMinor"),2).toPlainString())}
-  @Composable fun field(label:String,value:String,edit:(String)->Unit){OutlinedTextField(value,edit,label={Text(label)},modifier=Modifier.fillMaxWidth())}
+  Text(ar?.getString("source")?:"AR unknown: no current replicated open item. This does not mean paid.",style=MaterialTheme.typography.bodyMedium)
+  if(ar!=null)Text("${ar.getString("freshness")} · source day ${ar.getString("asOfDate")}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+  Text("Promise to pay",style=MaterialTheme.typography.titleMedium)
+  for(i in rows(ar?.optJSONArray("items")))ChoiceRow(i.optString("documentNumber","Open item")+" · due "+i.getString("dueDate")+" · ₱"+BigDecimal.valueOf(i.getLong("remainingMinor"),2).toPlainString(),item==i.getString("ref"),{item=i.getString("ref")})
+  @Composable fun field(label:String,value:String,edit:(String)->Unit){FieldTextField(value,edit,label={Text(label)},modifier=Modifier.fillMaxWidth())}
   field("Amount · pesos",amount,{amount=it});field("Promise / cheque day · YYYY-MM-DD",date,{date=it})
   field("Capture / bank-notice evidence note",note,{note=it})
-  OutlinedButton({attempt{java.time.LocalDate.parse(date);require(note.trim().isNotEmpty()){ "Write the promise evidence note" };val p=CollectorDraft.payload("promise",day,code,note).put("amountMinor",CollectorDraft.minor(amount)).put("promisedOn",date).put("openItemRef",checkNotNull(item)).put("sourceHash",checkNotNull(ar).getString("sourceHash"));send(p)}},enabled=!c.busy&&item!=null&&ar!=null){Text("Save promise to pay on phone")}
+  FieldButton({attempt{java.time.LocalDate.parse(date);require(note.trim().isNotEmpty()){ "Write the promise evidence note" };val p=CollectorDraft.payload("promise",day,code,note).put("amountMinor",CollectorDraft.minor(amount)).put("promisedOn",date).put("openItemRef",checkNotNull(item)).put("sourceHash",checkNotNull(ar).getString("sourceHash"));send(p)}},enabled=!c.busy&&item!=null&&ar!=null,primary=true){Text("Save promise to pay on phone")}
+  HorizontalDivider(color=Look.hairline)
   Text("Cheque custody & bank-notice tracking",style=MaterialTheme.typography.titleMedium)
   field("Bank",bank,{bank=it});field("Cheque number",number,{number=it})
-  OutlinedButton({attempt{cameraTicket=Triple(c.sapMasterLifetime(),selected,com.sunpride.field.sync.DomainOutbox.ticket());camera.launch(null)}},enabled=!c.busy){Text(if(photo==null)"Capture cheque / bank-notice photo"else"Retake evidence photo")}
-  if(photo!=null)Text("Bounded JPEG retained with the encrypted form. It is sent only when this capture is saved.")
-  for(q in rows(s.optJSONArray("cheques")).filter{it.getString("status")=="bounced"})OutlinedButton({replacement=q.getString("id")}){Text((if(replacement==q.getString("id"))"✓ "else"")+"Replace bounced ${q.getString("bank")} ${q.getString("chequeNumber")}")}
+  FieldButton({attempt{cameraTicket=Triple(c.sapMasterLifetime(),selected,com.sunpride.field.sync.DomainOutbox.ticket());camera.launch(null)}},enabled=!c.busy){Text(if(photo==null)"Capture cheque / bank-notice photo"else"Retake evidence photo")}
+  if(photo!=null)NoticeCard("Bounded JPEG retained with the encrypted form. It is sent only when this capture is saved.",tone=Look.Tone.GOOD,glyph=GlyphKind.CHECK)
+  for(q in rows(s.optJSONArray("cheques")).filter{it.getString("status")=="bounced"})ChoiceRow("Replace bounced ${q.getString("bank")} ${q.getString("chequeNumber")}",replacement==q.getString("id"),{replacement=q.getString("id")})
   if(replacement!=null)TextButton({replacement=null}){Text("Do not link a replacement")}
-  OutlinedButton({attempt{java.time.LocalDate.parse(date);require(note.trim().isNotEmpty()&&bank.trim().isNotEmpty()&&number.trim().isNotEmpty()){ "Write bank, cheque number and capture note" };val p=CollectorDraft.payload("cheque.receive",day,code,note).put("amountMinor",CollectorDraft.minor(amount)).put("chequeDate",date).put("bank",bank.trim()).put("chequeNumber",number.trim()).put("replacesId",replacement).put("photo",photo);send(p)}},enabled=!c.busy){Text("Save cheque pickup on phone")}
+  FieldButton({attempt{java.time.LocalDate.parse(date);require(note.trim().isNotEmpty()&&bank.trim().isNotEmpty()&&number.trim().isNotEmpty()){ "Write bank, cheque number and capture note" };val p=CollectorDraft.payload("cheque.receive",day,code,note).put("amountMinor",CollectorDraft.minor(amount)).put("chequeDate",date).put("bank",bank.trim()).put("chequeNumber",number.trim()).put("replacesId",replacement).put("photo",photo);send(p)}},enabled=!c.busy,primary=true){Text("Save cheque pickup on phone")}
   for(q in rows(s.optJSONArray("cheques"))){
    Text("${q.getString("bank")} ${q.getString("chequeNumber")} · ${q.getString("chequeDate")} · ${q.getString("status")}")
-   if(q.getString("status")=="deposited")OutlinedButton({attempt{require(note.trim().isNotEmpty()){ "Write the bank's bounce reason" };send(CollectorDraft.payload("cheque.bounced",day,code,note).put("chequeId",q.getString("id")).put("photo",photo))}},enabled=!c.busy){Text("Record returned bank notice")}
+   if(q.getString("status")=="deposited")FieldButton({attempt{require(note.trim().isNotEmpty()){ "Write the bank's bounce reason" };send(CollectorDraft.payload("cheque.bounced",day,code,note).put("chequeId",q.getString("id")).put("photo",photo))}},enabled=!c.busy){Text("Record returned bank notice")}
   }
   for(p in rows(s.optJSONArray("promises")))Text("Promise due ${p.getString("promisedOn")} · ₱${BigDecimal.valueOf(p.getLong("amountMinor"),2).toPlainString()} · ${p.getString("note")}")
-  OutlinedButton(c::syncNow,enabled=!c.busy){Text("Sync retained collection work")}
-  Text("A queued or review capture is not an acknowledged collection. Reconcile it before recapturing. Only the office marks deposits/clearance and SAP owns the balance.",style=MaterialTheme.typography.bodySmall)
+  FieldButton(c::syncNow,enabled=!c.busy){Text("Sync retained collection work")}
+  Text("A queued or review capture is not an acknowledged collection. Reconcile it before recapturing. Only the office marks deposits/clearance and SAP owns the balance.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
   Spacer(Modifier.height(24.dp))
  }
 }

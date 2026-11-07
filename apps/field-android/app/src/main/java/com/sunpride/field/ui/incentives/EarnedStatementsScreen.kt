@@ -45,8 +45,8 @@ fun EarnedStatementsScreen(backend: FieldBackend?, onBack: () -> Unit, modifier:
         message = if (result.isFailure) "Connect and refresh. If access was removed, ask your manager."
             else if (rows.isEmpty()) "No earned statements yet." else ""
     }
-    Column(modifier.fillMaxSize().padding(20.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text("Earned statements", style = MaterialTheme.typography.headlineSmall, modifier = Modifier.testTag("earned-statements"))
+    Column(modifier.fillMaxSize().padding(16.dp).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Text("Your results", style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("earned-statements"))
         Text("Your own results only. Calculated or approved earnings are not proof of payment; SAP remains the payout authority.")
         if (message.isNotEmpty()) Text(message)
         rows.forEach { row ->
@@ -63,7 +63,6 @@ fun EarnedStatementsScreen(backend: FieldBackend?, onBack: () -> Unit, modifier:
             }
         }
         OutlinedButton(onClick = { refresh++ }, modifier = Modifier.fillMaxWidth().testTag("earned-refresh")) { Text("Refresh online") }
-        OutlinedButton(onClick = onBack, modifier = Modifier.fillMaxWidth()) { Text("Back to Account") }
         Spacer(Modifier.height(16.dp))
     }
 }

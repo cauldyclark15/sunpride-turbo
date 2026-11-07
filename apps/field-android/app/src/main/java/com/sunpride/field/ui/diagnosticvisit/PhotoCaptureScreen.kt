@@ -90,7 +90,7 @@ fun PhotoCaptureScreen(controller: FieldController, modifier: Modifier = Modifie
                 }
             })
     }
-    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
+    Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SectionCard("Photo type") {
                 Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {

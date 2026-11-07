@@ -2,7 +2,12 @@ package com.sunpride.catalogue
 
 import android.graphics.BitmapFactory
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
@@ -22,7 +27,9 @@ import kotlinx.coroutines.withContext
 @Composable
 fun CatalogueScreen(entries: List<CatalogueEntry>, onBack: () -> Unit,
     modifier: Modifier = Modifier, scanEvent: Pair<Long,String>? = null,
-    imageDownloader:((CatalogueImage)->ByteArray?)? = null) {
+    imageDownloader:((CatalogueImage)->ByteArray?)? = null,
+    /** The host draws the page title and Back (the field app header); hide this screen's own at the list. */
+    embedded: Boolean = false) {
     var query by remember { mutableStateOf("") }
     var selected by remember { mutableStateOf<CatalogueEntry?>(null) }
     var camera by remember { mutableStateOf(false) }
@@ -52,12 +59,52 @@ fun CatalogueScreen(entries: List<CatalogueEntry>, onBack: () -> Unit,
         CameraScanScreen(onCode={camera=false;scan(it)},onClose={camera=false},closeLabel="Back to catalogue",modifier=modifier)
         return
     }
-    Scaffold(modifier=modifier,contentWindowInsets=WindowInsets.systemBars) { padding ->
+    Scaffold(modifier=modifier,contentWindowInsets=if(embedded) WindowInsets(0,0,0,0) else WindowInsets.systemBars) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-            TextButton(onClick={if(selected!=null){selected=null;message=null;query=""}else onBack()},modifier=Modifier.testTag("catalogue-back")) { Text(if(selected!=null) "Back to catalogue" else "Back") }
+            if(!embedded||selected!=null) TextButton(onClick={if(selected!=null){selected=null;message=null;query=""}else onBack()},modifier=Modifier.testTag("catalogue-back")) { Text(if(selected!=null) "Back to catalogue" else "Back") }
             val product=selected?.let { chosen -> entries.firstOrNull { it.id==chosen.id } }
-            Text(product?.name ?: "Product catalogue",style=MaterialTheme.typography.headlineSmall,modifier=Modifier.testTag("catalogue-title"))
-            if(product==null) {
+            if(!embedded||product!=null) Text(product?.name ?: "Product catalogue",style=MaterialTheme.typography.headlineSmall,modifier=Modifier.testTag("catalogue-title"))
+            if(product==null && embedded) {
+                // Field app: the host header carries the title; the body uses the same pill/card look as the rest of the app.
+                Surface(shape=CircleShape,color=MaterialTheme.colorScheme.primaryContainer) {
+                    Text("Saved on this phone · Read only",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onPrimaryContainer,
+                        modifier=Modifier.padding(horizontal=12.dp,vertical=6.dp))
+                }
+                if(entries.isNotEmpty()) {
+                    OutlinedTextField(value=query,onValueChange={query=it;message=null},placeholder={Text("Search name, SKU or barcode")},singleLine=true,
+                        shape=RoundedCornerShape(28.dp),textStyle=MaterialTheme.typography.bodyLarge,
+                        colors=OutlinedTextFieldDefaults.colors(focusedBorderColor=MaterialTheme.colorScheme.primary,
+                            unfocusedBorderColor=MaterialTheme.colorScheme.outline.copy(alpha=0.55f)),
+                        modifier=Modifier.fillMaxWidth().heightIn(min=56.dp).testTag("catalogue-search"))
+                    if(imageCount>0) TextButton(onClick={imageRefresh++},modifier=Modifier.testTag("catalogue-image-refresh")) { Text("$imagesReady of $imageCount images stored · Refresh images") }
+                    message?.let { Text(it,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("catalogue-message")) }
+                    val filtered=remember(entries,query) { CatalogueSearch.search(entries,query) }
+                    Text("${filtered.size} of ${entries.size} saved products",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    LazyColumn(Modifier.weight(1f).testTag("catalogue-results"),verticalArrangement=Arrangement.spacedBy(8.dp)) {
+                        items(filtered,key={it.id}) { p ->
+                            Surface(onClick={ selected=p;message=null },shape=RoundedCornerShape(20.dp),color=MaterialTheme.colorScheme.surface,
+                                border=BorderStroke(1.dp,MaterialTheme.colorScheme.outlineVariant),
+                                modifier=Modifier.fillMaxWidth().heightIn(min=64.dp).testTag("catalogue-product-${p.code}")) {
+                                Column(Modifier.padding(horizontal=16.dp,vertical=12.dp),verticalArrangement=Arrangement.spacedBy(2.dp)) {
+                                    Text(p.name,style=MaterialTheme.typography.titleSmall)
+                                    Text(p.code,style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                    if(p.details?.sample==true)Text("Sample product content",style=MaterialTheme.typography.labelSmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                                }
+                            }
+                        }
+                        item { Spacer(Modifier.height(8.dp)) }
+                    }
+                } else {
+                    Column(Modifier.weight(1f).fillMaxWidth().padding(horizontal=24.dp),horizontalAlignment=Alignment.CenterHorizontally,
+                        verticalArrangement=Arrangement.spacedBy(10.dp,Alignment.CenterVertically)) {
+                        Text("No products saved yet",style=MaterialTheme.typography.titleMedium,textAlign=TextAlign.Center)
+                        Text("No catalogue has been saved. Download your route or trip while online first.",style=MaterialTheme.typography.bodyMedium,
+                            color=MaterialTheme.colorScheme.onSurfaceVariant,textAlign=TextAlign.Center)
+                        Text("0 of 0 saved products",style=MaterialTheme.typography.labelMedium,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                }
+                Button(onClick={camera=true},shape=RoundedCornerShape(28.dp),modifier=Modifier.fillMaxWidth().heightIn(min=52.dp).testTag("catalogue-scan")) { Text("Scan barcode") }
+            } else if(product==null) {
                 Text("Saved on this phone · Read only",style=MaterialTheme.typography.bodySmall)
                 if(imageCount>0) TextButton(onClick={imageRefresh++},modifier=Modifier.testTag("catalogue-image-refresh")) { Text("$imagesReady of $imageCount images stored · Refresh images") }
                 OutlinedTextField(value=query,onValueChange={query=it;message=null},label={Text("Search name, SKU or barcode")},singleLine=true,

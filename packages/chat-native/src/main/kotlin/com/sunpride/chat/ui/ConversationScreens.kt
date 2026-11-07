@@ -72,7 +72,7 @@ import kotlinx.coroutines.withContext
 internal fun toast(context: Context, text: String) { Toast.makeText(context, text, Toast.LENGTH_LONG).show() }
 
 @Composable
-internal fun ConversationListScreen(onClose: () -> Unit, onOpen: (String) -> Unit, onNew: () -> Unit, onSearch: () -> Unit) {
+internal fun ConversationListScreen(showBar: Boolean = true, onClose: () -> Unit, onOpen: (String) -> Unit, onNew: () -> Unit, onSearch: () -> Unit) {
     val repo = LocalChat.current.repository
     val state by repo.conversations.collectAsState()
     val me by repo.myIds.collectAsState()
@@ -80,7 +80,7 @@ internal fun ConversationListScreen(onClose: () -> Unit, onOpen: (String) -> Uni
     val now = System.currentTimeMillis()
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
-            ChatTopBar("Messages", onClose, subtitle = if (unread.total > 0) "${unread.total} unread" else null)
+            if (showBar) ChatTopBar("Messages", onClose, subtitle = if (unread.total > 0) "${unread.total} unread" else null)
             SearchEntry(onSearch)
             if (state.offline) Banner("You're offline. Showing your saved conversations.")
             state.error?.let { Banner(it, error = true) }

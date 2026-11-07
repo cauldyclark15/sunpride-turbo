@@ -14,13 +14,11 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.FilterChip
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -39,10 +37,19 @@ import com.sunpride.field.orders.OrderDraftFailure
 import com.sunpride.field.orders.OrderSubmission
 import com.sunpride.field.storage.CallSheet
 import com.sunpride.field.ui.FieldController
+import com.sunpride.field.ui.ActionBar
+import com.sunpride.field.ui.EmptyState
+import com.sunpride.field.ui.FieldTextField
+import com.sunpride.field.ui.FilterPill
+import com.sunpride.field.ui.GlyphKind
+import com.sunpride.field.ui.Look
+import com.sunpride.field.ui.LookCard
+import com.sunpride.field.ui.NoticeCard
 import com.sunpride.field.ui.PrimaryBottomButton
+import com.sunpride.field.ui.QuantityField
+import com.sunpride.field.ui.SearchField
 import com.sunpride.field.ui.SecondaryButton
-import com.sunpride.field.ui.SectionCard
-import com.sunpride.field.ui.SunprideTokens
+import com.sunpride.field.ui.StatusChip
 import com.sunpride.field.ui.VisitDisplay
 
 /** What the editor shows about the order's customer/territory/route before and after the first save. */
@@ -75,103 +82,98 @@ fun OrderDraftScreen(visit: VisitDisplay, sheet: CallSheet, controller: FieldCon
     val stale = draft?.let { OrderDraftRules.staleLines(it, sheet, terms) }.orEmpty()
     val changedPrices = draft != null && (stale.isNotEmpty() || draft.priceList != terms?.priceList)
     val results = OrderCatalog.search(catalog, query)
-    Column(modifier.fillMaxSize().imePadding().padding(horizontal = 20.dp, vertical = 16.dp)) {
-        LazyColumn(Modifier.weight(1f).testTag("order-products"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    Column(modifier.fillMaxSize().imePadding()) {
+        LazyColumn(Modifier.weight(1f).testTag("order-products"), verticalArrangement = Arrangement.spacedBy(12.dp),
+            contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp)) {
             item {
-                Text(if (draft == null) "New order" else "Order draft", style = MaterialTheme.typography.headlineMedium,
-                    modifier = Modifier.testTag("order-title"))
-                Text(orderAssociation(visit, draft), style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("order-association"))
-                Text("Enter whole quantities in each product's unit. Prices are a preview; the office confirms them when the order arrives.", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("order-price-note"))
+                Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(if (draft == null) "New order" else "Order draft", style = MaterialTheme.typography.headlineSmall,
+                        modifier = Modifier.testTag("order-title"))
+                    Text(orderAssociation(visit, draft), style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("order-association"))
+                }
             }
             item {
-                OutlinedTextField(query, { query = it }, singleLine = true,
-                    modifier = Modifier.fillMaxWidth().height(56.dp).testTag("order-search"),
-                    placeholder = { Text("Search code, name or barcode") },
-                    shape = SunprideTokens.shapes.small, textStyle = MaterialTheme.typography.bodyMedium,
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                        unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)))
+                NoticeCard("Enter whole quantities in each product's unit. Prices are a preview; the office confirms them when the order arrives.",
+                    textTag = "order-price-note")
+            }
+            item {
+                SearchField(query, { query = it }, "Search code, name or barcode", Modifier.testTag("order-search"))
                 Text("${quantities.size} of ${catalog.size} products in this order",
-                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(top = 8.dp).testTag("order-count"))
+                    style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 6.dp, top = 8.dp).testTag("order-count"))
             }
             if (presell || deliveryDate.isNotBlank()) item {
-                OutlinedTextField(deliveryDate, { deliveryDate = it }, label = { Text("Requested delivery day · YYYY-MM-DD") },
-                    modifier = Modifier.fillMaxWidth().testTag("order-delivery-date"), singleLine = true)
-                Text("Requested only. The office confirms the delivery day within the delivery policy.", style = MaterialTheme.typography.bodySmall)
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    FieldTextField(deliveryDate, { deliveryDate = it }, label = { Text("Requested delivery day · YYYY-MM-DD") },
+                        modifier = Modifier.fillMaxWidth().testTag("order-delivery-date"), singleLine = true)
+                    Text("Requested only. The office confirms the delivery day within the delivery policy.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(start = 6.dp))
+                }
             }
             if (changedPrices) item {
-                Text(OrderDraftFailure.Code.PRICES_CHANGED.text,
-                    color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("order-stale"))
+                NoticeCard(OrderDraftFailure.Code.PRICES_CHANGED.text, tone = Look.Tone.BAD, textTag = "order-stale")
             }
             if (results.isEmpty()) item {
-                Text(if (catalog.isEmpty()) "No products set up for this account yet. Ask your office."
-                    else "No products match", Modifier.testTag("order-empty"))
+                if (catalog.isEmpty()) EmptyState("No products yet", "No products set up for this account yet. Ask your office.", GlyphKind.BOX,
+                    Modifier.testTag("order-empty"))
+                else EmptyState("No match", "No products match", GlyphKind.SEARCH, Modifier.testTag("order-empty"))
             }
             items(results, key = { it.productId }) { item ->
                 val index = catalog.indexOf(item)
-                SectionCard(item.code) {
-                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                LookCard {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                        StatusChip(item.code, Look.Tone.ACCENT)
+                        Text(item.name, style = MaterialTheme.typography.titleSmall)
                         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Column(Modifier.weight(1f)) {
-                                Text(item.name, style = MaterialTheme.typography.titleSmall)
+                            Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                                 Text(OrderSubmission.unitPrice(item.unit(chosenUnits[index])?.unitPriceMinor, chosenUnits[index]),
-                                    style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    style = MaterialTheme.typography.bodyMedium,
                                     modifier = Modifier.testTag("order-price-${item.productId}"))
                                 item.priceNote?.let { Text("Pricing note · $it", style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant) }
                             }
-                            OutlinedTextField(values[index], { text -> values = values.toMutableList().also { it[index] = text } },
-                                singleLine = true, enabled = !controller.busy,
-                                modifier = Modifier.width(96.dp).height(56.dp).testTag("order-qty-${item.productId}"),
-                                placeholder = { Text("Qty") },
-                                keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
-                                isError = parsed[index].isFailure,
-                                shape = SunprideTokens.shapes.small, textStyle = MaterialTheme.typography.bodyMedium,
-                                colors = OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.5f),
-                                    unfocusedBorderColor = MaterialTheme.colorScheme.outline.copy(alpha = 0.28f)))
+                            QuantityField(values[index], { text -> values = values.toMutableList().also { it[index] = text } },
+                                Modifier.width(104.dp).testTag("order-qty-${item.productId}"),
+                                enabled = !controller.busy, isError = parsed[index].isFailure, placeholder = "Qty")
                         }
                         if (item.units.size > 1) {
-                            Text("Selling unit", style = MaterialTheme.typography.bodySmall)
+                            Text("Selling unit", style = MaterialTheme.typography.labelMedium)
                             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                                 item.units.forEach { unit ->
-                                    FilterChip(selected = chosenUnits[index] == unit.uom,
-                                        onClick = { chosenUnits = chosenUnits.toMutableList().also { it[index] = unit.uom } },
-                                        label = { Text(unit.uom) }, enabled = !controller.busy,
-                                        shape = RoundedCornerShape(10.dp),
-                                        modifier = Modifier.heightIn(min = 48.dp).testTag("order-unit-${item.productId}-${unit.uom}"))
+                                    FilterPill(unit.uom, chosenUnits[index] == unit.uom,
+                                        { if (!controller.busy) chosenUnits = chosenUnits.toMutableList().also { it[index] = unit.uom } },
+                                        Modifier.testTag("order-unit-${item.productId}-${unit.uom}"))
                                 }
                             }
-                        } else Text(chosenUnits[index], style = MaterialTheme.typography.bodySmall)
+                        } else Text(chosenUnits[index], style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
-            if (invalid) item { Text("Use whole numbers from 1 to 99,999.", color = MaterialTheme.colorScheme.error) }
+            if (invalid) item { NoticeCard("Use whole numbers from 1 to 99,999.", tone = Look.Tone.BAD) }
             controller.diagnosticError?.let { message -> item {
-                Text(message, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("order-error"))
+                NoticeCard(message, tone = Look.Tone.BAD, textTag = "order-error")
             } }
             if (draft != null) item {
-                Text("Draft saved", style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("order-saved"))
+                StatusChip("Draft saved", Look.Tone.GOOD, textTag = "order-saved")
             }
-            item { Spacer(Modifier.height(16.dp)) }
         }
-        Spacer(Modifier.height(12.dp))
-        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            if (draft != null) SecondaryButton("Discard", { controller.discardOrderDraft() },
-                Modifier.weight(1f).testTag("order-discard"), !controller.busy, danger = true)
-            // SP-0060: once the screen matches the saved draft, the next step is review.
-            val unsaved = draft == null || quantities.toSet() != draft.lines.map { it.productId to it.quantity }.toSet() ||
-                draft.lines.any { units[it.productId] != it.uom } || draft.requestedDeliveryDate != deliveryDate.takeIf { it.isNotBlank() }
-            if (!unsaved && !changedPrices) PrimaryBottomButton("Review order", { controller.openOrderReview() },
-                Modifier.weight(1f).testTag("order-review"), !controller.busy)
-            else PrimaryBottomButton("Save draft", { controller.saveOrderDraft(quantities, units, deliveryDate.takeIf { it.isNotBlank() }) },
-                Modifier.weight(1f).testTag("order-save"), !controller.busy && !invalid && quantities.isNotEmpty())
+        ActionBar {
+            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                if (draft != null) SecondaryButton("Discard", { controller.discardOrderDraft() },
+                    Modifier.weight(1f).testTag("order-discard"), !controller.busy, danger = true)
+                // SP-0060: once the screen matches the saved draft, the next step is review.
+                val unsaved = draft == null || quantities.toSet() != draft.lines.map { it.productId to it.quantity }.toSet() ||
+                    draft.lines.any { units[it.productId] != it.uom } || draft.requestedDeliveryDate != deliveryDate.takeIf { it.isNotBlank() }
+                if (!unsaved && !changedPrices) PrimaryBottomButton("Review order", { controller.openOrderReview() },
+                    Modifier.weight(1f).testTag("order-review"), !controller.busy)
+                else PrimaryBottomButton("Save draft", { controller.saveOrderDraft(quantities, units, deliveryDate.takeIf { it.isNotBlank() }) },
+                    Modifier.weight(1f).testTag("order-save"), !controller.busy && !invalid && quantities.isNotEmpty())
+            }
         }
     }
 }

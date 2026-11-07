@@ -261,7 +261,7 @@ class FieldSalesGuideScreenshotsTest {
         rule.waitUntil(10_000) { runCatching { rule.onAllNodesWithTag("route-stop-summary")[0]
             .assertTextContains("km", substring = true) }.isSuccess }
         shot("04-route")
-        rule.onNodeWithTag("route-back").performClick()
+        rule.onNodeWithTag("nav-today").performClick()
 
         rule.onNodeWithTag("customers-open").performScrollTo().performClick()
         waitTag("customer-search")
@@ -274,7 +274,7 @@ class FieldSalesGuideScreenshotsTest {
         rule.onNodeWithTag("customer-header").assertTextContains("OUT-CEB-0101", substring = true)
         shot("06-outlet")
         rule.onNodeWithTag("customer-back").performClick()
-        rule.onNodeWithTag("customers-back").performClick()
+        rule.onNodeWithTag("nav-today").performClick()
 
         waitTag("diagnostic-open")
         rule.onAllNodesWithTag("diagnostic-open")[0].performScrollTo().performClick()

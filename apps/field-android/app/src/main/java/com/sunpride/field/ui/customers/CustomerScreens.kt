@@ -4,6 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -28,11 +29,25 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
-import com.sunpride.field.ui.LabeledField
-import com.sunpride.field.ui.ListRow
-import com.sunpride.field.ui.lazySectionCard
+import com.sunpride.field.ui.EmptyState
+import com.sunpride.field.ui.FilterPill
+import com.sunpride.field.ui.GlyphKind
+import com.sunpride.field.ui.IconTile
+import com.sunpride.field.ui.Look
+import com.sunpride.field.ui.PrimaryBottomButton
+import com.sunpride.field.ui.SearchField
 import com.sunpride.field.ui.SecondaryButton
 import com.sunpride.field.ui.SectionCard
+import com.sunpride.field.ui.StatusChip
+import com.sunpride.field.ui.TonalButton
+import com.sunpride.field.ui.Glyph
+import com.sunpride.field.ui.SunprideTokens
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.items
+import androidx.compose.material3.Surface
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.text.style.TextOverflow
 import com.sunpride.field.ui.TodayData
 import com.sunpride.field.ui.VisitDisplay
 import com.sunpride.field.ui.route.DailyRoutes
@@ -45,48 +60,85 @@ import com.sunpride.field.ui.route.DailyRoutes
 fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Modifier = Modifier,
     offline: Boolean = false, now: Long = System.currentTimeMillis()) {
     var query by rememberSaveable { mutableStateOf("") }
-    val results = remember(data.customers, query) { CustomerDirectory.search(data.customers, query) }
+    var onlyToday by rememberSaveable { mutableStateOf(false) }
+    val found = remember(data.customers, query) { CustomerDirectory.search(data.customers, query) }
+    val todayCount = remember(data.customers) { data.customers.count { it.today != null } }
+    val results = if (onlyToday) found.filter { it.today != null } else found
     // SP-0140: a lazy list, so a scope with hundreds of outlets composes only the rows on screen.
     LazyColumn(modifier.fillMaxSize().testTag("customer-list"),
-        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 32.dp)) {
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp)) {
         item(key = "search") {
-            LabeledField("Search name, code or address", query, { query = it.take(80) },
-                Modifier.fillMaxWidth().padding(bottom = 12.dp).testTag("customer-search"),
+            SearchField(query, { query = it.take(80) }, "Search name, code or address",
+                Modifier.padding(bottom = 4.dp).testTag("customer-search"),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
+        }
+        if (todayCount > 0) item(key = "filters") {
+            androidx.compose.foundation.layout.Row(Modifier.padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                FilterPill("All", !onlyToday, { onlyToday = false }, count = data.customers.size)
+                FilterPill("On today's route", onlyToday, { onlyToday = true }, count = todayCount)
+            }
         }
         item(key = "count") {
             Text(listOfNotNull(
                 when {
                     data.customers.isEmpty() -> "No outlets on this phone"
                     query.isBlank() -> "${data.customers.size} outlets"
-                    else -> "${results.size} of ${data.customers.size} outlets"
+                    else -> "${found.size} of ${data.customers.size} outlets"
                 },
                 "Saved on this phone".takeIf { offline || data.stale },
             ).joinToString(" · "), style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 12.dp).testTag("customer-count"))
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(start = 4.dp, bottom = 8.dp, top = 4.dp).testTag("customer-count"))
         }
         when {
             data.customers.isEmpty() -> item(key = "empty") {
-                Text(if (data.lastSynced != null) "No outlets are on your plan for today and the next two days"
+                EmptyState(if (data.lastSynced != null) "No outlets are on your plan for today and the next two days"
                     else "Sync to download the outlets on your plan",
-                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("customer-empty"))
+                    "Stores on your route appear here, and stay searchable with no signal.", GlyphKind.STORE,
+                    Modifier.testTag("customer-empty"))
             }
             results.isEmpty() -> item(key = "no-match") {
-                Text("No outlet matches \"${query.trim()}\". Only outlets on your plan are on this phone.",
-                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("customer-no-match"))
+                Text(if (query.isBlank()) "No outlets on today's route yet. Choose All to see every outlet."
+                    else "No outlet matches \"${query.trim()}\". Only outlets on your plan are on this phone.",
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(4.dp).testTag("customer-no-match"))
             }
-            else -> lazySectionCard("Outlets", results, key = { it.outletId }) { record ->
-                ListRow(record.name, resultMeta(record, now), "store",
-                    Modifier.testTag("customer-result"), onClick = { onOpen(record.outletId) })
-            }
+            else -> items(results, key = { it.outletId }) { record -> StoreRow(record, now) { onOpen(record.outletId) } }
         }
     }
 }
 
-private fun resultMeta(record: CustomerRecord, now: Long): String = listOfNotNull(
+@Composable
+private fun StoreRow(record: CustomerRecord, now: Long, onClick: () -> Unit) {
+    val visit = record.today
+    val emphasis = visit != null && visit.status != "Done"
+    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).testTag("customer-result"),
+        shape = SunprideTokens.shapes.large, color = MaterialTheme.colorScheme.surface,
+        border = BorderStroke(1.dp, Look.hairline)) {
+        androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            IconTile(record.name.trim().take(1).uppercase(), emphasis)
+            Column(Modifier.weight(1f)) {
+                Text(record.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                resultMeta(record, now, withAddress = false).takeIf { it.isNotEmpty() }?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+                record.address?.let { Text(it, style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
+            }
+            when (visit?.status) {
+                "Done" -> StatusChip("Done", Look.Tone.GOOD)
+                "In progress" -> StatusChip("In progress", Look.Tone.ACCENT)
+                "Needs review" -> StatusChip("Needs review", Look.Tone.BAD)
+            }
+            Glyph(GlyphKind.CHEVRON, MaterialTheme.colorScheme.onSurfaceVariant, 20.dp)
+        }
+    }
+}
+
+private fun resultMeta(record: CustomerRecord, now: Long, withAddress: Boolean = true): String = listOfNotNull(
     record.outletCode, record.customerCode?.takeIf { it != record.outletCode },
     record.today?.let { "Today" } ?: record.planned.firstOrNull()?.let { CustomerDirectory.dayLabel(it.serviceDate, now) },
-    record.address,
+    record.address.takeIf { withAddress },
 ).joinToString(" · ")
 
 /**
@@ -104,31 +156,32 @@ fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (S
         DailyRoutes.build(data.visits, null).stops.firstOrNull { it.visit.outletId == record.outletId }
     }
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
-        .padding(horizontal = 20.dp, vertical = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(Modifier.semantics(mergeDescendants = true) {}.testTag("customer-header")) {
+        .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.semantics(mergeDescendants = true) {}.testTag("customer-header"), verticalArrangement = Arrangement.spacedBy(2.dp)) {
             Text(record.name, style = MaterialTheme.typography.headlineSmall)
             Text(listOfNotNull(record.outletCode, record.customerCode?.takeIf { it != record.outletCode },
                 "Saved on this phone".takeIf { data.stale }).joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            SecondaryButton("Navigate", {
-                navigation?.let { actionError = if (onNavigate(it)) null else "No maps app on this phone" }
-            }, Modifier.weight(1f).testTag("customer-navigate"), enabled = navigation != null)
-            SecondaryButton("Call", {
-                dial?.let { actionError = if (onDial(it)) null else "No phone app on this device" }
-            }, Modifier.weight(1f).testTag("customer-call"), enabled = dial != null)
+                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
         // SP-0124: an outlet that is not on today's plan offers a visit only when unplanned visits are on.
         if (visitEnabled && (record.today != null || unplannedEnabled)) {
             val today = record.today
-            SecondaryButton(when {
+            val label = when {
                 today == null -> "Unplanned visit"
                 today.status == "In progress" -> "Continue visit"
                 else -> "Open visit"
-            }, {
-                onVisit(today ?: VisitDisplay(record.name, "Unplanned", "Reason required", record.outletId))
-            }, Modifier.fillMaxWidth().testTag("customer-visit"))
+            }
+            val go = { onVisit(today ?: VisitDisplay(record.name, "Unplanned", "Reason required", record.outletId)) }
+            if (today != null) PrimaryBottomButton(label, go, Modifier.testTag("customer-visit"))
+            else SecondaryButton(label, go, Modifier.fillMaxWidth().testTag("customer-visit"))
+        }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+            TonalButton("Navigate", {
+                navigation?.let { actionError = if (onNavigate(it)) null else "No maps app on this phone" }
+            }, Modifier.weight(1f).testTag("customer-navigate"), enabled = navigation != null, glyph = GlyphKind.NAVIGATE)
+            TonalButton("Call", {
+                dial?.let { actionError = if (onDial(it)) null else "No phone app on this device" }
+            }, Modifier.weight(1f).testTag("customer-call"), enabled = dial != null, glyph = GlyphKind.PHONE)
         }
         actionError?.let { Text(it, color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("customer-action-error")) }
@@ -194,11 +247,10 @@ fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (S
 private fun Fact(label: String, value: String) {
     Row(Modifier.fillMaxWidth().heightIn(min = 44.dp).padding(horizontal = 16.dp, vertical = 10.dp),
         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-        Text(label, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1f))
-        Text(value, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1.2f))
+        Text(label, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.weight(1f))
+        Text(value, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.weight(1.3f))
     }
-    HorizontalDivider(color = MaterialTheme.colorScheme.outline.copy(alpha = 0.22f))
+    HorizontalDivider(Modifier.padding(horizontal = 16.dp), color = Look.hairline.copy(alpha = 0.7f))
 }
 
 @Composable

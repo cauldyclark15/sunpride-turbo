@@ -1,11 +1,6 @@
 package com.sunpride.field.chat
 
 import android.content.Context
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.padding
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -13,8 +8,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.unit.dp
 import androidx.work.CoroutineWorker
 import androidx.work.WorkerParameters
 import com.sunpride.chat.AccountTokenGuard
@@ -36,8 +29,6 @@ import com.sunpride.field.auth.SessionVault
 import com.sunpride.field.auth.SessionVaults
 import com.sunpride.field.auth.defaultHttpClient
 import com.sunpride.field.device.KeystoreDeviceKey
-import com.sunpride.field.ui.SectionCard
-import com.sunpride.field.ui.SecondaryButton
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -86,7 +77,7 @@ object FieldChat {
     }
 
     /** SP-0147: Messages draws its own top bar, so the app's bar is hidden there (one bar on screen, never two). */
-    fun appBarVisible(ready: Boolean, page: String): Boolean = !(ready && page == "messages")
+    fun appBarVisible(ready: Boolean, page: String, chatAtRoot: Boolean = false): Boolean = !(ready && page == "messages" && !chatAtRoot)
 
     fun environment(context: Context, openHref: (String) -> Boolean = { false }) =
         ChatEnvironment(context.applicationContext, session(context), defaultHttpClient(), openHref)
@@ -97,26 +88,23 @@ object FieldChat {
  * [openConversation] is the conversation a notification tap asked for, if any.
  */
 @Composable
-fun FieldMessages(modifier: Modifier, openConversation: String?, onClose: () -> Unit, openHref: (String) -> Boolean) {
+fun FieldMessages(modifier: Modifier, openConversation: String?, onClose: () -> Unit, onAtRoot: (Boolean) -> Unit = {}, openHref: (String) -> Boolean) {
     val ctx = LocalContext.current
     val latest by rememberUpdatedState(openHref)
     val env = remember { FieldChat.environment(ctx) { latest(it) } }
-    ChatHost(env, onClose, modifier, startConversationId = openConversation)
+    ChatHost(env, onClose, modifier, startConversationId = openConversation, showRootBar = false, onAtRoot = onAtRoot)
 }
 
-/** The one Messages entry on Today: a card with an unread count, and the 15-minute background check. */
+/**
+ * The unread count for the Messages tab, and the 15-minute background check that raises a local notification for a new
+ * mention or direct message. Called once while the seller is signed in and ready.
+ */
 @Composable
-fun FieldMessagesEntry(onOpen: () -> Unit) {
+fun rememberFieldUnread(): Int {
     val ctx = LocalContext.current
     val env = remember { FieldChat.environment(ctx) }
-    val unread = rememberChatUnread(env)
     LaunchedEffect(Unit) { runCatching { ChatUnreadScheduler.schedule(ctx, FieldChatUnreadWorker::class.java) } }
-    SectionCard("Messages") {
-        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            Text("Chat with your team, the office and AI users.", style = MaterialTheme.typography.bodyMedium)
-            SecondaryButton(if (unread > 0) "Open Messages · $unread unread" else "Open Messages", onOpen, Modifier.testTag("messages-open"))
-        }
-    }
+    return rememberChatUnread(env)
 }
 
 /** Every 15 minutes: one small unread check; a local notification for a new mention or direct message. */

@@ -33,7 +33,7 @@ import com.sunpride.field.ui.SectionCard
 @Composable
 fun TeamScreen(view: TeamView, directOnly: Boolean, loading: Boolean, now: Long,
     onFilter: (Boolean) -> Unit, onRefresh: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
+    Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {

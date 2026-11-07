@@ -27,6 +27,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -95,14 +97,26 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
     val missing = com.sunpride.field.storage.ActivityRules.missing(checklist)
     val review = controller.endReview
     val result = if (checkedOut) controller.visitResult(visit) else null
-    Column(modifier.fillMaxSize().padding(horizontal = 20.dp, vertical = 16.dp)) {
+    Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Text(visit.outlet, style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.testTag("diagnostic-title"))
+            // The header names the store; this line says where the call stands.
             Text(listOfNotNull(visit.planned.takeUnless { it == "Scheduled" },
                 when { checkedOut -> "Done"; checkedIn -> "In progress"; else -> "Not started" }).joinToString(" · "),
-                style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("diagnostic-title"))
+            if (!checkedIn) SectionCard("Before you start") {
+                com.sunpride.field.ui.ValueRow("Address", visit.address ?: "No address yet")
+                visit.outletCode?.let { com.sunpride.field.ui.ValueRow("Outlet code", it) }
+                visit.customerCode?.let { com.sunpride.field.ui.ValueRow("Customer code", it) }
+                visit.agenda?.let { agenda ->
+                    com.sunpride.field.ui.ValueRow("Last call", agenda.lastVisit ?: "None before today")
+                    com.sunpride.field.ui.ValueRow("Open AR", agenda.arLabel)
+                    if (agenda.objectives.isNotEmpty()) Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("Call objectives", style = MaterialTheme.typography.labelLarge)
+                        agenda.objectives.forEach { Text("• $it", style = MaterialTheme.typography.bodyMedium) }
+                    }
+                }
+            }
             flow?.let { configured ->
                 SectionCard(configured.getJSONObject("definition").getString("label")) {
                     com.sunpride.callflow.CallFlowEngine.objects(configured.getJSONObject("definition").getJSONArray("steps")).forEach { step ->
@@ -174,7 +188,8 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         else -> { { controller.openActivityForm(item.kind) } }
                     }
                     ListRow(label, meta, "activity", Modifier.testTag("activity-${item.kind}"),
-                        trailing = if (item.status == com.sunpride.field.storage.ActivityRequirement.Status.DONE) "✓" else null,
+                        trailingContent = if (item.status == com.sunpride.field.storage.ActivityRequirement.Status.DONE) ({
+                            com.sunpride.field.ui.StatusChip("Recorded", com.sunpride.field.ui.Look.Tone.GOOD) }) else null,
                         onClick = open)
                 }
             }
@@ -217,7 +232,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         "No call sheet set up for this account yet. Ask your office.",
                         Modifier.padding(16.dp).testTag("call-sheet-unavailable"),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    else ListRow("Call sheet", "Record quantities for this visit", "activity",
+                    else ListRow("Open the call sheet", "Record quantities for this visit", "activity",
                         Modifier.testTag("call-sheet-open"), onClick = { controller.openCallSheet() })
                 }
                 if (flow?.getJSONObject("definition")?.optString("channelProfile") != "merchandiser") SectionCard("Order") {
@@ -255,17 +270,20 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         }
                     }
                 }
-                SectionCard("Outcome") {
-                    Row(Modifier.fillMaxWidth().height(56.dp).padding(horizontal = 16.dp),
-                        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                        androidx.compose.material3.Surface(onClick = { outcome = if (outcome == "completed") "nonproductive" else "completed"; controller.cancelEnd() },
-                            modifier = Modifier.fillMaxWidth().height(48.dp).testTag("diagnostic-outcome")) {
-                            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(when (outcome) { "completed" -> "Completed"; "nonproductive" -> "Not productive"; else -> "Choose outcome" },
-                                    style = MaterialTheme.typography.bodyMedium)
-                                Text("⌄", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            }
+                SectionCard("How did the call go?") {
+                    Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        // Two pills with a gap between them. A tap on the gap (or the control as a whole) flips the choice,
+                        // which keeps the old single-control behaviour for the device tests; fingers hit a pill directly.
+                        Row(Modifier.fillMaxWidth().testTag("diagnostic-outcome").pointerInput(outcome) {
+                            detectTapGestures { outcome = if (outcome == "completed") "nonproductive" else "completed"; controller.cancelEnd() }
+                        }, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            com.sunpride.field.ui.FilterPill("Completed", outcome == "completed",
+                                { outcome = "completed"; controller.cancelEnd() }, Modifier.weight(1f).testTag("diagnostic-outcome-completed"))
+                            com.sunpride.field.ui.FilterPill("Not productive", outcome == "nonproductive",
+                                { outcome = "nonproductive"; controller.cancelEnd() }, Modifier.weight(1f).testTag("diagnostic-outcome-nonproductive"))
                         }
+                        if (outcome == null) Text("Choose one to end the call.", style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 }
             }
@@ -354,7 +372,16 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                 modifier = Modifier.testTag("queue-error")) }
             androidx.compose.foundation.layout.Spacer(Modifier.height(16.dp).testTag("visit-bottom-space"))
         }
-        if (!checkedOut) androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
+        // The reason a tap did nothing (no fix, outside the radius, a refused save) sits by the button, not at the end of the scroll.
+        if (!checkedOut) {
+            val pinned = controller.diagnosticError ?: locationNotice?.takeIf { it.review }?.text
+            if (pinned != null) {
+                androidx.compose.foundation.layout.Spacer(Modifier.height(8.dp))
+                com.sunpride.field.ui.NoticeCard(pinned, tone = if (controller.diagnosticError != null) com.sunpride.field.ui.Look.Tone.BAD
+                    else com.sunpride.field.ui.Look.Tone.WARN)
+            }
+            androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
+        }
         if (!checkedIn) PrimaryBottomButton(if (capturing) "Getting location…" else "Start", { record("visit.checkIn") }, Modifier.testTag("diagnostic-checkin"),
             !controller.busy && !capturing && (startFailure == null || canDeviate && sequenceReason.isNotBlank()) &&
                 (visit.plannedVisitId != null || (reason.isNotBlank() && intents.isNotEmpty())))

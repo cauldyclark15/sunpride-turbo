@@ -25,6 +25,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -92,7 +93,11 @@ fun rememberChatLaunch(): String? {
 }
 
 @Composable
-fun ChatHost(env: ChatEnvironment, onClose: () -> Unit, modifier: Modifier = Modifier, startConversationId: String? = null) {
+fun ChatHost(env: ChatEnvironment, onClose: () -> Unit, modifier: Modifier = Modifier, startConversationId: String? = null,
+    /** The host draws the bar of the conversation list itself (the field app's red header); false keeps this module's own. */
+    showRootBar: Boolean = true,
+    /** Tells the host whether the conversation list (not a chat, search or picker) is on screen, so it can show its bar. */
+    onAtRoot: ((Boolean) -> Unit)? = null) {
     val ctx = LocalContext.current
     var runtime by remember { mutableStateOf<ChatRuntime?>(null) }
     var failed by remember { mutableStateOf(false) }
@@ -106,6 +111,8 @@ fun ChatHost(env: ChatEnvironment, onClose: () -> Unit, modifier: Modifier = Mod
     var stackText by rememberSaveable { mutableStateOf(if (startConversationId != null) "list|conv:$startConversationId" else "list") }
     val stack = stackText.split("|")
     val top = stack.last()
+    val latestAtRoot by rememberUpdatedState(onAtRoot)
+    LaunchedEffect(top) { latestAtRoot?.invoke(top == "list") }
     fun push(r: String) { stackText = "$stackText|$r" }
     fun pop() { stackText = if (stack.size > 1) stack.dropLast(1).joinToString("|") else "list" }
     var viewer by remember { mutableStateOf<Attachment?>(null) }
@@ -150,11 +157,11 @@ fun ChatHost(env: ChatEnvironment, onClose: () -> Unit, modifier: Modifier = Mod
         val rt = runtime
         when {
             rt == null && !failed -> {
-                ChatTopBar("Messages", onClose)
+                if (showRootBar) ChatTopBar("Messages", onClose)
                 Box(Modifier.fillMaxSize(), Alignment.Center) { Text("Opening Messages…") }
             }
             rt == null -> {
-                ChatTopBar("Messages", onClose)
+                if (showRootBar) ChatTopBar("Messages", onClose)
                 Column(Modifier.fillMaxSize().padding(32.dp), verticalArrangement = androidx.compose.foundation.layout.Arrangement.Center, horizontalAlignment = Alignment.CenterHorizontally) {
                     Text("Messages couldn't open. Connect to the internet once, then try again.", style = MaterialTheme.typography.bodyLarge)
                     TextButton(onClick = { attempt++ }) { Text("Try again") }
@@ -168,7 +175,7 @@ fun ChatHost(env: ChatEnvironment, onClose: () -> Unit, modifier: Modifier = Mod
                     "thread" -> ConversationScreen(parts[1], parts[2], onBack = ::pop, onOpenThread = {}, onDetails = {}, onViewImage = { viewer = it })
                     "new" -> NewChatScreen(onBack = ::pop, onCreated = { id -> stackText = (stack.dropLast(1) + "conv:$id").joinToString("|") })
                     "search" -> SearchScreen(onBack = ::pop, onOpen = { id -> push("conv:$id") })
-                    else -> ConversationListScreen(onClose = onClose, onOpen = { push("conv:$it") }, onNew = { push("new") }, onSearch = { push("search") })
+                    else -> ConversationListScreen(showBar = showRootBar, onClose = onClose, onOpen = { push("conv:$it") }, onNew = { push("new") }, onSearch = { push("search") })
                 }
                 viewer?.let { ImageViewerDialog(it) { viewer = null } }
                 detailsFor?.let { id -> DetailsSheet(id, onDismiss = { detailsFor = null }, onLeft = { detailsFor = null; stackText = "list" }) }

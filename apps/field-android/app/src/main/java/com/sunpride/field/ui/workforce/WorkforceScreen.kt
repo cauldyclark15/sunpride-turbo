@@ -7,7 +7,9 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.*
@@ -71,65 +73,79 @@ fun WorkforceScreen(controller: FieldController,location: VisitLocation,modifier
         })
     }
     fun time(at: Long?)=at?.let { DateTimeFormatter.ofPattern("d MMM, HH:mm").format(Instant.ofEpochMilli(it).atZone(ZoneId.of("Asia/Manila"))) }?:"Not recorded"
-    Column(modifier.fillMaxSize().imePadding().padding(horizontal=20.dp,vertical=16.dp)) {
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+    Column(modifier.fillMaxSize().imePadding()) {
+        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start=16.dp,end=16.dp,top=4.dp,bottom=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
             SectionCard("Attendance") {
-                Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                    Text("Clock-in: ${time(view.clockInAt)}",Modifier.testTag("workforce-clock-in-state"))
-                    Text("Clock-out: ${time(view.clockOutAt)}")
-                    Text("This captures one location and photo. It does not turn on location sharing.",style=MaterialTheme.typography.bodySmall)
-                    SecondaryButton("Clock in",{choose("workforce.clockIn")},Modifier.testTag("workforce-clock-in"),view.canClockIn(System.currentTimeMillis())&&!controller.busy)
-                    SecondaryButton("Clock out",{choose("workforce.clockOut")},Modifier.testTag("workforce-clock-out"),view.canClockOut(System.currentTimeMillis())&&!controller.busy)
+                Column(Modifier.padding(start=16.dp,end=16.dp,bottom=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                    Row(horizontalArrangement=Arrangement.spacedBy(10.dp)) {
+                        AttendanceTile("Clock in",time(view.clockInAt),view.clockInAt!=null,Modifier.weight(1f).testTag("workforce-clock-in-state"))
+                        AttendanceTile("Clock out",time(view.clockOutAt),view.clockOutAt!=null,Modifier.weight(1f))
+                    }
+                    Text("This captures one location and photo. It does not turn on location sharing.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    Row(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                        TonalButton("Clock in",{choose("workforce.clockIn")},Modifier.weight(1f).testTag("workforce-clock-in"),view.canClockIn(System.currentTimeMillis())&&!controller.busy,glyph=GlyphKind.CLOCK)
+                        TonalButton("Clock out",{choose("workforce.clockOut")},Modifier.weight(1f).testTag("workforce-clock-out"),view.canClockOut(System.currentTimeMillis())&&!controller.busy,glyph=GlyphKind.CLOCK)
+                    }
                 }
             }
             SectionCard("Prospects") {
-                Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(8.dp)) {
-                    Text("Capture a storefront, location and the office's KYC form. The office reviews duplicates before adding it to the approved universe.",style=MaterialTheme.typography.bodySmall)
-                    SecondaryButton("New prospect",{choose("workforce.prospect")},Modifier.testTag("workforce-prospect"),policy?.let { it.valid(System.currentTimeMillis())&&it.canProspect }==true&&!controller.busy)
+                Column(Modifier.padding(start=16.dp,end=16.dp,bottom=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                    Text("Capture a storefront, location and the office's KYC form. The office reviews duplicates before adding it to the approved universe.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    TonalButton("New prospect",{choose("workforce.prospect")},Modifier.fillMaxWidth().testTag("workforce-prospect"),policy?.let { it.valid(System.currentTimeMillis())&&it.canProspect }==true&&!controller.busy,glyph=GlyphKind.PLUS)
                 }
             }
-            if(policy==null)Text("Connect and refresh today's field forms. The office may need to configure this team.",Modifier.testTag("workforce-policy-missing"))
-            else Text("${policy.label} · version ${policy.version}\n${policy.source}",style=MaterialTheme.typography.bodySmall)
+            if(policy==null)NoticeCard("Connect and refresh today's field forms. The office may need to configure this team.",tone=Look.Tone.WARN,textTag="workforce-policy-missing")
+            else Text("${policy.label} · version ${policy.version}\n${policy.source}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.padding(horizontal=4.dp))
             if(mode!=null&&policy!=null) {
                 SectionCard(if(mode=="workforce.prospect")"New prospect" else if(mode=="workforce.clockIn")"Clock-in evidence" else "Close attendance day") {
-                    Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
+                    Column(Modifier.padding(start=16.dp,end=16.dp,bottom=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
                         if(mode=="workforce.prospect") {
-                            OutlinedTextField(name,{name=it.take(200)},label={Text("Prospect name")},singleLine=true,modifier=Modifier.fillMaxWidth().testTag("workforce-name"),shape=SunprideTokens.shapes.small)
+                            FieldTextField(name,{name=it.take(200)},label={Text("Prospect name")},singleLine=true,modifier=Modifier.fillMaxWidth().testTag("workforce-name"))
                             for(field in policy.fields) {
                                 val value=answers[field.key].orEmpty()
                                 if(field.type=="select") {
                                     Text(field.label+(if(field.required)" *" else ""),style=MaterialTheme.typography.labelLarge)
-                                    field.options.forEach { option->Row(Modifier.fillMaxWidth().clickable { answers=answers+(field.key to option) }) { RadioButton(value==option,{answers=answers+(field.key to option)});Text(option,Modifier.padding(top=12.dp)) } }
-                                } else OutlinedTextField(value,{answers=answers+(field.key to it.take(field.maxLength))},label={Text(field.label+(if(field.required)" *" else ""))},singleLine=field.key!="address",modifier=Modifier.fillMaxWidth().testTag("workforce-field-${field.key}"),shape=SunprideTokens.shapes.small)
+                                    androidx.compose.foundation.layout.FlowRow(horizontalArrangement=Arrangement.spacedBy(8.dp)) {
+                                        field.options.forEach { option->FilterPill(option,value==option,{answers=answers+(field.key to option)}) }
+                                    }
+                                } else FieldTextField(value,{answers=answers+(field.key to it.take(field.maxLength))},label={Text(field.label+(if(field.required)" *" else ""))},singleLine=field.key!="address",modifier=Modifier.fillMaxWidth().testTag("workforce-field-${field.key}"))
                             }
                         }
                         if(mode!="workforce.clockOut") {
-                            Text(when { locating->"Finding location…";geo!=null->"Location captured · accuracy ${geo!!.optDouble("accuracyMeters").toInt()} m";else->"Location not captured" },Modifier.testTag("workforce-location"))
-                            SecondaryButton(if(locationGranted)"Refresh location" else "Allow location",{if(locationGranted)getFix() else locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION))},Modifier.testTag("workforce-locate"),!locating&&!controller.busy)
+                            StatusChip(when { locating->"Finding location…";geo!=null->"Location captured · accuracy ${geo!!.optDouble("accuracyMeters").toInt()} m";else->"Location not captured" },if(geo!=null)Look.Tone.GOOD else if(locating)Look.Tone.NEUTRAL else Look.Tone.WARN,textTag="workforce-location")
+                            TonalButton(if(locationGranted)"Refresh location" else "Allow location",{if(locationGranted)getFix() else locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION))},Modifier.fillMaxWidth().testTag("workforce-locate"),!locating&&!controller.busy,glyph=GlyphKind.PIN)
                             if(jpeg!=null) {
-                                Text("Photo captured and ready to save.",Modifier.testTag("workforce-photo-ready"))
-                                SecondaryButton("Retake photo",{jpeg=null},enabled=!controller.busy)
+                                StatusChip("Photo captured and ready to save.",Look.Tone.GOOD,textTag="workforce-photo-ready")
+                                SecondaryButton("Retake photo",{jpeg=null},Modifier.fillMaxWidth(),enabled=!controller.busy)
                             } else if(cameraGranted) {
-                                CameraPreview({camera=it},{message="Camera unavailable. Try allowing camera access in Settings."},Modifier.fillMaxWidth().height(220.dp),front=mode=="workforce.clockIn")
-                                SecondaryButton(if(taking)"Taking photo…" else "Take photo",::shoot,Modifier.testTag("workforce-take-photo"),camera!=null&&!taking&&!controller.busy)
-                            } else SecondaryButton("Allow camera",{cameraPermission.launch(Manifest.permission.CAMERA)},Modifier.testTag("workforce-allow-camera"))
-                        } else Text("Clock-out records the end time. It does not stop separately consented location sharing.")
+                                CameraPreview({camera=it},{message="Camera unavailable. Try allowing camera access in Settings."},Modifier.fillMaxWidth().height(220.dp).clip(RoundedCornerShape(20.dp)),front=mode=="workforce.clockIn")
+                                TonalButton(if(taking)"Taking photo…" else "Take photo",::shoot,Modifier.fillMaxWidth().testTag("workforce-take-photo"),camera!=null&&!taking&&!controller.busy,glyph=GlyphKind.CAMERA)
+                            } else TonalButton("Allow camera",{cameraPermission.launch(Manifest.permission.CAMERA)},Modifier.fillMaxWidth().testTag("workforce-allow-camera"),glyph=GlyphKind.CAMERA)
+                        } else Text("Clock-out records the end time. It does not stop separately consented location sharing.",style=MaterialTheme.typography.bodyMedium)
                     }
                 }
             }
-            if(saved)Text("Saved on this phone. Sync will send it when connected.",Modifier.testTag("workforce-saved"),color=MaterialTheme.colorScheme.primary)
-            (message?:controller.error)?.let { Text(it,color=MaterialTheme.colorScheme.error) }
+            if(saved)NoticeCard("Saved on this phone. Sync will send it when connected.",tone=Look.Tone.GOOD,glyph=GlyphKind.CHECK,textTag="workforce-saved")
+            (message?:controller.error)?.let { NoticeCard(it,tone=Look.Tone.BAD) }
             if(view.entries.isNotEmpty())SectionCard("Saved forms") {
-                Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.padding(start=16.dp,end=16.dp,bottom=14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
                     view.entries.take(20).forEach { e->Text("${e.title}\n${time(e.at)} · "+when(e.state){"done"->if(e.kind=="workforce.prospect")"Sent for office review" else "Sent";"review","held"->"Needs review — kept on this phone";"sending"->"Sending";else->"Saved on this phone"},Modifier.testTag("workforce-entry"),style=MaterialTheme.typography.bodyMedium) }
                     if(view.entries.size>20)Text("Showing the latest 20 of ${view.entries.size} saved forms.")
                     if(view.entries.any { it.state in setOf("review","held") })Text("Some review work may exist only on this phone. Ask the office to reconcile before recapturing it.",style=MaterialTheme.typography.bodySmall)
                 }
             }
-            Spacer(Modifier.height(16.dp))
         }
-        if(mode!=null)PrimaryBottomButton(if(controller.busy)"Saving…" else if(mode=="workforce.prospect")"Save prospect on phone" else if(mode=="workforce.clockIn")"Save clock-in on phone" else "Save clock-out on phone",{
+        if(mode!=null)ActionBar { PrimaryBottomButton(if(controller.busy)"Saving…" else if(mode=="workforce.prospect")"Save prospect on phone" else if(mode=="workforce.clockIn")"Save clock-in on phone" else "Save clock-out on phone",{
             controller.saveWorkforce(mode!!,name,answers,geo,jpeg,photoAt) {saved=true;mode=null;generation++}
-        },Modifier.testTag("workforce-save"),!controller.busy&&!taking&&policy?.valid(System.currentTimeMillis())==true&&(mode=="workforce.clockOut"||(geo!=null&&jpeg!=null)))
+        },Modifier.testTag("workforce-save"),!controller.busy&&!taking&&policy?.valid(System.currentTimeMillis())==true&&(mode=="workforce.clockOut"||(geo!=null&&jpeg!=null))) }
+    }
+}
+
+@Composable
+private fun AttendanceTile(label: String, value: String, recorded: Boolean, modifier: Modifier = Modifier) {
+    Column(modifier.clip(RoundedCornerShape(16.dp)).background(Look.fill(if(recorded)Look.Tone.GOOD else Look.Tone.NEUTRAL)).padding(horizontal=14.dp,vertical=12.dp),
+        verticalArrangement=Arrangement.spacedBy(2.dp)) {
+        Text(label,style=MaterialTheme.typography.labelMedium,color=Look.text(if(recorded)Look.Tone.GOOD else Look.Tone.NEUTRAL))
+        Text(value,style=MaterialTheme.typography.titleSmall,color=Look.text(if(recorded)Look.Tone.GOOD else Look.Tone.NEUTRAL))
     }
 }

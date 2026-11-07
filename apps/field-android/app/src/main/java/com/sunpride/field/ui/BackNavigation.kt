@@ -23,6 +23,8 @@ data class BackState(
     val signedIn: Boolean = true,
     val ready: Boolean = true,
     val page: String = "home",
+    /** The page a drill-down page (Account, Sync, a tool) was opened from; Back returns there. */
+    val origin: String = "home",
     val visitOpen: Boolean = false,
     val visitsEnabled: Boolean = true,
     val photoCaptureOpen: Boolean = false,
@@ -35,9 +37,10 @@ data class BackState(
 object BackNavigation {
     fun step(s: BackState): BackStep = when {
         s.locked || !s.signedIn -> BackStep.Exit
-        s.page == "account" || s.page == "sync" -> BackStep.ToPage("home")
+        s.page == "account" || s.page == "sync" -> BackStep.ToPage(s.origin)
         s.page == "support" || s.page == "change-password" -> BackStep.ToPage("account")
-        s.ready && (s.page == "location-consent" || s.page == "location-background" || s.page == "location-battery" || s.page == "workforce" || s.page == "jointcall" || s.page == "collections") -> BackStep.ToPage("home")
+        s.ready && s.page == "more" -> BackStep.ToPage("home")
+        s.ready && (s.page == "location-consent" || s.page == "location-background" || s.page == "location-battery" || s.page == "workforce" || s.page == "jointcall" || s.page == "collections") -> BackStep.ToPage(s.origin)
         s.visitOpen && s.visitsEnabled && s.ready -> when {
             s.photoCaptureOpen -> BackStep.ClosePhoto
             s.activityFormOpen -> BackStep.CloseActivityForm
@@ -47,7 +50,8 @@ object BackNavigation {
             else -> BackStep.CloseVisit
         }
         s.ready && s.page == "customer" -> BackStep.ToPage("customers")
-        s.ready && (s.page == "route" || s.page == "customers" || s.page == "team" || s.page == "census" || s.page == "catalogue") -> BackStep.ToPage("home")
+        s.ready && (s.page == "route" || s.page == "customers") -> BackStep.ToPage("home")
+        s.ready && (s.page == "team" || s.page == "census" || s.page == "catalogue" || s.page == "incentives") -> BackStep.ToPage(s.origin)
         else -> BackStep.Exit
     }
 }

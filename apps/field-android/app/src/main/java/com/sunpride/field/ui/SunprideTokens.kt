@@ -41,36 +41,57 @@ object SunprideTokens {
     val spacing4 = 16.dp
     val spacing6 = 24.dp
     val spacing8 = 32.dp
+    // Field v2 (sibling of the handheld POS look): soft 12/16/20 dp corners, pills for chips and buttons.
     val shapes = Shapes(
-        small = RoundedCornerShape(10.dp),
-        medium = RoundedCornerShape(10.dp),
-        large = RoundedCornerShape(16.dp)
+        extraSmall = RoundedCornerShape(14.dp),
+        small = RoundedCornerShape(12.dp),
+        medium = RoundedCornerShape(20.dp),
+        large = RoundedCornerShape(20.dp),
+        extraLarge = RoundedCornerShape(28.dp)
     )
-    // sp participates in the platform font scale; no unlicensed bundled font.
+    // One scale, sp so it follows the phone's font size. Body never below 13 sp, labels never below 12 sp:
+    // sellers read this outdoors. Weights carry the hierarchy, not extra sizes.
     val typography = Typography(
+        headlineMedium = TextStyle(fontSize = 28.sp, lineHeight = 34.sp, fontWeight = FontWeight.Bold),
+        headlineSmall = TextStyle(fontSize = 24.sp, lineHeight = 30.sp, fontWeight = FontWeight.Bold),
+        titleLarge = TextStyle(fontSize = 22.sp, lineHeight = 28.sp, fontWeight = FontWeight.Bold),
+        titleMedium = TextStyle(fontSize = 17.sp, lineHeight = 24.sp, fontWeight = FontWeight.SemiBold),
+        titleSmall = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
         bodyLarge = TextStyle(fontSize = 16.sp, lineHeight = 24.sp),
         bodyMedium = TextStyle(fontSize = 14.sp, lineHeight = 20.sp),
-        labelLarge = TextStyle(fontSize = 14.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
-        titleLarge = TextStyle(fontSize = 24.sp, lineHeight = 32.sp, fontWeight = FontWeight.SemiBold),
-        headlineMedium = TextStyle(fontSize = 30.sp, lineHeight = 36.sp, fontWeight = FontWeight.SemiBold)
+        bodySmall = TextStyle(fontSize = 13.sp, lineHeight = 18.sp),
+        labelLarge = TextStyle(fontSize = 15.sp, lineHeight = 20.sp, fontWeight = FontWeight.SemiBold),
+        labelMedium = TextStyle(fontSize = 13.sp, lineHeight = 16.sp, fontWeight = FontWeight.SemiBold),
+        labelSmall = TextStyle(fontSize = 12.sp, lineHeight = 16.sp, fontWeight = FontWeight.Medium)
     )
+    /** Cards sit one step off the white sheet (POS look): FAFAFA with a hairline. */
+    val cardLight = Color(0xFFFAFAFA)
+    val hairlineLight = Color(0xFFD9D9DE)
+    val tintLight = Color(0xFFFCE9E7)
+    val onTintLight = Color(0xFF8E1117)
     val lightColors = lightColorScheme(
         primary = accessibleRed, onPrimary = snow,
+        primaryContainer = tintLight, onPrimaryContainer = onTintLight,
         secondary = ink, onSecondary = snow,
-        background = canvas, onBackground = ink,
-        surface = surface, onSurface = ink,
+        secondaryContainer = tintLight, onSecondaryContainer = onTintLight,
+        background = Color.White, onBackground = ink,
+        surface = cardLight, onSurface = ink,
         surfaceVariant = disabledLight, onSurfaceVariant = muted,
+        surfaceContainer = Color.White, surfaceContainerHigh = Color.White,
         error = danger, onError = snow,
-        outline = muted
+        outline = muted, outlineVariant = hairlineLight
     )
     val darkColors = darkColorScheme(
         primary = darkAccent, onPrimary = ink,
+        primaryContainer = Color(0xFF3A2220), onPrimaryContainer = Color(0xFFFFDAD6),
         secondary = yellow, onSecondary = ink,
+        secondaryContainer = Color(0xFF3A2220), onSecondaryContainer = Color(0xFFFFDAD6),
         background = darkCanvas, onBackground = snow,
         surface = darkSurface, onSurface = snow,
         surfaceVariant = disabledDark, onSurfaceVariant = snow,
+        surfaceContainer = darkCanvas, surfaceContainerHigh = darkSurface,
         error = darkDanger, onError = ink,
-        outline = darkMuted
+        outline = darkMuted, outlineVariant = Color(0xFF4A4A4A)
     )
 }
 
