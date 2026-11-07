@@ -897,7 +897,14 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             catch (e: Throwable) { storeRefundError = UserMessages.forFailure(e, REFUND_FAILED) } finally { busy = false }
         }
     }
-    fun printStoreRefundSlip(refundId: String?) { storeRefundDone?.let { printRefundFacts(it, reprint = true) } }
+    /** [refundId] null = the refund just saved (its Done dialog is open); else any credit memo saved on this register. */
+    fun printStoreRefundSlip(refundId: String?) {
+        val s = scope ?: return
+        s.launch {
+            val facts = refundId?.let { runCatching { repository.storeRefundSlip(it) }.getOrNull() } ?: storeRefundDone.takeIf { refundId == null }
+            if (facts == null) printMessage = "Could not find that credit memo on this register." else printRefundFacts(facts, reprint = true)
+        }
+    }
     fun finishStoreRefund() { storeRefundDone = null; printMessage = null }
     private fun printRefundFacts(facts: RefundSlipFacts, reprint: Boolean) {
         val s = scope ?: return

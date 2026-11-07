@@ -282,6 +282,12 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
                 ReprintRules.remaining(history)>0->SecondaryButton(if(c.printing)"Printing…" else "Reprint",{reprinting=r},Modifier.testTag("store-reprint"),enabled=!c.printing)
                 else->Text("Reprinted ${ReprintRules.MAX_REPRINTS} times. Ask the office for a copy.")
             }
+            // A saved credit memo can always be printed again (the slip may not have come out the first time).
+            com.sunpride.van.storepos.StoreRefunds.local(c.storePos.rows).filter {it.getString("saleId")==id}.forEach {m->
+                val rid=m.getString("refundId");val cm=m.optString("creditNumber")
+                Text("Credit memo $cm · ${pesos(m.getString("expectedCentavos").toLong())} refunded",Modifier.testTag("store-credit-memo-$rid"))
+                SecondaryButton(if(c.printing)"Printing…" else "Print credit memo",{c.printStoreRefundSlip(rid)},Modifier.testTag("store-print-credit-memo-$rid"),enabled=!c.printing)
+            }
             if(r.optString("_status")!="voided"){
                 // IP-REFUND: take back some of the items now, paid out of the open drawer (a supervisor approves above the office's amount).
                 if(com.sunpride.van.storepos.StoreRefunds.policy(config)!=null)SecondaryButton("Refund items",{c.openStoreRefund(r)},Modifier.testTag("store-refund-items-${r.getString("saleId")}"),enabled=c.storePos.shift!=null&&!c.busy)
