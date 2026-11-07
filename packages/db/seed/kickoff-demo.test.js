@@ -358,6 +358,22 @@ test("device restriction fails closed, then clears", async () => {
   expect((await planKickoffDemo(db, { from: FREE, now })).ok).toBe(true);
 });
 
+test("inactive devices are ignored only with the explicit opt-in; active foreign-bound ones still refuse", async () => {
+  const id = await agentId();
+  const [{ n: unit }] = await db`select org_unit_id as n from profiles where id=${id}`;
+  const [d] = await db`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,status,bound_subject,org_unit_id)
+    values(${id},'field-android','android','kickoff-test-old-phone','test-only-key',${"b".repeat(64)},'revoked',null,${unit}) returning id`;
+  try {
+    expect(parseArgs(["--allow-inactive-devices"]).allowInactiveDevices).toBe(true);
+    expect((await planKickoffDemo(db, { from: FREE, now })).conflicts.map((/** @type {any} */ c) => c.code)).toContain("device_not_active");
+    expect((await planKickoffDemo(db, { from: FREE, now, allowInactiveDevices: true })).ok).toBe(true);
+    await db`update registered_devices set status='active',bound_subject='someone-else' where id=${d.id}`;
+    expect((await planKickoffDemo(db, { from: FREE, now, allowInactiveDevices: true })).conflicts.map((/** @type {any} */ c) => c.code)).toContain("device_bound_to_other_subject");
+  } finally {
+    await db`delete from registered_devices where id=${d.id}`;
+  }
+});
+
 test("apply submit-only: additive, only coverage tables change, supervisor must still approve", async () => {
   const before = await counts();
   const fp = await fingerprint();

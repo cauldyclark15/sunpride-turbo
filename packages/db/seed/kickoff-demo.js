@@ -71,7 +71,7 @@ export class KickoffConflict extends Error {
 
 /**
  * @typedef {{assigneeEmail?:string, assigneeProfileId?:string, vanSellerEmail?:string, vanSellerProfileId?:string, from?:string, days?:number, storesPerDay?:number,
- *   stores?:string[], approve?:boolean, now?:number}} KickoffOptions
+ *   stores?:string[], approve?:boolean, allowInactiveDevices?:boolean, now?:number}} KickoffOptions
  */
 
 /** @param {KickoffOptions} o */
@@ -99,6 +99,7 @@ function normalize(o = {}) {
     storesPerDay,
     stores: o.stores ?? null,
     approve: o.approve === true,
+    allowInactiveDevices: o.allowInactiveDevices === true,
     assigneeEmail: (o.assigneeEmail ?? DEFAULT_ASSIGNEE).toLowerCase(),
     assigneeProfileId: o.assigneeProfileId?.toLowerCase() ?? null,
     vanSellerEmail: (o.vanSellerEmail ?? DEFAULT_VAN_SELLER).toLowerCase(),
@@ -269,6 +270,9 @@ async function preflight(db, o) {
   const devices = await db`select id,app,status,bound_subject,org_unit_id from registered_devices where profile_id=${agent.id}`;
   report.devices = devices.map((/** @type {any} */ d) => ({ id: d.id, app: d.app, status: d.status }));
   for (const d of devices) {
+    // Opt-in only: revoked/suspended rows left by earlier phone swaps cannot be stranded by a plan. They are reported
+    // (never edited); an ACTIVE device that is foreign-bound or in another unit still refuses below.
+    if (d.status !== "active" && o.allowInactiveDevices) continue;
     if (d.status !== "active")
       refuse("device_not_active", { deviceId: d.id, app: d.app, status: d.status });
     else if (d.bound_subject && d.bound_subject !== agent.user_id)
@@ -551,6 +555,7 @@ export function parseArgs(argv) {
     };
     if (k === "--apply") a.apply = true;
     else if (k === "--approve-as-supervisor") a.approve = true;
+    else if (k === "--allow-inactive-devices") a.allowInactiveDevices = true;
     else if (k === "--from") a.from = val();
     else if (k === "--days") a.days = Number(val());
     else if (k === "--stores") a.stores = val().split(",").map((s) => s.trim()).filter(Boolean);
