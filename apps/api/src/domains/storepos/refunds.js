@@ -206,6 +206,7 @@ export async function refundPart(c) {
     id,
     surface: "store",
     saleId: sale.id,
+    receipt: sale.receipt,
     originalNumber: sale.receipt_number,
     shiftId: shift.id,
     deviceId: device.id,

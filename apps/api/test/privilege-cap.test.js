@@ -737,6 +737,38 @@ test("the store bundle carries `privilegeCap` inside storePos only for a handhel
   expect(Object.keys(asked.policy).sort()).toEqual(Object.keys(plain.policy).sort());
 });
 
+test("IP-INT5: refunds and the weekly limit are separate opt-ins on the store bundle; asking for both gives both and no new policy key", async () => {
+  const { bundle } = await import("../src/domains/van/projection.js");
+  const actor = await actorFor(h.db, seller.userId);
+  const ctx = (/** @type {any} */ extra) => ({
+    db: h.db,
+    actor,
+    device: { id: seller.deviceId },
+    params: { serviceDate: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10), posMode: true, handheld: true, vanDay: true, ...extra },
+    now: Date.now(),
+  });
+  const get = async (/** @type {any} */ extra) => /** @type {any} */ (await bundle(ctx(extra), {}));
+  const plain = await get({});
+  const refunds = await get({ refunds: true });
+  const cap = await get({ privilegeCap: true });
+  const both = await get({ refunds: true, privilegeCap: true });
+  expect(plain.policy.storePos.refunds).toBeUndefined();
+  expect(plain.policy.storePos.privilegeCap).toBeUndefined();
+  expect(refunds.policy.storePos.refunds).toBeDefined();
+  expect(refunds.policy.storePos.privilegeCap).toBeUndefined();
+  expect(cap.policy.storePos.privilegeCap).toBeDefined();
+  expect(cap.policy.storePos.refunds).toBeUndefined();
+  expect(both.policy.storePos.refunds).toBeDefined();
+  expect(both.policy.storePos.privilegeCap).toMatchObject({ version: 1, enabled: true });
+  expect(Object.keys(both.policy).sort()).toEqual(Object.keys(refunds.policy).sort());
+  expect(Object.keys(both.policy.storePos).sort()).toEqual(
+    [...Object.keys(refunds.policy.storePos), "privilegeCap"].sort(),
+  );
+  // the frozen v1 validated keys never include either
+  const v1 = await Bun.file(new URL("./fixtures/van-wire-v1-policy-keys.json", import.meta.url)).json();
+  for (const k of ["refunds", "privilegeCap"]) expect(v1.validatedKeys).not.toContain(k);
+});
+
 test("a sale with no claim, or a claim on a phone from before this change, is unchanged on the wire", async () => {
   const plain = await ring(["VAT39"], "3900");
   expect(plain.result.status).toBe("applied");

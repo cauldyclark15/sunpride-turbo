@@ -21,6 +21,7 @@
  * `test/fixtures/privilege-cap-vectors.json`.
  */
 import { computeLine } from "./privilege.js";
+import { saleLines, taxLinesFor } from "./refund-math.js";
 
 /** Shipped default: PHP 2,500 of purchases a week (JAO 24-02 s.2024). To be confirmed with Sunpride's accountant. */
 export const DEFAULT_WEEKLY_CAP_CENTAVOS = 250000;
@@ -91,10 +92,10 @@ export async function capSetting(db, at) {
   };
 }
 
-/** Purchase already discounted this week for one ID, every store and van. A voided invoice gives its part back.
+/** Purchase already discounted this week for one ID, every store and van. A voided invoice gives all of it back, a partial refund its share (privilege_cap_releases).
  * @param {any} db @param {string} key @param {string} week */
 export async function usedThisWeek(db, key, week) {
-  const [row] = await db`select coalesce(sum(l.applied_gross_centavos),0)::text as used from privilege_cap_ledger l
+  const [row] = await db`select coalesce(sum(l.applied_gross_centavos - (select coalesce(sum(x.released_gross_centavos),0) from privilege_cap_releases x where x.ledger_id=l.id)),0)::text as used from privilege_cap_ledger l
     where l.id_key=${key} and l.week_start=${week}::date
       and not exists (select 1 from fiscal_document_events e where e.document_id=l.fiscal_document_id and e.kind='void')`;
   return Number(row?.used ?? 0);
@@ -180,10 +181,10 @@ export function computeOne(l, gross, promo, type) {
 export async function capBundle(db, at) {
   const setting = await capSetting(db, at);
   const week = manilaWeekStart(at);
-  const rows = await db`select l.id_hash,sum(l.applied_gross_centavos)::text as used from privilege_cap_ledger l
+  const rows = await db`select l.id_hash,sum(l.applied_gross_centavos - (select coalesce(sum(x.released_gross_centavos),0) from privilege_cap_releases x where x.ledger_id=l.id))::text as used from privilege_cap_ledger l
     where l.week_start=${week}::date
       and not exists (select 1 from fiscal_document_events e where e.document_id=l.fiscal_document_id and e.kind='void')
-    group by l.id_hash order by sum(l.applied_gross_centavos) desc limit 2001`;
+    group by l.id_hash order by sum(l.applied_gross_centavos - (select coalesce(sum(x.released_gross_centavos),0) from privilege_cap_releases x where x.ledger_id=l.id)) desc limit 2001`;
   return {
     version: 1,
     enabled: setting.enabled,
@@ -195,4 +196,60 @@ export async function capBundle(db, at) {
     complete: rows.length <= 2000,
     used: rows.slice(0, 2000).map((/** @type {any} */ r) => ({ k: r.id_hash, v: r.used })),
   };
+}
+
+/**
+ * IP-INT5: how much of the weekly limit a refund of part of a senior / PWD discounted sale gives back.
+ * Share = (regular price of the discounted lines taken back so far) / (regular price of all discounted lines), applied to what
+ * the sale used (`applied_gross`). Rounded cumulatively half up, so the refunds of a sale give back exactly what it used and
+ * never more. Lines that carried no privilege discount give nothing back. A sale with no ledger row (no claim, an old sale, or
+ * the limit was off) gives nothing. Reads only; `releaseCapForRefund` writes.
+ * @param {any} db @param {{saleId:string, receipt:any, plan:any}} o
+ * @returns {Promise<null | {ledger:any, refundedGross:bigint, released:bigint}>}
+ */
+export async function capReleaseFor(db, o) {
+  const [ledger] =
+    await db`select id,id_hash,week_start::text as week_start,applied_gross_centavos::text as applied from privilege_cap_ledger where source_id=${o.saleId}`;
+  if (!ledger) return null;
+  const applied = BigInt(ledger.applied);
+  const lines = saleLines(o.receipt);
+  const tax = taxLinesFor(lines, o.receipt?.tax);
+  const gives = (/** @type {number} */ i) => {
+    const t = tax[i];
+    return (
+      !!t &&
+      (BigInt(t.privilegeDiscountMinor ?? 0) > 0n ||
+        BigInt(t.vatRemovedMinor ?? 0) > 0n)
+    );
+  };
+  // No per-line tax facts at all (should not happen on a sale that has a ledger row): share by every line's price.
+  const perLine = tax.some((t) => t);
+  let wholeGross = 0n;
+  lines.forEach((l, i) => {
+    if (!perLine || gives(i)) wholeGross += l.gross;
+  });
+  let nowGross = 0n;
+  for (const l of o.plan.lines)
+    if (!perLine || gives(l.lineIndex)) nowGross += l.grossCentavos;
+  if (wholeGross <= 0n || nowGross <= 0n) return null;
+  const [done] =
+    await db`select coalesce(sum(refunded_gross_centavos),0)::text as refunded,coalesce(sum(released_gross_centavos),0)::text as released from privilege_cap_releases where ledger_id=${ledger.id}`;
+  const before = BigInt(done.refunded);
+  let after = before + nowGross;
+  if (after > wholeGross) after = wholeGross;
+  const target = (2n * applied * after + wholeGross) / (2n * wholeGross);
+  const already = BigInt(done.released);
+  let release = target - already;
+  if (release < 0n) release = 0n;
+  if (already + release > applied) release = applied - already;
+  return { ledger, refundedGross: after - before, released: release };
+}
+
+/** Writes what `capReleaseFor` found: one append-only row per refund. @param {any} db @param {{refundId:string, saleId:string, receipt:any, plan:any}} o @returns {Promise<number>} centavos of limit given back */
+export async function releaseCapForRefund(db, o) {
+  const r = await capReleaseFor(db, o);
+  if (!r) return 0;
+  await db`insert into privilege_cap_releases(refund_id,ledger_id,id_hash,week_start,refunded_gross_centavos,released_gross_centavos)
+    values(${o.refundId},${r.ledger.id},${r.ledger.id_hash},${r.ledger.week_start}::date,${String(r.refundedGross)},${String(r.released)})`;
+  return Number(r.released);
 }

@@ -619,4 +619,10 @@ test("only a phone that asks with params.refunds is told about refunds or given 
   // a build that sends vanDay but not refunds (hh2) is not given them either
   const hh2 = await pull(hh);
   expect(hh2.policy.refunds).toBeUndefined();
+  // IP-INT5: beta.32 asks for refunds AND the weekly limit; each rides only on its own opt-in and nothing else leaves the v1 key set
+  const both = await pull({ ...hh, refunds: true, privilegeCap: true });
+  expect(Object.keys(both.policy).sort()).toEqual(Object.keys(nu.policy).sort()); // privilegeCap rides inside storePos, so no new policy key
+  expect(both.policy.refunds.supervisorOverMinor).toBe("50000");
+  const capOnly = await pull({ ...hh, privilegeCap: true });
+  expect(capOnly.policy.refunds).toBeUndefined(); // the limit's opt-in does not switch refunds on
 });

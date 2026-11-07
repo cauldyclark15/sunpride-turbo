@@ -613,6 +613,57 @@ test("a senior sale refunds proportionally: discount, VAT removed and VAT-exempt
   });
 });
 
+test("a partial refund of a senior sale gives back its share of the weekly limit, the last piece gives back the rest, the refunds together give back exactly what the sale used", async () => {
+  const { usedThisWeek, idKey, capBundle, idHash } =
+    await import("../src/domains/fiscal/privilege-cap.js");
+  const [a] =
+    await h.db`select next_issue from fiscal_allocations where id=${siAllocation}`;
+  const serial = String(a.next_issue),
+    id = crypto.randomUUID();
+  await push(
+    op("store.sale", {
+      saleId: id,
+      receiptNumber: `${siPrefix}-${serial.padStart(9, "0")}`,
+      lines: [{ productId: productA, uom: "PC", quantity: 2 }],
+      totalCentavos: "5571",
+      fiscal: { allocationId: siAllocation, serial },
+      tenders: [{ method: "cash", amountCentavos: "5571" }],
+      discountClaim: {
+        type: "senior",
+        idNumber: "SC-2026-CAP-RELEASE",
+        holderName: "Juana Dela Cruz",
+      },
+    }),
+  );
+  const key = idKey("senior", "SC-2026-CAP-RELEASE");
+  const [ledger] =
+    await h.db`select id,week_start::text as week,applied_gross_centavos::text as applied from privilege_cap_ledger where source_id=${id}`;
+  const applied = Number(ledger.applied);
+  expect(applied).toBeGreaterThan(0);
+  expect(await usedThisWeek(h.db, key, ledger.week)).toBe(applied);
+  await push(await refundOp(id, VAT("1"), "RF-CHANGED-MIND", "2786"));
+  const afterOne = await usedThisWeek(h.db, key, ledger.week);
+  expect(Math.abs(applied - afterOne - applied / 2)).toBeLessThanOrEqual(1);
+  expect(afterOne).toBeGreaterThan(0);
+  // the phone bundle sees the same figure (hashed card)
+  const bundle = await capBundle(h.db, Date.now());
+  expect(bundle.used.find((/** @type {any} */ u) => u.k === idHash(key))?.v).toBe(String(afterOne));
+  await push(await refundOp(id, VAT("1"), "RF-CHANGED-MIND", "2785"));
+  expect(await usedThisWeek(h.db, key, ledger.week)).toBe(0);
+  const rel =
+    await h.db`select released_gross_centavos::text as r from privilege_cap_releases where ledger_id=${ledger.id}`;
+  expect(rel).toHaveLength(2);
+  expect(rel.reduce((/** @type {number} */ n, /** @type {any} */ x) => n + Number(x.r), 0)).toBe(applied);
+  // append-only like the ledger
+  let refused = false;
+  try {
+    await h.db`update privilege_cap_releases set released_gross_centavos=0 where ledger_id=${ledger.id}`;
+  } catch {
+    refused = true;
+  }
+  expect(refused).toBe(true);
+});
+
 test("a sale that was partly refunded can no longer be voided or refunded whole", async () => {
   const id = await bigSale();
   await push(await refundOp(id, VAT("1"), "RF-CHANGED-MIND", "3900"));
@@ -689,9 +740,9 @@ test("the Z reading freezes the refund count, total and credit memo range for th
   await web(`days/${day.id}/z`, {});
   const [z] =
     await h.db`select refunds_count,refunds_centavos::text as total,beginning_refund,ending_refund from store_z_readings where till_day_id=${day.id}`;
-  // 3 refunds of the first sale (19,000), 2 of the senior sale (5,571), 1 of the next (3,900), and one whole-sale refund (19,000)
-  expect(z.refunds_count).toBe(7);
-  expect(z.total).toBe(String(19000 + 5571 + 3900 + 19000));
+  // 3 refunds of the first sale (19,000), 2 of the senior sale (5,571), 2 of the second senior sale (5,571, IP-INT5 weekly-limit test), 1 of the next (3,900), and one whole-sale refund (19,000)
+  expect(z.refunds_count).toBe(9);
+  expect(z.total).toBe(String(19000 + 5571 + 5571 + 3900 + 19000));
   expect(z.beginning_refund).toBe(`${cmPrefix}-000000001`);
   expect(z.ending_refund).toMatch(/^REF-CM-0000000\d\d$/);
 });

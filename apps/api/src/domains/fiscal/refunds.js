@@ -1,5 +1,6 @@
 import { refuse, text } from "../van/model.js";
 import { planRefund } from "./refund-math.js";
+import { releaseCapForRefund } from "./privilege-cap.js";
 
 /** IP-REFUND: the parts of a refund store tills and vans share. */
 export const REFUND_ORG = "sunpride";
@@ -193,6 +194,14 @@ export async function insertRefund(db, row) {
   await db`insert into sale_refunds(id,surface,sale_id,original_number,shift_id,trip_id,device_id,requested_by,supervisor_profile_id,credit_number,fiscal_document_id,reason_code,note,destination,total_centavos,tax,lines,tenders,movement_id,captured_request,refunded_at) values(${row.id},${row.surface},${row.saleId},${row.originalNumber},${row.shiftId ?? null},${row.tripId ?? null},${row.deviceId},${row.requestedBy},${row.supervisorProfileId ?? null},${row.creditNumber},${row.documentId},${row.reason.code},${row.reason.note},${row.reason.destination},${String(row.plan.total)},${row.plan.tax},${row.lines},${row.tenders},${row.movementId},${row.captured},${new Date(row.at)})`;
   for (const l of row.plan.lines)
     await db`insert into sale_refund_lines(refund_id,sale_id,line_index,product_id,quantity_base,amount_centavos) values(${row.id},${row.saleId},${l.lineIndex},${l.productId},${String(l.quantityBase)},${String(l.amountCentavos)})`;
+  // IP-INT5: a senior / PWD sale gives back its share of the weekly limit.
+  if (row.receipt)
+    await releaseCapForRefund(db, {
+      refundId: row.id,
+      saleId: row.saleId,
+      receipt: row.receipt,
+      plan: row.plan,
+    });
 }
 
 /** The picks a phone sends, checked to the shape the maths wants. @param {any} lines */

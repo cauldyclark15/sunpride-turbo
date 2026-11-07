@@ -465,6 +465,21 @@ test("van: the first PWD sale used PHP 250.50 of the shipped default limit (PHP 
   expect(m.body.model.privilege.weeklyLimitText).toBe("Weekly limit: ₱2,249.50 left");
 });
 
+test("van: refunding part of the discounted sale would give back its share of the limit (IP-INT5, same function the store and van refunds call)", async () => {
+  const { capReleaseFor } = await import("../src/domains/fiscal/privilege-cap.js");
+  const { planRefund } = await import("../src/domains/fiscal/refund-math.js");
+  const [s] = await h.db`select receipt from van_sales where id=${pwdSale}`;
+  const qty = BigInt(s.receipt.lines[0].quantityBase);
+  const plan = planRefund({ receipt: s.receipt, picks: [{ lineIndex: 0, quantityBase: 1n }] });
+  const r = await capReleaseFor(h.db, { saleId: pwdSale, receipt: s.receipt, plan });
+  expect(r).not.toBeNull();
+  // one piece of `qty` gives back 1/qty of the PHP 250.50 the sale used (half up)
+  const applied = 25050n;
+  expect(r?.released).toBe((2n * applied + qty) / (2n * qty));
+  const whole = planRefund({ receipt: s.receipt, picks: [{ lineIndex: 0, quantityBase: qty }] });
+  expect((await capReleaseFor(h.db, { saleId: pwdSale, receipt: s.receipt, plan: whole }))?.released).toBe(applied);
+});
+
 test("van: a phone that knows its remaining limit is accepted exactly; an older build that does not is accepted too and the overage is recorded", async () => {
   // office sets PHP 400 a week: PHP 149.50 left after the first sale
   const set = await fiscalApi("/api/v1/fiscal/privilege/cap", { enabled: true, capCentavos: 40000 });

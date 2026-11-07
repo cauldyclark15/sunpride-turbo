@@ -248,6 +248,7 @@ export async function vanRefund(db, trip, actor, env, p, opId) {
     id,
     surface: "van",
     saleId,
+    receipt: s.receipt,
     originalNumber: s.receipt_number,
     tripId: trip.id,
     deviceId: trip.started_device_id,
