@@ -106,6 +106,19 @@ class RefundHoldScreenshotTest {
         shot("r4-van-code")
     }
 
+    /** b33: a failure while saving shows in the footer beside Confirm, even when the list is long and scrolled to the top. */
+    @Test fun R8_savingErrorIsVisibleBesideConfirm() {
+        val msg = "This register has no credit memo numbers yet. Sync, then try again."
+        var error by mutableStateOf<String?>(null)
+        show { Box(Modifier.fillMaxSize()) { RefundSheet(model(), RefundApprovalKind.PIN, supervisors, busy = false, error = error, onConfirm = { error = msg }, onClose = {}) } }
+        n("refund-line-0-plus").performClick()
+        toRow("refund-reason-RF-CHANGED").performClick(); rule.waitForIdle()
+        n("refund-lines").performScrollToIndex(0)
+        n("refund-confirm").assertIsEnabled().performClick(); rule.waitForIdle()
+        n("refund-error").assertIsDisplayed().assertTextEquals(msg)
+        shot("r8-saving-error")
+    }
+
     @Test fun R4_refundBlocked() {
         show { Box(Modifier.fillMaxSize()) { RefundSheet(model("This trip is already counted, so its sales cannot be refunded."), RefundApprovalKind.CODE, emptyList(), false, null, {}, {}) } }
         shot("r5-blocked")

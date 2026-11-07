@@ -841,17 +841,18 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     }
     fun cancelRefund() { refundModel = null; refundError = null; refundSaleId = null }
     fun confirmRefund(sub: RefundSubmission) {
-        val saleId = refundSaleId ?: return
-        if (busy) return
-        scope?.launch {
+        val saleId = refundSaleId ?: run { refundError = "This refund is no longer open. Close it and open Refund items again."; return }
+        if (busy) { refundError = "Still saving. Wait a moment."; return }
+        val s = scope ?: run { refundError = "The app is not ready. Close it and open it again."; return }
+        s.launch {
             busy = true; refundError = null
             try {
                 val result = repository.recordRefund(com.sunpride.van.storage.RefundRequest(refundId, saleId, sub.picks, sub.reason.code, sub.note, sub.expectedMinor, sub.code.takeIf { it.isNotBlank() }))
                 refundModel = null; refundSaleId = null; refundDone = result
                 refreshRefunds()
                 printRefundSlip(result.refundId, reprint = false)
-            } catch (e: CancellationException) { throw e } catch (e: com.sunpride.van.storage.RefundNotAllowed) { refundError = e.message }
-            catch (e: Exception) { refundError = UserMessages.forFailure(e) } finally { busy = false }
+            } catch (e: CancellationException) { throw e } catch (e: com.sunpride.van.storage.RefundNotAllowed) { refundError = e.message?.takeIf { it.isNotBlank() } ?: REFUND_FAILED }
+            catch (e: Throwable) { refundError = UserMessages.forFailure(e, REFUND_FAILED) } finally { busy = false }
         }
     }
     fun printRefundSlip(refundId: String, reprint: Boolean = true) {
@@ -877,9 +878,11 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     }
     fun cancelStoreRefund() { storeRefundModel = null; storeRefundError = null; storeRefundSale = null }
     fun confirmStoreRefund(sub: RefundSubmission) {
-        val saleId = storeRefundSale ?: return
-        if (busy) return
-        scope?.launch {
+        // Never a silent tap: every early exit tells the cashier in the sheet.
+        val saleId = storeRefundSale ?: run { storeRefundError = "This refund is no longer open. Close it and open Refund items again."; return }
+        if (busy) { storeRefundError = "Still saving. Wait a moment."; return }
+        val s = scope ?: run { storeRefundError = "The app is not ready. Close it and open it again."; return }
+        s.launch {
             busy = true; storeRefundError = null
             try {
                 val sup = sub.supervisor
@@ -890,8 +893,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
                 key?.let { lockout.reset(it) }
                 storeRefundModel = null; storeRefundSale = null; storeRefundDone = slip
                 printRefundFacts(slip, reprint = false)
-            } catch (e: CancellationException) { throw e } catch (e: com.sunpride.van.storage.RefundNotAllowed) { storeRefundError = e.message }
-            catch (e: Exception) { storeRefundError = UserMessages.forFailure(e) } finally { busy = false }
+            } catch (e: CancellationException) { throw e } catch (e: com.sunpride.van.storage.RefundNotAllowed) { storeRefundError = e.message?.takeIf { it.isNotBlank() } ?: REFUND_FAILED }
+            catch (e: Throwable) { storeRefundError = UserMessages.forFailure(e, REFUND_FAILED) } finally { busy = false }
         }
     }
     fun printStoreRefundSlip(refundId: String?) { storeRefundDone?.let { printRefundFacts(it, reprint = true) } }
@@ -1093,6 +1096,7 @@ data class StockDraft(val reconciliationId: String, val counts: Map<Pair<String,
 data class CloseDraft(val closeId: String, val reviewed: Boolean = false, val odometer: String = "", val note: String = "")
 const val LOCATION_OFF_MESSAGE = "Location sharing is off. Allow location for Sunpride Van (and turn location on), then check Today."
 const val TRIP_CLOSED_MESSAGE = "This trip is closed on this phone. Nothing more can be recorded on it."
+const val REFUND_FAILED = "The refund could not be saved. Nothing was taken. Try again, or sync and try again."
 /** A sale being built for one customer (VAN-011). */
 data class SaleDraft(val saleId: String, val customer: Customer, val lines: List<CartLine>,val manualDiscount:ManualDiscountInput? = null,val priceOverride:SalePriceOverride?=null,val creditOverride:FinancialOverride?=null,
     /** IP-HH2: the statutory discount the cashier entered (type, ID, name); worked out by [com.sunpride.van.selling.Privilege]. */

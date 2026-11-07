@@ -57,9 +57,12 @@ class StoreTransactions(private val store:RoomVanStore) {
         val (plan,reason,tenders)=StoreRefunds.check(ctx,picks,reasonCode,cleanNote,expectedCentavos)
         if(RefundMath.needsSupervisor(plan.totalMinor,ctx.policy.supervisorOverMinor,ctx.refundedMinor)&&supervise==null) throw RefundNotAllowed("A supervisor has to approve this refund with their PIN.")
         val now=store.now()
-        val issued=try {FiscalNumbers.issue(store.db,store.scope,JSONObject(checkNotNull(dao.meta(s,d)?.policyJson)),"credit_memo",now)}
-            catch(e:IllegalStateException){throw RefundNotAllowed(if(e.message?.contains("range")==true)"No credit memo numbers left on this phone. Sync to get more." else "No credit memo numbers on this phone. Sync to get them.")}
-        val registration=JSONObject(checkNotNull(dao.meta(s,d)?.policyJson)).optJSONObject("fiscal")?.optJSONArray("ranges")?.let {a->(0 until a.length()).map {a.getJSONObject(it)}.firstOrNull {it.getString("documentType")=="credit_memo"}}?.optJSONObject("registration")
+        // A till reads its document ranges from the store's own bundle (`config.details.fiscal`), the same place a sale takes its invoice number.
+        // The van-day policy beside it has no fiscal block on a register, which made every till refund fail here.
+        val fiscalPolicy=StoreRefunds.fiscalPolicy(config)
+        val issued=try {FiscalNumbers.issue(store.db,store.scope,fiscalPolicy,"credit_memo",now)}
+            catch(e:IllegalStateException){throw RefundNotAllowed(StoreRefunds.creditNumberProblem(e.message))}
+        val registration=StoreRefunds.creditMemoRegistration(fiscalPolicy)
         val slip=RefundSlipFacts.of(issued.number,receipt.getString("receiptNumber"),receipt.optString("customer").ifEmpty{null},receipt.optString("cashier").ifEmpty{null},
             listOf(receipt.optString("store"),receipt.optString("register")).filter {it.isNotBlank()}.joinToString(" · ").ifEmpty{null},plan,tenders,reason,cleanNote,now,
             supervisorName,registration?.optString("entityName"),registration?.optString("tin"),registration?.optString("address"),registration?.optBoolean("sample")==true)

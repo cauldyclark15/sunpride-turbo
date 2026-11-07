@@ -21,6 +21,23 @@ object StoreRefunds {
     /** Null on a server that does not do item refunds (the phone never offered the button). */
     fun policy(config: StorePosConfig): RefundPolicy? = runCatching { RefundPolicy.decode(config.details.optJSONObject("refunds")) }.getOrNull()
 
+    /** The document ranges this register holds, in the shape [com.sunpride.van.fiscal.FiscalNumbers.issue] reads (same source a till sale uses). */
+    fun fiscalPolicy(config: StorePosConfig): JSONObject = JSONObject().apply { config.details.optJSONObject("fiscal")?.let { put("fiscal", it) } }
+
+    /** The credit-memo registration printed on the slip, or null when this register has none. */
+    fun creditMemoRegistration(policy: JSONObject): JSONObject? =
+        policy.optJSONObject("fiscal")?.optJSONArray("ranges")?.let { a -> (0 until a.length()).map { a.getJSONObject(it) }.firstOrNull { it.optString("documentType") == "credit_memo" } }?.optJSONObject("registration")
+
+    /** Plain words for why no credit-memo number could be taken; never the raw sentence the sales path uses. */
+    fun creditNumberProblem(raw: String?): String = when {
+        raw == null -> "No credit memo number could be taken. Sync, then try again."
+        raw.contains("authorized document range") -> "This register has no credit memo numbers yet. Sync, then try again."
+        raw.contains("exhausted") -> "No credit memo numbers left on this register. Sync to get more."
+        raw.contains("expired") -> "The credit memo numbers on this register have expired. Sync, then try again."
+        raw.contains("another handheld") -> "The credit memo numbers on this register belong to another handheld. Sync, then try again."
+        else -> "No credit memo number could be taken. Sync, then try again."
+    }
+
     private fun payload(row: OutboxRow) = JSONObject(row.operationJson).getJSONObject("payload")
     private fun objects(a: JSONArray) = (0 until a.length()).map { a.getJSONObject(it) }
 

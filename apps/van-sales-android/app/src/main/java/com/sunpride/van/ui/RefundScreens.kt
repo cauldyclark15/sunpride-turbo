@@ -61,7 +61,12 @@ private fun pesos(minor: Long) = PosMoney.format(minor, "PHP")
     // The PIN pad appears under the supervisor names, below the footer's edge: bring it into view once a supervisor is picked.
     val listState = androidx.compose.foundation.lazy.rememberLazyListState()
     LaunchedEffect(supervisor?.profileId) { if (supervisor != null) { withFrameNanos { }; withFrameNanos { }; listState.animateScrollToItem(maxOf(0, listState.layoutInfo.totalItemsCount - 1)); listState.scrollBy(100_000f) } }
-    val plan = remember(chosen, model) { if (chosen.isEmpty()) null else runCatching { RefundMath.plan(model.receipt, model.prior, chosen) }.getOrNull() }
+    val planResult = remember(chosen, model) { if (chosen.isEmpty()) null else runCatching { RefundMath.plan(model.receipt, model.prior, chosen) } }
+    val plan = planResult?.getOrNull()
+    // A plan that cannot be priced is said in words, never left as a button that does nothing.
+    val planProblem = planResult?.exceptionOrNull()?.let { e -> (e as? RefundRefused)?.message?.takeIf { it.isNotBlank() } ?: "These items cannot be refunded as chosen. Check the pieces and try again." }
+    var clickError by remember { mutableStateOf<String?>(null) }
+    LaunchedEffect(chosen, reasonCode) { clickError = null }
     val total = plan?.totalMinor ?: 0L
     val reason = model.policy.reason(reasonCode)
     val needsApproval = plan != null && RefundMath.needsSupervisor(total, model.policy.supervisorOverMinor, model.refundedMinor)
@@ -69,7 +74,9 @@ private fun pesos(minor: Long) = PosMoney.format(minor, "PHP")
         RefundApprovalKind.PIN -> supervisor != null && pin.length >= 6
         RefundApprovalKind.CODE -> VoidApprovalCodes.normalize(code) != null
     }
-    val problem = model.problem ?: RefundForm.problem(chosen, reason, note, needsApproval, approved)
+    val problem = model.problem ?: planProblem ?: RefundForm.problem(chosen, reason, note, needsApproval, approved)
+    // Whatever went wrong while saving is shown here, in the footer next to Confirm, so a long list never hides it off the bottom.
+    val shownError = error ?: clickError
     LookSheet("Refund items", onClose, tag = "refund-sheet", fill = true, closeTag = "refund-close", footer = {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Column(Modifier.widthIn(min = 72.dp)) {
@@ -78,9 +85,11 @@ private fun pesos(minor: Long) = PosMoney.format(minor, "PHP")
             }
             FitText(pesos(total), 44.sp, Modifier.weight(1f), minSize = 24.sp, color = Look.ink, textAlign = TextAlign.End, tag = "refund-total")
         }
+        shownError?.let { Text(it, Modifier.fillMaxWidth().testTag("refund-error"), fontSize = 16.sp, fontWeight = FontWeight.Bold, color = SunprideTokens.emptyRed, textAlign = TextAlign.Center) }
         problem?.let { Text(it, Modifier.fillMaxWidth().testTag("refund-problem"), fontSize = 14.sp, color = Look.muted, textAlign = TextAlign.Center) }
         PillButton(if (busy) "Saving…" else "Confirm refund", {
-            if (plan != null && reason != null) onConfirm(RefundSubmission(chosen, reason, note.trim().takeIf { it.isNotEmpty() }, total, supervisor.takeIf { needsApproval && approval == RefundApprovalKind.PIN }, pin, if (needsApproval && approval == RefundApprovalKind.CODE) code else ""))
+            if (plan != null && reason != null) { clickError = null; onConfirm(RefundSubmission(chosen, reason, note.trim().takeIf { it.isNotEmpty() }, total, supervisor.takeIf { needsApproval && approval == RefundApprovalKind.PIN }, pin, if (needsApproval && approval == RefundApprovalKind.CODE) code else "")) }
+            else clickError = "Choose the items and why, then try again."
         }, Modifier.testTag("refund-confirm"), enabled = problem == null && !busy, height = 64.dp, fontSize = 22.sp)
     }) {
         LazyColumn(Modifier.weight(1f).fillMaxWidth().testTag("refund-lines"), state = listState, contentPadding = PaddingValues(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -135,7 +144,7 @@ private fun pesos(minor: Long) = PosMoney.format(minor, "PHP")
                 Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     Text(if (model.refundedMinor > 0L) "With the ${pesos(model.refundedMinor)} already refunded on this receipt, this is over ${pesos(model.policy.supervisorOverMinor)}, so a supervisor has to approve it." else "This refund is over ${pesos(model.policy.supervisorOverMinor)}, so a supervisor has to approve it.", fontSize = 15.sp, color = Look.ink, modifier = Modifier.testTag("refund-needs-approval"))
                     when (approval) {
-                        RefundApprovalKind.PIN -> SupervisorPinBlock(supervisors, supervisor, { supervisor = it }, pin, { pin = it }, error, !busy)
+                        RefundApprovalKind.PIN -> SupervisorPinBlock(supervisors, supervisor, { supervisor = it }, pin, { pin = it }, null, !busy)
                         RefundApprovalKind.CODE -> {
                             Text("Refund number ${model.refundNumber} of this receipt. Ask your supervisor to get an 8-digit code from the office screen for this receipt, amount and reason.", fontSize = 14.sp, color = Look.muted)
                             LabeledField("Supervisor code", code, { code = it }, "refund-code", numeric = true, maxLength = 9)
@@ -143,7 +152,6 @@ private fun pesos(minor: Long) = PosMoney.format(minor, "PHP")
                     }
                 }
             }
-            if (error != null && !(needsApproval && approval == RefundApprovalKind.PIN)) item { Text(error, Modifier.testTag("refund-error"), fontSize = 15.sp, fontWeight = FontWeight.SemiBold, color = SunprideTokens.emptyRed) }
         }
     }
 }
