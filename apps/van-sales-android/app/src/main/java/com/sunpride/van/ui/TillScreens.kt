@@ -133,11 +133,18 @@ import java.time.ZoneId
                 Text("Z reading", style = MaterialTheme.typography.titleLarge, modifier = Modifier.testTag("z-title"))
                 Column(Modifier.weight(1f, false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     Text("This closes the sales day for this register. A supervisor approves it with their own PIN.", style = MaterialTheme.typography.bodyLarge)
+                    // IP-HOLD: parked carts stop the Z reading.
+                    LaunchedEffect(Unit) { c.refreshHeld() }
+                    val held = c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE)
+                    if (held.isNotEmpty()) {
+                        Text(com.sunpride.van.pos.HeldCartRules.closeBlock(held.size, "read Z")!!, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("z-held"))
+                        DangerButton("Discard held ${if (held.size == 1) "cart" else "carts"}", { c.discardAllHeld(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE) }, Modifier.testTag("z-discard-held"), enabled = !c.busy)
+                    }
                     SupervisorPinBlock(supervisors, supervisor, { supervisor = it; error = null }, pin, { pin = it; error = null }, error, !c.busy)
                 }
                 PrimaryBottomButton(if (c.busy) "Saving…" else "Approve and read Z", {
                     c.saveZ(supervisor, pin) { result -> if (result == null) { c.printReading(document()); onClose() } else { error = result; pin = "" } }
-                }, supervisor != null && pin.length >= 6 && !c.busy, "z-approve")
+                }, supervisor != null && pin.length >= 6 && !c.busy && c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE).isEmpty(), "z-approve")
                 SecondaryButton("Cancel", onClose, Modifier.testTag("z-cancel"), enabled = !c.busy)
             }
         }

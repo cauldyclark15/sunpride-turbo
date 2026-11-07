@@ -50,7 +50,11 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun closeStoreShift(amount: Long) {
         // Only the count page behind the confirmation may close the session.
         if(!countUnlocked) return
-        command("Blind count saved. The office will review any difference.") { repository.closeStoreShift(amount); storeNavEvent(StoreNavEvent.CloseSaved) }
+        command("Blind count saved. The office will review any difference.",failure = ::heldAware) {
+            val held = repository.heldCount(HeldCartRules.SURFACE_STORE)
+            if (held > 0) throw HeldCartsBlock(HeldCartRules.closeBlock(held)!!)
+            repository.closeStoreShift(amount); storeNavEvent(StoreNavEvent.CloseSaved)
+        }
     }
     fun saveStoreAction(kind:String,payload:org.json.JSONObject) = command("Saved securely on this phone. Sync when connected.") {repository.storeAction(kind,payload);page=Page.HOME}
     /** IP-HH1: the sale screen stays up and shows its Complete step; [onSaved] runs once the sale is durably saved. */
@@ -590,8 +594,14 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         runSupervised("store.cash",payload,kind.overrideKind,if (kind.hasAmount) amountCentavos.toString() else "0",kind.supervisor,supervisor,pin,"${kind.label} saved. Sync sends it to the office.",onResult)
     }
     /** Z reading for the day: every session closed first, a supervisor's PIN, then printed from this phone. */
-    fun saveZ(supervisor: com.sunpride.van.storepos.Supervisor?, pin: String, onResult: (String?) -> Unit) =
-        runSupervised("store.read",JSONObject().put("kind","z"),"z_reading","0",true,supervisor,pin,"Z reading saved. Sync sends it to the office.",onResult)
+    fun saveZ(supervisor: com.sunpride.van.storepos.Supervisor?, pin: String, onResult: (String?) -> Unit) {
+        scope?.launch {
+            // IP-HOLD: parked carts stop the Z reading until they are recalled or discarded.
+            val held = runCatching { repository.heldCount(HeldCartRules.SURFACE_STORE) }.getOrDefault(0)
+            HeldCartRules.closeBlock(held, "read Z")?.let { onResult(it); return@launch }
+            runSupervised("store.read",JSONObject().put("kind","z"),"z_reading","0",true,supervisor,pin,"Z reading saved. Sync sends it to the office.",onResult)
+        }
+    }
     private fun runSupervised(kind: String, payload: JSONObject, overrideKind: String?, amount: String, needs: Boolean, supervisor: com.sunpride.van.storepos.Supervisor?, pin: String, success: String, onResult: (String?) -> Unit) {
         if (busy) return
         scope?.launch {
@@ -787,6 +797,114 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             startPrint(saleId,explicit = false,reason = null)
         } catch (e: VoidRefused) { message = VanRules.voidMessage(e.problem) }
     }
+    // IP-HOLD: carts parked on this phone. Local only; they block closing the till, the Z reading and the trip until recalled or discarded.
+    var heldCarts by mutableStateOf(emptyList<HeldCart>()); private set
+    var heldAutoRecall by mutableStateOf<HeldCart?>(null); private set
+    fun refreshHeld() { scope?.launch { heldCarts = runCatching { repository.heldCarts(HeldCartRules.SURFACE_STORE) + repository.heldCarts(HeldCartRules.SURFACE_VAN) }.getOrElse { if (it is CancellationException) throw it; heldCarts } } }
+    fun heldOf(surface: String): List<HeldCart> = heldCarts.filter { it.surface == surface }
+    fun holdCart(surface: String, name: String?, note: String?, customer: Customer?, lines: List<HeldLine>, totalLabel: String, done: (String?) -> Unit) {
+        val s = scope ?: return done("Try again in a moment.")
+        s.launch {
+            try { repository.holdCart(surface, name, note, customer?.outletId, customer?.name, lines, totalLabel); refreshHeld(); done(null) }
+            catch (e: CancellationException) { throw e } catch (e: IllegalStateException) { done(e.message ?: "Could not hold this cart.") } catch (e: Exception) { done(UserMessages.forFailure(e)) }
+        }
+    }
+    fun discardHeld(holdId: String) { scope?.launch { runCatching { repository.discardHeld(holdId) }; refreshHeld() } }
+    fun discardAllHeld(surface: String) { scope?.launch { runCatching { repository.discardAllHeld(surface) }; refreshHeld() } }
+    /** A recalled cart is back in the cart: the parked copy is gone. */
+    fun heldRecalled(holdId: String) { if (heldAutoRecall?.holdId == holdId) heldAutoRecall = null; discardHeld(holdId) }
+    /** Van: pick a parked cart from the customer list; its customer's sale opens and the cart is brought back into it. */
+    fun recallVanHeld(cart: HeldCart) {
+        val customer = customers.firstOrNull { it.outletId == cart.customerId } ?: run { message = "That customer is not on this trip any more. Discard the cart."; return }
+        heldAutoRecall = cart
+        startSale(customer)
+        if (page != Page.SALE) heldAutoRecall = null
+    }
+    private fun heldAware(e: Exception): String = if (e is HeldCartsBlock) e.message ?: "Held carts must be dealt with first." else UserMessages.forFailure(e)
+    // IP-REFUND (van): refund items of a saved sale. [refundId] is made when the sheet opens, so a retry after a failure never refunds twice.
+    var refundModel by mutableStateOf<RefundSheetModel?>(null); private set
+    var refundError by mutableStateOf<String?>(null); private set
+    var refundDone by mutableStateOf<com.sunpride.van.storage.RefundResult?>(null); private set
+    var refundsBySale by mutableStateOf(emptyMap<String, Long>()); private set
+    private var refundSaleId: String? = null
+    private var refundId: String = ""
+    fun refreshRefunds() { val id = trip?.tripId ?: return; scope?.launch { refundsBySale = runCatching { repository.refundsMade(id) }.getOrDefault(emptyList()).groupBy { it.saleId }.mapValues { (_, v) -> v.sumOf { it.totalMinor } } } }
+    fun openRefund(saleId: String) {
+        scope?.launch {
+            try {
+                val ctx = repository.refundContext(saleId)
+                refundSaleId = saleId; refundId = java.util.UUID.randomUUID().toString(); refundError = null
+                refundModel = RefundSheetModel(ctx.receiptNumber, ctx.customerName, ctx.receipt, ctx.lines, ctx.prior, ctx.policy, ctx.problem ?: if (ctx.fullyRefunded) "Everything on this receipt is already refunded." else null, ctx.refundNumber)
+            } catch (e: CancellationException) { throw e } catch (e: com.sunpride.van.storage.RefundNotAllowed) { message = e.message } catch (e: Exception) { message = UserMessages.forFailure(e) }
+        }
+    }
+    fun cancelRefund() { refundModel = null; refundError = null; refundSaleId = null }
+    fun confirmRefund(sub: RefundSubmission) {
+        val saleId = refundSaleId ?: return
+        if (busy) return
+        scope?.launch {
+            busy = true; refundError = null
+            try {
+                val result = repository.recordRefund(com.sunpride.van.storage.RefundRequest(refundId, saleId, sub.picks, sub.reason.code, sub.note, sub.expectedMinor, sub.code.takeIf { it.isNotBlank() }))
+                refundModel = null; refundSaleId = null; refundDone = result
+                refreshRefunds()
+                printRefundSlip(result.refundId, reprint = false)
+            } catch (e: CancellationException) { throw e } catch (e: com.sunpride.van.storage.RefundNotAllowed) { refundError = e.message }
+            catch (e: Exception) { refundError = UserMessages.forFailure(e) } finally { busy = false }
+        }
+    }
+    fun printRefundSlip(refundId: String, reprint: Boolean = true) {
+        val s = scope ?: return
+        s.launch {
+            val facts = runCatching { repository.refundSlip(refundId) }.getOrNull()
+            if (facts == null) printMessage = "Could not find that refund slip." else printRefundFacts(facts, reprint)
+        }
+    }
+    fun finishRefund() { refundDone = null; printMessage = null; refreshReceipts() }
+    // IP-REFUND (till): the same sheet at the register; a supervisor's PIN approves above the office's amount.
+    var storeRefundModel by mutableStateOf<RefundSheetModel?>(null); private set
+    var storeRefundError by mutableStateOf<String?>(null); private set
+    var storeRefundDone by mutableStateOf<RefundSlipFacts?>(null); private set
+    private var storeRefundSale: String? = null
+    private var storeRefundId: String = ""
+    fun openStoreRefund(receipt: JSONObject) {
+        val config = storePos.config ?: return
+        val ctx = com.sunpride.van.storepos.StoreRefunds.context(config, storePos.rows, receipt, storePos.shift != null, receipt.optString("_status") == "voided")
+        storeRefundSale = receipt.getString("saleId"); storeRefundId = UUID.randomUUID().toString(); storeRefundError = null
+        storeRefundModel = RefundSheetModel(receipt.getString("receiptNumber"), receipt.optString("customer").ifEmpty { null }, receipt, ctx.lines, ctx.prior, ctx.policy,
+            ctx.problem ?: if (ctx.fullyRefunded) "Everything on this receipt is already refunded." else null, ctx.refundNumber)
+    }
+    fun cancelStoreRefund() { storeRefundModel = null; storeRefundError = null; storeRefundSale = null }
+    fun confirmStoreRefund(sub: RefundSubmission) {
+        val saleId = storeRefundSale ?: return
+        if (busy) return
+        scope?.launch {
+            busy = true; storeRefundError = null
+            try {
+                val sup = sub.supervisor
+                val key = sup?.let { "sup:${it.profileId}" }
+                key?.let { pinWords(it) }?.let { storeRefundError = it; return@launch }
+                val slip = repository.storeRefund(storeRefundId, saleId, sub.picks, sub.reason.code, sub.note, sub.expectedMinor, sup, sub.pin)
+                if (slip == null) { storeRefundError = wrongPin(checkNotNull(key)); return@launch }
+                key?.let { lockout.reset(it) }
+                storeRefundModel = null; storeRefundSale = null; storeRefundDone = slip
+                printRefundFacts(slip, reprint = false)
+            } catch (e: CancellationException) { throw e } catch (e: com.sunpride.van.storage.RefundNotAllowed) { storeRefundError = e.message }
+            catch (e: Exception) { storeRefundError = UserMessages.forFailure(e) } finally { busy = false }
+        }
+    }
+    fun printStoreRefundSlip(refundId: String?) { storeRefundDone?.let { printRefundFacts(it, reprint = true) } }
+    fun finishStoreRefund() { storeRefundDone = null; printMessage = null }
+    private fun printRefundFacts(facts: RefundSlipFacts, reprint: Boolean) {
+        val s = scope ?: return
+        s.launch {
+            printMessage = "Printing…"
+            printMessage = try { when (printer.print(RefundSlip.document(facts, reprint))) {
+                is com.sunpride.van.printing.PrintResult.Success -> "Slip sent to the printer."
+                else -> "Could not print. Check the printer and try again." } }
+                catch (e: CancellationException) { throw e } catch (_: Exception) { "Could not print. Check the printer and try again." }
+        }
+    }
     /** VAN-019: the return being captured. In memory only; [ReturnDraft.returnId] makes Save return safe to repeat. */
     var returnDraft by mutableStateOf<ReturnDraft?>(null)
         private set
@@ -940,7 +1058,9 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         try { repository.syncNow() } finally { closeSummary = runCatching { repository.closeSummary() }.getOrDefault(closeSummary) }
     }
     /** The store repeats the whole checklist and compares the confirmed exceptions in its transaction; a refusal keeps the form. */
-    fun closeTrip() = command {
+    fun closeTrip() = command(failure = ::heldAware) {
+        val held = repository.heldCount(HeldCartRules.SURFACE_VAN)
+        if (held > 0) throw HeldCartsBlock(HeldCartRules.closeBlock(held, "close the trip")!!)
         val summary = checkNotNull(closeSummary)
         val draft = closeDraft
         val km = draft.odometer.takeIf { it.isNotBlank() }?.let { it.trim().toDoubleOrNull() ?: Double.NaN }

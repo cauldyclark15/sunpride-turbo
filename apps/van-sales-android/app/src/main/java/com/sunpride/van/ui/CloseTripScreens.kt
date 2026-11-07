@@ -32,7 +32,7 @@ import java.time.format.DateTimeFormatter
 
     ScreenFrame("Close trip",c::back,
         action = if (saved != null) "Done" else if (c.busy) "Closing…" else "Close trip",actionTag = "close-trip",
-        enabled = if (saved != null) true else ready && !c.busy,
+        enabled = if (saved != null) true else ready && !c.busy && c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN).isEmpty(),
         onAction = { if (saved != null) c.back() else c.closeTrip() },
         footer = if (saved == null && checklist != null) "${checklist.blockers.size} to do · ${checklist.exceptions.size} to check" else null,
         message = c.message) {
@@ -41,6 +41,13 @@ import java.time.format.DateTimeFormatter
             saved != null -> SavedClose(saved,operational)
             else -> {
                 Text("Trip ${summary.tripNumber}",style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("close-trip-number"))
+                // IP-HOLD: carts parked for customers stop the trip closing.
+                LaunchedEffect(Unit) { c.refreshHeld() }
+                val held = c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN)
+                if (held.isNotEmpty()) SectionCard("Held carts") {
+                    Text(com.sunpride.van.pos.HeldCartRules.closeBlock(held.size, "close the trip")!!,modifier = Modifier.testTag("close-held"))
+                    DangerButton("Discard held ${if (held.size == 1) "cart" else "carts"}",{ c.discardAllHeld(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN) },Modifier.testTag("close-discard-held"),!c.busy)
+                }
                 SectionCard("Before you close") {
                     checklist!!.steps.forEach { step ->
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(10.dp)) {

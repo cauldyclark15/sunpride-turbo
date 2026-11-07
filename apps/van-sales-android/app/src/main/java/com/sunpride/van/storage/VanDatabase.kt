@@ -64,6 +64,14 @@ data class SaleRow(val fullAuthSubject: String, val deviceId: String, val saleId
     /** VAN-012 (v2): payment state, separate from [status] (the sale's posting state). Null on v1 rows = paid in cash. */
     val paymentStatus: String? = null)
 
+/**
+ * IP-HOLD: a cart parked on THIS phone ("Hold"). Local only: never uploaded, never part of a sale or the fiscal record, no stock is
+ * reserved. [linesJson] is the cart as it stood (product, base quantity, price seen); prices and stock are checked again on recall.
+ */
+@Entity(tableName = "held_cart", primaryKeys = ["fullAuthSubject", "deviceId", "holdId"])
+data class HeldCartRow(val fullAuthSubject: String, val deviceId: String, val holdId: String, val surface: String, val name: String, val note: String?,
+    val customerId: String?, val customerName: String?, val linesJson: String, val totalLabel: String, val createdAt: Long)
+
 /** VAN-021: append-only cancellation evidence; one void per scoped sale. */
 @Entity(tableName = "sale_void", primaryKeys = ["fullAuthSubject", "deviceId", "voidId"],
     indices = [Index(value = ["fullAuthSubject", "deviceId", "saleId"], unique = true)])
@@ -209,6 +217,12 @@ interface VanDao {
     @Query("DELETE FROM location_ping WHERE fullAuthSubject=:subject AND deviceId=:device AND (recordedAt < :before OR status='rejected')") suspend fun pruneLocationPings(subject: String, device: String, before: Long)
 
     @Query("DELETE FROM customer WHERE fullAuthSubject=:subject AND deviceId=:device AND localOnly=0") suspend fun clearServerCustomers(subject: String, device: String)
+    @Query("SELECT * FROM held_cart WHERE fullAuthSubject=:subject AND deviceId=:device AND surface=:surface ORDER BY createdAt DESC") suspend fun heldCarts(subject: String, device: String, surface: String): List<HeldCartRow>
+    @Query("SELECT COUNT(*) FROM held_cart WHERE fullAuthSubject=:subject AND deviceId=:device AND surface=:surface") fun observeHeldCount(subject: String, device: String, surface: String): Flow<Int>
+    @Query("SELECT COUNT(*) FROM held_cart WHERE fullAuthSubject=:subject AND deviceId=:device AND surface=:surface") suspend fun heldCount(subject: String, device: String, surface: String): Int
+    @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun insertHeldCart(row: HeldCartRow)
+    @Query("DELETE FROM held_cart WHERE fullAuthSubject=:subject AND deviceId=:device AND holdId=:id") suspend fun deleteHeldCart(subject: String, device: String, id: String)
+    @Query("DELETE FROM held_cart WHERE fullAuthSubject=:subject AND deviceId=:device AND surface=:surface") suspend fun deleteHeldCarts(subject: String, device: String, surface: String)
     @Query("SELECT * FROM sync_meta WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun meta(subject: String, device: String): SyncMetaRow?
     @Query("SELECT * FROM trip WHERE fullAuthSubject=:subject AND deviceId=:device LIMIT 1") suspend fun trip(subject: String, device: String): TripRow?
     @Query("SELECT MAX(createdAt) FROM outbox WHERE fullAuthSubject=:subject AND deviceId=:device") suspend fun latestCreatedAt(subject: String, device: String): Long?
@@ -223,12 +237,18 @@ interface VanDao {
 }
 
 @Database(entities = [TripRow::class,LoadLineRow::class,ProductRow::class,CustomerRow::class,BaselineRow::class,MovementRow::class,SettlementRow::class,OutboxRow::class,AckRow::class,SyncMetaRow::class,SequenceCounterRow::class,TransactionIdRow::class,SaleRow::class,SaleLineRow::class,PaymentRow::class,CustomerReturnRow::class,ReturnLineRow::class,ReconciliationRow::class,PriceListLineRow::class,PromotionRow::class,
-    ReceiptPrintRow::class,SaleReceiptRow::class,SaleVoidRow::class,CashReconciliationRow::class,StockReconciliationRow::class,TripCloseRow::class,LocationPingRow::class], version = 10, exportSchema = true)
+    ReceiptPrintRow::class,SaleReceiptRow::class,SaleVoidRow::class,CashReconciliationRow::class,StockReconciliationRow::class,TripCloseRow::class,LocationPingRow::class,HeldCartRow::class], version = 11, exportSchema = true)
 abstract class VanDatabase : RoomDatabase() {
     abstract fun rows(): VanDao
     /** VAN-017 receipt print history (v3). */
     abstract fun receiptPrints(): ReceiptPrintDao
     companion object {
+        /** IP-HOLD: one new local-only table for parked carts; no existing row or column changes. */
+        val MIGRATION_10_11 = object : androidx.room.migration.Migration(10,11) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
+                db.execSQL("CREATE TABLE IF NOT EXISTS `held_cart` (`fullAuthSubject` TEXT NOT NULL, `deviceId` TEXT NOT NULL, `holdId` TEXT NOT NULL, `surface` TEXT NOT NULL, `name` TEXT NOT NULL, `note` TEXT, `customerId` TEXT, `customerName` TEXT, `linesJson` TEXT NOT NULL, `totalLabel` TEXT NOT NULL, `createdAt` INTEGER NOT NULL, PRIMARY KEY(`fullAuthSubject`, `deviceId`, `holdId`))")
+            }
+        }
         val MIGRATION_9_10 = object : androidx.room.migration.Migration(9,10) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {
                 db.execSQL("ALTER TABLE sync_meta ADD COLUMN cursor TEXT")

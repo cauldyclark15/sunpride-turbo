@@ -86,6 +86,23 @@ export async function refundPart(c) {
     prior.byMethod,
     plan.total,
   );
+  // The phone says where it thinks the money goes; the two must agree (a phone that sends none is not checked).
+  if (Array.isArray(p.tenders)) {
+    const mine = canonicalJson(
+      tenders.map((t) => ({ method: t.method, amountCentavos: String(t.amountCentavos) })),
+    );
+    const theirs = canonicalJson(
+      p.tenders.map((/** @type {any} */ t) => ({
+        method: t?.method,
+        amountCentavos: String(t?.amountCentavos),
+      })),
+    );
+    if (mine !== theirs)
+      refuse(
+        "The refund amount changed. Check the items and try again.",
+        "stock_conflict",
+      );
+  }
   // Credit memo: number reserved on the phone from its own credit-memo range (same machinery as the invoice).
   const [registration] =
     await db`select r.org_unit_id from fiscal_allocations a join fiscal_series s on s.id=a.series_id join fiscal_registrations r on r.id=s.registration_id where a.id=${uuid(p.fiscal?.allocationId)}`;

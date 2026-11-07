@@ -125,7 +125,12 @@ import com.sunpride.van.data.*
 @Composable fun CustomersScreen(c: VanController) {
     var query by remember { mutableStateOf("") }
     val filtered = c.customers.filter { query.isBlank() || it.name.contains(query,true) || it.code.contains(query,true) }
+    // IP-HOLD: carts parked for customers on this trip; recalling one opens that customer's sale with the cart back in it.
+    LaunchedEffect(Unit) { c.refreshHeld() }
+    val held = c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN)
+    var heldOpen by remember { mutableStateOf(false) }
     ScreenFrame("Sell",trailing = { SyncPill(c) },message = c.message) {
+        if (held.isNotEmpty()) ListRow("Held carts (${held.size})","Carts you parked for a customer · tap to recall","held-carts-row",onClick = { heldOpen = true },glyph = GlyphKind.RECEIPT)
         LabeledField("Search customers",query,{ query = it },"customer-search",maxLength = 150)
         ListRow("Add walk-in customer","For someone who is not on your list","add-walk-in",enabled = !c.busy && c.policy?.walkInAllowed == true,onClick = { c.open(Page.WALK_IN) },glyph = GlyphKind.PLUS)
         if (c.policy?.walkInAllowed != true) Text("Ask your supervisor to allow walk-in customers.")
@@ -139,6 +144,7 @@ import com.sunpride.van.data.*
             }
         }
     }
+    if (heldOpen) HeldCartsSheet(held,cartEmpty = true,showCustomer = true,message = c.message,onRecall = { heldOpen = false; c.recallVanHeld(it) },onDiscard = { c.discardHeld(it.holdId) },onClose = { heldOpen = false })
 }
 @Composable fun WalkInScreen(c: VanController) {
     var name by remember { mutableStateOf("") }

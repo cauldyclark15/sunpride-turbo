@@ -70,6 +70,7 @@ import java.time.format.DateTimeFormatter
     var voiding by remember { mutableStateOf<SavedSale?>(null) }
     var collecting by remember { mutableStateOf<SavedSale?>(null) }
     val time = remember { DateTimeFormatter.ofPattern("h:mm a") }
+    LaunchedEffect(c.savedSales.size) { c.refreshRefunds() }
     ScreenFrame("Receipts",message = c.message ?: c.printMessage,trailing = { SyncPill(c) }) {
         if (c.savedSales.isEmpty()) {
             EmptyState(GlyphKind.RECEIPT,"No receipts yet","Sales you complete on this trip show up here, so you can print or reprint them.",Modifier.testTag("no-receipts"),
@@ -98,11 +99,17 @@ import java.time.format.DateTimeFormatter
                 PrintButtons(c,saved,"receipt-$index") { reprinting = it }
                 if (!saved.isCollection && saved.void == null && r.paymentKind == com.sunpride.van.data.PaymentKind.CREDIT && !c.tripClosed)
                     SecondaryButton("Collect payment & issue OR",{collecting=saved},Modifier.testTag("receipt-$index-collect"),enabled=!c.busy)
-                if (!saved.isCollection && saved.void == null && c.policy?.let { VoidRules.offered(it).isNotEmpty() } == true)
+                c.refundsBySale[r.saleId]?.let { Text("Refunded ${PosMoney.format(it,r.currency)} · void is closed, refund the items that are left",style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("receipt-$index-refunded")) }
+                if (!saved.isCollection && saved.void == null && !c.refundsBySale.containsKey(r.saleId) && c.policy?.let { VoidRules.offered(it).isNotEmpty() } == true)
                     DangerButton("Void sale",{ voiding = saved },Modifier.testTag("receipt-$index-void-sale"),enabled = !c.busy && !c.printing)
+                // IP-REFUND: take back some of the items (opt-in from the office; older servers never send the reasons)
+                if (!saved.isCollection && saved.void == null && r.paymentKind != com.sunpride.van.data.PaymentKind.CREDIT && c.policy?.refunds != null && !c.tripClosed)
+                    SecondaryButton("Refund items",{ c.openRefund(r.saleId) },Modifier.testTag("receipt-$index-refund"),enabled = !c.busy && !c.printing)
             }
         }
     }
+    c.refundModel?.let { m -> RefundSheet(m,RefundApprovalKind.CODE,emptyList(),c.busy,c.refundError,onConfirm = { c.confirmRefund(it) },onClose = c::cancelRefund) }
+    c.refundDone?.let { d -> RefundDoneDialog(d.creditNumber,d.receiptNumber,d.plan.totalMinor,d.cashMinor,d.reason.damaged,c.printMessage,c.printing,onPrint = { c.printRefundSlip(d.refundId) },onDone = c::finishRefund) }
     reprinting?.let { ReprintDialog(it,onPrint = { reason -> c.printReceipt(it.receipt.saleId,reason); reprinting = null },onClose = { reprinting = null }) }
     collecting?.let { CollectionDialog(c,it,onClose={collecting=null}) }
     voiding?.let { saved -> c.policy?.let { policy ->

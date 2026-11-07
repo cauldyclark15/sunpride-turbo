@@ -35,6 +35,46 @@ class StoreTransactions(private val store:RoomVanStore) {
         supervise?.let {payload.put("supervisor",it(shiftId))}
         sessions.queue(kind,shiftId,config,payload,id,shift?.openingRequestId,metadata)
     }
+    /**
+     * IP-REFUND: refund part of a saved sale at the till. Prices again from the frozen receipt (the same maths the office runs),
+     * takes the next credit-memo number from this phone's own range, and parks ONE `store.refund.part` operation in the open session.
+     * [supervise] (a supervisor's PIN proof) is required above the office's amount. The same [refundId] again returns the saved slip.
+     * Returns the slip facts, which are also kept with the saved operation so a reprint is always the same slip.
+     */
+    suspend fun refundPart(refundId:String,saleId:String,picks:Map<Int,Long>,reasonCode:String,note:String?,expectedCentavos:Long,supervisorName:String?,supervise:((String)->JSONObject)?):RefundSlipFacts = store.db.withTransaction {
+        val rows=dao.outboxRows(s,d)
+        rows.firstOrNull {it.clientRequestId==refundId}?.let {old->
+            val p=JSONObject(old.operationJson).getJSONObject("payload")
+            if(p.getString("saleId")!=saleId||p.getString("expectedCentavos").toLong()!=expectedCentavos||p.getString("reasonCode")!=reasonCode) throw RefundNotAllowed("This refund was already saved with different details.")
+            return@withTransaction RefundSlipFacts.fromJson(JSONObject(checkNotNull(old.metadataJson)))
+        }
+        val config=sessions.writable()
+        val shift=StorePosStore.project(config,rows).shift
+        val receipt=receipts(config,rows).firstOrNull {it.getString("saleId")==saleId} ?: throw RefundNotAllowed("That receipt is not on this register.")
+        val ctx=StoreRefunds.context(config,rows,receipt,shift!=null,receipt.optString("_status")=="voided")
+        val cleanNote=note?.trim()?.takeIf {it.isNotEmpty()}
+        if(cleanNote!=null&&(cleanNote.length>300||cleanNote.any(Char::isISOControl))) throw RefundNotAllowed("The note is too long.")
+        val (plan,reason,tenders)=StoreRefunds.check(ctx,picks,reasonCode,cleanNote,expectedCentavos)
+        if(RefundMath.needsSupervisor(plan.totalMinor,ctx.policy.supervisorOverMinor)&&supervise==null) throw RefundNotAllowed("A supervisor has to approve this refund with their PIN.")
+        val now=store.now()
+        val issued=try {FiscalNumbers.issue(store.db,store.scope,JSONObject(checkNotNull(dao.meta(s,d)?.policyJson)),"credit_memo",now)}
+            catch(e:IllegalStateException){throw RefundNotAllowed(if(e.message?.contains("range")==true)"No credit memo numbers left on this phone. Sync to get more." else "No credit memo numbers on this phone. Sync to get them.")}
+        val registration=JSONObject(checkNotNull(dao.meta(s,d)?.policyJson)).optJSONObject("fiscal")?.optJSONArray("ranges")?.let {a->(0 until a.length()).map {a.getJSONObject(it)}.firstOrNull {it.getString("documentType")=="credit_memo"}}?.optJSONObject("registration")
+        val slip=RefundSlipFacts.of(issued.number,receipt.getString("receiptNumber"),receipt.optString("customer").ifEmpty{null},receipt.optString("cashier").ifEmpty{null},
+            listOf(receipt.optString("store"),receipt.optString("register")).filter {it.isNotBlank()}.joinToString(" · ").ifEmpty{null},plan,tenders,reason,cleanNote,now,
+            supervisorName,registration?.optString("entityName"),registration?.optString("tin"),registration?.optString("address"),registration?.optBoolean("sample")==true)
+        val payload=JSONObject().put("saleId",saleId).put("refundId",refundId)
+            .put("lines",JSONArray(plan.lines.map {JSONObject().put("lineIndex",it.line.index).put("productId",it.line.productId).put("quantityBase",it.quantityBase.toString())}))
+            .put("reasonCode",reason.code).put("expectedCentavos",plan.totalMinor.toString())
+            .put("tenders",JSONArray(tenders.map {JSONObject().put("method",it.method).put("amountCentavos",it.amountMinor.toString())}))
+            .put("fiscal",JSONObject().put("allocationId",issued.allocationId).put("serial",issued.serial.toString())).put("creditNumber",issued.number)
+            .apply {cleanNote?.let {put("note",it)}}
+        val shiftId=checkNotNull(shift){"Open the till first. A refund pays out of the open drawer."}.shiftId
+        supervise?.let {payload.put("supervisor",it(shiftId))}
+        sessions.queue(StoreRefunds.KIND,shiftId,config,payload,refundId,shift.openingRequestId,slip.toJson().toString())
+        slip
+    }
+    suspend fun refundSlip(refundId:String):RefundSlipFacts? = dao.outbox(s,d,refundId)?.takeIf {it.kind==StoreRefunds.KIND}?.metadataJson?.let {RefundSlipFacts.fromJson(JSONObject(it))}
     suspend fun sale(saleId:String,cart:List<CartLine>,tenders:List<Tender>,expected:Long,customerPhone:String?,employeePin:String?,points:Long,claim:com.sunpride.van.selling.DiscountClaim?=null):JSONObject = store.db.withTransaction {
         val config=sessions.writable();val rows=dao.outboxRows(s,d)
         val normalizedPhone=customerPhone?.takeIf {it.isNotBlank()}?.let(StoreCheckout::normalizePhone)

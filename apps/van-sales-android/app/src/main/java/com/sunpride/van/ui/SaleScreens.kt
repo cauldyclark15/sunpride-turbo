@@ -59,6 +59,12 @@ import androidx.compose.runtime.saveable.rememberSaveable
             c.stock.firstOrNull { it.productId == line.productId }?.availableBase ?: 0L)
     }
     val totalLabel = when { draft.lines.isEmpty() -> "₱0.00"; quote != null -> PosMoney.format(quote.totalMinor,quote.currency); else -> "Not ready" }
+    // IP-HOLD: park this customer's cart; recall it later (prices and stock are checked again).
+    LaunchedEffect(Unit) { c.refreshHeld() }
+    val customerHeld = c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN).filter { it.customerId == draft.customer.outletId }
+    val vanHeld = HeldCartsUi(customerHeld.size, customerHeld, enforceStock = c.policy?.allowNegativeStock != true, autoRecall = c.heldAutoRecall?.takeIf { it.customerId == draft.customer.outletId },
+        onHold = { name, note, lines, totalLabel, done -> c.holdCart(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN, name, note, draft.customer, lines, totalLabel, done) },
+        onRecalled = c::heldRecalled, onDiscard = c::discardHeld)
     val canCharge = !c.busy && c.retailLoaded && (c.retailCall == null || c.retailSaved) && draft.lines.isNotEmpty()
     SellingBrowse(
         title = "Sale", subtitle = draft.customer.name + (if (draft.customer.code.isNotBlank()) " · ${draft.customer.code}" else ""), onBack = c::back, place = SellingPlace.VAN,
@@ -67,6 +73,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
         rows = rows, totalLabel = totalLabel, chargeEnabled = canCharge, onCharge = { c.open(Page.CHECKOUT) },
         cartOpen = cartOpen, onCartOpen = { cartOpen = it }, busy = c.busy,
         cashierName = c.seller?.name, roleLabel = "Van seller", syncBadge = { SyncPill(c) },
+        held = vanHeld,
         message = c.message ?: when {
             !c.retailLoaded -> "Loading the downloaded MSL…"
             draft.lines.isNotEmpty() && quote == null -> claimIssue(c,draft) ?: "Total not ready: some products are priced by the office"

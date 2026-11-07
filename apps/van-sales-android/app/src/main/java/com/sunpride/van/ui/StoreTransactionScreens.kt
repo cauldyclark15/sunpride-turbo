@@ -99,6 +99,10 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     val splitCashTendered=VanRules.parseMoney(received)
     val tenders=total?.let{n->buildTenders(n,if(tender=="split")splitCashTendered else tenderedNow)}
     val cashReady=when(tender){"cash"->tenderedNow!=null&&total!=null&&tenderedNow>=total;else->true}
+    // IP-HOLD: park this cart for the next customer; recall it later (prices and stock are checked again).
+    LaunchedEffect(Unit){c.refreshHeld()}
+    val storeHeld=HeldCartsUi(c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE).size,c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE),
+        onHold={name,note,lines,totalLabel,done->c.holdCart(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE,name,note,null,lines,totalLabel,done)},onRecalled=c::heldRecalled,onDiscard=c::discardHeld)
     val setupProblem=remember(config){StoreCheckout.setupProblem(config)}
     val enabledTenders=remember(config){StoreCheckout.enabledTenders(config)}
     val canPay=setupProblem==null&&total!=null&&tenders!=null&&cashReady&&c.storePos.shift!=null&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)
@@ -153,7 +157,8 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
             onSetLine={id,base->if(!c.busy){c.dismissGenericMessage();cart=SellingCart.set(cart,id,base)}},
             rows=rows,totalLabel=browseTotal,chargeEnabled=quote!=null&&shiftOpen&&!c.busy&&!c.onHold,onCharge={send(SellEvent.ChargeTapped)},
             cartOpen=flow.step==SellStep.CART,onCartOpen={open->send(if(open)SellEvent.CartBarTapped else SellEvent.BackTapped)},
-            message=c.message?:notice?:reason,busy=c.busy,cashierName=c.seller?.name,roleLabel="Cashier",syncBadge={SyncPill(c)})
+            message=c.message?:notice?:reason,busy=c.busy,cashierName=c.seller?.name,roleLabel="Cashier",syncBadge={SyncPill(c)},
+            held=storeHeld)
         SellStep.PAYMENT->{
             val possible=StoreCheckout.claimsPossible(config)
             val canDiscount=possible&&!c.busy&&cart.isNotEmpty()
@@ -277,11 +282,15 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
                 else->Text("Reprinted ${ReprintRules.MAX_REPRINTS} times. Ask the office for a copy.")
             }
             if(r.optString("_status")!="voided"){
+                // IP-REFUND: take back some of the items now, paid out of the open drawer (a supervisor approves above the office's amount).
+                if(com.sunpride.van.storepos.StoreRefunds.policy(config)!=null)SecondaryButton("Refund items",{c.openStoreRefund(r)},Modifier.testTag("store-refund-items-${r.getString("saleId")}"),enabled=c.storePos.shift!=null&&!c.busy)
                 DangerButton("Request void before close",{c.saveStoreAction("store.void",JSONObject().put("saleId",r.getString("saleId")).put("reason",reason))},enabled=reason.isNotBlank()&&c.storePos.shift!=null&&!c.busy)
                 DangerButton("Request receipt refund",{c.saveStoreAction("store.refund",JSONObject().put("saleId",r.getString("saleId")).put("reason",reason))},enabled=reason.isNotBlank()&&c.storePos.shift!=null&&!c.busy)
             }else Text("Voided · retained in the immutable journal")
         }}
     }
+    c.storeRefundModel?.let {m->RefundSheet(m,RefundApprovalKind.PIN,Supervisors.of(config.details,c.seller?.profileId),c.busy,c.storeRefundError,onConfirm={c.confirmStoreRefund(it)},onClose=c::cancelStoreRefund)}
+    c.storeRefundDone?.let {d->RefundDoneDialog(d.creditNumber,d.originalNumber,d.totalMinor,d.tenders.filter{it.method=="cash"}.sumOf{it.amountMinor},d.damaged,c.printMessage,c.printing,onPrint={c.printStoreRefundSlip(null)},onDone=c::finishStoreRefund)}
     reprinting?.let {r->
         val history=c.storePrints[r.getString("saleId")].orEmpty()
         ReprintReasonDialog("${r.getString("receiptNumber")} · ${pesos(r.getString("totalMinor").toLong())}",ReprintRules.MAX_REPRINTS-ReprintRules.remaining(history)+1,

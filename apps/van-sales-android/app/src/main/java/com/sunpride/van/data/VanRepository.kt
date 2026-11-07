@@ -125,6 +125,25 @@ class VanRepository private constructor(private val context: Context, private va
             true
         } finally { key.fill(0) }
     }
+    /**
+     * IP-REFUND (till): save an item refund at the register. [supervisor] approves with their PIN only above the office's amount;
+     * null comes back when the PIN is wrong (nothing is saved). Throws [com.sunpride.van.storage.RefundNotAllowed] in plain words.
+     */
+    suspend fun storeRefund(refundId:String,saleId:String,picks:Map<Int,Long>,reasonCode:String,note:String?,expectedCentavos:Long,supervisor:com.sunpride.van.storepos.Supervisor?,pin:String):com.sunpride.van.printing.RefundSlipFacts? = withContext(Dispatchers.Default) {
+        var key:ByteArray?=null
+        try {
+            if(supervisor!=null) {
+                key=com.sunpride.van.security.PinProofs.derive(pin,supervisor.salt)
+                if(!com.sunpride.van.security.PinProofs.matches(key,supervisor.hash)) return@withContext null
+            }
+            withContext(Dispatchers.IO) {
+                com.sunpride.van.storepos.StoreTransactions(store()).refundPart(refundId,saleId,picks,reasonCode,note,expectedCentavos,supervisor?.name,
+                    supervisor?.let {sup->{shiftId:String->com.sunpride.van.storepos.Supervisors.json(sup,com.sunpride.van.security.PinProofs.hmacHex(checkNotNull(key),com.sunpride.van.security.PinProofs.overrideMessage("refund",refundId,shiftId,expectedCentavos.toString(),sup.pinId)))}}).also {schedule()}
+            }
+        } finally { key?.fill(0) }
+    }
+    /** IP-REFUND (till): the slip of a saved refund, read back from the saved operation. */
+    suspend fun storeRefundSlip(refundId:String):com.sunpride.van.printing.RefundSlipFacts? = withContext(Dispatchers.IO) { com.sunpride.van.storepos.StoreTransactions(store()).refundSlip(refundId) }
     /** IP-HH2: the seller's count of the clerk's load (`load.accept`). */
     suspend fun acceptLoad(info:com.sunpride.van.vanday.VanDayInfo,counts:Map<String,com.sunpride.van.vanday.AcceptCount>,note:String?):String = withContext(Dispatchers.IO) { com.sunpride.van.storage.VanDayStore(store()).acceptLoad(info,counts,note).also {schedule()} }
     suspend fun acceptWaiting(tripId:String):Boolean = withContext(Dispatchers.IO) { com.sunpride.van.storage.VanDayStore(store()).acceptWaiting(tripId) }
@@ -515,6 +534,21 @@ class VanRepository private constructor(private val context: Context, private va
     }
     suspend fun voidSale(saleId: String, reason: String?, note: String?, code: String?): com.sunpride.van.pos.SaleVoidResult =
         withContext(Dispatchers.IO) { store().voidSale(saleId,reason,note,code).also { schedule() } }
+    /** IP-HOLD: carts parked on this phone (local only, never uploaded). */
+    suspend fun heldCarts(surface: String): List<com.sunpride.van.pos.HeldCart> = withContext(Dispatchers.IO) { com.sunpride.van.storage.HeldCartStore(store()).list(surface) }
+    suspend fun heldCount(surface: String): Int = withContext(Dispatchers.IO) { com.sunpride.van.storage.HeldCartStore(store()).countNow(surface) }
+    suspend fun holdCart(surface: String, name: String?, note: String?, customerId: String?, customerName: String?, lines: List<com.sunpride.van.pos.HeldLine>, totalLabel: String): com.sunpride.van.pos.HeldCart =
+        withContext(Dispatchers.IO) { com.sunpride.van.storage.HeldCartStore(store()).hold(surface, name, note, customerId, customerName, lines, totalLabel) }
+    suspend fun discardHeld(holdId: String) = withContext(Dispatchers.IO) { com.sunpride.van.storage.HeldCartStore(store()).discard(holdId) }
+    suspend fun discardAllHeld(surface: String) = withContext(Dispatchers.IO) { com.sunpride.van.storage.HeldCartStore(store()).discardAll(surface) }
+    /** IP-REFUND: what the refund screen needs for one saved sale (receipt lines, what is already refunded, the office's reasons and amount). */
+    suspend fun refundContext(saleId: String): com.sunpride.van.storage.RefundContext = withContext(Dispatchers.IO) { com.sunpride.van.storage.RefundStore(store()).context(saleId) }
+    /** IP-REFUND: save one refund (goods back on the truck, cash out of expected cash, credit memo number, parked `refund.record`). Idempotent on the request id. */
+    suspend fun recordRefund(request: com.sunpride.van.storage.RefundRequest): com.sunpride.van.storage.RefundResult =
+        withContext(Dispatchers.IO) { com.sunpride.van.storage.RefundStore(store()).commit(request).also { schedule() } }
+    suspend fun refundSlip(refundId: String): com.sunpride.van.printing.RefundSlipFacts? = withContext(Dispatchers.IO) { com.sunpride.van.storage.RefundStore(store()).slip(refundId) }
+    /** IP-REFUND: refunds of this trip (this phone's plus any only the office knows), for the "Refunded" line on the receipts list. */
+    suspend fun refundsMade(tripId: String): List<com.sunpride.van.pos.MadeRefund> = withContext(Dispatchers.IO) { com.sunpride.van.storage.RefundStore(store()).made(tripId) }
     /** VAN-012: credit sold here per customer and references already used, so Checkout warns before the store refuses. */
     suspend fun paymentFacts(): com.sunpride.van.storage.PaymentFacts = withContext(Dispatchers.IO) { store().paymentFacts() }
     /**

@@ -55,6 +55,9 @@ import com.sunpride.van.pos.ProductSearch
 import com.sunpride.van.scanning.CameraScanScreen
 import com.sunpride.van.scanning.LocalScannerInput
 import com.sunpride.van.selling.*
+import com.sunpride.van.pos.HeldCart
+import com.sunpride.van.pos.HeldCartRules
+import com.sunpride.van.pos.HeldLine
 import kotlinx.coroutines.delay
 
 /**
@@ -180,6 +183,8 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
     cashierName: String? = null, roleLabel: String = "Cashier",
     /** POS v2: the small sync badge at the right of the header. */
     syncBadge: (@Composable () -> Unit)? = null,
+    /** IP-HOLD: park the cart and bring it back; null on a screen that does not hold carts. */
+    held: HeldCartsUi? = null,
 ) {
     val lines = currentLines()
     val all = remember(search) { search.search("", Int.MAX_VALUE).sortedBy { it.product.name.lowercase() } }
@@ -195,11 +200,30 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
     var paletteOpen by rememberSaveable { mutableStateOf(false) }
     var paletteQuery by rememberSaveable { mutableStateOf("") }
     var camera by remember { mutableStateOf(false) }
+    var holdOpen by remember { mutableStateOf(false) }
+    var holdError by remember { mutableStateOf<String?>(null) }
+    var holdBusy by remember { mutableStateOf(false) }
+    var heldOpen by remember { mutableStateOf(false) }
+    var heldMessage by remember { mutableStateOf<String?>(null) }
+    var recallNotes by remember { mutableStateOf<List<String>>(emptyList()) }
     val scanner = LocalScannerInput.current
     // Only this screen takes wedge bursts away from the keyboard path; screens with text fields leave them alone.
     DisposableEffect(scanner) { scanner?.wedgeCapture = true; onDispose { scanner?.wedgeCapture = false } }
     fun say(text: String, error: Boolean) { bannerId++; banner = Banner(bannerId, text, error) }
     LaunchedEffect(banner?.id) { if (banner != null) { delay(2600); banner = null } }
+    /** IP-HOLD: bring a held cart back into the (empty) cart after checking every line against the stock and prices the phone has now. */
+    fun recallHeld(h: HeldCart) {
+        if (currentLines().isNotEmpty()) { heldMessage = "Hold or clear the cart you have first."; return }
+        val r = HeldCartRules.recall(h, stockBase = { id -> byId[id]?.availableBase }, nameOf = { id -> byId[id]?.product?.name }, priceNow = { id -> byId[id]?.price?.unitPriceMinor },
+            money = { PosMoney.format(it, "PHP") }, enforceStock = held?.enforceStock != false)
+        r.lines.forEach { onSetLine(it.productId, it.quantityBase) }
+        held?.onRecalled(h.holdId)
+        heldOpen = false; heldMessage = null
+        if (r.notes.isNotEmpty()) recallNotes = r.notes else say("Cart recalled", false)
+        if (r.lines.isEmpty()) say("Nothing in that cart can be sold now.", true)
+    }
+    val autoRecall = held?.autoRecall
+    LaunchedEffect(autoRecall?.holdId) { autoRecall?.let { recallHeld(it) } }
     LaunchedEffect(touched) { if (touched != null) { delay(1400); touched = null } }
 
     /** The one add path: grid tap, palette tap and scan all end here. */
@@ -267,6 +291,14 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
                     }
                     Box(Modifier.size(48.dp).clip(CircleShape).background(Look.gradient).border(1.5.dp, Color.White.copy(alpha = 0.5f), CircleShape).clickable(role = Role.Button) { camera = true }
                         .testTag("scan-camera").semantics { contentDescription = "Scan with camera" }, contentAlignment = Alignment.Center) { Glyph(GlyphKind.CAMERA, Color.White, 24.dp) }
+                    // IP-HOLD: parked carts, with how many; only shown while there is one.
+                    if (held != null && held.count > 0) Surface(Modifier.heightIn(min = 48.dp).clip(CircleShape).clickable(role = Role.Button) { heldMessage = null; heldOpen = true }.testTag("held-open"), shape = CircleShape,
+                        color = Look.sheet, border = BorderStroke(1.5.dp, Look.accent)) {
+                        Row(Modifier.padding(horizontal = 14.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Text("Held", fontSize = 15.sp, fontWeight = FontWeight.ExtraBold, color = Look.accent)
+                            Surface(shape = CircleShape, color = Look.accent) { Text("${held.count}", Modifier.padding(horizontal = 8.dp, vertical = 2.dp).testTag("held-count"), color = Look.onAccent, fontSize = 14.sp, fontWeight = FontWeight.ExtraBold) }
+                        }
+                    }
                 }
                 banner?.let { b ->
                     Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp).semantics(mergeDescendants = true) { liveRegion = LiveRegionMode.Polite }.testTag("scan-toast"), shape = RoundedCornerShape(16.dp),
@@ -311,7 +343,18 @@ private fun priceText(label: String, accent: Color): AnnotatedString = buildAnno
         onSetLine = { id, base -> onSetLine(id, base) },
         onKeypad = { id -> keypadFor = scanProducts.firstOrNull { it.productId == id } },
         onCharge = onCharge, onClose = { onCartOpen(false) }, extras = cartExtras,
-        banner = banner?.let { it.text to it.error }, onClear = { lines.forEach { onSetLine(it.productId, 0) } })
+        banner = banner?.let { it.text to it.error }, onClear = { lines.forEach { onSetLine(it.productId, 0) } },
+        onHold = if (held != null && lines.isNotEmpty()) ({ holdError = null; holdOpen = true }) else null)
+    if (holdOpen && held != null) HoldCartDialog(lines.size, totalLabel, holdError, holdBusy, onHold = { name, note ->
+        holdBusy = true; holdError = null
+        val snapshot = lines.map { l -> HeldLine(l.productId, byId[l.productId]?.product?.name ?: scanProducts.firstOrNull { it.productId == l.productId }?.name ?: l.productId, l.quantityBase, byId[l.productId]?.price?.unitPriceMinor) }
+        held.onHold(name, note, snapshot, totalLabel) { err ->
+            holdBusy = false
+            if (err == null) { holdOpen = false; lines.forEach { onSetLine(it.productId, 0) }; onCartOpen(false); say("Cart held", false) } else holdError = err
+        }
+    }, onClose = { if (!holdBusy) holdOpen = false })
+    if (heldOpen && held != null) HeldCartsSheet(held.carts, lines.isEmpty(), showCustomer = false, heldMessage, onRecall = ::recallHeld, onDiscard = { held.onDiscard(it.holdId) }, onClose = { heldOpen = false })
+    if (recallNotes.isNotEmpty()) RecallNotesDialog(recallNotes) { recallNotes = emptyList() }
 }
 
 /** The search palette (Itemcount pattern 3): stays open, adds on tap, marks the match, shows IN CART n, and has a Done button. */
@@ -402,7 +445,7 @@ internal fun highlight(text: String, query: String): AnnotatedString {
 /** The cart (Itemcount pattern 5): steppers, tap the quantity for a keypad, cases and pieces, line totals, Remove, footer total and Charge. */
 @Composable private fun CartSheet(title: String, rows: List<CartRowUi>, totalLabel: String, itemCount: Int, countLabel: String, chargeEnabled: Boolean,
     onSetLine: (String, Long) -> Unit, onKeypad: (String) -> Unit, onCharge: () -> Unit, onClose: () -> Unit, extras: @Composable ColumnScope.() -> Unit,
-    banner: Pair<String, Boolean>?, onClear: () -> Unit) {
+    banner: Pair<String, Boolean>?, onClear: () -> Unit, onHold: (() -> Unit)? = null) {
     var confirmClear by remember { mutableStateOf(false) }
     LookSheet(title, onClose, tag = "cart-sheet", fill = true, closeTag = "cart-close", footer = {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -412,7 +455,11 @@ internal fun highlight(text: String, query: String): AnnotatedString {
             }
             FitText(totalLabel, 44.sp, Modifier.weight(1f), minSize = 24.sp, color = Look.ink, textAlign = TextAlign.End, tag = "cart-total")
         }
-        PillButton("Charge", onCharge, Modifier.testTag("cart-charge"), enabled = chargeEnabled && itemCount > 0, height = 64.dp, fontSize = 22.sp)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+            // IP-HOLD: park this cart; Charge stays the big button and nothing completes on one tap.
+            if (onHold != null) PillButton("Hold", onHold, Modifier.weight(1f).testTag("cart-hold"), enabled = itemCount > 0, filled = false, height = 64.dp, fontSize = 20.sp)
+            PillButton("Charge", onCharge, Modifier.weight(if (onHold != null) 2f else 1f).testTag("cart-charge"), enabled = chargeEnabled && itemCount > 0, height = 64.dp, fontSize = 22.sp)
+        }
     }) {
         banner?.let { (text, error) ->
             Surface(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp), shape = RoundedCornerShape(16.dp), color = if (error) SunprideTokens.emptyRed else SunprideTokens.stockGreen) {

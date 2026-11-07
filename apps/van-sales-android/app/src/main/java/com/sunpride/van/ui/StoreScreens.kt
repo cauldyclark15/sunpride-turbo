@@ -11,6 +11,8 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -72,6 +74,10 @@ import com.sunpride.van.storepos.StoreXPreview
     val config=c.storePos.config
     val receipts=if(config==null) emptyList() else StoreTransactions.receipts(config,c.storePos.rows)
     val x=StoreXPreview.of(receipts.filter {it.optString("_status")!="voided"}.map {it.getString("totalMinor").toLong()})
+    // IP-HOLD: parked carts stop the till closing; the cashier finishes them or throws them away.
+    LaunchedEffect(Unit){c.refreshHeld()}
+    val held=c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE)
+    var confirmDiscard by remember{mutableStateOf(false)}
     Dialog(onDismissRequest=c::cancelEndSession,properties=DialogProperties(usePlatformDefaultWidth=false)) {
         Surface(Modifier.fillMaxWidth().padding(16.dp).navigationBarsPadding().statusBarsPadding(),shape=SunprideTokens.shapes.large) {
             Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
@@ -79,11 +85,19 @@ import com.sunpride.van.storepos.StoreXPreview
                 Text("X reading so far",style=MaterialTheme.typography.labelLarge)
                 Text("${x.receipts} receipts · ${PosMoney.format(x.salesMinor,"PHP")}",style=MaterialTheme.typography.titleMedium,modifier=Modifier.testTag("end-session-x"))
                 Text("Next you count the cash in the drawer. You will not see the expected cash. The count is final.")
-                PrimaryBottomButton("Count the cash",c::confirmEndSession,enabled=!c.busy,tag="store-end-continue")
+                if(held.isNotEmpty()) {
+                    Text(com.sunpride.van.pos.HeldCartRules.closeBlock(held.size)!!,color=MaterialTheme.colorScheme.error,modifier=Modifier.testTag("end-session-held"))
+                    DangerButton("Discard held ${if(held.size==1)"cart" else "carts"}",{confirmDiscard=true},Modifier.testTag("store-end-discard-held"),enabled=!c.busy)
+                }
+                PrimaryBottomButton("Count the cash",c::confirmEndSession,enabled=!c.busy&&held.isEmpty(),tag="store-end-continue")
                 SecondaryButton("Keep selling",c::cancelEndSession,Modifier.testTag("store-end-cancel"))
             }
         }
     }
+    if(confirmDiscard) AlertDialog(onDismissRequest={confirmDiscard=false},title={Text("Discard ${held.size} held ${if(held.size==1)"cart" else "carts"}?")},
+        text={Text("They are thrown away. They cannot be brought back.")},
+        confirmButton={TextButton({c.discardAllHeld(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE);confirmDiscard=false},Modifier.heightIn(min=48.dp).testTag("store-end-discard-confirm")){Text("Discard",color=SunprideTokens.emptyRed,fontWeight=FontWeight.ExtraBold)}},
+        dismissButton={TextButton({confirmDiscard=false},Modifier.heightIn(min=48.dp).testTag("store-end-discard-cancel")){Text("Keep them")}})
 }
 /** Open only: take the float and open the session. It cannot turn into a count. */
 @Composable fun OpenSessionScreen(c: VanController) {
