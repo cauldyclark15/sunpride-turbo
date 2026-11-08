@@ -12,6 +12,7 @@ import {
 import { install as org } from "../src/domains/org/index.js";
 import { install as masters } from "../src/domains/masters/index.js";
 import { setPlacesFetch } from "../src/domains/masters/places.js";
+import { runDueJobs } from "../src/core/jobs.js";
 import { SAMPLE_IMAGE } from "../src/domains/masters/catalogue.js";
 import { seedDemo } from "../../../packages/db/seed/index.js";
 import { seedSpecMasters } from "../../../packages/db/seed/spec-masters.js";
@@ -77,11 +78,11 @@ async function as(role, path, body) {
   };
 }
 /** Field rep on a bound phone of the given app. @param {string} app */
-async function fieldRep(app) {
+async function fieldRep(app, unit = rowId("org_units", "territory-0")) {
   const password = "census-test-only-password",
     email = `cg-${crypto.randomUUID()}@example.com`;
   const userId = await createUser(h, email, password),
-    unitId = rowId("org_units", "territory-0");
+    unitId = unit;
   const [profile] =
     await h.db`insert into profiles(user_id,auth_subject,name,email,role,status,org_unit_id) values(${userId},${userId},'Gathering rep',${email},'sales','active',${unitId}) returning id`;
   await h.db`insert into employee_assignments(profile_id,org_unit_id,role,effective_from,actor_subject,reason) values(${profile.id},${unitId},'sales',${new Date(0)},${userId},'SP-0162 active field assignment')`;
@@ -490,10 +491,10 @@ test("SP-0162 census capture: optional batch uses the ongoing unit batch, field-
   ).toBe(400);
 });
 
-test("SP-0162 address-search capture: server re-resolves the place, rejects a mismatch, retries while Google is down, replays idempotently", async () => {
+test("SP-0162 address-search capture: no Google in sync; job verifies within 50 m, flags a mismatch, retries while Google is down", async () => {
   const rep = await fieldRep("field-android");
   const placeAt = { lat: 10.3157, lng: 123.8854 };
-  google = (url) =>
+  const real = (/** @type {URL} */ url) =>
     url.searchParams.get("place_id") === "ChIJ-real"
       ? {
           status: "OK",
@@ -505,7 +506,6 @@ test("SP-0162 address-search capture: server re-resolves the place, rejects a mi
           },
         }
       : { status: "NOT_FOUND" };
-  stub();
   const base = {
     locationSource: "places",
     placeId: "ChIJ-real",
@@ -513,68 +513,60 @@ test("SP-0162 address-search capture: server re-resolves the place, rejects a mi
     addressComponents: { street: "Colon St", city: "Cebu City" },
     location: { latitude: 10.31571, longitude: 123.88541 },
   };
-  // Client point 300 m away from Google's: place_mismatch, nothing stored.
-  const far = capture({
-    ...base,
-    location: { latitude: 10.3184, longitude: 123.8854 },
-  });
-  const rFar = await rep.push(far);
-  expect(rFar).toMatchObject({
-    status: "rejected",
-    code: "place_mismatch",
-    retryable: false,
-  });
-  expect(
-    (await h.db`select 1 from census_captures where id=${far.captureId}`)
-      .length,
-  ).toBe(0);
-  const unknown = capture({ ...base, placeId: "ChIJ-gone" });
-  expect((await rep.push(unknown)).code).toBe("place_mismatch");
-  // Missing place id is a plain invalid request.
-  expect((await rep.push(capture({ ...base, placeId: undefined }))).code).toBe(
-    "invalid_request",
-  );
-
-  // Google unreachable: temporary refusal, nothing stored, the phone keeps the op.
-  const later = capture(base);
-  const opId = crypto.randomUUID();
+  /** @param {string} id */
+  const row = async (id) =>
+    (
+      await h.db`select c.*,pc.place_latitude,pc.place_longitude,case when pc.capture_id is null then 'pending' else pc.status end location_status from census_captures c left join census_place_checks pc on pc.capture_id=c.id where c.id=${id}`
+    )[0];
+  const due = async () => {
+    await h.db`update jobs set run_at=now() where kind='census.resolvePlace' and status='pending'`;
+    return runDueJobs(h.db, { limit: 50 });
+  };
+  // Google down during sync: the op is still a plain accepted result (never retryable),
+  // stored as pending with the phone's point; no Google call happens inside the op.
   google = () => ({ httpStatus: 503 });
   stub();
-  const down = await rep.push(later, opId);
-  expect(down).toMatchObject({
-    status: "rejected",
-    code: "places_unavailable",
-    retryable: true,
-  });
-  expect(
-    (await h.db`select 1 from census_captures where id=${later.captureId}`)
-      .length,
-  ).toBe(0);
-  expect(
-    (await h.db`select 1 from op_receipts where client_op_id=${opId}`).length,
-  ).toBe(0);
-  google = (url) =>
-    url.searchParams.get("place_id") === "ChIJ-real"
-      ? {
-          status: "OK",
-          result: {
-            place_id: "ChIJ-real",
-            formatted_address: "Colon St, Cebu City",
-            geometry: { location: placeAt },
-            address_components: [],
-          },
-        }
-      : { status: "NOT_FOUND" };
-  stub();
-  const ok = await rep.push(later, opId);
-  expect(ok.status).toBe("applied");
-  const [saved] =
-    await h.db`select * from census_captures where id=${later.captureId}`;
-  expect(saved.location_source).toBe("places");
-  expect(saved.place_id).toBe("ChIJ-real");
-  expect(saved.latitude).toBe(placeAt.lat); // server coordinates, not the client's
-  expect(saved.longitude).toBe(placeAt.lng);
+  const later = capture(base);
+  const opId = crypto.randomUUID();
+  const r = await rep.push(later, opId);
+  expect(r.status).toBe("applied");
+  expect(r.retryable ?? false).toBe(false);
+  expect(calls.length).toBe(0);
+  let saved = await row(later.captureId);
+  expect(saved.location_status).toBe("pending");
+  expect(saved.latitude).toBe(10.31571);
   expect(saved.accuracy_meters).toBeNull();
+  const [job] =
+    await h.db`select * from jobs where kind='census.resolvePlace' and coalesce_key=${later.captureId}`;
+  expect(job.status).toBe("pending");
+  // Job while Google is still down: retried with backoff, capture stays pending.
+  await due();
+  const [retry] =
+    await h.db`select status,attempts,run_at,last_error from jobs where id=${job.id}`;
+  expect(retry.status).toBe("pending");
+  expect(Number(retry.attempts)).toBe(1);
+  expect(new Date(retry.run_at).getTime()).toBeGreaterThan(Date.now());
+  expect(String(retry.last_error)).not.toContain(FAKE_KEY);
+  expect((await row(later.captureId)).location_status).toBe("pending");
+  // Review: approve is refused while the address is being checked.
+  const blocked = await as("manager", "/api/v1/masters/census/review", {
+    captureId: later.captureId,
+    decision: "accept",
+    reason: "x",
+  });
+  expect(blocked.status).toBe(422);
+  expect(blocked.body.error?.code ?? blocked.body.code).toBe(
+    "location_pending",
+  );
+  // Google back: verified with the server coordinates; phone point kept.
+  google = real;
+  stub();
+  await due();
+  saved = await row(later.captureId);
+  expect(saved.location_status).toBe("verified");
+  expect(saved.place_latitude).toBe(placeAt.lat);
+  expect(saved.place_longitude).toBe(placeAt.lng);
+  expect(saved.latitude).toBe(10.31571); // the capture stays append-only evidence
   expect(saved.formatted_address).toBe("Colon St, Cebu City");
   expect(saved.address_components).toEqual({
     street: "Colon St",
@@ -582,15 +574,80 @@ test("SP-0162 address-search capture: server re-resolves the place, rejects a mi
   });
   // Same op again: duplicate from the receipt. Same capture under a new op id: idempotent.
   expect((await rep.push(later, opId)).status).toBe("duplicate");
-  google = () => ({ httpStatus: 503 });
-  stub();
+  calls = [];
   expect((await rep.push(later)).status).toBe("applied");
-  expect(calls.length).toBe(0); // replay needs no Google call
-  // Changed details under the same capture id: conflict.
+  expect(calls.length).toBe(0);
   expect((await rep.push({ ...later, landmark: "changed" })).code).toBe(
     "idempotency_conflict",
   );
-  // GPS rules unchanged when locationSource is absent.
+
+  // Client point 300 m away from Google's: mismatch, both points kept.
+  const far = capture({
+    ...base,
+    name: "Far Pin Store",
+    ownerPhone: "0917 333 4444",
+    location: { latitude: 10.3184, longitude: 123.8854 },
+  });
+  expect((await rep.push(far)).status).toBe("applied");
+  const unknown = capture({
+    ...base,
+    name: "Gone Place Store",
+    ownerPhone: "0917 333 5555",
+    placeId: "ChIJ-gone",
+  });
+  expect((await rep.push(unknown)).status).toBe("applied");
+  await due();
+  const sFar = await row(far.captureId);
+  expect(sFar.location_status).toBe("mismatch");
+  expect(sFar.latitude).toBe(10.3184);
+  expect(sFar.place_latitude).toBe(placeAt.lat);
+  const sGone = await row(unknown.captureId);
+  expect(sGone.location_status).toBe("mismatch");
+  expect(sGone.place_latitude).toBeNull();
+  // Queue exposes the status and both points for the warning.
+  const q = await as("manager", "/api/v1/masters/census-queue");
+  const listed = q.body.rows.find(
+    (/** @type {any} */ x) => x.id === far.captureId,
+  );
+  expect(listed).toMatchObject({
+    location_status: "mismatch",
+    device_latitude: 10.3184,
+    place_latitude: placeAt.lat,
+  });
+  // Mismatch: approve needs an explicit pin choice.
+  const noChoice = await as("manager", "/api/v1/masters/census/review", {
+    captureId: far.captureId,
+    decision: "accept",
+    reason: "x",
+  });
+  expect(noChoice.status).toBe(422);
+  expect(noChoice.body.error?.code ?? noChoice.body.code).toBe(
+    "location_mismatch",
+  );
+  expect(
+    (
+      await as("manager", "/api/v1/masters/census/review", {
+        captureId: unknown.captureId,
+        decision: "accept",
+        pinChoice: "place",
+        reason: "x",
+      })
+    ).status,
+  ).toBe(422); // no Google point to choose
+  const chosen = await as("manager", "/api/v1/masters/census/review", {
+    captureId: far.captureId,
+    decision: "accept",
+    pinChoice: "device",
+    reason: "Agent's pin is right; confirmed with the owner",
+  });
+  expect(chosen.status).toBe(200);
+  const [pin] =
+    await h.db`select * from outlet_pins where outlet_id=${chosen.body.outletId}`;
+  expect(pin.latitude).toBe(10.3184);
+  // Missing place id is a plain invalid request; GPS rules unchanged.
+  expect((await rep.push(capture({ ...base, placeId: undefined }))).code).toBe(
+    "invalid_request",
+  );
   expect(
     (
       await rep.push(
@@ -599,6 +656,7 @@ test("SP-0162 address-search capture: server re-resolves the place, rejects a mi
     ).code,
   ).toBe("invalid_request");
   // A second capture at the same place is a "place" duplicate.
+  await h.db`delete from rate_limits where bucket_key like 'dupcheck:%'`;
   const check = await as("manager", "/api/v1/masters/census/duplicate-check", {
     name: "Something else",
     placeId: "ChIJ-real",
@@ -609,9 +667,170 @@ test("SP-0162 address-search capture: server re-resolves the place, rejects a mi
   });
 });
 
+test("SP-0162 Google down: a places capture and a visit-style op in one push both get final acks", async () => {
+  // Phones treat any retryable result as a whole-batch failure; census.capture must never
+  // return one. Two ops in one batch, Google down: both final, nothing retryable.
+  const rep = await fieldRep("field-android");
+  google = () => new Error("network down");
+  stub();
+  const a = capture({
+    locationSource: "places",
+    placeId: "ChIJ-down",
+    location: { latitude: 10.2, longitude: 123.9 },
+    name: "Batch Store A",
+    ownerPhone: "0917 777 0001",
+  });
+  const b = capture({ name: "Batch Store B", ownerPhone: "0917 777 0002" });
+  const res = await signedPost(h, rep.who, "/api/sync/push", {
+    version: 2,
+    app: "field-android",
+    deviceId: rep.who.deviceId,
+    scopeId: rep.unitId,
+    operations: [a, b].map((p) => ({
+      clientOpId: crypto.randomUUID(),
+      opType: "census.capture",
+      clientTime: p.deviceTime,
+      dependsOn: [],
+      payload: p,
+    })),
+  });
+  expect(res.res.status).toBe(200);
+  expect(
+    res.body.results.map((/** @type {any} */ x) => [
+      x.status,
+      Boolean(x.retryable),
+    ]),
+  ).toEqual([
+    ["applied", false],
+    ["applied", false],
+  ]);
+});
+
+test("SP-0162 B1: candidates use the batch unit at capture time and the reader's scope at read time", async () => {
+  const region = rowId("org_units", "visayas"),
+    t0 = rowId("org_units", "territory-0"),
+    t1 = rowId("org_units", "territory-1");
+  // A sibling-unit outlet with the same phone, right next door.
+  const sub = config.subchannels[0];
+  const [sibling] =
+    await h.db`insert into outlets(organization_id,code,name,status,custodian_org_unit_id,address,created_by) values('sunpride',${"SIB" + Date.now()},'Sibling Unit Store','active',${t1},'Sibling St','test') returning id`;
+  await h.db`insert into outlet_contacts(outlet_id,ordinal,name,phone) values(${sibling.id},0,'Sib','0917 888 1212')`;
+  await h.db`insert into outlet_pins(outlet_id,latitude,longitude,radius_meters,source,status,effective_from,proposed_by,proposed_at,verified_by,verified_at) values(${sibling.id},10.401,123.901,50,'test','verified',${new Date(0)},'a',now(),'b',now())`;
+  // (a) Wide (region) agent captures into a territory-0 batch: sibling not in the snapshot.
+  const wide = await fieldRep("field-android", region);
+  const [t0batch] =
+    await h.db`insert into census_batches(code,name,org_unit_id,expected_outlets,effective_from) values(${"T0-" + Date.now()},'T0 sweep',${t0},10,${new Date(0)}) returning id`;
+  const cap = capture({
+    batchId: t0batch.id,
+    name: "Sibling Unit Store",
+    ownerPhone: "0917 888 1212",
+    location: { ...capture().location, latitude: 10.401, longitude: 123.901 },
+    channelId: sub.data.channelId,
+  });
+  expect((await wide.push(cap)).status).toBe("applied");
+  const [stored] =
+    await h.db`select duplicate_candidates from census_captures where id=${cap.captureId}`;
+  expect(
+    stored.duplicate_candidates.some(
+      (/** @type {any} */ c) => c.id === sibling.id,
+    ),
+  ).toBe(false);
+  // (b) An older snapshot that did hold the sibling: a territory-0 reviewer never sees it,
+  // a region reviewer still does.
+  await h.db`alter table census_captures disable trigger census_captures_immutable`;
+  await h.db`update census_captures set duplicate_candidates=${[
+    {
+      kind: "outlet",
+      id: sibling.id,
+      name: "Sibling Unit Store",
+      code: "X",
+      address: "",
+      latitude: 10.401,
+      longitude: 123.901,
+      distanceMeters: 0,
+      reasons: ["phone"],
+      score: 90,
+    },
+  ]} where id=${cap.captureId}`;
+  await h.db`alter table census_captures enable trigger census_captures_immutable`;
+  await signIn("supervisor");
+  const narrow = await as("supervisor", "/api/v1/masters/census-queue");
+  expect(narrow.status).toBe(200);
+  const nRow = narrow.body.rows.find(
+    (/** @type {any} */ r) => r.id === cap.captureId,
+  );
+  expect(nRow).toBeTruthy();
+  expect(nRow.duplicate_candidates).toEqual([]);
+  expect(narrow.text).not.toContain("Sibling St");
+  const wideQ = await as("manager", "/api/v1/masters/census-queue");
+  const wRow = wideQ.body.rows.find(
+    (/** @type {any} */ r) => r.id === cap.captureId,
+  );
+  expect(wRow.duplicate_candidates.map((/** @type {any} */ c) => c.id)).toEqual(
+    [sibling.id],
+  );
+});
+
+test("SP-0162 SF4: the ongoing batch survives a code collision with an office round", async () => {
+  const t2 = rowId("org_units", "territory-2");
+  const [unit] = await h.db`select code from org_units where id=${t2}`;
+  await h.db`delete from census_batches where org_unit_id=${t2} and is_default`;
+  await h.db`insert into census_batches(code,name,org_unit_id,expected_outlets,effective_from) values(${`ONGOING-${unit.code}`},'Office round that took the code',${t2},10,${new Date(0)}) on conflict do nothing`;
+  const rep = await fieldRep("field-android", t2);
+  const c1 = capture({ name: "Collision Store", ownerPhone: "0917 222 0001" });
+  expect((await rep.push(c1)).status).toBe("applied");
+  const defaults =
+    await h.db`select code from census_batches where org_unit_id=${t2} and is_default`;
+  expect(defaults.length).toBe(1);
+  expect(defaults[0].code).not.toBe(`ONGOING-${unit.code}`);
+  expect(defaults[0].code.startsWith(`ONGOING-${unit.code}`)).toBe(true);
+  // Next capture reuses it (lookup by flag, not code).
+  expect(
+    (
+      await rep.push(
+        capture({ name: "Collision Two", ownerPhone: "0917 222 0002" }),
+      )
+    ).status,
+  ).toBe("applied");
+  expect(
+    (
+      await h.db`select 1 from census_batches where org_unit_id=${t2} and is_default`
+    ).length,
+  ).toBe(1);
+});
+
+test("SP-0162 SF3: duplicate check is limited to 60 a minute per person", async () => {
+  await h.db`delete from rate_limits where bucket_key like 'dupcheck:%'`;
+  const statuses = [];
+  for (let i = 0; i < 61; i++)
+    statuses.push(
+      (
+        await as("manager", "/api/v1/masters/census/duplicate-check", {
+          name: `Rate ${i}`,
+        })
+      ).status,
+    );
+  expect(statuses.slice(0, 60).every((s) => s === 200)).toBe(true);
+  expect(statuses[60]).toBe(429);
+  expect(
+    (await as("admin", "/api/v1/masters/census/duplicate-check", { name: "x" }))
+      .status,
+  ).toBe(200);
+  await h.db`delete from rate_limits where bucket_key like 'dupcheck:%'`;
+});
+
+test("SP-0162 nit: places endpoints answer 401 before validating input", async () => {
+  for (const path of [
+    "/api/v1/places/autocomplete?input=a",
+    "/api/v1/places/details",
+    "/api/v1/places/reverse?lat=x",
+  ])
+    expect((await h.fetch(path)).status).toBe(401);
+});
+
 test("SP-0162 review: approve with blank code uses the customer code allocator and keeps the place", async () => {
   const [row] =
-    await h.db`select id,place_id from census_captures where location_source='places' limit 1`;
+    await h.db`select c.id,c.place_id,pc.place_latitude from census_captures c join census_place_checks pc on pc.capture_id=c.id left join census_reviews r on r.capture_id=c.id where pc.status='verified' and r.id is null limit 1`;
   const queue = await as("manager", "/api/v1/masters/census-queue");
   expect(queue.status).toBe(200);
   const listed = queue.body.rows.find(
@@ -631,6 +850,9 @@ test("SP-0162 review: approve with blank code uses the customer code allocator a
     await h.db`select * from outlets where id=${review.body.outletId}`;
   expect(outlet.code).toBe(review.body.code);
   expect(outlet.place_id).toBe(row.place_id);
+  const [pin] =
+    await h.db`select latitude from outlet_pins where outlet_id=${outlet.id}`;
+  expect(pin.latitude).toBe(row.place_latitude); // Google's checked point
   // Accepted capture is now an outlet candidate (with its verified pin), not a capture.
   const check = await as("manager", "/api/v1/masters/census/duplicate-check", {
     name: "x",
@@ -643,7 +865,7 @@ test("SP-0162 review: approve with blank code uses the customer code allocator a
   });
 });
 
-test("SP-0162 office Add store uses the outlet writer, verified office pin, and location coverage counts it", async () => {
+test("SP-0162 office Add store uses the outlet writer, proposes the office pin for a second person, and coverage counts it once verified", async () => {
   const setup = await as("admin", "/api/v1/masters/store-setup");
   expect(setup.status).toBe(200);
   expect(setup.body.addressSearch).toBe(true);
@@ -675,8 +897,36 @@ test("SP-0162 office Add store uses the outlet writer, verified office pin, and 
   expect(contact.phone).toBe("0917 000 2222");
   const [pin] =
     await h.db`select * from outlet_pins where outlet_id=${outlet.id}`;
-  expect(pin.status).toBe("verified");
+  // SF1: the office pin is only proposed; a different person confirms it.
+  expect(pin.status).toBe("pending");
   expect(pin.source).toBe("office");
+  expect(pin.id).toBe(add.body.pinId);
+  expect(outlet.enrolment_status).toBeNull();
+  const pending = await as(
+    "admin",
+    "/api/v1/masters/store-locations?q=Office%20Added",
+  );
+  expect(pending.body.total).toBe(before.body.total + 1);
+  expect(pending.body.located).toBe(before.body.located);
+  const queue = await as(
+    "manager",
+    "/api/v1/outlets/pins/queue?q=Office%20Added",
+  );
+  expect(queue.status).toBe(200);
+  expect(JSON.stringify(queue.body)).toContain(pin.id);
+  const self = await as("admin", "/api/v1/outlets/pins/decide", {
+    pinId: pin.id,
+    decision: "verified",
+    reason: "mine",
+  });
+  expect(self.status).toBe(422);
+  expect(self.text).toContain("self_verify");
+  const ok = await as("manager", "/api/v1/outlets/pins/decide", {
+    pinId: pin.id,
+    decision: "verified",
+    reason: "Pin checked on the map",
+  });
+  expect(ok.status).toBe(200);
   const afterAdd = await as(
     "admin",
     "/api/v1/masters/store-locations?q=Office%20Added",

@@ -53,13 +53,18 @@ object CensusRules {
     }
     fun captureId(): String = UUID.randomUUID().toString()
 
-    /** Contract 'Phone UX' 4: hide the batch picker when the server files captures under a default batch and there
-     * is at most one batch to choose from. Older servers (no defaultBatch) keep today's picker. */
+    /** Contract 'Phone UX' 4: the batch is optional. Hide the picker until the config is loaded, when no batches
+     * are offered (the server files the capture under the unit's ongoing default batch), or when the server has a
+     * default batch and there is at most one batch to choose from. */
     fun showBatchPicker(config: JSONObject?): Boolean {
-        if (config == null) return true
+        if (config == null) return false
+        val count = config.optJSONArray("batches")?.length() ?: 0
+        if (count == 0) return false
         val hasDefault = config.optJSONObject("defaultBatch")?.optString("id")?.isNotEmpty() == true
-        return !(hasDefault && (config.optJSONArray("batches")?.length() ?: 0) <= 1)
+        return !(hasDefault && count <= 1)
     }
+    /** The batchId to send: the agent's choice when the picker is shown and something was chosen, else none. */
+    fun chosenBatch(showPicker: Boolean, chosen: String?): String? = chosen?.trim()?.takeIf { showPicker && it.isNotEmpty() }
     /** Search address only when the server says the proxy is configured; absent field (old server) = hidden. */
     fun addressSearch(config: JSONObject?): Boolean = config?.optBoolean("addressSearch", false) == true
 

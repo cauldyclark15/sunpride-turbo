@@ -24,6 +24,35 @@ export type Candidate = {
   score: number;
 };
 
+export type LocationStatus = "pending" | "verified" | "mismatch";
+export type PinChoice = "device" | "place";
+
+/** Why Approve is not possible yet, or null when it is. Pending: still checking the
+ * searched address. Mismatch: the reviewer must pick which pin is right. */
+export function approveBlock(
+  c: Pick<Capture, "location_status">,
+  pinChoice: PinChoice | null,
+): string | null {
+  if (c.location_status === "pending") return "Checking the address…";
+  if (c.location_status === "mismatch" && !pinChoice)
+    return "Choose which pin is right before approving.";
+  return null;
+}
+
+/** Great-circle distance in metres (same radius as the server rules). */
+export function metersBetween(
+  lat1: number,
+  lng1: number,
+  lat2: number,
+  lng2: number,
+): number {
+  const r = (x: number) => (x * Math.PI) / 180;
+  const a =
+    Math.sin(r(lat2 - lat1) / 2) ** 2 +
+    Math.cos(r(lat1)) * Math.cos(r(lat2)) * Math.sin(r(lng2 - lng1) / 2) ** 2;
+  return 2 * 6371008.8 * Math.asin(Math.min(1, Math.sqrt(a)));
+}
+
 export type Capture = {
   id: string;
   name: string;
@@ -38,6 +67,12 @@ export type Capture = {
   latitude: number;
   longitude: number;
   location_source: "gps" | "places";
+  /** Address-search pins are checked against Google after sync (SP-0162). */
+  location_status?: LocationStatus;
+  device_latitude?: number | null;
+  device_longitude?: number | null;
+  place_latitude?: number | null;
+  place_longitude?: number | null;
   formatted_address: string | null;
   address_components: AddressParts | null;
   landmark: string | null;

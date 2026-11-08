@@ -13,8 +13,9 @@ struct CensusConfig: Equatable, Sendable {
     /// The server knows the SP-0162 additions (`defaultBatch` key present, even when null).
     let supportsGathering: Bool
 
-    /// Hidden when the server has a default batch and at most one batch is offered.
-    var showsBatchPicker: Bool { !(defaultBatch != nil && batches.count <= 1) }
+    /// The batch is optional. Hidden when no batches are offered (the server files the capture under the
+    /// unit's ongoing default batch) or when the server has a default batch and at most one batch is offered.
+    var showsBatchPicker: Bool { !batches.isEmpty && !(defaultBatch != nil && batches.count <= 1) }
 
     init(batches: [Choice], channels: [Choice], subchannels: [Choice], defaultBatch: Choice?, addressSearch: Bool,
          supportsGathering: Bool) {
@@ -238,7 +239,8 @@ enum CensusCapture {
               (1...40).contains(phone.count) else { throw Failure.details }
         guard phone.filter({ $0.isASCII && $0.isNumber }).count >= 7 else { throw Failure.phone }
         guard let channel = d.channelId, let sub = d.subchannelId, isUUID(channel), isUUID(sub) else { throw Failure.channel }
-        if let batch = d.batchId, !isUUID(batch) { throw Failure.batch }
+        let batchId = d.batchId.map(t).flatMap { $0.isEmpty ? nil : $0 }
+        if let batch = batchId, !isUUID(batch) { throw Failure.batch }
         guard landmark.count <= 200 else { throw Failure.landmark }
         guard ["A", "B", "C", "D"].contains(d.estimatedClass) else { throw Failure.details }
         guard let photo = d.photo, isJpeg(photo), photo.count <= maxPhotoBytes else { throw Failure.photo }
@@ -246,7 +248,7 @@ enum CensusCapture {
         var p: [String: Any] = ["captureId": d.captureId.uuidString.lowercased(), "name": name, "address": address,
             "ownerName": owner, "ownerPhone": phone, "channelId": channel, "subchannelId": sub,
             "estimatedClass": d.estimatedClass, "deviceTime": at, "photoJpegBase64": photo.base64EncodedString()]
-        if let batch = d.batchId { p["batchId"] = batch }
+        if let batch = batchId { p["batchId"] = batch }
         switch d.location {
         case .gps(let fix)?:
             guard gpsUsable(fix, at: at) else { throw Failure.location }

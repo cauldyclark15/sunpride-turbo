@@ -253,7 +253,9 @@ export function AddStore({ onDone }: { onDone?: () => void }) {
         },
       );
       requestKey.current = "";
-      setMessage(`${name} was added (code ${r.code}).`);
+      setMessage(
+        `${name} was added (code ${r.code}). Saved. Another person confirms the map pin.`,
+      );
       setName("");
       setPhone("");
       setAddress("");

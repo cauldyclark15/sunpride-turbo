@@ -20,6 +20,22 @@ import { sha256Hex } from "./util.js";
 
 export const SESSION_COOKIE = "sp_session";
 
+/** Native office clients (SP-0165): native session/refresh, but the caller is an office
+ * user exactly like a web session — web `/api/me`, web error bodies (with the server's own
+ * words), no handheld registration, no device key. */
+export const OFFICE_APPS = Object.freeze(["office-ios"]);
+
+/** An office app's access bearer on an ordinary office route answers like the web session. */
+function officeAsWeb(/** @type {any} */ auth, /** @type {URL} */ url) {
+  return (
+    auth.via === "access" &&
+    OFFICE_APPS.includes(auth.session?.app) &&
+    url.pathname.startsWith("/api/") &&
+    !url.pathname.startsWith("/api/sync/") &&
+    !url.pathname.startsWith("/api/auth/")
+  );
+}
+
 /** @param {Request} req @param {string} name */
 export function readCookie(req, name) {
   const header = req.headers.get("cookie");
@@ -170,7 +186,7 @@ export async function buildCtx(input) {
     via: auth.via,
     accessExpiresAt: auth.accessExpiresAt,
     device: null,
-    v2: input.v2,
+    v2: input.v2 && !officeAsWeb(auth, input.url),
     cookies: [],
     env: input.env,
     server: input.server,

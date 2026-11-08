@@ -7,6 +7,7 @@ import {
 import { registerSamplePhone } from "./sample-devices.js";
 import { capabilitiesFor } from "./capabilities.js";
 import {
+  OFFICE_APPS,
   SESSION_COOKIE,
   readBearer,
   readCookie,
@@ -43,7 +44,9 @@ export const NATIVE_APPS = Object.freeze([
   "field-android",
   "van-android",
   "field-ios",
+  "office-ios",
 ]);
+export { OFFICE_APPS };
 const EMAIL_RE = /^[^\s@]{1,64}@[^\s@]{1,190}\.[^\s@]{2,63}$/;
 // Dummy argon2id hash so unknown emails cost the same as wrong passwords.
 const DUMMY_HASH = await Bun.password.hash("not-a-real-password-sunpride", {
@@ -196,6 +199,9 @@ export function installAuth(router) {
       ctx.v2 = true;
       requireV2(body);
     }
+    const office = OFFICE_APPS.includes(app);
+    if (office && body.deviceKey !== undefined && body.deviceKey !== null)
+      throw invalid("The office app does not register a device key");
     const deviceKeyId = native ? readDeviceKey(body.deviceKey) : null;
     const email = normalizeEmail(body.email);
     if (
@@ -400,7 +406,12 @@ export function installAuth(router) {
 
   router.get("/api/me", async (ctx) => {
     if (!ctx.user || !ctx.session) throw unauthenticated();
-    if (ctx.via === "access" && ctx.session.app !== "web") return nativeMe(ctx);
+    if (
+      ctx.via === "access" &&
+      ctx.session.app !== "web" &&
+      !OFFICE_APPS.includes(ctx.session.app)
+    )
+      return nativeMe(ctx);
     const profile = await loadProfile(ctx.db, ctx.user.id);
     const { partnerContext } = await import("../domains/partners/boundary.js");
     const partner = await partnerContext(ctx.db, ctx.actor);

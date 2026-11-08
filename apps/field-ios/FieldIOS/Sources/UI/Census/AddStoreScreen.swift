@@ -183,8 +183,8 @@ struct AddStoreScreen: View {
         SectionCard(title: "Store") {
             VStack(alignment: .leading, spacing: 12) {
                 if config.showsBatchPicker {
-                    picker("Gathering batch", config.batches, selected: draft.batchId,
-                           empty: config.batches.isEmpty ? "No batches for your area" : "Choose…", id: "addStoreBatch") { draft.batchId = $0 }
+                    picker("Gathering batch (optional)", config.batches, selected: draft.batchId,
+                           empty: "Ongoing gathering (default)", id: "addStoreBatch") { draft.batchId = $0 }
                 }
                 field("Store name", $draft.name, id: "addStoreName")
                 field("Owner name", $draft.ownerName, id: "addStoreOwner")

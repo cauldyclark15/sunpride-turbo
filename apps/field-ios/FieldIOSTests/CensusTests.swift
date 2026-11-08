@@ -169,6 +169,16 @@ final class CensusCaptureTests: XCTestCase {
         XCTAssertEqual((wire["clientTime"] as? Int64), p["deviceTime"] as? Int64)
     }
 
+    func testBatchIsOptionalAndNeverEmpty() throws {
+        var d = try draft()
+        d.batchId = ""
+        XCTAssertNil(try CensusCapture.payload(d, now: clock.now)["batchId"], "empty choice: no batchId, save allowed")
+        d.batchId = nil
+        XCTAssertNil(try CensusCapture.payload(d, now: clock.now)["batchId"], "nothing chosen: save allowed")
+        let none = try CensusConfig(json: Data(#"{"batches":[],"channels":[],"subchannels":[],"defaultBatch":null}"#.utf8))
+        XCTAssertFalse(none.showsBatchPicker, "no batches: picker hidden")
+    }
+
     func testPlacesPayloadCarriesThePlaceAndNoGpsRules() throws {
         var d = try draft()
         d.batchId = "6f1d2c3b-0000-4000-8000-00000000b001"
@@ -223,7 +233,7 @@ final class CensusCaptureTests: XCTestCase {
         let two = try CensusConfig(json: Data(#"{"batches":[{"id":"b1","name":"A"},{"id":"b2","name":"B"}],"channels":[],"subchannels":[],"defaultBatch":{"id":"b1","name":"A"}}"#.utf8))
         XCTAssertTrue(two.showsBatchPicker, "more than one batch: picker shown")
         let none = try CensusConfig(json: Data(#"{"batches":[],"channels":[],"subchannels":[],"defaultBatch":null}"#.utf8))
-        XCTAssertTrue(none.supportsGathering); XCTAssertTrue(none.showsBatchPicker, "no default batch: shown as today")
+        XCTAssertTrue(none.supportsGathering); XCTAssertFalse(none.showsBatchPicker, "no batches yet: hidden, server uses the ongoing default")
     }
 
     func testPlaceAddressFromWire() throws {

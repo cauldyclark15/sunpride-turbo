@@ -1,5 +1,6 @@
 import { ApiError } from "../../core/errors.js";
-import { requireAnyCapability } from "./places.js";
+import { requireAnyCapability, PLACES_POLICY } from "./places.js";
+import { takeOrThrow } from "../../core/rate.js";
 import { scopeFilterForActor } from "../org/scope.js";
 
 /** SP-0162 shared duplicate rules. Single source:
@@ -304,7 +305,43 @@ export function readDuplicateQuery(b) {
 /** POST /api/v1/masters/census/duplicate-check @param {any} ctx */
 export async function duplicateCheck(ctx) {
   const actor = await requireAnyCapability(ctx);
+  // Same per-person budget as the address search proxy (SP-0162 SF3).
+  await takeOrThrow(
+    ctx.db,
+    `dupcheck:${actor.subject ?? actor.userId}`,
+    PLACES_POLICY,
+  );
   const q = readDuplicateQuery(ctx.body);
   const { unitIds } = await scopeFilterForActor(ctx.db, actor);
   return findDuplicates(ctx, q, unitIds);
+}
+
+/** Drop stored duplicate candidates the reader cannot see in their CURRENT scope
+ * (SP-0162 B1). Outlets by custodian unit, captures by batch unit — the same rules the
+ * live check uses. Returns the rows with `duplicate_candidates` filtered.
+ * @param {any} db @param {any[]} rows @param {string[]|null} unitIds null = national */
+export async function candidatesInScope(db, rows, unitIds) {
+  if (unitIds === null) return rows;
+  /** @type {Set<string>} */ const outletIds = new Set(),
+    captureIds = new Set();
+  for (const r of rows)
+    for (const c of r.duplicate_candidates ?? [])
+      (c?.kind === "outlet" ? outletIds : captureIds).add(String(c?.id));
+  const units = db.array(unitIds, "TEXT");
+  const visible = new Set(
+    [
+      ...(outletIds.size
+        ? await db`select id from outlets where id::text = any(${db.array([...outletIds], "TEXT")}) and custodian_org_unit_id::text = any(${units})`
+        : []),
+      ...(captureIds.size
+        ? await db`select c.id from census_captures c join census_batches b on b.id = c.batch_id where c.id::text = any(${db.array([...captureIds], "TEXT")}) and b.org_unit_id::text = any(${units})`
+        : []),
+    ].map((/** @type {any} */ r) => String(r.id)),
+  );
+  return rows.map((r) => ({
+    ...r,
+    duplicate_candidates: (r.duplicate_candidates ?? []).filter(
+      (/** @type {any} */ c) => visible.has(String(c?.id)),
+    ),
+  }));
 }

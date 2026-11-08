@@ -1,0 +1,825 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		41AABB0759AA848B4B59EBC8 /* StockScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0803E9969A8E88BDB80C4FC /* StockScreen.swift */; };
+		474183928315C61EB7D9ADC8 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 6AFFBBA67E903D66B366ED0C /* Assets.xcassets */; };
+		478C441FE095421E540B26BA /* Fixtures in Resources */ = {isa = PBXBuildFile; fileRef = 93DF0AB8D9A4B156496698F5 /* Fixtures */; };
+		4CD284C7925C8153C707C909 /* Navigation.swift in Sources */ = {isa = PBXBuildFile; fileRef = EC9BA7F8C541E5089734A792 /* Navigation.swift */; };
+		51AC9940251A89F9FBE099D3 /* Auth.swift in Sources */ = {isa = PBXBuildFile; fileRef = 408BA54BFD77854E7C86869A /* Auth.swift */; };
+		53C3B548E5CA919C2B54CD95 /* SignInView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 424C80054158BB3B5AA37B02 /* SignInView.swift */; };
+		6A74F873E9BD85A69637A7DF /* APIClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 303D9F57E0023F51DF74DC17 /* APIClient.swift */; };
+		899E4FFE9B3F0C8DEE2E08FF /* MoreScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 23C9BF85B0F5BAA492EDE00A /* MoreScreen.swift */; };
+		8AFEA6D246BB053F5E3C6B51 /* AppModel.swift in Sources */ = {isa = PBXBuildFile; fileRef = 363D781524BD30A082415BC6 /* AppModel.swift */; };
+		929C8FF1F0F6E95059FCAAE4 /* OfficeUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 4233ACD321D87F0BE9BAC398 /* OfficeUITests.swift */; };
+		9AB4E070BE276801F5D8E94E /* Theme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0F3300BE6D77C63795FA994C /* Theme.swift */; };
+		A555678E0699689AD2EAEB6C /* TodayScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1BD396AD5BC9CF81DB9D501 /* TodayScreen.swift */; };
+		AC20CE90FC30438D8980AF82 /* StoresScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 31ED3931D407D8EA303820B6 /* StoresScreen.swift */; };
+		B238E3FA8BAB3660FE18F41B /* Models.swift in Sources */ = {isa = PBXBuildFile; fileRef = F90AA5C5A862CA082505C912 /* Models.swift */; };
+		B31760965D34217E82A04C56 /* OfficeIOSTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 017B8BBD21B00389CF07F777 /* OfficeIOSTests.swift */; };
+		BA706262569CB0E402C80C5E /* DecideScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = AA02E35E7506949875117116 /* DecideScreen.swift */; };
+		BAF9F17C5ADD8FD55555CDD4 /* OfficeScreenshotTour.swift in Sources */ = {isa = PBXBuildFile; fileRef = 72088F33F735C2C0F1AC2890 /* OfficeScreenshotTour.swift */; };
+		D83657CD55AC2BFE8A0E1C43 /* Components.swift in Sources */ = {isa = PBXBuildFile; fileRef = 738E7DE2096A13C2B47C485D /* Components.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		01E5971DBAEAF16D6EB7B5E5 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 38352CFEDB946B38DBDBA097 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5EABE65AA5917E5432DE2B51;
+			remoteInfo = OfficeIOS;
+		};
+		347B96F182CC033245DA1B65 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 38352CFEDB946B38DBDBA097 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 5EABE65AA5917E5432DE2B51;
+			remoteInfo = OfficeIOS;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXFileReference section */
+		017B8BBD21B00389CF07F777 /* OfficeIOSTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfficeIOSTests.swift; sourceTree = "<group>"; };
+		0F3300BE6D77C63795FA994C /* Theme.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Theme.swift; sourceTree = "<group>"; };
+		23C9BF85B0F5BAA492EDE00A /* MoreScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MoreScreen.swift; sourceTree = "<group>"; };
+		303D9F57E0023F51DF74DC17 /* APIClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = APIClient.swift; sourceTree = "<group>"; };
+		31ED3931D407D8EA303820B6 /* StoresScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoresScreen.swift; sourceTree = "<group>"; };
+		33B1BF70059123F9CC4C1367 /* Dev.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Dev.xcconfig; sourceTree = "<group>"; };
+		363D781524BD30A082415BC6 /* AppModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppModel.swift; sourceTree = "<group>"; };
+		408BA54BFD77854E7C86869A /* Auth.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Auth.swift; sourceTree = "<group>"; };
+		4233ACD321D87F0BE9BAC398 /* OfficeUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfficeUITests.swift; sourceTree = "<group>"; };
+		424C80054158BB3B5AA37B02 /* SignInView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInView.swift; sourceTree = "<group>"; };
+		55602CE4475177D96A455932 /* Beta.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = Beta.xcconfig; sourceTree = "<group>"; };
+		6AFFBBA67E903D66B366ED0C /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
+		72088F33F735C2C0F1AC2890 /* OfficeScreenshotTour.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OfficeScreenshotTour.swift; sourceTree = "<group>"; };
+		738E7DE2096A13C2B47C485D /* Components.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Components.swift; sourceTree = "<group>"; };
+		8BDCAE3AE58CCEADA60DA8EC /* OfficeIOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = OfficeIOS.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		93DF0AB8D9A4B156496698F5 /* Fixtures */ = {isa = PBXFileReference; lastKnownFileType = folder; name = Fixtures; path = OfficeIOSTests/Fixtures; sourceTree = SOURCE_ROOT; };
+		9C180A5AB0E580BB5351B0C9 /* OfficeIOSUITests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OfficeIOSUITests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		A1BD396AD5BC9CF81DB9D501 /* TodayScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = TodayScreen.swift; sourceTree = "<group>"; };
+		A97290BF2D3711BFD75009BD /* OfficeIOSTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = OfficeIOSTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
+		AA02E35E7506949875117116 /* DecideScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DecideScreen.swift; sourceTree = "<group>"; };
+		D0803E9969A8E88BDB80C4FC /* StockScreen.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StockScreen.swift; sourceTree = "<group>"; };
+		EC9BA7F8C541E5089734A792 /* Navigation.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Navigation.swift; sourceTree = "<group>"; };
+		F90AA5C5A862CA082505C912 /* Models.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Models.swift; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		05A8E68A2CD5620093672EF6 = {
+			isa = PBXGroup;
+			children = (
+				D826147D3AA28E081365C2A5 /* Config */,
+				A6493D451CD250012CFA2733 /* OfficeIOS */,
+				349D051799023CCA163DBCB0 /* OfficeIOSTests */,
+				2604D0FEAF2BEB46653518E4 /* OfficeIOSUITests */,
+				862B6D7D02A04B7D4B69B5B3 /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		0A5402FBCE772E6CD98F10A2 /* Net */ = {
+			isa = PBXGroup;
+			children = (
+				303D9F57E0023F51DF74DC17 /* APIClient.swift */,
+				408BA54BFD77854E7C86869A /* Auth.swift */,
+				F90AA5C5A862CA082505C912 /* Models.swift */,
+			);
+			path = Net;
+			sourceTree = "<group>";
+		};
+		2604D0FEAF2BEB46653518E4 /* OfficeIOSUITests */ = {
+			isa = PBXGroup;
+			children = (
+				72088F33F735C2C0F1AC2890 /* OfficeScreenshotTour.swift */,
+				4233ACD321D87F0BE9BAC398 /* OfficeUITests.swift */,
+			);
+			path = OfficeIOSUITests;
+			sourceTree = "<group>";
+		};
+		32977AFCC1972305B3432105 /* Stock */ = {
+			isa = PBXGroup;
+			children = (
+				D0803E9969A8E88BDB80C4FC /* StockScreen.swift */,
+			);
+			path = Stock;
+			sourceTree = "<group>";
+		};
+		349D051799023CCA163DBCB0 /* OfficeIOSTests */ = {
+			isa = PBXGroup;
+			children = (
+				93DF0AB8D9A4B156496698F5 /* Fixtures */,
+				017B8BBD21B00389CF07F777 /* OfficeIOSTests.swift */,
+			);
+			path = OfficeIOSTests;
+			sourceTree = "<group>";
+		};
+		40D06B6E274E8AAA197747C1 /* Stores */ = {
+			isa = PBXGroup;
+			children = (
+				31ED3931D407D8EA303820B6 /* StoresScreen.swift */,
+			);
+			path = Stores;
+			sourceTree = "<group>";
+		};
+		41DE071C3A31BD07A75D5EB4 /* Resources */ = {
+			isa = PBXGroup;
+			children = (
+				6AFFBBA67E903D66B366ED0C /* Assets.xcassets */,
+			);
+			path = Resources;
+			sourceTree = "<group>";
+		};
+		476A749D15B0ECDE8669DB1B /* Sources */ = {
+			isa = PBXGroup;
+			children = (
+				FFAAB5BDC7BDCE79F779BC62 /* App */,
+				DDDA3ED65C5F76A682CF07B2 /* Design */,
+				F32D06954002A31B74DA3964 /* Features */,
+				941F0BAC9821918F1AC29BB0 /* Navigation */,
+				0A5402FBCE772E6CD98F10A2 /* Net */,
+			);
+			path = Sources;
+			sourceTree = "<group>";
+		};
+		5536566B87ADB8B78E6BB444 /* More */ = {
+			isa = PBXGroup;
+			children = (
+				23C9BF85B0F5BAA492EDE00A /* MoreScreen.swift */,
+			);
+			path = More;
+			sourceTree = "<group>";
+		};
+		862B6D7D02A04B7D4B69B5B3 /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				8BDCAE3AE58CCEADA60DA8EC /* OfficeIOS.app */,
+				A97290BF2D3711BFD75009BD /* OfficeIOSTests.xctest */,
+				9C180A5AB0E580BB5351B0C9 /* OfficeIOSUITests.xctest */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		941F0BAC9821918F1AC29BB0 /* Navigation */ = {
+			isa = PBXGroup;
+			children = (
+				EC9BA7F8C541E5089734A792 /* Navigation.swift */,
+			);
+			path = Navigation;
+			sourceTree = "<group>";
+		};
+		A6493D451CD250012CFA2733 /* OfficeIOS */ = {
+			isa = PBXGroup;
+			children = (
+				41DE071C3A31BD07A75D5EB4 /* Resources */,
+				476A749D15B0ECDE8669DB1B /* Sources */,
+			);
+			path = OfficeIOS;
+			sourceTree = "<group>";
+		};
+		D826147D3AA28E081365C2A5 /* Config */ = {
+			isa = PBXGroup;
+			children = (
+				55602CE4475177D96A455932 /* Beta.xcconfig */,
+				33B1BF70059123F9CC4C1367 /* Dev.xcconfig */,
+			);
+			path = Config;
+			sourceTree = "<group>";
+		};
+		DDDA3ED65C5F76A682CF07B2 /* Design */ = {
+			isa = PBXGroup;
+			children = (
+				738E7DE2096A13C2B47C485D /* Components.swift */,
+				0F3300BE6D77C63795FA994C /* Theme.swift */,
+			);
+			path = Design;
+			sourceTree = "<group>";
+		};
+		E2E3CC33DCFCA64E3F17EA10 /* Decide */ = {
+			isa = PBXGroup;
+			children = (
+				AA02E35E7506949875117116 /* DecideScreen.swift */,
+			);
+			path = Decide;
+			sourceTree = "<group>";
+		};
+		EAB0B19BDA88B9F393D14C5F /* Today */ = {
+			isa = PBXGroup;
+			children = (
+				A1BD396AD5BC9CF81DB9D501 /* TodayScreen.swift */,
+			);
+			path = Today;
+			sourceTree = "<group>";
+		};
+		F32D06954002A31B74DA3964 /* Features */ = {
+			isa = PBXGroup;
+			children = (
+				E2E3CC33DCFCA64E3F17EA10 /* Decide */,
+				5536566B87ADB8B78E6BB444 /* More */,
+				32977AFCC1972305B3432105 /* Stock */,
+				40D06B6E274E8AAA197747C1 /* Stores */,
+				EAB0B19BDA88B9F393D14C5F /* Today */,
+			);
+			path = Features;
+			sourceTree = "<group>";
+		};
+		FFAAB5BDC7BDCE79F779BC62 /* App */ = {
+			isa = PBXGroup;
+			children = (
+				363D781524BD30A082415BC6 /* AppModel.swift */,
+				424C80054158BB3B5AA37B02 /* SignInView.swift */,
+			);
+			path = App;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		5EABE65AA5917E5432DE2B51 /* OfficeIOS */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 4896C4649A263D41D4AB4DDF /* Build configuration list for PBXNativeTarget "OfficeIOS" */;
+			buildPhases = (
+				074ED0D3E0294E26F1AB0CC2 /* Sources */,
+				DE7C22C8EEB65B6DD52C7085 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = OfficeIOS;
+			packageProductDependencies = (
+			);
+			productName = OfficeIOS;
+			productReference = 8BDCAE3AE58CCEADA60DA8EC /* OfficeIOS.app */;
+			productType = "com.apple.product-type.application";
+		};
+		C0419D0C7688DAE945421710 /* OfficeIOSUITests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 2D3D4391BCDE66D0B01DE3A3 /* Build configuration list for PBXNativeTarget "OfficeIOSUITests" */;
+			buildPhases = (
+				3E0BE9A4A848C6D3E30F7C39 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				EB65719586FB69EDFE9F479B /* PBXTargetDependency */,
+			);
+			name = OfficeIOSUITests;
+			packageProductDependencies = (
+			);
+			productName = OfficeIOSUITests;
+			productReference = 9C180A5AB0E580BB5351B0C9 /* OfficeIOSUITests.xctest */;
+			productType = "com.apple.product-type.bundle.ui-testing";
+		};
+		EF07FAC9C93F54185EC4B8B2 /* OfficeIOSTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 652AFB6E8FC517EE68FEA999 /* Build configuration list for PBXNativeTarget "OfficeIOSTests" */;
+			buildPhases = (
+				4405C04FA27B25650DE095A7 /* Sources */,
+				C6FE6E06C09B7DBC94F5FE5D /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				46D4D4878ACB4061BABF4B2D /* PBXTargetDependency */,
+			);
+			name = OfficeIOSTests;
+			packageProductDependencies = (
+			);
+			productName = OfficeIOSTests;
+			productReference = A97290BF2D3711BFD75009BD /* OfficeIOSTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		38352CFEDB946B38DBDBA097 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1430;
+				TargetAttributes = {
+					C0419D0C7688DAE945421710 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+						TestTargetID = 5EABE65AA5917E5432DE2B51;
+					};
+					EF07FAC9C93F54185EC4B8B2 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Manual;
+					};
+				};
+			};
+			buildConfigurationList = DE6225849E231A8A64878E49 /* Build configuration list for PBXProject "OfficeIOS" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 05A8E68A2CD5620093672EF6;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 862B6D7D02A04B7D4B69B5B3 /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				5EABE65AA5917E5432DE2B51 /* OfficeIOS */,
+				EF07FAC9C93F54185EC4B8B2 /* OfficeIOSTests */,
+				C0419D0C7688DAE945421710 /* OfficeIOSUITests */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXResourcesBuildPhase section */
+		C6FE6E06C09B7DBC94F5FE5D /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				478C441FE095421E540B26BA /* Fixtures in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DE7C22C8EEB65B6DD52C7085 /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				474183928315C61EB7D9ADC8 /* Assets.xcassets in Resources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXResourcesBuildPhase section */
+
+/* Begin PBXSourcesBuildPhase section */
+		074ED0D3E0294E26F1AB0CC2 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				6A74F873E9BD85A69637A7DF /* APIClient.swift in Sources */,
+				8AFEA6D246BB053F5E3C6B51 /* AppModel.swift in Sources */,
+				51AC9940251A89F9FBE099D3 /* Auth.swift in Sources */,
+				D83657CD55AC2BFE8A0E1C43 /* Components.swift in Sources */,
+				BA706262569CB0E402C80C5E /* DecideScreen.swift in Sources */,
+				B238E3FA8BAB3660FE18F41B /* Models.swift in Sources */,
+				899E4FFE9B3F0C8DEE2E08FF /* MoreScreen.swift in Sources */,
+				4CD284C7925C8153C707C909 /* Navigation.swift in Sources */,
+				53C3B548E5CA919C2B54CD95 /* SignInView.swift in Sources */,
+				41AABB0759AA848B4B59EBC8 /* StockScreen.swift in Sources */,
+				AC20CE90FC30438D8980AF82 /* StoresScreen.swift in Sources */,
+				9AB4E070BE276801F5D8E94E /* Theme.swift in Sources */,
+				A555678E0699689AD2EAEB6C /* TodayScreen.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		3E0BE9A4A848C6D3E30F7C39 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				BAF9F17C5ADD8FD55555CDD4 /* OfficeScreenshotTour.swift in Sources */,
+				929C8FF1F0F6E95059FCAAE4 /* OfficeUITests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		4405C04FA27B25650DE095A7 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				B31760965D34217E82A04C56 /* OfficeIOSTests.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		46D4D4878ACB4061BABF4B2D /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5EABE65AA5917E5432DE2B51 /* OfficeIOS */;
+			targetProxy = 347B96F182CC033245DA1B65 /* PBXContainerItemProxy */;
+		};
+		EB65719586FB69EDFE9F479B /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 5EABE65AA5917E5432DE2B51 /* OfficeIOS */;
+			targetProxy = 01E5971DBAEAF16D6EB7B5E5 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		045CF72C7FAE2306D3BB9725 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = YES;
+				"CODE_SIGN_IDENTITY[sdk=iphonesimulator*]" = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		0538BB1EA578F5EE1CFE5013 /* Beta */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.office.dev.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = OfficeIOS;
+			};
+			name = Beta;
+		};
+		0EF2EFDD9E7C487006F9E2E3 /* Beta */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.office.dev.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sunpride Office (Beta).app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Sunpride Office (Beta)";
+			};
+			name = Beta;
+		};
+		2602FA40BB0633EFDD79176D /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.office.dev.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sunpride Office (Dev).app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Sunpride Office (Dev)";
+			};
+			name = Debug;
+		};
+		461A08A24105FA23DAA6F14C /* Release */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 33B1BF70059123F9CC4C1367 /* Dev.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = OfficeIOS/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.office.dev;
+				PRODUCT_MODULE_NAME = OfficeIOS;
+				PRODUCT_NAME = "Sunpride Office (Dev)";
+				SDKROOT = iphoneos;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		4AA28FD6FA93AAE643C4E001 /* Beta */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = YES;
+				"CODE_SIGN_IDENTITY[sdk=iphonesimulator*]" = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Beta;
+		};
+		54013BC558D38E67D722D575 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.office.dev.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = OfficeIOS;
+			};
+			name = Debug;
+		};
+		55A05A780594AAF461B3E930 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.office.dev.tests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Sunpride Office (Dev).app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/Sunpride Office (Dev)";
+			};
+			name = Release;
+		};
+		62C8D59DFB1DC9A95DBB68DF /* Debug */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 33B1BF70059123F9CC4C1367 /* Dev.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				"CODE_SIGNING_ALLOWED[sdk=iphoneos*]" = YES;
+				CODE_SIGN_IDENTITY = "iPhone Developer";
+				"CODE_SIGN_IDENTITY[sdk=iphoneos*]" = "Apple Development";
+				"CODE_SIGN_STYLE[sdk=iphoneos*]" = Automatic;
+				"DEVELOPMENT_TEAM[sdk=iphoneos*]" = FV2R5JV6YD;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = OfficeIOS/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.office.dev;
+				PRODUCT_MODULE_NAME = OfficeIOS;
+				PRODUCT_NAME = "Sunpride Office (Dev)";
+				SDKROOT = iphoneos;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		ACF4F31F0EC2B5CF43AC5651 /* Beta */ = {
+			isa = XCBuildConfiguration;
+			baseConfigurationReference = 55602CE4475177D96A455932 /* Beta.xcconfig */;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGNING_ALLOWED = YES;
+				CODE_SIGN_IDENTITY = "Apple Development";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = FV2R5JV6YD;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = OfficeIOS/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.office.beta;
+				PRODUCT_MODULE_NAME = OfficeIOS;
+				PRODUCT_NAME = "Sunpride Office (Beta)";
+				SDKROOT = iphoneos;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Beta;
+		};
+		BF2B5EFA06AD5BE6AA3C193C /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGNING_ALLOWED = NO;
+				"CODE_SIGNING_ALLOWED[sdk=iphonesimulator*]" = YES;
+				"CODE_SIGN_IDENTITY[sdk=iphonesimulator*]" = "-";
+				CODE_SIGN_STYLE = Manual;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = iphoneos;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 6.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Debug;
+		};
+		F6EECD6A1935CF0FC759D07E /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				GENERATE_INFOPLIST_FILE = YES;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/Frameworks",
+					"@loader_path/Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = com.sunpride.office.dev.uitests;
+				SDKROOT = iphoneos;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_TARGET_NAME = OfficeIOS;
+			};
+			name = Release;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		2D3D4391BCDE66D0B01DE3A3 /* Build configuration list for PBXNativeTarget "OfficeIOSUITests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0538BB1EA578F5EE1CFE5013 /* Beta */,
+				54013BC558D38E67D722D575 /* Debug */,
+				F6EECD6A1935CF0FC759D07E /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Beta;
+		};
+		4896C4649A263D41D4AB4DDF /* Build configuration list for PBXNativeTarget "OfficeIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				ACF4F31F0EC2B5CF43AC5651 /* Beta */,
+				62C8D59DFB1DC9A95DBB68DF /* Debug */,
+				461A08A24105FA23DAA6F14C /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Beta;
+		};
+		652AFB6E8FC517EE68FEA999 /* Build configuration list for PBXNativeTarget "OfficeIOSTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				0EF2EFDD9E7C487006F9E2E3 /* Beta */,
+				2602FA40BB0633EFDD79176D /* Debug */,
+				55A05A780594AAF461B3E930 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Beta;
+		};
+		DE6225849E231A8A64878E49 /* Build configuration list for PBXProject "OfficeIOS" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				4AA28FD6FA93AAE643C4E001 /* Beta */,
+				BF2B5EFA06AD5BE6AA3C193C /* Debug */,
+				045CF72C7FAE2306D3BB9725 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Beta;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 38352CFEDB946B38DBDBA097 /* Project object */;
+}

@@ -8,16 +8,20 @@ import { usePermissions } from "../../lib/auth";
 import type { Choice } from "../spec-masters/model";
 import {
   addressLine,
+  approveBlock,
   candidatePoints,
   capturedWhen,
   formatDistance,
   mergeCandidates,
+  metersBetween,
   reasonWords,
   sourceBadge,
   type Candidate,
   type Capture,
+  type PinChoice,
   type Queue,
 } from "./model";
+import type { Page, Pin, Outlet } from "../master-data/model";
 
 const PinMap = dynamic(() => import("./pin-map").then((m) => m.PinMap), {
   ssr: false,
@@ -144,6 +148,8 @@ export function CaptureDetail({
   survivor,
   busy,
   map,
+  pinChoice = null,
+  onPinChoice,
   onDecision,
   onSurvivor,
   onSubmit,
@@ -154,6 +160,8 @@ export function CaptureDetail({
   decision: Decision;
   survivor: Candidate | null;
   busy?: boolean;
+  pinChoice?: PinChoice | null;
+  onPinChoice?: (c: PinChoice) => void;
   map?: React.ReactNode;
   onDecision: (d: Decision) => void;
   onSurvivor: (c: Candidate | null) => void;
@@ -161,6 +169,20 @@ export function CaptureDetail({
   onClose: () => void;
 }) {
   const outlets = candidates.filter((c) => c.kind === "outlet");
+  const blocked =
+    decision === "accept" ? approveBlock(capture, pinChoice) : null;
+  const gap =
+    capture.place_latitude != null &&
+    capture.place_longitude != null &&
+    capture.device_latitude != null &&
+    capture.device_longitude != null
+      ? metersBetween(
+          capture.device_latitude,
+          capture.device_longitude,
+          capture.place_latitude,
+          capture.place_longitude,
+        )
+      : null;
   const parts = addressLine(capture.address_components);
   return (
     <form
@@ -225,8 +247,51 @@ export function CaptureDetail({
               ? "Pin from the address the agent searched"
               : `Phone location, accurate to about ${Math.round(capture.accuracy_meters ?? 0)} m`}
           </dd>
+          {capture.location_status === "pending" ? (
+            <dd className="text-xs text-muted" role="status">
+              Checking the address…
+            </dd>
+          ) : null}
         </div>
       </dl>
+      {capture.location_status === "mismatch" ? (
+        <div
+          role="alert"
+          className="grid gap-2 rounded-lg border border-warning bg-warning-soft p-3 text-sm"
+        >
+          <p className="font-medium text-warning">
+            {capture.place_latitude == null
+              ? "We could not find the searched address. Check the agent's pin before approving."
+              : `The agent's pin is ${formatDistance(gap)} from the searched address. Choose which pin is right.`}
+          </p>
+          <div
+            role="radiogroup"
+            aria-label="Pin to keep"
+            className="flex flex-wrap gap-2"
+          >
+            <button
+              type="button"
+              role="radio"
+              aria-checked={pinChoice === "device"}
+              className={pinChoice === "device" ? primary : button}
+              onClick={() => onPinChoice?.("device")}
+            >
+              Keep the agent&apos;s pin
+            </button>
+            {capture.place_latitude != null ? (
+              <button
+                type="button"
+                role="radio"
+                aria-checked={pinChoice === "place"}
+                className={pinChoice === "place" ? primary : button}
+                onClick={() => onPinChoice?.("place")}
+              >
+                Use the searched address pin
+              </button>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
       <section className="grid gap-2">
         <h4 className="text-sm font-semibold">
           {candidates.length
@@ -315,7 +380,11 @@ export function CaptureDetail({
           <button
             type="submit"
             className={primary}
-            disabled={busy || (decision === "duplicate" && !survivor)}
+            disabled={
+              busy ||
+              Boolean(blocked) ||
+              (decision === "duplicate" && !survivor)
+            }
           >
             {decision === "accept"
               ? "Approve as new store"
@@ -323,6 +392,9 @@ export function CaptureDetail({
                 ? "Link to existing store"
                 : "Reject"}
           </button>
+          {blocked ? (
+            <span className="ml-2 text-xs text-muted">{blocked}</span>
+          ) : null}
         </div>
       </fieldset>
     </form>
@@ -340,6 +412,7 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [decision, setDecision] = useState<Decision>("accept");
   const [survivor, setSurvivor] = useState<Candidate | null>(null);
+  const [pinChoice, setPinChoice] = useState<PinChoice | null>(null);
   const [live, setLive] = useState<Candidate[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
@@ -388,6 +461,7 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
           decision,
           code: decision === "accept" ? String(f.get("code") ?? "") : null,
           outletId: decision === "duplicate" ? (survivor?.id ?? null) : null,
+          ...(decision === "accept" && pinChoice ? { pinChoice } : {}),
           reason: f.get("reason"),
         },
         { idempotencyKey: crypto.randomUUID(), invalidate: [["masters"]] },
@@ -401,6 +475,7 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
       );
       setSelectedId(null);
       setSurvivor(null);
+      setPinChoice(null);
       setDecision("accept");
     } catch (err) {
       setMessage(err instanceof Error ? err.message : "Review failed.");
@@ -462,6 +537,7 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
                   setSelectedId(c.id);
                   setDecision("accept");
                   setSurvivor(null);
+                  setPinChoice(null);
                   setLive([]);
                 }}
               />
@@ -485,6 +561,8 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
             decision={decision}
             survivor={survivor}
             busy={busy}
+            pinChoice={pinChoice}
+            onPinChoice={setPinChoice}
             onDecision={setDecision}
             onSurvivor={setSurvivor}
             onSubmit={submit}
@@ -495,7 +573,21 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
                   latitude: selected.latitude,
                   longitude: selected.longitude,
                 }}
-                others={candidatePoints(candidates)}
+                others={[
+                  ...candidatePoints(candidates),
+                  ...(selected.location_status === "mismatch" &&
+                  selected.place_latitude != null &&
+                  selected.place_longitude != null
+                    ? [
+                        {
+                          id: "searched-address",
+                          latitude: selected.place_latitude,
+                          longitude: selected.place_longitude,
+                          label: "Searched address",
+                        },
+                      ]
+                    : []),
+                ]}
                 label={`Where ${selected.name} is`}
                 googleKey={GOOGLE_KEY}
               />
@@ -507,6 +599,7 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
           </p>
         )}
       </div>
+      <PinsToConfirm onDone={setMessage} />
       {can("outlet.manage") && units.length ? (
         <BatchForm units={units} onDone={setMessage} />
       ) : null}
@@ -516,6 +609,121 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
         </p>
       ) : null}
     </Card>
+  );
+}
+
+/** One proposed pin waiting for a second person (office Add store and other proposals). */
+export function PinToConfirmRow({
+  pin,
+  busy,
+  onDecide,
+}: {
+  pin: Pin & { outlet: Outlet };
+  busy?: boolean;
+  onDecide: (decision: "verified" | "rejected") => void;
+}) {
+  return (
+    <li className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-2">
+      <span className="min-w-0">
+        <span className="block text-sm font-medium">
+          {pin.outlet.name}{" "}
+          <span className="text-xs font-normal text-muted">
+            {pin.outlet.code}
+          </span>
+        </span>
+        <span className="block text-xs text-muted">
+          {pin.source === "office" ? "Added from the office" : pin.source} ·{" "}
+          <a
+            className="underline"
+            target="_blank"
+            rel="noreferrer"
+            href={`https://www.google.com/maps/search/?api=1&query=${pin.latitude},${pin.longitude}`}
+          >
+            See the pin on a map
+          </a>
+        </span>
+      </span>
+      <span className="flex gap-2">
+        <button
+          type="button"
+          className={primary}
+          disabled={busy}
+          onClick={() => onDecide("verified")}
+        >
+          Pin is right
+        </button>
+        <button
+          type="button"
+          className={button}
+          disabled={busy}
+          onClick={() => onDecide("rejected")}
+        >
+          Pin is wrong
+        </button>
+      </span>
+    </li>
+  );
+}
+
+/** SP-0162: proposed pins (office Add store) confirmed by a different person with outlet.verify. */
+function PinsToConfirm({ onDone }: { onDone: (m: string) => void }) {
+  const pins = useApi<Page<Pin & { outlet: Outlet }>>(
+    ["masters", "pins"],
+    "/api/v1/outlets/pins/queue?limit=50",
+  );
+  const [busy, setBusy] = useState(false);
+  const rows = pins.data?.page ?? [];
+  if (!rows.length) return null;
+  async function decide(
+    pin: Pin & { outlet: Outlet },
+    decision: "verified" | "rejected",
+  ) {
+    setBusy(true);
+    try {
+      await mutate(
+        "/api/v1/outlets/pins/decide",
+        {
+          pinId: pin._id,
+          decision,
+          reason:
+            decision === "verified"
+              ? "Pin checked on the map"
+              : "Pin is not at the store",
+        },
+        {
+          idempotencyKey: crypto.randomUUID(),
+          invalidate: [["masters"], ["stores"]],
+        },
+      );
+      onDone(
+        decision === "verified"
+          ? `${pin.outlet.name}: pin confirmed.`
+          : `${pin.outlet.name}: pin sent back.`,
+      );
+    } catch (err) {
+      onDone(err instanceof Error ? err.message : "Could not save.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <section className="mt-4 grid gap-2 border-t border-border pt-4">
+      <h4 className="text-sm font-semibold">Pin to confirm</h4>
+      <p className="text-xs text-muted">
+        Someone else set these map pins. Check each one; the person who set a
+        pin cannot confirm it.
+      </p>
+      <ul className="grid gap-2">
+        {rows.map((p) => (
+          <PinToConfirmRow
+            key={p._id}
+            pin={p}
+            busy={busy}
+            onDecide={(d) => decide(p, d)}
+          />
+        ))}
+      </ul>
+    </section>
   );
 }
 

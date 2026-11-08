@@ -71,8 +71,23 @@ class CensusPlacesTest {
         assertEquals("12 Colon St", p.getString("formattedAddress")); assertFalse(p.has("acknowledgedDuplicateIds"))
         p.getJSONObject("location").put("accuracyMeters", 60.0); assertThrows(IllegalArgumentException::class.java) { CensusRules.validate(p) }
     }
+    @Test fun batchIsOptional() {
+        fun p(batch: String?) = CensusRules.payload("c", batch, "n", "a", "o", "0917", "ch", "sub", "D", 1L, null, null, "", null, emptyList(), "")
+        // Empty batches: picker hidden, no batchId even if state held something.
+        val hidden = CensusRules.showBatchPicker(JSONObject("""{"batches":[],"defaultBatch":null}"""))
+        assertFalse(p(CensusRules.chosenBatch(hidden, "stale")).has("batchId"))
+        // Batches offered, nothing chosen: allowed, no batchId (never empty string).
+        assertFalse(p(CensusRules.chosenBatch(true, "")).has("batchId"))
+        assertFalse(p(CensusRules.chosenBatch(true, null)).has("batchId"))
+        assertFalse(p("").has("batchId"))
+        // Chosen: sent.
+        assertTrue(p(CensusRules.chosenBatch(true, "b1")).getString("batchId") == "b1")
+    }
     @Test fun batchPickerAndSearchFollowCensusConfig() {
         assertTrue(CensusRules.showBatchPicker(JSONObject("""{"batches":[{"id":"a"}]}"""))) // old server
+        assertFalse(CensusRules.showBatchPicker(null)) // config not loaded yet: hidden
+        assertFalse(CensusRules.showBatchPicker(JSONObject("""{"batches":[],"defaultBatch":null}"""))) // no batch yet: hidden
+        assertFalse(CensusRules.showBatchPicker(JSONObject("""{"batches":[]}""")))
         assertFalse(CensusRules.showBatchPicker(JSONObject("""{"batches":[{"id":"a"}],"defaultBatch":{"id":"d","name":"Ongoing"}}""")))
         assertFalse(CensusRules.showBatchPicker(JSONObject("""{"batches":[],"defaultBatch":{"id":"d","name":"Ongoing"}}""")))
         assertTrue(CensusRules.showBatchPicker(JSONObject("""{"batches":[{"id":"a"},{"id":"b"}],"defaultBatch":{"id":"d","name":"Ongoing"}}""")))

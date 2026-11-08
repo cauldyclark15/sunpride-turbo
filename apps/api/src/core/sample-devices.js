@@ -10,6 +10,8 @@ import { invalid } from "./errors.js";
  */
 export async function registerSamplePhone(t, userId, app, key) {
   if (!key?.publicKeySpki) return;
+  // SP-0165: office clients never register a handheld (they carry no device key).
+  if (app === "office-ios") return;
   const profile = await loadProfile(t, userId);
   if (!profile || profile.status !== "active" || !profile.orgUnitId) return;
   const sample =

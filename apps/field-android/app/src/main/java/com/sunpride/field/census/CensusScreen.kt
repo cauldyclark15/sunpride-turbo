@@ -25,6 +25,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import com.sunpride.field.ui.ActionBar
+import com.sunpride.field.ui.bottomSafe
 import com.sunpride.field.ui.FieldBackend
 import com.sunpride.field.ui.FieldTextField
 import com.sunpride.field.ui.GlyphKind
@@ -183,7 +184,7 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
         val place = picked?.takeIf { mode == "places" }?.let {
             CensusRules.Place(it.placeId ?: "", it.latitude ?: Double.NaN, it.longitude ?: Double.NaN, it.formattedAddress, it.components.json())
         }
-        return CensusRules.payload(CensusRules.captureId(), if (showBatch) batch else null, name, address, owner, phone, channel, subchannel,
+        return CensusRules.payload(CensusRules.captureId(), CensusRules.chosenBatch(showBatch, batch), name, address, owner, phone, channel, subchannel,
             estimatedClass, System.currentTimeMillis(), if (mode == "gps") fix else null, place, landmark,
             reverse?.takeIf { mode == "gps" }?.let { it.formattedAddress to it.components.json() }, acknowledged,
             jpeg?.let { Base64.getEncoder().encodeToString(it) } ?: "")
@@ -193,7 +194,6 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
         scope.launch {
             busy = true
             try {
-                if (showBatch && batch.isEmpty()) throw IllegalArgumentException("Choose a census batch.")
                 if (mode == "") throw IllegalArgumentException("Set the location: Use my location or Search address.")
                 if (mode == "places" && picked == null) throw IllegalArgumentException("Pick the address from the search list.")
                 if (mode == "gps" && fix == null) throw IllegalArgumentException("Tap Use my location and wait for a good signal.")
@@ -217,8 +217,8 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
                 glyph = if (config == null) GlyphKind.INFO else GlyphKind.LOCK, textTag = "census-message")
             SectionCard("Store") {
                 Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (showBatch) CensusPicker("Census batch", choices("batches"), batch, { batch = it }, "census-batch",
-                        empty = if (config == null) "Not downloaded yet" else "No batches assigned")
+                    if (showBatch) CensusPicker("Gathering batch (optional)", choices("batches"), batch, { batch = it }, "census-batch",
+                        empty = "Ongoing gathering (default)")
                     FieldTextField(name, { name = it }, label = { Text("Store name") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("census-name"))
                 }
             }
@@ -308,7 +308,7 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
         ActionBar { PrimaryBottomButton("Save store", ::save, Modifier.fillMaxWidth().testTag("census-save"), !busy && config != null && !camera) }
     }
     if (pending != null && duplicates.isNotEmpty()) ModalBottomSheet(onDismissRequest = { pending = null; duplicates = emptyList() }) {
-        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 24.dp).testTag("census-duplicates"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        Column(Modifier.fillMaxWidth().bottomSafe().padding(start = 16.dp, end = 16.dp, bottom = 24.dp).testTag("census-duplicates"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text("This might already be in the list", style = MaterialTheme.typography.titleMedium)
             duplicates.take(5).forEach { d ->
                 Column(Modifier.fillMaxWidth().testTag("census-duplicate")) {

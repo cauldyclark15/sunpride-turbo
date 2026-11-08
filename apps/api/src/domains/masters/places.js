@@ -146,6 +146,7 @@ async function gate(ctx) {
 
 /** GET /api/v1/places/autocomplete @param {any} ctx */
 export async function autocomplete(ctx) {
+  await gate(ctx);
   const q = ctx.url.searchParams;
   const input = (q.get("input") ?? "").trim();
   if (input.length < 3 || input.length > 120)
@@ -166,7 +167,6 @@ export async function autocomplete(ctx) {
     params.location = `${lat},${lng}`;
     params.radius = "20000";
   }
-  await gate(ctx);
   const body = await google(ctx.env, "place/autocomplete/json", params);
   return {
     predictions: (body?.predictions ?? [])
@@ -184,6 +184,7 @@ export async function autocomplete(ctx) {
 
 /** GET /api/v1/places/details @param {any} ctx */
 export async function details(ctx) {
+  await gate(ctx);
   const q = ctx.url.searchParams;
   const placeId = (q.get("placeId") ?? "").trim();
   if (!placeId || placeId.length > 300 || /[\s\u0000-\u001f]/.test(placeId))
@@ -195,7 +196,6 @@ export async function details(ctx) {
   const session = q.get("session") ?? "";
   if (session && !SESSION.test(session))
     throw new ApiError("invalid_request", 400, "Start a new address search.");
-  await gate(ctx);
   const found = await placeDetails(ctx.env, placeId, session || undefined);
   if (!found)
     throw new ApiError("not_found", 404, "We could not find that address.");
@@ -204,10 +204,10 @@ export async function details(ctx) {
 
 /** GET /api/v1/places/reverse @param {any} ctx */
 export async function reverse(ctx) {
+  await gate(ctx);
   const q = ctx.url.searchParams;
   const lat = coordinate(q.get("lat"), -90, 90),
     lng = coordinate(q.get("lng"), -180, 180);
-  await gate(ctx);
   // Cache on ~1 m grid so nearby repeat fixes reuse one lookup.
   const k = `r:${lat.toFixed(5)},${lng.toFixed(5)}`;
   const found = await cached(k, async () => {
