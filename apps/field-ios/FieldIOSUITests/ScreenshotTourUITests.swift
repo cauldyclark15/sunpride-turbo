@@ -88,4 +88,29 @@ final class ScreenshotTourUITests: XCTestCase {
         XCTAssertFalse(app.switches["biometricToggle"].exists)
         try shot("account")
     }
+
+    /// iPad: Today scrolled to the end (last row above the floating bar), landscape Stores, and
+    /// Add a store at the bottom with the keyboard up.
+    func testPadLayoutTour() throws {
+        try XCTSkipIf(dir == nil || !isPad, "evidence only, iPad")
+        let app = launch(dark: false)
+        XCUIDevice.shared.orientation = .portrait
+        sleep(1)
+        for _ in 0..<5 { app.swipeUp() }
+        try shot("ipad-portrait-today-bottom")
+        app.buttons["openAddStore"].tap()
+        XCTAssertTrue(app.staticTexts["addStoreTitle"].waitForExistence(timeout: 5))
+        let name = app.textFields["addStoreName"]
+        XCTAssertTrue(name.waitForExistence(timeout: 15))
+        name.tap(); name.typeText("Keyboard check")
+        XCTAssertTrue(app.keyboards.firstMatch.waitForExistence(timeout: 5))
+        sleep(1)
+        try shot("ipad-addstore-keyboard")
+        app.buttons["BackButton"].tap()
+        sleep(1)
+        XCUIDevice.shared.orientation = .landscapeLeft
+        sleep(2)
+        open(app, "Stores")
+        try shot("ipad-landscape-stores")
+    }
 }

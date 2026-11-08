@@ -137,13 +137,16 @@ private struct StoresDetailPlaceholder: View {
 }
 
 /// iPad: tab content plus a bottom-anchored floating glass bar. Every tab stays alive (state kept, like
-/// the system TabView); the bar's height is reserved with a safe-area inset so nothing sits under it.
+/// the system TabView); every tab's scroll content gets bottom margins equal to the bar so nothing sits under it.
 private struct FloatingTabLayout<Today: View>: View {
     let model: AppModel
     @Binding var selection: FieldTab
     let chrome: FieldChrome
     let today: () -> Today
     @State private var keyboardUp = false
+    /// Measured height of the bar (plus its bottom gap above the home indicator).
+    @State private var barHeight: CGFloat = 76
+    private var barShown: Bool { !chrome.barHidden && !keyboardUp }
 
     var body: some View {
         GeometryReader { proxy in
@@ -156,10 +159,15 @@ private struct FloatingTabLayout<Today: View>: View {
                         .accessibilityHidden(tab != selection)
                 }
             }
-            .safeAreaInset(edge: .bottom, spacing: 0) {
-                if !chrome.barHidden && !keyboardUp {
+            // Every scroll view in every tab ends above the bar. A safe-area inset on this ZStack did not
+            // reach the hosted NavigationStacks once the bar had been removed and re-added (keyboard at
+            // sign-in), so the last rows sat under the bar; content margins flow through the environment.
+            .contentMargins(.bottom, barShown ? barHeight + 12 : 0, for: .scrollContent)
+            .overlay(alignment: .bottom) {
+                if barShown {
                     FloatingTabBar(selection: $selection)
                         .padding(.bottom, 8)
+                        .onGeometryChange(for: CGFloat.self, of: { $0.size.height }) { barHeight = $0 }
                         .transition(.move(edge: .bottom).combined(with: .opacity))
                 }
             }

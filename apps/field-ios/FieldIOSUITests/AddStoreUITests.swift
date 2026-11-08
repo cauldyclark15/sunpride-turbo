@@ -28,10 +28,11 @@ final class AddStoreUITests: XCTestCase {
     private func openAddStore(_ app: XCUIApplication) {
         let open = app.buttons["openAddStore"]
         XCTAssertTrue(open.waitForExistence(timeout: 10))
-        // The floating tab bar covers the bottom of the screen (iPad): scroll the row clear of it first.
-        for _ in 0..<6 where !open.isHittable || open.frame.maxY > app.frame.maxY - 140 { app.swipeUp() }
-        // Tap the row's top edge so a tab bar overlapping its lower half cannot take the tap.
-        open.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
+        // Scroll until the whole row is on screen (above the iPad floating bar, which content now clears).
+        let bar = app.buttons["tab-today"]
+        let floor = bar.exists ? bar.frame.minY : app.windows.firstMatch.frame.maxY
+        for _ in 0..<6 where !open.isHittable || open.frame.maxY > floor { app.swipeUp() }
+        open.tap()
         XCTAssertTrue(app.staticTexts["addStoreTitle"].waitForExistence(timeout: 5))
     }
     /// Tap until the field really has keyboard focus (a tap during a keyboard/scroll animation can miss).
@@ -263,8 +264,11 @@ final class AddStoreUITests: XCTestCase {
         let save = app.buttons["addStoreSave"]
         XCTAssertTrue(save.waitForExistence(timeout: 10))
         let window = app.windows.firstMatch.frame
-        // The home indicator area is the bottom ~34 pt on Face ID phones; keep the button fully above it.
-        let indicator: CGFloat = window.height >= 800 ? 34 : 0 // Home-button phones (SE) have none.
+        // Keep the button fully above the home-indicator safe area: 34 pt on Face ID phones, 20 pt on
+        // Face ID iPads (the iPad indicator area is shorter; measuring 34 there demanded 14 pt that is not
+        // the indicator), none on home-button phones (SE).
+        let pad = UIDevice.current.userInterfaceIdiom == .pad
+        let indicator: CGFloat = pad ? 20 : (window.height >= 800 ? 34 : 0)
         XCTAssertLessThanOrEqual(save.frame.maxY, window.maxY - indicator - 8, "Save clear of the home indicator: \(save.frame) in \(window)")
         XCTAssertTrue(save.isHittable)
         shot(app, "save-above-home-indicator")

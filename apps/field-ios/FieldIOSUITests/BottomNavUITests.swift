@@ -82,6 +82,36 @@ final class BottomNavUITests: XCTestCase {
         assertBottomBar(app)
     }
 
+    /// iPad: the floating bar never covers content. Scrolled to the end, every tab's last row sits fully
+    /// above the bar (portrait and landscape).
+    func testScrolledContentEndsAboveTheFloatingBarOnPad() throws {
+        try XCTSkipUnless(isPad, "iPhone uses the system tab bar")
+        let app = launchSignedIn()
+        for orientation in [UIDeviceOrientation.portrait, .landscapeLeft] {
+            XCUIDevice.shared.orientation = orientation
+            sleep(1)
+            for label in ["Today", "Route", "Stores", "More"] {
+                tab(app, label).tap()
+                XCTAssertTrue(app.staticTexts[tabs[label]!].waitForExistence(timeout: 5))
+                for _ in 0..<5 { app.swipeUp() }
+                sleep(1)
+                let bar = tab(app, "Today").frame.union(tab(app, "More").frame)
+                let window = app.windows.firstMatch.frame
+                var lowest: (CGFloat, String) = (0, "")
+                for query in [app.buttons, app.staticTexts] {
+                    for element in query.allElementsBoundByIndex where element.exists {
+                        let f = element.frame
+                        guard !f.isEmpty, f.minY < window.maxY, f.maxY > window.minY,
+                              !element.identifier.hasPrefix("tab-"), !bar.contains(f) else { continue }
+                        if f.maxY > lowest.0 { lowest = (f.maxY, element.identifier.isEmpty ? element.label : element.identifier) }
+                    }
+                }
+                XCTAssertLessThanOrEqual(lowest.0, bar.minY - 4,
+                                         "\(label) (\(orientation.rawValue)): '\(lowest.1)' ends at \(lowest.0), bar starts at \(bar.minY)")
+            }
+        }
+    }
+
     func testAddStoreFromStoresTabHidesTheBar() {
         let app = launchSignedIn()
         tab(app, "Stores").tap()

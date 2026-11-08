@@ -104,6 +104,7 @@ struct AddStoreScreen: View {
             .frame(maxWidth: 520, alignment: .leading)
             .padding(16)
             .padding(.bottom, 72)
+            .frame(maxWidth: .infinity) // iPad: centred column on a full-width background.
         }
         .scrollDismissesKeyboard(.immediately)
         .background(SunprideTokens.background)
@@ -111,7 +112,8 @@ struct AddStoreScreen: View {
             if config != nil {
                 PrimaryBottomButton(title: busy ? "Checking…" : "Save store", disabled: busy) { Task { await save() } }
                     .accessibilityIdentifier("addStoreSave")
-                    .padding(16).background(SunprideTokens.background)
+                    .frame(maxWidth: 520) // iPad: the button matches the form column, not the screen.
+                    .padding(16).frame(maxWidth: .infinity).background(SunprideTokens.background)
             }
         }
         .sheet(isPresented: $showingDuplicates) { duplicateSheet }
