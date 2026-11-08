@@ -3,6 +3,8 @@ import SwiftUI
 /// Today's planned stops in MCP order, read only from the encrypted store (offline-safe).
 struct RouteScreen: View {
     let model: AppModel
+    /// SP-0166: false when the screen is a tab root (no Back row; the tab bar is the way out).
+    var showsBack = true
     @State private var location = LocationCapture()
     @State private var here: StoreSnapshot.Coordinate?
     @State private var locating = true
@@ -21,17 +23,19 @@ struct RouteScreen: View {
         let stops = stops
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Button { dismiss() } label: {
-                        Image(systemName: "chevron.left")
-                            .foregroundStyle(SunprideTokens.text)
-                            .frame(width: 44, height: 44)
+                if showsBack {
+                    HStack {
+                        Button { dismiss() } label: {
+                            Image(systemName: "chevron.left")
+                                .foregroundStyle(SunprideTokens.text)
+                                .frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel("Back")
+                        .accessibilityIdentifier("BackButton")
+                        Text("Today").font(SunprideTokens.TypeStyle.meta)
+                            .foregroundStyle(SunprideTokens.secondaryText)
+                        Spacer()
                     }
-                    .accessibilityLabel("Back")
-                    .accessibilityIdentifier("BackButton")
-                    Text("Today").font(SunprideTokens.TypeStyle.meta)
-                        .foregroundStyle(SunprideTokens.secondaryText)
-                    Spacer()
                 }
                 VStack(alignment: .leading, spacing: 4) {
                     Text("Route").font(SunprideTokens.TypeStyle.title)
@@ -188,7 +192,7 @@ struct RouteStopSheet: View {
                     }
                     if FieldFeatures.current.contains(.visits) {
                         NavigationLink {
-                            DiagnosticVisitScreen(model: model, visit: stop.visit)
+                            DiagnosticVisitScreen(model: model, visit: stop.visit).fieldTabBarHidden()
                         } label: {
                             Text("Open visit").font(SunprideTokens.TypeStyle.row)
                                 .frame(maxWidth: .infinity, minHeight: 48)

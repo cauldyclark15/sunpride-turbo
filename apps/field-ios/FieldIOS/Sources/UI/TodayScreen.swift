@@ -71,7 +71,7 @@ struct TodayScreen: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("openCustomers")
                 if features.contains(.storeGathering) {
-                    NavigationLink { AddStoreScreen(model: model) } label: {
+                    NavigationLink { AddStoreScreen(model: model).fieldTabBarHidden() } label: {
                         CalmListRow(symbol: "plus.circle", title: "Add a store",
                                     meta: "A store that is not in the list yet", trailing: "chevron.right")
                     }
@@ -146,7 +146,7 @@ struct TodayScreen: View {
     @ViewBuilder private func visitLink(_ visit: AppModel.TodayVisit, symbol: String, title: String? = nil, meta: String) -> some View {
         if features.contains(.visits) {
             NavigationLink {
-                DiagnosticVisitScreen(model: model, visit: visit)
+                DiagnosticVisitScreen(model: model, visit: visit).fieldTabBarHidden()
             } label: {
                 CalmListRow(symbol: symbol, title: title ?? visit.outlet, meta: meta, trailing: "chevron.right")
             }

@@ -14,7 +14,42 @@ struct SignInShell: View {
     @State private var showFullCode = false
 
     var body: some View {
-        NavigationStack {
+        Group {
+            // SP-0166: once the day is open the app lives in the bottom tab bar; Today is its first tab.
+            if showsTabs {
+                FieldTabShell(model: model) { page }
+            } else {
+                NavigationStack { page }
+            }
+        }
+        .sheet(isPresented: $showSyncStatus) { SyncStatusDetail(model: model) }
+        .sheet(isPresented: $showAccount) { AccountScreen(model: model) }
+        .sheet(isPresented: Binding(get: { model.liveLocation.consentRequested && model.signedIn },
+                                    set: { if !$0 { model.liveLocation.consentRequested = false } })) {
+            LocationConsentScreen(model: model)
+        }
+        .alert("Use \(model.biometrics?.name ?? "Face ID") to sign in next time?", isPresented: offerShown) {
+            Button("Not now", role: .cancel) { model.biometrics?.decline() }
+                .accessibilityIdentifier("biometricOfferNotNow")
+            Button("Turn on") { Task { await model.biometrics?.enable() } }
+                .accessibilityIdentifier("biometricOfferTurnOn")
+        } message: {
+            Text("Your password is never saved. If a face or finger is added to this phone, you'll sign in with your password again.")
+        }
+        .onChange(of: model.enrollment.state) { _, state in
+            Task { await model.phoneStateChanged(state) }
+        }
+        #if DEBUG
+        .preferredColorScheme(ProcessInfo.processInfo.arguments.contains("-calmDarkMode") ? .dark :
+                              ProcessInfo.processInfo.arguments.contains("-calmLightMode") ? .light : nil)
+        #endif
+    }
+
+    private var showsTabs: Bool {
+        model.signedIn && model.enrollment.state != .removed && (model.enrollment.state.isReady || !model.visits.isEmpty)
+    }
+
+    private var page: some View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 16) {
                     HStack(spacing: 8) {
@@ -25,6 +60,8 @@ struct SignInShell: View {
                             }
                             if model.enrollment.state.isReady {
                                 Button { showSyncStatus = true } label: { StatusPill(label: compactSyncLabel) }
+                                    .frame(minHeight: 44)
+                                    .contentShape(Rectangle())
                                     .accessibilityIdentifier("outboxStatus")
                             }
                             Button { showAccount = true } label: {
@@ -32,6 +69,7 @@ struct SignInShell: View {
                                     .font(.system(size: 20))
                                     .foregroundStyle(SunprideTokens.text)
                                     .frame(width: 44, height: 44)
+                                    .glassEffect(.regular.interactive(), in: Circle())
                             }
                             .accessibilityLabel("Account")
                             .accessibilityIdentifier("accountButton")
@@ -72,6 +110,7 @@ struct SignInShell: View {
                 .frame(maxWidth: 520, alignment: .leading)
                 .padding(16)
                 .padding(.bottom, pinnedAction ? 64 : 16)
+                .frame(maxWidth: .infinity)
             }
             .background(SunprideTokens.background)
             .calmScreenChrome()
@@ -116,29 +155,7 @@ struct SignInShell: View {
                     .background(SunprideTokens.background)
                 }
             }
-            .sheet(isPresented: $showSyncStatus) { SyncStatusDetail(model: model) }
-            .sheet(isPresented: $showAccount) { AccountScreen(model: model) }
-            .sheet(isPresented: Binding(get: { model.liveLocation.consentRequested && model.signedIn },
-                                        set: { if !$0 { model.liveLocation.consentRequested = false } })) {
-                LocationConsentScreen(model: model)
-            }
-            .alert("Use \(model.biometrics?.name ?? "Face ID") to sign in next time?", isPresented: offerShown) {
-                Button("Not now", role: .cancel) { model.biometrics?.decline() }
-                    .accessibilityIdentifier("biometricOfferNotNow")
-                Button("Turn on") { Task { await model.biometrics?.enable() } }
-                    .accessibilityIdentifier("biometricOfferTurnOn")
-            } message: {
-                Text("Your password is never saved. If a face or finger is added to this phone, you'll sign in with your password again.")
-            }
             .refreshable { if model.signedIn { await model.syncNow() } }
-            .onChange(of: model.enrollment.state) { _, state in
-                Task { await model.phoneStateChanged(state) }
-            }
-        }
-        #if DEBUG
-        .preferredColorScheme(ProcessInfo.processInfo.arguments.contains("-calmDarkMode") ? .dark :
-                              ProcessInfo.processInfo.arguments.contains("-calmLightMode") ? .light : nil)
-        #endif
     }
 
     /// SP-0133: a Face ID-protected session waits for the system prompt.

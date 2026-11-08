@@ -15,6 +15,8 @@
 <key>NSCameraUsageDescription</key><string>Take visit photos (store front, shelf, price tags) as evidence for your supervisor. Photos stay locked in this app until they upload; they are never saved to your photo library.</string>
 <key>NSFaceIDUsageDescription</key><string>Open Sunpride Field with Face ID instead of typing your password. Your password is never saved on this phone.</string>
 <key>BGTaskSchedulerPermittedIdentifiers</key><array><string>com.sunpride.field.dev.sync-refresh</string></array>
+<key>UISupportedInterfaceOrientations</key><array><string>UIInterfaceOrientationPortrait</string></array>
+<key>UISupportedInterfaceOrientations~ipad</key><array><string>UIInterfaceOrientationPortrait</string><string>UIInterfaceOrientationPortraitUpsideDown</string><string>UIInterfaceOrientationLandscapeLeft</string><string>UIInterfaceOrientationLandscapeRight</string></array>
 <key>UIBackgroundModes</key><array><string>fetch</string><string>location</string></array>
 <key>SUNPRIDE_API_ORIGIN</key><string>$(SUNPRIDE_API_ORIGIN)</string>
 <key>FIELD_WEB_URL</key><string>$(FIELD_WEB_URL)</string>

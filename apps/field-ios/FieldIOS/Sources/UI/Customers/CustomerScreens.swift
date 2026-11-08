@@ -4,6 +4,8 @@ import SwiftUI
 /// so it works with no signal and can never reveal an outlet outside that scope.
 struct CustomerSearchScreen: View {
     let model: AppModel
+    /// SP-0166: false when the screen is a tab root (no Back row; the tab bar is the way out).
+    var showsBack = true
     @State private var query = ""
     @Environment(\.dismiss) private var dismiss
 
@@ -12,21 +14,39 @@ struct CustomerSearchScreen: View {
         let results = CustomerDirectory.search(all, query: query)
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
-                HStack {
-                    Button { dismiss() } label: {
-                        Image(systemName: "chevron.left")
-                            .foregroundStyle(SunprideTokens.text)
-                            .frame(width: 44, height: 44)
+                if showsBack {
+                    HStack {
+                        Button { dismiss() } label: {
+                            Image(systemName: "chevron.left")
+                                .foregroundStyle(SunprideTokens.text)
+                                .frame(width: 44, height: 44)
+                        }
+                        .accessibilityLabel("Back")
+                        .accessibilityIdentifier("BackButton")
+                        Text("Today").font(SunprideTokens.TypeStyle.meta)
+                            .foregroundStyle(SunprideTokens.secondaryText)
+                        Spacer()
                     }
-                    .accessibilityLabel("Back")
-                    .accessibilityIdentifier("BackButton")
-                    Text("Today").font(SunprideTokens.TypeStyle.meta)
-                        .foregroundStyle(SunprideTokens.secondaryText)
-                    Spacer()
                 }
-                Text("Customers").font(SunprideTokens.TypeStyle.title)
-                    .foregroundStyle(SunprideTokens.text)
-                    .accessibilityIdentifier("customersTitle")
+                HStack(alignment: .firstTextBaseline) {
+                    Text(showsBack ? "Customers" : "Stores").font(SunprideTokens.TypeStyle.title)
+                        .foregroundStyle(SunprideTokens.text)
+                        .accessibilityIdentifier("customersTitle")
+                    Spacer(minLength: 8)
+                    // SP-0166: on the Stores tab, Add a store is one tap away, top right (one-handed reach stays
+                    // on the list rows; the button is a 48pt glass capsule).
+                    if !showsBack && FieldFeatures.current.contains(.storeGathering) {
+                        NavigationLink { AddStoreScreen(model: model).fieldTabBarHidden() } label: {
+                            Label("Add a store", systemImage: "plus")
+                                .font(SunprideTokens.TypeStyle.row)
+                                .frame(minHeight: 48)
+                                .padding(.horizontal, 4)
+                        }
+                        .buttonStyle(.glassProminent)
+                        .tint(SunprideTokens.actionBackground)
+                        .accessibilityIdentifier("storesAddStore")
+                    }
+                }
                 CalmField(label: nil) {
                     HStack(spacing: 8) {
                         Image(systemName: "magnifyingglass").foregroundStyle(SunprideTokens.secondaryText)
@@ -52,7 +72,7 @@ struct CustomerSearchScreen: View {
                         .font(SunprideTokens.TypeStyle.body).foregroundStyle(SunprideTokens.text)
                         .accessibilityIdentifier("customerNoMatch")
                     if FieldFeatures.current.contains(.storeGathering) {
-                        NavigationLink { AddStoreScreen(model: model, prefillName: query.trimmingCharacters(in: .whitespaces)) } label: {
+                        NavigationLink { AddStoreScreen(model: model, prefillName: query.trimmingCharacters(in: .whitespaces)).fieldTabBarHidden() } label: {
                             CalmListRow(symbol: "plus.circle", title: "Add a store", meta: "Not in the list? Add it for the office to check",
                                         trailing: "chevron.right")
                         }
@@ -162,7 +182,7 @@ struct CustomerDetailScreen: View {
             .accessibilityIdentifier("customerCall")
         }
         if let visit = visitTarget(record) {
-            NavigationLink { DiagnosticVisitScreen(model: model, visit: visit) } label: {
+            NavigationLink { DiagnosticVisitScreen(model: model, visit: visit).fieldTabBarHidden() } label: {
                 Text(visitTitle(record)).font(SunprideTokens.TypeStyle.row)
                     .frame(maxWidth: .infinity, minHeight: 48)
                     .foregroundStyle(SunprideTokens.actionText)
