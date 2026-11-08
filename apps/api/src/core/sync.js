@@ -66,6 +66,8 @@ export const OP_CODES = Object.freeze([
   "load_not_posted",
   "stock_conflict",
   "mock_location_refused",
+  "place_mismatch",
+  "places_unavailable",
 ]);
 /** Advisory lock making change_log seq order equal commit order. */
 const CHANGE_LOCK = 4310002;
@@ -77,12 +79,15 @@ const opGuards = new Map();
 /** @type {Map<string, Projection>} */
 const projections = new Map();
 
-/** Per-op business refusal; becomes `{status:"rejected", code}` without failing the batch. */
+/** Per-op business refusal; becomes `{status:"rejected", code}` without failing the batch.
+ * `retryable` marks a temporary refusal (nothing is stored; the device keeps the op and
+ * sends it again later, e.g. address search unreachable while verifying a place). */
 export class OpRejected extends Error {
-  /** @param {string} code */
-  constructor(code) {
+  /** @param {string} code @param {boolean} [retryable] */
+  constructor(code, retryable = false) {
     super(code);
     this.code = OP_CODES.includes(code) ? code : "invalid_request";
+    this.retryable = retryable;
   }
 }
 
@@ -347,7 +352,8 @@ async function applyOne(ctx, op, deviceId) {
     for (const topic of topics) await publishTopic(ctx.db, topic);
     return r;
   } catch (e) {
-    if (e instanceof OpRejected) return result(op, "rejected", e.code, null);
+    if (e instanceof OpRejected)
+      return result(op, "rejected", e.code, null, e.retryable);
     if (isUniqueViolation(e)) {
       // A concurrent request with the same clientOpId committed first: answer from its receipt.
       topics.length = 0;

@@ -16,6 +16,9 @@ import {
   censusQueue,
   censusPhoto,
 } from "./census.js";
+import { autocomplete, details, reverse } from "./places.js";
+import { duplicateCheck } from "./duplicates.js";
+import { officeAddStore, storeSetup, storeLocations } from "./office-store.js";
 import {
   requireCapability,
   requireNationalScope,
@@ -69,6 +72,13 @@ export function install(router, platform) {
   router.get("/api/v1/masters/census-config", censusConfig);
   router.get("/api/v1/masters/census-queue", censusQueue);
   router.get("/api/v1/masters/census/:id/photo", censusPhoto);
+  // SP-0162 address search proxy, shared duplicate check and office store setup.
+  router.get("/api/v1/places/autocomplete", autocomplete);
+  router.get("/api/v1/places/details", details);
+  router.get("/api/v1/places/reverse", reverse);
+  router.post("/api/v1/masters/census/duplicate-check", duplicateCheck);
+  router.get("/api/v1/masters/store-setup", storeSetup);
+  router.get("/api/v1/masters/store-locations", storeLocations);
   platform.registerTopic("masters", (/** @type {any} */ actor) =>
     roleHas(actor.role, "outlet.read"),
   );
@@ -152,6 +162,7 @@ export function install(router, platform) {
   command("outlets/merge", "outlet.verify", mergeOutlets);
   command("census/batches", "outlet.manage", createBatch);
   command("census/review", "outlet.verify", reviewCensus);
+  command("stores/office-add", "outlet.manage", officeAddStore);
   router.get("/api/v1/masters/definitions", async (/** @type {any} */ ctx) => ({
     rows: (
       await definitionsAt(

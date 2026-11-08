@@ -455,8 +455,9 @@ export async function assignmentCommand(c, action, b) {
   return action === "assign" ? ids[0] : ids;
 }
 
-/** @param {Ctx} c @param {'provisional'|'customer'} kind */
-async function allocate(c, kind) {
+/** The one store-code allocator (SP-0082); census approval and office Add store reuse it.
+ * @param {Ctx} c @param {'provisional'|'customer'} kind */
+export async function allocate(c, kind) {
   const [settings] =
     await c.db`insert into outlet_code_settings(organization_id,prefix,digits,next_sequence,next_provisional_sequence,updated_by) values('sunpride','SP',6,1,1,${c.actor?.subject}) on conflict(organization_id) do update set organization_id=excluded.organization_id returning *`;
   const field =
