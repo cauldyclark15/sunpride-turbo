@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
+    <application>
+        <!-- SP-0163 device proof of Add a store against a fake API. devDebug ONLY (not betaDebug,
+             not any release): exported so `adb shell am start -n` can open it on the test phone. -->
+        <activity android:name="com.sunpride.field.census.AddStorePreviewActivity" android:exported="true"
+            android:theme="@style/Theme.SunprideField" tools:ignore="ExportedActivity" />
+    </application>
+</manifest>
