@@ -6,7 +6,7 @@ import XCTest
 final class ReviewTextTests: XCTestCase {
     private let serverCodes = ["mock_location_refused", "invalid_request", "invalid_plan", "out_of_scope", "dependency_missing", "invalid_transition",
                                "call_open", "mcp_order", "wrong_date", "idempotency_conflict", "evidence_pending_review",
-                               "unsupported_operation", "load_not_posted", "stock_conflict"]
+                               "unsupported_operation", "load_not_posted", "stock_conflict", "place_mismatch", "places_unavailable"]
 
     func testEveryServerCodeHasPlainWords() {
         for code in serverCodes + ["unknown_code", "unknown_status", "conflict"] {

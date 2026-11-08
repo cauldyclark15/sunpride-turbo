@@ -79,6 +79,7 @@ final class BiometricSignInTests: XCTestCase {
     private let clock = TestClock()
 
     override func setUp() async throws {
+        try XCTSkipUnless(AppModel.biometricsEnabled, "Biometrics off by owner decision")
         try await super.setUp()
         plain = FlakyStore()
         crypto = FakeBiometricCrypto()
@@ -488,6 +489,7 @@ final class BiometricKeychainDeviceTests: XCTestCase {
 
     @MainActor
     func testSealedItemNeedsCurrentBiometricsAndStaysOnThisDevice() throws {
+        try XCTSkipUnless(AppModel.biometricsEnabled, "Biometrics off by owner decision")
         if ProcessInfo.processInfo.environment["SUNPRIDE_OWNER_ABSENT"] == "1" {
             // Needs the owner's unlocked phone with enrolled Face ID; never left waiting unattended.
             throw XCTSkip("Owner absent: needs an unlocked phone with enrolled Face ID / Touch ID.")
@@ -506,5 +508,14 @@ final class BiometricKeychainDeviceTests: XCTestCase {
                        "the item cannot be read without Face ID / Touch ID")
         try KeychainBiometricCrypto.deleteItems(service: service)
         XCTAssertNil(KeychainBiometricCrypto.sealedAttributes(service: service))
+    }
+}
+/// Owner decision 2026-11-08: Face ID is off; the model gets no gate so nothing offers or prompts.
+@MainActor
+final class BiometricsSwitchTests: XCTestCase {
+    func testSwitchOffGivesNoGate() throws {
+        try XCTSkipIf(AppModel.biometricsEnabled, "Biometrics are switched on")
+        let store = LockableSessionStore(plain: FlakyStore(), memory: SessionMemory()) {}
+        XCTAssertNil(AppModel.biometricGate(vault: store, crypto: FakeBiometricCrypto()))
     }
 }

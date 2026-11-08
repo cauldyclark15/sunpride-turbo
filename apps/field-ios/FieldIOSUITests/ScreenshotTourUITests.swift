@@ -70,4 +70,22 @@ final class ScreenshotTourUITests: XCTestCase {
         open(app, "Stores")
         try shot("dark-stores")
     }
+
+    /// Add a store (top and bottom with Save) and Account (no Face ID toggle while biometrics are off).
+    func testAddStoreAndAccountTour() throws {
+        try XCTSkipIf(dir == nil, "evidence only")
+        let app = launch(dark: false)
+        open(app, "Stores")
+        app.buttons["storesAddStore"].tap()
+        XCTAssertTrue(app.staticTexts["addStoreTitle"].waitForExistence(timeout: 5))
+        try shot("addstore-top")
+        for _ in 0..<4 { app.swipeUp() }
+        try shot("addstore-bottom")
+        app.buttons["BackButton"].tap()
+        open(app, "More")
+        app.buttons["moreAccount"].tap()
+        XCTAssertTrue(app.buttons["signOutButton"].waitForExistence(timeout: 5))
+        XCTAssertFalse(app.switches["biometricToggle"].exists)
+        try shot("account")
+    }
 }

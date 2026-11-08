@@ -27,9 +27,11 @@ final class AddStoreUITests: XCTestCase {
     }
     private func openAddStore(_ app: XCUIApplication) {
         let open = app.buttons["openAddStore"]
-        for _ in 0..<6 where !open.isHittable { app.swipeUp() }
         XCTAssertTrue(open.waitForExistence(timeout: 10))
-        open.tap()
+        // The floating tab bar covers the bottom of the screen (iPad): scroll the row clear of it first.
+        for _ in 0..<6 where !open.isHittable || open.frame.maxY > app.frame.maxY - 140 { app.swipeUp() }
+        // Tap the row's top edge so a tab bar overlapping its lower half cannot take the tap.
+        open.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.15)).tap()
         XCTAssertTrue(app.staticTexts["addStoreTitle"].waitForExistence(timeout: 5))
     }
     /// Tap until the field really has keyboard focus (a tap during a keyboard/scroll animation can miss).

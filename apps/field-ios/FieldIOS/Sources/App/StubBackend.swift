@@ -64,7 +64,7 @@ final class StubBackend: URLProtocol {
                                         ask: ProcessInfo.processInfo.environment["FIELD_STUB_LIVE"] == "1")
         let model = AppModel(auth: auth, registry: ServerDeviceRegistry(functions: functions), store: store,
                         pollInterval: .seconds(2), site: environment.apiOrigin, functions: functions, http: http,
-                        biometrics: BiometricGate(vault: store, crypto: crypto),
+                        biometrics: AppModel.biometricGate(vault: store, crypto: crypto),
                         liveSource: StubLocationSource(), consentStore: consents) {
             try DeviceKeys.loadOrCreate(store: store)
         }

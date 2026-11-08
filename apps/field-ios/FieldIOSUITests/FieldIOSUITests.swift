@@ -219,15 +219,51 @@ final class FieldIOSUITests: XCTestCase {
         return app
     }
 
+    /// Taps an alert button once it is hittable; a tap during the alert's presentation animation can be
+    /// swallowed, so retry (up to 3 times) until the alert is gone.
+    private func answerAlert(_ alert: XCUIElement, _ title: String, file: StaticString = #filePath, line: UInt = #line) {
+        let button = alert.buttons[title].firstMatch
+        for _ in 0..<3 {
+            let hittable = XCTNSPredicateExpectation(predicate: NSPredicate(format: "hittable == true"), object: button)
+            _ = XCTWaiter().wait(for: [hittable], timeout: 2)
+            if button.exists { button.tap() }
+            if alert.waitForNonExistence(timeout: 2) { return }
+        }
+        XCTFail("alert still showing after tapping \(title)", file: file, line: line)
+    }
+
+    /// Tap until the field reports keyboard focus (up to 4 tries, 2 s each).
+    private func focusField(_ field: XCUIElement) {
+        for _ in 0..<4 {
+            if field.isHittable { field.tap() }
+            let deadline = Date().addingTimeInterval(2)
+            while Date() < deadline {
+                if field.value(forKey: "hasKeyboardFocus") as? Bool == true { return }
+                usleep(100_000)
+            }
+        }
+        XCTFail("\(field.identifier) never took keyboard focus")
+    }
+
     private func signIn(_ app: XCUIApplication, password: String) {
         let email = app.textFields["emailField"]
         XCTAssertTrue(email.waitForExistence(timeout: 5))
-        email.tap()
+        focusField(email)
         email.typeText("seller@example.test")
+        // The keyboard rising scrolls the form; a tap mid-scroll can land without focus. Close it, then
+        // wait until the password field actually holds keyboard focus before typing.
+        if app.keyboards.buttons["Return"].exists { app.keyboards.buttons["Return"].tap() }
+        else if app.keyboards.buttons["return"].exists { app.keyboards.buttons["return"].tap() }
         let passwordField = app.secureTextFields["passwordField"]
-        passwordField.tap()
-        passwordField.typeText(password)
+        XCTAssertTrue(passwordField.waitForExistence(timeout: 5))
         let button = app.buttons["signInButton"]
+        // Keystrokes sent while the field is still settling can be dropped; retype until Sign in enables.
+        for _ in 0..<3 where !button.isEnabled {
+            focusField(passwordField)
+            passwordField.typeText(password)
+            let enabled = XCTNSPredicateExpectation(predicate: NSPredicate(format: "isEnabled == true"), object: button)
+            _ = XCTWaiter().wait(for: [enabled], timeout: 2)
+        }
         XCTAssertTrue(button.isEnabled, "sign-in is enabled once both fields are filled")
         button.tap()
     }
@@ -1171,7 +1207,24 @@ final class FieldIOSUITests: XCTestCase {
         XCTFail("Account did not open")
     }
 
-    func testFaceIDOfferLockCancelChangedAndAccountToggle() {
+    /// Mirrors `AppModel.biometricsEnabled` (the UI test target cannot import the app).
+    // Off by owner decision 2026-11-08; Face ID returns later.
+    private static let biometricsEnabled = false
+
+    /// With the switch off, even a phone with Face ID gets no offer after sign-in and no Account toggle.
+    func testBiometricsOffNoOfferAndNoAccountToggle() throws {
+        try XCTSkipIf(Self.biometricsEnabled, "Biometrics are switched on")
+        let app = launchFaceID("registers", "available", dark: false)
+        signIn(app, password: "correct-horse")
+        XCTAssertTrue(app.staticTexts["todayTitle"].waitForExistence(timeout: 20))
+        XCTAssertFalse(app.alerts["Use Face ID to sign in next time?"].waitForExistence(timeout: 3))
+        openAccount(app)
+        XCTAssertFalse(app.switches["biometricToggle"].exists)
+        XCTAssertFalse(app.descendants(matching: .any)["biometricToggle"].exists)
+    }
+
+    func testFaceIDOfferLockCancelChangedAndAccountToggle() throws {
+        try XCTSkipUnless(Self.biometricsEnabled, "Biometrics off by owner decision")
         for dark in [false, true] {
             let mode = dark ? "dark" : "light"
             // Password sign-in → offer → Turn on.
@@ -1180,12 +1233,14 @@ final class FieldIOSUITests: XCTestCase {
             let offer = first.alerts["Use Face ID to sign in next time?"]
             XCTAssertTrue(offer.waitForExistence(timeout: 20))
             capture(first, "\(mode)-face-id-offer")
-            offer.buttons["Turn on"].firstMatch.tap()
-            XCTAssertTrue(offer.waitForNonExistence(timeout: 5))
+            answerAlert(offer, "Turn on")
             XCTAssertTrue(first.staticTexts["todayTitle"].waitForExistence(timeout: 20))
             openAccount(first)
             let toggle = first.switches["biometricToggle"].firstMatch
             XCTAssertTrue(toggle.waitForExistence(timeout: 5))
+            // "Turn on" seals the session asynchronously after the stub prompt answers.
+            let sealed = XCTNSPredicateExpectation(predicate: NSPredicate(format: "value == '1'"), object: toggle)
+            _ = XCTWaiter().wait(for: [sealed], timeout: 5)
             XCTAssertEqual(toggle.value as? String, "1")
             capture(first, "\(mode)-face-id-account-on")
             first.terminate()
@@ -1223,8 +1278,7 @@ final class FieldIOSUITests: XCTestCase {
             signIn(again, password: "correct-horse")
             let offerAgain = again.alerts["Use Face ID to sign in next time?"]
             XCTAssertTrue(offerAgain.waitForExistence(timeout: 20))
-            offerAgain.buttons["Turn on"].firstMatch.tap()
-            XCTAssertTrue(offerAgain.waitForNonExistence(timeout: 5))
+            answerAlert(offerAgain, "Turn on")
             XCTAssertTrue(again.staticTexts["todayTitle"].waitForExistence(timeout: 20))
             // Account toggle off: next launch opens without any prompt.
             openAccount(again)
@@ -1244,6 +1298,7 @@ final class FieldIOSUITests: XCTestCase {
     /// whole screen (the prompt is drawn by the system) and leaves via "Use password" if the face is not
     /// recognized; the stub backend stays offline from any real account.
     func testRealFaceIDPromptOnPhone() throws {
+        try XCTSkipUnless(Self.biometricsEnabled, "Biometrics off by owner decision")
         let app = XCUIApplication()
         app.launchEnvironment["FIELD_STUB_BACKEND"] = "registers"
         app.launchEnvironment["FIELD_STUB_BIOMETRIC"] = "real"

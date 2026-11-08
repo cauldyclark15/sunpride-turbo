@@ -74,6 +74,11 @@ final class BottomNavUITests: XCTestCase {
         XCTAssertTrue(app.otherElements["storesDetailPlaceholder"].waitForExistence(timeout: 5)
                       || app.staticTexts["Choose a store"].waitForExistence(timeout: 5), "list and detail side by side")
         XCUIDevice.shared.orientation = .portrait
+        // The rotation animates; measure the bar only once the window reports portrait again.
+        let portrait = XCTNSPredicateExpectation(predicate: NSPredicate { _, _ in
+            let f = app.windows.firstMatch.frame; return f.height > f.width }, object: nil)
+        _ = XCTWaiter().wait(for: [portrait], timeout: 5)
+        sleep(1)
         assertBottomBar(app)
     }
 
