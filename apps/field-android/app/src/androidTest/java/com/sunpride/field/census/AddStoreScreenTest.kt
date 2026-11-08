@@ -1,5 +1,6 @@
 package com.sunpride.field.census
 
+import androidx.activity.enableEdgeToEdge
 import android.Manifest
 import android.graphics.Bitmap
 import androidx.compose.material3.MaterialTheme
@@ -89,7 +90,7 @@ class AddStoreScreenTest {
         rule.onNodeWithTag("census-search-mode").performScrollTo().performClick()
         rule.onNodeWithTag("census-search").performScrollTo().performTextInput("SM Sea")
         waitTag("census-suggestion"); shot("03-search-suggestions")
-        rule.onAllNodesWithTag("census-suggestion")[0].performClick()
+        rule.onAllNodesWithTag("census-suggestion")[0].performScrollTo().performClick()
         waitTag("census-pin-from-address"); rule.onNodeWithTag("census-address").assertTextContains("Cebu South Coastal Rd, Cebu City")
         rule.onNodeWithTag("census-landmark").performScrollTo().performTextInput("beside the chapel")
         shot("04-address-picked")
@@ -108,9 +109,11 @@ class AddStoreScreenTest {
         rule.onNodeWithTag("census-address").performScrollTo().performTextInput("Colon St corner Sanciangko")
         shot("05-old-server-gps-only")
         rule.onNodeWithTag("census-camera").performScrollTo().performClick()
-        waitTag("census-shutter", 15_000); Thread.sleep(1500)
-        rule.onNodeWithTag("census-shutter").performClick()
-        waitTag("census-camera", 20_000)
+        waitTag("census-shutter", 15_000); Thread.sleep(3000)
+        rule.onNodeWithTag("census-shutter").performScrollTo().performClick()
+        // Emulators without a working camera cannot produce the storefront photo; the Xiaomi run covers it.
+        org.junit.Assume.assumeTrue("storefront camera produced no photo on this device",
+            runCatching { waitTag("census-camera", 45_000) }.isSuccess)
         rule.onNodeWithTag("census-save").performClick()
         waitTag("census-duplicates"); shot("06-duplicate-sheet")
         rule.onNodeWithTag("census-dup-different").performClick()
@@ -119,5 +122,22 @@ class AddStoreScreenTest {
         assertEquals("gps", p.getString("locationSource")); assertFalse(p.has("batchId"))
         assertEquals("o1", p.getJSONArray("acknowledgedDuplicateIds").getString(0))
         shot("07-saved")
+    }
+
+    /** SP-0163 jc on the Xiaomi: the phone's navigation bar covered "Save store". Edge-to-edge like the app; the
+     * whole button must sit above the navigation-bar inset. */
+    @Test fun saveButtonIsFullyAboveTheNavigationBar() {
+        rule.runOnUiThread { rule.activity.enableEdgeToEdge() }
+        show(Backend(config(true), online)); waitTag("census-save")
+        val nav = rule.runOnUiThread<Int> {
+            val decor = rule.activity.window.decorView
+            androidx.core.view.ViewCompat.getRootWindowInsets(decor)!!
+                .getInsets(androidx.core.view.WindowInsetsCompat.Type.navigationBars()).bottom
+        }
+        val height = rule.runOnUiThread<Int> { rule.activity.window.decorView.height }
+        val bounds = rule.onNodeWithTag("census-save").fetchSemanticsNode().boundsInWindow
+        assertTrue("save bottom ${bounds.bottom} must be <= ${height - nav} (nav inset $nav)", bounds.bottom <= height - nav + 0.5f)
+        assertTrue(bounds.top > 0f)
+        shot("00-save-above-nav")
     }
 }

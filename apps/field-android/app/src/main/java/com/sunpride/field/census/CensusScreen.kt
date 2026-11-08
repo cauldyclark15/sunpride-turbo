@@ -44,6 +44,8 @@ import org.json.JSONObject
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import com.sunpride.field.ui.SecondaryButton
 import com.sunpride.field.ui.customers.CustomerRecord
 import java.io.ByteArrayOutputStream
@@ -51,12 +53,13 @@ import java.util.Base64
 
 /** F-011 complete offline survey, independently queued from selling calls.
  * SP-0163: two location choices (Use my location / Search address), landmark, duplicate warning, optional batch. */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> Unit, modifier: Modifier = Modifier,
     stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val focus = androidx.compose.ui.platform.LocalFocusManager.current
     val places = remember(backend) { runCatching { backend?.censusPlaces() }.getOrNull() }
     var config by remember { mutableStateOf<JSONObject?>(null) }
     var history by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
@@ -147,7 +150,7 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
             try {
                 when (val r = withContext(Dispatchers.IO) { api.details(p.placeId, session) }) {
                     is CensusPlaces.Result.Ok -> {
-                        picked = r.value; predictions = emptyList(); query = r.value.formattedAddress; searchNote = null
+                        withContext(Dispatchers.Main.immediate) { focus.clearFocus() }; picked = r.value; predictions = emptyList(); query = r.value.formattedAddress; searchNote = null
                         address = r.value.formattedAddress; autoAddress = address; fix = null
                         session = CensusPlaces.session() // the session ends with the details call
                     }
@@ -250,6 +253,10 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
                     if (mode == "places") {
                         FieldTextField(query, { query = it.take(120); if (picked != null && it != picked?.formattedAddress) picked = null },
                             label = { Text("Search address or place") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("census-search"))
+                        // Keep suggestions above the keyboard on small phones.
+                        val suggestionsView = remember { BringIntoViewRequester() }
+                        LaunchedEffect(predictions, searchNote) { if (predictions.isNotEmpty() || searchNote != null) { delay(50); suggestionsView.bringIntoView() } }
+                        Column(Modifier.fillMaxWidth().bringIntoViewRequester(suggestionsView)) {
                         predictions.forEach { p ->
                             Column(Modifier.fillMaxWidth().clickable(enabled = !busy) { pick(p) }.padding(vertical = 8.dp).testTag("census-suggestion")) {
                                 Text(p.primary.ifEmpty { p.description }, style = MaterialTheme.typography.bodyLarge)
@@ -257,6 +264,7 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
                             }
                         }
                         searchNote?.let { Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("census-search-note")) }
+                        }
                         if (picked != null) StatusChip("Pin from address", Look.Tone.GOOD, textTag = "census-pin-from-address")
                     }
                     FieldTextField(address, { address = it }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth().testTag("census-address"))

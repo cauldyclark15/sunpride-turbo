@@ -1,5 +1,10 @@
 package com.sunpride.field.ui
 
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.only
+import androidx.compose.ui.composed
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
@@ -375,9 +380,16 @@ fun QuantityField(value: String, onValueChange: (String) -> Unit, modifier: Modi
 @Composable
 fun ActionBar(modifier: Modifier = Modifier, content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
     Surface(modifier.fillMaxWidth(), color = MaterialTheme.colorScheme.background, shadowElevation = 8.dp) {
-        Column(Modifier.padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
+        Column(Modifier.bottomSafe().padding(horizontal = 16.dp, vertical = 10.dp), verticalArrangement = Arrangement.spacedBy(8.dp), content = content)
     }
 }
+
+/** SP-0163: keep bottom-pinned actions above the system navigation bar (3-button or gesture) and the keyboard.
+ * Applies only what an ancestor (the app Scaffold's consumeWindowInsets, imePadding) has not consumed yet, so it never
+ * double-pads inside the app shell and still protects screens hosted edge-to-edge without it. */
+fun Modifier.bottomSafe(): Modifier = this.composed { windowInsetsPadding(
+    androidx.compose.foundation.layout.WindowInsets.safeDrawing.only(
+        androidx.compose.foundation.layout.WindowInsetsSides.Bottom + androidx.compose.foundation.layout.WindowInsetsSides.Horizontal)) }
 
 /** A pill-shaped dropdown field: label above, the chosen value inside with a chevron. Tag goes on the tappable pill. */
 @Composable
