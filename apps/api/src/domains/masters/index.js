@@ -15,6 +15,8 @@ import {
   censusConfig,
   censusQueue,
   censusPhoto,
+  resolvePlaceJob,
+  RESOLVE_PLACE_JOB,
 } from "./census.js";
 import { autocomplete, details, reverse } from "./places.js";
 import { duplicateCheck } from "./duplicates.js";
@@ -71,6 +73,24 @@ export function install(router, platform) {
   router.get("/api/v1/masters/taxonomy-migration", taxonomyMigrationPreview);
   router.get("/api/v1/masters/census-config", censusConfig);
   router.get("/api/v1/masters/census-queue", censusQueue);
+  // SP-0162: address-search captures are checked against Google here, after sync.
+  platform.registerJob(RESOLVE_PLACE_JOB, (/** @type {any} */ j) =>
+    resolvePlaceJob({
+      ...j,
+      env: platform.env,
+      change: (
+        /** @type {any} */ t,
+        /** @type {string} */ id,
+        /** @type {string} */ unit,
+      ) =>
+        platform.recordChange(t, {
+          entity: "census",
+          entityId: id,
+          scopeKey: unit,
+        }),
+      publish: platform.publish,
+    }),
+  );
   router.get("/api/v1/masters/census/:id/photo", censusPhoto);
   // SP-0162 address search proxy, shared duplicate check and office store setup.
   router.get("/api/v1/places/autocomplete", autocomplete);

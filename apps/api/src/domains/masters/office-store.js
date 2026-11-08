@@ -1,13 +1,14 @@
 import { requireCapability } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
 import { scopeFilterForActor } from "../org/scope.js";
-import { allocate, outletCommand } from "../org/outlets.js";
+import { allocate, outletCommand, pinCommand } from "../org/outlets.js";
 import { required, uuid, rule } from "../org/model.js";
 import { definitionsAt, reference, masterDto } from "./definitions.js";
 import { placesConfigured } from "./places.js";
 
 /** SP-0162 office Add store. Reuses the one outlet writer (`outletCommand create`) for the
- * store and its contact, then records a verified pin with source `office`.
+ * store and its contact, then PROPOSES a pin with source `office` through `pinCommand`;
+ * a different person with outlet.verify confirms it (two-person rule, SP-0162 SF1).
  * @param {any} c @param {any} b */
 export async function officeAddStore(c, b) {
   const actor = await requireCapability(c, "outlet.manage");
@@ -54,11 +55,30 @@ export async function officeAddStore(c, b) {
     contacts: [{ name: ownerName, phone: ownerPhone }],
     reason,
   });
-  await c.db`update outlets set channel_id=${channel.id},subchannel_id=${sub.id},place_id=${placeId},enrolment_status='approved' where id=${outletId}`;
-  await c.db`insert into outlet_pins(outlet_id,latitude,longitude,radius_meters,source,status,effective_from,proposed_by,proposed_at,verified_by,verified_at,reviewer_reason,evidence_note) values(${outletId},${lat},${lng},75,'office','verified',${new Date(c.now)},${actor.subject},${new Date(c.now)},${actor.subject},${new Date(c.now)},${reason},${placeId ? "Pin from address search, checked on the map" : "Pin set on the map"})`;
+  // Same as any office-created store (outletCommand create): no enrolment row/status.
+  await c.db`update outlets set channel_id=${channel.id},subchannel_id=${sub.id},place_id=${placeId} where id=${outletId}`;
+  // SP-0162 SF1: the pin is PROPOSED through the one pin authority and must be verified by a
+  // different person with outlet.verify (it shows under "Pin to confirm" in the review area).
+  const pinId = await pinCommand(c, "propose", {
+    outletId,
+    latitude: lat,
+    longitude: lng,
+    radiusMeters: 75,
+    source: "office",
+    evidenceNote: placeId
+      ? "Pin from address search, checked on the map"
+      : "Pin set on the map",
+    reason,
+  });
   await c.db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${actor.userId},'SP-0162.store.office_add','outlet',${outletId},${JSON.stringify({ acknowledgedDuplicates: Array.isArray(b.acknowledgedDuplicateIds) ? b.acknowledgedDuplicateIds.length : 0 })})`;
   const [row] = await c.db`select code from outlets where id=${outletId}`;
-  return { id: outletId, outletId, code: row.code };
+  return {
+    id: outletId,
+    outletId,
+    code: row.code,
+    pinId,
+    pinStatus: "pending",
+  };
 }
 
 /** GET /api/v1/masters/store-setup: what the office Add store form needs. @param {any} ctx */
