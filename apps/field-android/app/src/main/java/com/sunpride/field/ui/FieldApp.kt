@@ -332,7 +332,8 @@ fun FieldApp(
                     com.sunpride.field.catalogue.FieldCatalogue(backend, { page = origin }, modifier)
                 }
                 ready && page == "census" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
-                    com.sunpride.field.census.CensusScreen(backend, location, { page = origin }, modifier)
+                    com.sunpride.field.census.CensusScreen(backend, location, { page = origin }, modifier,
+                        stores = controller.today.customers, onOpenStore = { id -> customerId = id; page = "customer" })
                 }
                 ready && page == "workforce" -> com.sunpride.field.ui.workforce.WorkforceScreen(controller,location,modifier)
                 // SP-0146 v2 messaging: the shared chat module; Back inside it steps back, Back on its list returns here.
@@ -372,14 +373,16 @@ fun FieldApp(
                     onNavigate = { uri -> openMaps(context, uri) }, modifier = modifier,
                     onVisit = controller::openDiagnostic, visitEnabled = visits, offline = offline)
                 ready && page == "customers" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
-                    onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow)
+                    onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,
+                    onAddStore = if (visits) ({ go("census") }) else null)
                 ready && page == "customer" && customer != null -> com.sunpride.field.ui.customers.CustomerDetailScreen(
                     customer, controller.today, onNavigate = { uri -> openMaps(context, uri) },
                     onDial = { uri -> openDialer(context, uri) }, modifier = modifier,
                     onVisit = controller::openDiagnostic, visitEnabled = visits, now = minuteNow,
                     unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features)
                 ready && page == "customer" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
-                    onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow)
+                    onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,
+                    onAddStore = if (visits) ({ go("census") }) else null)
                 ready && page == "team" -> com.sunpride.field.ui.team.TeamScreen(controller.team,
                     controller.teamDirectOnly, controller.teamLoading, minuteNow,
                     onFilter = { controller.loadTeam(it) }, onRefresh = { controller.loadTeam() }, modifier = modifier)
@@ -708,7 +711,7 @@ private fun headerSpec(ready: Boolean, locked: Boolean, signedIn: Boolean, page:
         "support" -> HeaderSpec("Support info", back = true, backTag = "support-back")
         "change-password" -> HeaderSpec("Change password", back = true, backTag = "account-back")
         "team" -> HeaderSpec("Team", titleTag = "team-title", back = true, backTag = "team-back")
-        "census" -> HeaderSpec("New store", back = true, backTag = "account-back")
+        "census" -> HeaderSpec("Add a store", back = true, backTag = "account-back")
         "workforce" -> HeaderSpec("Attendance", back = true, backTag = "workforce-back")
         "jointcall" -> HeaderSpec("Work-With", back = true, backTag = "account-back")
         "collections" -> HeaderSpec("Collector", back = true, backTag = "account-back")

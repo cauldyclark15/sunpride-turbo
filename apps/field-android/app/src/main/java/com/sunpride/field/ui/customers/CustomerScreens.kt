@@ -58,7 +58,7 @@ import com.sunpride.field.ui.route.DailyRoutes
  */
 @Composable
 fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Modifier = Modifier,
-    offline: Boolean = false, now: Long = System.currentTimeMillis()) {
+    offline: Boolean = false, now: Long = System.currentTimeMillis(), onAddStore: (() -> Unit)? = null) {
     var query by rememberSaveable { mutableStateOf("") }
     var onlyToday by rememberSaveable { mutableStateOf(false) }
     val found = remember(data.customers, query) { CustomerDirectory.search(data.customers, query) }
@@ -100,6 +100,9 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
                 Text(if (query.isBlank()) "No outlets on today's route yet. Choose All to see every outlet."
                     else "No outlet matches \"${query.trim()}\". Only outlets on your plan are on this phone.",
                     style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(4.dp).testTag("customer-no-match"))
+                // SP-0163: a search that finds nothing offers to add the store.
+                if (onAddStore != null && query.isNotBlank()) com.sunpride.field.ui.TonalButton("Add a store", onAddStore,
+                    Modifier.fillMaxWidth().padding(top = 8.dp).testTag("customer-add-store"), glyph = GlyphKind.STORE)
             }
             else -> items(results, key = { it.outletId }) { record -> StoreRow(record, now) { onOpen(record.outletId) } }
         }

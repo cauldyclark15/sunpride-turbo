@@ -1,5 +1,7 @@
 package com.sunpride.field.ui.diagnosticvisit
 
+import com.sunpride.field.ui.bottomSafe
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -83,7 +85,7 @@ fun ActivityFormScreen(kind: String, controller: FieldController, modifier: Modi
     }
     val valid = runCatching { build() }.isSuccess
     val busy = controller.busy
-    Column(modifier.fillMaxSize().imePadding().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
+    Column(modifier.fillMaxSize().imePadding().bottomSafe().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(ActivityRules.kindLabel(kind), style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.testTag("activity-form-title"))

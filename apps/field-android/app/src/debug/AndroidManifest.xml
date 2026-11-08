@@ -2,5 +2,9 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <application android:networkSecurityConfig="@xml/network_security_config"
-        tools:ignore="UnusedAttribute" />
+        tools:ignore="UnusedAttribute">
+        <!-- SP-0163 debug-only device proof of Add a store against a fake API (never in beta/release). -->
+        <activity android:name="com.sunpride.field.census.AddStorePreviewActivity" android:exported="true"
+            android:theme="@style/Theme.SunprideField" tools:ignore="ExportedActivity" />
+    </application>
 </manifest>

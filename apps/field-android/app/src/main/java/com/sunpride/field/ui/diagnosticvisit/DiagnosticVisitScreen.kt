@@ -1,5 +1,7 @@
 package com.sunpride.field.ui.diagnosticvisit
 
+import com.sunpride.field.ui.bottomSafe
+
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -97,7 +99,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
     val missing = com.sunpride.field.storage.ActivityRules.missing(checklist)
     val review = controller.endReview
     val result = if (checkedOut) controller.visitResult(visit) else null
-    Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
+    Column(modifier.fillMaxSize().bottomSafe().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // The header names the store; this line says where the call stands.
