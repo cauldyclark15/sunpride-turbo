@@ -10,6 +10,8 @@ enum FieldFeature: String, CaseIterable, Sendable {
     case unplannedVisits
     /// The supervisor-only Team page.
     case team
+    /// SP-0164 "Add a store": gather new stores (location, storefront photo, duplicate warning). On in the beta.
+    case storeGathering
     /// Key storage and fingerprint rows on Account: technical phone-key details.
     case phoneKeyDetails
     /// Developer tools (public-key file, design-token preview, stub backends). Never in a non-DEBUG build.

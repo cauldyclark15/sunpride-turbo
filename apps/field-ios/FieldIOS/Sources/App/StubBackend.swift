@@ -84,8 +84,14 @@ final class StubBackend: URLProtocol {
             client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
             return
         }
+        if Self.scenario == "offline" && path.hasPrefix("/api/v1/") {
+            client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+            return
+        }
         let body = Self.body(of: request)
-        let (status, headers, payload) = Self.respondV2(path: path, body: body, headers: request.allHTTPHeaderFields ?? [:])
+        let (status, headers, payload) = path.hasPrefix("/api/v1/")
+            ? Self.respondGathering(path: path, query: request.url.flatMap { URLComponents(url: $0, resolvingAgainstBaseURL: false)?.queryItems } ?? [], body: body)
+            : Self.respondV2(path: path, body: body, headers: request.allHTTPHeaderFields ?? [:])
         let response = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: "HTTP/1.1",
                                        headerFields: headers.merging(["Content-Type": "application/json"]) { a, _ in a })!
         client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
@@ -115,6 +121,57 @@ final class StubBackend: URLProtocol {
             .replacingOccurrences(of: "=", with: "") }
         let exp = Int(Date().timeIntervalSince1970) + 900
         return "\(segment(["alg": "none"])).\(segment(["aud": "sunpride", "exp": exp])).stub"
+    }
+
+    /// SP-0164 store gathering: census setup, our Places proxy and the duplicate check.
+    /// `FIELD_STUB_PLACES=off` plays an older server (no address search, no duplicate endpoint).
+    static let stubBatchId = "6f1d2c3b-0000-4000-8000-00000000b001"
+    static let stubChannelId = "6f1d2c3b-0000-4000-8000-00000000c001"
+    static let stubSubchannelId = "6f1d2c3b-0000-4000-8000-00000000c002"
+    private static func respondGathering(path: String, query: [URLQueryItem], body: Data) -> (Int, [String: String], Data) {
+        let old = ProcessInfo.processInfo.environment["FIELD_STUB_PLACES"] == "off"
+        func q(_ name: String) -> String? { query.first { $0.name == name }?.value }
+        let notFound = (404, [String: String](), json(["version": 2, "error": ["code": "not_found", "retryable": false]]))
+        switch path {
+        case "/api/v1/masters/census-config":
+            var config: [String: Any] = [
+                "batches": [["id": stubBatchId, "name": "Ongoing store gathering", "expected_outlets": 1000]],
+                "channels": [["id": stubChannelId, "label": "General trade", "data": [:]]],
+                "subchannels": [["id": stubSubchannelId, "label": "Sari-sari store", "data": ["channelId": stubChannelId]]]]
+            if !old {
+                config["defaultBatch"] = ["id": stubBatchId, "name": "Ongoing store gathering"]
+                config["addressSearch"] = true
+            }
+            return (200, [:], json(config))
+        case "/api/v1/places/autocomplete":
+            guard !old else { return notFound }
+            guard let input = q("input"), input.count >= 3, q("session").flatMap(UUID.init(uuidString:)) != nil else {
+                return (400, [:], json(["version": 2, "error": ["code": "invalid_request", "retryable": false]]))
+            }
+            return (200, [:], json(["predictions": [
+                ["placeId": "stub-place-1", "primary": "12 Rizal Street", "secondary": "Barangay Uno, Cebu City", "description": "12 Rizal Street, Barangay Uno, Cebu City"],
+                ["placeId": "stub-place-2", "primary": "Rizal Avenue", "secondary": "Mandaue City", "description": "Rizal Avenue, Mandaue City"]]]))
+        case "/api/v1/places/details":
+            guard !old else { return notFound }
+            return (200, [:], json(["placeId": q("placeId") ?? "stub-place-1", "formattedAddress": "12 Rizal Street, Barangay Uno, Cebu City, Cebu",
+                "latitude": 0.0003, "longitude": 0.0,
+                "components": ["street": "12 Rizal Street", "barangay": "Barangay Uno", "city": "Cebu City", "province": "Cebu",
+                               "region": "Central Visayas", "postalCode": "6000"]]))
+        case "/api/v1/places/reverse":
+            guard !old else { return notFound }
+            return (200, [:], json(["formattedAddress": "8 Osmeña Boulevard, Barangay Dos, Cebu City, Cebu",
+                "components": ["street": "8 Osmeña Boulevard", "barangay": "Barangay Dos", "city": "Cebu City", "province": "Cebu",
+                               "region": "Central Visayas", "postalCode": NSNull()]]))
+        case "/api/v1/masters/census/duplicate-check":
+            guard !old else { return notFound }
+            let fields = (try? JSONSerialization.jsonObject(with: body)) as? [String: Any] ?? [:]
+            let name = (fields["name"] as? String ?? "").lowercased()
+            let candidates: [[String: Any]] = name.contains("nena") ? [["kind": "capture", "id": "stub-capture-9", "code": NSNull(),
+                "name": "Aling Nena Store", "address": "Near the chapel", "latitude": 0.0001, "longitude": 0.0,
+                "distanceMeters": 11.1, "reasons": ["nearby", "name"], "score": 110]] : []
+            return (200, [:], json(["candidates": candidates, "truncated": false]))
+        default: return notFound
+        }
     }
 
     private static let uploads = Mutex<[String: String]>([:])

@@ -110,6 +110,28 @@ final class ServerAPI {
         throw MobileError.unauthorized
     }
 
+    /// SP-0164: a plain bearer JSON call (`GET /api/v1/...` or a JSON POST) whose status the caller interprets.
+    /// One retry with a refreshed token after a 401. Never logs the body.
+    func plain(_ method: String, _ path: String, query: [URLQueryItem] = [], body: Data? = nil) async throws -> (Data, Int) {
+        var components = URLComponents(url: url.appending(path: path), resolvingAgainstBaseURL: false)
+        if !query.isEmpty { components?.queryItems = query }
+        guard let target = components?.url else { throw MobileError.invalidResponse }
+        for attempt in 0..<2 {
+            let token = try await auth.bearerToken(forceRefresh: attempt > 0)
+            var request = URLRequest(url: target)
+            request.httpMethod = method
+            request.timeoutInterval = 15
+            request.setValue(NativeV2.app, forHTTPHeaderField: "X-App")
+            request.setValue(try auth.keyId, forHTTPHeaderField: "X-Device-Key-Id")
+            request.setValue("Bearer \(token.value)", forHTTPHeaderField: "Authorization")
+            if let body { request.setValue("application/json", forHTTPHeaderField: "Content-Type"); request.httpBody = body }
+            let (data, response) = try await http.send(request)
+            if response.statusCode == 401 && attempt == 0 { auth.invalidateToken(); continue }
+            return (data, response.statusCode)
+        }
+        throw MobileError.unauthorized
+    }
+
     func signedPost(_ path: String, body: Data, deviceId: String) async throws -> Data {
         try await NativeGateway(site: url, auth: auth, registry: ServerDeviceRegistry(functions: self),
             http: http, key: auth.signingKey()).post(path, body: body, deviceId: deviceId)

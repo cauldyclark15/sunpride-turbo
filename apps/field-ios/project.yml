@@ -115,6 +115,9 @@ targets:
         buildPhase: resources
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/location-response.json
         buildPhase: resources
+      # SP-0164 customer gathering: shared duplicate-check rules and vectors.
+      - path: ../../packages/domain-contracts/fixtures/mobile-v1/census-duplicates.json
+        buildPhase: resources
     dependencies:
       - target: FieldIOS
     settings:

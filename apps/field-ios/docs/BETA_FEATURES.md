@@ -14,6 +14,7 @@ Anything hidden is **hidden, not deleted**: the code, screens and tests stay, an
 | ----------------- | ---------------------------------------------------------------------------- | ---------- | ------------------------------------------- |
 | `visits`          | Start / End call, activities, call sheet, New order, review and send, photos | **On**     | (already on)                                |
 | `team`            | Team page for supervisors (shown only to supervisors)                        | **On**     | (already on)                                |
+| `storeGathering`  | "Add a store" (Today → Customers, and Customers when a search finds nothing) | **On**     | (already on; SP-0164)                       |
 | `unplannedVisits` | "Other outlets / Unplanned visit" on Today and the visit button off-plan     | Hidden     | Remove it from `FieldFeatures.hiddenInBeta` |
 | `phoneKeyDetails` | Key storage and fingerprint rows on Account (technical)                      | Hidden     | Remove it from `FieldFeatures.hiddenInBeta` |
 | `developerTools`  | Public-key file, design-token preview, in-process stub backends              | DEBUG only | Never in a non-DEBUG build                  |

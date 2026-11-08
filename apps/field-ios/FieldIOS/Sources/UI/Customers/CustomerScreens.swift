@@ -51,6 +51,14 @@ struct CustomerSearchScreen: View {
                     Text("No outlet matches \"\(query.trimmingCharacters(in: .whitespaces))\". Only outlets on your plan are on this phone.")
                         .font(SunprideTokens.TypeStyle.body).foregroundStyle(SunprideTokens.text)
                         .accessibilityIdentifier("customerNoMatch")
+                    if FieldFeatures.current.contains(.storeGathering) {
+                        NavigationLink { AddStoreScreen(model: model, prefillName: query.trimmingCharacters(in: .whitespaces)) } label: {
+                            CalmListRow(symbol: "plus.circle", title: "Add a store", meta: "Not in the list? Add it for the office to check",
+                                        trailing: "chevron.right")
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityIdentifier("customerAddStore")
+                    }
                 } else {
                     SectionCard(title: "Outlets") {
                         ForEach(results) { record in
