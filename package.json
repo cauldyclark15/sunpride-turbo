@@ -23,6 +23,8 @@
     "apk:van-beta": "bash apps/van-sales-android/scripts/build-beta-apk.sh",
     "apk:field-beta": "bash apps/field-android/scripts/build-beta-apk.sh",
     "ipa:field-ios-beta": "bash apps/field-ios/scripts/build-beta.sh",
+    "native:office-ios": "bash apps/office-ios/scripts/check.sh",
+    "ipa:office-ios-beta": "bash apps/office-ios/scripts/build-beta.sh",
     "check": "bun run audit:stack && turbo run lint typecheck test build && bun test ./scripts && bun scripts/secret-audit.ts",
     "audit:secrets": "bun scripts/secret-audit.ts",
     "audit:stack": "bun scripts/retired-stack-audit.ts"

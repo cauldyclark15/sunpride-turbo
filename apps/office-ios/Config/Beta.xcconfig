@@ -1,0 +1,8 @@
+// SP-0165 beta build ("Sunpride Office (Beta)", com.sunpride.office.beta). Public addresses only.
+// scripts/build-beta.sh overrides SUNPRIDE_API_ORIGIN from SUNPRIDE_BETA_API_URL and the build number.
+SUNPRIDE_API_ORIGIN = https:/$()/sunpride.cauldnclark.com
+SUNPRIDE_BETA_BUILD = 1
+MARKETING_VERSION = 1.0.0
+CURRENT_PROJECT_VERSION = $(SUNPRIDE_BETA_BUILD)
+OFFICE_VERSION_LABEL = 1.0.0-beta.$(SUNPRIDE_BETA_BUILD)
+OFFICE_DISPLAY_NAME = Sunpride Office (Beta)
