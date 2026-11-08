@@ -4,7 +4,7 @@ import XCTest
 /// Every closed server refusal code (apps/api/src/core/sync.js OP_CODES) reads as plain words, and the
 /// list never shows operation names such as "visit.checkIn" to the salesperson.
 final class ReviewTextTests: XCTestCase {
-    private let serverCodes = ["invalid_request", "invalid_plan", "out_of_scope", "dependency_missing", "invalid_transition",
+    private let serverCodes = ["mock_location_refused", "invalid_request", "invalid_plan", "out_of_scope", "dependency_missing", "invalid_transition",
                                "call_open", "mcp_order", "wrong_date", "idempotency_conflict", "evidence_pending_review",
                                "unsupported_operation", "load_not_posted", "stock_conflict"]
 

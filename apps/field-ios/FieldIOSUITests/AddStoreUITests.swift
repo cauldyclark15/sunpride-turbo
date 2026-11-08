@@ -17,6 +17,9 @@ final class AddStoreUITests: XCTestCase {
         let email = app.textFields["emailField"]
         XCTAssertTrue(email.waitForExistence(timeout: 5))
         focus(app, email); email.typeText("seller@example.test")
+        // Small phones (SE): the keyboard covers the password field; close it first.
+        if app.keyboards.buttons["Return"].exists { app.keyboards.buttons["Return"].tap() }
+        else if app.keyboards.buttons["return"].exists { app.keyboards.buttons["return"].tap() }
         let password = app.secureTextFields["passwordField"]
         focus(app, password); password.typeText("correct-horse")
         app.buttons["signInButton"].tap()
@@ -248,5 +251,26 @@ final class AddStoreUITests: XCTestCase {
         let open = beta.buttons["openAddStore"]
         for _ in 0..<6 where !open.exists { beta.swipeUp() }
         XCTAssertTrue(open.exists, "store gathering is on in the beta")
+    }
+
+    /// jc (seen on Android): the bottom Save button must stay clear of the home indicator and above the keyboard.
+    func testSaveButtonStaysAboveTheHomeIndicatorAndTheKeyboard() {
+        let app = launch("registers")
+        signIn(app)
+        openAddStore(app)
+        let save = app.buttons["addStoreSave"]
+        XCTAssertTrue(save.waitForExistence(timeout: 10))
+        let window = app.windows.firstMatch.frame
+        // The home indicator area is the bottom ~34 pt on Face ID phones; keep the button fully above it.
+        let indicator: CGFloat = window.height >= 800 ? 34 : 0 // Home-button phones (SE) have none.
+        XCTAssertLessThanOrEqual(save.frame.maxY, window.maxY - indicator - 8, "Save clear of the home indicator: \(save.frame) in \(window)")
+        XCTAssertTrue(save.isHittable)
+        shot(app, "save-above-home-indicator")
+        type(app, "addStoreName", "Keyboard check")
+        let keyboard = app.keyboards.firstMatch
+        XCTAssertTrue(keyboard.waitForExistence(timeout: 5))
+        XCTAssertLessThanOrEqual(save.frame.maxY, keyboard.frame.minY + 1, "Save moves above the keyboard: \(save.frame) vs \(keyboard.frame)")
+        XCTAssertTrue(save.isHittable)
+        shot(app, "save-above-keyboard")
     }
 }

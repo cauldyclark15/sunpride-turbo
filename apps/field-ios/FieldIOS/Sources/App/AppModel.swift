@@ -1223,6 +1223,7 @@ enum ReviewText {
         "idempotency_conflict": "Already recorded for this store today",
         "stock_conflict": "Stock changed in the office", "load_not_posted": "Truck load not posted yet",
         "place_mismatch": "The address pin did not match the map",
+        "mock_location_refused": "A simulated location was refused",
         "unknown_code": "The office gave a reason this app does not know", "unknown_status": "The office answer was not clear"
     ]
     static func line(kind: String, code: String) -> String {

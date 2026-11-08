@@ -117,7 +117,7 @@ final class VisitSyncClient {
                 case "rejected", "conflict":
                     let allowedCodes: Set<String> = ["invalid_request", "invalid_plan", "conflict", "dependency_missing",
                         "unsupported_operation", "out_of_scope", "evidence_pending_review", "invalid_transition", "call_open", "mcp_order",
-                        "wrong_date", "idempotency_conflict", "stock_conflict", "load_not_posted", "place_mismatch"]
+                        "wrong_date", "idempotency_conflict", "stock_conflict", "load_not_posted", "place_mismatch", "mock_location_refused"]
                     let raw = outcome.reason.flatMap { allowedCodes.contains($0) ? $0 : nil }
                         ?? outcome.code?.rawValue ?? outcome.status.rawValue
                     try store.recordRejection(code: allowedCodes.contains(raw) ? raw : "unknown_code",
