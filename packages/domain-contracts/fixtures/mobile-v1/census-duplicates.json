@@ -1,0 +1,300 @@
+{
+  "version": 1,
+  "rules": {
+    "stopwords": [
+      "and",
+      "co",
+      "corp",
+      "enterprise",
+      "enterprises",
+      "general",
+      "groceries",
+      "grocery",
+      "inc",
+      "mart",
+      "merchandise",
+      "mini",
+      "minimart",
+      "ng",
+      "sari",
+      "sarisari",
+      "shop",
+      "store",
+      "stores",
+      "the",
+      "trading"
+    ],
+    "nameTokens": "NFKD, drop combining marks, lowercase, replace every run of characters outside [a-z0-9] with one space, split; drop stopwords; if nothing is left keep all the words. Token SET.",
+    "nameSimilarity": "Jaccard of the two token sets = |A∩B| / |A∪B|, rounded to 4 decimals; 0 when either set is empty.",
+    "phoneKey": "digits only; 12 digits starting 63 -> '0' + the last 10; key = last 10 digits; fewer than 10 digits -> no key (never matches).",
+    "distance": "haversine, earth radius 6371008.8 m, rounded to 0.1 m; unknown when either side has no coordinates.",
+    "reasons": "in this order: 'place' (same non-empty Google place id), 'phone' (same phone key), 'nearby' (distance <= 75 m), 'name' (nameSimilarity >= 0.8 and (distance unknown or <= 2000 m)). A candidate has at least one reason.",
+    "score": "place 100, phone 90, nearby: 80 if distance <= 25 m else 60, name adds round(30 * nameSimilarity). Sum. Sort by score desc, then distance asc (unknown last), then name. Return at most 10."
+  },
+  "nameTokenVectors": [
+    {
+      "name": "Aling Nena Sari-Sari Store",
+      "tokens": [
+        "aling",
+        "nena"
+      ]
+    },
+    {
+      "name": "Tindahan ni Josefa — Grocery & General Merchandise",
+      "tokens": [
+        "josefa",
+        "ni",
+        "tindahan"
+      ]
+    },
+    {
+      "name": "Sari-Sari Store",
+      "tokens": [
+        "sari",
+        "store"
+      ]
+    },
+    {
+      "name": "Peñafrancia Store",
+      "tokens": [
+        "penafrancia"
+      ]
+    }
+  ],
+  "phoneKeyVectors": [
+    {
+      "phone": "0917 123 4567",
+      "key": "9171234567"
+    },
+    {
+      "phone": "+63 917-123-4567",
+      "key": "9171234567"
+    },
+    {
+      "phone": "639171234567",
+      "key": "9171234567"
+    },
+    {
+      "phone": "(032) 255-1234",
+      "key": "0322551234"
+    },
+    {
+      "phone": "12345",
+      "key": null
+    }
+  ],
+  "pairVectors": [
+    {
+      "label": "same store, 20 m away, different spelling",
+      "query": {
+        "name": "Aling Nena Sari-Sari Store",
+        "phone": "0917 123 4567",
+        "latitude": 10.3157,
+        "longitude": 123.8854,
+        "placeId": null
+      },
+      "existing": {
+        "name": "ALING NENA STORE",
+        "phone": null,
+        "latitude": 10.31585,
+        "longitude": 123.88545
+      },
+      "expect": {
+        "isCandidate": true,
+        "reasons": [
+          "nearby",
+          "name"
+        ],
+        "distanceMeters": 17.6,
+        "nameSimilarity": 1.0
+      }
+    },
+    {
+      "label": "same phone in +63 form, far away",
+      "query": {
+        "name": "Aling Nena Sari-Sari Store",
+        "phone": "0917 123 4567",
+        "latitude": 10.3157,
+        "longitude": 123.8854,
+        "placeId": null
+      },
+      "existing": {
+        "name": "Nena's Mini Mart",
+        "phone": "+63 917-123-4567",
+        "latitude": 10.4,
+        "longitude": 123.95
+      },
+      "expect": {
+        "isCandidate": true,
+        "reasons": [
+          "phone"
+        ],
+        "distanceMeters": 11738.7,
+        "nameSimilarity": 0.3333
+      }
+    },
+    {
+      "label": "different store next door (60 m), different name",
+      "query": {
+        "name": "Aling Nena Sari-Sari Store",
+        "phone": "0917 123 4567",
+        "latitude": 10.3157,
+        "longitude": 123.8854,
+        "placeId": null
+      },
+      "existing": {
+        "name": "JM Trading",
+        "phone": "0918 000 1111",
+        "latitude": 10.3162,
+        "longitude": 123.8856
+      },
+      "expect": {
+        "isCandidate": true,
+        "reasons": [
+          "nearby"
+        ],
+        "distanceMeters": 59.7,
+        "nameSimilarity": 0.0
+      }
+    },
+    {
+      "label": "same name 1.5 km away",
+      "query": {
+        "name": "Aling Nena Sari-Sari Store",
+        "phone": "0917 123 4567",
+        "latitude": 10.3157,
+        "longitude": 123.8854,
+        "placeId": null
+      },
+      "existing": {
+        "name": "Aling Nena",
+        "phone": null,
+        "latitude": 10.329,
+        "longitude": 123.885
+      },
+      "expect": {
+        "isCandidate": true,
+        "reasons": [
+          "name"
+        ],
+        "distanceMeters": 1479.5,
+        "nameSimilarity": 1.0
+      }
+    },
+    {
+      "label": "same name 5 km away (not a candidate)",
+      "query": {
+        "name": "Aling Nena Sari-Sari Store",
+        "phone": "0917 123 4567",
+        "latitude": 10.3157,
+        "longitude": 123.8854,
+        "placeId": null
+      },
+      "existing": {
+        "name": "Aling Nena Store",
+        "phone": null,
+        "latitude": 10.36,
+        "longitude": 123.885
+      },
+      "expect": {
+        "isCandidate": false,
+        "reasons": [],
+        "distanceMeters": 4926.1,
+        "nameSimilarity": 1.0
+      }
+    },
+    {
+      "label": "unrelated store 300 m away (not a candidate)",
+      "query": {
+        "name": "Aling Nena Sari-Sari Store",
+        "phone": "0917 123 4567",
+        "latitude": 10.3157,
+        "longitude": 123.8854,
+        "placeId": null
+      },
+      "existing": {
+        "name": "Bebot Grocery",
+        "phone": "09991234567",
+        "latitude": 10.3184,
+        "longitude": 123.8854
+      },
+      "expect": {
+        "isCandidate": false,
+        "reasons": [],
+        "distanceMeters": 300.2,
+        "nameSimilarity": 0.0
+      }
+    },
+    {
+      "label": "only stopwords in name falls back to all words",
+      "query": {
+        "name": "Aling Nena Sari-Sari Store",
+        "phone": "0917 123 4567",
+        "latitude": 10.3157,
+        "longitude": 123.8854,
+        "placeId": null
+      },
+      "existing": {
+        "name": "Sari-Sari Store",
+        "phone": null,
+        "latitude": 10.33,
+        "longitude": 123.9
+      },
+      "expect": {
+        "isCandidate": false,
+        "reasons": [],
+        "distanceMeters": 2253.7,
+        "nameSimilarity": 0.0
+      }
+    },
+    {
+      "label": "same Google place id",
+      "query": {
+        "name": "Aling Nena Sari-Sari Store",
+        "phone": "0917 123 4567",
+        "latitude": 10.3157,
+        "longitude": 123.8854,
+        "placeId": "ChIJ-same"
+      },
+      "existing": {
+        "name": "Nena Grocery",
+        "phone": null,
+        "latitude": 10.35,
+        "longitude": 123.9,
+        "placeId": "ChIJ-same"
+      },
+      "expect": {
+        "isCandidate": true,
+        "reasons": [
+          "place"
+        ],
+        "distanceMeters": 4134.9,
+        "nameSimilarity": 0.5
+      }
+    },
+    {
+      "label": "query without location: name match still counts",
+      "query": {
+        "name": "Aling Nena Sari-Sari Store",
+        "phone": "0917 123 4567",
+        "latitude": null,
+        "longitude": null,
+        "placeId": null
+      },
+      "existing": {
+        "name": "Aling Nena Sari Sari",
+        "phone": null,
+        "latitude": 10.3157,
+        "longitude": 123.8854
+      },
+      "expect": {
+        "isCandidate": true,
+        "reasons": [
+          "name"
+        ],
+        "distanceMeters": null,
+        "nameSimilarity": 1.0
+      }
+    }
+  ]
+}
