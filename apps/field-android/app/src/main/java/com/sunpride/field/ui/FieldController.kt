@@ -120,6 +120,8 @@ interface FieldBackend {
     fun censusConfig(): JSONObject? = null
     fun censusHistory(): List<Pair<String, String>> = emptyList()
     fun queueCensus(payload: JSONObject) { error("Census unavailable") }
+    /** SP-0163 address search and duplicate check via our API proxy; null when there is no live session. */
+    fun censusPlaces(): com.sunpride.field.census.CensusPlaces? = null
     fun photoTypes(): List<com.sunpride.field.storage.PhotoType> = emptyList()
     fun visitPhotos(clientVisitId: String): List<com.sunpride.field.storage.VisitPhoto> = emptyList()
     /** Seal the JPEG on the phone and record it for the open call; upload follows separately. */
@@ -435,6 +437,8 @@ class LiveFieldBackend(
             JSONObject(it.first.serializedOperation).getJSONObject("payload").getString("name") to it.second.state
         }
     }
+    override fun censusPlaces(): com.sunpride.field.census.CensusPlaces =
+        com.sunpride.field.census.CensusPlaces({ path -> functions.api.get(path) }, { path, body -> functions.api.post(path, body) })
     override fun queueCensus(payload: JSONObject) {
         val scope = storedScope() ?: error("No verified local partition")
         withStore { store ->

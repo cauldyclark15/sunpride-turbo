@@ -37,7 +37,7 @@ fun MoreScreen(
         Group("Your work") {
             ListRow("Product catalogue", "Search, scan and read saved product details offline", "box",
                 Modifier.testTag("catalogue-open"), onClick = onCatalogue)
-            if (onCensus != null) { Rule(); ListRow("New store (outlet census)", "Capture a store, its GPS pin and a storefront photo offline",
+            if (onCensus != null) { Rule(); ListRow("Add a store", "A new store, its location and a storefront photo. Works offline",
                 "shop", Modifier.testTag("census-open"), onClick = onCensus) }
             Rule(); ListRow("Attendance & prospects", "Time in and out, and new prospects. Works offline", "clock",
                 Modifier.testTag("workforce-open"), onClick = onWorkforce)

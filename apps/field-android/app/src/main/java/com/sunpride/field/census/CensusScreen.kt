@@ -41,56 +41,169 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.foundation.clickable
+import com.sunpride.field.ui.SecondaryButton
+import com.sunpride.field.ui.customers.CustomerRecord
 import java.io.ByteArrayOutputStream
 import java.util.Base64
 
-/** F-011 complete offline survey, independently queued from selling calls. */
+/** F-011 complete offline survey, independently queued from selling calls.
+ * SP-0163: two location choices (Use my location / Search address), landmark, duplicate warning, optional batch. */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> Unit, modifier: Modifier = Modifier) {
+fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> Unit, modifier: Modifier = Modifier,
+    stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
+    val places = remember(backend) { runCatching { backend?.censusPlaces() }.getOrNull() }
     var config by remember { mutableStateOf<JSONObject?>(null) }
     var history by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
-    var message by remember { mutableStateOf("Loading census setup…") }
+    var message by remember { mutableStateOf("Loading store setup…") }
     var busy by remember { mutableStateOf(false) }
     var name by rememberSaveable { mutableStateOf("") }; var address by rememberSaveable { mutableStateOf("") }
     var owner by rememberSaveable { mutableStateOf("") }; var phone by rememberSaveable { mutableStateOf("") }
     var batch by rememberSaveable { mutableStateOf("") }; var channel by rememberSaveable { mutableStateOf("") }
     var subchannel by rememberSaveable { mutableStateOf("") }; var estimatedClass by rememberSaveable { mutableStateOf("D") }
+    var landmark by rememberSaveable { mutableStateOf("") }
+    var mode by rememberSaveable { mutableStateOf("") } // "", "gps", "places"
     var fix by remember { mutableStateOf<JSONObject?>(null) }; var jpeg by remember { mutableStateOf<ByteArray?>(null) }
+    var lastFix by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var reverse by remember { mutableStateOf<CensusPlaces.Address?>(null) }
+    var autoAddress by remember { mutableStateOf<String?>(null) }
+    var locationNote by remember { mutableStateOf<String?>(null) }
+    var query by rememberSaveable { mutableStateOf("") }
+    var session by remember { mutableStateOf(CensusPlaces.session()) }
+    var predictions by remember { mutableStateOf<List<CensusPlaces.Prediction>>(emptyList()) }
+    var picked by remember { mutableStateOf<CensusPlaces.Address?>(null) }
+    var searchNote by remember { mutableStateOf<String?>(null) }
+    var duplicates by remember { mutableStateOf<List<DuplicateRules.Candidate>>(emptyList()) }
+    var pending by remember { mutableStateOf<JSONObject?>(null) }
     var camera by remember { mutableStateOf(false) }; var capture by remember { mutableStateOf<ImageCapture?>(null) }
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { camera = it; if (!it) message = "Camera access is needed for the storefront photo." }
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
-        message = "Tap Get GPS fix again after allowing precise location."
+        message = "Tap Use my location again after allowing precise location."
     }
     LaunchedEffect(backend) {
         try {
             config = withContext(Dispatchers.IO) { backend?.censusConfig() }
             history = withContext(Dispatchers.IO) { backend?.censusHistory().orEmpty() }
-            message = if (config == null) "Connect once to download your census batches, then capture offline." else "Saved captures stay encrypted on this phone until the next sync."
-        } catch (_: Exception) { message = "Census setup is unavailable. Connect and refresh your signed-in account." }
+            message = if (config == null) "Connect once to download the store setup, then add stores offline." else "Saved stores stay encrypted on this phone until the next sync."
+        } catch (_: Exception) { message = "Store setup is unavailable. Connect and refresh your signed-in account." }
+    }
+    val searchOffered = CensusRules.addressSearch(config) && places != null
+    val showBatch = CensusRules.showBatchPicker(config)
+    // Contract: suggestions after 3 characters, 300 ms debounce, one session per search, biased to the last fix.
+    LaunchedEffect(query, mode) {
+        if (mode != "places" || places == null) return@LaunchedEffect
+        val text = query.trim()
+        if (text.length < 3 || text == picked?.formattedAddress) { predictions = emptyList(); return@LaunchedEffect }
+        delay(300)
+        when (val r = withContext(Dispatchers.IO) { places.autocomplete(text, session, lastFix?.first, lastFix?.second) }) {
+            is CensusPlaces.Result.Ok -> { predictions = r.value; searchNote = if (r.value.isEmpty()) "No matching address. Try other words." else null }
+            CensusPlaces.Result.Offline -> { predictions = emptyList(); searchNote = OFFLINE_SEARCH }
+            CensusPlaces.Result.Unavailable -> { predictions = emptyList(); searchNote = "Address search is not available right now. Use my location instead." }
+        }
     }
     fun choices(key: String): List<Pair<String, String>> = config?.optJSONArray(key)?.let { a ->
         (0 until a.length()).map { a.getJSONObject(it) }.filter { key != "subchannels" || it.getJSONObject("data").getString("channelId") == channel }
             .map { it.getString("id") to it.optString("label", it.optString("name")) }
     }.orEmpty()
-    fun save() {
+    fun useMyLocation() {
+        if (location.requiresPermission && ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)); return
+        }
+        mode = "gps"; picked = null; predictions = emptyList()
+        scope.launch {
+            busy = true; locationNote = "Getting your location…"
+            try {
+                val got = location.fixWithinAccuracy(50.0)
+                val accuracy = got?.optDouble("accuracyMeters", Double.NaN) ?: Double.NaN
+                if (got == null || got.optBoolean("mockSignal") || !(accuracy > 0 && accuracy < 50)) {
+                    fix = null
+                    locationNote = if (got == null) "No location yet. Move outside or wait for a better signal, then try again."
+                        else if (got.optBoolean("mockSignal")) "This phone is using a fake location. Turn it off and try again."
+                        else "Location is only ±${accuracy.toInt()} m. Move outside or wait for a better signal, then try again."
+                    return@launch
+                }
+                fix = got; lastFix = got.getDouble("latitude") to got.getDouble("longitude")
+                locationNote = null
+                when (val r = places?.let { withContext(Dispatchers.IO) { it.reverse(got.getDouble("latitude"), got.getDouble("longitude")) } }) {
+                    is CensusPlaces.Result.Ok -> {
+                        reverse = r.value
+                        if (address.isBlank() || address == autoAddress) { address = r.value.formattedAddress; autoAddress = address }
+                    }
+                    CensusPlaces.Result.Offline -> { reverse = null; locationNote = "Saved with your location; the address can be fixed later. Type the address." }
+                    else -> { reverse = null; locationNote = "Type the address. Your location is saved." }
+                }
+            } finally { busy = false }
+        }
+    }
+    fun pick(p: CensusPlaces.Prediction) {
+        val api = places ?: return
+        scope.launch {
+            busy = true
+            try {
+                when (val r = withContext(Dispatchers.IO) { api.details(p.placeId, session) }) {
+                    is CensusPlaces.Result.Ok -> {
+                        picked = r.value; predictions = emptyList(); query = r.value.formattedAddress; searchNote = null
+                        address = r.value.formattedAddress; autoAddress = address; fix = null
+                        session = CensusPlaces.session() // the session ends with the details call
+                    }
+                    CensusPlaces.Result.Offline -> searchNote = OFFLINE_SEARCH
+                    CensusPlaces.Result.Unavailable -> searchNote = "Could not open that address. Try again or use my location."
+                }
+            } finally { busy = false }
+        }
+    }
+    fun reset() {
+        name = ""; address = ""; owner = ""; phone = ""; fix = null; jpeg = null; landmark = ""; mode = ""; picked = null
+        reverse = null; autoAddress = null; query = ""; predictions = emptyList(); locationNote = null; searchNote = null
+        duplicates = emptyList(); pending = null
+    }
+    fun queue(p: JSONObject) {
         val backendNow = backend ?: return
         scope.launch {
             busy = true
             try {
-                val now = System.currentTimeMillis()
-                val p = JSONObject().put("captureId", CensusRules.captureId()).put("batchId", batch).put("name", name.trim())
-                    .put("address", address.trim()).put("ownerName", owner.trim()).put("ownerPhone", phone.trim())
-                    .put("channelId", channel).put("subchannelId", subchannel).put("estimatedClass", estimatedClass)
-                    .put("deviceTime", now).put("location", fix ?: JSONObject.NULL)
-                    .put("photoJpegBase64", jpeg?.let { Base64.getEncoder().encodeToString(it) } ?: "")
                 CensusRules.validate(p)
                 withContext(Dispatchers.IO) { backendNow.queueCensus(p) }
                 history = withContext(Dispatchers.IO) { backendNow.censusHistory() }
-                message = "Census saved on this phone. It will be reviewed after sync."
-                name = ""; address = ""; owner = ""; phone = ""; fix = null; jpeg = null
-            } catch (e: Exception) { message = if (e is IllegalArgumentException) e.message ?: "Complete every census field." else "Could not save. Check your offline recording access and retry." }
+                message = "Store saved on this phone. It will be reviewed after sync."
+                reset()
+            } catch (e: Exception) { message = if (e is IllegalArgumentException) e.message ?: "Complete every field." else "Could not save. Check your offline recording access and retry." }
+            finally { busy = false }
+        }
+    }
+    fun build(acknowledged: List<String>): JSONObject {
+        val place = picked?.takeIf { mode == "places" }?.let {
+            CensusRules.Place(it.placeId ?: "", it.latitude ?: Double.NaN, it.longitude ?: Double.NaN, it.formattedAddress, it.components.json())
+        }
+        return CensusRules.payload(CensusRules.captureId(), if (showBatch) batch else null, name, address, owner, phone, channel, subchannel,
+            estimatedClass, System.currentTimeMillis(), if (mode == "gps") fix else null, place, landmark,
+            reverse?.takeIf { mode == "gps" }?.let { it.formattedAddress to it.components.json() }, acknowledged,
+            jpeg?.let { Base64.getEncoder().encodeToString(it) } ?: "")
+    }
+    fun save() {
+        backend ?: return
+        scope.launch {
+            busy = true
+            try {
+                if (showBatch && batch.isEmpty()) throw IllegalArgumentException("Choose a census batch.")
+                if (mode == "") throw IllegalArgumentException("Set the location: Use my location or Search address.")
+                if (mode == "places" && picked == null) throw IllegalArgumentException("Pick the address from the search list.")
+                if (mode == "gps" && fix == null) throw IllegalArgumentException("Tap Use my location and wait for a good signal.")
+                val draft = build(emptyList()); CensusRules.validate(draft)
+                val loc = draft.getJSONObject("location")
+                val query = DuplicateRules.Store("", name, phone, loc.getDouble("latitude"), loc.getDouble("longitude"), draft.optString("placeId").ifEmpty { null })
+                val local = DuplicateRules.find(query, stores.map { DuplicateRules.Store(it.outletId, it.name, null, it.latitude, it.longitude, address = it.address) })
+                val server = places?.let { api -> withTimeoutOrNull(5_000) { withContext(Dispatchers.IO) {
+                    api.duplicateCheck(name.trim(), phone.trim(), query.latitude, query.longitude, query.placeId) } } }
+                val found = DuplicateRules.merge(local, (server as? CensusPlaces.Result.Ok)?.value.orEmpty())
+                busy = false
+                if (found.isEmpty()) queue(draft) else { duplicates = found; pending = draft }
+            } catch (e: Exception) { message = if (e is IllegalArgumentException) e.message ?: "Complete every field." else "Could not save. Check your offline recording access and retry." }
             finally { busy = false }
         }
     }
@@ -101,10 +214,9 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
                 glyph = if (config == null) GlyphKind.INFO else GlyphKind.LOCK, textTag = "census-message")
             SectionCard("Store") {
                 Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    CensusPicker("Census batch", choices("batches"), batch, { batch = it }, "census-batch",
+                    if (showBatch) CensusPicker("Census batch", choices("batches"), batch, { batch = it }, "census-batch",
                         empty = if (config == null) "Not downloaded yet" else "No batches assigned")
                     FieldTextField(name, { name = it }, label = { Text("Store name") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("census-name"))
-                    FieldTextField(address, { address = it }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth().testTag("census-address"))
                 }
             }
             SectionCard("Owner") {
@@ -122,14 +234,41 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
                     CensusPicker("Estimated revenue-potential class", listOf("A", "B", "C", "D").map { it to "Class $it" }, estimatedClass, { estimatedClass = it }, "census-class")
                 }
             }
-            SectionCard("Location and photo") {
+            SectionCard("Location") {
                 Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    TonalButton("Get GPS fix", {
-                        if (location.requiresPermission && ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED)
-                            locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION))
-                        else scope.launch { busy = true; try { fix = location.fixWithinAccuracy(50.0); message = if (fix == null) "No GPS fix. Move outside and retry." else "GPS accuracy ±${fix!!.getDouble("accuracyMeters").toInt()} m. Must be under 50 m." } finally { busy = false } }
-                    }, Modifier.fillMaxWidth().testTag("census-gps"), !busy, glyph = GlyphKind.PIN)
-                    fix?.let { StatusChip("GPS ±${it.getDouble("accuracyMeters").toInt()} m", Look.Tone.GOOD, textTag = "census-accuracy") }
+                    Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
+                        if (mode == "gps" || !searchOffered) PrimaryBottomButton("Use my location", ::useMyLocation, Modifier.weight(1f).testTag("census-gps"), !busy)
+                        else TonalButton("Use my location", ::useMyLocation, Modifier.weight(1f).testTag("census-gps"), !busy, glyph = GlyphKind.PIN)
+                        if (searchOffered) {
+                            if (mode == "places") PrimaryBottomButton("Search address", { }, Modifier.weight(1f).testTag("census-search-mode"), !busy)
+                            else TonalButton("Search address", { mode = "places"; fix = null; reverse = null; locationNote = null; session = CensusPlaces.session() },
+                                Modifier.weight(1f).testTag("census-search-mode"), !busy)
+                        }
+                    }
+                    if (mode == "gps") fix?.let { StatusChip("Your location ±${it.getDouble("accuracyMeters").toInt()} m", Look.Tone.GOOD, textTag = "census-accuracy") }
+                    locationNote?.let { Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("census-location-note")) }
+                    if (mode == "places") {
+                        FieldTextField(query, { query = it.take(120); if (picked != null && it != picked?.formattedAddress) picked = null },
+                            label = { Text("Search address or place") }, singleLine = true, modifier = Modifier.fillMaxWidth().testTag("census-search"))
+                        predictions.forEach { p ->
+                            Column(Modifier.fillMaxWidth().clickable(enabled = !busy) { pick(p) }.padding(vertical = 8.dp).testTag("census-suggestion")) {
+                                Text(p.primary.ifEmpty { p.description }, style = MaterialTheme.typography.bodyLarge)
+                                if (p.secondary.isNotEmpty()) Text(p.secondary, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            }
+                        }
+                        searchNote?.let { Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("census-search-note")) }
+                        if (picked != null) StatusChip("Pin from address", Look.Tone.GOOD, textTag = "census-pin-from-address")
+                    }
+                    FieldTextField(address, { address = it }, label = { Text("Address") }, modifier = Modifier.fillMaxWidth().testTag("census-address"))
+                    (if (mode == "places") picked?.components else reverse?.components)?.line()?.takeIf { it.isNotEmpty() }?.let {
+                        Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("census-address-line"))
+                    }
+                    FieldTextField(landmark, { landmark = it.take(200) }, label = { Text("Landmark (optional)") }, placeholder = { Text("e.g. beside the chapel") },
+                        singleLine = true, modifier = Modifier.fillMaxWidth().testTag("census-landmark"))
+                }
+            }
+            SectionCard("Storefront photo") {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (camera) {
                         CameraPreview({ capture = it }, { message = "Camera unavailable." }, Modifier.fillMaxWidth().height(260.dp).clip(RoundedCornerShape(20.dp)))
                         PrimaryBottomButton("Take storefront photo", {
@@ -158,9 +297,32 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
                 }
             }
         }
-        ActionBar { PrimaryBottomButton("Save census offline", ::save, Modifier.fillMaxWidth().testTag("census-save"), !busy && config != null && !camera) }
+        ActionBar { PrimaryBottomButton("Save store", ::save, Modifier.fillMaxWidth().testTag("census-save"), !busy && config != null && !camera) }
+    }
+    if (pending != null && duplicates.isNotEmpty()) ModalBottomSheet(onDismissRequest = { pending = null; duplicates = emptyList() }) {
+        Column(Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, bottom = 24.dp).testTag("census-duplicates"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text("This might already be in the list", style = MaterialTheme.typography.titleMedium)
+            duplicates.take(5).forEach { d ->
+                Column(Modifier.fillMaxWidth().testTag("census-duplicate")) {
+                    Text(d.name, style = MaterialTheme.typography.bodyLarge)
+                    d.address?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                    Text(listOfNotNull(DuplicateRules.distanceText(d.distanceMeters), DuplicateRules.reasonText(d.reasons).ifEmpty { null },
+                        "Waiting for review".takeIf { d.kind == "capture" }).joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+                }
+            }
+            PrimaryBottomButton("It's this store", {
+                val outlet = duplicates.firstOrNull { d -> d.kind == "outlet" && stores.any { it.outletId == d.id } }
+                reset(); message = "Not saved. That store is already in the list."
+                outlet?.let { o -> onOpenStore?.invoke(o.id) }
+            }, Modifier.fillMaxWidth().testTag("census-dup-same"))
+            SecondaryButton("It's a different store", {
+                val ids = duplicates.map { it.id }; pending?.let { queue(build(ids)) }
+                pending = null; duplicates = emptyList()
+            }, Modifier.fillMaxWidth().testTag("census-dup-different"))
+        }
     }
 }
+private const val OFFLINE_SEARCH = "Address search needs internet. Use my location instead."
 @Composable
 private fun CensusPicker(label: String, choices: List<Pair<String, String>>, value: String, onChange: (String) -> Unit, tag: String,
     empty: String = "Choose…") {
