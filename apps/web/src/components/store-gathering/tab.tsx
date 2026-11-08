@@ -25,8 +25,8 @@ export function StoreGatheringTab() {
         </div>
       ) : null}
       {adding ? <AddStore /> : null}
-      <LocationCoverage />
       <StoreGatheringReview />
+      <LocationCoverage />
     </div>
   );
 }

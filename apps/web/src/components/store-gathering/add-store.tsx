@@ -137,6 +137,7 @@ export function AddStore({ onDone }: { onDone?: () => void }) {
   const [search, setSearch] = useState("");
   const [predictions, setPredictions] = useState<Prediction[]>([]);
   const [searchNote, setSearchNote] = useState("");
+  const [picked, setPicked] = useState("");
   const [channelId, setChannelId] = useState("");
   const [candidates, setCandidates] = useState<Candidate[]>([]);
   const [acknowledged, setAcknowledged] = useState(false);
@@ -146,7 +147,8 @@ export function AddStore({ onDone }: { onDone?: () => void }) {
   const requestKey = useRef<string>("");
   const term = useDebounced(search.trim());
   useEffect(() => {
-    if (term.length < 3 || !setup.data?.addressSearch) return;
+    if (term.length < 3 || term === picked || !setup.data?.addressSearch)
+      return;
     if (!session.current) session.current = crypto.randomUUID();
     const controller = new AbortController();
     apiFetch<{ predictions: Prediction[] }>("/api/v1/places/autocomplete", {
@@ -175,7 +177,7 @@ export function AddStore({ onDone }: { onDone?: () => void }) {
     return () => controller.abort();
     // The pin only biases suggestions; do not re-query when it moves.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [term, setup.data?.addressSearch]);
+  }, [term, picked, setup.data?.addressSearch]);
   const dupName = useDebounced(name.trim(), 400);
   const dupPhone = useDebounced(phone.trim(), 400);
   useEffect(() => {
@@ -200,6 +202,7 @@ export function AddStore({ onDone }: { onDone?: () => void }) {
   }, [allowed, dupName, dupPhone, pin, placeId]);
   async function pick(p: Prediction) {
     setPredictions([]);
+    setPicked(p.description.trim());
     setSearch(p.description);
     try {
       const d = await apiFetch<PlaceDetails>("/api/v1/places/details", {
@@ -276,7 +279,7 @@ export function AddStore({ onDone }: { onDone?: () => void }) {
     (x) => x.data.channelId === channelId,
   );
   // Stale answers are hidden rather than cleared inside effects.
-  const shown = term.length >= 3 ? predictions : [];
+  const shown = term.length >= 3 && term !== picked ? predictions : [];
   const matches = dupName.length >= 2 ? candidates : [];
   const blocked = matches.length > 0 && !acknowledged;
   return (

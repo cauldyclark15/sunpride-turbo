@@ -154,6 +154,10 @@ async function googleEngine(
           for (const o of others)
             bounds.extend({ lat: o.latitude, lng: o.longitude });
           map.fitBounds(bounds, 32);
+          // Matches a few metres away would otherwise zoom past street level.
+          google.maps.event.addListenerOnce(map, "idle", () => {
+            if ((map.getZoom() ?? 0) > 18) map.setZoom(18);
+          });
         } else {
           map.setCenter({ lat: pin.latitude, lng: pin.longitude });
           map.setZoom(17);

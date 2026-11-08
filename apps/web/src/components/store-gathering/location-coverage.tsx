@@ -91,7 +91,7 @@ export function LocationCoverageView({
                 </span>
               </a>
               <span
-                className={`shrink-0 text-xs ${r.located ? "text-success" : "text-warning"}`}
+                className={`shrink-0 text-xs ${r.located ? "text-muted" : "font-medium text-foreground"}`}
               >
                 {r.located ? "Location verified" : "No location yet"}
               </span>
@@ -122,7 +122,7 @@ export function LocationCoverage() {
     ["masters", "store-locations", missingOnly, term],
     ({ signal }) =>
       apiFetch<Locations>("/api/v1/masters/store-locations", {
-        query: { missing: missingOnly ? 1 : null, q: term || null, limit: 100 },
+        query: { missing: missingOnly ? 1 : null, q: term || null, limit: 25 },
         signal,
       }),
   );
