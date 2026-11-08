@@ -1,0 +1,172 @@
+/** SP-0162 store gathering: shared shapes and plain-word helpers for the office screens. */
+
+export type AddressParts = {
+  street?: string | null;
+  barangay?: string | null;
+  city?: string | null;
+  province?: string | null;
+  region?: string | null;
+  postalCode?: string | null;
+};
+
+export type DuplicateReason = "place" | "phone" | "nearby" | "name";
+
+export type Candidate = {
+  kind: "outlet" | "capture";
+  id: string;
+  code: string | null;
+  name: string;
+  address: string;
+  latitude: number | null;
+  longitude: number | null;
+  distanceMeters: number | null;
+  reasons: DuplicateReason[];
+  score: number;
+};
+
+export type Capture = {
+  id: string;
+  name: string;
+  address: string;
+  accuracy_meters: number | null;
+  captured_at: string;
+  owner_name: string;
+  owner_phone: string;
+  estimated_class: string;
+  agent: string;
+  batch: string;
+  latitude: number;
+  longitude: number;
+  location_source: "gps" | "places";
+  formatted_address: string | null;
+  address_components: AddressParts | null;
+  landmark: string | null;
+  duplicate_flag: boolean;
+  duplicate_candidates: Candidate[];
+  acknowledged_duplicate_ids: string[];
+  channel: string | null;
+  subchannel: string | null;
+};
+
+export type Batch = {
+  id: string;
+  name: string;
+  expected_outlets: number;
+  accepted: number;
+  pending: number;
+  coveragePct: number;
+  targetPct: number;
+};
+
+export type Queue = { batches: Batch[]; rows: Capture[]; truncated: boolean };
+
+export type Prediction = {
+  placeId: string;
+  primary: string;
+  secondary: string;
+  description: string;
+};
+
+export type PlaceDetails = {
+  placeId: string;
+  formattedAddress: string;
+  latitude: number;
+  longitude: number;
+  components: AddressParts;
+};
+
+export type MapPoint = {
+  id: string;
+  latitude: number;
+  longitude: number;
+  label: string;
+};
+
+const REASON_WORDS: Record<DuplicateReason, string> = {
+  place: "Same place on Google",
+  phone: "Same phone number",
+  nearby: "Very close by",
+  name: "Same name nearby",
+};
+
+export function reasonWords(reasons: readonly DuplicateReason[]): string {
+  return reasons.map((r) => REASON_WORDS[r] ?? r).join(" · ");
+}
+
+export function formatDistance(meters: number | null): string {
+  if (meters === null || !Number.isFinite(meters)) return "Distance unknown";
+  if (meters < 1) return "Same spot";
+  if (meters < 1000) return `${Math.round(meters)} m away`;
+  return `${(meters / 1000).toFixed(1)} km away`;
+}
+
+export function sourceBadge(c: {
+  location_source: "gps" | "places";
+  accuracy_meters: number | null;
+}): string {
+  if (c.location_source === "places") return "Address search";
+  return c.accuracy_meters === null
+    ? "GPS"
+    : `GPS ±${Math.round(c.accuracy_meters)} m`;
+}
+
+export function addressLine(parts: AddressParts | null | undefined): string {
+  if (!parts) return "";
+  return [
+    parts.street,
+    parts.barangay,
+    parts.city,
+    parts.province,
+    parts.postalCode,
+  ]
+    .filter((p) => typeof p === "string" && p.trim())
+    .join(", ");
+}
+
+export function coverageLine(located: number, total: number): string {
+  if (total === 0) return "No stores yet";
+  const pct = Math.round((100 * located) / total);
+  return `${located.toLocaleString("en-PH")} of ${total.toLocaleString("en-PH")} stores have a verified location (${pct}%)`;
+}
+
+/** Stored (at capture time) and live candidates, deduped by id; live wins. */
+export function mergeCandidates(
+  stored: readonly Candidate[],
+  live: readonly Candidate[],
+): Candidate[] {
+  const byId = new Map<string, Candidate>();
+  for (const c of stored) byId.set(c.id, c);
+  for (const c of live) byId.set(c.id, c);
+  return [...byId.values()].sort(
+    (a, b) =>
+      b.score - a.score ||
+      (a.distanceMeters ?? Infinity) - (b.distanceMeters ?? Infinity) ||
+      a.name.localeCompare(b.name),
+  );
+}
+
+export function capturedWhen(iso: string, now = Date.now()): string {
+  const at = new Date(iso).getTime();
+  if (!Number.isFinite(at)) return "";
+  const minutes = Math.round((now - at) / 60000);
+  if (minutes < 1) return "just now";
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.round(minutes / 60);
+  if (hours < 24) return `${hours} h ago`;
+  return new Date(at).toLocaleDateString("en-PH", {
+    month: "short",
+    day: "numeric",
+    timeZone: "Asia/Manila",
+  });
+}
+
+export function candidatePoints(list: readonly Candidate[]): MapPoint[] {
+  return list
+    .filter((c) => c.latitude !== null && c.longitude !== null)
+    .map((c) => ({
+      id: c.id,
+      latitude: c.latitude as number,
+      longitude: c.longitude as number,
+      label: `${c.name} · ${formatDistance(c.distanceMeters)}`,
+    }));
+}

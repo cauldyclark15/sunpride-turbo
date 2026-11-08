@@ -2,6 +2,7 @@
 
 import { RetailWorkspace } from "../../storepos/retail-workspace";
 import { DormancyPanel } from "../../dormancy-panel";
+import { StoreGatheringTab } from "../../store-gathering/tab";
 
 import Link from "next/link";
 import { OutletContextView } from "./tower";
@@ -288,11 +289,13 @@ export function StoresPage() {
       question={
         tab === "retail"
           ? "Which retail store needs action?"
-          : "Where is distribution weak?"
+          : tab === "gathering"
+            ? "Which stores still need a verified location?"
+            : "Where is distribution weak?"
       }
-      header={tab === "retail" ? undefined : result.data}
+      header={tab === "distribution" ? result.data : undefined}
       bar={
-        tab === "retail" ? undefined : (
+        tab !== "distribution" ? undefined : (
           <PeriodScopeBar scopeLabel={result.data?.scope.label} />
         )
       }
@@ -318,8 +321,18 @@ export function StoresPage() {
         >
           Retail POS
         </button>
+        <button
+          role="tab"
+          aria-selected={tab === "gathering"}
+          className={buttonClass}
+          onClick={() => setTab("gathering")}
+        >
+          Locations and gathering
+        </button>
       </div>
-      {tab === "retail" ? (
+      {tab === "gathering" ? (
+        <StoreGatheringTab />
+      ) : tab === "retail" ? (
         <RetailWorkspace />
       ) : (
         <>
