@@ -1,0 +1,7 @@
+Config/Local.xcconfig
+**/xcuserdata/
+DerivedData/
+*.xcresult
+*.ipa
+*.app
+.DS_Store
