@@ -78,3 +78,36 @@ Today has a **Work day** card: **Start day** (or the day's first call Start) beg
 
 After a password sign-in the app offers "Use Face ID to sign in next time?". Turning it on moves the Better Auth session into a Keychain item protected by `.biometryCurrentSet` + `WhenUnlockedThisDeviceOnly` (a new face or finger forces the password; no passcode fallback); the password is never stored. Cancel goes to the password screen; sign-out and the Account switch clear it. Details, failure rules and tests: [`docs/BIOMETRIC_SIGN_IN.md`](docs/BIOMETRIC_SIGN_IN.md).
 
+## Customer gathering: "Add a store" (SP-0164)
+
+Today → Customers → **Add a store** (and **Add a store** on Customers when a search finds nothing, with the search words as
+the store name) gathers a new store for the office to check: store name, owner name and phone, channel → sub-channel,
+class A–D, a storefront photo (long edge 800 px, JPEG ≤ 160 KiB, no EXIF) and the store location. Same behaviour as
+Android SP-0163; the spec is `_plans/sunpride-inv-pos/CG-CONTRACT.md`. On in the beta (`FieldFeature.storeGathering`).
+
+- **Use my location**: the visit check-in location code (`LocationCapture`) takes a fresh fix; it is used only when it is
+  not simulated, better than ±50 m and within 2 minutes of the save time (otherwise "Move outside or wait for a better
+  signal" and **Try again**). The accuracy is shown ("±12 m"). Online, `GET /api/v1/places/reverse` fills the address and
+  the barangay/city line for the agent to confirm; offline the fix is kept and the note says "Saved with your location;
+  the address can be fixed later".
+- **Search address** (only when `census-config.addressSearch` is true): suggestions from `GET /api/v1/places/autocomplete`
+  after 3 characters, 300 ms debounce, one session UUID per search, biased to the last fix; a pick calls
+  `/api/v1/places/details` and shows "Pin from address". Offline: "Address search needs internet. Use my location instead."
+  The phone never calls Google; only our proxy with the normal bearer.
+- **Duplicate warning before saving**: the shared rules (`Census/CensusDuplicates.swift`; every vector of
+  `packages/domain-contracts/fixtures/mobile-v1/census-duplicates.json` is checked in `CensusDuplicatesTests`) run against
+  the outlets on the phone (works offline) and, online, `POST /api/v1/masters/census/duplicate-check` is merged in (dedupe
+  by id). **It's this store** cancels (and opens that store when it is on the phone); **It's a different store** saves with
+  `acknowledgedDuplicateIds`.
+- The batch picker is hidden when the server sends a `defaultBatch` and at most one batch (the single batch id is sent, or
+  none); otherwise it is shown as before.
+- Saving queues one signed `census.capture` op (`locationSource` gps|places, `placeId`, `addressComponents`,
+  `formattedAddress`, `landmark`, `acknowledgedDuplicateIds`) in the SQLCipher outbox (`FieldStore.enqueue` re-validates
+  it); it counts in the sync status and goes with the next sync. The setup (`census-config`) is kept in the partition's
+  `local.census` cache for offline use and dropped on a refusal.
+- Older servers degrade quietly: no `addressSearch` → no Search address and no reverse lookup; a 404 from
+  `duplicate-check` → the phone-only check.
+
+Tests: `CensusDuplicatesTests`, `CensusCaptureTests` (payload, GPS rules, photo bound, config, offline cache, outbox,
+proxy status mapping) and `AddStoreUITests` (stub backend; `FIELD_STUB_PLACES=off` plays an older server,
+`FIELD_STUB_LOCATION=weak` a ±120 m fix).
