@@ -1011,6 +1011,82 @@ final class AppModel {
 
     private struct EmptyArgs: Encodable {}
 
+    // MARK: SP-0164 customer gathering ("Add a store")
+
+    /// Tests inject a fake; the app talks to our `/api/v1` (never Google directly).
+    @ObservationIgnored var censusServiceOverride: (any CensusService)?
+    @ObservationIgnored private var liveCensusService: ServerCensusService?
+    var censusService: (any CensusService)? {
+        if let censusServiceOverride { return censusServiceOverride }
+        guard signedIn, let functions else { return nil }
+        if liveCensusService == nil { liveCensusService = ServerCensusService(api: functions) }
+        return liveCensusService
+    }
+    static let censusCacheEntity = "local.census"
+
+    /// The gathering setup: live when the server answers, else the copy saved in this verified partition.
+    /// A refusal drops the saved copy (access was withdrawn). Returns (config, fromSavedCopy).
+    func loadCensusConfig() async -> (config: CensusConfig?, saved: Bool) {
+        guard signedIn, let partition = activeStoragePartition, let store = fieldStore else { return (nil, false) }
+        func saved() -> CensusConfig? {
+            guard (try? store.isHeld(partition)) == false,
+                  let row = try? store.localCache(entity: Self.censusCacheEntity, key: "config", for: partition) else { return nil }
+            return try? CensusConfig(json: row.body)
+        }
+        guard let service = censusService, !isOffline else { return (saved(), true) }
+        do {
+            let data = try await service.config()
+            let config = try CensusConfig(json: data)
+            guard activeStoragePartition == partition else { return (nil, false) }
+            try? store.putLocalCache(entity: Self.censusCacheEntity, key: "config", body: data,
+                                     savedAt: Int64(now().timeIntervalSince1970 * 1000), keepPrefix: "config", for: partition)
+            return (config, false)
+        } catch CensusServiceError.offline {
+            return (saved(), true)
+        } catch MobileError.offline {
+            return (saved(), true)
+        } catch CensusServiceError.unavailable {
+            return (saved(), true)
+        } catch {
+            // Refused or unsupported: never show an old copy of withdrawn access.
+            try? store.clearLocalCache(entity: Self.censusCacheEntity, for: partition)
+            return (nil, false)
+        }
+    }
+
+    /// The outlets on this phone, for the offline duplicate warning.
+    var censusExisting: [CensusDuplicates.Existing] {
+        customers.map { c in
+            CensusDuplicates.Existing(kind: "outlet", id: c.outletId, name: c.name, phone: c.account?.contactNumber,
+                                      address: c.displayAddress, latitude: c.location?.latitude, longitude: c.location?.longitude)
+        }
+    }
+
+    /// Captures saved on this phone, newest first, with a plain state.
+    func censusCaptures() -> [(id: UUID, name: String, state: String)] {
+        guard let partition = activeStoragePartition, let store = fieldStore,
+              let intents = try? store.intents(for: partition) else { return [] }
+        let rejected = Set(((try? store.reviewOutbox(for: partition)) ?? []).map(\.intent.requestId))
+        let waiting = Set(((try? store.pendingOutbox(for: partition)) ?? []).map(\.intent.requestId) +
+                          ((try? store.heldOutbox(for: partition)) ?? []).map(\.intent.requestId))
+        return intents.filter { $0.kind == CensusCapture.kind }.reversed().map { intent in
+            let name = intent.payload?["name"] as? String ?? "Store"
+            let state = rejected.contains(intent.requestId) ? "Needs review"
+                : waiting.contains(intent.requestId) ? "Saved on phone · waiting to send" : "Sent for office review"
+            return (intent.requestId, name, state)
+        }
+    }
+
+    /// Queue one capture in the encrypted outbox (works offline), then send soon when online.
+    func queueCensus(_ draft: CensusCapture.Draft) throws {
+        guard let partition = activeStoragePartition else { throw StoreError.heldForReview }
+        let store = try storage(for: partition)
+        let timestamp = now()
+        let payload = try CensusCapture.payload(draft, now: timestamp)
+        try store.enqueue(try CensusCapture.intent(payload), for: partition, now: timestamp)
+        didQueueWork()
+    }
+
     // MARK: SP-0138 live location
 
     /// Hands the controller the current account, phone state and partition (it starts/stops sharing).
@@ -1133,6 +1209,7 @@ enum ReviewText {
         case "visit.locationException": return "Location note"
         case "order.submit", "order.capture": return "Order"
         case "evidence.attach": return "Photo"
+        case "census.capture": return "New store"
         default: return "Phone update"
         }
     }
@@ -1145,6 +1222,7 @@ enum ReviewText {
         "wrong_date": "Visit date does not match the phone date",
         "idempotency_conflict": "Already recorded for this store today",
         "stock_conflict": "Stock changed in the office", "load_not_posted": "Truck load not posted yet",
+        "place_mismatch": "The address pin did not match the map",
         "unknown_code": "The office gave a reason this app does not know", "unknown_status": "The office answer was not clear"
     ]
     static func line(kind: String, code: String) -> String {

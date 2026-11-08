@@ -70,6 +70,14 @@ struct TodayScreen: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("openCustomers")
+                if features.contains(.storeGathering) {
+                    NavigationLink { AddStoreScreen(model: model) } label: {
+                        CalmListRow(symbol: "plus.circle", title: "Add a store",
+                                    meta: "A store that is not in the list yet", trailing: "chevron.right")
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("openAddStore")
+                }
             }
             if let message = model.syncMessage {
                 Text(message).font(SunprideTokens.TypeStyle.meta)

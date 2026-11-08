@@ -711,13 +711,19 @@ final class EncryptedFieldStore: FieldLocalStore {
         return now.timeIntervalSince1970 * 1000 < Double(expiry)
     }
     func enqueue(_ intent: VisitIntent, for partition: StorePartition, now: Date) throws {
-        guard ["visit.checkIn", "visit.activity", "visit.checkOut"].contains(intent.kind),
+        guard ["visit.checkIn", "visit.activity", "visit.checkOut", CensusCapture.kind].contains(intent.kind),
               !intent.operationJSON.isEmpty else { throw StoreError.invalidInput }
         // Validate a single immutable serialized operation; no financial/unsupported kinds.
         guard let json = try? JSONSerialization.jsonObject(with: intent.operationJSON) as? [String: Any],
               json["kind"] as? String == intent.kind,
               json["clientRequestId"] as? String == intent.requestId.uuidString.lowercased(),
-              json["payload"] is [String: Any] else { throw StoreError.invalidInput }
+              let payload = json["payload"] as? [String: Any] else { throw StoreError.invalidInput }
+        // SP-0164: a store capture is standalone (no call, no dependency) and must be complete when queued.
+        if intent.kind == CensusCapture.kind {
+            guard (json["dependsOn"] as? [Any])?.isEmpty == true,
+                  payload["captureId"] as? String == intent.requestId.uuidString.lowercased(),
+                  CensusCapture.validStored(payload, now: now) else { throw StoreError.invalidInput }
+        }
         try transaction {
             guard try isLeaseValid(now: now, for: partition) else { throw StoreError.leaseExpired }
             guard try state(partition)?.1 == false else { throw StoreError.heldForReview }
