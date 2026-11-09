@@ -13,6 +13,7 @@
 #
 # The source is only read (pg_dump, sqlite3 .backup, tar). Nothing secret is printed.
 set -euo pipefail
+umask 077
 KCTX=${KCTX:-lke495913-ctx}
 NS=${NS:-sunpride}
 SRC_DB_URL_FILE=${SRC_DB_URL_FILE:-$HOME/.sunpride-keys/pg-dev-url}

@@ -17,6 +17,8 @@ COPY packages/ui ./packages/ui
 COPY packages/typescript-config ./packages/typescript-config
 COPY packages/eslint-config ./packages/eslint-config
 COPY apps/web ./apps/web
+# Tests reach into other apps (api, android) that are not in this image; next build typechecks them.
+RUN find apps/web packages/ui -name '*.test.ts' -o -name '*.test.tsx' -o -name '*.spec.ts' | grep -v node_modules | xargs rm -f
 ARG API_ORIGIN=http://sunpride-api:4320
 ARG NEXT_PUBLIC_BETA_ENABLE=integration
 ARG SP_BUILD_SHA=container
