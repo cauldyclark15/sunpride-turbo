@@ -85,7 +85,7 @@ data:
   SAP_MODE: mock
   SAP_ORIGIN: http://127.0.0.1:4435
   FILES_DIR: /data/files
-  PUBLIC_ORIGIN: https://sunpride-k8s.cauldnclark.com
+  PUBLIC_ORIGIN: https://sunpride.cauldnclark.com
   DB_POOL_MAX: "20"
   # MT OCR on Linux (ocr.js otherwise needs macOS swift)
   SUNPRIDE_OCR_COMMAND: '["bun","/app/apps/api/scripts/ocr-tesseract.js"]'

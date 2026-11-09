@@ -9,6 +9,7 @@ resources:
   - 40-web.yaml
   - 50-docs.yaml
   - 60-ingress.yaml
+  - 61-ingress-prod.yaml
   - 70-backup.yaml
 images:
   - {name: cauldyclark15/sunpride-api, newTag: "6947ee24dd"}
