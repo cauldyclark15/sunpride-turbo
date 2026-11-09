@@ -209,7 +209,7 @@ export function OutsideCallOrders() {
                               })
                             }
                           >
-                            Record activity
+                            Add activity
                           </Button>
                         )}
                       {canEncode && order.status !== "cancelled" && (
@@ -234,7 +234,7 @@ export function OutsideCallOrders() {
                         aria-label={
                           target.action === "cancel"
                             ? "Cancel PO"
-                            : "Record activity"
+                            : "Add activity"
                         }
                         className="grid gap-3"
                       >
@@ -543,7 +543,7 @@ export function EncodeOutsideCallPo() {
         </fieldset>
         <div>
           <Button type="submit" className="h-8" isDisabled={busy}>
-            Save PO
+            Save
           </Button>
         </div>
         {error && (

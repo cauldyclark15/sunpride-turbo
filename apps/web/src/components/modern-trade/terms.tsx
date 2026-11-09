@@ -372,7 +372,7 @@ export function TradeTerms({
                   className={action}
                   disabled={cmd.pending || !conditions.length}
                 >
-                  Save draft terms
+                  Save
                 </button>
               </div>
             </Form>

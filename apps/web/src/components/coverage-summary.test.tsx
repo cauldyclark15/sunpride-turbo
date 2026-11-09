@@ -1,8 +1,10 @@
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import {
+  CoveragePlansListView,
   CoverageSummaryView,
   CoverageStandardsReview,
+  monthLabel,
 } from "./coverage-summary";
 import type { Summary } from "./coverage-model";
 vi.mock("./coverage-data", () => ({ useCoverageQuery: vi.fn() }));
@@ -44,54 +46,69 @@ const data: Summary = {
   ],
 };
 describe("manager-first coverage", () => {
-  it("read-only people can view an existing plan but cannot start a missing one", () => {
+  const list = (d: Summary, extra: Record<string, unknown> = {}) =>
+    renderToStaticMarkup(
+      <CoveragePlansListView
+        data={d}
+        q=""
+        status={null}
+        page={1}
+        onSearch={() => {}}
+        onFilter={() => {}}
+        onPage={() => {}}
+        onOpen={() => {}}
+        onAdd={() => {}}
+        {...extra}
+      />,
+    );
+  it("read-only people can view an existing plan but cannot add a missing one", () => {
     const missing = {
       ...data,
       rows: [
         {
           ...data.rows[0]!,
           status: "not_started",
+          awaitsMyApproval: false,
           action: { label: "Start plan", profileId: "person" },
         },
       ],
     };
-    expect(
-      renderToStaticMarkup(
-        <CoverageSummaryView data={missing} onOpen={() => {}} />,
-      ),
-    ).not.toContain("Start plan");
-    expect(
-      renderToStaticMarkup(
-        <CoverageSummaryView data={missing} onOpen={() => {}} canPlan />,
-      ),
-    ).toContain("Start plan");
+    expect(list(missing)).not.toContain("Add plan");
+    const html = list(missing, { canPlan: true });
+    expect(html).toContain("Add plan");
+    expect(html).not.toContain("Start plan");
   });
-  it("shows readiness versus target and prior, overdue work, my queue and trend", () => {
-    const html = renderToStaticMarkup(
-      <CoverageSummaryView data={data} onOpen={() => {}} />,
-    );
-    expect(html).toContain("2 of 5");
-    expect(html).toContain("3 ready in 2026-09");
-    expect(html).toContain("1 waiting for my approval");
-    expect(html).toContain("2 overdue");
-    expect(html).toContain("Monthly readiness trend");
-  });
-  it("offers a next action and named drill without exposing identifiers", () => {
-    const html = renderToStaticMarkup(
-      <CoverageSummaryView data={data} onOpen={() => {}} />,
-    );
-    expect(html).toContain("Alex");
-    expect(html).toContain("Review plan");
+  it("plans list: Add plan top-right, status chips, Review for my queue, no ids", () => {
+    const html = list(data, { canPlan: true });
+    expect(html.indexOf("Add plan")).toBeLessThan(html.indexOf("Alex"));
+    expect(html).toContain("Not started");
+    expect(html).toContain(">Review<");
     expect(html).toContain("Approval late");
     expect(html).not.toContain("private-profile-id");
     expect(html).not.toContain("not_started");
+    expect(html).not.toContain("Coverage commitments");
+  });
+  it("plans list search narrows by person", () => {
+    const two = {
+      ...data,
+      rows: [data.rows[0]!, { ...data.rows[0]!, profileId: "p2", name: "Bea" }],
+    };
+    const html = list(two, { q: "bea" });
+    expect(html).toContain("Bea");
+    expect(html).not.toContain("Alex");
+  });
+  it("overview shows readiness with plain months, no ISO", () => {
+    const html = renderToStaticMarkup(<CoverageSummaryView data={data} />);
+    expect(html).toContain("2 of 5");
+    expect(html).toContain("ready for Oct 2026");
+    expect(html).toContain("3 ready in Sep 2026");
+    expect(html).toContain("1 waiting for my approval");
+    expect(html).toContain("Monthly readiness trend");
+    expect(html).not.toMatch(/\d{4}-\d{2}/);
+    expect(monthLabel("2026-11")).toBe("Nov 2026");
   });
   it("distinguishes missing setup from zero coverage", () => {
-    const html = renderToStaticMarkup(
-      <CoverageSummaryView data={{ ...data, rows: [] }} onOpen={() => {}} />,
-    );
-    expect(html).toContain("Assign people in Setup");
-    expect(html).toContain("not zero coverage");
+    expect(list({ ...data, rows: [] })).toContain("Assign people in Setup");
   });
   it("reviews calls versus governed standard, routes, frequency and received execution", () => {
     const html = renderToStaticMarkup(

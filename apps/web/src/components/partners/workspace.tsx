@@ -1,6 +1,12 @@
 "use client";
 
+import Link from "next/link";
 import { useState, type FormEvent } from "react";
+import { formatDateRange } from "../cockpit/format";
+import { Drawer } from "../cockpit/kit/drawer";
+import { useUrlState } from "../cockpit/use-url-state";
+import { ListPage, PAGE_SIZE, readPage } from "../list-page/list-page";
+import { UrlTabs } from "../url-tabs";
 import { apiFetch, mutate, useApi, useLive } from "../../lib/api";
 import { useSession } from "../../lib/auth/session";
 import { TrendChart } from "../cockpit/kit/trend-chart";
@@ -367,8 +373,12 @@ export function AgencyWorkspace() {
       day: "2-digit",
     }).format(new Date()),
   );
-  const [selected, setSelected] = useState(""),
-    [from, setFrom] = useState(dateOf(Date.parse(today) - 6 * 86400000)),
+  const url = useUrlState();
+  const selected = url.params.get("id") ?? "";
+  const setSelected = (next: string) =>
+    url.set({ id: next || null, tab: null });
+  const [adding, setAdding] = useState(false);
+  const [from, setFrom] = useState(dateOf(Date.parse(today) - 6 * 86400000)),
     [to, setTo] = useState(today),
     [message, setMessage] = useState(""),
     [busy, setBusy] = useState(false),
@@ -378,7 +388,10 @@ export function AgencyWorkspace() {
     "/api/v1/partners",
   );
   const id =
-    selected || session.me?.partner?.id || list.data?.rows[0]?.id || "";
+    selected ||
+    session.me?.partner?.id ||
+    (office ? "" : list.data?.rows[0]?.id) ||
+    "";
   const previous = comparisonPeriod(from, to);
   const current = useApi<AgencyEvidence>(
     id ? ["partners", id, "evidence", from, to] : null,
@@ -417,6 +430,7 @@ export function AgencyWorkspace() {
         );
         if (!fresh.rows.some((r) => r.id === result.id))
           throw new Error("Agency read-back failed");
+        setAdding(false);
         setSelected(result.id);
       } else if (action === "billing/build") {
         const fresh = await apiFetch<Billing>(
@@ -450,212 +464,286 @@ export function AgencyWorkspace() {
         to check your access.
       </p>
     );
-  return (
-    <div className="mx-auto max-w-7xl space-y-5 p-5 lg:p-8">
-      <header>
-        <p className="text-xs uppercase tracking-widest text-muted">
-          Workforce performance
-        </p>
-        <h1 className="mt-2 text-3xl font-semibold tracking-tight">
-          Agency work & billing
-        </h1>
-        <p className="mt-2 text-sm text-muted">
-          Which staff completed compliant work, and what evidence supports
-          billing?
-        </p>
-      </header>
-      <div className={`${panel} flex flex-wrap items-end gap-4`}>
-        <label className="min-w-52 text-sm">
-          Agency
-          <select
-            className={field}
-            value={id}
-            onChange={(e) => {
-              setSelected(e.target.value);
-              setPeriod("");
-            }}
-          >
-            {list.data?.rows.map((p) => (
-              <option value={p.id} key={p.id}>
-                {p.name}
+  const tab = readAgencyTab(url.params, editing);
+  const addDrawer = (
+    <Drawer open={adding} title="Add agency" onClose={() => setAdding(false)}>
+      <form
+        className="space-y-3"
+        onSubmit={submit("create", (f) => ({
+          code: f.get("code"),
+          name: f.get("name"),
+          orgUnitId: f.get("orgUnitId"),
+        }))}
+      >
+        <label className="block text-sm">
+          Code
+          <input className={field} name="code" required maxLength={50} />
+        </label>
+        <label className="block text-sm">
+          Name
+          <input className={field} name="name" required />
+        </label>
+        <label className="block text-sm">
+          Supervising area
+          <select className={field} name="orgUnitId" required>
+            {units.data?.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
               </option>
             ))}
           </select>
         </label>
-        <label className="text-sm">
-          From
-          <input
-            className={field}
-            type="date"
-            max={to}
-            value={from}
-            onChange={(e) => setFrom(e.target.value)}
-          />
-        </label>
-        <label className="text-sm">
-          Through
-          <input
-            className={field}
-            type="date"
-            min={from}
-            max={today}
-            value={to}
-            onChange={(e) => setTo(e.target.value)}
-          />
-        </label>
-        <button className={button} onClick={() => void current.refetch()}>
-          Refresh evidence
-        </button>
+        <div className="flex gap-2">
+          <button className={button} disabled={busy}>
+            Save
+          </button>
+          <button
+            type="button"
+            className={button}
+            onClick={() => setAdding(false)}
+          >
+            Cancel
+          </button>
+        </div>
+      </form>
+    </Drawer>
+  );
+  if (office && !selected) {
+    const q = url.params.get("q") ?? "";
+    const page = readPage(url.params);
+    const rows = list.data?.rows ?? null;
+    const hits = (rows ?? []).filter((r) =>
+      r.name.toLowerCase().includes(q.trim().toLowerCase()),
+    );
+    return (
+      <div className="mx-auto grid max-w-7xl gap-5 p-5 lg:p-8">
+        <h1 className="text-3xl font-semibold tracking-tight">Agencies</h1>
+        <ListPage<{ id: string; name: string }>
+          noun={{ one: "agency", many: "agencies" }}
+          rows={
+            rows ? hits.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) : null
+          }
+          total={rows ? hits.length : null}
+          loading={!rows}
+          page={page}
+          onPage={(n) => url.set({ page: n > 1 ? String(n) : null })}
+          q={q}
+          onSearch={(v) =>
+            url.set({ q: v || null, page: null }, { replace: true })
+          }
+          searchPlaceholder="Search agencies"
+          onAdd={editing ? () => setAdding(true) : undefined}
+          rowKey={(r) => r.id}
+          rowHref={(r) => url.hrefWith({ id: r.id, q: null, page: null })}
+          columns={[
+            {
+              key: "name",
+              label: "Agency",
+              primary: true,
+              render: (r) => r.name,
+              text: (r) => r.name,
+            },
+            {
+              key: "edit",
+              label: "",
+              align: "right",
+              render: () =>
+                editing ? (
+                  <span className="inline-flex min-h-9 items-center rounded-[10px] border border-border px-3 text-sm font-medium">
+                    Edit
+                  </span>
+                ) : null,
+            },
+          ]}
+        />
+        {addDrawer}
       </div>
+    );
+  }
+  const name =
+    current.data?.partner.name ??
+    list.data?.rows.find((r) => r.id === id)?.name ??
+    "Agency";
+  return (
+    <div className="mx-auto max-w-7xl space-y-5 p-5 lg:p-8">
+      {office ? (
+        <Link
+          href={url.hrefWith({ id: null, tab: null })}
+          className="text-sm text-muted underline"
+        >
+          ← Agencies
+        </Link>
+      ) : null}
+      <header className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-3xl font-semibold tracking-tight">{name}</h1>
+        {editing && tab !== "setup" ? (
+          <button className={button} onClick={() => url.set({ tab: "setup" })}>
+            Edit
+          </button>
+        ) : null}
+      </header>
+      <UrlTabs
+        label="Agency"
+        tabs={AGENCY_TABS.filter((t) => editing || t.id !== "setup")}
+        tab={tab}
+        onTab={(t) => url.set({ tab: t === "work" ? null : t })}
+      />
       {message ? (
         <p role="status" className={panel}>
           {message}
         </p>
       ) : null}
-      {current.error ? (
-        <p role="alert" className={panel}>
-          Evidence could not be read. Choose up to 31 elapsed days and check
-          current staff and store access.
-        </p>
-      ) : current.data ? (
-        <AgencyEvidenceView
-          data={current.data}
-          prior={prior.data}
-          busy={busy}
-          onBuild={() => void save("billing/build", { from, to })}
-        />
-      ) : (
-        <p className={panel}>
-          {id
-            ? "Loading system evidence…"
-            : "Create an agency and assign staff to begin."}
-        </p>
-      )}
-      {id && current.data ? (
-        <ClaimantClaims
-          key={id}
-          base="/api/v1/partners/claims/shared"
-          partyId={id}
-          name={current.data.partner.name}
-        />
-      ) : null}
-      {id ? (
-        <section className={panel}>
-          <h2 className="font-medium">Frozen billing packages</h2>
-          <label className="mt-3 block text-sm">
-            Evidence period
-            <select
-              className={field}
-              value={period}
-              onChange={(e) => setPeriod(e.target.value)}
-            >
-              <option value="">Choose a package</option>
-              {setup.data?.periods.map((p) => (
-                <option value={p.id} key={p.id}>
-                  {p.period_from.slice(0, 10)} – {p.period_to.slice(0, 10)} ·{" "}
-                  {p.decision ?? "Awaiting office sign-off"}
-                </option>
-              ))}
-            </select>
-          </label>
-          {bill.error ? (
-            <p role="alert" className="mt-4 text-sm">
-              This package is no longer available under your current staff and
-              store access.
+      {tab === "work" ? (
+        <>
+          <div className={`${panel} flex flex-wrap items-end gap-4`}>
+            <label className="text-sm">
+              From
+              <input
+                className={field}
+                type="date"
+                max={to}
+                value={from}
+                onChange={(e) => setFrom(e.target.value)}
+              />
+            </label>
+            <label className="text-sm">
+              Through
+              <input
+                className={field}
+                type="date"
+                min={from}
+                max={today}
+                value={to}
+                onChange={(e) => setTo(e.target.value)}
+              />
+            </label>
+            <button className={button} onClick={() => void current.refetch()}>
+              Refresh
+            </button>
+          </div>
+          {current.error ? (
+            <p role="alert" className={panel}>
+              Evidence could not be read. Choose up to 31 elapsed days and check
+              current staff and store access.
             </p>
-          ) : bill.data ? (
-            <div className="mt-4 space-y-3">
-              <p className="text-sm">
-                {bill.data.lines.length} staff-day evidence lines ·{" "}
-                {money(
-                  bill.data.lines.reduce((n, r) => n + r.amountCentavos, 0),
-                )}
-              </p>
-              <p className="text-sm text-muted">
-                {bill.data.stale
-                  ? "Source evidence has changed. Build a fresh package before sign-off."
-                  : bill.data.decision
-                    ? `${bill.data.decision.decision} by ${bill.data.decision.reviewer}`
-                    : "Awaiting an independent office review."}
-              </p>
-              <a
-                className={`${button} inline-flex items-center`}
-                href={`/api/v1/partners/billing/export?partnerId=${id}&periodId=${period}`}
-              >
-                Download frozen evidence
-              </a>
-              {editing && !bill.data.stale && !bill.data.decision ? (
-                <form
-                  onSubmit={submit("billing/decide", (f) => ({
-                    periodId: period,
-                    evidenceHash: bill.data!.evidenceHash,
-                    decision: f.get("decision"),
-                    reason: f.get("reason"),
-                  }))}
-                  className="flex flex-wrap items-end gap-3"
-                >
-                  <label className="text-sm">
-                    Decision
-                    <select className={field} name="decision">
-                      <option value="approved">Approve evidence</option>
-                      <option value="rejected">Reject evidence</option>
-                    </select>
-                  </label>
-                  <label className="flex-1 text-sm">
-                    Review reason
-                    <input
-                      className={field}
-                      name="reason"
-                      required
-                      maxLength={500}
-                    />
-                  </label>
-                  <button className={button} disabled={busy}>
-                    Sign off exact evidence
-                  </button>
-                </form>
-              ) : null}
-            </div>
-          ) : null}
-        </section>
+          ) : current.data ? (
+            <AgencyEvidenceView
+              data={current.data}
+              prior={prior.data}
+              busy={busy}
+              onBuild={() => void save("billing/build", { from, to })}
+            />
+          ) : (
+            <p className={panel}>
+              {id
+                ? "Loading system evidence…"
+                : "Create an agency and assign staff to begin."}
+            </p>
+          )}
+        </>
       ) : null}
-      {editing ? (
-        <details className={panel}>
-          <summary className="cursor-pointer font-medium">
-            Agency setup and access
-          </summary>
-          <div className="mt-5 grid gap-5 lg:grid-cols-2">
-            <form
-              className="space-y-3"
-              onSubmit={submit("create", (f) => ({
-                code: f.get("code"),
-                name: f.get("name"),
-                orgUnitId: f.get("orgUnitId"),
-              }))}
-            >
-              <h3 className="font-medium">Create agency</h3>
-              <label className="block text-sm">
-                Agency code
-                <input className={field} name="code" required maxLength={50} />
-              </label>
-              <label className="block text-sm">
-                Agency name
-                <input className={field} name="name" required />
-              </label>
-              <label className="block text-sm">
-                Supervising area
-                <select className={field} name="orgUnitId" required>
-                  {units.data?.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name}
+      {tab === "claims" ? (
+        <>
+          {id && current.data ? (
+            <ClaimantClaims
+              key={id}
+              base="/api/v1/partners/claims/shared"
+              partyId={id}
+              name={current.data.partner.name}
+            />
+          ) : null}
+        </>
+      ) : null}
+      {tab === "billing" ? (
+        <>
+          {id ? (
+            <section className={panel}>
+              <h2 className="font-medium">Frozen billing packages</h2>
+              <label className="mt-3 block text-sm">
+                Evidence period
+                <select
+                  className={field}
+                  value={period}
+                  onChange={(e) => setPeriod(e.target.value)}
+                >
+                  <option value="">Choose a package</option>
+                  {setup.data?.periods.map((p) => (
+                    <option value={p.id} key={p.id}>
+                      {formatDateRange(
+                        p.period_from.slice(0, 10),
+                        p.period_to.slice(0, 10),
+                      )}{" "}
+                      · {p.decision ?? "Awaiting office sign-off"}
                     </option>
                   ))}
                 </select>
               </label>
-              <button className={button} disabled={busy}>
-                Create agency
-              </button>
-            </form>
+              {bill.error ? (
+                <p role="alert" className="mt-4 text-sm">
+                  This package is no longer available under your current staff
+                  and store access.
+                </p>
+              ) : bill.data ? (
+                <div className="mt-4 space-y-3">
+                  <p className="text-sm">
+                    {bill.data.lines.length} staff-day evidence lines ·{" "}
+                    {money(
+                      bill.data.lines.reduce((n, r) => n + r.amountCentavos, 0),
+                    )}
+                  </p>
+                  <p className="text-sm text-muted">
+                    {bill.data.stale
+                      ? "Source evidence has changed. Build a fresh package before sign-off."
+                      : bill.data.decision
+                        ? `${bill.data.decision.decision} by ${bill.data.decision.reviewer}`
+                        : "Awaiting an independent office review."}
+                  </p>
+                  <a
+                    className={`${button} inline-flex items-center`}
+                    href={`/api/v1/partners/billing/export?partnerId=${id}&periodId=${period}`}
+                  >
+                    Download frozen evidence
+                  </a>
+                  {editing && !bill.data.stale && !bill.data.decision ? (
+                    <form
+                      onSubmit={submit("billing/decide", (f) => ({
+                        periodId: period,
+                        evidenceHash: bill.data!.evidenceHash,
+                        decision: f.get("decision"),
+                        reason: f.get("reason"),
+                      }))}
+                      className="flex flex-wrap items-end gap-3"
+                    >
+                      <label className="text-sm">
+                        Decision
+                        <select className={field} name="decision">
+                          <option value="approved">Approve evidence</option>
+                          <option value="rejected">Reject evidence</option>
+                        </select>
+                      </label>
+                      <label className="flex-1 text-sm">
+                        Review reason
+                        <input
+                          className={field}
+                          name="reason"
+                          required
+                          maxLength={500}
+                        />
+                      </label>
+                      <button className={button} disabled={busy}>
+                        Sign off exact evidence
+                      </button>
+                    </form>
+                  ) : null}
+                </div>
+              ) : null}
+            </section>
+          ) : null}
+        </>
+      ) : null}
+      {tab === "setup" && editing ? (
+        <section className={panel}>
+          <div className="grid gap-5 lg:grid-cols-2">
             {id ? (
               <>
                 <form
@@ -922,8 +1010,25 @@ export function AgencyWorkspace() {
               </>
             ) : null}
           </div>
-        </details>
+        </section>
       ) : null}
     </div>
   );
+}
+
+export const AGENCY_TABS = [
+  { id: "work", label: "Work" },
+  { id: "billing", label: "Billing" },
+  { id: "claims", label: "Claims" },
+  { id: "setup", label: "Setup" },
+] as const;
+export type AgencyTab = (typeof AGENCY_TABS)[number]["id"];
+/** ?tab= for one agency; Setup only for people who can edit. */
+export function readAgencyTab(
+  params: URLSearchParams,
+  editing: boolean,
+): AgencyTab {
+  const t = params.get("tab");
+  const hit = AGENCY_TABS.find((x) => x.id === t);
+  return hit && (hit.id !== "setup" || editing) ? hit.id : "work";
 }

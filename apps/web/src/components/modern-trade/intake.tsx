@@ -390,7 +390,7 @@ export function IntakeEditor({
               Add line
             </button>
             <button disabled={cmd.pending} className={action}>
-              Save fixes & validate
+              Save
             </button>
             <button
               type="button"

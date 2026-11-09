@@ -119,20 +119,20 @@ describe("Outside-call POs (CALL-09)", () => {
     expect(view).toContain("Waiting for salesperson");
     expect(view).toContain("not counted as calls");
     expect(view).toMatch(/>Cancel PO<\/button>/);
-    expect(view).not.toContain("Record activity");
+    expect(view).not.toContain("Add activity");
     // No selected store, hence no candidate request; there is only one server-scoped list.
     expect(state.queries).toContain(null);
     expect(
       state.queries.filter((x) => Array.isArray(x) && x[1] === "outside-calls"),
     ).toHaveLength(1);
   });
-  it("shows the salesperson only their own POs with Record activity", () => {
+  it("shows the salesperson only their own POs with Add activity", () => {
     state.permissions = ["visit.read", "visit.record"];
     state.profile = { id: "ana-profile", role: "sales" };
     const view = render();
     expect(view).toContain("My outside-call POs");
     expect(view).not.toContain("Encode a store PO");
-    expect(view).toMatch(/>Record activity<\/button>/);
+    expect(view).toMatch(/>Add activity<\/button>/);
     expect(view).not.toContain("Cancel PO");
     expect(state.queries).toHaveLength(1);
   });
@@ -170,7 +170,7 @@ describe("Outside-call POs (CALL-09)", () => {
     expect(view).toContain(
       "Phone call · Purchase order, Collection · Delivery Wednesday",
     );
-    expect(view).not.toContain("Record activity");
+    expect(view).not.toContain("Add activity");
     expect(view).not.toContain("Cancel PO");
   });
   it("renders nothing without access", () => {

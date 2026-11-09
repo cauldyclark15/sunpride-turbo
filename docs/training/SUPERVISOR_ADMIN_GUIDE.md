@@ -121,7 +121,7 @@ the end of day 7 of the plan month. Late plans are flagged, not refused.
 2. Click the **Plan** tab.
 3. Choose the person in **Assignee**. A salesperson can only choose themselves.
 4. Choose the **Month**.
-5. Click **New plan**. The new version starts as **draft**.
+5. Click **Add plan**. The new version starts as **draft**.
 
 To continue an existing plan, click its version button (v1, v2, …) instead. Its status is
 shown next to it. You cannot create a plan for a past month. A new plan for the current
@@ -267,7 +267,7 @@ To record an away period:
 2. Under **My away periods** set **Away from** and **Away until** (the last day away is
    included).
 3. Enter a **Reason**.
-4. Click **Record away period**. Backdated or overlapping periods are refused.
+4. Click **Add away period**. Backdated or overlapping periods are refused.
 5. To come back early, click **End** on the period.
 
 The supervisor, their manager or a people administrator of their unit can record it. If no
@@ -703,7 +703,7 @@ Inside a Work-With session, under **Trainer forms**:
 1. Open Field › Supervision › **Talk Sheet**.
 2. Read **Partners**, **Open items**, **Overdue** and **Root-cause review**.
 3. Under **My Talk Sheets** choose the **Partner** and **Meeting date**, click
-   **Start Talk Sheet**.
+   **Add talk sheet**.
 4. Click **Add gap or issue** for each item: the gap, agreement, corrective action, who is
    responsible and by when.
 5. Enter **Acknowledged and committed by** and the **Next contact** date.

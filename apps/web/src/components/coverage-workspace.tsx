@@ -9,7 +9,9 @@ import { useState } from "react";
 import { salesForcePanels } from "../lib/module-access";
 import { CoveragePlanner } from "./coverage-planner";
 import { CoverageReview } from "./coverage-review";
-import { CoverageSummary } from "./coverage-summary";
+import { CoveragePlansList, CoverageSummary } from "./coverage-summary";
+import { useUrlState } from "./cockpit/use-url-state";
+import { readPage } from "./list-page/list-page";
 import { OutletAdmin } from "./outlet-admin";
 import { OutletAssignments } from "./outlet-assignments";
 import { PanelErrorBoundary } from "./panel-error-boundary";
@@ -59,6 +61,7 @@ type CoverageTab =
   | "workforce"
   | "productive"
   | "pjp"
+  | "plans"
   | "summary"
   | "plan"
   | "deadlines"
@@ -170,7 +173,15 @@ export function SalesForcePanels() {
     {},
   );
   const profile = useCoverageQuery(api.domains.profiles.current, {});
-  const [coverageTab, setCoverageTab] = useState<CoverageTab>("summary");
+  const url = useUrlState();
+  const coverageTab = (url.params.get("tab") ?? "plans") as CoverageTab;
+  const setCoverageTab = (tab: CoverageTab) =>
+    url.set({
+      tab: tab === "plans" ? null : tab,
+      q: null,
+      page: null,
+      status: null,
+    });
   const [setupSection, setSetupSection] = useState<SetupSection>("routes");
   const [month, setMonth] = useState(() => {
     const parts = new Intl.DateTimeFormat("en-US", {
@@ -243,6 +254,7 @@ export function SalesForcePanels() {
     coverageTab !== "territories" &&
     coverageTab !== "productive" &&
     coverageTab !== "pjp" &&
+    coverageTab !== "plans" &&
     coverageTab !== "summary" &&
     coverageTab !== "plan" &&
     coverageTab !== "deadlines" &&
@@ -258,13 +270,13 @@ export function SalesForcePanels() {
     coverageTab !== "setup" &&
     coverageTab !== "standards";
   const coverageTabs: [CoverageTab, string][] = [
-    ["summary", "Summary"],
+    ["plans", "Plans"],
     ["plan", "Plan"],
     ["pjp", "Journey plans"],
     ["territories", "Territory rebalancing"],
     ["productive", "Productive call rules"],
     ["workforce", "Workforce"],
-    ["deadlines", "MCP deadlines"],
+    ["deadlines", "Deadlines"],
     ...(canApprove ? ([["review", "Review"]] as [CoverageTab, string][]) : []),
     ["exceptions", "Exceptions"],
     ["visits", "Visits"],
@@ -274,6 +286,7 @@ export function SalesForcePanels() {
     ["map", "Map"],
     ["workload", "Workload"],
     ["standards", "Standards"],
+    ["summary", "Overview"],
     ["export", "Export"],
     ...(setupSections.length
       ? ([["setup", "Setup"]] as [CoverageTab, string][])
@@ -343,13 +356,19 @@ export function SalesForcePanels() {
             {coverageTab === "territories" ||
             coverageTab === "workforce" ||
             coverageTab === "productive" ||
-            coverageTab === "pjp" ? null : coverageTab === "summary" ? (
-              <PanelErrorBoundary
-                key={`summary-${month}`}
-                label="Coverage summary"
-              >
-                <CoverageSummary
+            coverageTab === "pjp" ? null : coverageTab === "plans" ? (
+              <PanelErrorBoundary key={`plans-${month}`} label="Coverage plans">
+                <CoveragePlansList
                   month={month}
+                  q={url.params.get("q") ?? ""}
+                  status={url.params.get("status")}
+                  page={readPage(url.params)}
+                  onSearch={(q) =>
+                    url.set({ q: q || null, page: null }, { replace: true })
+                  }
+                  onFilter={(status) => url.set({ status, page: null })}
+                  onPage={(n) => url.set({ page: n > 1 ? String(n) : null })}
+                  onAdd={() => setCoverageTab("plan")}
                   onOpen={(row) => {
                     setSelected({
                       id:
@@ -363,6 +382,13 @@ export function SalesForcePanels() {
                     setCoverageTab(row.awaitsMyApproval ? "review" : "plan");
                   }}
                 />
+              </PanelErrorBoundary>
+            ) : coverageTab === "summary" ? (
+              <PanelErrorBoundary
+                key={`summary-${month}`}
+                label="Coverage summary"
+              >
+                <CoverageSummary month={month} />
               </PanelErrorBoundary>
             ) : coverageTab === "plan" ? (
               <PanelErrorBoundary key="plan" label="Coverage plan">

@@ -10,8 +10,10 @@ import { Setup } from "./setup";
 import { ClaimantClaims } from "../claimant-claims";
 import { VanArrangement, type PartnerVanData } from "./van-arrangement";
 import type { Partner, Workspace } from "./types";
+import { Drawer } from "../cockpit/kit/drawer";
+import { useUrlState } from "../cockpit/use-url-state";
+import { ListPage, PAGE_SIZE, readPage } from "../list-page/list-page";
 import {
-  ActionForm,
   buttonClass,
   Empty,
   Field,
@@ -63,12 +65,12 @@ export function DistributorWorkspace({ portal = false }: { portal?: boolean }) {
   return <AllowedWorkspace portal={portal} />;
 }
 function AllowedWorkspace({ portal }: { portal: boolean }) {
-  const session = useSession(),
-    partners = useApi<{ rows: Partner[]; next: string | null }>(
-      ["distributors", "list"],
-      "/api/v1/distributors",
-    );
+  const partners = useApi<{ rows: Partner[]; next: string | null }>(
+    ["distributors", "list"],
+    "/api/v1/distributors",
+  );
   const [selected, setSelected] = useState("");
+  if (!portal) return <OfficeDistributors partners={partners} />;
   const current =
     partners.data?.rows.find((p) => p.id === selected) ??
     partners.data?.rows[0];
@@ -76,20 +78,11 @@ function AllowedWorkspace({ portal }: { portal: boolean }) {
     <div className="grid min-w-0 gap-5">
       <header className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <p className="text-xs font-medium uppercase tracking-[.15em] text-muted">
-            {portal
-              ? "Your distributor workspace"
-              : "Work · Channel Development"}
-          </p>
-          <h1 className="mt-2 text-2xl font-semibold tracking-tight">
-            {portal
-              ? (current?.name ?? "Distributor portal")
-              : "Distributors & secondary sales"}
+          <h1 className="text-2xl font-semibold tracking-tight">
+            {current?.name ?? "Distributor portal"}
           </h1>
           <p className="mt-2 text-sm text-muted">
-            {portal
-              ? "Order, declare stock, submit retailer invoices and follow up money."
-              : "Which partner needs attention, and does sell-in reconcile to retailer offtake?"}
+            Order, declare stock, submit retailer invoices and follow up money.
           </p>
         </div>
         {partners.data && partners.data.rows.length > 1 ? (
@@ -109,61 +102,227 @@ function AllowedWorkspace({ portal }: { portal: boolean }) {
         ) : null}
       </header>
       <State query={partners}>
-        {(data) => (
-          <>
-            {current ? (
-              <PartnerDetail
-                key={current.id}
-                partner={current}
-                office={!portal}
-              />
-            ) : (
-              <Empty>
-                No current distributor membership. Ask Channel Development to
-                invite this email to the correct partner.
-              </Empty>
-            )}
-            {data.next ? (
-              <p className="text-sm text-muted">
-                Showing the first 200 distributors; more partners exist.
-              </p>
-            ) : null}
-          </>
-        )}
+        {() =>
+          current ? (
+            <PartnerDetail key={current.id} partner={current} office={false} />
+          ) : (
+            <Empty>
+              No current distributor membership. Ask Channel Development to
+              invite this email to the correct partner.
+            </Empty>
+          )
+        }
       </State>
-      {!portal &&
-      ["super_admin", "admin"].includes(session.profile?.role ?? "") ? (
-        <ActionForm
-          title="New distributor organization"
-          submitLabel="Create applicant organization"
-          onSubmit={async (f) => {
-            const result = await mutate<{ id: string }>(
-              "/api/v1/distributors/create",
-              {
-                code: value(f, "code"),
-                name: value(f, "name"),
-                orgUnitId: session.profile?.orgUnitId,
-              },
-              { invalidate: [["distributors", "list"]] },
-            );
-            setSelected(result.id);
-          }}
-        >
-          <div className="grid gap-4 sm:grid-cols-2">
-            <Field label="Distributor code">
-              <input required name="code" className={fieldClass} />
-            </Field>
-            <Field label="Distributor name">
-              <input required name="name" className={fieldClass} />
-            </Field>
-          </div>
-          <p className="text-xs text-muted">
-            Supervised within your current Sunpride area. Set policy and import
-            the SAP master snapshot next.
-          </p>
-        </ActionForm>
-      ) : null}
     </div>
+  );
+}
+
+/** Distributor rows matching the search box and status chip. */
+export function filterPartners(
+  rows: Partner[],
+  q: string,
+  status: string | null,
+) {
+  const needle = q.trim().toLowerCase();
+  return rows.filter(
+    (p) =>
+      (!status || p.status === status) &&
+      (!needle || `${p.name} ${p.code}`.toLowerCase().includes(needle)),
+  );
+}
+
+/** Office: the distributor list (search · Add distributor · chips · pages), or one distributor at ?id=. */
+function OfficeDistributors({
+  partners,
+}: {
+  partners: ReturnType<typeof useApi<{ rows: Partner[]; next: string | null }>>;
+}) {
+  const session = useSession();
+  const { params, set, hrefWith } = useUrlState();
+  const [adding, setAdding] = useState<string | null>(null);
+  const canAdd = ["super_admin", "admin"].includes(session.profile?.role ?? "");
+  const id = params.get("id");
+  const rows = partners.data?.rows ?? null;
+  const current = id ? rows?.find((p) => p.id === id) : undefined;
+  if (id)
+    return (
+      <div className="grid min-w-0 gap-5">
+        <Link
+          href={hrefWith({ id: null, tab: null })}
+          className="text-sm text-muted underline"
+        >
+          ← Distributors
+        </Link>
+        <h1 className="text-2xl font-semibold tracking-tight">
+          {current?.name ?? "Distributor"}
+        </h1>
+        <State query={partners}>
+          {() =>
+            current ? (
+              <PartnerDetail key={current.id} partner={current} office />
+            ) : (
+              <Empty>This distributor is not on your list.</Empty>
+            )
+          }
+        </State>
+      </div>
+    );
+  const q = params.get("q") ?? "";
+  const status = params.get("status");
+  const page = readPage(params);
+  const hits = filterPartners(rows ?? [], q, status);
+  const statuses = [...new Set((rows ?? []).map((p) => p.status))].sort();
+  return (
+    <div className="grid min-w-0 gap-5">
+      <ListPage<Partner>
+        noun={{ one: "distributor", many: "distributors" }}
+        rows={
+          rows ? hits.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE) : null
+        }
+        total={rows ? hits.length : null}
+        loading={!rows && !partners.error}
+        page={page}
+        onPage={(n) => set({ page: n > 1 ? String(n) : null })}
+        q={q}
+        onSearch={(v) => set({ q: v || null, page: null }, { replace: true })}
+        searchPlaceholder="Search by name or code"
+        onAdd={canAdd ? (name) => setAdding(name) : undefined}
+        filters={statuses.map((s) => ({
+          id: s,
+          label: words(s),
+          count: (rows ?? []).filter((p) => p.status === s).length,
+        }))}
+        filter={status}
+        onFilter={(v) => set({ status: v, page: null })}
+        rowKey={(p) => p.id}
+        rowHref={(p) =>
+          hrefWith({ id: p.id, q: null, page: null, status: null })
+        }
+        columns={[
+          {
+            key: "name",
+            label: "Distributor",
+            primary: true,
+            render: (p) => p.name,
+            text: (p) => p.name,
+          },
+          {
+            key: "code",
+            label: "Code",
+            render: (p) => p.code,
+            text: (p) => p.code,
+          },
+          {
+            key: "status",
+            label: "Status",
+            render: (p) => words(p.status),
+            text: (p) => words(p.status),
+          },
+          {
+            key: "edit",
+            label: "",
+            align: "right",
+            render: () =>
+              canAdd ? (
+                <span className="inline-flex min-h-9 items-center rounded-[10px] border border-border px-3 text-sm font-medium">
+                  Edit
+                </span>
+              ) : null,
+          },
+        ]}
+      />
+      {partners.data?.next ? (
+        <p className="text-sm text-muted">
+          Showing the first 200 distributors.
+        </p>
+      ) : null}
+      <Drawer
+        open={adding !== null}
+        title="Add distributor"
+        onClose={() => setAdding(null)}
+      >
+        {adding !== null ? (
+          <AddDistributor
+            key={adding}
+            name={adding}
+            orgUnitId={session.profile?.orgUnitId}
+            onCancel={() => setAdding(null)}
+            onSaved={(newId) => {
+              setAdding(null);
+              set({ id: newId, q: null, page: null, status: null });
+            }}
+          />
+        ) : null}
+      </Drawer>
+    </div>
+  );
+}
+
+function AddDistributor({
+  name,
+  orgUnitId,
+  onCancel,
+  onSaved,
+}: {
+  name: string;
+  orgUnitId?: string | null;
+  onCancel: () => void;
+  onSaved: (id: string) => void;
+}) {
+  const [pending, setPending] = useState(false),
+    [error, setError] = useState<string | null>(null);
+  return (
+    <form
+      aria-label="Add distributor"
+      className="grid gap-4"
+      onSubmit={async (e) => {
+        e.preventDefault();
+        const f = new FormData(e.currentTarget);
+        setPending(true);
+        setError(null);
+        try {
+          const result = await mutate<{ id: string }>(
+            "/api/v1/distributors/create",
+            { code: value(f, "code"), name: value(f, "name"), orgUnitId },
+            { invalidate: [["distributors", "list"]] },
+          );
+          onSaved(result.id);
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Could not save");
+        } finally {
+          setPending(false);
+        }
+      }}
+    >
+      <Field label="Name">
+        <input
+          required
+          name="name"
+          defaultValue={name}
+          className={fieldClass}
+        />
+      </Field>
+      <Field label="Code">
+        <input required name="code" className={fieldClass} />
+      </Field>
+      {error ? (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          disabled={pending}
+          className={`${buttonClass} !bg-foreground !text-background`}
+        >
+          Save
+        </button>
+        <button type="button" className={buttonClass} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+    </form>
   );
 }
 function PartnerDetail({
@@ -174,7 +333,9 @@ function PartnerDetail({
   office: boolean;
 }) {
   const session = useSession(),
-    [tab, setTab] = useState("overview"),
+    url = useUrlState(),
+    tab = url.params.get("tab") ?? "overview",
+    setTab = (t: string) => url.set({ tab: t === "overview" ? null : t }),
     command = usePartnerCommand(partner.id);
   const query = usePartnerQuery<Workspace>(partner.id, "workspace");
   const canManage =

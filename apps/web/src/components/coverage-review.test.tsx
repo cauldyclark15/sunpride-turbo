@@ -760,6 +760,6 @@ describe("MCP approval routing (CALL-06)", () => {
       "Approved by Boss as backup approver (supervisor away) for Manager · approved late",
     );
     expect(html).toContain("Record Manager away");
-    expect(html).toContain("Record away period");
+    expect(html).toContain("Add away period");
   });
 });
