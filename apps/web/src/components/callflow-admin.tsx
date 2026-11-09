@@ -97,6 +97,7 @@ export function CallFlowAdmin() {
   );
   useLive(["callflow"], [["callflow"]]);
   const [selected, setSelected] = useState<Definition | null>(null);
+  const [editing, setEditing] = useState(false);
   const [steps, setSteps] = useState<Step[]>([]);
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -137,9 +138,8 @@ export function CallFlowAdmin() {
         throw new Error(
           "Could not confirm publication. Refresh before retrying.",
         );
-      setMessage(
-        `Version ${saved.version} published for the chosen effective date. Open calls keep their original rules.`,
-      );
+      setMessage(`Saved. Version ${saved.version} starts on the chosen date.`);
+      if (kind === "definition") setEditing(false);
       await result.refetch();
     } catch (error) {
       setMessage(
@@ -160,222 +160,244 @@ export function CallFlowAdmin() {
   return (
     <div className="grid gap-5">
       <section className={panel}>
-        <h2 className="text-lg font-semibold">Call flows</h2>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <h2 className="text-lg font-semibold">Call flows</h2>
+          <button
+            type="button"
+            className="inline-flex h-10 items-center rounded-xl bg-foreground px-4 text-[14px] font-semibold text-background hover:opacity-90"
+            onClick={() => {
+              setSelected(null);
+              setSteps([]);
+              setEditing(true);
+            }}
+          >
+            Add call flow
+          </button>
+        </div>
         <p className="text-sm text-muted">
-          A national administrator publishes future versions. Area
-          administrators can review the rules but cannot change them for the
-          whole company.
-        </p>
-        <p className="text-sm text-muted">
-          Which rules will each seller follow? Review the steps, radius, dwell
-          time and no-order reasons, then publish a future version. Both Android
-          apps use the same engine offline.
+          Only a national administrator can save changes.
         </p>
         {message && <p role="status">{message}</p>}
         {result.error && <p role="alert">{result.error.message}</p>}
         {!result.data ? (
           <p>Loading call flow setup…</p>
         ) : result.data.definitions.length === 0 ? (
-          <p>
-            No flow is published. Publish a definition and its radius policy
-            before enabling it.
-          </p>
+          <p>No call flows yet.</p>
         ) : (
           result.data.definitions.map((d) => (
-            <button
+            <div
               key={d.id}
-              className={`${button} text-left`}
-              onClick={() => {
-                setSelected(d);
-                setSteps(d.steps.map((s) => ({ ...s })));
-              }}
+              className="flex items-center justify-between gap-3 rounded-lg border border-border p-3"
             >
-              <span className="font-medium">
-                {d.label} · Version {d.version}
+              <span className="min-w-0">
+                <span className="font-medium">
+                  {d.label} · Version {d.version}
+                </span>
+                <span className="block text-muted">
+                  {stamp(d.effectiveFrom)}
+                  {d.effectiveTo
+                    ? ` — ${stamp(d.effectiveTo)}`
+                    : " onwards"} ·{" "}
+                  {d.source === "sample"
+                    ? "Sample rules — needs Sunpride approval"
+                    : "Office published"}
+                </span>
               </span>
-              <span className="block text-muted">
-                {stamp(d.effectiveFrom)}
-                {d.effectiveTo
-                  ? ` — ${stamp(d.effectiveTo)}`
-                  : " onwards"} ·{" "}
-                {d.source === "sample"
-                  ? "Sample rules — needs Sunpride approval"
-                  : "Office published"}
-              </span>
-            </button>
+              <button
+                type="button"
+                className={button}
+                onClick={() => {
+                  setSelected(d);
+                  setSteps(d.steps.map((s) => ({ ...s })));
+                  setEditing(true);
+                }}
+              >
+                Edit
+              </button>
+            </div>
           ))
         )}
       </section>
-      <form
-        key={selected?.id ?? "new"}
-        className={panel}
-        onSubmit={(event) => void publish(event, "definition")}
-      >
-        <h3 className="font-semibold">
-          {selected ? "Publish a revised flow" : "Publish a call flow"}
-        </h3>
-        <label>
-          Channel profile
-          <input
-            name="channelProfile"
-            defaultValue={selected?.channelProfile ?? "field_selling"}
-            className={input}
-            required
-            pattern="[a-z][a-z0-9_]*"
-          />
-        </label>
-        <label>
-          Name
-          <input
-            name="label"
-            defaultValue={selected?.label ?? ""}
-            className={input}
-            required
-            maxLength={100}
-          />
-        </label>
-        <label>
-          Effective from (local time)
-          <input
-            type="datetime-local"
-            name="effectiveFrom"
-            className={input}
-            required
-          />
-        </label>
-        <p className="text-sm text-muted">
-          Start with Check in, finish with Check out. Required steps block later
-          steps; conditions use the call’s saved order facts. New channel
-          adapters need a working capture form before they can be required.
-        </p>
-        {steps.map((step, index) => (
-          <div
-            key={`${index}-${step.key}`}
-            className="grid gap-2 rounded-lg border border-border p-3 sm:grid-cols-2"
-          >
-            <label>
-              Step name
-              <input
-                className={input}
-                value={step.label}
-                onChange={(e) =>
-                  setSteps(
-                    steps.map((s, i) =>
-                      i === index ? { ...s, label: e.target.value } : s,
-                    ),
-                  )
-                }
-                required
-              />
-            </label>
-            <label>
-              Action
-              <select
-                className={input}
-                value={step.adapter}
-                onChange={(e) =>
-                  setSteps(
-                    steps.map((s, i) =>
-                      i === index ? { ...s, adapter: e.target.value } : s,
-                    ),
-                  )
-                }
-              >
-                {adapters.map((a) => (
-                  <option key={a} value={a}>
-                    {a.replaceAll("_", " ")}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              <input
-                type="checkbox"
-                checked={step.required}
-                onChange={(e) =>
-                  setSteps(
-                    steps.map((s, i) =>
-                      i === index ? { ...s, required: e.target.checked } : s,
-                    ),
-                  )
-                }
-              />{" "}
-              Required
-            </label>
-            <label>
-              When
-              <select
-                className={input}
-                value={step.condition}
-                onChange={(e) =>
-                  setSteps(
-                    steps.map((s, i) =>
-                      i === index ? { ...s, condition: e.target.value } : s,
-                    ),
-                  )
-                }
-              >
-                <option value="always">Every call</option>
-                <option value="has_order">With an order</option>
-                <option value="no_order">Without an order</option>
-              </select>
-            </label>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                className={button}
-                disabled={index === 0}
-                onClick={() => {
-                  const next = [...steps];
-                  [next[index - 1], next[index]] = [
-                    next[index]!,
-                    next[index - 1]!,
-                  ];
-                  setSteps(next);
-                }}
-              >
-                Move up
-              </button>
-              <button
-                type="button"
-                className={button}
-                onClick={() => setSteps(steps.filter((_, i) => i !== index))}
-              >
-                Remove
-              </button>
-            </div>
-          </div>
-        ))}
-        <button
-          type="button"
-          className={button}
-          onClick={() =>
-            setSteps([
-              ...steps,
-              {
-                key: `step_${crypto.randomUUID().slice(0, 8)}`,
-                adapter: steps.length === 0 ? "check_in" : "check_out",
-                label: steps.length === 0 ? "Check in" : "Check out",
-                required: true,
-                condition: "always",
-              },
-            ])
-          }
+      {editing ? (
+        <form
+          key={selected?.id ?? "new"}
+          className={panel}
+          onSubmit={(event) => void publish(event, "definition")}
         >
-          Add step
-        </button>
-        <button className={button} disabled={busy || steps.length < 2}>
-          Publish definition
-        </button>
-      </form>
+          <h3 className="font-semibold">
+            {selected ? `Edit ${selected.label}` : "Add call flow"}
+          </h3>
+          <label>
+            Channel profile
+            <input
+              name="channelProfile"
+              defaultValue={selected?.channelProfile ?? "field_selling"}
+              className={input}
+              required
+              pattern="[a-z][a-z0-9_]*"
+            />
+          </label>
+          <label>
+            Name
+            <input
+              name="label"
+              defaultValue={selected?.label ?? ""}
+              className={input}
+              required
+              maxLength={100}
+            />
+          </label>
+          <label>
+            Effective from (local time)
+            <input
+              type="datetime-local"
+              name="effectiveFrom"
+              className={input}
+              required
+            />
+          </label>
+          <p className="text-sm text-muted">
+            Start with Check in, finish with Check out.
+          </p>
+          {steps.map((step, index) => (
+            <div
+              key={`${index}-${step.key}`}
+              className="grid gap-2 rounded-lg border border-border p-3 sm:grid-cols-2"
+            >
+              <label>
+                Step name
+                <input
+                  className={input}
+                  value={step.label}
+                  onChange={(e) =>
+                    setSteps(
+                      steps.map((s, i) =>
+                        i === index ? { ...s, label: e.target.value } : s,
+                      ),
+                    )
+                  }
+                  required
+                />
+              </label>
+              <label>
+                Action
+                <select
+                  className={input}
+                  value={step.adapter}
+                  onChange={(e) =>
+                    setSteps(
+                      steps.map((s, i) =>
+                        i === index ? { ...s, adapter: e.target.value } : s,
+                      ),
+                    )
+                  }
+                >
+                  {adapters.map((a) => (
+                    <option key={a} value={a}>
+                      {a.replaceAll("_", " ")}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <input
+                  type="checkbox"
+                  checked={step.required}
+                  onChange={(e) =>
+                    setSteps(
+                      steps.map((s, i) =>
+                        i === index ? { ...s, required: e.target.checked } : s,
+                      ),
+                    )
+                  }
+                />{" "}
+                Required
+              </label>
+              <label>
+                When
+                <select
+                  className={input}
+                  value={step.condition}
+                  onChange={(e) =>
+                    setSteps(
+                      steps.map((s, i) =>
+                        i === index ? { ...s, condition: e.target.value } : s,
+                      ),
+                    )
+                  }
+                >
+                  <option value="always">Every call</option>
+                  <option value="has_order">With an order</option>
+                  <option value="no_order">Without an order</option>
+                </select>
+              </label>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  className={button}
+                  disabled={index === 0}
+                  onClick={() => {
+                    const next = [...steps];
+                    [next[index - 1], next[index]] = [
+                      next[index]!,
+                      next[index - 1]!,
+                    ];
+                    setSteps(next);
+                  }}
+                >
+                  Move up
+                </button>
+                <button
+                  type="button"
+                  className={button}
+                  onClick={() => setSteps(steps.filter((_, i) => i !== index))}
+                >
+                  Remove
+                </button>
+              </div>
+            </div>
+          ))}
+          <button
+            type="button"
+            className={button}
+            onClick={() =>
+              setSteps([
+                ...steps,
+                {
+                  key: `step_${crypto.randomUUID().slice(0, 8)}`,
+                  adapter: steps.length === 0 ? "check_in" : "check_out",
+                  label: steps.length === 0 ? "Check in" : "Check out",
+                  required: true,
+                  condition: "always",
+                },
+              ])
+            }
+          >
+            Add step
+          </button>
+          <div className="flex gap-2">
+            <button className={button} disabled={busy || steps.length < 2}>
+              Save
+            </button>
+            <button
+              type="button"
+              className={button}
+              onClick={() => setEditing(false)}
+            >
+              Cancel
+            </button>
+          </div>
+          {steps.length < 2 ? (
+            <p className="text-[13px] text-muted">Add at least two steps.</p>
+          ) : null}
+        </form>
+      ) : null}
       <section className={panel}>
         <h3 className="font-semibold">
           Choose a flow by channel and store class
         </h3>
         <p className="text-sm text-muted">
-          Pre-sell, merchandising and distributor reps use these profiles in the
-          existing apps. A channel match takes priority over a class-only match;
-          * means all. A published binding never changes an open call.
+          A channel match wins over a class match; * means all.
         </p>
         {result.data?.bindings.map((b) => (
           <p key={b.id}>
@@ -436,7 +458,7 @@ export function CallFlowAdmin() {
             />
           </label>
           <button className={button} disabled={busy}>
-            Publish channel binding
+            Save
           </button>
         </form>
         <h3 className="font-semibold">Radius and time in store</h3>

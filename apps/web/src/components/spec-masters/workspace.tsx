@@ -101,16 +101,12 @@ export function MastersWorkspace() {
       />
     );
   if (!setup.data || !options.data)
-    return <Card label="Field masters">Loading governed setup…</Card>;
+    return <Card label="Field masters">Loading…</Card>;
   const sections = setup.data.sections,
     rows = sections[kind],
     current = rows.find((r) => r.id === selected);
   return (
     <div className="grid gap-4">
-      <p className="text-sm text-muted">
-        Which stores, areas and lists still need setup? Maintain one shared
-        universe. Every save keeps its earlier version.
-      </p>
       <div className="flex flex-wrap gap-2" aria-label="Field master sections">
         {MASTER_SECTIONS.map(([id, label]) => (
           <button
@@ -128,11 +124,13 @@ export function MastersWorkspace() {
       <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
         <Card
           label={MASTER_SECTIONS.find((s) => s[0] === kind)?.[1] ?? "Masters"}
+          actions={
+            <Button variant="primary" onPress={() => setSelected("")}>
+              Add
+            </Button>
+          }
         >
-          <Button variant="outline" onPress={() => setSelected("")}>
-            Add definition
-          </Button>
-          <div className="mt-3 grid gap-1">
+          <div className="grid gap-1">
             {rows.length ? (
               rows.map((r) => (
                 <button
@@ -148,9 +146,7 @@ export function MastersWorkspace() {
                 </button>
               ))
             ) : (
-              <p className="text-sm text-muted">
-                Nothing configured yet. Add the first definition.
-              </p>
+              <p className="text-sm text-muted">Nothing here yet.</p>
             )}
           </div>
         </Card>

@@ -3,23 +3,15 @@
 import { Button, Input } from "@heroui/react";
 import { api } from "./master-data/api";
 import type { Doc, Id } from "./master-data/model";
-import {
-  Card,
-  DataTable,
-  EmptyPanel,
-  FormField,
-  Pager,
-  StatusPill,
-  WorkspaceIcon,
-  type DataColumn,
-} from "@sunpride/ui";
+import { FormField, Pager, StatusPill } from "@sunpride/ui";
 import { useMutation, useQuery } from "./master-data/api";
 import type { FunctionArgs } from "./master-data/api";
-import { useState, type FormEvent } from "react";
+import { useCallback, useState, type FormEvent } from "react";
 import { AdminSelectField } from "./org-admin";
 import { formatManilaDate } from "../lib/manila-date";
-import { SetupSearch } from "./master-data/setup-health";
 import { useSetupParam } from "./master-data/location";
+import { ListPage, type ListColumn } from "./list-page/list-page";
+import { Drawer } from "./cockpit/kit/drawer";
 
 type Person = Doc<"profiles">;
 export type AssignableRole =
@@ -75,21 +67,80 @@ export async function performPeopleAssignment(
   });
 }
 
+/** Sets or clears Setup URL params (q, filter) so reload and back keep the view. */
+function setParams(values: Record<string, string | null>) {
+  const url = new URL(window.location.href);
+  for (const [key, value] of Object.entries(values))
+    if (value) url.searchParams.set(key, value);
+    else url.searchParams.delete(key);
+  window.history.replaceState(null, "", url);
+  window.dispatchEvent(new Event("popstate"));
+}
+
+type Invitation = {
+  _id: Id<"accessInvitations">;
+  email: string;
+  name?: string;
+  role: string;
+  status: string;
+};
+
+const readableError = (error: unknown) =>
+  error instanceof Error ? error.message : "Could not save. Try again.";
+
+/** Who may edit a person: unchanged from the old Assign button. */
+export function canEditPerson(
+  row: Pick<Person, "role">,
+  canManage: boolean,
+  actorRole: string | undefined,
+) {
+  return (
+    canManage &&
+    row.role !== "super_admin" &&
+    !(row.role === "admin" && actorRole !== "super_admin")
+  );
+}
+
 export function PeopleAdmin() {
-  const [search, setSearch] = useState<string | undefined>(undefined);
-  const unassigned = useSetupParam("unassigned") === "true";
+  const q = useSetupParam("q");
+  const filterParam = useSetupParam("filter");
+  const legacyUnassigned = useSetupParam("unassigned") === "true";
+  const unassigned = filterParam === "unassigned" || legacyUnassigned;
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const canManage = permissions?.capabilities.includes("admin.manage") ?? false;
+  const current = useQuery(api.domains.profiles.current, {});
+  // Adding a person (an invitation) keeps its old gate: national admins only.
+  const canAdd =
+    (current?.role === "super_admin" || current?.role === "admin") &&
+    permissions?.national !== false;
+  const invited = filterParam === "invited" && canAdd;
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
   const cursor = cursors[cursors.length - 1] ?? null;
-  const result = useQuery(api.people.queries.list, {
-    ...(unassigned ? { unassigned: "true" } : {}),
-    ...(search ? { q: search } : {}),
-    paginationOpts: { numItems: 25, cursor },
-  });
+  const result = useQuery(
+    api.people.queries.list,
+    invited
+      ? "skip"
+      : {
+          ...(unassigned ? { unassigned: "true" } : {}),
+          ...(q ? { q } : {}),
+          paginationOpts: { numItems: 25, cursor },
+        },
+  );
+  const invitationPage = useQuery(
+    api.domains.profiles.listInvitations,
+    invited
+      ? {
+          ...(q ? { q } : {}),
+          paginationOpts: { numItems: 25, cursor },
+        }
+      : "skip",
+  );
   const [asOf] = useState(() => Date.now());
   const units = useQuery(api.org.queries.tree, { asOf });
-  const positions = useQuery(api.sfa.positions.list, canManage ? {} : "skip");
+  const positions = useQuery(
+    api.sfa.positions.list,
+    canManage || canAdd ? {} : "skip",
+  );
   const [selectedId, setSelectedId] = useState<Id<"profiles"> | null>(null);
   const [supervisorUnitId, setSupervisorUnitId] =
     useState<Id<"orgUnits"> | null>(null);
@@ -112,14 +163,21 @@ export function PeopleAdmin() {
       : "skip",
   );
   const assign = useMutation(api.people.mutations.assign);
+  const invite = useMutation(api.domains.profiles.invite);
+  const revoke = useMutation(api.domains.profiles.revoke);
   const [historyId, setHistoryId] = useState<Id<"profiles"> | null>(null);
+  const shownHistory = selectedId ?? historyId;
   const history = useQuery(
     api.people.queries.history,
-    historyId ? { profileId: historyId } : "skip",
+    shownHistory ? { profileId: shownHistory } : "skip",
   );
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
+  const [adding, setAdding] = useState<string | false>(false);
+  const [role, setRole] = useState<AssignableRole>("viewer");
+  const [positionId, setPositionId] = useState("");
+  const [orgUnitId, setOrgUnitId] = useState("");
   const people = result?.page ?? [];
   const selected = people.find((person) => person._id === selectedId);
   const nameOf = (id?: Id<"profiles">) =>
@@ -136,6 +194,24 @@ export function PeopleAdmin() {
       (person) => person.authSubject === subject,
     )?.name ?? (subject ? "Supervisor unavailable" : "—");
 
+  const onSearch = useCallback((text: string) => {
+    setCursors([null]);
+    setParams({ q: text || null });
+  }, []);
+  const closeEdit = useCallback(() => setSelectedId(null), []);
+  const closeHistory = useCallback(() => setHistoryId(null), []);
+  const closeAdd = useCallback(() => setAdding(false), []);
+
+  function openEdit(row: Person) {
+    setSelectedId(row._id);
+    setSupervisorUnitId(row.orgUnitId ?? null);
+    setSupervisorSearch("");
+    setChosenSupervisorId("");
+    setSupervisorCursors([null]);
+    setError("");
+    setNotice("");
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!selected || !canManage || pending) return;
@@ -147,7 +223,7 @@ export function PeopleAdmin() {
     try {
       await performPeopleAssignment(selected, data, assign);
       setSelectedId(null);
-      setNotice("Assignment saved.");
+      setNotice("Saved.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -155,98 +231,145 @@ export function PeopleAdmin() {
     }
   }
 
-  const rows = people.map((person) => ({ ...person, id: person._id }));
-  const columns: DataColumn<Person & { id: string }>[] = [
+  async function submitAdd(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (!canAdd || pending) return;
+    setPending(true);
+    setError("");
+    setNotice("");
+    const data = new FormData(event.currentTarget);
+    const email = String(data.get("email") ?? "");
+    const name = String(data.get("name") ?? "").trim();
+    try {
+      await invite({
+        email,
+        role,
+        ...(name ? { name } : {}),
+        ...(positionId ? { positionId: positionId as Id<"positions"> } : {}),
+        ...(orgUnitId ? { orgUnitId } : {}),
+      });
+      setAdding(false);
+      setRole("viewer");
+      setPositionId("");
+      setOrgUnitId("");
+      setNotice(`${name || email} added.`);
+    } catch (cause) {
+      setError(readableError(cause));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function removeInvitation(invitationId: Id<"accessInvitations">) {
+    setError("");
+    setNotice("");
+    try {
+      await revoke({ invitationId });
+      setNotice("Removed.");
+    } catch (cause) {
+      setError(readableError(cause));
+    }
+  }
+
+  const filters = [
+    { id: "unassigned", label: "No unit" },
+    ...(canAdd ? [{ id: "invited", label: "Invited" }] : []),
+  ];
+  const filter = invited ? "invited" : unassigned ? "unassigned" : null;
+  const onFilter = (id: string | null) => {
+    setCursors([null]);
+    setParams({ filter: id, unassigned: null });
+  };
+  const pager = (
+    page: { isDone: boolean; continueCursor: string } | undefined,
+  ) => (
+    <Pager
+      label="People pages"
+      page={cursors.length}
+      canPrevious={cursors.length > 1}
+      canNext={!!page && !page.isDone}
+      onPrevious={() => setCursors((old) => old.slice(0, -1))}
+      onNext={() => {
+        if (page && !page.isDone)
+          setCursors((old) => [...old, page.continueCursor]);
+      }}
+    />
+  );
+  const shared = {
+    noun: { one: "person", many: "people" },
+    total: null,
+    page: cursors.length,
+    onPage: () => {},
+    q,
+    onSearch,
+    searchPlaceholder: "Search by name, email or code",
+    onAdd: canAdd ? (name: string) => setAdding(name) : undefined,
+    filters,
+    filter,
+    onFilter,
+    exportName: "people",
+  };
+
+  const columns: ListColumn<Person>[] = [
     {
       key: "name",
       label: "Person",
+      primary: true,
+      text: (row) => row.name?.trim() || row.email,
       render: (row) => (
         <span className="block min-w-0">
-          <span className="block text-sm font-medium">
+          <span className="block truncate">
             {row.name?.trim() || row.email}
           </span>
-          {(row.name?.trim() || row.employeeCode) && (
-            <span className="block text-[13px] text-muted">
+          {row.name?.trim() || row.employeeCode ? (
+            <span className="block truncate text-[13px] font-normal text-muted">
               {row.name?.trim() ? row.email : null}
               {row.name?.trim() && row.employeeCode ? " · " : null}
-              {row.employeeCode ? (
-                <span className="whitespace-nowrap font-mono text-[13px]">
-                  {row.employeeCode}
-                </span>
-              ) : null}
+              {row.employeeCode ?? null}
             </span>
-          )}
+          ) : null}
         </span>
       ),
     },
     {
       key: "role",
       label: "Role",
-      render: (row) => (
-        <span className="block">
-          <span className="block whitespace-nowrap text-sm">
-            <StatusPill tone="neutral">{roleLabel(row.role)}</StatusPill>
-          </span>
-          {row.positionId ? (
-            <span className="block text-[13px] text-muted">
-              {positionOf(row.positionId)}
-            </span>
-          ) : null}
-        </span>
-      ),
+      text: (row) => roleLabel(row.role),
+      render: (row) =>
+        `${roleLabel(row.role)}${row.positionId ? ` · ${positionOf(row.positionId)}` : ""}`,
     },
     {
       key: "unit",
       label: "Unit",
-      render: (row) => (
-        <span className="block">
-          <span className="block text-sm">{unitOf(row.orgUnitId)}</span>
-          {row.supervisorSubject ? (
-            <span className="block text-[13px] text-muted">
-              {supervisorOf(row.supervisorSubject)}
-            </span>
-          ) : null}
-        </span>
-      ),
+      text: (row) => unitOf(row.orgUnitId),
+      render: (row) =>
+        `${unitOf(row.orgUnitId)}${row.supervisorSubject ? ` · ${supervisorOf(row.supervisorSubject)}` : ""}`,
     },
     {
       key: "status",
       label: "Status",
+      text: (row) => row.status,
       render: (row) => (
-        <span className="whitespace-nowrap">
-          <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
-            {row.status}
-          </StatusPill>
-        </span>
+        <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
+          {row.status}
+        </StatusPill>
       ),
     },
     {
-      key: "actions",
-      label: "Actions",
+      key: "edit",
+      label: "",
       align: "right",
-      render: (row) => (
-        <span className="flex flex-nowrap justify-end gap-2 whitespace-nowrap">
+      render: (row) =>
+        canEditPerson(row, canManage, permissions?.role) ? (
           <Button
             size="sm"
             variant="outline"
             className="h-8 whitespace-nowrap"
-            isDisabled={
-              !canManage ||
-              row.role === "super_admin" ||
-              (row.role === "admin" && permissions?.role !== "super_admin")
-            }
-            onPress={() => {
-              setSelectedId(row._id);
-              setSupervisorUnitId(row.orgUnitId ?? null);
-              setSupervisorSearch("");
-              setChosenSupervisorId("");
-              setSupervisorCursors([null]);
-              setError("");
-              setNotice("");
-            }}
+            onPress={() => openEdit(row)}
           >
-            Assign
+            Edit
           </Button>
+        ) : (
           <Button
             size="sm"
             variant="outline"
@@ -255,259 +378,377 @@ export function PeopleAdmin() {
           >
             History
           </Button>
+        ),
+    },
+  ];
+  const invitationColumns: ListColumn<Invitation>[] = [
+    {
+      key: "name",
+      label: "Person",
+      primary: true,
+      text: (row) => row.name?.trim() || row.email,
+      render: (row) => (
+        <span className="block min-w-0">
+          <span className="block truncate">
+            {row.name?.trim() || row.email}
+          </span>
+          {row.name?.trim() ? (
+            <span className="block truncate text-[13px] font-normal text-muted">
+              {row.email}
+            </span>
+          ) : null}
         </span>
       ),
     },
+    {
+      key: "role",
+      label: "Role",
+      text: (row) => roleLabel(row.role),
+      render: (row) => roleLabel(row.role),
+    },
+    {
+      key: "status",
+      label: "Status",
+      text: (row) => row.status,
+      render: (row) => (
+        <StatusPill
+          tone={
+            row.status === "accepted"
+              ? "success"
+              : row.status === "revoked"
+                ? "danger"
+                : "warning"
+          }
+        >
+          {row.status}
+        </StatusPill>
+      ),
+    },
+    {
+      key: "remove",
+      label: "",
+      align: "right",
+      render: (row) =>
+        row.role === "super_admin" || row.status === "revoked" ? null : (
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 whitespace-nowrap"
+            onPress={() => void removeInvitation(row._id)}
+          >
+            Remove
+          </Button>
+        ),
+    },
   ];
+
+  const historyList = (
+    <section aria-label="Assignment history" className="grid gap-2">
+      <h3 className="text-[13px] font-semibold text-foreground">History</h3>
+      {history === undefined ? (
+        <p className="text-sm text-muted">Loading…</p>
+      ) : history.length === 0 ? (
+        <p className="text-sm text-muted">No changes yet.</p>
+      ) : (
+        <ol className="grid gap-2">
+          {[...history]
+            .sort((a, b) => b.effectiveFrom - a.effectiveFrom)
+            .map((entry) => (
+              <li
+                key={entry._id}
+                className="rounded-lg border border-border p-3 text-sm"
+              >
+                <strong>{roleLabel(entry.role)}</strong> ·{" "}
+                {unitOf(entry.orgUnitId)} · {positionOf(entry.positionId)} ·
+                Supervisor: {nameOf(entry.supervisorId)}
+                <p className="text-xs text-muted">
+                  {formatManilaDate(entry.effectiveFrom)}
+                  {entry.effectiveTo
+                    ? ` – ${formatManilaDate(entry.effectiveTo)}`
+                    : " onward"}{" "}
+                  · {entry.reason}
+                </p>
+              </li>
+            ))}
+        </ol>
+      )}
+    </section>
+  );
 
   return (
     <div className="grid gap-4">
-      <Card
-        label="People"
-        icon={<WorkspaceIcon name="user" />}
-        count={people.length}
-        flush
+      <h2 className="text-[20px] font-semibold text-foreground">People</h2>
+      {notice ? (
+        <p role="status" className="text-sm text-success">
+          {notice}
+        </p>
+      ) : null}
+      {error && !selected && adding === false ? (
+        <p role="alert" className="text-sm text-danger">
+          {error}
+        </p>
+      ) : null}
+      {invited ? (
+        <ListPage<Invitation>
+          {...shared}
+          rows={(invitationPage?.page as Invitation[] | undefined) ?? null}
+          loading={invitationPage === undefined}
+          columns={invitationColumns}
+          rowKey={(row) => row._id}
+        />
+      ) : (
+        <ListPage<Person>
+          {...shared}
+          rows={result ? people : null}
+          loading={result === undefined}
+          columns={columns}
+          rowKey={(row) => row._id}
+        />
+      )}
+      {pager(invited ? invitationPage : result)}
+
+      <Drawer
+        open={!!selected}
+        title={
+          selected
+            ? `Edit ${selected.name?.trim() || selected.email}`
+            : "Edit person"
+        }
+        onClose={closeEdit}
+        wide
       >
-        <SetupSearch
-          label="Search people"
-          value={search ?? ""}
-          onChange={(value) => {
-            setSearch(value);
-            setCursors([null]);
-          }}
-        />
-        {result === undefined ? (
-          <p className="p-4 text-sm text-muted">Loading people…</p>
-        ) : (
-          <DataTable
-            bare
-            rows={rows}
-            columns={columns}
-            empty={<EmptyPanel title="No people on this page" />}
-          />
-        )}
-        <Pager
-          label="People pages"
-          page={cursors.length}
-          canPrevious={cursors.length > 1}
-          canNext={!!result && !result.isDone}
-          onPrevious={() => setCursors((old) => old.slice(0, -1))}
-          onNext={() => {
-            if (result && !result.isDone)
-              setCursors((old) => [...old, result.continueCursor]);
-          }}
-        />
-      </Card>
-      {selected ? (
-        <Card label={`Assign · ${selected.name}`}>
-          <form
-            onSubmit={submit}
-            className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3"
-          >
-            <AdminSelectField
-              key={`${selected._id}-unit`}
-              name="orgUnitId"
-              label="Unit"
-              defaultValue={selected.orgUnitId ?? ""}
-              required
-              onChange={(value) => {
-                setSupervisorUnitId(value as Id<"orgUnits">);
-                setSupervisorSearch("");
-                setChosenSupervisorId("");
-                setSupervisorCursors([null]);
-              }}
-              options={[
-                { id: "", label: "Select a unit" },
-                ...(units ?? [])
+        {selected ? (
+          <div className="grid gap-6">
+            <form onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
+              <AdminSelectField
+                key={`${selected._id}-unit`}
+                name="orgUnitId"
+                label="Unit"
+                defaultValue={selected.orgUnitId ?? ""}
+                required
+                onChange={(value) => {
+                  setSupervisorUnitId(value as Id<"orgUnits">);
+                  setSupervisorSearch("");
+                  setChosenSupervisorId("");
+                  setSupervisorCursors([null]);
+                }}
+                options={[
+                  { id: "", label: "Select a unit" },
+                  ...(units ?? [])
+                    .filter(
+                      (unit) =>
+                        unit.status === "active" &&
+                        (permissions?.scopeUnitIds.includes(unit._id) ?? false),
+                    )
+                    .map((unit) => ({
+                      id: unit._id,
+                      label: `${unit.code} · ${unit.name}`,
+                    })),
+                ]}
+              />
+              <AdminSelectField
+                key={`${selected._id}-role`}
+                name="role"
+                label="Role"
+                defaultValue={selected.role}
+                required
+                options={roles
                   .filter(
-                    (unit) =>
-                      unit.status === "active" &&
-                      (permissions?.scopeUnitIds.includes(unit._id) ?? false),
+                    (role) =>
+                      role !== "admin" || permissions?.role === "super_admin",
                   )
-                  .map((unit) => ({
-                    id: unit._id,
-                    label: `${unit.code} · ${unit.name}`,
+                  .map((role) => ({
+                    id: role,
+                    label: roleLabel(role),
+                  }))}
+              />
+              <AdminSelectField
+                key={`${selected._id}-position`}
+                name="positionId"
+                label="Position"
+                defaultValue={selected.positionId ?? ""}
+                options={[
+                  { id: "", label: "Keep current position" },
+                  ...(positions ?? []).map((position) => ({
+                    id: position._id,
+                    label: position.label,
                   })),
-              ]}
-            />
+                ]}
+              />
+              <FormField label="Search supervisors">
+                <Input
+                  value={supervisorSearch}
+                  onChange={(event) => {
+                    setSupervisorSearch(event.target.value);
+                    setSupervisorCursors([null]);
+                  }}
+                  placeholder="Name, email or code"
+                />
+              </FormField>
+              <AdminSelectField
+                name="supervisorId"
+                label="Supervisor"
+                value={chosenSupervisorId}
+                onChange={setChosenSupervisorId}
+                options={[
+                  { id: "", label: "Keep current supervisor" },
+                  ...(chosenSupervisorId &&
+                  !supervisorOptions?.page.some(
+                    (person) => person._id === chosenSupervisorId,
+                  )
+                    ? [{ id: chosenSupervisorId, label: "Selected supervisor" }]
+                    : []),
+                  ...(supervisorOptions?.page ?? [])
+                    .filter((person) => person._id !== selected._id)
+                    .map((person) => ({
+                      id: person._id,
+                      label: `${person.name} · ${person.email}`,
+                    })),
+                ]}
+              />
+              <div className="sm:col-span-2">
+                <Pager
+                  label="Supervisors pages"
+                  page={supervisorCursors.length}
+                  canPrevious={supervisorCursors.length > 1}
+                  canNext={!!supervisorOptions && !supervisorOptions.isDone}
+                  onPrevious={() =>
+                    setSupervisorCursors((old) => old.slice(0, -1))
+                  }
+                  onNext={() => {
+                    if (supervisorOptions && !supervisorOptions.isDone)
+                      setSupervisorCursors((old) => [
+                        ...old,
+                        supervisorOptions.continueCursor,
+                      ]);
+                  }}
+                />
+              </div>
+              <FormField label="Employee code">
+                <Input
+                  name="employeeCode"
+                  defaultValue={selected.employeeCode ?? ""}
+                  disabled={!!selected.employeeCode}
+                  placeholder="e.g. EMP-001"
+                />
+              </FormField>
+              <FormField label="Phone number">
+                <Input
+                  name="phone"
+                  type="tel"
+                  defaultValue={selected.phone ?? ""}
+                  placeholder="e.g. 0917 123 4567"
+                />
+              </FormField>
+              <FormField label="Reason">
+                <textarea
+                  className="min-h-20 rounded-[10px] border border-border bg-surface p-3 text-sm"
+                  name="reason"
+                  required
+                  rows={2}
+                />
+              </FormField>
+              {error ? (
+                <p role="alert" className="text-sm text-danger sm:col-span-2">
+                  {error}
+                </p>
+              ) : null}
+              <div className="flex gap-2 sm:col-span-2">
+                <Button
+                  type="submit"
+                  variant="primary"
+                  isDisabled={!canManage}
+                  isPending={pending}
+                >
+                  Save
+                </Button>
+                <Button type="button" variant="outline" onPress={closeEdit}>
+                  Cancel
+                </Button>
+              </div>
+            </form>
+            {historyList}
+          </div>
+        ) : null}
+      </Drawer>
+
+      <Drawer
+        open={!!historyId && !selected}
+        title={`History · ${nameOf(historyId ?? undefined)}`}
+        onClose={closeHistory}
+      >
+        {historyList}
+      </Drawer>
+
+      <Drawer open={adding !== false} title="Add person" onClose={closeAdd}>
+        {adding !== false && current ? (
+          <form onSubmit={submitAdd} className="grid gap-4">
+            <FormField label="Full name">
+              <Input
+                name="name"
+                defaultValue={adding && !adding.includes("@") ? adding : ""}
+                placeholder="Juan Dela Cruz"
+              />
+            </FormField>
+            <FormField label="Email">
+              <Input
+                name="email"
+                type="email"
+                required
+                defaultValue={adding && adding.includes("@") ? adding : ""}
+                placeholder="name@sunpride.com.ph"
+              />
+            </FormField>
             <AdminSelectField
-              key={`${selected._id}-role`}
-              name="role"
               label="Role"
-              defaultValue={selected.role}
-              required
-              options={roles
+              value={role}
+              onChange={(value) => setRole(value as AssignableRole)}
+              options={roleOptions
                 .filter(
-                  (role) =>
-                    role !== "admin" || permissions?.role === "super_admin",
+                  (option) =>
+                    option.value !== "admin" || current.role === "super_admin",
                 )
-                .map((role) => ({
-                  id: role,
-                  label: roleLabel(role),
-                }))}
+                .map((option) => ({ id: option.value, label: option.label }))}
             />
             <AdminSelectField
-              key={`${selected._id}-position`}
-              name="positionId"
               label="Position"
-              defaultValue={selected.positionId ?? ""}
+              value={positionId}
+              onChange={setPositionId}
               options={[
-                { id: "", label: "Keep current position" },
+                { id: "", label: "No position" },
                 ...(positions ?? []).map((position) => ({
                   id: position._id,
                   label: position.label,
                 })),
               ]}
             />
-            <FormField label="Search supervisors">
-              <Input
-                value={supervisorSearch}
-                onChange={(event) => {
-                  setSupervisorSearch(event.target.value);
-                  setSupervisorCursors([null]);
-                }}
-                placeholder="Name, email or code"
-              />
-            </FormField>
             <AdminSelectField
-              name="supervisorId"
-              label="Supervisor"
-              value={chosenSupervisorId}
-              onChange={setChosenSupervisorId}
+              label="Unit"
+              value={orgUnitId}
+              onChange={setOrgUnitId}
               options={[
-                { id: "", label: "Keep current supervisor" },
-                ...(chosenSupervisorId &&
-                !supervisorOptions?.page.some(
-                  (person) => person._id === chosenSupervisorId,
-                )
-                  ? [{ id: chosenSupervisorId, label: "Selected supervisor" }]
-                  : []),
-                ...(supervisorOptions?.page ?? [])
-                  .filter((person) => person._id !== selected._id)
-                  .map((person) => ({
-                    id: person._id,
-                    label: `${person.name} · ${person.email}`,
-                  })),
+                { id: "", label: "Pick later" },
+                ...(units ?? [])
+                  .filter((u) => u.status === "active")
+                  .map((u) => ({ id: u._id, label: `${u.code} · ${u.name}` })),
               ]}
             />
-            <div className="sm:col-span-2 lg:col-span-3">
-              <Pager
-                label="Supervisors pages"
-                page={supervisorCursors.length}
-                canPrevious={supervisorCursors.length > 1}
-                canNext={!!supervisorOptions && !supervisorOptions.isDone}
-                onPrevious={() =>
-                  setSupervisorCursors((old) => old.slice(0, -1))
-                }
-                onNext={() => {
-                  if (supervisorOptions && !supervisorOptions.isDone)
-                    setSupervisorCursors((old) => [
-                      ...old,
-                      supervisorOptions.continueCursor,
-                    ]);
-                }}
-              />
-            </div>
-            <FormField label="Employee code">
-              <Input
-                name="employeeCode"
-                defaultValue={selected.employeeCode ?? ""}
-                disabled={!!selected.employeeCode}
-                placeholder="e.g. EMP-001"
-              />
-            </FormField>
-            <FormField label="Phone number">
-              <Input
-                name="phone"
-                type="tel"
-                defaultValue={selected.phone ?? ""}
-                placeholder="e.g. 0917 123 4567"
-              />
-            </FormField>
-            <FormField label="Reason">
-              <textarea
-                className="min-h-20 rounded-[10px] border border-border bg-surface p-3 text-sm"
-                name="reason"
-                required
-                rows={2}
-              />
-            </FormField>
             {error ? (
               <p role="alert" className="text-sm text-danger">
                 {error}
               </p>
             ) : null}
             <div className="flex gap-2">
-              <Button
-                type="submit"
-                variant="primary"
-                isDisabled={!canManage}
-                isPending={pending}
-              >
-                Save assignment
+              <Button type="submit" variant="primary" isPending={pending}>
+                Save
               </Button>
-              <Button
-                type="button"
-                variant="outline"
-                onPress={() => setSelectedId(null)}
-              >
+              <Button type="button" variant="outline" onPress={closeAdd}>
                 Cancel
               </Button>
             </div>
           </form>
-        </Card>
-      ) : null}
-      {notice ? (
-        <Card label="Status">
-          <p role="status" className="text-sm text-success">
-            {notice}
-          </p>
-        </Card>
-      ) : null}
-      {historyId ? (
-        <Card
-          label={`History · ${nameOf(historyId)}`}
-          actions={
-            <Button
-              size="sm"
-              variant="outline"
-              onPress={() => setHistoryId(null)}
-            >
-              Close
-            </Button>
-          }
-        >
-          <aside aria-label="Assignment history">
-            {history === undefined ? (
-              <p>Loading history…</p>
-            ) : history.length === 0 ? (
-              <p className="text-sm text-muted">No assignment history.</p>
-            ) : (
-              <ol className="mt-3 grid gap-3">
-                {[...history]
-                  .sort((a, b) => b.effectiveFrom - a.effectiveFrom)
-                  .map((entry) => (
-                    <li
-                      key={entry._id}
-                      className="rounded-md border border-border p-3 text-sm"
-                    >
-                      <strong>{roleLabel(entry.role)}</strong> ·{" "}
-                      {unitOf(entry.orgUnitId)} · {positionOf(entry.positionId)}{" "}
-                      · Supervisor: {nameOf(entry.supervisorId)}
-                      <p className="text-xs text-muted">
-                        {formatManilaDate(entry.effectiveFrom)}
-                        {entry.effectiveTo
-                          ? ` – ${formatManilaDate(entry.effectiveTo)}`
-                          : " onward"}{" "}
-                        · {entry.reason}
-                      </p>
-                    </li>
-                  ))}
-              </ol>
-            )}
-          </aside>
-        </Card>
-      ) : null}
+        ) : null}
+      </Drawer>
     </div>
   );
 }

@@ -292,12 +292,12 @@ export function OrgAdmin() {
                 }}
               >
                 {action === "create"
-                  ? "Create child"
+                  ? "Add unit below"
                   : action === "edit"
-                    ? "Edit name"
+                    ? "Edit"
                     : action === "reparent"
-                      ? "Reparent"
-                      : "Deactivate"}
+                      ? "Move"
+                      : "Remove"}
               </Button>
             ),
           )}
@@ -324,7 +324,7 @@ export function OrgAdmin() {
               setNotice("");
             }}
           >
-            New unit
+            Add unit
           </Button>
         }
         flush
@@ -342,6 +342,11 @@ export function OrgAdmin() {
               }}
             />
           </FormField>
+          {previewDate && canManage ? (
+            <p className="mt-1 text-[13px] text-muted">
+              Clear the date to add or edit units.
+            </p>
+          ) : null}
         </div>
         {units === undefined ? (
           <p className="p-4 text-sm text-muted">Loading organization…</p>
@@ -389,7 +394,7 @@ export function OrgAdmin() {
       </Card>
       {choice ? (
         <Card
-          label={`${choice.action === "create" ? "New unit" : choice.action === "edit" ? "Edit unit" : choice.action === "reparent" ? "Move unit" : "Deactivate unit"} · ${choice.unit.name}`}
+          label={`${choice.action === "create" ? "Add unit" : choice.action === "edit" ? "Edit unit" : choice.action === "reparent" ? "Move unit" : "Remove unit"} · ${choice.unit.name}`}
         >
           <form
             onSubmit={submit}
@@ -428,7 +433,7 @@ export function OrgAdmin() {
             ) : choice.action === "reparent" ? (
               <AdminSelectField
                 name="parentId"
-                label="New parent"
+                label="Move under"
                 value={parentId}
                 onChange={setParentId}
                 required
@@ -478,7 +483,7 @@ export function OrgAdmin() {
                 isPending={pending}
                 className="h-10"
               >
-                Save change
+                Save
               </Button>
               <Button
                 type="button"

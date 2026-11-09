@@ -189,7 +189,7 @@ export function TeamsAdmin() {
             setAction(null);
           }}
         >
-          View team
+          Edit
         </Button>
       ),
     },
@@ -211,7 +211,7 @@ export function TeamsAdmin() {
                 setError("");
               }}
             >
-              New team
+              Add team
             </Button>
           ) : undefined
         }
@@ -319,7 +319,7 @@ export function TeamsAdmin() {
                       setError("");
                     }}
                   >
-                    Deactivate team
+                    Remove team
                   </Button>
                 </div>
               ) : null}
@@ -381,12 +381,12 @@ export function TeamsAdmin() {
         <Card
           label={
             action === "create"
-              ? "New team"
+              ? "Add team"
               : action === "add"
                 ? "Add member"
                 : action === "remove"
                   ? "Remove member"
-                  : "Deactivate team"
+                  : "Remove team"
           }
         >
           <form
@@ -484,7 +484,7 @@ export function TeamsAdmin() {
                 isPending={pending}
                 isDisabled={!canManage}
               >
-                Save change
+                Save
               </Button>
               <Button
                 type="button"

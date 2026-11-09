@@ -402,31 +402,29 @@ Changes to units, teams, territories, routes and assignments are effective-dated
 a future **Effective date**, and the change starts at midnight (Manila) that day. History is
 kept. Name edits apply at once.
 
-### 10.1 Invite a person
+### 10.1 Add a person
 
-1. Open Admin › **Invitations**.
-2. Under **Invite person** enter **Full name** and **Email**.
-3. Choose the **Role** and, if known, the **Position** (or **No position**).
-4. Click **Send invitation**. You see **Invitation sent**.
+1. Open Admin › **People** and click **Add person** (top right).
+2. Enter **Full name** and **Email**.
+3. Choose the **Role** and, if known, the **Position** (or **No position**) and **Unit**.
+4. Click **Save**.
 
-Only a Super admin can invite an **Administrator**. Inviting and revoking need a national
+Only a Super admin can add an **Administrator**. Adding and removing people need a national
 administrator or the Super admin.
 
-A new person starts with no unit and cannot use unit screens until one is assigned
-(next step).
+A new person with no unit cannot use unit screens until one is set (next step).
 
-To stop someone's access: find the invitation and click **Revoke access** (**Access revoked**).
+To stop someone's access: pick the **Invited** filter, find the person and click **Remove**.
 This also disables their login. To stop only one phone, use section 13 instead.
 
-### 10.2 Assign unit, role, position and supervisor
+### 10.2 Edit a person's unit, role, position and supervisor
 
-1. Open Admin › **People**.
-2. Click **Assign** on the person's row.
+1. Open Admin › **People** and search by name, email or code.
+2. Click **Edit** on the person's row.
 3. Choose the **Unit**, **Role** and **Position**.
 4. Find their **Supervisor** (use **Search supervisors** if needed).
 5. Enter the **Employee code** if it is empty. It cannot be changed once set.
-6. Enter a **Reason** and click **Save assignment**.
-7. Click **History** on the row to see past assignments.
+6. Enter a **Reason** and click **Save**. Past changes are listed under the form.
 
 The supervisor must be above the person in the hierarchy. The supervisor you choose here is
 the one who approves the person's MCP.
@@ -434,23 +432,23 @@ the one who approves the person's MCP.
 ### 10.3 Organization units
 
 1. Open Admin › **Organization**.
-2. To add a unit: click **Create child** on the parent, enter **Code** and **Name**, choose
-   the **Unit type**, set the **Effective date**, enter a **Reason**, click **Save change**.
-3. To move a unit: click **Reparent**, choose the **New parent**, set the date and reason,
-   click **Save change**.
-4. To rename or close: click **Edit name** or **Deactivate**, then **Save change**.
+2. To add a unit: click **Add unit below** on the parent, enter **Code** and **Name**, choose
+   the **Unit type**, set the **Effective date**, enter a **Reason**, click **Save**.
+3. To move a unit: click **Move**, choose where to **Move under**, set the date and reason,
+   click **Save**.
+4. To rename or close: click **Edit** or **Remove**, then **Save**.
 5. Use **As of** to see the tree on another date. Clear it before editing.
 
-A unit with active units under it cannot be deactivated.
+A unit with active units under it cannot be removed.
 
 ### 10.4 Teams
 
-1. Open Admin › **Teams** and click **New team**.
+1. Open Admin › **Teams** and click **Add team**.
 2. Enter **Code**, **Name**, choose the **Unit**, set the **Effective date** and **Reason**,
-   click **Save change**.
-3. Click **View team**, then **Add member**, choose the **Person**, set the date and reason,
-   click **Save change**.
-4. Use **Remove member** or **Deactivate team** the same way. **Membership history** shows
+   click **Save**.
+3. Click **Edit** on the team, then **Add member**, choose the **Person**, set the date and
+   reason, click **Save**.
+4. Use **Remove member** or **Remove team** the same way. **Membership history** shows
    past members.
 
 ## 11. Territories and routes
@@ -461,35 +459,35 @@ Field › Coverage › **Setup**.
 
 ### 11.1 Territories
 
-1. Open Admin › **Territories** and click **Create territory**.
+1. Open Admin › **Territories** and click **Add territory**.
 2. Enter **Code**, **Name**, optionally **Channel**.
 3. Choose the **Owning unit**.
 4. Set the **Effective date** (and an **End date** only if it has a planned end).
 5. Enter the **Reason (required)** and click **Save**.
 
-On an opened territory (**Open**):
+Click **Edit** on a territory to see it, then:
 
-- **transfer** moves it to another owning unit from a date. See **Ownership history**.
-- **assign** gives it a primary **Salesperson** from a date. **End assignment** ends one.
-- **edit** changes the name, channel or boundary at once; **deactivate** closes it from a
-  date.
+- **Move to another unit** changes the owning unit from a date. See **Ownership history**.
+- **Add salesperson** gives it a primary **Salesperson** from a date. **Remove** ends one.
+- **Edit territory** changes the name, channel or boundary at once; **Remove territory**
+  closes it from a date.
 
 The **No salesperson assigned** filter finds uncovered territories. The optional boundary
 is advisory only; it does not block check-in.
 
 ### 11.2 Routes
 
-1. Open Admin › **Routes**, choose the **Territory**, click **Create route**.
-2. Enter **Code** and **Name**.
+1. Open Admin › **Routes** and click **Add route**.
+2. Pick the **Territory** in the form, then enter **Code** and **Name**.
 3. Optionally tick the days in **Weekday template (Monday=1)** and the cycle length.
 4. Set the **Effective date** and **Reason (required)**, click **Save**.
 
-On an opened route:
+The list shows **All territories**; pick one to narrow it. Click **Edit** on a route, then:
 
-- **move** puts it in a **Destination territory** from a date. If you see
-  Move requires outlet reassignment first, reassign its stores first (section 12.3).
-- **assign** gives it a **Salesperson** (tick **Primary owner** for the main one).
-- **edit**, **duplicate** and **deactivate** are also available.
+- **Move to another territory** puts it in a **Destination territory** from a date. If you
+  see Move requires outlet reassignment first, reassign its stores first (section 12.3).
+- **Add salesperson** gives it a **Salesperson** (tick **Primary owner** for the main one).
+- **Edit route**, **Copy route** and **Remove route** are also available.
 
 If you see Revise the approved coverage plan first, an approved MCP uses this route or
 store. Revise that plan (section 6.2) before the change.
