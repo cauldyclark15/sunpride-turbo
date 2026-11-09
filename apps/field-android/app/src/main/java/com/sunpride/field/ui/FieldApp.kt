@@ -81,6 +81,13 @@ enum class StatusPill(val label: String) {
     }
 }
 
+
+/**
+ * Store detail "Edit". Off until a real store-change flow exists: today Edit reuses the Add-store form, which
+ * submits a NEW store (duplicates). Keep both entry points (header Edit, "Edit store" button) behind this.
+ */
+const val STORE_EDIT_ENABLED = false
+
 @Composable
 fun FieldApp(
     environment: AppEnvironment, dark: Boolean, debug: Boolean = false, backend: FieldBackend? = null,
@@ -263,7 +270,7 @@ fun FieldApp(
                 val spec = headerSpec(ready, locked, signedIn = controller.state != EnrollmentState.SignedOut, page = page,
                     visitOpen = visitOpen, controller = controller, routeCode = controller.today.routeCode,
                     editingStore = censusEdit != null).let {
-                    if (ready && !visitOpen && visits && page == "customer" && customer != null)
+                    if (STORE_EDIT_ENABLED && ready && !visitOpen && visits && page == "customer" && customer != null)
                         it.copy(action = HeaderAction("Edit", editStore, "customer-header-edit")) else it
                 }
                 FieldHeader(spec.title, subtitle = spec.subtitle, titleTag = spec.titleTag,
@@ -393,7 +400,7 @@ fun FieldApp(
                     onDial = { uri -> openDialer(context, uri) }, modifier = modifier,
                     onVisit = controller::openDiagnostic, visitEnabled = visits, now = minuteNow,
                     unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features,
-                    onEdit = if (visits) ({ censusEdit = customerId; go("census") }) else null)
+                    onEdit = if (visits && STORE_EDIT_ENABLED) ({ censusEdit = customerId; go("census") }) else null)
                 ready && page == "customer" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,
                     onAddStore = if (visits) ({ typed -> censusName = typed; censusEdit = null; go("census") }) else null)
