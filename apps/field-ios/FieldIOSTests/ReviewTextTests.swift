@@ -13,7 +13,7 @@ final class ReviewTextTests: XCTestCase {
             XCTAssertNotNil(ReviewText.reasons[code], code)
             let line = ReviewText.line(kind: "visit.checkIn", code: code)
             XCTAssertFalse(line.contains("Unknown outcome"), line)
-            XCTAssertFalse(line.contains("."), "no operation name or code in \(line)")
+            XCTAssertNil(line.range(of: #"[A-Za-z]\.[A-Za-z]"#, options: .regularExpression), "no operation name or code in \(line)")
             XCTAssertFalse(line.contains("_"), line)
         }
     }
@@ -23,6 +23,18 @@ final class ReviewTextTests: XCTestCase {
                        "Start of visit · Already recorded for this store today")
         XCTAssertEqual(ReviewText.line(kind: "visit.activity", code: "dependency_missing"),
                        "Visit activity · The start of this visit was not accepted")
+    }
+
+    func testAddressReasonsAreTwoSentences() {
+        XCTAssertEqual(ReviewText.reasons["place_mismatch"],
+                       "The address you picked is far from where you are. Check the address or use your location.")
+        XCTAssertEqual(ReviewText.reasons["places_unavailable"],
+                       "Address search is not available right now. Use your location or try again later.")
+    }
+
+    @MainActor func testFaceIDStaysOff() {
+        XCTAssertFalse(AppModel.biometricsEnabled)
+        XCTAssertEqual(Bundle.main.object(forInfoDictionaryKey: "FieldBiometricsEnabled") as? Bool, false)
     }
 
     func testUnrecognisedCodeAndKindStayPlain() {

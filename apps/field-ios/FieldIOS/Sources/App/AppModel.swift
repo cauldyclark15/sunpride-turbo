@@ -220,8 +220,9 @@ final class AppModel {
     /// SP-0133: the session goes through the lockable vault (Face ID / Touch ID sign-in).
     /// The one switch for Face ID / Touch ID sign-in. When off the app never offers, prompts or shows the
     /// Account toggle, and a previously sealed biometric session is forgotten (password sign-in instead).
-    // Off by owner decision 2026-11-08; Face ID returns later.
-    static let biometricsEnabled = false
+    // Off by owner decision 2026-11-08; Face ID returns later. The value lives in Info.plist
+    // (`FieldBiometricsEnabled`) so FieldIOSUITests reads the very same switch and cannot drift.
+    static let biometricsEnabled = Bundle.main.object(forInfoDictionaryKey: "FieldBiometricsEnabled") as? Bool ?? false
 
     /// Gate to hand the model, or nil when biometrics are switched off (an old sealed session is dropped).
     static func biometricGate(vault: LockableSessionStore, crypto: @autoclosure () -> any BiometricCrypto) -> BiometricGate? {
@@ -1236,8 +1237,8 @@ enum ReviewText {
         "wrong_date": "Visit date does not match the phone date",
         "idempotency_conflict": "Already recorded for this store today",
         "stock_conflict": "Stock changed in the office", "load_not_posted": "Truck load not posted yet",
-        "place_mismatch": "The address you picked is far from where you are, check the address or use your location",
-        "places_unavailable": "Address search is not available right now, use your location or try again later",
+        "place_mismatch": "The address you picked is far from where you are. Check the address or use your location.",
+        "places_unavailable": "Address search is not available right now. Use your location or try again later.",
         "mock_location_refused": "A simulated location was refused",
         "unknown_code": "The office gave a reason this app does not know", "unknown_status": "The office answer was not clear"
     ]

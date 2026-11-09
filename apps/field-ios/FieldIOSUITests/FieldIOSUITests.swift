@@ -1207,9 +1207,17 @@ final class FieldIOSUITests: XCTestCase {
         XCTFail("Account did not open")
     }
 
-    /// Mirrors `AppModel.biometricsEnabled` (the UI test target cannot import the app).
-    // Off by owner decision 2026-11-08; Face ID returns later.
-    private static let biometricsEnabled = false
+    /// Same switch as `AppModel.biometricsEnabled`: the app's Info.plist key `FieldBiometricsEnabled`, read from
+    /// source (the UI test target cannot import the app). Off by owner decision 2026-11-08; Face ID returns later.
+    private static let biometricsEnabled: Bool = {
+        let plist = URL(fileURLWithPath: #filePath).deletingLastPathComponent().deletingLastPathComponent()
+            .appending(path: "FieldIOS/Info.plist")
+        guard let data = try? Data(contentsOf: plist),
+              let dict = try? PropertyListSerialization.propertyList(from: data, format: nil) as? [String: Any],
+              let on = dict["FieldBiometricsEnabled"] as? Bool
+        else { fatalError("FieldBiometricsEnabled missing from \(plist.path)") }
+        return on
+    }()
 
     /// With the switch off, even a phone with Face ID gets no offer after sign-in and no Account toggle.
     func testBiometricsOffNoOfferAndNoAccountToggle() throws {

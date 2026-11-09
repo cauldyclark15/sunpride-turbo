@@ -71,53 +71,77 @@ targets:
       # Original shared wire fixtures, copied into the test bundle without maintaining native duplicates.
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-request.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-response.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-call-sheet-response.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-account-summary-response.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-order-terms-response.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/push-call-sheet-request.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/suggested-order/for-outlet.json
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-activity-rules-response.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-photo-types-response.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-next-page.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/error-device-revoked.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/error-invalid-cursor.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/error-rebootstrap-required.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/error-version-unsupported.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/unknown-response-enum.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/push-request.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/push-planned-request.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/push-response.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/push-conflict-response.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/pull-request.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/pull-response.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       # SP-0138 live-location batch envelopes.
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/location-request.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/location-response.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
       # SP-0164 customer gathering: shared duplicate-check rules and vectors.
       - path: ../../packages/domain-contracts/fixtures/mobile-v1/census-duplicates.json
         buildPhase: resources
+        group: FieldIOSTests/Fixtures
     dependencies:
       - target: FieldIOS
     settings:
