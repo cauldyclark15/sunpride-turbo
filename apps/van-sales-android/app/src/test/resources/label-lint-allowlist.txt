@@ -2,5 +2,4 @@
 java/com/sunpride/van/ui/AccountScreens.kt|New password
 java/com/sunpride/van/ui/SellingCheckout.kt|New sale
 java/com/sunpride/van/ui/StoreSessionNav.kt|New sale
-java/com/sunpride/van/ui/StoreTransactionScreens.kt|New customer name
 java/com/sunpride/van/ui/TripScreens.kt|New sale

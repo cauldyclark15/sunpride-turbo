@@ -129,11 +129,12 @@ import com.sunpride.van.data.*
     LaunchedEffect(Unit) { c.refreshHeld() }
     val held = c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN)
     var heldOpen by remember { mutableStateOf(false) }
+    val canAdd = c.policy?.walkInAllowed == true
+    Box(Modifier.fillMaxSize()) {
     ScreenFrame("Sell",trailing = { SyncPill(c) },message = c.message) {
         if (held.isNotEmpty()) ListRow("Held carts (${held.size})","Carts you parked for a customer · tap to recall","held-carts-row",onClick = { heldOpen = true },glyph = GlyphKind.RECEIPT)
         LabeledField("Search customers",query,{ query = it },"customer-search",maxLength = 150)
-        ListRow("Add walk-in customer","For someone who is not on your list","add-walk-in",enabled = !c.busy && c.policy?.walkInAllowed == true,onClick = { c.open(Page.WALK_IN) },glyph = GlyphKind.PLUS)
-        if (c.policy?.walkInAllowed != true) Text("Ask your supervisor to allow walk-in customers.")
+        if (!canAdd) Text("Ask your supervisor to allow walk-in customers.",style = MaterialTheme.typography.bodyMedium)
         listOf("route" to "Today's route","unplanned" to "Other stores in your area","walk_in" to "Walk-in").forEach { (source,label) ->
             val group = filtered.filter { it.source == source }.let { if (source == "route") it.sortedBy { it.sequence ?: Int.MAX_VALUE } else it }
             Text(label,style = MaterialTheme.typography.titleMedium)
@@ -143,18 +144,21 @@ import com.sunpride.van.data.*
                     listOfNotNull(customer.code.takeIf { it.isNotBlank() },VanRules.sourceLabel(customer.source)).joinToString(" · "),"customer-$source-$index",onClick = { c.select(customer) })
             }
         }
+        // Room so the Add customer button never covers the last row.
+        if (canAdd) Spacer(Modifier.height(AddFabListPadding))
+    }
+    if (canAdd) AddFab("Add customer",{ if (!c.busy) c.open(Page.WALK_IN) },tag = "add-walk-in")
     }
     if (heldOpen) HeldCartsSheet(held,cartEmpty = true,showCustomer = true,message = c.message,onRecall = { heldOpen = false; c.recallVanHeld(it) },onDiscard = { c.discardHeld(it.holdId) },onClose = { heldOpen = false })
 }
 @Composable fun WalkInScreen(c: VanController) {
     var name by remember { mutableStateOf("") }
     var reason by remember { mutableStateOf("") }
-    ScreenFrame("Add walk-in",c::back,action = "Save customer",actionTag = "save-walk-in",enabled = !c.busy && c.policy?.walkInAllowed == true && name.isNotBlank() && reason.isNotBlank(),
+    ScreenFrame("Add customer",c::back,action = "Save",actionTag = "save-walk-in",enabled = !c.busy && c.policy?.walkInAllowed == true && name.isNotBlank() && reason.isNotBlank(),
         onAction = { c.walkIn(name,reason) },message = c.message) {
-        Text("For a customer who is not on your list. Give a reason for adding them.")
+        Text("Someone not on your list. Saved on this phone for this trip.",style = MaterialTheme.typography.bodyMedium)
         LabeledField("Customer name",name,{ name = it },"walk-in-name",maxLength = 150)
         LabeledField("Reason (required)",reason,{ reason = it },"walk-in-reason")
-        Text("This customer is saved on this phone for this trip.",style = MaterialTheme.typography.bodyMedium)
     }
 }
 @Composable fun CustomerDetailScreen(c: VanController) {
@@ -172,7 +176,7 @@ import com.sunpride.van.data.*
         }
         VanCallPanel(c)
         // VAN-019: returns are taken from the customer, like a sale.
-        if (customer != null) SecondaryButton(if (c.returnDraft?.customer?.outletId == customer.outletId) "Continue return" else "Record return",
+        if (customer != null) SecondaryButton(if (c.returnDraft?.customer?.outletId == customer.outletId) "Continue return" else "Add return",
             { c.startReturn(customer) },Modifier.testTag("start-return"),!c.busy && VanRules.canSell(c.trip))
         if (!VanRules.canSell(c.trip)) Text("Start the trip before selling.",style = MaterialTheme.typography.titleMedium)
         else if (c.sale != null && !continuing) Text("Starting a sale here replaces the unfinished sale for ${c.sale!!.customer.name}.",style = MaterialTheme.typography.bodyMedium)
