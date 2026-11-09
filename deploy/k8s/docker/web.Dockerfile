@@ -8,7 +8,11 @@ RUN mkdir /out && cp package.json bun.lock /out/ \
 FROM oven/bun:1.3.14 AS build
 WORKDIR /app
 COPY --from=manifests /out/ ./
-RUN bun install --frozen-lockfile --filter @sunpride/web
+RUN bun install --frozen-lockfile --ignore-scripts --filter @sunpride/web
+# HeroUI Pro is licensed: its postinstall downloads dist/ with jc's login. Use the
+# copy already installed on the build Mac (staged by deploy/k8s/build-images.sh).
+COPY deploy/k8s/.vendor/heroui-pro-react/ /tmp/heroui-pro-react/
+RUN d=$(readlink -f packages/ui/node_modules/@heroui-pro/react) && cp -a /tmp/heroui-pro-react/. "$d"/ && test -f "$d/dist/index.js" && rm -rf /tmp/heroui-pro-react
 COPY packages/ui ./packages/ui
 COPY packages/typescript-config ./packages/typescript-config
 COPY packages/eslint-config ./packages/eslint-config

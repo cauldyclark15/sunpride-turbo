@@ -1,0 +1,71 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: sunpride-api-files, namespace: sunpride}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: linode-block-storage-retain
+  resources: {requests: {storage: 10Gi}}
+---
+apiVersion: v1
+kind: Service
+metadata: {name: sunpride-api, namespace: sunpride}
+spec:
+  selector: {app: sunpride-api}
+  ports: [{name: http, port: 4320, targetPort: 4320}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: sunpride-api, namespace: sunpride}
+spec:
+  replicas: 1
+  strategy: {type: Recreate}
+  selector: {matchLabels: {app: sunpride-api}}
+  template:
+    metadata: {labels: {app: sunpride-api}}
+    spec:
+      imagePullSecrets: [{name: regcred}]
+      securityContext: {fsGroup: 1000}
+      initContainers:
+        - name: migrate
+          image: cauldyclark15/sunpride-api:TAG
+          workingDir: /app/packages/db
+          command: ["bun", "src/migrate.js"]
+          envFrom: [{secretRef: {name: sunpride-app}}]
+          resources:
+            requests: {cpu: 50m, memory: 128Mi}
+            limits: {cpu: 500m, memory: 512Mi}
+      containers:
+        - name: api
+          image: cauldyclark15/sunpride-api:TAG
+          envFrom:
+            - secretRef: {name: sunpride-app}
+            - configMapRef: {name: sunpride-api-env}
+          ports: [{containerPort: 4320}]
+          readinessProbe:
+            httpGet: {path: /healthz, port: 4320}
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: {path: /healthz, port: 4320}
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            failureThreshold: 5
+          resources:
+            requests: {cpu: 200m, memory: 384Mi}
+            limits: {cpu: "1", memory: 1Gi}
+          volumeMounts: [{name: files, mountPath: /data/files}]
+      volumes:
+        - name: files
+          persistentVolumeClaim: {claimName: sunpride-api-files}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata: {name: sunpride-api-env, namespace: sunpride}
+data:
+  HOST: 0.0.0.0
+  PORT: "4320"
+  BOOTSTRAP_ADMIN_EMAILS: jcing.jc@gmail.com
+  SAP_MODE: mock
+  SAP_ORIGIN: http://sunpride-sap-mock:4435
+  FILES_DIR: /data/files
+  PUBLIC_ORIGIN: https://sunpride-k8s.cauldnclark.com
+  DB_POOL_MAX: "20"

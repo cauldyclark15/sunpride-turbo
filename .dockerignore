@@ -14,3 +14,5 @@ apps/office-ios
 !apps/*/package.json
 docs
 deploy/k8s/*.yaml
+!deploy/k8s/.vendor
+!deploy/k8s/.vendor/**
