@@ -56,8 +56,10 @@ import java.util.Base64
  * SP-0163: two location choices (Use my location / Search address), landmark, duplicate warning, optional batch. */
 @Composable
 fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> Unit, modifier: Modifier = Modifier,
-    stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null, initialName: String = "") =
-    CensusScreenForTest(backend, location, onBack, modifier, stores, onOpenStore, photoForTest = null, initialName = initialName)
+    stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null, initialName: String = "",
+    editing: CustomerRecord? = null) =
+    CensusScreenForTest(backend, location, onBack, modifier, stores, onOpenStore, photoForTest = null, initialName = initialName,
+        editing = editing)
 
 /** Tests only: [photoForTest] starts with a storefront photo (emulators have no working camera). Release code
  * calls [CensusScreen], which always passes null; lint's VisibleForTests check blocks other production callers. */
@@ -66,7 +68,7 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
 @Composable
 internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation, onBack: () -> Unit, modifier: Modifier = Modifier,
     stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null, photoForTest: ByteArray? = null,
-    initialName: String = "") {
+    initialName: String = "", editing: CustomerRecord? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
@@ -75,8 +77,11 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     var history by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var message by remember { mutableStateOf("Loading store setup…") }
     var busy by remember { mutableStateOf(false) }
-    var name by rememberSaveable { mutableStateOf(initialName.take(80)) }; var address by rememberSaveable { mutableStateOf("") }
-    var owner by rememberSaveable { mutableStateOf("") }; var phone by rememberSaveable { mutableStateOf("") }
+    // Edit store: the same form, filled from the store; the office checks the changes before they replace the record.
+    var name by rememberSaveable { mutableStateOf((editing?.name ?: initialName).take(80)) }
+    var address by rememberSaveable { mutableStateOf(editing?.let { it.address ?: it.account?.address }.orEmpty()) }
+    var owner by rememberSaveable { mutableStateOf(editing?.account?.buyerName.orEmpty()) }
+    var phone by rememberSaveable { mutableStateOf(editing?.account?.contactNumber.orEmpty()) }
     var batch by rememberSaveable { mutableStateOf("") }; var channel by rememberSaveable { mutableStateOf("") }
     var subchannel by rememberSaveable { mutableStateOf("") }; var estimatedClass by rememberSaveable { mutableStateOf("D") }
     var landmark by rememberSaveable { mutableStateOf("") }
@@ -261,6 +266,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     Column(modifier.fillMaxSize().imePadding()) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            if (editing != null) Text("The office checks your changes before they show.", style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("census-edit-note"))
             NoticeCard(message, tone = if (config == null) Look.Tone.WARN else Look.Tone.NEUTRAL,
                 glyph = if (config == null) GlyphKind.INFO else GlyphKind.LOCK, textTag = "census-message")
             SectionCard("Store") {

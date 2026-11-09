@@ -12,6 +12,10 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.longClick
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import com.sunpride.field.storage.CallSheetHeader
@@ -47,28 +51,28 @@ class CustomerScreensTest {
     @Test fun searchFiltersTheCachedOutletsOfflineAndOpensOne() {
         val opened = mutableListOf<String>()
         content { CustomerSearchScreen(data, onOpen = { opened += it }, offline = true, now = now) }
-        rule.onNodeWithTag("customer-count").assertTextContains("2 outlets · Saved on this phone")
+        rule.onNodeWithTag("customer-count").assertTextContains("2 stores · Saved on this phone")
         rule.onAllNodesWithTag("customer-result").assertCountEquals(2)
         rule.onAllNodesWithTag("customer-result")[0].assertTextContains("Peña Sari-Sari Store", substring = true)
             .assertTextContains("OUT-001 · CUST-9 · Today", substring = true)
         rule.onNodeWithTag("customer-search").performTextInput("sto nino")
-        rule.onNodeWithTag("customer-count").assertTextContains("1 of 2 outlets", substring = true)
+        rule.onNodeWithTag("customer-count").assertTextContains("1 of 2 stores", substring = true)
         rule.onAllNodesWithTag("customer-result").assertCountEquals(1)
         rule.onAllNodesWithTag("customer-result")[0].assertTextContains("Tomorrow", substring = true).performClick()
         assertEquals(listOf("o2"), opened)
         rule.onNodeWithTag("customer-search").performTextReplacement("zzz")
-        rule.onNodeWithTag("customer-no-match").assertTextContains("Only outlets on your plan", substring = true)
+        rule.onNodeWithTag("customer-no-match").assertTextContains("No store matches", substring = true)
     }
 
     @Test fun emptyDirectoryAsksForASync() {
         content { CustomerSearchScreen(TodayData(stale = false), onOpen = {}) }
-        rule.onNodeWithTag("customer-count").assertTextContains("No outlets on this phone")
+        rule.onNodeWithTag("customer-count").assertTextContains("No stores on this phone")
         rule.onNodeWithTag("customer-empty").assertTextContains("Sync to download", substring = true)
     }
 
     @Test fun syncedEmptyDirectorySaysNothingIsPlannedInsteadOfAskingForASync() {
         content { CustomerSearchScreen(TodayData(stale = false, lastSynced = 1_790_000_000_000L), onOpen = {}) }
-        rule.onNodeWithTag("customer-empty").assertTextContains("No outlets are on your plan", substring = true)
+        rule.onNodeWithTag("customer-empty").assertTextContains("No stores on your plan", substring = true)
     }
 
     @Test fun detailShowsSummaryRoutePlanTasksAndHistory() {
@@ -86,7 +90,7 @@ class CustomerScreensTest {
             .assertTextContains("Price survey", substring = true).assertTextContains("Required · your day", substring = true)
         rule.onNodeWithTag("customer-history").performScrollTo().assertTextContains("Call started", substring = true)
             .assertTextContains("8:50 AM · Waiting to send", substring = true)
-            .assertTextContains("Office history is not downloaded", substring = true)
+            .assertTextContains("Visits from this phone only", substring = true)
     }
 
     @Test fun actionsNavigateDialAndOpenTheVisitWhenRecordingIsEnabled() {
@@ -146,7 +150,8 @@ class CustomerScreensTest {
             .firstOrNull { it.text.startsWith("Store") }?.text)
         org.junit.Assert.assertTrue("FAB overlaps last row: fab=$fab row=${last.boundsInRoot}",
             fab.top >= last.boundsInRoot.bottom)
-        rule.onNodeWithTag("customer-add-store-fab").assertTextContains("Add store").performClick()
+        rule.onNode(androidx.compose.ui.test.hasTestTag("customer-add-store-fab") and androidx.compose.ui.test.hasAnyDescendant(androidx.compose.ui.test.hasText("Add store")), useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("customer-add-store-fab").performClick()
         rule.onNodeWithTag("customer-list").performScrollToIndex(0)
         rule.onNodeWithTag("customer-search").performTextInput("Aling Nena")
         rule.onNodeWithTag("customer-add-store").assertTextContains("Add store").performClick()
@@ -156,5 +161,34 @@ class CustomerScreensTest {
     @Test fun noAddStoreFabWithoutPermission() {
         content { CustomerSearchScreen(data, onOpen = {}, now = now) }
         rule.onNodeWithTag("customer-add-store-fab").assertDoesNotExist()
+    }
+
+    @Test fun longPressPicksStoresAndTapTogglesWhilePicking() {
+        val opened = mutableListOf<String>()
+        content { CustomerSearchScreen(data, onOpen = { opened += it }, now = now, onAddStore = {}) }
+        rule.onNodeWithTag("select-bar").assertDoesNotExist()
+        val rows = rule.onAllNodesWithTag("customer-result")
+        rows[0].performTouchInput { longClick() }
+        rule.onNodeWithTag("select-count").assertTextContains("1 selected")
+        rows[0].assertIsSelected()
+        rows[1].performClick() // tap adds while picking, never opens
+        rule.onNodeWithTag("select-count").assertTextContains("2 selected")
+        assertEquals(emptyList<String>(), opened)
+        rule.onNodeWithText("Cancel").performClick()
+        rule.onNodeWithTag("select-bar").assertDoesNotExist()
+        rows[1].performClick()
+        assertEquals(listOf("o2"), opened)
+    }
+
+    @Test fun detailHasAVisibleEditStoreButton() {
+        var edits = 0
+        content { CustomerDetailScreen(pena, data, onNavigate = { true }, onDial = { true }, now = now, onEdit = { edits++ }) }
+        rule.onNodeWithTag("customer-edit").assertIsDisplayed().assertTextContains("Edit store").performClick()
+        assertEquals(1, edits)
+    }
+
+    @Test fun detailHidesEditWithoutPermission() {
+        content { CustomerDetailScreen(pena, data, onNavigate = { true }, onDial = { true }, now = now) }
+        rule.onNodeWithTag("customer-edit").assertDoesNotExist()
     }
 }

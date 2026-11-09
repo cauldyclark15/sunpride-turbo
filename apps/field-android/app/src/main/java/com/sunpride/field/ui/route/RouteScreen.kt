@@ -35,6 +35,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import com.sunpride.field.ui.AddFab
 import com.sunpride.field.ui.IconTile
 import com.sunpride.field.ui.GlyphKind
 import com.sunpride.field.ui.Look
@@ -73,6 +74,8 @@ fun RouteScreen(
     onVisit: (VisitDisplay) -> Unit = {},
     visitEnabled: Boolean = false,
     offline: Boolean = false,
+    // Add visit: an outside call to a store not on today's plan — opens Stores, where you pick the store.
+    onAddVisit: (() -> Unit)? = null,
 ) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -95,8 +98,11 @@ fun RouteScreen(
     // Never prompt on open: distance is a convenience. Use a fix silently when already allowed.
     LaunchedEffect(Unit) { if (permitted()) locate() }
     val route = remember(data.visits, position) { DailyRoutes.build(data.visits, position) }
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState())
-        .padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    androidx.compose.foundation.layout.Box(modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).testTag("route-list")
+        .padding(start = 16.dp, end = 16.dp, top = 4.dp,
+            bottom = if (onAddVisit != null) com.sunpride.field.ui.AddFabListPadding else 24.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
             Text(listOfNotNull(
                 if (route.stops.isEmpty()) "No stops today" else "${route.done} of ${route.stops.size} done",
@@ -118,7 +124,7 @@ fun RouteScreen(
         if (navigationError) Text("No maps app on this phone", color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("route-navigation-error"))
         if (route.stops.isEmpty()) com.sunpride.field.ui.EmptyState("Sync to download today's plan",
-            "Your stops, in visiting order, appear here with directions.", GlyphKind.ROUTE, Modifier.testTag("route-empty"))
+            "Your stops appear here in order.", GlyphKind.ROUTE, Modifier.testTag("route-empty"))
         route.stops.forEach { stop ->
             val key = stop.visit.plannedVisitId ?: "${stop.number}"
             StopCard(stop, expanded == key, onToggle = { expanded = if (expanded == key) null else key },
@@ -126,6 +132,8 @@ fun RouteScreen(
                 onVisit = onVisit.takeIf { visitEnabled })
         }
         Spacer(Modifier.height(16.dp))
+    }
+    if (onAddVisit != null) AddFab("Add visit", onAddVisit, tag = "route-add-visit")
     }
 }
 
@@ -156,7 +164,7 @@ private fun StopCard(stop: RouteStop, expanded: Boolean, onToggle: () -> Unit, o
             visit.address?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = if (expanded) 4 else 1,
                 overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (expanded) Column(Modifier.semantics(mergeDescendants = true) {}.testTag("route-customer"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Fact("Outlet code", visit.outletCode ?: "Not sent")
+                Fact("Store code", visit.outletCode ?: "Not sent")
                 visit.customerCode?.let { Fact("Customer code", it) }
                 if (visit.intents.isNotEmpty()) Fact("Planned", visit.intents.joinToString(", ") {
                     it.replace('_', ' ').replaceFirstChar { c -> c.uppercase() } })

@@ -27,6 +27,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.draw.clip
+import com.sunpride.field.ui.AddFab
+import com.sunpride.field.ui.selectableRow
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import com.sunpride.field.ui.EmptyState
@@ -64,6 +68,8 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
     val found = remember(data.customers, query) { CustomerDirectory.search(data.customers, query) }
     val todayCount = remember(data.customers) { data.customers.count { it.today != null } }
     val results = if (onlyToday) found.filter { it.today != null } else found
+    // Long-press a store to pick it. No bulk action exists for field stores yet, so the bar only counts and cancels.
+    val selection = com.sunpride.field.ui.rememberSelection<String>()
     // SP-0140: a lazy list, so a scope with hundreds of outlets composes only the rows on screen.
     // Add store is always one tap away: an extended FAB bottom-right, above the bottom bar (the caller's
     // modifier already carries the scaffold/system-bar insets). The list gets extra bottom padding so the
@@ -71,9 +77,12 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
     Box(modifier.fillMaxSize()) {
     LazyColumn(Modifier.fillMaxSize().testTag("customer-list"),
         contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp,
-            bottom = if (onAddStore != null) AddStoreFabClearance else 24.dp)) {
+            bottom = if (onAddStore != null) com.sunpride.field.ui.AddFabListPadding else 24.dp)) {
+        // While stores are picked the bar takes the search row's place (same slot, so it never scrolls away).
         item(key = "search") {
-            SearchField(query, { query = it.take(80) }, "Search name, code or address",
+            if (selection.active) com.sunpride.field.ui.SelectBar(selection.count, emptyList(), onClear = selection::clear,
+                Modifier.padding(bottom = 4.dp))
+            else SearchField(query, { query = it.take(80) }, "Search name, code or address",
                 Modifier.padding(bottom = 4.dp).testTag("customer-search"),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
         }
@@ -86,9 +95,9 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
         item(key = "count") {
             Text(listOfNotNull(
                 when {
-                    data.customers.isEmpty() -> "No outlets on this phone"
-                    query.isBlank() -> "${data.customers.size} outlets"
-                    else -> "${found.size} of ${data.customers.size} outlets"
+                    data.customers.isEmpty() -> "No stores on this phone"
+                    query.isBlank() -> "${data.customers.size} stores"
+                    else -> "${found.size} of ${data.customers.size} stores"
                 },
                 "Saved on this phone".takeIf { offline || data.stale },
             ).joinToString(" · "), style = MaterialTheme.typography.bodySmall,
@@ -96,48 +105,39 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
         }
         when {
             data.customers.isEmpty() -> item(key = "empty") {
-                EmptyState(if (data.lastSynced != null) "No outlets are on your plan for today and the next two days"
-                    else "Sync to download the outlets on your plan",
-                    "Stores on your route appear here, and stay searchable with no signal.", GlyphKind.STORE,
+                EmptyState(if (data.lastSynced != null) "No stores on your plan for the next three days"
+                    else "Sync to download the stores on your plan",
+                    "They stay searchable with no signal.", GlyphKind.STORE,
                     Modifier.testTag("customer-empty"))
             }
             results.isEmpty() -> item(key = "no-match") {
-                Text(if (query.isBlank()) "No outlets on today's route yet. Choose All to see every outlet."
-                    else "No outlet matches \"${query.trim()}\". Only outlets on your plan are on this phone.",
+                Text(if (query.isBlank()) "No stores on today's route. Choose All."
+                    else "No store matches \"${query.trim()}\".",
                     style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(4.dp).testTag("customer-no-match"))
                 // SP-0163: a search that finds nothing offers to add the store.
                 if (onAddStore != null && query.isNotBlank()) com.sunpride.field.ui.TonalButton("Add store", { onAddStore(query.trim()) },
                     Modifier.fillMaxWidth().padding(top = 8.dp).testTag("customer-add-store"), glyph = GlyphKind.STORE)
             }
-            else -> items(results, key = { it.outletId }) { record -> StoreRow(record, now) { onOpen(record.outletId) } }
+            else -> items(results, key = { it.outletId }) { record ->
+                StoreRow(record, now, record.outletId in selection,
+                    Modifier.selectableRow(selection, record.outletId) { onOpen(record.outletId) })
+            }
         }
     }
-    if (onAddStore != null) AddStoreFab({ onAddStore("") },
-        Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 16.dp))
-    }
-}
-
-/** Room left under a list so the Add store FAB (56dp + 16dp margin) never sits on the last row. */
-internal val AddStoreFabClearance = 96.dp
-
-@Composable
-internal fun AddStoreFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
-    // The content-slot overload: a plain icon + label row that is always expanded and readable by tests/TalkBack.
-    androidx.compose.material3.ExtendedFloatingActionButton(onClick = onClick,
-        modifier = modifier.testTag("customer-add-store-fab")) {
-        Glyph(GlyphKind.STORE, MaterialTheme.colorScheme.onPrimaryContainer, 20.dp)
-        Spacer(Modifier.size(8.dp))
-        Text("Add store", style = MaterialTheme.typography.labelLarge)
+    if (onAddStore != null) AddFab("Add store", { onAddStore("") }, tag = "customer-add-store-fab")
     }
 }
 
 @Composable
-private fun StoreRow(record: CustomerRecord, now: Long, onClick: () -> Unit) {
+private fun StoreRow(record: CustomerRecord, now: Long, picked: Boolean, clicks: Modifier) {
     val visit = record.today
     val emphasis = visit != null && visit.status != "Done"
-    Surface(onClick = onClick, modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).testTag("customer-result"),
-        shape = SunprideTokens.shapes.large, color = MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, Look.hairline)) {
+    Surface(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
+            .clip(SunprideTokens.shapes.large).then(clicks).testTag("customer-result")
+            .semantics { selected = picked },
+        shape = SunprideTokens.shapes.large,
+        color = if (picked) MaterialTheme.colorScheme.secondaryContainer else MaterialTheme.colorScheme.surface,
+        border = BorderStroke(if (picked) 1.5.dp else 1.dp, if (picked) Look.accent else Look.hairline)) {
         androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             IconTile(record.name.trim().take(1).uppercase(), emphasis)
@@ -173,7 +173,8 @@ private fun resultMeta(record: CustomerRecord, now: Long, withAddress: Boolean =
 @Composable
 fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (String) -> Boolean,
     onDial: (String) -> Boolean, modifier: Modifier = Modifier, onVisit: (VisitDisplay) -> Unit = {},
-    visitEnabled: Boolean = false, now: Long = System.currentTimeMillis(), unplannedEnabled: Boolean = visitEnabled) {
+    visitEnabled: Boolean = false, now: Long = System.currentTimeMillis(), unplannedEnabled: Boolean = visitEnabled,
+    onEdit: (() -> Unit)? = null) {
     var actionError by remember { mutableStateOf<String?>(null) }
     val navigation = DailyRoutes.navigationUri(record.asVisit())
     val dial = CustomerDirectory.dialUri(record.account?.contactNumber)
@@ -208,12 +209,13 @@ fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (S
                 dial?.let { actionError = if (onDial(it)) null else "No phone app on this device" }
             }, Modifier.weight(1f).testTag("customer-call"), enabled = dial != null, glyph = GlyphKind.PHONE)
         }
+        if (onEdit != null) SecondaryButton("Edit store", onEdit, Modifier.fillMaxWidth().testTag("customer-edit"))
         actionError?.let { Text(it, color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("customer-action-error")) }
 
         SectionCard("Summary", Modifier.semantics(mergeDescendants = true) {}.testTag("customer-summary")) {
             val account = record.account
-            Fact("Outlet code", record.outletCode ?: "Not sent")
+            Fact("Store code", record.outletCode ?: "Not sent")
             record.customerCode?.let { Fact("Customer code", it) }
             Fact("Address", record.address ?: account?.address ?: "No address yet")
             Fact("Location", when {
@@ -229,7 +231,7 @@ fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (S
             account?.distributorName?.let { Fact("Distributor", it) }
             account?.distributorSchedule?.let { Fact("Delivery schedule", it) }
             account?.foc?.let { Fact("FOC", it) }
-            if (account == null) Note("No account sheet set up by the office yet")
+            if (account == null) Note("No account sheet yet")
         }
 
         SectionCard("Route", Modifier.semantics(mergeDescendants = true) {}.testTag("customer-route")) {
@@ -250,11 +252,11 @@ fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (S
 
         SectionCard("Tasks", Modifier.semantics(mergeDescendants = true) {}.testTag("customer-tasks")) {
             val todays = record.today?.intents.orEmpty()
-            todays.forEach { Fact(CustomerDirectory.kindLabel(it), "This outlet today") }
+            todays.forEach { Fact(CustomerDirectory.kindLabel(it), "This store today") }
             data.tasks.forEach { task ->
                 Fact(CustomerDirectory.kindLabel(task.kind), if (task.required) "Required · your day" else "Your day")
             }
-            if (todays.isEmpty() && data.tasks.isEmpty()) Note("No tasks for this outlet today")
+            if (todays.isEmpty() && data.tasks.isEmpty()) Note("No tasks for this store today")
         }
 
         SectionCard("Recent history", Modifier.semantics(mergeDescendants = true) {}.testTag("customer-history")) {
@@ -262,7 +264,7 @@ fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (S
             record.history.forEach { entry ->
                 Fact(entry.label, "${CustomerDirectory.timeLabel(entry.at, now)} · ${entry.state}")
             }
-            Note("Shows visits recorded on this phone. Office history is not downloaded.")
+            Note("Visits from this phone only.")
         }
         Spacer(Modifier.height(16.dp))
     }

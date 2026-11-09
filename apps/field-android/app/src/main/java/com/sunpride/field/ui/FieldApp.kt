@@ -96,6 +96,8 @@ fun FieldApp(
     val visits = FieldFeature.VISITS in features
     // Name typed into an empty customer search, carried into the Add a store form.
     var censusName by rememberSaveable { mutableStateOf("") }
+    // The store being edited in the store form (Store › Edit); null when adding a new store.
+    var censusEdit by rememberSaveable { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val location = remember(visitLocation) { visitLocation ?: com.sunpride.field.ui.diagnosticvisit.AndroidVisitLocation(context) }
@@ -257,8 +259,13 @@ fun FieldApp(
         Scaffold(contentWindowInsets = WindowInsets.safeDrawing, containerColor = MaterialTheme.colorScheme.background, topBar = {
             // SP-0147: Messages draws its own top bar (title, back, actions), so the app's bar steps aside there.
             if (com.sunpride.field.chat.FieldChat.appBarVisible(ready, page, chatAtRoot)) {
+                val editStore = { censusEdit = customerId; go("census") }
                 val spec = headerSpec(ready, locked, signedIn = controller.state != EnrollmentState.SignedOut, page = page,
-                    visitOpen = visitOpen, controller = controller, routeCode = controller.today.routeCode)
+                    visitOpen = visitOpen, controller = controller, routeCode = controller.today.routeCode,
+                    editingStore = censusEdit != null).let {
+                    if (ready && !visitOpen && visits && page == "customer" && customer != null)
+                        it.copy(action = HeaderAction("Edit", editStore, "customer-header-edit")) else it
+                }
                 FieldHeader(spec.title, subtitle = spec.subtitle, titleTag = spec.titleTag,
                     onBack = if (spec.back) goBack else null, backTag = spec.backTag,
                     actions = {
@@ -337,7 +344,8 @@ fun FieldApp(
                 ready && page == "census" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
                     com.sunpride.field.census.CensusScreen(backend, location, { page = origin }, modifier,
                         stores = controller.today.customers, onOpenStore = { id -> customerId = id; page = "customer" },
-                        initialName = censusName)
+                        initialName = censusName,
+                        editing = censusEdit?.let { id -> controller.today.customers.firstOrNull { it.outletId == id } })
                 }
                 ready && page == "workforce" -> com.sunpride.field.ui.workforce.WorkforceScreen(controller,location,modifier)
                 // SP-0146 v2 messaging: the shared chat module; Back inside it steps back, Back on its list returns here.
@@ -351,7 +359,7 @@ fun FieldApp(
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
                 ready && page == "more" -> MoreScreen(modifier = modifier, status = status, now = now,
                     onSync = { go("sync") }, onAccount = { go("account") }, onSupport = { go("support") },
-                    onCatalogue = { go("catalogue") }, onCensus = if (visits) ({ censusName = ""; go("census") }) else null,
+                    onCatalogue = { go("catalogue") }, onCensus = if (visits) ({ censusName = ""; censusEdit = null; go("census") }) else null,
                     onWorkforce = { controller.openWorkforce(); go("workforce") },
                     onJointCall = if (controller.today.supervisor) ({ go("jointcall") }) else null,
                     onCollections = { go("collections") },
@@ -375,18 +383,20 @@ fun FieldApp(
                     controller.diagnostic!!, controller, location, controller::closeDiagnostic, modifier)
                 ready && page == "route" -> com.sunpride.field.ui.route.RouteScreen(controller.today, location,
                     onNavigate = { uri -> openMaps(context, uri) }, modifier = modifier,
-                    onVisit = controller::openDiagnostic, visitEnabled = visits, offline = offline)
+                    onVisit = controller::openDiagnostic, visitEnabled = visits, offline = offline,
+                    onAddVisit = if (visits && FieldFeature.UNPLANNED_VISITS in features) ({ page = "customers" }) else null)
                 ready && page == "customers" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,
-                    onAddStore = if (visits) ({ typed -> censusName = typed; go("census") }) else null)
+                    onAddStore = if (visits) ({ typed -> censusName = typed; censusEdit = null; go("census") }) else null)
                 ready && page == "customer" && customer != null -> com.sunpride.field.ui.customers.CustomerDetailScreen(
                     customer, controller.today, onNavigate = { uri -> openMaps(context, uri) },
                     onDial = { uri -> openDialer(context, uri) }, modifier = modifier,
                     onVisit = controller::openDiagnostic, visitEnabled = visits, now = minuteNow,
-                    unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features)
+                    unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features,
+                    onEdit = if (visits) ({ censusEdit = customerId; go("census") }) else null)
                 ready && page == "customer" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,
-                    onAddStore = if (visits) ({ typed -> censusName = typed; go("census") }) else null)
+                    onAddStore = if (visits) ({ typed -> censusName = typed; censusEdit = null; go("census") }) else null)
                 ready && page == "team" -> com.sunpride.field.ui.team.TeamScreen(controller.team,
                     controller.teamDirectOnly, controller.teamLoading, minuteNow,
                     onFilter = { controller.loadTeam(it) }, onRefresh = { controller.loadTeam() }, modifier = modifier)
@@ -397,7 +407,7 @@ fun FieldApp(
                     onRoute = { page = "route" }, onCustomers = { page = "customers" },
                     onTeam = if (FieldFeature.TEAM in features) ({ go("team") }) else null,
                     showTitle = false,
-                    onAddStore = if (visits) ({ censusName = ""; go("census") }) else null,
+                    onAddStore = if (visits) ({ censusName = ""; censusEdit = null; go("census") }) else null,
                     workDay = {
                         dayView?.let { view ->
                         com.sunpride.field.ui.location.WorkDayCard(view, dayBusy,
@@ -693,7 +703,7 @@ private data class HeaderSpec(val title: String, val subtitle: String? = null, v
     val back: Boolean = false, val backTag: String? = null, val action: HeaderAction? = null)
 
 private fun headerSpec(ready: Boolean, locked: Boolean, signedIn: Boolean, page: String, visitOpen: Boolean,
-    controller: FieldController, routeCode: String?): HeaderSpec = when {
+    controller: FieldController, routeCode: String?, editingStore: Boolean = false): HeaderSpec = when {
     locked || !signedIn -> HeaderSpec("Sunpride Field")
     // A phone still waiting for registration can open Account, Support and Sync, so those keep their own header.
     !ready && page !in setOf("account", "support", "sync", "change-password") -> HeaderSpec("Sunpride Field")
@@ -716,7 +726,7 @@ private fun headerSpec(ready: Boolean, locked: Boolean, signedIn: Boolean, page:
         "support" -> HeaderSpec("Support info", back = true, backTag = "support-back")
         "change-password" -> HeaderSpec("Change password", back = true, backTag = "account-back")
         "team" -> HeaderSpec("Team", titleTag = "team-title", back = true, backTag = "team-back")
-        "census" -> HeaderSpec("Add a store", back = true, backTag = "account-back")
+        "census" -> HeaderSpec(if (editingStore) "Edit store" else "Add store", back = true, backTag = "account-back")
         "workforce" -> HeaderSpec("Attendance", back = true, backTag = "workforce-back")
         "jointcall" -> HeaderSpec("Work-With", back = true, backTag = "account-back")
         "collections" -> HeaderSpec("Collector", back = true, backTag = "account-back")
