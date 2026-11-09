@@ -69,7 +69,7 @@ const queue: ReceiveQueueData = {
 };
 
 describe("Receive queue", () => {
-  it("shows inbound transfers, trucks back, and an Unplanned delivery button", () => {
+  it("shows inbound transfers, trucks back, and an Add delivery button", () => {
     const html = wrap(
       createElement(ReceiveQueueView, {
         data: queue,
@@ -77,7 +77,9 @@ describe("Receive queue", () => {
         onUnplanned: vi.fn(),
       }),
     );
-    expect(html).toContain("Unplanned delivery");
+    expect(html).toContain("Add delivery");
+    expect(html).not.toContain("Unplanned delivery");
+    expect(html.indexOf("Add delivery")).toBeLessThan(html.indexOf("Expected deliveries"));
     expect(html).toContain("TRF-CEB-261106-0012");
     expect(html).toContain("Cebu main depot → Mandaue store");
     expect(html).toContain("driver Juan Dela Cruz");

@@ -185,9 +185,9 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
         })}
       >
         <label className="grid min-w-0 gap-1 text-sm">
-          New mode
+          POS mode
           <select
-            aria-label="New mode"
+            aria-label="POS mode"
             className={control}
             value={mode}
             onChange={(e) => setMode(e.target.value)}
@@ -290,7 +290,7 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
         </button>
       </form>
       <details className="text-sm">
-        <summary>Add register at an existing store</summary>
+        <summary>Add register</summary>
         <form
           className="mt-2 grid gap-2"
           onSubmit={submit("registers/save", {
@@ -327,7 +327,7 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
             className={button}
             disabled={busy || !location || !name.trim() || !terminal.trim()}
           >
-            Create register
+            Save
           </button>
         </form>
       </details>

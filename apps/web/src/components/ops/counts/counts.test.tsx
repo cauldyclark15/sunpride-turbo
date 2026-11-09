@@ -53,7 +53,7 @@ describe("My counts", () => {
     const store = new ApiStore();
     store.setData(["inventory", "counts", "mine"], { mine: [card()], toReview: [] });
     const html = render(store, createElement(MyCounts, { onOpen: vi.fn() }));
-    expect(html).toContain("My counts");
+    expect(html).toContain(">Counts<");
     expect(html).toContain("Friday fast movers");
     expect(html).toContain("Blind count");
     expect(html).toContain("120 of 300 counted");
@@ -72,15 +72,16 @@ describe("My counts", () => {
     expect(html).toContain("No counts waiting for you");
     expect(html).toContain("Review count");
     expect(html).toContain("3 lines need a decision");
-    expect(html).toContain("Plan a count");
+    expect(html).toContain("Add count");
+    expect(html).not.toContain("Plan a count");
   });
-  it("starts a fresh count with Start counting", () => {
+  it("starts a fresh count with Count", () => {
     const store = new ApiStore();
     store.setData(["inventory", "counts", "mine"], {
       mine: [card({ progress: { total: 5, counted: 0, recount: 0, needsReview: 0 } })],
       toReview: [],
     });
-    expect(render(store, createElement(MyCounts, { onOpen: vi.fn() }))).toContain("Start counting");
+    expect(render(store, createElement(MyCounts, { onOpen: vi.fn() }))).toMatch(/>Count</);
   });
 });
 
@@ -268,10 +269,10 @@ describe("Plan a count", () => {
     const store = new ApiStore();
     store.setData(["inventory", "counts", "places"], [{ id: "loc", code: "CEB", name: "Cebu depot", type: "warehouse", active: true }]);
     const html = render(store, createElement(PlanCount, {}));
-    for (const w of ["Plan a count", "Everything", "A range of bins", "Fast movers", "A product filter", "Blind count.", "Every week", "Create count", "Cebu depot"])
+    for (const w of ["Add count", "Everything", "A range of bins", "Fast movers", "A product filter", "Blind count.", "Every week", "Save", "Cebu depot"])
       expect(html).toContain(w);
     expect(html).toMatch(/<input[^>]*type="checkbox"[^>]*checked/);
-    expect(html).toMatch(/<button[^>]*\sdisabled=""[^>]*>Create count/);
+    expect(html).toMatch(/<button[^>]*\sdisabled=""[^>]*>Save/);
   });
   it("shows how many lines the scope gives before anything is created", () => {
     const store = new ApiStore();

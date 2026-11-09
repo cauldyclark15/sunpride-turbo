@@ -21,6 +21,17 @@ export type RosterChoices = {
   routes: { routeId: string; name: string; code: string }[];
 };
 
+/** "2026-11-01" → "Nov 1" (plain date on screen). */
+export function shortDay(iso: string): string {
+  const [y, m, d] = iso.split("-").map(Number);
+  if (!y || !m || !d) return iso;
+  return new Date(Date.UTC(y, m - 1, d)).toLocaleDateString("en-US", {
+    month: "short",
+    day: "numeric",
+    timeZone: "UTC",
+  });
+}
+
 const field =
   "min-h-12 w-full rounded-[10px] border border-field-border bg-field-background px-3 text-base";
 
@@ -33,6 +44,9 @@ export function RosterEditorView({
   onSave,
   onEdit,
   onEnd,
+  onAdd = () => {},
+  onCancel = () => {},
+  editing = true,
   pending,
   error,
   readOnly = false,
@@ -44,6 +58,11 @@ export function RosterEditorView({
   onSave: () => void;
   onEdit: (r: RosterRow) => void;
   onEnd: (r: RosterRow) => void;
+  /** Opens an empty form. */
+  onAdd?: () => void;
+  onCancel?: () => void;
+  /** The form is open (adding, or editing form.rosterId). */
+  editing?: boolean;
   pending?: boolean;
   error?: string | null;
   /** IP-INT3: a role that may look at the roster but not change it (planning choices are refused) sees the list only. */
@@ -68,6 +87,14 @@ export function RosterEditorView({
   );
   return (
     <div className="grid gap-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h2 className="text-xl font-semibold">Weekly roster</h2>
+        {readOnly ? null : (
+          <Button variant="primary" className="min-h-12 text-base" onPress={onAdd}>
+            Add roster line
+          </Button>
+        )}
+      </div>
       <Card label="Weekly roster" count={rows.length} flush>
         {rows.length ? (
           <ul className="divide-y divide-separator">
@@ -83,17 +110,14 @@ export function RosterEditorView({
                   {r.driverName ? ` · driver ${r.driverName}` : ""}
                 </span>
                 <span className="text-sm text-muted">
-                  {r.weekdayLabel} · from {r.effectiveFrom}
-                  {r.effectiveTo ? ` to ${r.effectiveTo}` : ""}
+                  {r.weekdayLabel} · from {shortDay(r.effectiveFrom)}
+                  {r.effectiveTo ? ` to ${shortDay(r.effectiveTo)}` : ""}
                   {r.status === "ended" ? " · ended" : ""}
                 </span>
                 {r.status === "active" && !readOnly ? (
                   <span className="flex gap-2">
                     <Button variant="secondary" className="min-h-12 text-base" onPress={() => onEdit(r)}>
-                      Change
-                    </Button>
-                    <Button variant="secondary" className="min-h-12 text-base" onPress={() => onEnd(r)}>
-                      End
+                      Edit
                     </Button>
                   </span>
                 ) : null}
@@ -102,7 +126,7 @@ export function RosterEditorView({
           </ul>
         ) : (
           <p className="p-4 text-sm text-muted">
-            {readOnly ? "No roster yet." : "No roster yet. Add a truck below."}
+            {readOnly ? "No roster yet." : "No roster yet. Add a roster line."}
           </p>
         )}
       </Card>
@@ -112,8 +136,8 @@ export function RosterEditorView({
           title="You can read the roster here."
           meta="Operations or an admin changes it."
         />
-      ) : (
-      <Card label={form.rosterId ? "Change roster line" : "Add roster line"}>
+      ) : !editing ? null : (
+      <Card label={form.rosterId ? "Edit roster line" : "Add roster line"}>
         <div className="grid gap-4">
           <div className="grid gap-3 sm:grid-cols-2">
             <FormField label="Truck">
@@ -181,15 +205,32 @@ export function RosterEditorView({
             </ul>
           ) : null}
           {error ? <Notice tone="danger" title="This could not be saved." meta={error} /> : null}
-          <Button
-            variant="primary"
-            className="min-h-12 text-base"
-            isDisabled={problems.length > 0}
-            isPending={pending}
-            onPress={onSave}
-          >
-            Save roster line
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            <Button
+              variant="primary"
+              className="min-h-12 text-base"
+              isDisabled={problems.length > 0}
+              isPending={pending}
+              onPress={onSave}
+            >
+              Save
+            </Button>
+            <Button variant="secondary" className="min-h-12 text-base" onPress={onCancel}>
+              Cancel
+            </Button>
+            {form.rosterId ? (
+              <Button
+                variant="ghost"
+                className="min-h-12 text-base"
+                onPress={() => {
+                  const row = rows.find((x) => x.rosterId === form.rosterId);
+                  if (row) onEnd(row);
+                }}
+              >
+                Remove
+              </Button>
+            ) : null}
+          </div>
         </div>
       </Card>
       )}
@@ -200,6 +241,7 @@ export function RosterEditorView({
 export function RosterEditor({ today, unitId }: { today: string; unitId?: string }) {
   const [form, setForm] = useState<RosterForm>(emptyRosterForm(today));
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
   const write = useMutate();
   const intent = useIntent();
   const list = useApi<{ items: RosterRow[] }>(["van", "rosters", unitId ?? ""], ({ signal }) =>
@@ -224,6 +266,7 @@ export function RosterEditor({ today, unitId }: { today: string; unitId?: string
       await write.mutate(path, intent.withKey(path, body), { invalidate: [["van"]] });
       intent.done(path, body);
       setForm(emptyRosterForm(today));
+      setEditing(false);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Try again");
     }
@@ -235,10 +278,22 @@ export function RosterEditor({ today, unitId }: { today: string; unitId?: string
       readOnly={readOnly}
       form={form}
       onForm={setForm}
+      editing={editing}
+      onAdd={() => {
+        setForm(emptyRosterForm(today));
+        setError(null);
+        setEditing(true);
+      }}
+      onCancel={() => {
+        setForm(emptyRosterForm(today));
+        setError(null);
+        setEditing(false);
+      }}
       pending={write.pending}
       error={error}
       onSave={() => post(rosterPayload(form))}
-      onEdit={(r) =>
+      onEdit={(r) => {
+        setEditing(true);
         setForm({
           rosterId: r.rosterId,
           vehicleId: r.vehicleId,
@@ -248,8 +303,8 @@ export function RosterEditor({ today, unitId }: { today: string; unitId?: string
           driverProfileId: r.driverProfileId ?? "",
           weekdays: r.weekdays,
           effectiveFrom: r.effectiveFrom,
-        })
-      }
+        });
+      }}
       onEnd={(r) => post({ rosterId: r.rosterId, vehicleId: r.vehicleId, end: true })}
     />
   );

@@ -293,7 +293,7 @@ describe("cash movements", () => {
         onSubmit: vi.fn(),
       }),
     );
-    expect(form).toContain("Record cash drop");
+    expect(form).toContain(">Save<");
     expect(form).toContain("Move to the safe");
     expect(form).toContain("Amount (₱)");
   });

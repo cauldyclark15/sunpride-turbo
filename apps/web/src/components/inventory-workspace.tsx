@@ -340,7 +340,6 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
   const locationOptions = (locations.data ?? []).filter(
     (l) => l.active && l.type !== "virtual_boundary",
   );
-  const transit = locationOptions.find((l) => l.type === "in_transit");
   async function run(
     action: string,
     body: Record<string, unknown>,
@@ -385,13 +384,12 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
     return (
       <div className="flex gap-2">
         {can("inventory.write") ? (
-          <Button
-            size="sm"
-            variant="outline"
-            onPress={() => focus(row, "transfers")}
+          <Link
+            className="inline-flex h-8 items-center rounded-lg border border-border px-3 text-sm font-medium"
+            href={`/operations/transfers?add=1&from=${encodeURIComponent(row.locationId)}&product=${encodeURIComponent(row.productId)}`}
           >
             Transfer
-          </Button>
+          </Link>
         ) : null}
         {can("inventory.count.submit") ? (
           <Button
@@ -808,48 +806,13 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
         </Card>
       ) : null}
       {tab === "transfers" ? (
-        <Card label="New transfer">
-          {can("inventory.write") ? (
-            <div className="grid max-w-xl gap-3">
-              <Picker
-                label="Source location"
-                value={source}
-                onChange={setSource}
-                options={locationOptions.filter((l) => l.type !== "in_transit")}
-              />
-              <Picker
-                label="Destination location"
-                value={destination}
-                onChange={setDestination}
-                options={locationOptions.filter((l) => l.type !== "in_transit")}
-              />
-              {quantityFields}
-              {!transit ? <p>Set up an in-transit location first.</p> : null}
-              <Button
-                isDisabled={!transit}
-                isPending={write.pending}
-                onPress={() =>
-                  withQuantity(
-                    (base) =>
-                      void run(
-                        "transfers/request",
-                        {
-                          sourceLocationId: source,
-                          destinationLocationId: destination,
-                          inTransitLocationId: transit?.id,
-                          lines: [{ productId, quantityBase: base }],
-                        },
-                        "Transfer requested",
-                      ),
-                  )
-                }
-              >
-                Request transfer
-              </Button>
-            </div>
-          ) : (
-            <p>Transfers are read-only for your role.</p>
-          )}
+        <Card label="Transfers">
+          <p className="text-sm">
+            Transfers now live on their own list.{" "}
+            <Link className="font-medium underline" href="/operations/transfers">
+              Open transfers
+            </Link>
+          </p>
         </Card>
       ) : null}
       {tab === "counts" ? (

@@ -17,6 +17,27 @@ import {
   type TransferSummary,
 } from "./transfer-model";
 import { line } from "./transfer-fixtures";
+import { matchTransfer } from "./transfers-list";
+import {
+  AddTransferFormView,
+  addTransferPayload,
+  addTransferProblems,
+  emptyAddTransfer,
+} from "./add-transfer";
+
+vi.mock("@/lib/auth", () => ({
+  usePermissions: () => ({ can: () => true }),
+}));
+const nav = vi.hoisted(() => ({ params: new URLSearchParams() }));
+vi.mock("next/navigation", () => ({
+  useSearchParams: () => nav.params,
+  useRouter: () => ({ push: () => {}, replace: () => {} }),
+  usePathname: () => "/operations/transfers",
+}));
+vi.mock("next/link", () => ({
+  default: ({ href, children, ...rest }: { href: string; children: React.ReactNode }) =>
+    createElement("a", { href, ...rest }, children),
+}));
 
 const wrap = (node: ReactElement, store = new ApiStore()) =>
   renderToStaticMarkup(createElement(ApiProvider, { store }, node));
@@ -74,50 +95,135 @@ describe("Transfers list", () => {
     lines: undefined,
     ...o,
   });
-  it("shows number, status, route, and the value of an open difference", () => {
-    const html = wrap(
+  const view = (o: Partial<Parameters<typeof TransfersListView>[0]> = {}) =>
+    wrap(
       createElement(TransfersListView, {
-        transfers: [
-          summary({}),
-          summary({
-            id: "t2",
-            number: "TRF-CEB-261106-0013",
-            status: "review_needed",
-            varianceStatus: "open",
-            varianceValueCentavos: 96000,
-          }),
-        ],
-        filter: "open",
+        transfers: [summary({})],
+        filter: null,
         onFilter: noop,
-        onOpen: noop,
+        onAdd: noop,
+        ...o,
       }),
-    );
+    ).replaceAll("&amp;", "&");
+  it("shows number, status, route, and the value of an open difference", () => {
+    const html = view({
+      transfers: [
+        summary({}),
+        summary({
+          id: "t2",
+          number: "TRF-CEB-261106-0013",
+          status: "review_needed",
+          varianceStatus: "open",
+          varianceValueCentavos: 96000,
+        }),
+      ],
+      filter: "open",
+    });
     expect(html).toContain("TRF-CEB-261106-0012");
     expect(html).toContain("In transit");
     expect(html).toContain("Needs review");
     expect(html).toContain("Cebu main depot → Mandaue store");
     expect(html).toContain("₱960.00");
-    for (const f of ["Open", "In transit", "Needs a decision", "Closed"])
+    for (const f of ["All", "Open", "In transit", "Needs a decision", "Closed"])
       expect(html).toContain(f);
   });
-  it("reads the list from the API store by filter", () => {
+  it("puts Add transfer in the header row, before the list", () => {
+    const html = view();
+    const add = html.indexOf('data-testid="list-add"');
+    expect(add).toBeGreaterThan(-1);
+    expect(add).toBeLessThan(html.indexOf('data-testid="list-table"'));
+    expect(html).toContain("Add transfer");
+    expect(html).toContain("Search by number, place or driver");
+  });
+  it("hides Add for people who may not add transfers", () => {
+    expect(view({ onAdd: undefined })).not.toContain("Add transfer");
+  });
+  it("each row opens the transfer and shows a visible Edit", () => {
+    const html = view();
+    expect(html).toContain('href="/operations/transfers/t1"');
+    expect(html).toMatch(/>Edit</);
+  });
+  it("searches as you type across number, place and driver", () => {
+    const t = summary({});
+    expect(matchTransfer(t, "mandaue")).toBe(true);
+    expect(matchTransfer(t, "juan")).toBe(true);
+    expect(matchTransfer(t, "0012")).toBe(true);
+    expect(matchTransfer(t, "iloilo")).toBe(false);
+    const html = view({ q: "iloilo" });
+    expect(html).toContain("No transfer named “iloilo”");
+  });
+  it("pages 50 at a time", () => {
+    const many = Array.from({ length: 120 }, (_, i) =>
+      summary({ id: `t${i}`, number: `TRF-${i}` }),
+    );
+    const html = view({ transfers: many, page: 3 });
+    expect(html).toContain("Showing 101–120 of 120 transfers");
+    expect(html).toContain('data-testid="list-pages"');
+  });
+  it("empty list offers Add transfer instead of only another filter", () => {
+    const html = view({ transfers: [], filter: "closed" });
+    expect(html).toContain("No transfers yet");
+    expect(html).toContain('data-testid="list-add-named"');
+    expect(html).not.toContain("Try another filter");
+  });
+  it("reads filter, search and page from the URL", async () => {
+    nav.params = new URLSearchParams("filter=open&q=mandaue");
     const store = new ApiStore();
     store.setData(["inventory", "transfers", "list", "open"], {
-      transfers: [summary({})],
+      transfers: [summary({}), summary({ id: "t9", number: "TRF-X", destination: { id: "z", code: "ILO", name: "Iloilo", type: "warehouse" } })],
     });
-    const html = wrap(createElement(TransfersList, { onOpen: noop }), store);
+    const html = wrap(createElement(TransfersList, {}), store);
     expect(html).toContain("TRF-CEB-261106-0012");
+    expect(html).not.toContain("TRF-X");
+    expect(html).toMatch(/aria-pressed="true"[^>]*>Open/);
+    nav.params = new URLSearchParams();
   });
-  it("says so when nothing matches", () => {
+});
+
+describe("Add transfer form", () => {
+  const places = [
+    { id: "a", code: "CEB", name: "Cebu main depot", type: "warehouse", active: true },
+    { id: "b", code: "MDE", name: "Mandaue store", type: "warehouse", active: true },
+    { id: "tr", code: "TRN", name: "In transit", type: "in_transit", active: true },
+  ];
+  const products = [
+    { id: "p", code: "SP1", name: "Ube 1L", units: { basePerCase: 12, basePerPiece: 1 } as never },
+  ];
+  it("says why Save is off, one line", () => {
+    expect(addTransferProblems(emptyAddTransfer, places, products)[0]).toBe(
+      "Pick where it comes from.",
+    );
+    expect(
+      addTransferProblems({ ...emptyAddTransfer, source: "a", destination: "a", productId: "p", cases: "1" }, places, products),
+    ).toContain("From and To must be different.");
+    expect(addTransferProblems(emptyAddTransfer, places.slice(0, 2), products)).toContain(
+      "Set up an in-transit place first.",
+    );
+  });
+  it("sends the same request the old /inventory form sent", () => {
+    const form = { source: "a", destination: "b", productId: "p", cases: "2", pieces: "3" };
+    expect(addTransferProblems(form, places, products)).toEqual([]);
+    expect(addTransferPayload(form, places, products)).toEqual({
+      sourceLocationId: "a",
+      destinationLocationId: "b",
+      inTransitLocationId: "tr",
+      lines: [{ productId: "p", quantityBase: 27 }],
+    });
+  });
+  it("uses Save and Cancel and never offers the in-transit place", () => {
     const html = wrap(
-      createElement(TransfersListView, {
-        transfers: [],
-        filter: "closed",
-        onFilter: noop,
-        onOpen: noop,
+      createElement(AddTransferFormView, {
+        form: emptyAddTransfer,
+        onForm: noop,
+        places,
+        products,
+        onSave: noop,
+        onCancel: noop,
       }),
     );
-    expect(html).toContain("No transfers match");
+    expect(html).toContain(">Save<");
+    expect(html).toContain(">Cancel<");
+    expect(html).not.toContain(">In transit<");
   });
 });
 

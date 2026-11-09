@@ -194,9 +194,9 @@ describe("van day screens", () => {
     );
     expect(html).toContain("Mon, Wed, Fri");
     expect(html).toContain("You can read the roster here.");
-    expect(html).not.toContain("Save roster line");
-    expect(html).not.toContain(">Change<");
-    expect(html).not.toContain(">End<");
+    expect(html).not.toContain("Add roster line");
+    expect(html).not.toContain(">Edit<");
+    expect(html).not.toContain(">Remove<");
   });
   it("the roster editor lists lines with their days and blocks a bad form with plain reasons", () => {
     const save = vi.fn();
@@ -216,7 +216,12 @@ describe("van day screens", () => {
     expect(html).toContain("Choose the truck");
     expect(html).toContain("Choose the seller");
     expect(html).toContain('aria-pressed="true"');
-    expect(html).toContain("Change");
-    expect(html).toContain("End");
+    expect(html).toContain(">Edit<");
+    expect(html).toContain("from Nov 1");
+    expect(html).not.toContain("2026-11-01");
+    expect(html.indexOf("Add roster line")).toBeLessThan(html.indexOf("Mon, Wed, Fri"));
+    expect(html).toContain(">Save<");
+    expect(html).toContain(">Cancel<");
+    expect(html).not.toContain(">Change<");
   });
 });

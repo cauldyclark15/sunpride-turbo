@@ -179,7 +179,7 @@ export function WeeklyLimitCard({
         Applies to: senior citizen and PWD IDs. Current week starts {data.week.start}.
       </p>
       {data.canManage ? (
-        <form onSubmit={submit} className="grid gap-3" aria-label="Change the weekly limit">
+        <form onSubmit={submit} className="grid gap-3" aria-label="Edit the weekly limit">
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -383,7 +383,7 @@ export function LegacyZCard({
       {data.canManage ? (
         <form
           className="grid gap-3"
-          aria-label="Change the old Z way"
+          aria-label="Edit the old Z way"
           onSubmit={(e) => {
             e.preventDefault();
             if (minNumber !== null && onSave) onSave({ mode, minVersionCode: minNumber });
@@ -488,7 +488,7 @@ export function RefundPolicyCard({
           : `Set by ${data.updatedBy ?? "the office"}${data.updatedAt ? `, ${when(data.updatedAt)}` : ""}`}
       </p>
       {data.canManage ? (
-        <form onSubmit={submit} className="grid gap-3" aria-label="Change the refund approval amount">
+        <form onSubmit={submit} className="grid gap-3" aria-label="Edit the refund approval amount">
           <label className="grid max-w-xs gap-1 text-sm">
             Amount in pesos
             <input
