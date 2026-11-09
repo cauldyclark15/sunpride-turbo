@@ -260,6 +260,7 @@ fun FieldApp(
                 FieldHeader(spec.title, subtitle = spec.subtitle, titleTag = spec.titleTag,
                     onBack = if (spec.back) goBack else null, backTag = spec.backTag,
                     actions = {
+                        spec.action?.let { HeaderTextButton(it) }
                         if (controller.state != EnrollmentState.SignedOut && !locked) HeaderRoundButton(GlyphKind.PERSON, "Account",
                             { go("account") }, Modifier.testTag("account-open"))
                     },
@@ -685,7 +686,7 @@ private fun BiometricSetting(gate: BiometricGate) {
 
 /** What the red header says: title, subtitle, the tags the device tests look for, and whether it has a Back arrow. */
 private data class HeaderSpec(val title: String, val subtitle: String? = null, val titleTag: String? = null,
-    val back: Boolean = false, val backTag: String? = null)
+    val back: Boolean = false, val backTag: String? = null, val action: HeaderAction? = null)
 
 private fun headerSpec(ready: Boolean, locked: Boolean, signedIn: Boolean, page: String, visitOpen: Boolean,
     controller: FieldController, routeCode: String?): HeaderSpec = when {
