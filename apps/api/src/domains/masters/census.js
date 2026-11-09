@@ -567,6 +567,23 @@ export async function censusConfig(ctx) {
       .map(masterDto),
   };
 }
+/** Field "Edit store": the office's decisions on the caller's OWN store changes (newest 100),
+ * so the phone can clear "Change waiting for office" and say plainly when one was not accepted.
+ * @param {any} ctx */
+export async function myStoreChanges(ctx) {
+  const actor = await requireCapability(ctx, "outlet.enrol.propose");
+  const rows =
+    await ctx.db`select c.id,c.target_outlet_id,r.decision,r.reason,r.created_at from census_captures c join census_reviews r on r.capture_id=c.id where c.actor_profile_id=${actor.profileId} and c.kind='change' order by r.created_at desc limit 100`;
+  return {
+    items: rows.map((/** @type {any} */ r) => ({
+      captureId: r.id,
+      targetOutletId: r.target_outlet_id,
+      decision: r.decision === "accept" ? "accepted" : "rejected",
+      reason: r.decision === "accept" ? null : (r.reason ?? null),
+      decidedAt: new Date(r.created_at).getTime(),
+    })),
+  };
+}
 /** @param {any} ctx */
 export async function censusQueue(ctx) {
   const actor = await requireCapability(ctx, "outlet.verify");

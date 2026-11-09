@@ -204,4 +204,22 @@ class CustomerScreensTest {
         content { CustomerDetailScreen(pena, data, onNavigate = { true }, onDial = { true }, now = now, onEdit = {}) }
         rule.onNodeWithTag("customer-change-pending", useUnmergedTree = true).assertDoesNotExist()
     }
+
+    @Test fun approvedOwnerAndPhoneShowAndCallDialsThem() {
+        val opened = mutableListOf<String>()
+        // A store with no account sheet: before, Call was disabled; the owner contact now enables it.
+        val owned = nino.copy(ownerName = "New Owner", ownerPhone = "0917 555 0199")
+        content { CustomerDetailScreen(owned, data, onNavigate = { true }, onDial = { opened += it; true }, now = now) }
+        rule.onNodeWithTag("customer-summary").assertTextContains("New Owner", substring = true)
+            .assertTextContains("0917 555 0199", substring = true)
+        rule.onNodeWithTag("customer-call").assertIsEnabled().performClick()
+        assertEquals(listOf("tel:09175550199"), opened)
+    }
+
+    @Test fun rejectedChangeSaysWhyOnTheStorePage() {
+        content { CustomerDetailScreen(pena, data, onNavigate = { true }, onDial = { true }, now = now, onEdit = {},
+            changeLabel = com.sunpride.field.census.CensusRules.notAccepted("Owner did not confirm")) }
+        rule.onNodeWithTag("customer-change-pending", useUnmergedTree = true).assertIsDisplayed()
+            .assertTextContains("Change not accepted: Owner did not confirm")
+    }
 }

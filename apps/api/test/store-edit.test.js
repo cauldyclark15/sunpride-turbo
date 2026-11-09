@@ -344,3 +344,62 @@ test("store edit: retry is idempotent, a changed retry is refused, nothing-chang
   );
   expect(same.status).not.toBe("applied");
 });
+
+test("store edit: the phone learns the office's decision on its own changes", async () => {
+  const rep = await fieldPerson();
+  await signInAs("rep", rep.email, rep.password);
+  const empty = await as("rep", "/api/v1/masters/census/my-changes");
+  expect(empty.status).toBe(200);
+  expect(empty.body.items).toEqual([]);
+  const yes = change(storeIds[4], { name: "Accepted Rename" });
+  const no = change(storeIds[5] ?? storeIds[4], { name: "Rejected Rename" });
+  expect((await rep.push(yes)).status).toBe("applied");
+  expect((await rep.push(no)).status).toBe("applied");
+  // Still waiting: not listed.
+  expect(
+    (await as("rep", "/api/v1/masters/census/my-changes")).body.items,
+  ).toEqual([]);
+  expect(
+    (
+      await as("manager", "/api/v1/masters/census/review", {
+        captureId: yes.captureId,
+        decision: "accept",
+        reason: "Checked",
+      })
+    ).status,
+  ).toBe(200);
+  expect(
+    (
+      await as("manager", "/api/v1/masters/census/review", {
+        captureId: no.captureId,
+        decision: "reject",
+        reason: "Wrong store name",
+      })
+    ).status,
+  ).toBe(200);
+  const mine = await as("rep", "/api/v1/masters/census/my-changes");
+  expect(mine.status).toBe(200);
+  const byId = Object.fromEntries(
+    mine.body.items.map((/** @type {any} */ i) => [i.captureId, i]),
+  );
+  expect(byId[yes.captureId]).toMatchObject({
+    targetOutletId: yes.targetOutletId,
+    decision: "accepted",
+    reason: null,
+  });
+  expect(byId[no.captureId]).toMatchObject({
+    targetOutletId: no.targetOutletId,
+    decision: "rejected",
+    reason: "Wrong store name",
+  });
+  expect(typeof byId[no.captureId].decidedAt).toBe("number");
+  // Another rep never sees someone else's decisions; people without Add store are refused.
+  const other = await fieldPerson();
+  await signInAs("other", other.email, other.password);
+  expect(
+    (await as("other", "/api/v1/masters/census/my-changes")).body.items,
+  ).toEqual([]);
+  expect((await as("viewer", "/api/v1/masters/census/my-changes")).status).toBe(
+    403,
+  );
+});

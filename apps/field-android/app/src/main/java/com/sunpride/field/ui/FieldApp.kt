@@ -131,10 +131,22 @@ fun FieldApp(
     LaunchedEffect(page, customerId, controller.today, storeChangesTick, backend) {
         if (page != "customer") return@LaunchedEffect
         val stores = controller.today.customers.associate { c -> c.outletId to com.sunpride.field.census.CensusRules.Current(
-            c.name, (c.address ?: c.account?.address).orEmpty(), c.account?.buyerName.orEmpty(), c.account?.contactNumber.orEmpty()) }
+            c.name, (c.address ?: c.account?.address).orEmpty(), c.contactName.orEmpty(), c.contactPhone.orEmpty()) }
         val changes = try { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { backend?.storeChanges().orEmpty() } }
             catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyList() }
-        storeChanges = com.sunpride.field.census.CensusRules.waitingChanges(changes, stores, System.currentTimeMillis())
+        // The office's decisions (refreshed with each sync, since controller.today changes then): an accepted change
+        // clears the label, a rejected one says "Change not accepted: <reason>" once on its store page.
+        val decisions = if (changes.isEmpty()) emptyMap() else try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { backend?.storeDecisions().orEmpty() } }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyMap() }
+        val seen = if (decisions.isEmpty()) emptySet() else try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { backend?.seenRejections().orEmpty() } }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptySet() }
+        storeChanges = com.sunpride.field.census.CensusRules.waitingChanges(changes, stores, System.currentTimeMillis(), decisions, seen)
+        val shown = customerId?.let { com.sunpride.field.census.CensusRules.rejectionsToMark(changes, decisions, it, seen) }.orEmpty()
+        if (shown.isNotEmpty()) try {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { backend?.markRejectionsSeen(shown) } }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) {}
     }
     // SP-0128: a sealed session waits for the system prompt; the app starts once it is opened (or the
     // person chose the password), and again after a later successful unlock from the password screen.

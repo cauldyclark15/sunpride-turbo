@@ -122,6 +122,11 @@ interface FieldBackend {
     fun queueCensus(payload: JSONObject) { error("Census unavailable") }
     /** Edit store requests on this phone: (payload, outbox state, created at). */
     fun storeChanges(): List<Triple<JSONObject, String, Long>> = emptyList()
+    /** The office's decisions on this person's sent store changes: fetched when online, else the copy saved on the phone. */
+    fun storeDecisions(): Map<String, com.sunpride.field.census.CensusRules.Decision> = emptyMap()
+    /** Rejected changes whose "Change not accepted" line was already shown on the store page. */
+    fun seenRejections(): Set<String> = emptySet()
+    fun markRejectionsSeen(ids: Set<String>) {}
     /** SP-0163 address search and duplicate check via our API proxy; null when there is no live session. */
     fun censusPlaces(): com.sunpride.field.census.CensusPlaces? = null
     fun photoTypes(): List<com.sunpride.field.storage.PhotoType> = emptyList()
@@ -216,6 +221,10 @@ data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynce
 
 private const val TEAM_CACHE = "local.team"
 private const val SALES_CACHE = "local.daysales"
+// Edit store: office decisions on this person's changes, and the rejections already shown (separate entities:
+// putLocalCache keeps only one key prefix per entity).
+private const val STORE_CHANGES = "local.storechanges"
+private const val STORE_SEEN = "local.storeseen"
 
 /**
  * Sign-out teardown (SP-0128). Every step runs even when an earlier one fails: a cache purge or index
@@ -443,6 +452,29 @@ class LiveFieldBackend(
         store.history().filter { it.first.kind == com.sunpride.field.census.CensusRules.KIND }.map {
             Triple(JSONObject(it.first.serializedOperation).getJSONObject("payload"), it.second.state, it.first.createdAt)
         }.filter { com.sunpride.field.census.CensusRules.isChange(it.first) }
+    }
+    override fun storeDecisions(): Map<String, com.sunpride.field.census.CensusRules.Decision> =
+        if (storedScope() == null) emptyMap() else withStore { store ->
+            val live = runCatching { functions.api.get("/api/v1/masters/census/my-changes").toString() }.getOrNull()
+            if (live != null) store.putLocalCache(STORE_CHANGES, "decisions", live, System.currentTimeMillis(), "decisions")
+            val text = live ?: store.localCache(STORE_CHANGES, "decisions")?.takeUnless { it.tombstone }?.json
+            com.sunpride.field.census.CensusRules.decisions(text?.let { runCatching { JSONObject(it) }.getOrNull() })
+        }
+    override fun seenRejections(): Set<String> = if (storedScope() == null) emptySet() else withStore { store ->
+        store.localCache(STORE_SEEN, "seen")?.takeUnless { it.tombstone }?.json
+            ?.let { runCatching { org.json.JSONArray(it) }.getOrNull() }
+            ?.let { a -> (0 until a.length()).mapNotNull { a.opt(it) as? String }.toSet() }.orEmpty()
+    }
+    override fun markRejectionsSeen(ids: Set<String>) {
+        if (ids.isEmpty() || storedScope() == null) return
+        withStore { store ->
+            val old = store.localCache(STORE_SEEN, "seen")?.takeUnless { it.tombstone }?.json
+                ?.let { runCatching { org.json.JSONArray(it) }.getOrNull() }
+                ?.let { a -> (0 until a.length()).mapNotNull { a.opt(it) as? String } }.orEmpty()
+            // Keep the newest 200 ids: the server lists at most the newest 100 decisions.
+            val all = (old + ids).distinct().takeLast(200)
+            store.putLocalCache(STORE_SEEN, "seen", org.json.JSONArray(all).toString(), System.currentTimeMillis(), "seen")
+        }
     }
     override fun censusPlaces(): com.sunpride.field.census.CensusPlaces =
         com.sunpride.field.census.CensusPlaces({ path -> functions.api.get(path) }, { path, body -> functions.api.post(path, body) })

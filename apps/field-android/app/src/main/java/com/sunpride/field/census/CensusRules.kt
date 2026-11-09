@@ -108,18 +108,23 @@ object CensusRules {
     }
     /** Label per store with an Edit store change the office has not applied yet. Queued: "Change waiting for office · Saved on phone".
      * Sent: "Change waiting for office" while the store still differs from the proposal (an approved change arrives
-     * with the next sync and clears it). Refused by the server: "Change needs a look". [history] is (payload, outbox
-     * state, created at), oldest first; the newest change per store wins. */
-    fun waitingChanges(history: List<Triple<JSONObject, String, Long>>, stores: Map<String, Current>, now: Long): Map<String, String> {
+     * with the next sync and clears it, as does an "accepted" decision). A rejected decision clears the waiting label and
+     * says "Change not accepted: <reason>" once. Refused by the server: "Change needs a look". [history] is (payload,
+     * outbox state, created at), oldest first; the newest change per store wins. */
+    fun waitingChanges(history: List<Triple<JSONObject, String, Long>>, stores: Map<String, Current>, now: Long,
+        decisions: Map<String, Decision> = emptyMap(), seen: Set<String> = emptySet()): Map<String, String> {
         val out = linkedMapOf<String, String>()
         history.filter { (p, _, _) -> isChange(p) }.sortedBy { it.third }.forEach { (p, state, at) ->
             val id = p.optString("targetOutletId"); val store = stores[id] ?: return@forEach
-            // Only name and address come back to the phone from the store record (owner and phone ride the account
-            // header, which the office keeps separately), so only they can show that the office applied the change.
+            val decision = decisions[p.optString("captureId")]
+            // Name and address show that the office applied the change even before its decision is fetched.
             val differs = store.name.trim() != p.optString("name").trim() || store.address.trim() != p.optString("address").trim()
             val label = when {
                 state == "review" -> CHANGE_REFUSED
                 state != "done" -> CHANGE_ON_PHONE
+                decision?.accepted == true -> null
+                // Rejected: said once on the store page, then gone ([seen] holds the ones already shown).
+                decision != null -> if (decision.captureId in seen) null else notAccepted(decision.reason)
                 differs && now - at <= CHANGE_WAIT_MS -> CHANGE_WAITING
                 else -> null
             }
@@ -127,6 +132,28 @@ object CensusRules {
         }
         return out
     }
+    /** The office's decision on one of this person's sent changes (GET /api/v1/masters/census/my-changes). */
+    data class Decision(val captureId: String, val targetOutletId: String, val accepted: Boolean, val reason: String?)
+    fun notAccepted(reason: String?): String =
+        reason?.trim()?.takeIf { it.isNotEmpty() }?.let { "$CHANGE_NOT_ACCEPTED: ${it.take(200)}" } ?: CHANGE_NOT_ACCEPTED
+    /** Reads the decisions list; anything malformed is skipped, never guessed. */
+    fun decisions(json: JSONObject?): Map<String, Decision> {
+        val a = json?.optJSONArray("items") ?: return emptyMap()
+        return (0 until a.length()).mapNotNull { i ->
+            val o = a.optJSONObject(i) ?: return@mapNotNull null
+            val capture = o.optString("captureId").takeIf { uuid.matches(it) } ?: return@mapNotNull null
+            val target = o.optString("targetOutletId").takeIf { uuid.matches(it) } ?: return@mapNotNull null
+            val accepted = when (o.optString("decision")) { "accepted" -> true; "rejected" -> false; else -> return@mapNotNull null }
+            Decision(capture, target, accepted, if (o.isNull("reason")) null else o.optString("reason").takeIf { it.isNotBlank() })
+        }.associateBy { it.captureId }
+    }
+    /** Rejections for [outletId] that the store page shows now (mark them seen so they show only once). */
+    fun rejectionsToMark(history: List<Triple<JSONObject, String, Long>>, decisions: Map<String, Decision>, outletId: String,
+        seen: Set<String>): Set<String> = history.filter { (p, state, _) -> isChange(p) && state == "done" &&
+            p.optString("targetOutletId") == outletId }
+        .mapNotNull { decisions[it.first.optString("captureId")] }.filter { !it.accepted && it.captureId !in seen }
+        .map { it.captureId }.toSet()
+    const val CHANGE_NOT_ACCEPTED = "Change not accepted"
     const val CHANGE_ON_PHONE = "Change waiting for office · Saved on phone"
     const val CHANGE_WAITING = "Change waiting for office"
     const val CHANGE_REFUSED = "Change needs a look"

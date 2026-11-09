@@ -14,6 +14,7 @@ import {
   reviewCensus,
   censusConfig,
   censusQueue,
+  myStoreChanges,
   censusPhoto,
   resolvePlaceJob,
   RESOLVE_PLACE_JOB,
@@ -73,6 +74,7 @@ export function install(router, platform) {
   router.get("/api/v1/masters/taxonomy-migration", taxonomyMigrationPreview);
   router.get("/api/v1/masters/census-config", censusConfig);
   router.get("/api/v1/masters/census-queue", censusQueue);
+  router.get("/api/v1/masters/census/my-changes", myStoreChanges);
   // SP-0162: address-search captures are checked against Google here, after sync.
   platform.registerJob(RESOLVE_PLACE_JOB, (/** @type {any} */ j) =>
     resolvePlaceJob({

@@ -126,4 +126,34 @@ class CensusRulesTest {
         // New-store captures never show as a change.
         assertEquals(emptyMap<String, String>(), CensusRules.waitingChanges(listOf(Triple(payload(), "pending", 1000L)), before, 2000L))
     }
+    @Test fun storeEditOfficeDecisionsReachThePhone() {
+        val p = change()
+        val capture = p.getString("captureId")
+        val before = mapOf(target to CensusRules.Current("Aling Nena Store", "5 Rizal St", "Nena Cruz", "0917 555 0101"))
+        val sent = listOf(Triple(p, "done", 1000L))
+        val wire = JSONObject().put("items", org.json.JSONArray()
+            .put(JSONObject().put("captureId", capture).put("targetOutletId", target).put("decision", "rejected")
+                .put("reason", "Owner did not confirm").put("decidedAt", 1500L))
+            .put(JSONObject().put("captureId", "not-a-uuid").put("targetOutletId", target).put("decision", "rejected")))
+        val rejected = CensusRules.decisions(wire)
+        assertEquals(setOf(capture), rejected.keys)
+        // Rejected: no longer "waiting"; says why, once.
+        assertEquals(mapOf(target to "Change not accepted: Owner did not confirm"),
+            CensusRules.waitingChanges(sent, before, 2000L, rejected))
+        assertEquals(setOf(capture), CensusRules.rejectionsToMark(sent, rejected, target, emptySet()))
+        assertEquals(emptyMap<String, String>(), CensusRules.waitingChanges(sent, before, 2000L, rejected, setOf(capture)))
+        assertEquals(emptySet<String>(), CensusRules.rejectionsToMark(sent, rejected, target, setOf(capture)))
+        // No reason given: the plain line.
+        val bare = mapOf(capture to CensusRules.Decision(capture, target, false, null))
+        assertEquals(mapOf(target to "Change not accepted"), CensusRules.waitingChanges(sent, before, 2000L, bare))
+        // Accepted: the waiting label clears even before the store record shows the new name.
+        val accepted = CensusRules.decisions(JSONObject().put("items", org.json.JSONArray().put(JSONObject()
+            .put("captureId", capture).put("targetOutletId", target).put("decision", "accepted").put("reason", JSONObject.NULL))))
+        assertEquals(emptyMap<String, String>(), CensusRules.waitingChanges(sent, before, 2000L, accepted))
+        assertEquals(emptySet<String>(), CensusRules.rejectionsToMark(sent, accepted, target, emptySet()))
+        // A change still on the phone keeps its own label whatever the list says.
+        assertEquals(mapOf(target to "Change waiting for office · Saved on phone"),
+            CensusRules.waitingChanges(listOf(Triple(p, "pending", 1000L)), before, 2000L, rejected))
+        assertEquals(emptyMap<String, CensusRules.Decision>(), CensusRules.decisions(null))
+    }
 }
