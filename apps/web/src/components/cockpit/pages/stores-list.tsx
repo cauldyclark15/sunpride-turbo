@@ -10,12 +10,19 @@ export const STORE_TABS = [
   { id: "map", label: "Locations" },
   { id: "performance", label: "Performance" },
   { id: "winback", label: "Win-back" },
+  { id: "settings", label: "Settings" },
 ] as const;
 export type StoresTab = (typeof STORE_TABS)[number]["id"];
 
-export function readStoresTab(params: URLSearchParams): StoresTab {
+export function readStoresTab(
+  params: URLSearchParams,
+  hidden: readonly StoresTab[] = [],
+): StoresTab {
   const tab = params.get("tab");
-  return STORE_TABS.some((t) => t.id === tab) ? (tab as StoresTab) : "list";
+  return STORE_TABS.some((t) => t.id === tab) &&
+    !hidden.includes(tab as StoresTab)
+    ? (tab as StoresTab)
+    : "list";
 }
 
 export { PAGE_SIZE, pageNumbers, readPage } from "../../list-page/list-page";
@@ -116,7 +123,9 @@ export function StoresTabs({
   hrefFor,
   onTab,
   badges = {},
+  hidden = [],
 }: {
+  hidden?: readonly StoresTab[];
   tab: StoresTab;
   hrefFor: (tab: StoresTab) => string;
   onTab: (tab: StoresTab) => void;
@@ -128,7 +137,7 @@ export function StoresTabs({
       aria-label="Stores sections"
       className="-mx-4 flex gap-1 overflow-x-auto border-b border-separator px-4 sm:mx-0 sm:px-0"
     >
-      {STORE_TABS.map((t) => {
+      {STORE_TABS.filter((t) => !hidden.includes(t.id)).map((t) => {
         const on = t.id === tab;
         const badge = badges[t.id];
         return (

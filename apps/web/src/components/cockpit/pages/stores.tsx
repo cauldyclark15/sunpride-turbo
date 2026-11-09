@@ -186,7 +186,6 @@ export function StoresView({
       <KpiGrid kpis={data.kpis} />
       <Panel
         title="Buying stores by week"
-        question="Unique stores that ordered each week."
       >
         <TrendChart
           label="Buying stores by week"
@@ -206,7 +205,6 @@ export function StoresView({
       <Panel
         csvHref={csv}
         title="Stores"
-        question="Click a store for everything about it."
         flush
         actions={
           <form
@@ -289,8 +287,9 @@ export function StoresView({
 
 export function StoresPage() {
   const { query, params, link, set, hrefWith } = usePageQuery(["status", "q"]);
-  const tab = readStoresTab(params);
   const { can } = usePermissions();
+  const hidden: StoresTab[] = can("masterdata.manage") ? [] : ["settings"];
+  const tab = readStoresTab(params, hidden);
   const canAdd = can("outlet.manage");
   const [adding, setAdding] = useState<string | null>(null);
   const waiting = useWaitingCount();
@@ -310,6 +309,7 @@ export function StoresPage() {
         onTab={go}
         hrefFor={(t) => hrefWith(t === "list" ? { tab: null } : { tab: t })}
         badges={{ new: waiting }}
+        hidden={hidden}
       />
       {tab === "list" ? (
         <StoresListTab
@@ -325,7 +325,9 @@ export function StoresPage() {
       ) : tab === "map" ? (
         <LocationCoverage />
       ) : tab === "winback" ? (
-        <DormancyPanel />
+        <DormancyPanel part="cases" />
+      ) : tab === "settings" ? (
+        <DormancyPanel part="rules" />
       ) : (
         <PerformanceTab />
       )}

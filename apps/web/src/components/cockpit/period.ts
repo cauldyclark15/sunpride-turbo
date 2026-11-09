@@ -89,7 +89,15 @@ export function presetOf(
   from: string,
   to: string,
   today: string,
+  /** ?period= from the URL: on a Monday "Today" and "This week" are the same dates, so the
+   * chip the user picked wins when its range still matches. */
+  hint?: string | null,
 ): PeriodPreset {
+  const picked = PERIOD_PRESETS.find((p) => p.id === hint);
+  if (picked) {
+    const range = presetRange(picked.id, today);
+    if (range.from === from && range.to === to) return picked.id;
+  }
   for (const { id } of PERIOD_PRESETS) {
     const range = presetRange(id, today);
     if (range.from === from && range.to === to) return id;

@@ -68,6 +68,11 @@ describe("stores tab in the URL", () => {
     expect(readStoresTab(new URLSearchParams("tab=winback&q=x"))).toBe(
       "winback",
     );
+    // Settings only for people who may edit the rules
+    expect(
+      readStoresTab(new URLSearchParams("tab=settings"), ["settings"]),
+    ).toBe("list");
+    expect(readStoresTab(new URLSearchParams("tab=settings"))).toBe("settings");
   });
   it("tab links carry the tab in the URL", () => {
     const out = renderToStaticMarkup(

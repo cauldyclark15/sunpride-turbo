@@ -148,6 +148,16 @@ describe("period and URL state", () => {
     expect(presetOf("2026-10-05", "2026-10-09", "2026-10-19")).toBe("custom");
   });
 
+  it("on a Monday the This week chip stays picked (same dates as Today)", () => {
+    const monday = "2026-11-09";
+    const week = presetRange("week", monday);
+    expect(week).toEqual(presetRange("today", monday));
+    expect(presetOf(week.from, week.to, monday)).toBe("today");
+    expect(presetOf(week.from, week.to, monday, "week")).toBe("week");
+    // a stale hint whose dates no longer match is ignored
+    expect(presetOf("2026-11-01", "2026-11-09", monday, "week")).toBe("mtd");
+  });
+
   it("last month in January is December of the year before", () => {
     expect(presetRange("last_month", "2027-01-10")).toEqual({
       from: "2026-12-01",
