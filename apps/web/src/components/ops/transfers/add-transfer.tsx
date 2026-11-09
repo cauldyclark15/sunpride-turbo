@@ -40,7 +40,7 @@ export const emptyAddTransfer: AddTransferForm = {
 };
 
 const field =
-  "min-h-12 w-full rounded-[10px] border border-field-border bg-field-background px-3 text-base";
+  "min-h-12 w-full rounded-[10px] border border-border bg-surface px-3 text-base";
 
 /** Places a transfer can start or end at (not the in-transit place). */
 export const transferPlaces = (places: TransferPlace[]) =>
@@ -169,7 +169,7 @@ export function AddTransferFormView({
             inputMode="numeric"
             className={field}
             value={form.cases}
-            disabled={!product?.units.basePerCase}
+            disabled={!!product && !product.units.basePerCase}
             onChange={(e) => onForm({ ...form, cases: e.target.value })}
           />
         </FormField>
@@ -179,7 +179,7 @@ export function AddTransferFormView({
             inputMode="decimal"
             className={field}
             value={form.pieces}
-            disabled={!product?.units.basePerPiece}
+            disabled={!!product && !product.units.basePerPiece}
             onChange={(e) => onForm({ ...form, pieces: e.target.value })}
           />
         </FormField>

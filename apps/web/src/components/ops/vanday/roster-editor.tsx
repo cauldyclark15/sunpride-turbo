@@ -33,7 +33,7 @@ export function shortDay(iso: string): string {
 }
 
 const field =
-  "min-h-12 w-full rounded-[10px] border border-field-border bg-field-background px-3 text-base";
+  "min-h-12 w-full rounded-[10px] border border-border bg-surface px-3 text-base";
 
 /** The weekly roster: which seller and helper drive which truck on which route on which days. */
 export function RosterEditorView({
