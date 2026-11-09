@@ -1,5 +1,18 @@
 package com.sunpride.field.ui
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.ime
+import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.union
+import androidx.compose.material3.ExtendedFloatingActionButton
+import androidx.compose.material3.TextButton
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveable
+
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.only
@@ -407,5 +420,90 @@ fun PickerField(label: String, valueText: String?, placeholder: String, onClick:
                 Glyph(GlyphKind.CHEVRON, MaterialTheme.colorScheme.onSurfaceVariant, 18.dp, Modifier.rotate(90f))
             }
         }
+    }
+}
+
+
+// ---- Add / Edit / multi-select kit (docs/ui-actions.md). Words: Add / Edit / Save / Cancel / Remove only. ----
+
+/** Bottom padding a list needs so its last row can scroll clear of [AddFab]. */
+val AddFabListPadding = 88.dp
+
+/**
+ * The one big "Add <thing>" button of a list screen. Call it inside the Box that holds the list: it pins itself
+ * bottom-end, above the bottom navigation (the host Scaffold already sizes content above it), the system bars and the
+ * keyboard. Give the list `contentPadding` bottom [AddFabListPadding].
+ */
+@Composable
+fun BoxScope.AddFab(label: String, onClick: () -> Unit, modifier: Modifier = Modifier, tag: String = "add-fab") {
+    ExtendedFloatingActionButton(onClick = onClick,
+        modifier = modifier.align(Alignment.BottomEnd)
+            .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)
+                .only(WindowInsetsSides.Bottom + WindowInsetsSides.End))
+            .padding(16.dp).heightIn(min = 56.dp).testTag(tag),
+        shape = RoundedCornerShape(28.dp),
+        containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary,
+        text = { Text(label, style = MaterialTheme.typography.titleSmall, maxLines = 1) },
+        icon = { Text("+", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) })
+}
+
+/** Which rows are picked for a bulk action. Long-press a row to start; tap toggles while anything is picked. */
+class Selection<K>(private val read: () -> Set<K>, private val write: (Set<K>) -> Unit) {
+    val ids: Set<K> get() = read()
+    val count: Int get() = read().size
+    val active: Boolean get() = read().isNotEmpty()
+    operator fun contains(id: K): Boolean = id in read()
+    fun toggle(id: K) { val now = read(); write(if (id in now) now - id else now + id) }
+    fun clear() = write(emptySet())
+}
+
+/** A [Selection] that survives recomposition and rotation (ids must be saveable: String, Long, Int). */
+@Composable
+fun <K : Any> rememberSelection(): Selection<K> {
+    val state = rememberSaveable { mutableStateOf(emptyList<Any>()) }
+    @Suppress("UNCHECKED_CAST")
+    return Selection(read = { (state.value as List<K>).toSet() }, write = { state.value = it.toList() })
+}
+
+/** Row click wiring for multi-select: long-press picks, tap toggles while picking, otherwise [onOpen]. */
+@OptIn(ExperimentalFoundationApi::class)
+fun <K> Modifier.selectableRow(selection: Selection<K>, id: K, onOpen: () -> Unit): Modifier =
+    this.combinedClickable(
+        onClick = { if (selection.active) selection.toggle(id) else onOpen() },
+        onLongClick = { selection.toggle(id) })
+
+/**
+ * The bar that replaces a list's top row while rows are picked: "N selected", the bulk [actions], and Cancel
+ * ([onClear]). Shows nothing when [count] is 0.
+ */
+@Composable
+fun SelectBar(count: Int, actions: List<Pair<String, () -> Unit>>, onClear: () -> Unit, modifier: Modifier = Modifier) {
+    if (count <= 0) return
+    Surface(modifier.fillMaxWidth().testTag("select-bar"), color = MaterialTheme.colorScheme.inverseSurface,
+        contentColor = MaterialTheme.colorScheme.inverseOnSurface, shape = RoundedCornerShape(20.dp)) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 56.dp).padding(start = 16.dp, end = 4.dp),
+            verticalAlignment = Alignment.CenterVertically) {
+            Text("$count selected", style = MaterialTheme.typography.titleSmall, modifier = Modifier.weight(1f).testTag("select-count"))
+            actions.forEach { (label, run) ->
+                TextButton(onClick = run, modifier = Modifier.heightIn(min = 48.dp).testTag("select-action-$label")) {
+                    Text(label, color = MaterialTheme.colorScheme.inverseOnSurface, style = MaterialTheme.typography.labelLarge)
+                }
+            }
+            TextButton(onClick = onClear, modifier = Modifier.heightIn(min = 48.dp).testTag("select-cancel")) {
+                Text("Cancel", color = MaterialTheme.colorScheme.inverseOnSurface, style = MaterialTheme.typography.labelLarge)
+            }
+        }
+    }
+}
+
+/** A text button at the header's top-right, e.g. "Edit" on a detail screen (docs/ui-actions.md). */
+data class HeaderAction(val label: String, val onClick: () -> Unit, val tag: String = "header-action")
+
+/** White text button for the red header (48 dp target). */
+@Composable
+internal fun HeaderTextButton(action: HeaderAction) {
+    TextButton(onClick = action.onClick,
+        modifier = Modifier.heightIn(min = 48.dp).testTag(action.tag)) {
+        Text(action.label, color = Color.White, style = MaterialTheme.typography.titleSmall)
     }
 }
