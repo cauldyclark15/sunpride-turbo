@@ -1,336 +1,178 @@
 "use client";
 
-import { Button, Input } from "@heroui/react";
-import { api } from "./master-data/api";
-import type { Id } from "./master-data/model";
-import {
-  Card,
-  FormField,
-  ListRow,
-  Notice,
-  StatusPill,
-  Pager,
-  UnderlineTabs,
-  WorkspaceIcon,
-} from "@sunpride/ui";
-import { useMutation, useQuery } from "./master-data/api";
-import { useState, type FormEvent } from "react";
-import { AdminSelectField, OrgAdmin } from "./org-admin";
+import { useState } from "react";
+import { OrgAdmin } from "./org-admin";
 import { TerritoryAdmin } from "./territory-admin";
 import { RouteAdmin } from "./route-admin";
 import { OutletAdmin } from "./outlet-admin";
 import { OutletAssignments } from "./outlet-assignments";
-import {
-  PeopleAdmin,
-  roleLabel,
-  roleOptions,
-  type AssignableRole,
-} from "./people-admin";
+import { PeopleAdmin } from "./people-admin";
 import { TeamsAdmin } from "./teams-admin";
 import { IntegrityFleet } from "./integrity/fleet";
 import { DevicesAdmin } from "./devices-admin";
 import { CallFlowAdmin } from "./callflow-admin";
 import { MastersWorkspace } from "./spec-masters/workspace";
 import { FiscalWorkspace } from "./fiscal/fiscal-workspace";
-import { SetupHealth, SetupSearch } from "./master-data/setup-health";
-import { setSetupParam, useSetupParam } from "./master-data/location";
+import { SetupHealth } from "./master-data/setup-health";
+import { useSetupParam } from "./master-data/location";
 import { AvailabilityEditor } from "./availability/editor";
 
-const readableError = (error: unknown) =>
-  error instanceof Error ? error.message : "Access update failed. Try again.";
-
-const tabs = [
-  ["health", "Setup health"],
-  ["organization", "Organization"],
-  ["people", "People"],
-  ["teams", "Teams"],
-  ["invitations", "Invitations"],
-  ["territories", "Territories"],
-  ["routes", "Routes"],
-  ["outlets", "Outlets"],
-  ["assignments", "Assignments"],
-  ["availability", "Trade Marketing"],
-  ["devices", "Phones"],
-  ["callflow", "Call flows"],
-  ["field-masters", "Field masters"],
-  ["fiscal", "Fiscal & authority"],
-  ["fleet", "Fleet & integrity"],
+const groups = [
+  [
+    "People",
+    [
+      ["people", "People"],
+      ["teams", "Teams"],
+      ["devices", "Phones"],
+    ],
+  ],
+  [
+    "Places",
+    [
+      ["organization", "Organization"],
+      ["territories", "Territories"],
+      ["routes", "Routes"],
+      ["outlets", "Stores"],
+      ["assignments", "Assignments"],
+    ],
+  ],
+  [
+    "Field work",
+    [
+      ["callflow", "Call flows"],
+      ["field-masters", "Field masters"],
+      ["availability", "Trade Marketing"],
+    ],
+  ],
+  [
+    "Checks",
+    [
+      ["health", "Setup health"],
+      ["fiscal", "Fiscal & authority"],
+      ["fleet", "Fleet & integrity"],
+    ],
+  ],
 ] as const;
-type AdminTab = (typeof tabs)[number][0];
+type AdminTab = (typeof groups)[number][1][number][0];
+const tabs: (readonly [AdminTab, string])[] = groups.flatMap(
+  ([, items]) => items as readonly (readonly [AdminTab, string])[],
+);
+/** Old links (?section=invitations) land on People, where adding a person now lives. */
+const aliases: Record<string, AdminTab> = { invitations: "people" };
+
+/** Picks a section and clears the old section's search, page and filter. */
+function openSection(value: AdminTab) {
+  const url = new URL(window.location.href);
+  for (const key of ["q", "page", "filter", "unassigned", "unverified"])
+    url.searchParams.delete(key);
+  url.searchParams.set("section", value);
+  window.history.replaceState(null, "", url);
+  window.dispatchEvent(new Event("popstate"));
+}
+
+/** Setup sections as a grouped list on the left (a picker on a phone), so no name is cut off. */
+function SectionNav({
+  active,
+  onChange,
+}: {
+  active: AdminTab;
+  onChange: (value: AdminTab) => void;
+}) {
+  return (
+    <>
+      <label className="grid gap-1 lg:hidden">
+        <span className="text-[12px] font-medium text-muted">Section</span>
+        <select
+          aria-label="Setup section"
+          value={active}
+          onChange={(event) => onChange(event.target.value as AdminTab)}
+          className="h-11 rounded-xl border border-border bg-surface px-3 text-[15px]"
+        >
+          {groups.map(([group, items]) => (
+            <optgroup key={group} label={group}>
+              {items.map(([id, label]) => (
+                <option key={id} value={id}>
+                  {label}
+                </option>
+              ))}
+            </optgroup>
+          ))}
+        </select>
+      </label>
+      <nav
+        aria-label="Setup sections"
+        className="hidden content-start gap-4 lg:grid"
+      >
+        {groups.map(([group, items]) => (
+          <div key={group} className="grid gap-0.5">
+            <p className="px-3 pb-1 text-[12px] font-medium text-muted">
+              {group}
+            </p>
+            {items.map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                aria-current={id === active ? "page" : undefined}
+                onClick={() => onChange(id)}
+                className={`h-9 rounded-lg px-3 text-left text-[14px] ${id === active ? "bg-default-soft font-semibold text-foreground" : "text-muted hover:bg-default-soft hover:text-foreground"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        ))}
+      </nav>
+    </>
+  );
+}
 
 export function AdminWorkspace() {
   const [tab, setTab] = useState<AdminTab>("health");
-  const section = useSetupParam("section");
+  const raw = useSetupParam("section");
+  const section = aliases[raw] ?? raw;
   const activeTab = (
     tabs.some(([id]) => id === section) ? section : tab
   ) as AdminTab;
   return (
-    <div className="grid gap-4">
-      <UnderlineTabs
-        label="Administration sections"
-        items={tabs}
-        activeId={activeTab}
+    <div className="grid gap-4 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-6">
+      <SectionNav
+        active={activeTab}
         onChange={(value) => {
           setTab(value);
-          setSetupParam("section", value);
+          openSection(value);
         }}
       />
-      {activeTab === "health" ? (
-        <SetupHealth />
-      ) : activeTab === "organization" ? (
-        <OrgAdmin />
-      ) : activeTab === "people" ? (
-        <PeopleAdmin />
-      ) : activeTab === "teams" ? (
-        <TeamsAdmin />
-      ) : activeTab === "territories" ? (
-        <TerritoryAdmin />
-      ) : activeTab === "routes" ? (
-        <RouteAdmin />
-      ) : activeTab === "outlets" ? (
-        <OutletAdmin />
-      ) : activeTab === "assignments" ? (
-        <OutletAssignments />
-      ) : activeTab === "callflow" ? (
-        <CallFlowAdmin />
-      ) : activeTab === "field-masters" ? (
-        <MastersWorkspace />
-      ) : activeTab === "fiscal" ? (
-        <FiscalWorkspace />
-      ) : activeTab === "fleet" ? (
-        <IntegrityFleet />
-      ) : activeTab === "availability" ? (
-        <AvailabilityEditor />
-      ) : activeTab === "devices" ? (
-        <DevicesAdmin />
-      ) : (
-        <InvitationsAdmin />
-      )}
-    </div>
-  );
-}
-
-function InvitationsAdmin() {
-  const [search, setSearch] = useState<string | undefined>(undefined);
-  const [cursors, setCursors] = useState<(string | null)[]>([null]);
-  const current = useQuery(api.domains.profiles.current, {});
-  const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
-  const canAdminister =
-    (current?.role === "super_admin" || current?.role === "admin") &&
-    permissions?.national !== false;
-  const invitationPage = useQuery(
-    api.domains.profiles.listInvitations,
-    canAdminister
-      ? {
-          q: search,
-          paginationOpts: { numItems: 25, cursor: cursors.at(-1) ?? null },
-        }
-      : "skip",
-  );
-  const invitations = invitationPage?.page;
-  const units = useQuery(api.org.queries.tree, canAdminister ? {} : "skip");
-  const invite = useMutation(api.domains.profiles.invite);
-  const revoke = useMutation(api.domains.profiles.revoke);
-  const positions = useQuery(
-    api.sfa.positions.list,
-    canAdminister ? {} : "skip",
-  );
-  const [role, setRole] = useState<AssignableRole>("viewer");
-  const [positionId, setPositionId] = useState("");
-  const [orgUnitId, setOrgUnitId] = useState("");
-  const [pending, setPending] = useState(false);
-  const [message, setMessage] = useState<{
-    tone: "success" | "error";
-    text: string;
-  } | null>(null);
-
-  if (!current) return <Card label="Invitations">Loading access…</Card>;
-  if (!canAdminister)
-    return (
-      <Card label="Invitations">
-        <Notice title="Administrator access required" tone="warning" />
-      </Card>
-    );
-
-  async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    setPending(true);
-    setMessage(null);
-    const form = event.currentTarget;
-    const data = new FormData(form);
-    const email = String(data.get("email") ?? "");
-    const name = String(data.get("name") ?? "").trim();
-    try {
-      await invite({
-        email,
-        role,
-        ...(name ? { name } : {}),
-        ...(positionId ? { positionId: positionId as Id<"positions"> } : {}),
-        ...(orgUnitId ? { orgUnitId } : {}),
-      });
-      setMessage({ tone: "success", text: "Invitation sent" });
-      form.reset();
-      setRole("viewer");
-      setPositionId("");
-      setOrgUnitId("");
-    } catch (error) {
-      setMessage({ tone: "error", text: readableError(error) });
-    } finally {
-      setPending(false);
-    }
-  }
-
-  async function revokeAccess(invitationId: Id<"accessInvitations">) {
-    setMessage(null);
-    try {
-      await revoke({ invitationId });
-      setMessage({ tone: "success", text: "Access revoked" });
-    } catch (error) {
-      setMessage({ tone: "error", text: readableError(error) });
-    }
-  }
-
-  return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_360px]">
-      <Card
-        label="Invitations"
-        count={invitations?.length}
-        icon={<WorkspaceIcon name="user" />}
-        flush
-      >
-        <SetupSearch
-          label="Search invitations"
-          value={search ?? ""}
-          onChange={(value) => {
-            setSearch(value);
-            setCursors([null]);
-          }}
-        />
-        {(invitations ?? []).length ? (
-          invitations?.map((invitation) => (
-            <ListRow
-              key={invitation._id}
-              icon={<WorkspaceIcon name="user" />}
-              title={invitation.name?.trim() || invitation.email}
-              meta={[
-                ...(invitation.name?.trim() ? [invitation.email] : []),
-                roleLabel(invitation.role),
-              ].join(" · ")}
-              value={
-                <StatusPill
-                  tone={
-                    invitation.status === "accepted"
-                      ? "success"
-                      : invitation.status === "revoked"
-                        ? "danger"
-                        : "warning"
-                  }
-                >
-                  {invitation.status}
-                </StatusPill>
-              }
-              action={
-                <Button
-                  size="sm"
-                  variant="outline"
-                  className="h-8 whitespace-nowrap"
-                  isDisabled={
-                    invitation.role === "super_admin" ||
-                    invitation.status === "revoked"
-                  }
-                  onPress={() => void revokeAccess(invitation._id)}
-                >
-                  Revoke access
-                </Button>
-              }
-            />
-          ))
+      <div className="min-w-0">
+        {activeTab === "health" ? (
+          <SetupHealth />
+        ) : activeTab === "organization" ? (
+          <OrgAdmin />
+        ) : activeTab === "people" ? (
+          <PeopleAdmin />
+        ) : activeTab === "teams" ? (
+          <TeamsAdmin />
+        ) : activeTab === "territories" ? (
+          <TerritoryAdmin />
+        ) : activeTab === "routes" ? (
+          <RouteAdmin />
+        ) : activeTab === "outlets" ? (
+          <OutletAdmin />
+        ) : activeTab === "assignments" ? (
+          <OutletAssignments />
+        ) : activeTab === "callflow" ? (
+          <CallFlowAdmin />
+        ) : activeTab === "field-masters" ? (
+          <MastersWorkspace />
+        ) : activeTab === "fiscal" ? (
+          <FiscalWorkspace />
+        ) : activeTab === "fleet" ? (
+          <IntegrityFleet />
+        ) : activeTab === "availability" ? (
+          <AvailabilityEditor />
         ) : (
-          <p className="p-4 text-[13px] text-muted">No invitations</p>
+          <DevicesAdmin />
         )}
-        <Pager
-          label="Invitation pages"
-          page={cursors.length}
-          canPrevious={cursors.length > 1}
-          canNext={!!invitationPage && !invitationPage.isDone}
-          onPrevious={() => setCursors((old) => old.slice(0, -1))}
-          onNext={() =>
-            invitationPage &&
-            setCursors((old) => [...old, invitationPage.continueCursor])
-          }
-        />
-      </Card>
-      <Card
-        label="Invite person"
-        icon={<WorkspaceIcon name="user" />}
-        actions={
-          <Button
-            type="submit"
-            form="invite-person"
-            variant="primary"
-            isPending={pending}
-            className="h-10 rounded-[10px]"
-          >
-            Send invitation
-          </Button>
-        }
-      >
-        <form id="invite-person" onSubmit={submit} className="grid gap-4">
-          <FormField label="Full name">
-            <Input name="name" placeholder="Juan Dela Cruz" />
-          </FormField>
-          <FormField label="Email">
-            <Input
-              name="email"
-              type="email"
-              required
-              placeholder="name@sunpride.com.ph"
-            />
-          </FormField>
-          <AdminSelectField
-            label="Role"
-            value={role}
-            onChange={(value) => setRole(value as AssignableRole)}
-            options={roleOptions
-              .filter(
-                (option) =>
-                  option.value !== "admin" || current.role === "super_admin",
-              )
-              .map((option) => ({ id: option.value, label: option.label }))}
-          />
-          <AdminSelectField
-            label="Position"
-            value={positionId}
-            onChange={setPositionId}
-            options={[
-              { id: "", label: "No position" },
-              ...(positions ?? []).map((position) => ({
-                id: position._id,
-                label: position.label,
-              })),
-            ]}
-          />
-          <AdminSelectField
-            label="Organizational unit"
-            value={orgUnitId}
-            onChange={setOrgUnitId}
-            options={[
-              { id: "", label: "Assign later" },
-              ...(units ?? [])
-                .filter((u) => u.status === "active")
-                .map((u) => ({ id: u._id, label: `${u.code} · ${u.name}` })),
-            ]}
-          />
-          {message ? (
-            <p
-              role="status"
-              className={`rounded-xl p-3 text-sm ${message.tone === "success" ? "bg-success-soft text-success-soft-foreground" : "bg-danger-soft text-danger-soft-foreground"}`}
-            >
-              {message.text}
-            </p>
-          ) : null}
-        </form>
-      </Card>
+      </div>
     </div>
   );
 }

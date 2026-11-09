@@ -28,6 +28,13 @@ const state = vi.hoisted(() => ({
   orgError: "",
   tabOverride: "" as string,
   nullIndex: 0,
+  params: {} as Record<string, string>,
+  addingOverride: null as string | null,
+  falseIndex: 0,
+}));
+vi.mock("./master-data/location", () => ({
+  useSetupParam: (name: string) => state.params[name] ?? "",
+  setSetupParam: vi.fn(),
 }));
 vi.mock("./master-data/api", async (original) => ({
   ...(await original<typeof import("./master-data/api")>()),
@@ -45,6 +52,12 @@ vi.mock("react", async (importOriginal) => {
     useState: (initial: unknown) => {
       if (initial === "health" && state.tabOverride)
         return [state.tabOverride, vi.fn()];
+      if (initial === false) {
+        state.falseIndex += 1;
+        // PeopleAdmin: pending is the first false, the Add person drawer the second.
+        if (state.falseIndex === 2 && state.addingOverride !== null)
+          return [state.addingOverride, vi.fn()];
+      }
       if (initial === null) {
         state.nullIndex += 1;
         if (state.nullIndex === 1 && state.orgChoice)
@@ -289,6 +302,7 @@ const form = (values: Record<string, string>) =>
 const html = (component: React.ReactNode) => {
   state.nullIndex = 0;
   state.emptyIndex = 0;
+  state.falseIndex = 0;
   return renderToStaticMarkup(component);
 };
 
@@ -301,6 +315,8 @@ beforeEach(() => {
   state.orgChoice = null;
   state.orgError = "";
   state.tabOverride = "";
+  state.params = {};
+  state.addingOverride = null;
   state.values = {
     "lib/capabilities:currentPermissions": permissions,
     "org/queries:tree": [root, region, area],
@@ -346,106 +362,152 @@ beforeEach(() => {
   };
 });
 
-describe("Admin workspace tabs", () => {
-  it("mounts territories, routes, outlets and assignments as administrator sections", () => {
+const invitationsFixture = [
+  {
+    _id: "first",
+    email: "first@example.com",
+    role: "super_admin",
+    status: "accepted",
+  },
+  {
+    _id: "second",
+    name: "Jo Santos",
+    email: "jo@example.com",
+    role: "manager",
+    status: "pending",
+  },
+];
+
+describe("Admin workspace sections", () => {
+  it("lists every Setup section in a grouped left list with no Invitations tab", () => {
     const view = html(createElement(AdminWorkspace));
-    for (const title of ["Territories", "Routes", "Outlets", "Assignments"])
-      expect(view).toContain(title);
-    // Each tab mounts its own section card (the mock renders the Card label as
-    // an h2), distinct from the always-visible tab buttons.
-    for (const [tab, section] of [
-      ["assignments", "Assignments"],
-      ["routes", "Routes"],
-      ["outlets", "Outlets"],
-      ["territories", "Territories"],
-    ] as const) {
-      state.tabOverride = tab;
-      expect(html(createElement(AdminWorkspace))).toContain(`<h2>${section}`);
-    }
-  });
-  it("keeps organization, people, and invitation sections inside the existing admin module", () => {
-    const view = html(createElement(AdminWorkspace));
-    expect(view).toContain("Organization");
-    expect(view).toContain("People");
-    expect(view).toContain("Teams");
-    expect(view).toContain("Invitations");
+    expect(view).toContain('aria-label="Setup sections"');
+    for (const group of ["People", "Places", "Field work", "Checks"])
+      expect(view).toContain(`>${group}</p>`);
+    for (const title of [
+      "Organization",
+      "Teams",
+      "Territories",
+      "Routes",
+      "Stores",
+      "Assignments",
+      "Call flows",
+      "Field masters",
+      "Phones",
+    ])
+      expect(view).toContain(`>${title}</button>`);
+    expect(view).not.toContain(">Invitations<");
+    // phone width: the same sections as one picker, grouped
+    expect(view).toContain('<optgroup label="Places">');
     expect(view).toContain("<h2>Setup health</h2>");
-    state.tabOverride = "organization";
-    expect(html(createElement(AdminWorkspace))).toContain(
-      "<h2>Organization · 3</h2>",
+  });
+  it("mounts each section from the URL and sends old ?section=invitations links to People", () => {
+    for (const [section, heading] of [
+      ["assignments", "<h2>Assignments"],
+      ["routes", "<h2>Routes"],
+      ["outlets", "<h2>Outlets"],
+      ["territories", "<h2>Territories"],
+      ["organization", "<h2>Organization · 3</h2>"],
+      ["teams", "<h2>Teams · 0</h2>"],
+      ["invitations", ">People</h2>"],
+    ] as const) {
+      state.params = { section };
+      const view = html(createElement(AdminWorkspace));
+      expect(view).toContain(heading);
+    }
+    state.params = { section: "people" };
+    expect(html(createElement(AdminWorkspace))).toMatch(
+      /aria-current="page"[^>]*>People<\/button>/,
     );
   });
-  it("shows counts in only the active administration card header", () => {
-    state.tabOverride = "organization";
-    const organization = html(createElement(AdminWorkspace));
-    expect(organization).toContain("<h2>Organization · 3</h2>");
-    expect(organization).not.toContain("people shown");
-    expect(organization).not.toContain("teams shown");
-    state.tabOverride = "people";
-    const people = html(createElement(AdminWorkspace));
-    expect(people).toContain("<h2>People · 2</h2>");
-    expect(people).not.toContain("people shown");
-    expect(people).not.toContain("<h2>Teams ·");
-    state.tabOverride = "teams";
-    const teams = html(createElement(AdminWorkspace));
-    expect(teams).toContain("<h2>Teams · 0</h2>");
-    expect(teams).not.toContain("teams shown");
-    expect(teams).not.toContain("<h2>People ·");
-    expect(teams).toContain("No teams yet");
-  });
-  it("preserves the invitation form and authorized accounts in their tab", () => {
-    state.tabOverride = "invitations";
-    state.values["domains/profiles:current"] = {
-      role: "admin",
-      status: "active",
-    };
-    state.values["domains/profiles:list"] = [person];
-    state.values["domains/profiles:listInvitations"] = [
-      {
-        _id: "invite",
-        email: "new@example.com",
-        role: "viewer",
-        status: "pending",
-      },
-    ];
+  it("shows no Setup-health caveat text", () => {
+    state.values["org/setup-health"] = undefined;
     const view = html(createElement(AdminWorkspace));
-    expect(view).toContain("Invite person");
-    expect(view).toContain("new@example.com");
-    expect(view).toContain("Send invitation");
+    expect(view).not.toContain("Historical setup snapshots");
+    expect(view).not.toContain("national access");
+  });
+});
+
+describe("People list", () => {
+  const admin = () => {
+    state.values["domains/profiles:current"] = { role: "admin" };
+  };
+  it("puts search, Add person and the list in the first view, with Edit on each row", () => {
+    admin();
+    const view = html(createElement(PeopleAdmin));
+    const add = view.indexOf('data-testid="list-add"');
+    const table = view.indexOf('data-testid="list-table"');
+    expect(view.indexOf('data-testid="list-search"')).toBeGreaterThan(-1);
+    expect(add).toBeGreaterThan(-1);
+    expect(add).toBeLessThan(table);
+    expect(view).toContain("Add person");
+    expect(view.match(/>Edit<\/button>/g)).toHaveLength(2);
+    expect(view).not.toContain(">Assign<");
+    expect(view).toContain('aria-label="People pages"');
+  });
+  it("searches from ?q= as you type (the query gets the URL text) and pages with a cursor", () => {
+    state.params = { section: "people", q: "ana" };
+    const view = html(createElement(PeopleAdmin));
+    expect(view).toContain('value="ana"');
+    expect(state.queryCalls).toContainEqual({
+      name: "people/queries:list",
+      args: { q: "ana", paginationOpts: { numItems: 25, cursor: null } },
+    });
+  });
+  it("keeps Add person for national administrators only, as before", () => {
+    // no profile role → no Add
+    expect(html(createElement(PeopleAdmin))).not.toContain("list-add");
+    state.values["domains/profiles:current"] = { role: "manager" };
+    expect(html(createElement(PeopleAdmin))).not.toContain("list-add");
+    state.values["domains/profiles:current"] = { role: "admin" };
+    state.values["lib/capabilities:currentPermissions"] = {
+      ...permissions,
+      national: false,
+    };
+    expect(html(createElement(PeopleAdmin))).not.toContain("list-add");
+    state.values["lib/capabilities:currentPermissions"] = permissions;
+    expect(html(createElement(PeopleAdmin))).toContain("list-add");
+  });
+  it("opens Add person as a form with name, email, role, position and unit", () => {
+    admin();
+    state.addingOverride = "";
+    const view = html(createElement(PeopleAdmin));
+    expect(view).toContain('aria-label="Add person"');
     expect(view).toMatch(
       /<input[^>]*type="email"[^>]*required=""[^>]*name="email"/,
     );
-    expect(view).toContain("<label>Full name");
-    expect(view).toContain("<label>Role");
-    expect(view).toContain("<label>Position");
-    expect(view.match(/new@example\.com/g)).toHaveLength(1);
-    expect(view).toContain("Viewer");
+    for (const label of ["Full name", "Email", "Role", "Position", "Unit"])
+      expect(view).toContain(`<label>${label}`);
+    expect(view).toMatch(/>Save<\/button>/);
+    expect(view).toMatch(/>Cancel<\/button>/);
+    expect(view).not.toContain("Send invitation");
   });
-  it("labels invitations without duplicating unnamed emails and leaves revocation gated", () => {
-    state.tabOverride = "invitations";
-    state.values["domains/profiles:current"] = { role: "super_admin" };
-    state.values["domains/profiles:listInvitations"] = [
-      {
-        _id: "first",
-        email: "first@example.com",
-        role: "super_admin",
-        status: "accepted",
-      },
-      {
-        _id: "second",
-        name: "Jo Santos",
-        email: "jo@example.com",
-        role: "manager",
-        status: "pending",
-      },
-    ];
-    const view = html(createElement(AdminWorkspace));
+  it("shows invited people under the Invited filter with Remove, gated as before", () => {
+    admin();
+    state.params = { section: "people", filter: "invited" };
+    state.values["domains/profiles:listInvitations"] = {
+      page: invitationsFixture,
+      continueCursor: "",
+      isDone: true,
+    };
+    const view = html(createElement(PeopleAdmin));
+    expect(view).toMatch(/aria-pressed="true"[^>]*>Invited/);
     expect(view.match(/first@example\.com/g)).toHaveLength(1);
-    expect(view).toContain("Super admin");
-    expect(view).toContain("Jo Santosjo@example.com · Sales manager");
+    expect(view).toContain("Jo Santos");
+    expect(view).toContain("Sales manager");
     expect(view).toContain("Accepted");
-    expect(view).not.toContain(">accepted<");
-    expect(view).toMatch(/disabled=""[^>]*>Revoke access/);
+    // the super admin's invitation cannot be removed; Jo's can
+    expect(view.match(/>Remove<\/button>/g)).toHaveLength(1);
+    expect(
+      state.queryCalls.find((call) => call.name === "people/queries:list")
+        ?.args,
+    ).toBe("skip");
+  });
+  it("hides the Invited filter from people who cannot add", () => {
+    state.params = { section: "people", filter: "invited" };
+    const view = html(createElement(PeopleAdmin));
+    expect(view).not.toContain(">Invited");
+    expect(view).toContain("Ana Reyes");
   });
 });
 
@@ -473,9 +535,9 @@ describe("Organization admin", () => {
       ...permissions,
       capabilities: ["org.read"],
     };
-    expect(html(createElement(OrgAdmin))).toMatch(
-      /disabled=""[^>]*>Create child/,
-    );
+    const view = html(createElement(OrgAdmin));
+    expect(view).toMatch(/disabled=""[^>]*>Add unit below/);
+    expect(view).toMatch(/disabled=""[^>]*>Add unit</);
   });
   it("routes create and reparent to their mutations with future Manila instants and reparent reason", async () => {
     const actions = {
@@ -605,9 +667,9 @@ describe("People admin", () => {
     expect(view).toContain("Maria Santos");
     expect(view).toContain("EMP-002");
     expect(view).toContain("Sales manager");
-    expect(view).toMatch(/<thead><tr>(?:<th>.*?<\/th>){5}<\/tr><\/thead>/);
-    expect(view).not.toContain("<th>Employee code</th>");
-    expect(view).not.toContain("<th>Supervisor</th>");
+    expect(view.match(/role="columnheader"/g)).toHaveLength(6);
+    expect(view).not.toContain(">Employee code</span>");
+    expect(view).not.toContain(">Supervisor</span>");
     expect(view).toContain("Page 1");
   });
   it("uses email as the title when a person has no name, without repeating it in metadata", () => {
@@ -622,8 +684,9 @@ describe("People admin", () => {
     expect(view.match(/ana@example\.com/g)).toHaveLength(1);
     expect(view).toContain("DEMO-E1");
     expect(view).toContain("Super admin");
-    expect(view).toMatch(/disabled=""[^>]*>Assign/);
-    expect(view).toContain("whitespace-nowrap");
+    // a super admin cannot be edited: the row offers History only
+    expect(view).not.toContain(">Edit</button>");
+    expect(view).toContain(">History</button>");
   });
   it("submits assignment axes, code once, and reason", async () => {
     const assign = vi.fn();
@@ -664,13 +727,25 @@ describe("People admin", () => {
   it("IP-INT2 ask 6: sends the staff phone number only when it changed; blank clears it", async () => {
     const assign = vi.fn();
     const base = { orgUnitId: region._id, role: "sales", reason: "Phone" };
-    await performPeopleAssignment(person, form({ ...base, phone: " 0917 123 4567 " }), assign);
+    await performPeopleAssignment(
+      person,
+      form({ ...base, phone: " 0917 123 4567 " }),
+      assign,
+    );
     expect(assign.mock.calls[0]?.[0]).toMatchObject({ phone: "0917 123 4567" });
     assign.mockClear();
-    await performPeopleAssignment({ ...person, phone: "0917 123 4567" }, form({ ...base, phone: "0917 123 4567" }), assign);
+    await performPeopleAssignment(
+      { ...person, phone: "0917 123 4567" },
+      form({ ...base, phone: "0917 123 4567" }),
+      assign,
+    );
     expect(assign.mock.calls[0]?.[0]).not.toHaveProperty("phone");
     assign.mockClear();
-    await performPeopleAssignment({ ...person, phone: "0917 123 4567" }, form({ ...base, phone: "" }), assign);
+    await performPeopleAssignment(
+      { ...person, phone: "0917 123 4567" },
+      form({ ...base, phone: "" }),
+      assign,
+    );
     expect(assign.mock.calls[0]?.[0]).toMatchObject({ phone: null });
   });
   it("renders assignment history with effective interval and reason", () => {
@@ -695,7 +770,9 @@ describe("People admin", () => {
       ...permissions,
       capabilities: ["people.read"],
     };
-    expect(html(createElement(PeopleAdmin))).toMatch(/disabled=""[^>]*>Assign/);
+    const view = html(createElement(PeopleAdmin));
+    expect(view).not.toContain(">Edit</button>");
+    expect(view.match(/>History<\/button>/g)).toHaveLength(2);
   });
 });
 
