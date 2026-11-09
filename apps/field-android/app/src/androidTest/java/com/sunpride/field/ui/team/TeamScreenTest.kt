@@ -103,7 +103,7 @@ class TeamScreenTest {
         show(TeamView(summary(total = 80)), loading = true)
         rule.onNodeWithTag("team-direct").assertIsNotEnabled()
         rule.onNodeWithTag("team-all").assertIsNotEnabled()
-        rule.onNodeWithTag("team-refresh").assertIsNotEnabled().assertTextContains("Updating…")
+        rule.onNodeWithTag("team-refresh").assertIsNotEnabled().assertTextContains("Refreshing…")
         rule.onNodeWithTag("team-more").performScrollTo().assertTextContains("Showing 2 of 80. See the rest on the web.")
     }
 }

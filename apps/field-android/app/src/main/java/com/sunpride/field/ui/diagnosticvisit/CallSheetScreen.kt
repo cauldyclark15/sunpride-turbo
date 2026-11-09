@@ -171,7 +171,7 @@ fun CallSheetScreen(sheet: CallSheet, controller: FieldController, modifier: Mod
             } }
         }
         ActionBar {
-            PrimaryBottomButton("Save call sheet", {
+            PrimaryBottomButton("Save", {
                 controller.queueCallSheet(drafts) { values = List(sheet.lines.size * 6) { "" } }
             }, Modifier.testTag("call-sheet-save"), !controller.busy && valid)
         }

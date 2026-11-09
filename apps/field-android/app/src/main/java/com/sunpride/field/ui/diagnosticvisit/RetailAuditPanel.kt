@@ -93,7 +93,7 @@ private fun RetailFields(kind: String, snapshot: JSONObject, busy: Boolean, onQu
         "competitor" -> {
             ChoiceRow("No competitor activity observed",none,{none=!none},Modifier.testTag("retail-none"),!busy)
             if(!none) {
-                listOf("price" to "Price","promotion" to "Promotion","new_sku" to "New SKU","display" to "Display","shelf_share" to "Share of shelf").forEach { (key,label)->ChoiceRow(label,type==key,{type=key},enabled=!busy) }
+                listOf("price" to "Price","promotion" to "Promotion","new_sku" to "Product launch","display" to "Display","shelf_share" to "Share of shelf").forEach { (key,label)->ChoiceRow(label,type==key,{type=key},enabled=!busy) }
                 field("Brand",first,"retail-brand"){first=it}();field("Competitor SKU",second,"retail-sku"){second=it}()
                 if(type=="price") field("Observed price · ₱",third,"retail-price"){third=it}()
                 if(type=="shelf_share") field("Share of shelf %",third,"retail-competitor-share"){third=it}()
@@ -108,7 +108,7 @@ private fun RetailFields(kind: String, snapshot: JSONObject, busy: Boolean, onQu
     }
     error?.let { Text(it,Modifier.testTag("retail-form-error")) }
     if(saved) Text("Audit saved on this phone. Sync uploads the photo and observation.",Modifier.testTag("retail-saved"))
-    SecondaryButton("Save ${kind.replace('_',' ')} audit",{
+    SecondaryButton("Save",{
         try {
             val at=System.currentTimeMillis();val d=JSONObject();val m=choices.getOrNull(selected)
             when(kind) {

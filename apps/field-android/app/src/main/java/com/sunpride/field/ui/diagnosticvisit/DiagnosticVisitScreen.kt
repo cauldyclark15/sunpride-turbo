@@ -234,13 +234,13 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         "No call sheet set up for this account yet. Ask your office.",
                         Modifier.padding(16.dp).testTag("call-sheet-unavailable"),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    else ListRow("Open the call sheet", "Record quantities for this visit", "activity",
+                    else ListRow("Call sheet", "Quantities for this visit", "activity",
                         Modifier.testTag("call-sheet-open"), onClick = { controller.openCallSheet() })
                 }
                 if (flow?.getJSONObject("definition")?.optString("channelProfile") != "merchandiser") SectionCard("Order") {
                     controller.visitOrderDrafts.forEach { draft ->
                         val status = controller.orderStatus(draft)
-                        ListRow(if (draft.submittedRequestId == null) "Order draft" else "Order",
+                        ListRow(if (draft.submittedRequestId == null) "Edit order" else "Order",
                             "${draft.lines.size} product${if (draft.lines.size == 1) "" else "s"} · ${status.label}",
                             "activity", Modifier.testTag(if (draft.submittedRequestId == null) "order-draft" else "order-sent"),
                             onClick = { controller.openOrder(draft.draftId) })
@@ -249,7 +249,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         "No products set up for this account yet. Ask your office.",
                         Modifier.padding(16.dp).testTag("order-unavailable"),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    else ListRow("New order", "Search this account's products", "activity",
+                    else ListRow("Add order", "Search this store's products", "activity",
                         Modifier.testTag("order-new"), onClick = { controller.openOrder() })
                 }
                 SectionCard("Note") {
