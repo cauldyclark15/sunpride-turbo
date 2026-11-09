@@ -34,6 +34,9 @@ object JointCallDraft {
  fun payload(draft:JSONObject,complete:Boolean):JSONObject=JSONObject(draft.toString()).put("complete",complete)
 }
 
+/** "2026-11-09" -> "Nov 9"; anything unparseable is shown as given. */
+internal fun shortDay(iso:String):String=runCatching{java.time.LocalDate.parse(iso).format(java.time.format.DateTimeFormatter.ofPattern("MMM d",java.util.Locale.ENGLISH))}.getOrDefault(iso)
+
 /** Same supervisor model and encrypted queue; server completion checks are never replaced by checkboxes. */
 @Composable fun JointCallScreen(c:FieldController,modifier:Modifier=Modifier){
  val life=c.sapMasterLifetime();val scope=rememberCoroutineScope()
@@ -43,18 +46,19 @@ object JointCallDraft {
  LaunchedEffect(Unit){while(true){kotlinx.coroutines.delay(1000);now=System.currentTimeMillis()}}
  LaunchedEffect(life,refresh,c.today.lastSynced){val before=life;loading=true;val next=try{withContext(Dispatchers.IO){c.domainForms("jointcall",refresh>0)}}catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;null};if(before==c.sapMasterLifetime())data=next;loading=false}
  fun rows(a:JSONArray?)=a?.let{(0 until it.length()).map(it::getJSONObject)}.orEmpty()
- Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("joint-call-form"),verticalArrangement=Arrangement.spacedBy(10.dp)){
-  NoticeCard("Save on this phone while offline. Upload uses the office's existing session, observation and follow-up rules.")
-  FieldButton({refresh++},Modifier.fillMaxWidth(),enabled=!loading&&!c.busy){Text(if(loading)"Refreshing…"else"Refresh authorized forms")}
+ val canAdd=data?.takeIf{it.optLong("authorizationExpiresAt")>now}?.optBoolean("canStart")==true
+ Box(modifier.fillMaxSize()){
+ Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start=16.dp,end=16.dp,top=16.dp,bottom=AddFabListPadding).testTag("joint-call-form"),verticalArrangement=Arrangement.spacedBy(10.dp)){
+  NoticeCard("Works offline. Sync sends it to the office.")
+  FieldButton({refresh++},Modifier.fillMaxWidth(),enabled=!loading&&!c.busy){Text(if(loading)"Refreshing…"else"Refresh")}
   c.error?.let{NoticeCard(it,tone=Look.Tone.BAD)}
   val d=data?.takeIf{it.optLong("authorizationExpiresAt")>now}
   if(d==null){NoticeCard("Connect to verify today's supervisor assignment before recording. Held or expired forms cannot be edited.",tone=Look.Tone.WARN,glyph=GlyphKind.LOCK);return@Column}
   val sessions=rows(d.optJSONArray("sessions"));val locals=rows(d.optJSONArray("localOperations"))
-  for(x in sessions)ChoiceRow("${x.getString("traineeName")} · ${x.getJSONObject("session").getString("serviceDate")}",selection==x.getJSONObject("session").getString("id"),{selection=x.getJSONObject("session").getString("id")})
-  if(d.getBoolean("canStart"))FieldButton({selection="new"},Modifier.fillMaxWidth()){Text("New joint call")}
+  for(x in sessions)ChoiceRow("Edit · ${x.getString("traineeName")} · ${shortDay(x.getJSONObject("session").getString("serviceDate"))}",selection==x.getJSONObject("session").getString("id"),{selection=x.getJSONObject("session").getString("id")})
   Text("${locals.count{it.getString("state") in setOf("pending","sending")}} queued · ${locals.count{it.getString("state") in setOf("review","held")}} need reconciliation",style=MaterialTheme.typography.titleSmall)
   val latestLocal=locals.groupBy{it.getString("aggregateId")}.mapNotNull{(_,items)->items.lastOrNull()}.filter{it.getString("state") in setOf("pending","sending")&&!it.getJSONObject("payload").optBoolean("complete")}
-  for(row in latestLocal)ChoiceRow("Continue retained draft · "+row.getJSONObject("payload").getString("serviceDate"),selection=="local:"+row.getString("requestId"),{selection="local:"+row.getString("requestId")})
+  for(row in latestLocal)ChoiceRow("Edit draft · "+shortDay(row.getJSONObject("payload").getString("serviceDate")),selection=="local:"+row.getString("requestId"),{selection="local:"+row.getString("requestId")})
   val chosen=selection?:return@Column
   val retained=latestLocal.firstOrNull{"local:"+it.getString("requestId")==chosen}
   val detail=sessions.firstOrNull{it.getJSONObject("session").getString("id")==chosen}
@@ -111,8 +115,10 @@ object JointCallDraft {
   }
   detail?.optJSONArray("gaps")?.let{for(g in rows(it))Text(g.getString("label"),style=MaterialTheme.typography.bodySmall)}
   Text("Completion is checked again by the office, including actual MCP execution and earlier agreements. It is not complete until acknowledged.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-  for(complete in listOf(false,true))FieldButton({val payload=JointCallDraft.payload(a,complete);val dependencies=retained?.let{listOf(it.getString("requestId"))}.orEmpty();if(retained!=null){payload.put("previousRequestId",retained.getString("requestId")).remove("expectedRevision");if(!payload.has("sessionId")&&!payload.has("localSessionRequestId"))payload.put("localSessionRequestId",retained.getString("requestId"))};scope.launch{c.queueDomain("jointcall.capture",payload,retained?.getString("aggregateId")?:if(chosen=="new")UUID.randomUUID().toString()else chosen,dependencies).join();if(c.error==null){selection=null;text=JointCallDraft.create(d.getString("serviceDate"),null).toString()};data=withContext(Dispatchers.IO){c.domainForms("jointcall",false)}}},modifier=Modifier.fillMaxWidth(),enabled=!c.busy&&a.optString("traineeProfileId").isNotBlank(),primary=complete){Text(if(complete)"Save & request completion"else"Save draft on phone")}
-  FieldButton(c::syncNow,enabled=!c.busy){Text("Sync retained forms")}
+  for(complete in listOf(false,true))FieldButton({val payload=JointCallDraft.payload(a,complete);val dependencies=retained?.let{listOf(it.getString("requestId"))}.orEmpty();if(retained!=null){payload.put("previousRequestId",retained.getString("requestId")).remove("expectedRevision");if(!payload.has("sessionId")&&!payload.has("localSessionRequestId"))payload.put("localSessionRequestId",retained.getString("requestId"))};scope.launch{c.queueDomain("jointcall.capture",payload,retained?.getString("aggregateId")?:if(chosen=="new")UUID.randomUUID().toString()else chosen,dependencies).join();if(c.error==null){selection=null;text=JointCallDraft.create(d.getString("serviceDate"),null).toString()};data=withContext(Dispatchers.IO){c.domainForms("jointcall",false)}}},modifier=Modifier.fillMaxWidth(),enabled=!c.busy&&a.optString("traineeProfileId").isNotBlank(),primary=complete){Text(if(complete)"Save and finish"else"Save draft")}
+  FieldButton(c::syncNow,enabled=!c.busy){Text("Sync")}
   Spacer(Modifier.height(24.dp))
+ }
+ if(canAdd&&selection==null)AddFab("Add joint call",{selection="new"},tag="joint-call-add")
  }
 }

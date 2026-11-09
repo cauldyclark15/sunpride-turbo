@@ -68,8 +68,8 @@ class FinishADeviceTest {
                     }
                 }
             }}
-            rule.waitUntil(10_000){!controller.busy&&rule.onAllNodesWithText("New joint call").fetchSemanticsNodes().isNotEmpty()}
-            rule.onNodeWithText("New joint call").performScrollTo().performClick()
+            rule.waitUntil(10_000){!controller.busy&&rule.onAllNodesWithTag("joint-call-add").fetchSemanticsNodes().isNotEmpty()}
+            rule.onNodeWithTag("joint-call-add").performClick()
             rule.onNodeWithText("SAMPLE trainee").performScrollTo().performClick()
             rule.onNodeWithText("Add BCP").performScrollTo().performClick()
             rule.onNode(hasSetTextAction() and hasText("Observed item")).performScrollTo().performTextInput("Sample opening procedure")
@@ -80,7 +80,7 @@ class FinishADeviceTest {
             rule.onNodeWithText("1. SAMPLE store 0 · overdue balance").performClick()
             rule.onNodeWithText("SAMPLE invoice 1",substring=true).performScrollTo().assertIsDisplayed().performClick()
             capture("collector")
-            rule.onNodeWithText("Save promise to pay on phone").performScrollTo().assertIsEnabled()
+            rule.onNodeWithText("Save promise").performScrollTo().assertIsEnabled()
             rule.runOnIdle{scene=2}
             rule.onNodeWithText("Open credit control").performClick()
             rule.waitUntil(10_000){rule.onAllNodesWithText("No priced orders",substring=true).fetchSemanticsNodes().isNotEmpty()}

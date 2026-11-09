@@ -82,7 +82,7 @@ fun TeamScreen(view: TeamView, directOnly: Boolean, loading: Boolean, now: Long,
             }
         }
         Spacer(Modifier.height(12.dp))
-        PrimaryBottomButton(if (loading) "Updating…" else "Update", onRefresh, Modifier.testTag("team-refresh"), !loading)
+        PrimaryBottomButton(if (loading) "Refreshing…" else "Refresh", onRefresh, Modifier.testTag("team-refresh"), !loading)
     }
 }
 

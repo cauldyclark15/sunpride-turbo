@@ -331,7 +331,7 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-new").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithTag("order-new").performScrollTo().performClick()
-        rule.onNodeWithTag("order-title").assertTextContains("New order")
+        rule.onNodeWithTag("order-title").assertTextContains("Add order")
         rule.onNodeWithTag("order-save").assertIsNotEnabled()
         rule.waitForIdle(); Thread.sleep(350)
         com.sunpride.field.captureCalmScreenshot("light-order-new")
@@ -362,7 +362,7 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("visit-back").performClick()
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-draft").fetchSemanticsNodes().size == 1 }
         rule.onNodeWithTag("order-draft").performScrollTo().assertTextContains("1 product", substring = true).performClick()
-        rule.onNodeWithTag("order-title").assertTextContains("Order draft")
+        rule.onNodeWithTag("order-title").assertTextContains("Edit order")
         rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-qty-product-1"))
         rule.onNodeWithTag("order-qty-product-1").performTextInput("3")
         androidx.test.espresso.Espresso.closeSoftKeyboard()
