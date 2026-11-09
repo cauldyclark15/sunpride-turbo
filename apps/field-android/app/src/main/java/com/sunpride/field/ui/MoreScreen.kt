@@ -35,19 +35,19 @@ fun MoreScreen(
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp),
         verticalArrangement = Arrangement.spacedBy(16.dp)) {
         Group("Your work") {
-            ListRow("Product catalogue", "Search, scan and read saved product details offline", "box",
+            ListRow("Products", "Search and scan. Works offline", "box",
                 Modifier.testTag("catalogue-open"), onClick = onCatalogue)
-            if (onCensus != null) { Rule(); ListRow("Add a store", "A new store, its location and a storefront photo. Works offline",
+            if (onCensus != null) { Rule(); ListRow("Add store", "Works offline",
                 "shop", Modifier.testTag("census-open"), onClick = onCensus) }
-            Rule(); ListRow("Attendance & prospects", "Time in and out, and new prospects. Works offline", "clock",
+            Rule(); ListRow("Attendance", "Time in and out, prospects", "clock",
                 Modifier.testTag("workforce-open"), onClick = onWorkforce)
-            Rule(); ListRow("Collector agenda", "Payments to collect from your stores", "cash",
+            Rule(); ListRow("Collections", "Payments to collect", "cash",
                 Modifier.testTag("collections-open"), onClick = onCollections)
             if (onJointCall != null) { Rule(); ListRow("Work-With & coaching", "Ride-along visits and coaching notes", "person",
                 Modifier.testTag("jointcall-open"), onClick = onJointCall) }
-            if (onTeam != null) { Rule(); ListRow("Your team today", "Coverage and exceptions for your direct reports", "team",
+            if (onTeam != null) { Rule(); ListRow("Your team", "Who is on route today", "team",
                 Modifier.testTag("team-open"), onClick = onTeam) }
-            Rule(); ListRow("Earned statements", "Your personal results. Needs a connection", "list",
+            Rule(); ListRow("Earned statements", "Your results. Needs signal", "list",
                 Modifier.testTag("earned-statements-open"), onClick = onIncentives)
         }
         Group("This phone") {
@@ -57,11 +57,11 @@ fun MoreScreen(
                 Modifier.testTag("more-battery"), onClick = onBatteryGuide) }
         }
         Group("Account and help") {
-            ListRow("Account and settings", "Fingerprint sign-in, password, phone details", "person",
+            ListRow("Account", "Fingerprint, password, phone", "person",
                 Modifier.testTag("more-account"), onClick = onAccount)
-            Rule(); ListRow("Support info", "App version and counts to share with the team", "info",
+            Rule(); ListRow("Support info", "App version for the team", "info",
                 Modifier.testTag("more-support"), onClick = onSupport)
-            if (onReportIssue != null) { Rule(); ListRow("Report an issue", "Tell the Sunpride team what went wrong", "chat",
+            if (onReportIssue != null) { Rule(); ListRow("Report an issue", "Tell us what went wrong", "chat",
                 Modifier.testTag("more-report"), onClick = onReportIssue) }
         }
         SecondaryButton("Sign out", onSignOut, Modifier.fillMaxWidth().testTag("more-sign-out"), danger = true)

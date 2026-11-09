@@ -18,6 +18,9 @@ import com.sunpride.field.ui.diagnosticvisit.VisitLocation
 import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Rule
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.swipeUp
 import org.junit.Test
 
 class RouteScreenTest {
@@ -112,5 +115,27 @@ class RouteScreenTest {
         }
         rule.onNodeWithTag("route-summary").assertTextContains("No stops today")
         rule.onNodeWithTag("route-empty").assertTextContains("Sync to download today's plan")
+    }
+
+    @Test fun addVisitFabOpensStoresAndNeverCoversTheLastStop() {
+        var added = 0
+        rule.setContent {
+            MaterialTheme(colorScheme = SunprideTokens.lightColors) {
+                RouteScreen(day, FakeLocation(null), onNavigate = { true }, onAddVisit = { added++ })
+            }
+        }
+        rule.onNodeWithTag("route-list").performTouchInput { swipeUp() ; swipeUp(); swipeUp() }
+        rule.waitForIdle()
+        rule.onNode(androidx.compose.ui.test.hasTestTag("route-add-visit") and androidx.compose.ui.test.hasAnyDescendant(androidx.compose.ui.test.hasText("Add visit")), useUnmergedTree = true).assertExists()
+        val fab = rule.onNodeWithTag("route-add-visit").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val last = rule.onAllNodesWithTag("route-stop").fetchSemanticsNodes().maxBy { it.boundsInRoot.bottom }.boundsInRoot
+        org.junit.Assert.assertTrue("FAB overlaps last stop: fab=$fab stop=$last", fab.top >= last.bottom)
+        rule.onNodeWithTag("route-add-visit").performClick()
+        assertEquals(1, added)
+    }
+
+    @Test fun noAddVisitWhenUnplannedVisitsAreOff() {
+        rule.setContent { MaterialTheme(colorScheme = SunprideTokens.lightColors) { RouteScreen(day, FakeLocation(null), onNavigate = { true }) } }
+        rule.onNodeWithTag("route-add-visit").assertDoesNotExist()
     }
 }

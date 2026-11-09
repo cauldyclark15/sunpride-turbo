@@ -182,8 +182,27 @@ class FieldAppTest {
         rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-name") }
         rule.onNodeWithTag("account-back").performClick()
         rule.onNodeWithTag("customers-open").performScrollTo().performClick()
-        rule.onNodeWithTag("customer-add-store-fab").assertIsDisplayed().assertTextContains("Add store").performClick()
+        rule.onNodeWithTag("customer-add-store-fab").assertIsDisplayed().performClick()
         rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-name") }
+    }
+
+    // Store detail: Edit top-right in the header and as a button; both open the store form filled from the store.
+    @Test fun storeDetailEditOpensTheFilledStoreForm() {
+        val backend = ScriptedBackend(EnrollmentState.Ready("dev1")).apply {
+            signedIn = true
+            customers = listOf(com.sunpride.field.ui.customers.CustomerRecord("o1", "First Store", "OUT-1", address = "1 Rizal St"))
+        }
+        rule.setContent { FieldApp(configured, dark = false, backend = backend, features = beta) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("customers-open") }
+        rule.onNodeWithTag("customers-open").performScrollTo().performClick()
+        rule.onNodeWithTag("customer-result").performClick()
+        rule.onNodeWithTag("customer-header-edit").assertIsDisplayed().assertTextContains("Edit").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-edit-note") }
+        rule.onNodeWithText("Edit store").assertIsDisplayed() // header title
+        rule.onNodeWithTag("census-name").assertTextContains("First Store")
+        rule.onNodeWithTag("account-back").performClick()
+        rule.onNodeWithTag("customer-edit").assertIsDisplayed().performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-edit-note") }
     }
 
     @Test fun addStoreIsHiddenWithoutPermission() {

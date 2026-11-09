@@ -276,4 +276,17 @@ class AddStoreScreenTest {
         Thread.sleep(1_500); rule.waitForIdle()
         assertEquals(1, backend.queued.size)
     }
+
+    @Test fun editStoreOpensTheFormFilledFromTheStore() {
+        val backend = Backend(config(false), oldServer)
+        val store = com.sunpride.field.ui.customers.CustomerRecord("o9", "Aling Nena Store", "OUT-9", address = "5 Rizal St",
+            account = com.sunpride.field.storage.CallSheetHeader("Aling Nena Store", null, "Nena Cruz", "0917 555 0101", null, null,
+                null, null, null, null))
+        rule.setContent { MaterialTheme(colorScheme = SunprideTokens.lightColors) { CensusScreen(backend, gps, {}, editing = store) } }
+        waitTag("census-edit-note")
+        rule.onNodeWithTag("census-name").assertTextContains("Aling Nena Store")
+        rule.onNodeWithTag("census-owner").performScrollTo().assertTextContains("Nena Cruz")
+        rule.onNodeWithTag("census-phone").performScrollTo().assertTextContains("0917 555 0101")
+        rule.onNodeWithTag("census-address").performScrollTo().assertTextContains("5 Rizal St")
+    }
 }
