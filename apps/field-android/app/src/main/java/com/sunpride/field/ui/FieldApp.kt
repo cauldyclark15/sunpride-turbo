@@ -81,6 +81,14 @@ enum class StatusPill(val label: String) {
     }
 }
 
+
+/**
+ * Store detail "Edit" (header Edit and the "Edit store" button). The form sends a change request linked to the
+ * existing store (census.capture kind=change); the office approves it on the web New stores tab and Approve updates
+ * that store, never a new one.
+ */
+const val STORE_EDIT_ENABLED = true
+
 @Composable
 fun FieldApp(
     environment: AppEnvironment, dark: Boolean, debug: Boolean = false, backend: FieldBackend? = null,
@@ -274,8 +282,7 @@ fun FieldApp(
                 val spec = headerSpec(ready, locked, signedIn = controller.state != EnrollmentState.SignedOut, page = page,
                     visitOpen = visitOpen, controller = controller, routeCode = controller.today.routeCode,
                     editingStore = censusEdit != null).let {
-                    if (ready && !visitOpen && visits && page == "customer" && customer != null &&
-                        com.sunpride.field.ui.customers.STORE_EDIT_ENABLED)
+                    if (STORE_EDIT_ENABLED && ready && !visitOpen && visits && page == "customer" && customer != null)
                         it.copy(action = HeaderAction("Edit", editStore, "customer-header-edit")) else it
                 }
                 FieldHeader(spec.title, subtitle = spec.subtitle, titleTag = spec.titleTag,
@@ -406,7 +413,7 @@ fun FieldApp(
                     onDial = { uri -> openDialer(context, uri) }, modifier = modifier,
                     onVisit = controller::openDiagnostic, visitEnabled = visits, now = minuteNow,
                     unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features,
-                    onEdit = if (visits) ({ censusEdit = customerId; go("census") }) else null,
+                    onEdit = if (visits && STORE_EDIT_ENABLED) ({ censusEdit = customerId; go("census") }) else null,
                     changeLabel = storeChanges[customer.outletId])
                 ready && page == "customer" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,

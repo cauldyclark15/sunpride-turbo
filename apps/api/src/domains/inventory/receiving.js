@@ -251,7 +251,7 @@ async function queueRoute(ctx) {
   return {
     expectedDeliveries: [],
     expectedDeliveriesNote:
-      "No purchase orders are linked yet. Use Unplanned delivery to receive a supplier delivery.",
+      "No purchase orders are linked yet.",
     inboundTransfers: inbound.map(shape),
     vanLoadIns: [
       ...waiting.map((/** @type {any} */ w) => ({

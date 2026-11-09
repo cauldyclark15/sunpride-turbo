@@ -280,6 +280,9 @@ export function install(router, platform) {
           actor.orgUnitId && actor.orgUnitId === (await rootUnitId(c.db)),
         ),
       scopeUnitIds: await identityHooks(platform.env).scopeUnitIds(c.db, actor),
+      // UI hint: with SAP connected, product/customer masters and prices are SAP's and the API refuses saves.
+      sapOwnsMasters: c.env?.SAP_MODE != null,
+      sapOwnsPrices: c.env?.SAP_MODE != null,
     };
   });
   for (const kind of [

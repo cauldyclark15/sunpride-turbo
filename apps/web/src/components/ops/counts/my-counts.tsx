@@ -3,7 +3,7 @@
 import { apiFetch, useApi, useLive } from "@/lib/api";
 import { DocNumber } from "../doc-number";
 import { StatusPill } from "../status-pill";
-import { Chip, MicroLabel, Panel, PrimaryButton, ProgressBar, SecondaryButton } from "./ui";
+import { Chip, MicroLabel, Panel, PrimaryButton, ProgressBar } from "./ui";
 import { COUNTS_KEY, COUNTS_PATH, type CountCard, type MyCounts } from "./model";
 
 /** "Planned for 6 Nov" / "Waiting since …" in plain words. */
@@ -75,7 +75,7 @@ export function MyCounts({
 }: {
   onOpen: (sessionId: string) => void;
   onReview?: (sessionId: string) => void;
-  /** Shows "Plan a count" for people who may plan. */
+  /** Shows "Add count" for people who may plan. */
   onPlan?: () => void;
 }) {
   const result = useApi<MyCounts>([...COUNTS_KEY, "mine"], ({ signal }) =>
@@ -86,9 +86,9 @@ export function MyCounts({
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <h1 className="text-2xl font-semibold">My counts</h1>
+        <h1 className="text-2xl font-semibold">Counts</h1>
         {onPlan ? (
-          <SecondaryButton onClick={onPlan}>Plan a count</SecondaryButton>
+          <PrimaryButton onClick={onPlan}>Add count</PrimaryButton>
         ) : null}
       </div>
       {result.error ? (
@@ -109,7 +109,7 @@ export function MyCounts({
                   card={c}
                   action={() => onOpen(c.id)}
                   actionLabel={
-                    c.progress.counted === 0 ? "Start counting" : "Continue counting"
+                    c.progress.counted === 0 ? "Count" : "Continue counting"
                   }
                 />
               ))

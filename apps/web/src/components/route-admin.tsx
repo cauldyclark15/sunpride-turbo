@@ -16,6 +16,7 @@ import { useState, type FormEvent } from "react";
 import { formatManilaDate, futureManilaDateToUtcMs } from "../lib/manila-date";
 import { SetupSearch } from "./master-data/setup-health";
 import { useSetupParam } from "./master-data/location";
+import { Drawer } from "./cockpit/kit/drawer";
 
 type Action =
   "create" | "edit" | "move" | "duplicate" | "assign" | "end" | "deactivate";
@@ -115,6 +116,15 @@ export async function performRouteAction(
     });
   return mutations.deactivate({ routeId, effectiveTo: date, reason });
 }
+const routeActionLabel: Record<Action, string> = {
+  create: "Add route",
+  edit: "Edit route",
+  move: "Move to another territory",
+  duplicate: "Copy route",
+  assign: "Add salesperson",
+  end: "Remove salesperson",
+  deactivate: "Remove route",
+};
 export function RouteAdmin() {
   const [search, setSearch] = useState<string | undefined>(undefined);
   const unassigned = useSetupParam("unassigned") === "true";
@@ -136,7 +146,7 @@ export function RouteAdmin() {
   );
   const routes = useQuery(
     api.territories.routes.list,
-    canRead && (territoryId || unassigned)
+    canRead
       ? {
           ...(territoryId ? { territoryId } : {}),
           ...(unassigned ? { unassigned: "true" } : {}),
@@ -182,7 +192,7 @@ export function RouteAdmin() {
         territoryId ?? undefined,
       );
       setAction(null);
-      setNotice("Route change saved.");
+      setNotice("Saved.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -194,14 +204,18 @@ export function RouteAdmin() {
       label="Routes"
       icon={<WorkspaceIcon name="field" />}
       actions={
-        <Button
-          variant="outline"
-          className="h-8"
-          isDisabled={!canManage || !territoryId}
-          onPress={() => setAction("create")}
-        >
-          Create route
-        </Button>
+        canManage ? (
+          <Button
+            variant="primary"
+            className="h-9"
+            onPress={() => {
+              setAction("create");
+              setError("");
+            }}
+          >
+            Add route
+          </Button>
+        ) : null
       }
     >
       <div className="grid gap-4">
@@ -229,7 +243,7 @@ export function RouteAdmin() {
                   setCursors([null]);
                 }}
               >
-                <option value="">Select territory</option>
+                <option value="">All territories</option>
                 {territories?.page.map((t) => (
                   <option key={t._id} value={t._id}>
                     {t.name} · {t.code}
@@ -237,12 +251,7 @@ export function RouteAdmin() {
                 ))}
               </select>
             </FormField>
-            {!territoryId && !unassigned && (
-              <p className="text-[13px] text-muted">
-                Choose a territory to see its routes
-              </p>
-            )}
-            {(territoryId || unassigned) && (
+            {
               <>
                 <ul className="overflow-hidden rounded-xl border border-border">
                   {routes?.page.map((row) => (
@@ -269,7 +278,7 @@ export function RouteAdmin() {
                               setAction(null);
                             }}
                           >
-                            Open
+                            Edit
                           </Button>
                         }
                       />
@@ -289,7 +298,7 @@ export function RouteAdmin() {
                   label="Routes pages"
                 />
               </>
-            )}
+            }
             {detail && (
               <aside className="grid gap-2 rounded border p-3">
                 <h3>
@@ -335,7 +344,7 @@ export function RouteAdmin() {
                         isDisabled={!canManage}
                         onPress={() => setAction("end")}
                       >
-                        End assignment
+                        Remove
                       </Button>
                     </li>
                   ))}
@@ -357,152 +366,174 @@ export function RouteAdmin() {
                       isDisabled={!canManage}
                       onPress={() => setAction(choice)}
                     >
-                      {choice}
+                      {routeActionLabel[choice]}
                     </Button>
                   ))}
                 </div>
               </aside>
             )}
-            {action && canManage && (
-              <form
-                onSubmit={submit}
-                className="grid gap-3 rounded border p-4 sm:grid-cols-2 lg:grid-cols-3"
-              >
-                <h3>{action} route</h3>
-                {(action === "create" || action === "duplicate") && (
-                  <FormField label="Code">
-                    <Input name="code" required />
-                  </FormField>
-                )}
-                {(["create", "edit", "duplicate"] as Action[]).includes(
-                  action,
-                ) && (
-                  <FormField label="Name">
-                    <Input
-                      name="name"
-                      required
-                      defaultValue={action === "edit" ? detail?.route.name : ""}
-                    />
-                  </FormField>
-                )}
-                {(action === "create" || action === "edit") && (
-                  <>
-                    <fieldset>
-                      <legend>Weekday template (Monday=1)</legend>
-                      {[1, 2, 3, 4, 5, 6, 7].map((day) => (
-                        <label key={day} className="mr-3">
-                          <input
-                            type="checkbox"
-                            name="weekday"
-                            value={day}
-                            defaultChecked={
-                              action === "edit" &&
-                              detail?.route.weekdayTemplate?.includes(day)
-                            }
-                          />{" "}
-                          {day}
-                        </label>
-                      ))}
-                    </fieldset>
-                    <FormField label="Cycle days (optional, 1–366)">
-                      <input
-                        name="cycleDays"
-                        type="number"
-                        min="1"
-                        max="366"
+            <Drawer
+              open={!!action && canManage}
+              title={action ? routeActionLabel[action] : "Route"}
+              onClose={() => setAction(null)}
+              wide
+            >
+              {action && canManage && (
+                <form onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
+                  <h3 className="sr-only">{routeActionLabel[action]}</h3>
+                  {action === "create" && (
+                    <FormField label="Territory">
+                      <select
+                        name="territoryId"
+                        required
+                        defaultValue={territoryId ?? ""}
+                      >
+                        <option value="">Pick a territory</option>
+                        {territories?.page.map((t) => (
+                          <option key={t._id} value={t._id}>
+                            {t.name} · {t.code}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+                  )}
+                  {(action === "create" || action === "duplicate") && (
+                    <FormField label="Code">
+                      <Input name="code" required />
+                    </FormField>
+                  )}
+                  {(["create", "edit", "duplicate"] as Action[]).includes(
+                    action,
+                  ) && (
+                    <FormField label="Name">
+                      <Input
+                        name="name"
+                        required
                         defaultValue={
-                          action === "edit"
-                            ? detail?.route.cycleDays
-                            : undefined
+                          action === "edit" ? detail?.route.name : ""
                         }
                       />
                     </FormField>
-                  </>
-                )}
-                {(action === "move" || action === "duplicate") && (
-                  <FormField label="Destination territory">
-                    <select name="territoryId" required>
-                      <option value="">Select territory</option>
-                      {territories?.page.map((t) => (
-                        <option key={t._id} value={t._id}>
-                          {t.name} · {t.code}
-                        </option>
-                      ))}
-                    </select>
-                  </FormField>
-                )}
-                {action === "assign" && (
-                  <>
-                    <FormField label="Salesperson">
-                      <select name="profileId" required>
-                        <option value="">Select person</option>
-                        {people?.page
-                          .filter(
-                            (p) =>
-                              p.status === "active" &&
-                              p.orgUnitId &&
-                              permissions?.scopeUnitIds.includes(p.orgUnitId),
-                          )
-                          .map((p) => (
-                            <option key={p._id} value={p._id}>
-                              {p.name}
-                            </option>
-                          ))}
+                  )}
+                  {(action === "create" || action === "edit") && (
+                    <>
+                      <fieldset>
+                        <legend>Weekday template (Monday=1)</legend>
+                        {[1, 2, 3, 4, 5, 6, 7].map((day) => (
+                          <label key={day} className="mr-3">
+                            <input
+                              type="checkbox"
+                              name="weekday"
+                              value={day}
+                              defaultChecked={
+                                action === "edit" &&
+                                detail?.route.weekdayTemplate?.includes(day)
+                              }
+                            />{" "}
+                            {day}
+                          </label>
+                        ))}
+                      </fieldset>
+                      <FormField label="Cycle days (optional, 1–366)">
+                        <input
+                          name="cycleDays"
+                          type="number"
+                          min="1"
+                          max="366"
+                          defaultValue={
+                            action === "edit"
+                              ? detail?.route.cycleDays
+                              : undefined
+                          }
+                        />
+                      </FormField>
+                    </>
+                  )}
+                  {(action === "move" || action === "duplicate") && (
+                    <FormField label="Destination territory">
+                      <select name="territoryId" required>
+                        <option value="">Select territory</option>
+                        {territories?.page.map((t) => (
+                          <option key={t._id} value={t._id}>
+                            {t.name} · {t.code}
+                          </option>
+                        ))}
                       </select>
                     </FormField>
-                    <label>
-                      <input type="checkbox" name="primary" defaultChecked />{" "}
-                      Primary owner
-                    </label>
-                  </>
-                )}
-                {action === "end" && (
-                  <FormField label="Assignment">
-                    <select name="assignmentId" required>
-                      <option value="">Select assignment</option>
-                      {detail?.salespeople.map((row) => (
-                        <option key={row._id} value={row._id}>
-                          {row.personName ??
-                            people?.page.find(
-                              (person) => person._id === row.profileId,
-                            )?.name ??
-                            "Salesperson unavailable"}
-                        </option>
-                      ))}
-                    </select>
+                  )}
+                  {action === "assign" && (
+                    <>
+                      <FormField label="Salesperson">
+                        <select name="profileId" required>
+                          <option value="">Select person</option>
+                          {people?.page
+                            .filter(
+                              (p) =>
+                                p.status === "active" &&
+                                p.orgUnitId &&
+                                permissions?.scopeUnitIds.includes(p.orgUnitId),
+                            )
+                            .map((p) => (
+                              <option key={p._id} value={p._id}>
+                                {p.name}
+                              </option>
+                            ))}
+                        </select>
+                      </FormField>
+                      <label>
+                        <input type="checkbox" name="primary" defaultChecked />{" "}
+                        Primary owner
+                      </label>
+                    </>
+                  )}
+                  {action === "end" && (
+                    <FormField label="Assignment">
+                      <select name="assignmentId" required>
+                        <option value="">Select assignment</option>
+                        {detail?.salespeople.map((row) => (
+                          <option key={row._id} value={row._id}>
+                            {row.personName ??
+                              people?.page.find(
+                                (person) => person._id === row.profileId,
+                              )?.name ??
+                              "Salesperson unavailable"}
+                          </option>
+                        ))}
+                      </select>
+                    </FormField>
+                  )}
+                  {action !== "edit" && (
+                    <FormField label="Effective date">
+                      <input type="date" name="effectiveDate" required />
+                    </FormField>
+                  )}
+                  {action === "create" && (
+                    <FormField label="End date">
+                      <input type="date" name="endDate" />
+                    </FormField>
+                  )}
+                  <FormField label="Reason (required)">
+                    <textarea name="reason" required />
                   </FormField>
-                )}
-                {action !== "edit" && (
-                  <FormField label="Effective date">
-                    <input type="date" name="effectiveDate" required />
-                  </FormField>
-                )}
-                {action === "create" && (
-                  <FormField label="End date">
-                    <input type="date" name="endDate" />
-                  </FormField>
-                )}
-                <FormField label="Reason (required)">
-                  <textarea name="reason" required />
-                </FormField>
-                {error && (
-                  <p role="alert" className="text-danger">
-                    {error}
-                  </p>
-                )}
-                <Button type="submit" isPending={pending}>
-                  Save
-                </Button>
-                <Button
-                  variant="outline"
-                  className="h-10"
-                  type="button"
-                  onPress={() => setAction(null)}
-                >
-                  Cancel
-                </Button>
-              </form>
-            )}
+                  {error && (
+                    <p role="alert" className="text-danger">
+                      {error}
+                    </p>
+                  )}
+                  <Button type="submit" variant="primary" isPending={pending}>
+                    Save
+                  </Button>
+                  <Button
+                    variant="outline"
+                    className="h-10"
+                    type="button"
+                    onPress={() => setAction(null)}
+                  >
+                    Cancel
+                  </Button>
+                </form>
+              )}
+            </Drawer>
             {notice && <p role="status">{notice}</p>}
             {error && !action && <p role="alert">{error}</p>}
           </>

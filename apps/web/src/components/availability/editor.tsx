@@ -158,13 +158,11 @@ export function AvailabilityEditor() {
   return (
     <div className="grid gap-4">
       <Panel
-        title="Trade Marketing · must-stock lists and objectives"
-        question="What must each store carry, and what should the next call achieve?"
+        title="Must-stock lists and objectives"
+        question="What each store must carry."
       >
         <p className="mb-4 text-sm text-muted">
-          Published versions are frozen. A change creates a new future-effective
-          version. Store overrides win, then the most specific channel /
-          sub-channel / class rule, then priority. Equal precedence is refused.
+          Saved lists start on the date you set. The most specific rule wins.
         </p>
         <form
           onSubmit={(e) => void submit(e)}
@@ -189,7 +187,7 @@ export function AvailabilityEditor() {
               </select>
             </label>
             <label>
-              Version family
+              List group
               <input
                 className={field}
                 name="key"
@@ -198,7 +196,7 @@ export function AvailabilityEditor() {
               />
             </label>
             <label>
-              Display name
+              Name
               <input
                 className={field}
                 name="label"
@@ -207,7 +205,7 @@ export function AvailabilityEditor() {
               />
             </label>
             <label>
-              Effective from
+              Starts on
               <input
                 className={field}
                 type="datetime-local"
@@ -216,7 +214,7 @@ export function AvailabilityEditor() {
               />
             </label>
             <label>
-              Source / approval reference
+              Approved by
               <input
                 className={field}
                 name="source"
@@ -226,7 +224,7 @@ export function AvailabilityEditor() {
             </label>
             <label className="flex items-center gap-2">
               <input type="checkbox" name="sample" defaultChecked />
-              Clearly marked sample policy
+              Sample
             </label>
           </div>
           {kind === "rules" ? (
@@ -389,9 +387,7 @@ export function AvailabilityEditor() {
             </>
           )}
           <fieldset>
-            <legend className="mb-2 text-sm font-medium">
-              Stores to preview / launch targets / universe
-            </legend>
+            <legend className="mb-2 text-sm font-medium">Stores</legend>
             <button
               className={action}
               type="button"
@@ -410,7 +406,7 @@ export function AvailabilityEditor() {
                 )
               }
             >
-              Select matching stores
+              Pick matching stores
             </button>
             <span className="ml-3 text-sm">{stores.length} selected</span>
             <div className="mt-2 max-h-56 overflow-auto rounded-lg border border-border p-3">
@@ -434,7 +430,7 @@ export function AvailabilityEditor() {
             </div>
           </fieldset>
           <button className={`${action} justify-self-start`} disabled={busy}>
-            Save version and preview
+            Save and preview
           </button>
         </form>
         {message && (
@@ -445,7 +441,7 @@ export function AvailabilityEditor() {
         {preview && (
           <div className="mt-4 border-t border-border pt-4">
             <h3 className="font-medium">
-              Publication preview · {preview.rows.length} stores
+              Preview · {preview.rows.length} stores
             </h3>
             <ul className="my-3 max-h-56 overflow-auto text-sm">
               {preview.rows.map((r) => (
@@ -475,29 +471,25 @@ export function AvailabilityEditor() {
                   );
                   await result.refetch();
                   setPreview(null);
-                  setMessage(
-                    "Published. New calls download the effective version.",
-                  );
+                  setMessage("Published. Phones get it on their next sync.");
                 })
               }
             >
-              Publish reviewed version
+              Publish
             </button>
           </div>
         )}
       </Panel>
       <Panel
-        title="Validated universe and turnover weights"
-        question="Every coverage and distribution figure uses this same store list."
+        title="Store list for coverage"
+        question="Coverage figures use this store list."
       >
         <p className="mb-3 text-sm text-muted">
-          Only approved outlets qualify. Sample census may include existing
-          marked sample stores. Turnover weights are unknown until supplied; do
-          not use current sales as a hidden substitute.
+          Only approved stores count. Leave a weight empty if unknown.
         </p>
         <div className="mb-3 grid gap-3 sm:grid-cols-3">
           <label>
-            Universe name
+            Name
             <input
               className={field}
               value={universeLabel}
@@ -585,18 +577,16 @@ export function AvailabilityEditor() {
                 },
                 { invalidate: [["analytics"]] },
               );
-              setMessage(
-                "Universe published. Missing turnover weights remain explicitly unknown.",
-              );
+              setMessage("Published.");
             })
           }
         >
-          Publish selected approved stores and supplied weights
+          Publish
         </button>
       </Panel>
       <Panel
-        title="Published versions and launch progress"
-        question="Review provenance, effective dates and a launch's first orders and repeat purchase."
+        title="Published lists"
+        question="Launches show first and repeat orders."
       >
         <div className="grid gap-2">
           {data.rows.map((r) => (
@@ -606,13 +596,17 @@ export function AvailabilityEditor() {
             >
               <span>
                 {r.label} · v{r.version} · {r.status}
-                {r.sample ? " · SAMPLE" : ""} ·{" "}
-                {new Date(r.effective_from).toLocaleDateString("en-PH")}
+                {r.sample ? " · Sample" : ""} ·{" "}
+                {new Date(r.effective_from).toLocaleDateString("en-US", {
+                  timeZone: "Asia/Manila",
+                  month: "short",
+                  day: "numeric",
+                })}
               </span>
               <span>{r.source_ref}</span>
               {r.kind === "launch" && r.status === "published" && (
                 <button className={action} onClick={() => setLaunchId(r.id)}>
-                  Review build curve
+                  View launch
                 </button>
               )}
             </div>

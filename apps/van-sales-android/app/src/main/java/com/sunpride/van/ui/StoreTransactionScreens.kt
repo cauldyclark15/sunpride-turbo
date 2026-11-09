@@ -199,7 +199,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
             if(tender in setOf("card","split"))LabeledField("Card approval reference — never card number",cardRef,{cardRef=it},"store-card-ref",maxLength=100)
             if(tender!="cash")Text("E-wallet and card references await office confirmation; they are not bank settlement proof.",style=MaterialTheme.typography.bodyMedium)
             if(more)StoreCustomerSheet(phone,{phone=it},notice,loyaltyOn=claim==null&&config.details.optJSONObject("loyalty")?.optBoolean("enabled")==true,
-                onLookup={scope.launch {notice=runCatching {c.repository.storeLookup(phone)?.let {"${it.getString("name")} · ${it.getString("points")} points"}?:"No customer found. Register them in Customers."}.getOrElse {"Connect to look up this customer."}}},
+                onLookup={scope.launch {notice=runCatching {c.repository.storeLookup(phone)?.let {"${it.getString("name")} · ${it.getString("points")} points"}?:"No customer found. Add them in Customers."}.getOrElse {"Connect to look up this customer."}}},
                 found=config.details.optJSONObject("customerLookup")?.takeIf {it.optString("phone")==runCatching{StoreCheckout.normalizePhone(phone)}.getOrNull()}?.let {"${it.getString("name")} · ${StoreCheckout.availablePoints(config,c.storePos.rows)} points available"},
                 points=points,onPoints={points=it},employeeOn=claim==null&&hasSupervisor,employee=employee,onToggleEmployee={employee=!employee;pin=""},pin=pin,onPin={pin=it},
                 claimNote=claim!=null,onClose={more=false})
@@ -436,10 +436,11 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     var phone by remember{mutableStateOf("")};var name by remember{mutableStateOf("")};var notice by remember{mutableStateOf<String?>(null)}
     val scope=rememberCoroutineScope()
     ScreenFrame("Customers & points",c::back,message=notice?:c.message){
-        Text(if(c.storePos.config?.details?.optJSONObject("loyalty")?.optBoolean("enabled")==true)"Loyalty is enabled by the office." else "Loyalty is off. The office can configure earning and redemption.")
+        Text(if(c.storePos.config?.details?.optJSONObject("loyalty")?.optBoolean("enabled")==true)"Points are on." else "Points are off.",style=MaterialTheme.typography.bodyMedium)
         LabeledField("Customer phone",phone,{phone=it},"store-customer-phone",numeric=true,maxLength=24)
-        SecondaryButton("Look up phone",{scope.launch {notice=runCatching {c.repository.storeLookup(phone)?.let {"${it.getString("name")} · ${it.getString("points")} points"}?:"No customer found"}.getOrElse {"Connect to look up this phone. Previously verified lookup is retained securely."}}},enabled=phone.length>=7&&!c.busy)
-        LabeledField("New customer name",name,{name=it},"store-customer-name",maxLength=100)
-        SecondaryButton("Register customer",{c.saveStoreAction("store.customer",JSONObject().put("phone",phone).put("name",name))},enabled=phone.length>=7&&name.isNotBlank()&&c.storePos.shift!=null&&!c.busy)
+        SecondaryButton("Look up phone",{scope.launch {notice=runCatching {c.repository.storeLookup(phone)?.let {"${it.getString("name")} · ${it.getString("points")} points"}?:"No customer found"}.getOrElse {"Connect to look up this phone."}}},enabled=phone.length>=7&&!c.busy)
+        LabeledField("Customer name",name,{name=it},"store-customer-name",maxLength=100)
+        PrimaryBottomButton("Add customer",{c.saveStoreAction("store.customer",JSONObject().put("phone",phone).put("name",name))},phone.length>=7&&name.isNotBlank()&&c.storePos.shift!=null&&!c.busy,"store-add-customer")
+        if(c.storePos.shift==null)Text("Open the till to add customers.",style=MaterialTheme.typography.bodyMedium)
     }
 }

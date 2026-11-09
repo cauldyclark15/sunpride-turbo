@@ -61,15 +61,13 @@ export function ReceiveQueueView({
   return (
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
-        <p className="text-sm text-muted">
-          What is on its way to you, and what has come back.
-        </p>
+        <h2 className="text-xl font-semibold">Receive</h2>
         <Button
           variant="primary"
           className="min-h-12 text-base"
           onPress={onUnplanned}
         >
-          Unplanned delivery
+          Add delivery
         </Button>
       </div>
       <Card label="Expected deliveries" count={data.expectedDeliveries.length}>
@@ -84,7 +82,7 @@ export function ReceiveQueueView({
         ) : (
           <p className="text-sm text-muted">
             {data.expectedDeliveriesNote ??
-              "No deliveries are expected. Use Unplanned delivery."}
+              "No deliveries are expected. Use Add delivery."}
           </p>
         )}
       </Card>

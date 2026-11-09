@@ -205,7 +205,7 @@ describe("pages render their contract fixture", () => {
 
     const stores = analyticsFixture("stores", MTD, NOW);
     const storesOut = html(
-      <StoresView data={stores} status={null} q="" csv="/s.csv" now={NOW} />,
+      <StoresView data={stores} csv="/s.csv" now={NOW} />,
     );
     expect(storesOut).toContain(stores.rows[0]!.name);
     expect(storesOut).toContain(formatPhp(stores.rows[0]!.salesPeriod));

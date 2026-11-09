@@ -1,10 +1,26 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, expect, it, vi } from "vitest";
-import { DistributorWorkspace } from "./workspace";
+import { DistributorWorkspace, filterPartners } from "./workspace";
 import { Ordering, Stock } from "./commercial";
 import { Setup } from "./setup";
 import type { Health, Workspace } from "./types";
+const nav = vi.hoisted(() => ({ search: "" }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/distributors",
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(nav.search),
+}));
+vi.mock("next/link", () => ({
+  default: ({
+    href,
+    children,
+    ...rest
+  }: {
+    href: string;
+    children: React.ReactNode;
+  }) => createElement("a", { href, ...rest }, children),
+}));
 const state = vi.hoisted(() => ({
   role: "distributor",
   grants: ["read", "stock"],
@@ -51,6 +67,7 @@ it("F-407 office can invite dedicated field representatives without granting por
 });
 let workspace: Workspace;
 beforeEach(() => {
+  nav.search = "";
   state.role = "distributor";
   state.grants = ["read", "stock"];
   state.calls = [];
@@ -220,16 +237,40 @@ it("F-413 overview reconciles target, prior period and weakest component into a 
     html.indexOf("Submission · weight"),
   );
 });
-it("F-401 F-402 Channel Development appears in the existing office shell with scoped setup, never for a reader", () => {
+it("F-401 F-402 office sees a distributor list with Add distributor; setup only for admins", () => {
   state.role = "super_admin";
   let html = renderToStaticMarkup(createElement(DistributorWorkspace));
-  expect(html).toContain("Work · Channel Development");
+  expect(html).toContain("Search by name or code");
+  expect(html).toContain("Add distributor");
+  expect(html).toContain("Sample Harbour");
+  expect(html).toContain('href="/distributors?id=private-partner-id"');
+  expect(html).not.toContain("Create applicant organization");
+  nav.search = "id=private-partner-id";
+  html = renderToStaticMarkup(createElement(DistributorWorkspace));
   expect(html).toContain("Partner setup");
-  expect(html).toContain("New distributor organization");
+  expect(html).toContain("← Distributors");
+  nav.search = "";
   state.role = "operations";
   html = renderToStaticMarkup(createElement(DistributorWorkspace));
+  expect(html).not.toContain("Add distributor");
+  nav.search = "id=private-partner-id";
+  html = renderToStaticMarkup(createElement(DistributorWorkspace));
   expect(html).not.toContain("Partner setup");
-  expect(html).not.toContain("New distributor organization");
+});
+it("distributor search and status chip filter the list", () => {
+  const rows = [
+    { id: "a", code: "N1", name: "North", status: "accredited", source: "x" },
+    { id: "b", code: "S1", name: "South", status: "applicant", source: "x" },
+  ];
+  expect(filterPartners(rows, "nor", null).map((r) => r.id)).toEqual(["a"]);
+  expect(filterPartners(rows, "s1", null).map((r) => r.id)).toEqual(["b"]);
+  expect(filterPartners(rows, "", "applicant").map((r) => r.id)).toEqual(["b"]);
+});
+it("distributor detail tab is read from ?tab=", () => {
+  state.role = "super_admin";
+  nav.search = "id=private-partner-id&tab=setup";
+  const html = renderToStaticMarkup(createElement(DistributorWorkspace));
+  expect(html).toMatch(/aria-current="page"[^>]*>Partner setup/);
 });
 it("F-403 read-only order history shows public references, acknowledgement and promised dates, not private UUIDs", () => {
   const html = renderToStaticMarkup(

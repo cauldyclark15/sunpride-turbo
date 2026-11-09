@@ -64,7 +64,7 @@ export function VanTripPlanning({
   }
   return (
     <details className="rounded-xl border border-separator p-4 print:hidden">
-      <summary>Plan a truck for this day</summary>
+      <summary>Add truck</summary>
       <p className="my-2 text-sm text-muted">
         Plan its beat and seller, review a suggested load, then let the seller
         scan load-out. Current cold-chain, returnable, reason and tolerance

@@ -1102,5 +1102,20 @@ describe("catalog DTOs and national setup reconciliation", () => {
     ).toBeNull();
     expect((await call("org/permissions", national)).body.national).toBe(true);
     expect((await call("org/permissions", admin)).body.national).toBe(false);
+    // SAP ownership hint for the office UI (Master data, Prices)
+    const before = h.env.SAP_MODE;
+    try {
+      delete h.env.SAP_MODE;
+      const off = (await call("org/permissions", national)).body;
+      expect(off.sapOwnsMasters).toBe(false);
+      expect(off.sapOwnsPrices).toBe(false);
+      h.env.SAP_MODE = "mock";
+      const on = (await call("org/permissions", national)).body;
+      expect(on.sapOwnsMasters).toBe(true);
+      expect(on.sapOwnsPrices).toBe(true);
+    } finally {
+      if (before === undefined) delete h.env.SAP_MODE;
+      else h.env.SAP_MODE = before;
+    }
   });
 });

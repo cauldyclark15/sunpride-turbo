@@ -535,7 +535,7 @@ export function CallSheetEditor({ detail }: { detail: Detail }) {
           isDisabled={busy || !header.accountName.trim()}
           onPress={() => void submit()}
         >
-          Save call sheet
+          Save
         </Button>
         {message && (
           <p role="status" className="text-sm">

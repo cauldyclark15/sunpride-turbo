@@ -201,16 +201,57 @@ describe("unmounted territory and route administration", () => {
       capabilities: ["territory.read"],
       scopeUnitIds: [],
     };
-    expect(render(createElement(TerritoryAdmin))).toMatch(
-      /disabled=""[^>]*>Create territory/,
+    expect(html).toContain(">Add territory</button>");
+    expect(html).toMatch(/>Edit<\/button>/);
+    // without territory.manage there is nothing to add (permission unchanged)
+    expect(render(createElement(TerritoryAdmin))).not.toContain(
+      "Add territory",
     );
   });
-  it("explains the route selector before a territory is chosen", () => {
+  it("lists all routes before a territory is picked, with Add route enabled and Edit per row", () => {
     state.mode = "route";
     const html = render(createElement(RouteAdmin));
-    expect(html).toContain("Choose a territory to see its routes");
-    expect(html).toMatch(/disabled=""[^>]*>Create route/);
-    expect(html).toContain("Metro territory · NCR");
+    expect(html).toContain("All territories");
+    expect(html).toContain("Monday beat");
+    expect(html).toMatch(/<button[^>]*>Add route<\/button>/);
+    expect(html).not.toMatch(/disabled=""[^>]*>Add route/);
+    expect(html).toMatch(/>Edit<\/button>/);
+    expect(state.calls).toContainEqual({
+      name: "territories/routes:list",
+      args: { paginationOpts: { numItems: 25, cursor: null } },
+    });
+  });
+  it("picks the territory inside the Add route form", async () => {
+    state.mode = "route";
+    state.action = "create";
+    const html = render(createElement(RouteAdmin));
+    expect(html).toMatch(/<h3[^>]*>Add route<\/h3>/);
+    expect(html).toMatch(/<select name="territoryId" required="">/);
+    expect(html).toContain("Pick a territory");
+    const create = vi.fn();
+    await performRouteAction(
+      "create",
+      form({
+        territoryId: territory._id,
+        code: "R9",
+        name: "Friday beat",
+        effectiveDate: "2099-01-01",
+        reason: "New beat",
+      }),
+      {
+        create,
+        edit: vi.fn(),
+        move: vi.fn(),
+        duplicateTemplate: vi.fn(),
+        assignSalesperson: vi.fn(),
+        endSalespersonAssignment: vi.fn(),
+        deactivate: vi.fn(),
+      },
+    );
+    expect(create.mock.calls[0]?.[0]).toMatchObject({
+      territoryId: territory._id,
+      code: "R9",
+    });
   });
   it("renders route territory selector, scoped list, template and disabled controls without route.manage", () => {
     state.selection = territory._id;
@@ -228,9 +269,7 @@ describe("unmounted territory and route administration", () => {
       capabilities: ["route.read"],
       scopeUnitIds: [],
     };
-    expect(render(createElement(RouteAdmin))).toMatch(
-      /disabled=""[^>]*>Create route/,
-    );
+    expect(render(createElement(RouteAdmin))).not.toContain("Add route");
   });
   it("sends create, move and duplicate to correct mutations with reason and Manila UTC instant", async () => {
     const actions = {

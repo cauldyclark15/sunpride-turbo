@@ -38,7 +38,9 @@ export function SetupHealth() {
                 </li>
               ))}
             </ul>
-            <p className="text-xs text-muted">{health.comparisonNote}</p>
+            {health.comparisonNote ? (
+              <p className="text-xs text-muted">{health.comparisonNote}</p>
+            ) : null}
           </>
         )}
       </div>

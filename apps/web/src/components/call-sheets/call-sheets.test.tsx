@@ -164,6 +164,6 @@ describe("call sheet screens", () => {
     expect(html).toContain("SUNP-001");
     expect(html).toContain('value="₱189.00"');
     expect(html).toContain("inactive, remove before saving");
-    expect(html).toContain("Save call sheet");
+    expect(html).toContain("Save");
   });
 });

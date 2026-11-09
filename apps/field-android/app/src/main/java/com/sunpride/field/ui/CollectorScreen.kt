@@ -64,7 +64,7 @@ object CollectorDraft {
  fun attempt(block:()->Unit){try{message=null;block()}catch(e:IllegalArgumentException){message=e.message}catch(e:IllegalStateException){message=e.message}}
  Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("collector-agenda"),verticalArrangement=Arrangement.spacedBy(10.dp)){
   NoticeCard("Your assigned collection stops. Promises and cheque evidence do not reduce SAP AR or certify bank clearance.")
-  FieldButton({refresh++},Modifier.fillMaxWidth(),enabled=!loading&&!c.busy){Text(if(loading)"Refreshing…"else"Refresh assigned route")}
+  FieldButton({refresh++},Modifier.fillMaxWidth(),enabled=!loading&&!c.busy){Text(if(loading)"Refreshing…"else"Refresh")}
   c.error?.let{NoticeCard(it,tone=Look.Tone.BAD)};message?.let{NoticeCard(it)}
   val d=data?.takeIf{it.optLong("authorizationExpiresAt")>now}
   if(d==null){NoticeCard("Connect to verify today's collector assignment. Held or expired data cannot record.",tone=Look.Tone.WARN,glyph=GlyphKind.LOCK);return@Column}
@@ -91,21 +91,21 @@ object CollectorDraft {
   @Composable fun field(label:String,value:String,edit:(String)->Unit){FieldTextField(value,edit,label={Text(label)},modifier=Modifier.fillMaxWidth())}
   field("Amount · pesos",amount,{amount=it});field("Promise / cheque day · YYYY-MM-DD",date,{date=it})
   field("Capture / bank-notice evidence note",note,{note=it})
-  FieldButton({attempt{java.time.LocalDate.parse(date);require(note.trim().isNotEmpty()){ "Write the promise evidence note" };val p=CollectorDraft.payload("promise",day,code,note).put("amountMinor",CollectorDraft.minor(amount)).put("promisedOn",date).put("openItemRef",checkNotNull(item)).put("sourceHash",checkNotNull(ar).getString("sourceHash"));send(p)}},enabled=!c.busy&&item!=null&&ar!=null,primary=true){Text("Save promise to pay on phone")}
+  FieldButton({attempt{java.time.LocalDate.parse(date);require(note.trim().isNotEmpty()){ "Write the promise evidence note" };val p=CollectorDraft.payload("promise",day,code,note).put("amountMinor",CollectorDraft.minor(amount)).put("promisedOn",date).put("openItemRef",checkNotNull(item)).put("sourceHash",checkNotNull(ar).getString("sourceHash"));send(p)}},enabled=!c.busy&&item!=null&&ar!=null,primary=true){Text("Save promise")}
   HorizontalDivider(color=Look.hairline)
   Text("Cheque custody & bank-notice tracking",style=MaterialTheme.typography.titleMedium)
   field("Bank",bank,{bank=it});field("Cheque number",number,{number=it})
-  FieldButton({attempt{cameraTicket=Triple(c.sapMasterLifetime(),selected,com.sunpride.field.sync.DomainOutbox.ticket());camera.launch(null)}},enabled=!c.busy){Text(if(photo==null)"Capture cheque / bank-notice photo"else"Retake evidence photo")}
+  FieldButton({attempt{cameraTicket=Triple(c.sapMasterLifetime(),selected,com.sunpride.field.sync.DomainOutbox.ticket());camera.launch(null)}},enabled=!c.busy){Text(if(photo==null)"Take photo"else"Retake photo")}
   if(photo!=null)NoticeCard("Bounded JPEG retained with the encrypted form. It is sent only when this capture is saved.",tone=Look.Tone.GOOD,glyph=GlyphKind.CHECK)
   for(q in rows(s.optJSONArray("cheques")).filter{it.getString("status")=="bounced"})ChoiceRow("Replace bounced ${q.getString("bank")} ${q.getString("chequeNumber")}",replacement==q.getString("id"),{replacement=q.getString("id")})
   if(replacement!=null)TextButton({replacement=null}){Text("Do not link a replacement")}
-  FieldButton({attempt{java.time.LocalDate.parse(date);require(note.trim().isNotEmpty()&&bank.trim().isNotEmpty()&&number.trim().isNotEmpty()){ "Write bank, cheque number and capture note" };val p=CollectorDraft.payload("cheque.receive",day,code,note).put("amountMinor",CollectorDraft.minor(amount)).put("chequeDate",date).put("bank",bank.trim()).put("chequeNumber",number.trim()).put("replacesId",replacement).put("photo",photo);send(p)}},enabled=!c.busy,primary=true){Text("Save cheque pickup on phone")}
+  FieldButton({attempt{java.time.LocalDate.parse(date);require(note.trim().isNotEmpty()&&bank.trim().isNotEmpty()&&number.trim().isNotEmpty()){ "Write bank, cheque number and capture note" };val p=CollectorDraft.payload("cheque.receive",day,code,note).put("amountMinor",CollectorDraft.minor(amount)).put("chequeDate",date).put("bank",bank.trim()).put("chequeNumber",number.trim()).put("replacesId",replacement).put("photo",photo);send(p)}},enabled=!c.busy,primary=true){Text("Save cheque")}
   for(q in rows(s.optJSONArray("cheques"))){
    Text("${q.getString("bank")} ${q.getString("chequeNumber")} · ${q.getString("chequeDate")} · ${q.getString("status")}")
-   if(q.getString("status")=="deposited")FieldButton({attempt{require(note.trim().isNotEmpty()){ "Write the bank's bounce reason" };send(CollectorDraft.payload("cheque.bounced",day,code,note).put("chequeId",q.getString("id")).put("photo",photo))}},enabled=!c.busy){Text("Record returned bank notice")}
+   if(q.getString("status")=="deposited")FieldButton({attempt{require(note.trim().isNotEmpty()){ "Write the bank's bounce reason" };send(CollectorDraft.payload("cheque.bounced",day,code,note).put("chequeId",q.getString("id")).put("photo",photo))}},enabled=!c.busy){Text("Save bounced cheque")}
   }
   for(p in rows(s.optJSONArray("promises")))Text("Promise due ${p.getString("promisedOn")} · ₱${BigDecimal.valueOf(p.getLong("amountMinor"),2).toPlainString()} · ${p.getString("note")}")
-  FieldButton(c::syncNow,enabled=!c.busy){Text("Sync retained collection work")}
+  FieldButton(c::syncNow,enabled=!c.busy){Text("Sync")}
   Text("A queued or review capture is not an acknowledged collection. Reconcile it before recapturing. Only the office marks deposits/clearance and SAP owns the balance.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
   Spacer(Modifier.height(24.dp))
  }

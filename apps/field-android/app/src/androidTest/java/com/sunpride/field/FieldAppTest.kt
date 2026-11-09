@@ -4,6 +4,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -29,6 +30,7 @@ import com.sunpride.field.ui.TodayScreen
 import com.sunpride.field.ui.TodayData
 import com.sunpride.field.ui.VisitDisplay
 import org.junit.After
+import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
 
@@ -182,12 +184,13 @@ class FieldAppTest {
         rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-name") }
         rule.onNodeWithTag("account-back").performClick()
         rule.onNodeWithTag("customers-open").performScrollTo().performClick()
-        rule.onNodeWithTag("customer-add-store-fab").assertIsDisplayed().performClick()
+        rule.onNodeWithTag("customer-add-store-fab").assertIsDisplayed().assertContentDescriptionEquals("Add store").performClick()
         rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-name") }
     }
 
-    // Store detail: Edit top-right in the header and as a button; both open the store form filled from the store.
+    // Store detail: Edit top-right in the header and as a button; both open the Edit store form filled from the store.
     @Test fun storeDetailEditOpensTheFilledStoreForm() {
+        assertEquals(true, com.sunpride.field.ui.STORE_EDIT_ENABLED)
         val backend = ScriptedBackend(EnrollmentState.Ready("dev1")).apply {
             signedIn = true
             customers = listOf(com.sunpride.field.ui.customers.CustomerRecord("o1", "First Store", "OUT-1", address = "1 Rizal St"))

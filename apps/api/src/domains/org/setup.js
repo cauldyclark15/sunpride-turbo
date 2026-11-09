@@ -63,8 +63,7 @@ export async function setupHealth(c) {
   ];
   return {
     asOf: c.now,
-    comparisonNote:
-      "Historical setup snapshots are not yet available; no prior-period improvement is claimed. Unassigned people require national access.",
+    comparisonNote: "",
     items: links.map(([key, label, fix, href]) => ({
       key,
       label,

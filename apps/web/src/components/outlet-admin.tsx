@@ -1,22 +1,13 @@
 "use client";
 
-import { Button } from "@heroui/react";
-import {
-  Card,
-  FormField,
-  Pager,
-  ListRow,
-  StatusPill,
-  WorkspaceIcon,
-} from "@sunpride/ui";
+import Link from "next/link";
+import { FormField, StatusPill } from "@sunpride/ui";
 import { api } from "./master-data/api";
 import type { Id } from "./master-data/model";
 import { useMutation, useQuery } from "./master-data/api";
 import type { FunctionArgs } from "./master-data/api";
 import { useState, type FormEvent } from "react";
 import { formatManilaDate, futureManilaDateToUtcMs } from "../lib/manila-date";
-import { NewStoreApprovals } from "./new-store-approvals";
-import { SetupSearch } from "./master-data/setup-health";
 import { useSetupParam } from "./master-data/location";
 
 type Action =
@@ -93,10 +84,10 @@ export async function performOutletAction(
         code: text(data, "code"),
         custodianOrgUnitId: text(data, "custodianOrgUnitId") as Id<"orgUnits">,
       });
-    if (!outletId) throw new Error("Select an outlet");
+    if (!outletId) throw new Error("Pick a store first");
     return actions.edit({ ...profile, outletId });
   }
-  if (!outletId) throw new Error("Select an outlet");
+  if (!outletId) throw new Error("Pick a store first");
   if (action === "link")
     return actions.link({
       outletId,
@@ -119,14 +110,58 @@ export async function performOutletAction(
         : undefined,
       reason,
     });
-  if (!pinId) throw new Error("Select a pending pin");
+  if (!pinId) throw new Error("Pick a pending pin first");
   return actions.decide({ pinId, decision: action, reason });
 }
 
+const btn =
+  "inline-flex h-9 items-center rounded-lg border border-border px-3 text-[13px] font-medium text-foreground hover:bg-default-soft disabled:opacity-50";
+const primaryBtn =
+  "inline-flex h-10 items-center rounded-lg bg-foreground px-4 text-[14px] font-semibold text-background hover:opacity-90 disabled:opacity-50";
+
+const TITLES: Record<Action, string> = {
+  create: "Add store",
+  edit: "Edit store",
+  link: "Edit customer link",
+  propose: "Add GPS pin",
+  deactivate: "Deactivate store",
+  verified: "Approve pin",
+  rejected: "Reject pin",
+};
+
+/** Setup › Outlets now points at the one store list; a drill link (?outlet=) still opens that store's editor. */
 export function OutletAdmin() {
-  const [search, setSearch] = useState<string | undefined>(undefined);
   const requestedOutlet = useSetupParam("outlet");
-  const unverified = useSetupParam("unverified") === "true";
+  return (
+    <div className="grid gap-4">
+      <p className="text-[14px] text-muted">
+        Stores are added and edited on the Stores page.{" "}
+        <Link
+          href={
+            requestedOutlet
+              ? `/stores?edit=${encodeURIComponent(requestedOutlet)}`
+              : "/stores"
+          }
+          className="font-medium text-foreground underline"
+        >
+          Open Stores
+        </Link>
+      </p>
+      {requestedOutlet ? (
+        <OutletEditor outletId={requestedOutlet as Id<"outlets">} />
+      ) : null}
+    </div>
+  );
+}
+
+/** One store's profile with Edit, customer link, GPS pin and deactivate. Used in the Stores list Edit sheet. */
+export function OutletEditor({
+  outletId,
+  onDone,
+}: {
+  outletId: Id<"outlets">;
+  onDone?: () => void;
+}) {
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const profile = useQuery(api.domains.profiles.current, {});
   const canRead = permissions?.capabilities.includes("outlet.read") ?? false;
@@ -134,33 +169,18 @@ export function OutletAdmin() {
     permissions?.capabilities.includes("outlet.manage") ?? false;
   const canVerify =
     permissions?.capabilities.includes("outlet.verify") ?? false;
-  const [cursors, setCursors] = useState<(string | null)[]>([null]);
-  const list = useQuery(
-    api.outlets.queries.list,
-    canRead
-      ? {
-          ...(search ? { q: search } : {}),
-          ...(unverified ? { unverified: "true" } : {}),
-          paginationOpts: { cursor: cursors.at(-1) ?? null, numItems: 25 },
-        }
-      : "skip",
-  );
-  const [selectedState, setSelectedId] = useState<Id<"outlets"> | null>(null);
-  const selectedId = selectedState ?? (requestedOutlet || null);
   const detail = useQuery(
     api.outlets.queries.detail,
-    canRead && selectedId ? { outletId: selectedId } : "skip",
+    canRead ? { outletId } : "skip",
   );
   const links = useQuery(
     api.outlets.queries.customerHistory,
-    canRead && selectedId ? { outletId: selectedId } : "skip",
+    canRead ? { outletId } : "skip",
   );
   const pins = useQuery(
     api.outlets.queries.pinHistory,
-    canRead && selectedId ? { outletId: selectedId } : "skip",
+    canRead ? { outletId } : "skip",
   );
-  const [asOf] = useState(() => Date.now());
-  const units = useQuery(api.org.queries.tree, canManage ? { asOf } : "skip");
   const customers = useQuery(
     api.domains.masterData.customers,
     canManage ? { limit: 100 } : "skip",
@@ -171,8 +191,8 @@ export function OutletAdmin() {
   const deactivate = useMutation(api.outlets.mutations.deactivate);
   const propose = useMutation(api.outlets.verification.propose);
   const decide = useMutation(api.outlets.verification.decide);
-  const [action, setAction] = useState<Action | null>(null);
   const [pendingPin, setPendingPin] = useState<Id<"outletPins"> | null>(null);
+  const [action, setAction] = useState<Action | null>(null);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState(false);
@@ -187,11 +207,12 @@ export function OutletAdmin() {
         action,
         new FormData(event.currentTarget),
         { create, edit, link, deactivate, propose, decide },
-        selectedId ?? undefined,
+        outletId,
         pendingPin ?? undefined,
       );
-      setNotice("Outlet change saved. History remains available.");
+      setNotice("Saved.");
       setAction(null);
+      if (action === "edit" || action === "deactivate") onDone?.();
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : String(cause));
     } finally {
@@ -199,390 +220,290 @@ export function OutletAdmin() {
     }
   }
   const customerName = (id: Id<"customers">) =>
-    customers?.page.find((c) => c._id === id)?.name ?? "Customer unavailable";
+    customers?.page.find((c) => c._id === id)?.name ?? "Linked customer";
+  if (!canRead) return null;
+  if (detail === undefined)
+    return <p className="text-[14px] text-muted">Loading store…</p>;
+  if (!detail) return <p className="text-[14px] text-muted">Store not found.</p>;
   return (
-    <>
-      <NewStoreApprovals />
-      <SetupSearch
-        label="Search stores"
-        value={search ?? ""}
-        onChange={(value) => {
-          setSearch(value);
-          setCursors([null]);
-        }}
-      />
-      <Card
-        label="Outlets"
-        count={list?.page.length}
-        icon={<WorkspaceIcon name="field" />}
-        actions={
-          canManage ? (
-            <Button
-              variant="outline"
-              className="h-8"
-              onPress={() => setAction("create")}
+    <div className="grid gap-4">
+      <section aria-label="Outlet profile" className="grid gap-2">
+        <h3 className="text-[17px] font-semibold text-foreground">
+          {detail.outlet.name} · {detail.outlet.code}
+        </h3>
+        {detail.outlet.enrolmentStatus === "provisional" && (
+          <p className="text-[14px]">
+            <StatusPill tone="warning">Provisional</StatusPill> Waiting for
+            approval; the customer code is given on approval.
+          </p>
+        )}
+        <p className="text-[14px] text-muted">
+          {detail.outlet.status[0]?.toUpperCase()}
+          {detail.outlet.status.slice(1)} ·{" "}
+          {detail.outlet.channel ?? "No channel"} ·{" "}
+          {detail.outlet.address ?? "No address"}
+        </p>
+        <p className="text-[14px] text-muted">
+          Customer:{" "}
+          {detail.customerLink
+            ? customerName(detail.customerLink.customerId)
+            : "Not linked yet"}
+          {" · "}Route:{" "}
+          {detail.assignment
+            ? `${detail.outlet.territoryName ?? "Area set"} / ${detail.outlet.routeName ?? "no route"}${detail.assignment.sequence ? ` · stop ${detail.assignment.sequence}` : ""}`
+            : "None"}
+          {" · "}GPS:{" "}
+          {detail.pin
+            ? `${detail.pin.latitude}, ${detail.pin.longitude} · ${detail.pin.radiusMeters} m`
+            : "None"}
+        </p>
+        {canManage && (
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              className={btn}
+              onClick={() => setAction("edit")}
             >
-              Create outlet
-            </Button>
-          ) : undefined
-        }
-      >
-        <div className="grid gap-4">
-          {list === undefined ? (
-            <p>Loading outlets…</p>
-          ) : (
-            <ul
-              aria-label="Outlet list"
-              className="overflow-hidden rounded-xl border border-border"
+              Edit store
+            </button>
+            <button
+              type="button"
+              className={btn}
+              onClick={() => setAction("link")}
             >
-              {list.page.map((row) => (
-                <li key={row._id}>
-                  <ListRow
-                    icon={<WorkspaceIcon name="field" />}
-                    title={row.name}
-                    meta={row.code}
-                    value={
-                      row.status !== "active" ? (
-                        <StatusPill tone="neutral">{row.status}</StatusPill>
-                      ) : row.enrolmentStatus === "provisional" ? (
-                        <StatusPill tone="warning">Provisional</StatusPill>
-                      ) : undefined
-                    }
-                    action={
-                      <Button
-                        variant="outline"
-                        className="h-8"
-                        onPress={() => {
-                          setSelectedId(row._id);
-                          setAction(null);
-                        }}
-                      >
-                        Open
-                      </Button>
-                    }
-                  />
-                </li>
-              ))}
-            </ul>
-          )}
-          <Pager
-            page={cursors.length}
-            canPrevious={cursors.length > 1}
-            canNext={!!list && !list.isDone}
-            onPrevious={() => setCursors((old) => old.slice(0, -1))}
-            onNext={() => {
-              if (list && !list.isDone)
-                setCursors((old) => [...old, list.continueCursor]);
-            }}
-            label="Outlets pages"
-          />
-          {detail && (
-            <section
-              aria-label="Outlet profile"
-              className="grid gap-2 rounded border border-border p-3"
+              Edit customer link
+            </button>
+            <button
+              type="button"
+              className={btn}
+              onClick={() => setAction("propose")}
             >
-              <h3>
-                {detail.outlet.name} · {detail.outlet.code}
-              </h3>
-              {detail.outlet.enrolmentStatus === "provisional" && (
-                <p>
-                  <StatusPill tone="warning">Provisional</StatusPill> New store
-                  awaiting supervisor or manager approval; the customer code is
-                  issued on approval.
-                </p>
-              )}
-              <p>
-                {detail.outlet.status[0]?.toUpperCase()}
-                {detail.outlet.status.slice(1)} ·{" "}
-                {detail.outlet.channel ?? "Channel not set"} ·{" "}
-                {detail.outlet.address ?? "Address not set"}
-              </p>
-              <p>
-                Customer:{" "}
-                {detail.customerLink
-                  ? customerName(detail.customerLink.customerId)
-                  : "Unlinked prospect / site"}
-              </p>
-              <p>
-                Route:{" "}
-                {detail.assignment
-                  ? `${detail.outlet.territoryName ?? "Territory assigned"} / ${detail.outlet.routeName ?? "no route"}${detail.assignment.sequence ? ` · stop ${detail.assignment.sequence}` : ""}`
-                  : "Unassigned"}
-              </p>
-              <p>
-                Verified pin:{" "}
-                {detail.pin
-                  ? `${detail.pin.latitude}, ${detail.pin.longitude} · ${detail.pin.radiusMeters} m`
-                  : "None"}
-              </p>
-              {canManage && (
-                <div className="flex gap-2">
-                  <button type="button" onClick={() => setAction("edit")}>
-                    Edit profile
-                  </button>
-                  <button type="button" onClick={() => setAction("link")}>
-                    Change customer link
-                  </button>
-                  <button type="button" onClick={() => setAction("deactivate")}>
-                    Deactivate
-                  </button>
-                </div>
-              )}
-              <h4>Customer history</h4>
-              <ul>
-                {links?.map((row) => (
-                  <li key={row._id}>
-                    {customerName(row.customerId)} · {row.source} ·{" "}
-                    {formatManilaDate(row.effectiveFrom)}–
-                    {row.effectiveTo
-                      ? formatManilaDate(row.effectiveTo)
-                      : "Current"}{" "}
-                    · {row.reason}
-                  </li>
-                ))}
-              </ul>
-              <h4>Verification</h4>
-              {canManage && (
-                <button type="button" onClick={() => setAction("propose")}>
-                  Propose GPS pin
-                </button>
-              )}
-              <ul>
-                {pins?.map((pin) => (
-                  <li key={pin._id}>
-                    {pin.status[0]?.toUpperCase()}
-                    {pin.status.slice(1)} · {pin.latitude}, {pin.longitude} ·{" "}
-                    {pin.radiusMeters} m · {pin.source.replaceAll("_", " ")} ·{" "}
-                    {pin.evidenceNote ?? "No note"} · proposed by{" "}
-                    {pin.proposerName ?? "Office user"}
-                    {pin.verifiedBy && (
-                      <>
-                        {" "}
-                        · reviewed by {pin.verifierName ?? "Office user"}:{" "}
-                        {pin.reviewerReason}
-                      </>
-                    )}
-                    {pin.status === "verified" && (
-                      <>
-                        {" "}
-                        · {formatManilaDate(pin.effectiveFrom)}–
-                        {pin.effectiveTo
-                          ? formatManilaDate(pin.effectiveTo)
-                          : "Current"}
-                      </>
-                    )}
-                    {pin.status === "pending" && canVerify && (
-                      <>
-                        <button
-                          type="button"
-                          disabled={
-                            !profile || profile.authSubject === pin.proposedBy
-                          }
-                          onClick={() => {
-                            setPendingPin(pin._id);
-                            setAction("verified");
-                          }}
-                        >
-                          Approve
-                        </button>
-                        <button
-                          type="button"
-                          disabled={
-                            !profile || profile.authSubject === pin.proposedBy
-                          }
-                          onClick={() => {
-                            setPendingPin(pin._id);
-                            setAction("rejected");
-                          }}
-                        >
-                          Reject
-                        </button>
-                      </>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </section>
-          )}
-          {action && (
-            <form
-              key={`${action}-${selectedId}`}
-              onSubmit={submit}
-              className="grid gap-3 rounded border border-border p-3 sm:grid-cols-2 lg:grid-cols-3"
-              aria-label="Outlet action"
+              Add GPS pin
+            </button>
+            <button
+              type="button"
+              className={btn}
+              onClick={() => setAction("deactivate")}
             >
-              <h3>
-                {action === "create"
-                  ? "Create outlet"
-                  : action === "edit"
-                    ? "Edit profile"
-                    : action === "link"
-                      ? "Change customer link"
-                      : action === "propose"
-                        ? "Propose GPS pin"
-                        : action === "deactivate"
-                          ? "Deactivate outlet"
-                          : `${action === "verified" ? "Approve" : "Reject"} pin`}
-              </h3>
-              {(action === "create" || action === "edit") && (
-                <>
-                  {action === "create" && (
-                    <>
-                      <FormField label="Code">
-                        <input name="code" required />
-                      </FormField>
-                      <FormField label="Custodian unit">
-                        <select name="custodianOrgUnitId" required>
-                          <option value="">Select unit</option>
-                          {units
-                            ?.filter((u) => u.status === "active")
-                            .map((u) => (
-                              <option key={u._id} value={u._id}>
-                                {u.name}
-                              </option>
-                            ))}
-                        </select>
-                      </FormField>
-                    </>
-                  )}
-                  <FormField label="Name">
-                    <input
-                      name="name"
-                      defaultValue={detail?.outlet.name}
-                      required
-                    />
-                  </FormField>
-                  <FormField label="Site status">
-                    <select
-                      name="status"
-                      defaultValue={detail?.outlet.status ?? "prospect"}
-                    >
-                      <option value="prospect">Prospect / unlinked</option>
-                      <option value="active">Active</option>
-                    </select>
-                  </FormField>
-                  {(
-                    [
-                      "channel",
-                      "subchannel",
-                      "classification",
-                      "address",
-                      "directions",
-                      "visitWindow",
-                    ] as const
-                  ).map((key) => (
-                    <FormField key={key} label={key}>
-                      <input name={key} defaultValue={detail?.outlet[key]} />
-                    </FormField>
-                  ))}
-                  <FormField label="Contact name">
-                    <input
-                      name="contactName"
-                      defaultValue={detail?.outlet.contacts?.[0]?.name}
-                    />
-                  </FormField>
-                  <FormField label="Contact phone">
-                    <input
-                      name="contactPhone"
-                      defaultValue={detail?.outlet.contacts?.[0]?.phone}
-                    />
-                  </FormField>
-                  <FormField label="Sales potential">
-                    <input
-                      type="number"
-                      min="0"
-                      name="salesPotential"
-                      defaultValue={detail?.outlet.salesPotential}
-                    />
-                  </FormField>
-                  <FormField label="Preferred weekday (0–6)">
-                    <input
-                      type="number"
-                      min="0"
-                      max="6"
-                      name="preferredWeekday"
-                      defaultValue={detail?.outlet.preferredWeekday}
-                    />
-                  </FormField>
-                  <FormField label="Visit frequency (days)">
-                    <input
-                      type="number"
-                      min="1"
-                      max="365"
-                      name="visitFrequencyDays"
-                      defaultValue={detail?.outlet.visitFrequencyDays}
-                    />
-                  </FormField>
-                </>
-              )}
-              {action === "link" && (
-                <>
-                  <FormField label="Existing customer">
-                    <select name="customerId">
-                      <option value="">Unlink (prospect)</option>
-                      {customers?.page
-                        .filter((c) => c.active)
-                        .map((c) => (
-                          <option key={c._id} value={c._id}>
-                            {c.name} · {c.code}
-                          </option>
-                        ))}
-                    </select>
-                  </FormField>
-                  <FormField label="Source">
-                    <input name="source" defaultValue="local" required />
-                  </FormField>
-                  <FormField label="Effective date">
-                    <input type="date" name="effectiveDate" required />
-                  </FormField>
-                </>
-              )}
-              {action === "propose" && (
-                <>
-                  <FormField label="Latitude">
-                    <input name="latitude" type="number" step="any" required />
-                  </FormField>
-                  <FormField label="Longitude">
-                    <input name="longitude" type="number" step="any" required />
-                  </FormField>
-                  <FormField label="Radius meters (default 75)">
-                    <input
-                      name="radiusMeters"
-                      type="number"
-                      min="1"
-                      max="500"
-                    />
-                  </FormField>
-                  <FormField label="Source">
-                    <input name="source" required />
-                  </FormField>
-                  <FormField label="Evidence note">
-                    <input name="evidenceNote" />
-                  </FormField>
-                  <FormField label="Future effective date (optional)">
-                    <input name="effectiveDate" type="date" />
-                  </FormField>
-                </>
-              )}
-              <FormField label="Reason">
-                <input name="reason" required />
+              Deactivate
+            </button>
+          </div>
+        )}
+      </section>
+      {action && (
+        <form
+          key={`${action}-${outletId}`}
+          onSubmit={submit}
+          className="grid gap-3 rounded-xl border border-border p-3 sm:grid-cols-2"
+          aria-label="Outlet action"
+        >
+          <h3 className="font-semibold sm:col-span-2">{TITLES[action]}</h3>
+          {action === "edit" && (
+            <>
+              <FormField label="Name">
+                <input
+                  name="name"
+                  defaultValue={detail.outlet.name}
+                  required
+                />
               </FormField>
-              <button type="submit" disabled={pending}>
-                Save {action}
-              </button>
-              <button type="button" onClick={() => setAction(null)}>
-                Cancel
-              </button>
-            </form>
+              <FormField label="Status">
+                <select
+                  name="status"
+                  defaultValue={detail.outlet.status ?? "prospect"}
+                >
+                  <option value="prospect">Not buying yet</option>
+                  <option value="active">Active</option>
+                </select>
+              </FormField>
+              {(
+                [
+                  ["channel", "Channel"],
+                  ["subchannel", "Subchannel"],
+                  ["classification", "Class"],
+                  ["address", "Address"],
+                  ["directions", "Directions"],
+                  ["visitWindow", "Visit hours"],
+                ] as const
+              ).map(([key, label]) => (
+                <FormField key={key} label={label}>
+                  <input name={key} defaultValue={detail.outlet[key]} />
+                </FormField>
+              ))}
+              <FormField label="Contact name">
+                <input
+                  name="contactName"
+                  defaultValue={detail.outlet.contacts?.[0]?.name}
+                />
+              </FormField>
+              <FormField label="Contact phone">
+                <input
+                  name="contactPhone"
+                  defaultValue={detail.outlet.contacts?.[0]?.phone}
+                />
+              </FormField>
+              <FormField label="Sales potential">
+                <input
+                  type="number"
+                  min="0"
+                  name="salesPotential"
+                  defaultValue={detail.outlet.salesPotential}
+                />
+              </FormField>
+              <FormField label="Preferred weekday (0 = Sunday)">
+                <input
+                  type="number"
+                  min="0"
+                  max="6"
+                  name="preferredWeekday"
+                  defaultValue={detail.outlet.preferredWeekday}
+                />
+              </FormField>
+              <FormField label="Visit every (days)">
+                <input
+                  type="number"
+                  min="1"
+                  max="365"
+                  name="visitFrequencyDays"
+                  defaultValue={detail.outlet.visitFrequencyDays}
+                />
+              </FormField>
+            </>
           )}
-          {error && (
-            <p role="alert" className="text-danger">
-              {error}
-            </p>
+          {action === "link" && (
+            <>
+              <FormField label="Customer">
+                <select name="customerId">
+                  <option value="">Not linked</option>
+                  {customers?.page
+                    .filter((c) => c.active)
+                    .map((c) => (
+                      <option key={c._id} value={c._id}>
+                        {c.name} · {c.code}
+                      </option>
+                    ))}
+                </select>
+              </FormField>
+              <FormField label="Source">
+                <input name="source" defaultValue="local" required />
+              </FormField>
+              <FormField label="Starts on">
+                <input type="date" name="effectiveDate" required />
+              </FormField>
+            </>
           )}
-          {notice && <p role="status">{notice}</p>}
-        </div>
-      </Card>
-    </>
+          {action === "propose" && (
+            <>
+              <FormField label="Latitude">
+                <input name="latitude" type="number" step="any" required />
+              </FormField>
+              <FormField label="Longitude">
+                <input name="longitude" type="number" step="any" required />
+              </FormField>
+              <FormField label="Radius in meters (default 75)">
+                <input name="radiusMeters" type="number" min="1" max="500" />
+              </FormField>
+              <FormField label="Source">
+                <input name="source" required />
+              </FormField>
+              <FormField label="Note">
+                <input name="evidenceNote" />
+              </FormField>
+              <FormField label="Starts on (optional)">
+                <input name="effectiveDate" type="date" />
+              </FormField>
+            </>
+          )}
+          <FormField label="Reason">
+            <input name="reason" required />
+          </FormField>
+          <div className="flex gap-2 sm:col-span-2">
+            <button type="submit" className={primaryBtn} disabled={pending}>
+              Save
+            </button>
+            <button
+              type="button"
+              className={btn}
+              onClick={() => setAction(null)}
+            >
+              Cancel
+            </button>
+          </div>
+        </form>
+      )}
+      {error && (
+        <p role="alert" className="text-danger">
+          {error}
+        </p>
+      )}
+      {notice && <p role="status">{notice}</p>}
+      <section className="grid gap-1 text-[13px]">
+        <h4 className="font-semibold text-foreground">Customer history</h4>
+        {links?.length ? (
+          <ul className="grid gap-1 text-muted">
+            {links.map((row) => (
+              <li key={row._id}>
+                {customerName(row.customerId)} · {row.source} ·{" "}
+                {formatManilaDate(row.effectiveFrom)}–
+                {row.effectiveTo ? formatManilaDate(row.effectiveTo) : "now"} ·{" "}
+                {row.reason}
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p className="text-muted">None yet.</p>
+        )}
+      </section>
+      <section className="grid gap-1 text-[13px]">
+        <h4 className="font-semibold text-foreground">GPS pins</h4>
+        <ul className="grid gap-2 text-muted">
+          {pins?.map((pin) => (
+            <li key={pin._id} className="flex flex-wrap items-center gap-2">
+              <span>
+                {pin.status[0]?.toUpperCase()}
+                {pin.status.slice(1)} · {pin.latitude}, {pin.longitude} ·{" "}
+                {pin.radiusMeters} m · {pin.source.replaceAll("_", " ")}
+                {pin.evidenceNote ? ` · ${pin.evidenceNote}` : ""} · by{" "}
+                {pin.proposerName ?? "Office user"}
+                {pin.verifiedBy &&
+                  ` · reviewed by ${pin.verifierName ?? "Office user"}: ${pin.reviewerReason ?? ""}`}
+                {pin.status === "verified" &&
+                  ` · ${formatManilaDate(pin.effectiveFrom)}–${pin.effectiveTo ? formatManilaDate(pin.effectiveTo) : "now"}`}
+              </span>
+              {pin.status === "pending" && canVerify && (
+                <>
+                  <button
+                    type="button"
+                    className={btn}
+                    disabled={
+                      !profile || profile.authSubject === pin.proposedBy
+                    }
+                    onClick={() => {
+                      setPendingPin(pin._id);
+                      setAction("verified");
+                    }}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className={btn}
+                    disabled={
+                      !profile || profile.authSubject === pin.proposedBy
+                    }
+                    onClick={() => {
+                      setPendingPin(pin._id);
+                      setAction("rejected");
+                    }}
+                  >
+                    Reject
+                  </button>
+                </>
+              )}
+            </li>
+          ))}
+        </ul>
+      </section>
+    </div>
   );
 }

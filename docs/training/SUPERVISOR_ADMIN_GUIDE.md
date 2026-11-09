@@ -121,7 +121,7 @@ the end of day 7 of the plan month. Late plans are flagged, not refused.
 2. Click the **Plan** tab.
 3. Choose the person in **Assignee**. A salesperson can only choose themselves.
 4. Choose the **Month**.
-5. Click **New plan**. The new version starts as **draft**.
+5. Click **Add plan**. The new version starts as **draft**.
 
 To continue an existing plan, click its version button (v1, v2, …) instead. Its status is
 shown next to it. You cannot create a plan for a past month. A new plan for the current
@@ -267,7 +267,7 @@ To record an away period:
 2. Under **My away periods** set **Away from** and **Away until** (the last day away is
    included).
 3. Enter a **Reason**.
-4. Click **Record away period**. Backdated or overlapping periods are refused.
+4. Click **Add away period**. Backdated or overlapping periods are refused.
 5. To come back early, click **End** on the period.
 
 The supervisor, their manager or a people administrator of their unit can record it. If no
@@ -379,20 +379,20 @@ information sheet (CIS) or a store photo. The store stays provisional until a su
 manager approves it. The system issues the customer code; nobody types it. Existing stores
 keep their current codes.
 
-1. Open Field › Coverage › **Setup**, then **Outlets**.
-2. Find **New stores to approve**.
-3. Check the store name, channel, who proposed it, the address, contact and GPS position.
+1. Open **Stores**, then the **New stores** tab.
+2. Find **New stores to approve**. Search by name or code; click **Open** on a row.
+3. Check the store name, channel, who added it, the address, contact and GPS position.
 4. Open the store photo or the **Customer information sheet**.
 5. To approve: click **Approve**, enter the **Approval reason**, click
-   **Approve and issue code**. You see **Store approved. Customer code** followed by the new
+   **Approve and give code**. You see **Store approved. Customer code** followed by the new
    code. The store's GPS pin is verified at the same time.
 6. To reject: click **Reject**, enter the **Rejection reason**, click **Reject store**. You
-   see **Store rejected and deactivated.**
+   see **Store rejected.**
 7. **Cancel** closes the form without a decision.
 
 If you proposed the store, the buttons are disabled:
 **Another approver must decide your own proposal.** Recent decisions are listed under
-**Recent new-store updates**.
+**Recent updates**.
 
 ## 10. Organization units, people and teams
 
@@ -402,31 +402,29 @@ Changes to units, teams, territories, routes and assignments are effective-dated
 a future **Effective date**, and the change starts at midnight (Manila) that day. History is
 kept. Name edits apply at once.
 
-### 10.1 Invite a person
+### 10.1 Add a person
 
-1. Open Admin › **Invitations**.
-2. Under **Invite person** enter **Full name** and **Email**.
-3. Choose the **Role** and, if known, the **Position** (or **No position**).
-4. Click **Send invitation**. You see **Invitation sent**.
+1. Open Admin › **People** and click **Add person** (top right).
+2. Enter **Full name** and **Email**.
+3. Choose the **Role** and, if known, the **Position** (or **No position**) and **Unit**.
+4. Click **Save**.
 
-Only a Super admin can invite an **Administrator**. Inviting and revoking need a national
+Only a Super admin can add an **Administrator**. Adding and removing people need a national
 administrator or the Super admin.
 
-A new person starts with no unit and cannot use unit screens until one is assigned
-(next step).
+A new person with no unit cannot use unit screens until one is set (next step).
 
-To stop someone's access: find the invitation and click **Revoke access** (**Access revoked**).
+To stop someone's access: pick the **Invited** filter, find the person and click **Remove**.
 This also disables their login. To stop only one phone, use section 13 instead.
 
-### 10.2 Assign unit, role, position and supervisor
+### 10.2 Edit a person's unit, role, position and supervisor
 
-1. Open Admin › **People**.
-2. Click **Assign** on the person's row.
+1. Open Admin › **People** and search by name, email or code.
+2. Click **Edit** on the person's row.
 3. Choose the **Unit**, **Role** and **Position**.
 4. Find their **Supervisor** (use **Search supervisors** if needed).
 5. Enter the **Employee code** if it is empty. It cannot be changed once set.
-6. Enter a **Reason** and click **Save assignment**.
-7. Click **History** on the row to see past assignments.
+6. Enter a **Reason** and click **Save**. Past changes are listed under the form.
 
 The supervisor must be above the person in the hierarchy. The supervisor you choose here is
 the one who approves the person's MCP.
@@ -434,23 +432,23 @@ the one who approves the person's MCP.
 ### 10.3 Organization units
 
 1. Open Admin › **Organization**.
-2. To add a unit: click **Create child** on the parent, enter **Code** and **Name**, choose
-   the **Unit type**, set the **Effective date**, enter a **Reason**, click **Save change**.
-3. To move a unit: click **Reparent**, choose the **New parent**, set the date and reason,
-   click **Save change**.
-4. To rename or close: click **Edit name** or **Deactivate**, then **Save change**.
+2. To add a unit: click **Add unit below** on the parent, enter **Code** and **Name**, choose
+   the **Unit type**, set the **Effective date**, enter a **Reason**, click **Save**.
+3. To move a unit: click **Move**, choose where to **Move under**, set the date and reason,
+   click **Save**.
+4. To rename or close: click **Edit** or **Remove**, then **Save**.
 5. Use **As of** to see the tree on another date. Clear it before editing.
 
-A unit with active units under it cannot be deactivated.
+A unit with active units under it cannot be removed.
 
 ### 10.4 Teams
 
-1. Open Admin › **Teams** and click **New team**.
+1. Open Admin › **Teams** and click **Add team**.
 2. Enter **Code**, **Name**, choose the **Unit**, set the **Effective date** and **Reason**,
-   click **Save change**.
-3. Click **View team**, then **Add member**, choose the **Person**, set the date and reason,
-   click **Save change**.
-4. Use **Remove member** or **Deactivate team** the same way. **Membership history** shows
+   click **Save**.
+3. Click **Edit** on the team, then **Add member**, choose the **Person**, set the date and
+   reason, click **Save**.
+4. Use **Remove member** or **Remove team** the same way. **Membership history** shows
    past members.
 
 ## 11. Territories and routes
@@ -461,56 +459,56 @@ Field › Coverage › **Setup**.
 
 ### 11.1 Territories
 
-1. Open Admin › **Territories** and click **Create territory**.
+1. Open Admin › **Territories** and click **Add territory**.
 2. Enter **Code**, **Name**, optionally **Channel**.
 3. Choose the **Owning unit**.
 4. Set the **Effective date** (and an **End date** only if it has a planned end).
 5. Enter the **Reason (required)** and click **Save**.
 
-On an opened territory (**Open**):
+Click **Edit** on a territory to see it, then:
 
-- **transfer** moves it to another owning unit from a date. See **Ownership history**.
-- **assign** gives it a primary **Salesperson** from a date. **End assignment** ends one.
-- **edit** changes the name, channel or boundary at once; **deactivate** closes it from a
-  date.
+- **Move to another unit** changes the owning unit from a date. See **Ownership history**.
+- **Add salesperson** gives it a primary **Salesperson** from a date. **Remove** ends one.
+- **Edit territory** changes the name, channel or boundary at once; **Remove territory**
+  closes it from a date.
 
 The **No salesperson assigned** filter finds uncovered territories. The optional boundary
 is advisory only; it does not block check-in.
 
 ### 11.2 Routes
 
-1. Open Admin › **Routes**, choose the **Territory**, click **Create route**.
-2. Enter **Code** and **Name**.
+1. Open Admin › **Routes** and click **Add route**.
+2. Pick the **Territory** in the form, then enter **Code** and **Name**.
 3. Optionally tick the days in **Weekday template (Monday=1)** and the cycle length.
 4. Set the **Effective date** and **Reason (required)**, click **Save**.
 
-On an opened route:
+The list shows **All territories**; pick one to narrow it. Click **Edit** on a route, then:
 
-- **move** puts it in a **Destination territory** from a date. If you see
-  Move requires outlet reassignment first, reassign its stores first (section 12.3).
-- **assign** gives it a **Salesperson** (tick **Primary owner** for the main one).
-- **edit**, **duplicate** and **deactivate** are also available.
+- **Move to another territory** puts it in a **Destination territory** from a date. If you
+  see Move requires outlet reassignment first, reassign its stores first (section 12.3).
+- **Add salesperson** gives it a **Salesperson** (tick **Primary owner** for the main one).
+- **Edit route**, **Copy route** and **Remove route** are also available.
 
 If you see Revise the approved coverage plan first, an approved MCP uses this route or
 store. Revise that plan (section 6.2) before the change.
 
 ## 12. Outlets, GPS pins and route order
 
-### 12.1 Create or edit an outlet
+### 12.1 Add or edit a store
 
-1. Open Admin › **Outlets** and click **Create outlet**.
-2. Enter **Code**, choose the **Custodian unit**, enter **Name**.
-3. Choose the **Site status**: **Prospect / unlinked** or **Active**.
-4. Fill in address, channel, contact and visit details you know.
-5. Enter a **Reason** and save.
+Stores live in one list: **Stores**. Admin › **Outlets** only links there.
 
-To edit: **Open** the outlet, click **Edit profile**, change and save. To link it to a
-customer account: **Change customer link**, choose the **Existing customer** (or
-**Unlink (prospect)**), set the date and reason, save. **Customer history** keeps the
+1. Open **Stores** and click **Add store** (top right; on a phone, the button above the tab
+   bar).
+2. Fill in the name, address and channel, then save.
+
+To edit: click **Edit** at the end of the store's row, then **Edit store**, change and
+**Save**. To link it to a customer account: **Edit customer link**, choose the **Customer**
+(or **Not linked**), set the date and reason, **Save**. **Customer history** keeps the
 changes.
 
 New stores found in the field should come through the phone and new-store approval
-(section 9), not through **Create outlet**.
+(section 9).
 
 ### 12.2 GPS pins
 
@@ -518,17 +516,17 @@ Two different people are needed: one proposes, another verifies.
 
 To propose:
 
-1. Open the outlet. Under **Verification** click **Propose GPS pin**.
+1. Open **Stores**, click **Edit** on the store, then **Add GPS pin**.
 2. Enter **Latitude** and **Longitude**.
-3. Optionally change **Radius meters (default 75)**. Use a larger radius for a mall or
+3. Optionally change **Radius in meters (default 75)**. Use a larger radius for a mall or
    warehouse.
-4. Enter the **Source** and, if useful, an **Evidence note**.
-5. Optionally set **Future effective date (optional)**.
-6. Enter a **Reason** and save.
+4. Enter the **Source** and, if useful, a **Note**.
+5. Optionally set **Starts on (optional)**.
+6. Enter a **Reason** and **Save**.
 
 To verify (Sales manager, Administrator, Super admin — not the proposer):
 
-1. Open the outlet and look under **Verification** for the **Pending** pin.
+1. Open the store's **Edit** sheet and look under **GPS pins** for the **Pending** pin.
 2. Click **Approve** or **Reject**, enter a **Reason** and save.
 3. The pin shows **Verified** or **Rejected**.
 
@@ -703,7 +701,7 @@ Inside a Work-With session, under **Trainer forms**:
 1. Open Field › Supervision › **Talk Sheet**.
 2. Read **Partners**, **Open items**, **Overdue** and **Root-cause review**.
 3. Under **My Talk Sheets** choose the **Partner** and **Meeting date**, click
-   **Start Talk Sheet**.
+   **Add talk sheet**.
 4. Click **Add gap or issue** for each item: the gap, agreement, corrective action, who is
    responsible and by when.
 5. Enter **Acknowledged and committed by** and the **Next contact** date.

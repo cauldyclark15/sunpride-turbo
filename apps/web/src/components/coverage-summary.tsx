@@ -4,25 +4,171 @@ import { api, type Summary, type Review } from "./coverage-model";
 import { useCoverageQuery } from "./coverage-data";
 import { coverageStatusLabel } from "../lib/coverage-view-model";
 import { deadlineDate, deadlineStateLabel } from "../lib/mcp-deadlines";
+import { formatDate } from "./cockpit/format";
+import { ListPage, PAGE_SIZE } from "./list-page/list-page";
 
-export function CoverageSummaryView({
+/** `Oct 2026` for a `YYYY-MM` month. */
+export function monthLabel(month: string) {
+  const m = /^(\d{4})-(\d{2})$/.exec(month);
+  if (!m) return month;
+  return new Intl.DateTimeFormat("en-US", {
+    month: "short",
+    year: "numeric",
+    timeZone: "UTC",
+  }).format(Date.UTC(Number(m[1]), Number(m[2]) - 1, 15));
+}
+type Person = Summary["rows"][number];
+export const planStatus = (row: Pick<Person, "status">) =>
+  row.status === "not_started"
+    ? "Not started"
+    : coverageStatusLabel(row.status);
+/** The one row button: Add plan for nobody's plan yet, Review when it waits on me, else Edit/Open. */
+export function planAction(
+  row: Pick<Person, "status" | "awaitsMyApproval">,
+  canPlan: boolean,
+) {
+  if (row.status === "not_started") return canPlan ? "Add plan" : null;
+  if (row.awaitsMyApproval) return "Review";
+  return canPlan ? "Edit" : "Open";
+}
+
+/** Coverage plans: one row per person for the month (search · status chips · pages). */
+export function CoveragePlansListView({
   data,
-  onOpen,
   canPlan = false,
+  q,
+  status,
+  page,
+  onSearch,
+  onFilter,
+  onPage,
+  onOpen,
+  onAdd,
 }: {
   data: Summary;
   canPlan?: boolean;
-  onOpen: (person: Summary["rows"][number]) => void;
+  q: string;
+  status: string | null;
+  page: number;
+  onSearch: (q: string) => void;
+  onFilter: (status: string | null) => void;
+  onPage: (page: number) => void;
+  onOpen: (person: Person) => void;
+  onAdd?: () => void;
+}) {
+  const needle = q.trim().toLowerCase();
+  const hits = data.rows.filter(
+    (r) =>
+      (!status || r.status === status) &&
+      (!needle || r.name.toLowerCase().includes(needle)),
+  );
+  if (!data.rows.length)
+    return (
+      <p className="text-sm text-muted">
+        No field people assigned yet. Assign people in Setup.
+      </p>
+    );
+  return (
+    <ListPage<Person>
+      noun={{ one: "plan", many: "plans" }}
+      rows={hits.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)}
+      total={hits.length}
+      page={page}
+      onPage={onPage}
+      q={q}
+      onSearch={onSearch}
+      searchPlaceholder="Search by person"
+      onAdd={canPlan && onAdd ? () => onAdd() : undefined}
+      filters={Object.entries(data.counts).map(([id, count]) => ({
+        id,
+        label: planStatus({ status: id }),
+        count,
+      }))}
+      filter={status}
+      onFilter={onFilter}
+      rowKey={(r) => `${r.name}·${data.rows.indexOf(r)}`}
+      columns={[
+        {
+          key: "name",
+          label: "Person",
+          primary: true,
+          render: (r) => r.name,
+          text: (r) => r.name,
+        },
+        {
+          key: "status",
+          label: "Plan",
+          render: (r) =>
+            `${planStatus(r)}${r.version ? ` · v${r.version}` : ""}`,
+          text: (r) => planStatus(r),
+        },
+        {
+          key: "deadline",
+          label: "Deadline",
+          render: (r) =>
+            `${deadlineStateLabel(r.state).label}${r.submittedLate ? " · late" : ""}`,
+          text: (r) => deadlineStateLabel(r.state).label,
+        },
+        {
+          key: "action",
+          label: "",
+          align: "right",
+          render: (r) => {
+            const label = planAction(r, canPlan);
+            return label ? (
+              <button
+                type="button"
+                className="h-10 rounded-[10px] border border-border px-3 text-sm font-medium"
+                onClick={() => onOpen(r)}
+              >
+                {label}
+              </button>
+            ) : null;
+          },
+        },
+      ]}
+    />
+  );
+}
+
+export function CoveragePlansList({
+  month,
+  ...rest
+}: Omit<Parameters<typeof CoveragePlansListView>[0], "data" | "canPlan"> & {
+  month: string;
+}) {
+  const result = useCoverageQuery(api.coverage.summary, { month });
+  const permissions = useCoverageQuery(
+    api.lib.capabilities.currentPermissions,
+    {},
+  );
+  return result ? (
+    <CoveragePlansListView
+      data={result}
+      canPlan={permissions?.capabilities.includes("mcp.plan") ?? false}
+      {...rest}
+    />
+  ) : (
+    <p>Loading plans…</p>
+  );
+}
+
+export function CoverageSummaryView({
+  data,
+}: {
+  data: Summary;
+  canPlan?: boolean;
+  onOpen?: (person: Person) => void;
 }) {
   return (
     <div className="grid gap-4">
       <Card label="Coverage commitments" icon={<WorkspaceIcon name="field" />}>
         <p className="text-lg">
-          {data.ready} of {data.target} people ready for {data.month}
+          {data.ready} of {data.target} people ready for{" "}
+          {monthLabel(data.month)}
         </p>
         <p className="text-sm text-muted">
-          Target: every person approved. Prior month: {data.priorReady} ready in{" "}
-          {data.priorMonth}.
+          Prior month: {data.priorReady} ready in {monthLabel(data.priorMonth)}.
         </p>
         <p className="text-sm">
           {data.awaitingMine} waiting for my approval · {data.lateCount} overdue
@@ -45,57 +191,6 @@ export function CoverageSummaryView({
           ))}
         </dl>
       </Card>
-      <Card label="Who needs action" icon={<WorkspaceIcon name="field" />}>
-        {!data.rows.length ? (
-          <p>
-            No assigned field people in this scope. Assign people in Setup to
-            begin; this is not zero coverage.
-          </p>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-left text-sm">
-              <thead>
-                <tr>
-                  <th>Person</th>
-                  <th>Plan</th>
-                  <th>Deadline</th>
-                  <th>Next action</th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.rows.map((row) => (
-                  <tr key={row.profileId} className="border-t border-border">
-                    <td className="py-3">{row.name}</td>
-                    <td>
-                      {row.status === "not_started"
-                        ? "Not started"
-                        : coverageStatusLabel(row.status)}
-                      {row.version ? ` · v${row.version}` : ""}
-                    </td>
-                    <td>
-                      {deadlineStateLabel(row.state).label}
-                      {row.submittedLate ? " · submitted late" : ""}
-                    </td>
-                    <td>
-                      {row.status !== "not_started" || canPlan ? (
-                        <button
-                          type="button"
-                          className="h-10 rounded-[10px] border border-border px-3"
-                          onClick={() => onOpen(row)}
-                        >
-                          {row.action.label}
-                        </button>
-                      ) : (
-                        <span className="text-muted">No plan yet</span>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Card>
       <Card
         label="Approval readiness trend"
         icon={<WorkspaceIcon name="field" />}
@@ -106,7 +201,7 @@ export function CoverageSummaryView({
               key={point.month}
               className="grid grid-cols-[80px_1fr_70px] gap-3 text-sm"
             >
-              <span>{point.month}</span>
+              <span>{monthLabel(point.month)}</span>
               <meter
                 className="w-full"
                 min={0}
@@ -119,32 +214,14 @@ export function CoverageSummaryView({
             </li>
           ))}
         </ul>
-        <p className="mt-2 text-xs text-muted">
-          Historical approved people, compared against today’s team size.
-          Current scope applies to every month.
-        </p>
       </Card>
     </div>
   );
 }
-export function CoverageSummary({
-  month,
-  onOpen,
-}: {
-  month: string;
-  onOpen: (person: Summary["rows"][number]) => void;
-}) {
+export function CoverageSummary({ month }: { month: string }) {
   const result = useCoverageQuery(api.coverage.summary, { month });
-  const permissions = useCoverageQuery(
-    api.lib.capabilities.currentPermissions,
-    {},
-  );
   return result ? (
-    <CoverageSummaryView
-      data={result}
-      onOpen={onOpen}
-      canPlan={permissions?.capabilities.includes("mcp.plan") ?? false}
-    />
+    <CoverageSummaryView data={result} />
   ) : (
     <p>Loading coverage summary…</p>
   );
@@ -172,7 +249,7 @@ export function CoverageStandardsReview({ review }: { review: Review }) {
         <ul className="grid gap-1 text-sm">
           {review.daily.map((d) => (
             <li key={d.date}>
-              {d.date}: {d.calls} calls /{" "}
+              {formatDate(d.date)}: {d.calls} calls /{" "}
               {d.target === null ? "no selling target" : `${d.target} standard`}
               {d.target !== null && d.calls < d.target
                 ? " · below standard"

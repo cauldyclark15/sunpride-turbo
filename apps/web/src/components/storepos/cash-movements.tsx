@@ -173,7 +173,7 @@ export function CashMovementForm({
     <form
       onSubmit={submit}
       className="grid max-w-md gap-3"
-      aria-label="Record a cash movement"
+      aria-label="Add cash movement"
     >
       <label className="grid gap-1 text-sm">
         Cashier session
@@ -258,7 +258,7 @@ export function CashMovementForm({
         disabled={busy || !ready}
         className="min-h-12 rounded-xl bg-[#EF5706] px-4 text-base font-semibold text-white disabled:opacity-50"
       >
-        Record {choice.label.toLowerCase()}
+        Save
       </button>
     </form>
   );

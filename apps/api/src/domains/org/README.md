@@ -35,7 +35,7 @@ Topics: `org`, `people`, `outlets`, `catalog`. Commands publish all four and app
 
 ## Setup and web integration
 
-`org/setup-health` returns `{asOf, comparisonNote, items: [{key, label, count, target: 0, prior: null, trend: [], fix, href}]}`. Counts cover unassigned people, unrouted active outlets, routes without salespeople, products without an effective governed price-list line, and stores without a current verified pin. Out-of-scope facts are unknown, not zero. Historical snapshots/trends are not yet implemented and the UI states that explicitly.
+`org/setup-health` returns `{asOf, comparisonNote, items: [{key, label, count, target: 0, prior: null, trend: [], fix, href}]}`. Counts cover unassigned people, unrouted active outlets, routes without salespeople, products without an effective governed price-list line, and stores without a current verified pin. Out-of-scope facts are unknown, not zero. Historical snapshots/trends are not yet implemented; `comparisonNote` is empty and the UI shows nothing for it.
 
 The existing admin exports retain their names and use the shared HTTP data layer through `components/master-data/api.ts`. Setup defaults to its health summary, and `section` query parameters drill into owned tabs.
 

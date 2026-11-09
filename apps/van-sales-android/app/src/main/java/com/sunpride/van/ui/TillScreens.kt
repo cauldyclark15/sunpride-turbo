@@ -43,7 +43,7 @@ import java.time.ZoneId
             Text(if (sessionOpen) "Your cashier session is open" else "No cashier session of yours is open", Modifier.testTag("till-session-status"))
         }
         SectionCard("X reading") {
-            Text("Sales so far today. Print it any time: nothing stops and nothing is closed. The expected cash is not shown.", style = MaterialTheme.typography.bodyMedium)
+            Text("Today's sales so far. Nothing closes.", style = MaterialTheme.typography.bodyMedium)
             PrimaryBottomButton("Print X reading", { c.readX(readingDocument("X")) }, sessionOpen && !c.busy, "store-x-read")
             if (!sessionOpen) Text("Open a cashier session to take an X reading.", style = MaterialTheme.typography.bodyMedium)
         }
@@ -54,7 +54,7 @@ import java.time.ZoneId
             Text(if (sessionOpen) "Drops, pickups, paid out and no sale need a supervisor's PIN." else "Open a cashier session to record cash movements.", style = MaterialTheme.typography.bodyMedium)
         }
         SectionCard("Z reading · end of the day") {
-            Text("Z comes after every cashier session is closed, and a supervisor approves it with their PIN. It closes the sales day.", style = MaterialTheme.typography.bodyMedium)
+            Text("Closes the day. Close every session first; a supervisor enters their PIN.", style = MaterialTheme.typography.bodyMedium)
             zProblem?.let { Text(it, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold, modifier = Modifier.testTag("store-z-problem")) }
             PrimaryBottomButton("Z reading with supervisor PIN", { zSheet = true }, zProblem == null && !c.busy, "store-z-read")
         }
@@ -77,7 +77,7 @@ import java.time.ZoneId
             }
         }
         c.storePos.rows.filter { it.kind == "store.read" && it.status in setOf("pending", "sending") }.forEach {
-            Text("${org.json.JSONObject(it.operationJson).getJSONObject("payload").getString("kind").uppercase()} reading saved · waiting for the office number")
+            Text("${org.json.JSONObject(it.operationJson).getJSONObject("payload").getString("kind").uppercase()} reading saved · waiting to sync")
         }
     }
     cashKind?.let { k -> CashSheet(c, k, Supervisors.of(details, c.seller?.profileId), details) { cashKind = null } }

@@ -7,7 +7,11 @@ import { useRef, useState, type FormEvent } from "react";
 import { apiFetch, mutate, useApi, useLive } from "../../lib/api";
 import { usePermissions } from "../../lib/auth";
 import { manilaToday } from "../../lib/outside-calls";
+import { Drawer } from "../cockpit/kit/drawer";
+import { useUrlState } from "../cockpit/use-url-state";
+import { ListPage, PAGE_SIZE, readPage } from "../list-page/list-page";
 import { money } from "../orders/model";
+import { PageTabs, rowButton, shortDate } from "./page-tabs";
 
 type PriceList = {
   id: string;
@@ -80,27 +84,64 @@ export function parsePriceRows(text: string) {
     return { productCode: r[0]!, uom: r[1]!, unitPriceCentavos: Number(r[2]) };
   });
 }
-/** Readiness target is our 100% setup goal, not an invented sales target. */
-export function priceCoverage(matrix: Matrix | undefined) {
-  const prices = matrix?.rows.flatMap((r) => r.prices) ?? [];
-  return prices.length
-    ? (prices.filter((p) => p.unitPriceCentavos !== null).length /
-        prices.length) *
-        100
-    : null;
+
+/** Rows matching the search text and status chip, before paging. */
+export function matchRows<
+  T extends { code: string; name: string; status: string },
+>(rows: T[], q: string, status: string | null, extra?: (r: T) => string) {
+  const needle = q.trim().toLowerCase();
+  return rows.filter(
+    (r) =>
+      (!status || r.status === status) &&
+      (!needle ||
+        `${r.name} ${r.code} ${extra?.(r) ?? ""}`
+          .toLowerCase()
+          .includes(needle)),
+  );
 }
+
+const TABS = [
+  { id: "lists", label: "Price lists" },
+  { id: "products", label: "Prices by product" },
+  { id: "promotions", label: "Promotions" },
+] as const;
+type Tab = (typeof TABS)[number]["id"];
+export function readPricingTab(params: URLSearchParams): Tab {
+  const t = params.get("tab");
+  return TABS.some((x) => x.id === t) ? (t as Tab) : "lists";
+}
+
 const fromDate = (value: FormDataEntryValue | null) =>
   new Date(`${String(value)}T00:00:00+08:00`).getTime();
 const failure = (e: unknown) =>
   e instanceof Error ? e.message : "The change was not saved";
+const statusWord = (s: string) => (s === "active" ? "Active" : "Inactive");
+const ruleWord = (kind: string) =>
+  kind === "percent_off"
+    ? "Percent off"
+    : kind === "bundle"
+      ? "Bundle price"
+      : "Buy and get free";
+const STATUS_FILTERS = [
+  { id: "active", label: "Active" },
+  { id: "inactive", label: "Inactive" },
+];
 
-/** Which channels cannot sell, and which governed prices or promotions need attention? */
+/** Price lists, prices by product and promotions: plain lists with Add and Edit. */
 export function PricingWorkspace() {
   const { can } = usePermissions();
+  const { params, set, hrefWith } = useUrlState();
+  const tab = readPricingTab(params);
+  const q = params.get("q") ?? "";
+  const status = params.get("status");
+  const page = readPage(params);
+  const openList = params.get("list") ?? "";
+  const editing = params.get("edit") === "1";
+  const openPromo = params.get("promotion") ?? "";
+  const [adding, setAdding] = useState<null | "list" | "promotion">(null);
   const [channel, setChannel] = useState("");
   const [search, setSearch] = useState("");
   const [cursors, setCursors] = useState<string[]>([]);
-  const [selected, setSelected] = useState("");
   const [kind, setKind] = useState("percent_off");
   const intent = useRef<{ hash: string; key: string } | null>(null);
   const [notice, setNotice] = useState("");
@@ -123,39 +164,40 @@ export function PricingWorkspace() {
     can("report.read") ? ["pricing", "matrix", query] : null,
     ({ signal }) => apiFetch("/api/v1/pricing/matrix", { query, signal }),
   );
-  const comparisonQuery = {
-    ...query,
-    at: matrix.data ? matrix.data.asOf - 7 * 86400_000 : undefined,
-  };
-  const comparison = useApi<Matrix>(
-    can("report.read") && matrix.data && !matrix.error
-      ? ["pricing", "comparison", comparisonQuery]
-      : null,
-    ({ signal }) =>
-      apiFetch("/api/v1/pricing/matrix", { query: comparisonQuery, signal }),
-  );
   const detail = useApi<Detail>(
-    selected ? ["pricing", "detail", selected] : null,
+    openList ? ["pricing", "detail", openList] : null,
     ({ signal }) =>
       apiFetch("/api/v1/pricing/price-lists/detail", {
-        query: { id: selected },
+        query: { id: openList },
         signal,
       }),
   );
+  // Same read (and cache key) as Master data: with SAP connected, prices are SAP's and the API refuses saves.
+  const org = useApi<{ sapOwnsPrices?: boolean }>(
+    can("report.read") ? ["setup", "org/permissions", {}] : null,
+    "/api/v1/org/permissions",
+  );
   useLive(["orders"], [["pricing"]]);
   if (!can("report.read")) return null;
-  const currentCoverage = matrix.error ? null : priceCoverage(matrix.data);
-  const priorCoverage = comparison.error
-    ? null
-    : priceCoverage(comparison.data);
   const canEdit = can("masterdata.manage");
-  const selectedList = lists.data?.rows.find((p) => p.id === selected);
-  const missing =
-    matrix.data?.rows.filter((r) =>
-      r.prices.some((p) => p.unitPriceCentavos === null),
-    ).length ?? 0;
+  const sapOwnsPrices = org.data?.sapOwnsPrices === true;
+  /** Price lists and their prices; promotions stay with [canEdit]. */
+  const canEditPrices = canEdit && !sapOwnsPrices;
+  const selectedList = lists.data?.rows.find((p) => p.id === openList);
+  const selectedPromo = promotions.data?.rows.find((p) => p.id === openPromo);
+  const tabHref = (id: string) =>
+    hrefWith({
+      tab: id === "lists" ? null : id,
+      q: null,
+      page: null,
+      status: null,
+      list: null,
+      edit: null,
+      promotion: null,
+    });
+
   async function save(path: string, body: Record<string, unknown>) {
-    if (busy) return;
+    if (busy) return false;
     const hash = JSON.stringify([path, body]);
     if (intent.current?.hash !== hash)
       intent.current = { hash, key: crypto.randomUUID() };
@@ -176,28 +218,57 @@ export function PricingWorkspace() {
             .map((r) => `Row ${r.row}: ${r.message}`)
             .join(" · "),
         );
-        return;
+        return false;
       }
       intent.current = null;
-      setNotice(
-        "Saved. New orders use the governed effective dates; existing orders keep their captured prices.",
-      );
+      setNotice("Saved. Orders already taken keep their prices.");
+      return true;
     } catch (e) {
       setError(failure(e));
+      return false;
     } finally {
       setBusy(false);
     }
   }
-  function saveList(e: FormEvent<HTMLFormElement>) {
+  async function addList(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
-    void save("/api/v1/pricing/price-lists/save", {
-      code: String(f.get("code")),
-      name: String(f.get("name")),
-      channelKey: String(f.get("channelKey")) || null,
-      effectiveFrom: fromDate(f.get("effectiveFrom")),
-      status: "active",
-    });
+    if (
+      await save("/api/v1/pricing/price-lists/save", {
+        code: String(f.get("code")),
+        name: String(f.get("name")),
+        channelKey: String(f.get("channelKey")) || null,
+        effectiveFrom: fromDate(f.get("effectiveFrom")),
+        status: "active",
+      })
+    )
+      setAdding(null);
+  }
+  async function editList(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!selectedList) return;
+    const f = new FormData(e.currentTarget);
+    if (
+      await save("/api/v1/pricing/price-lists/update", {
+        ...selectedList,
+        name: String(f.get("name")),
+        status: String(f.get("status")),
+      })
+    )
+      set({ edit: null });
+  }
+  async function removeList() {
+    if (
+      !selectedList ||
+      !window.confirm(
+        `Remove ${selectedList.name}? Orders already taken keep their prices.`,
+      )
+    )
+      return;
+    if (
+      await save("/api/v1/pricing/price-lists/delete", { id: selectedList.id })
+    )
+      set({ list: null, edit: null });
   }
   function importPrices(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -214,7 +285,7 @@ export function PricingWorkspace() {
       setError(failure(e));
     }
   }
-  function savePromotion(e: FormEvent<HTMLFormElement>) {
+  async function addPromotion(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     const f = new FormData(e.currentTarget);
     const unit = (prefix: string) => {
@@ -241,13 +312,40 @@ export function PricingWorkspace() {
               components: [unit("first"), unit("second")],
               bundlePriceMinor: Number(f.get("bundlePrice")),
             };
-    void save("/api/v1/pricing/promotions/save", {
-      code: String(f.get("code")),
-      name: String(f.get("name")),
-      priceListId: String(f.get("priceListId")) || null,
-      effectiveFrom: fromDate(f.get("effectiveFrom")),
-      rule,
-    });
+    if (
+      await save("/api/v1/pricing/promotions/save", {
+        code: String(f.get("code")),
+        name: String(f.get("name")),
+        priceListId: String(f.get("priceListId")) || null,
+        effectiveFrom: fromDate(f.get("effectiveFrom")),
+        rule,
+      })
+    )
+      setAdding(null);
+  }
+  async function editPromotion(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (!selectedPromo) return;
+    const f = new FormData(e.currentTarget);
+    if (
+      await save("/api/v1/pricing/promotions/update", {
+        ...selectedPromo,
+        name: String(f.get("name")),
+        status: String(f.get("status")),
+      })
+    )
+      set({ promotion: null });
+  }
+  async function removePromotion() {
+    if (
+      !selectedPromo ||
+      !window.confirm(`Remove ${selectedPromo.name} from new orders?`)
+    )
+      return;
+    if (
+      await save("/api/v1/pricing/promotions/delete", { id: selectedPromo.id })
+    )
+      set({ promotion: null });
   }
   const productField = (prefix: string, label: string) => (
     <>
@@ -273,18 +371,49 @@ export function PricingWorkspace() {
       </FormField>
     </>
   );
+  const listParams = {
+    page,
+    onPage: (n: number) => set({ page: n > 1 ? String(n) : null }),
+    q,
+    onSearch: (next: string) =>
+      set({ q: next || null, page: null }, { replace: true }),
+    filters: STATUS_FILTERS,
+    filter: status,
+    onFilter: (id: string | null) => set({ status: id, page: null }),
+  };
+  const pageOf = <T,>(rows: T[]) =>
+    rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  const listRows = lists.data
+    ? matchRows(lists.data.rows, q, status, (r) => r.channelKey ?? "")
+    : null;
+  const promoRows = promotions.data
+    ? matchRows(promotions.data.rows, q, status)
+    : null;
+  const listName = (id: string | null) =>
+    id
+      ? (lists.data?.rows.find((l) => l.id === id)?.name ?? "One list")
+      : "Every list";
+
+  const formActions = (onCancel: () => void) => (
+    <div className="flex flex-wrap gap-2 sm:col-span-2">
+      {error ? (
+        <p role="alert" className="w-full text-sm">
+          {error}
+        </p>
+      ) : null}
+      <Button type="submit" variant="primary" isDisabled={busy}>
+        Save
+      </Button>
+      <Button type="button" variant="outline" onPress={onCancel}>
+        Cancel
+      </Button>
+    </div>
+  );
+
   return (
-    <div className="grid gap-5">
-      <header>
-        <p className="text-xs uppercase tracking-widest text-muted">
-          Selling readiness
-        </p>
-        <h2 className="text-xl font-semibold">Prices by channel</h2>
-        <p className="text-sm text-muted">
-          A missing price is unknown, not free. Set the price before approving
-          an order.
-        </p>
-      </header>
+    <div className="grid gap-4">
+      <PageTabs label="Prices" tabs={TABS} current={tab} href={tabHref} />
       {(error ||
         lists.error ||
         matrix.error ||
@@ -299,59 +428,182 @@ export function PricingWorkspace() {
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
-      {matrix.data && (
-        <section
-          className="rounded-xl border border-border p-4"
-          aria-label="Missing-price warning"
-        >
-          <h3 className="font-medium">
-            {missing
-              ? `${missing} products need a channel price on this page`
-              : matrix.data.channels.length
-                ? "Every product on this page has a channel price"
-                : "Channel pricing needs setup"}
-          </h3>
-          <p className="text-sm text-muted">
-            {matrix.data.next
-              ? "More products remain. Continue through every page before declaring the catalog ready."
-              : "Checked the products shown below."}{" "}
-            Historical sales and targets are on{" "}
-            <Link href="/sales-targets" className="underline">
-              Sales & targets
-            </Link>
-            ; this is current setup, not a sales result.
-          </p>
+      {sapOwnsPrices && tab !== "promotions" ? (
+        <p className="text-sm text-muted" data-testid="sap-owns-prices">
+          Prices come from SAP.
+        </p>
+      ) : null}
+
+      {tab === "lists" && openList ? (
+        <section className="grid gap-4" aria-label="Price list">
+          <Link
+            href={hrefWith({ list: null, edit: null })}
+            className="text-[13px] text-muted hover:text-foreground"
+          >
+            ← Price lists
+          </Link>
+          <div className="flex items-start justify-between gap-3">
+            <div>
+              <h2 className="text-xl font-semibold">
+                {selectedList?.name ?? "Price list"}
+              </h2>
+              {selectedList ? (
+                <p className="text-sm text-muted">
+                  {selectedList.code} ·{" "}
+                  {selectedList.channelKey ?? "Default channel"} ·{" "}
+                  {statusWord(selectedList.status)} · from{" "}
+                  {shortDate(selectedList.effectiveFrom)}
+                  {selectedList.source === "sample" ? " · Sample data" : ""}
+                </p>
+              ) : null}
+            </div>
+            {canEditPrices && selectedList ? (
+              <Link
+                href={hrefWith({ edit: "1" })}
+                scroll={false}
+                className={rowButton}
+              >
+                Edit
+              </Link>
+            ) : null}
+          </div>
+          <Card label="Prices" icon={<WorkspaceIcon name="commercial" />}>
+            <ul className="grid gap-2 p-4">
+              {detail.data?.lines.map((l) => (
+                <li
+                  key={l.id}
+                  className="flex flex-wrap justify-between gap-2 border-b border-border pb-2 text-sm"
+                >
+                  <span>
+                    {l.productName} · {l.uom}
+                    <small className="block text-muted">
+                      {shortDate(l.effectiveFrom)} →{" "}
+                      {l.effectiveTo ? shortDate(l.effectiveTo) : "now"}
+                    </small>
+                  </span>
+                  <span>{money(l.unitPriceCentavos)}</span>
+                </li>
+              ))}
+              {detail.data && !detail.data.lines.length ? (
+                <li className="text-sm text-muted">No prices yet.</li>
+              ) : null}
+            </ul>
+          </Card>
+          {canEditPrices && selectedList ? (
+            <Card label="Add prices" icon={<WorkspaceIcon name="commercial" />}>
+              <form onSubmit={importPrices} className="grid gap-3 p-4">
+                <FormField label="Prices start on">
+                  <input
+                    type="date"
+                    name="effectiveFrom"
+                    defaultValue={manilaToday()}
+                    required
+                  />
+                </FormField>
+                <FormField
+                  label="One row each: product code, unit, centavos"
+                  hint="Example: SKU001,PC,1250 is ₱12.50 a piece."
+                >
+                  <textarea name="rows" rows={5} required />
+                </FormField>
+                <div>
+                  <Button type="submit" variant="primary" isDisabled={busy}>
+                    Save
+                  </Button>
+                </div>
+              </form>
+            </Card>
+          ) : null}
         </section>
-      )}
-      <section
-        aria-label="Pricing readiness trend"
-        className="rounded-xl border border-border p-4"
-      >
-        <h3 className="text-sm font-medium">
-          Current page pricing readiness · setup goal 100%
-        </h3>
-        <p className="text-sm">
-          {priorCoverage === null
-            ? "Earlier coverage unknown"
-            : `${priorCoverage.toFixed(1)}% seven days earlier`}{" "}
-          →{" "}
-          {currentCoverage === null
-            ? "Current coverage unknown"
-            : `${currentCoverage.toFixed(1)}% now`}
-        </p>
-        <p className="text-xs text-muted">
-          Same current catalog, selling units and channels, priced at each date.
-          This is a setup comparison, not historical sales or a complete-catalog
-          total. Open a list to inspect price history and fix the gaps.
-        </p>
-      </section>
-      <Card
-        label="Channel price lists"
-        icon={<WorkspaceIcon name="commercial" />}
-      >
-        <div className="grid gap-4 p-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FormField label="Channel filter">
+      ) : null}
+
+      {tab === "lists" && !openList ? (
+        <ListPage<PriceList>
+          noun={{ one: "price list", many: "price lists" }}
+          rows={listRows ? pageOf(listRows) : lists.error ? [] : null}
+          total={listRows?.length ?? null}
+          loading={!lists.data && !lists.error}
+          searchPlaceholder="Search by name, code or channel"
+          onAdd={canEditPrices ? () => setAdding("list") : undefined}
+          {...listParams}
+          rowKey={(r) => r.id}
+          columns={[
+            {
+              key: "name",
+              label: "Price list",
+              primary: true,
+              text: (r) => r.name,
+              render: (r) => (
+                <Link
+                  href={hrefWith({ list: r.id })}
+                  scroll={false}
+                  className="hover:underline"
+                >
+                  {r.name}
+                  {r.source === "sample" ? (
+                    <span className="ml-2 text-[12px] font-normal text-muted">
+                      Sample
+                    </span>
+                  ) : null}
+                </Link>
+              ),
+            },
+            {
+              key: "channel",
+              label: "Channel",
+              text: (r) => r.channelKey ?? "Default",
+              render: (r) => r.channelKey ?? "Default",
+            },
+            {
+              key: "status",
+              label: "Status",
+              text: (r) => statusWord(r.status),
+              render: (r) => statusWord(r.status),
+            },
+            {
+              key: "from",
+              label: "From",
+              text: (r) => shortDate(r.effectiveFrom),
+              render: (r) => shortDate(r.effectiveFrom),
+            },
+            {
+              key: "prices",
+              label: "Prices",
+              align: "right",
+              text: (r) => String(r.lineCount),
+              render: (r) =>
+                `${r.lineCount.toLocaleString("en-PH")} ${r.lineCount === 1 ? "price" : "prices"}`,
+            },
+            ...(canEditPrices
+              ? [
+                  {
+                    key: "edit",
+                    label: "",
+                    align: "right" as const,
+                    render: (r: PriceList) => (
+                      <Link
+                        href={hrefWith({ list: r.id, edit: "1" })}
+                        scroll={false}
+                        className={rowButton}
+                        aria-label={`Edit ${r.name}`}
+                      >
+                        Edit
+                      </Link>
+                    ),
+                  },
+                ]
+              : []),
+          ]}
+        />
+      ) : null}
+
+      {tab === "products" ? (
+        <Card
+          label="Prices by product"
+          icon={<WorkspaceIcon name="commercial" />}
+        >
+          <div className="grid gap-3 p-4 sm:grid-cols-2">
+            <FormField label="Channel">
               <select
                 value={channel}
                 onChange={(e) => {
@@ -371,7 +623,7 @@ export function PricingWorkspace() {
                 ))}
               </select>
             </FormField>
-            <FormField label="Product search">
+            <FormField label="Search">
               <input
                 value={search}
                 onChange={(e) => {
@@ -382,373 +634,315 @@ export function PricingWorkspace() {
               />
             </FormField>
           </div>
-          <ul className="grid gap-2">
-            {lists.data?.rows
-              .filter((p) => !channel || p.channelKey === channel)
-              .map((p) => (
-                <li
-                  key={p.id}
-                  className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-border p-3"
-                >
-                  <button
-                    className="text-left"
-                    onClick={() => setSelected(p.id)}
-                  >
-                    <strong className="text-sm underline">{p.name}</strong>
-                    <p className="text-xs text-muted">
-                      {p.code} · {p.channelKey ?? "Default channel"} ·{" "}
-                      {p.lineCount} price versions ·{" "}
-                      {p.status === "active" ? "Active" : "Inactive"} ·{" "}
-                      {p.source === "sample" ? "Sample data" : "Office"}
-                    </p>
-                    <p className="text-xs text-muted">
-                      From{" "}
-                      {new Date(p.effectiveFrom).toLocaleDateString("en-PH", {
-                        timeZone: "Asia/Manila",
-                      })}
-                    </p>
-                  </button>
-                  {canEdit && (
-                    <div className="flex gap-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        isDisabled={busy}
-                        onPress={() =>
-                          void save("/api/v1/pricing/price-lists/update", {
-                            ...p,
-                            status:
-                              p.status === "active" ? "inactive" : "active",
-                          })
-                        }
-                      >
-                        {p.status === "active" ? "Deactivate" : "Activate"}
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        isDisabled={busy}
-                        onPress={() => {
-                          if (
-                            window.confirm(
-                              `Remove ${p.name} from new-order pricing? Captured orders stay unchanged.`,
-                            )
-                          )
-                            void save("/api/v1/pricing/price-lists/delete", {
-                              id: p.id,
-                            });
-                        }}
-                      >
-                        Remove
-                      </Button>
-                    </div>
-                  )}
-                </li>
-              ))}
-          </ul>
-          {lists.data?.rows.length === 0 && (
-            <p className="text-sm text-muted">
-              No price lists yet. Create the first channel list below.
-            </p>
-          )}
-          {canEdit && (
-            <details>
-              <summary className="cursor-pointer text-sm font-medium">
-                Create a channel price list
-              </summary>
-              <form
-                onSubmit={saveList}
-                className="mt-3 grid gap-3 sm:grid-cols-2"
-              >
-                <FormField label="List code">
-                  <input name="code" required maxLength={80} />
-                </FormField>
-                <FormField label="List name">
-                  <input name="name" required maxLength={160} />
-                </FormField>
-                <FormField label="Channel (blank for default)">
-                  <input name="channelKey" />
-                </FormField>
-                <FormField label="Effective from">
-                  <input
-                    name="effectiveFrom"
-                    type="date"
-                    required
-                    defaultValue={manilaToday()}
-                  />
-                </FormField>
-                <Button type="submit" isDisabled={busy}>
-                  Create price list
-                </Button>
-              </form>
-            </details>
-          )}
-        </div>
-      </Card>
-      {selectedList && (
-        <Card
-          label={`Price history · ${selectedList.name}`}
-          icon={<WorkspaceIcon name="commercial" />}
-        >
-          <div className="grid gap-4 p-4">
-            <button
-              className="justify-self-end text-sm underline"
-              onClick={() => setSelected("")}
-            >
-              Close price history
-            </button>
-            <ul className="grid gap-2">
-              {detail.data?.lines.map((l) => (
-                <li
-                  key={l.id}
-                  className="flex flex-wrap justify-between gap-2 border-b border-border pb-2 text-sm"
-                >
-                  <span>
-                    {l.productName} · {l.uom}
-                    <small className="block text-muted">
-                      {new Date(l.effectiveFrom).toLocaleDateString("en-PH", {
-                        timeZone: "Asia/Manila",
-                      })}{" "}
-                      →{" "}
-                      {l.effectiveTo
-                        ? new Date(l.effectiveTo).toLocaleDateString("en-PH", {
-                            timeZone: "Asia/Manila",
-                          })
-                        : "Until replaced"}
-                    </small>
-                  </span>
-                  <span>{money(l.unitPriceCentavos)}</span>
-                </li>
-              ))}
-            </ul>
-            {canEdit && (
-              <form onSubmit={importPrices} className="grid gap-3">
-                <FormField label="New prices effective from">
-                  <input
-                    type="date"
-                    name="effectiveFrom"
-                    defaultValue={manilaToday()}
-                    required
-                  />
-                </FormField>
-                <FormField
-                  label="Paste rows: product code, unit, whole centavos"
-                  hint="Example: SKU001,PC,1250 means ₱12.50 per piece. No header. All rows succeed or none are saved."
-                >
-                  <textarea name="rows" rows={5} required />
-                </FormField>
-                <Button type="submit" isDisabled={busy}>
-                  Validate and import prices
-                </Button>
-              </form>
-            )}
-          </div>
-        </Card>
-      )}
-      <Card
-        label="Product × channel matrix"
-        icon={<WorkspaceIcon name="commercial" />}
-      >
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr>
-                <th className="p-3">Product / selling unit</th>
-                {matrix.data?.channels.map((ch) => (
-                  <th key={ch} className="p-3">
-                    {ch}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {matrix.data?.rows.map((p) => (
-                <tr key={p.productId} className="border-t border-border">
-                  <td className="p-3">
-                    {p.productName}
-                    <p className="text-xs text-muted">
-                      {p.productCode} · per {p.uom}
-                    </p>
-                  </td>
-                  {p.prices.map((v) => (
-                    <td className="p-3" key={v.channel}>
-                      {v.unitPriceCentavos === null ? (
-                        <span className="font-medium">Needs price</span>
-                      ) : (
-                        money(v.unitPriceCentavos)
-                      )}
-                    </td>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left text-sm">
+              <thead>
+                <tr>
+                  <th className="p-3">Product</th>
+                  {matrix.data?.channels.map((ch) => (
+                    <th key={ch} className="p-3">
+                      {ch}
+                    </th>
                   ))}
                 </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        <div className="p-4">
-          <Pager
-            label="Price matrix pages"
-            page={cursors.length + 1}
-            canPrevious={cursors.length > 0}
-            canNext={!!matrix.data?.next}
-            onPrevious={() => setCursors((x) => x.slice(0, -1))}
-            onNext={() =>
-              matrix.data?.next && setCursors((x) => [...x, matrix.data!.next!])
-            }
-          />
-        </div>
-      </Card>
-      <Card
-        label="Governed promotions"
-        icon={<WorkspaceIcon name="commercial" />}
-      >
-        <div className="grid gap-4 p-4">
-          <p className="text-sm text-muted">
-            One best promotion applies per order; promotions never stack. This
-            is our provisional default.
-          </p>
-          <ul className="grid gap-2">
-            {promotions.data?.rows.map((p) => (
-              <li
-                key={p.id}
-                className="flex flex-wrap items-center justify-between gap-2 border-b border-border pb-3"
-              >
-                <div>
-                  <p className="text-sm font-medium">{p.name}</p>
-                  <p className="text-xs text-muted">
-                    {p.code} ·{" "}
-                    {p.rule.kind === "percent_off"
-                      ? "Percent discount"
-                      : p.rule.kind === "bundle"
-                        ? "Bundle price"
-                        : "Buy and get free goods"}{" "}
-                    · {p.status === "active" ? "Active" : "Inactive"}
-                    {p.source === "sample" ? " · Sample data" : ""}
-                  </p>
-                </div>
-                {canEdit && (
-                  <div className="flex gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      isDisabled={busy}
-                      onPress={() =>
-                        void save("/api/v1/pricing/promotions/update", {
-                          ...p,
-                          status: p.status === "active" ? "inactive" : "active",
-                        })
-                      }
-                    >
-                      {p.status === "active" ? "Deactivate" : "Activate"}
-                    </Button>
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      isDisabled={busy}
-                      onPress={() => {
-                        if (window.confirm(`Remove ${p.name} from new orders?`))
-                          void save("/api/v1/pricing/promotions/delete", {
-                            id: p.id,
-                          });
-                      }}
-                    >
-                      Remove
-                    </Button>
-                  </div>
-                )}
-              </li>
-            ))}
-          </ul>
-          {promotions.data?.rows.length === 0 && (
-            <p className="text-sm text-muted">
-              No promotions configured. Regular governed prices apply.
-            </p>
-          )}
-          {canEdit && (
-            <details>
-              <summary className="cursor-pointer text-sm font-medium">
-                Create a promotion
-              </summary>
-              <form
-                onSubmit={savePromotion}
-                className="mt-3 grid gap-3 sm:grid-cols-2"
-              >
-                <FormField label="Promotion code">
-                  <input name="code" required />
-                </FormField>
-                <FormField label="Promotion name">
-                  <input name="name" required />
-                </FormField>
-                <FormField label="Applies to price list">
-                  <select name="priceListId">
-                    <option value="">Every list</option>
-                    {lists.data?.rows.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.name} ({p.channelKey ?? "Default"})
-                      </option>
+              </thead>
+              <tbody>
+                {matrix.data?.rows.map((p) => (
+                  <tr key={p.productId} className="border-t border-border">
+                    <td className="p-3">
+                      {p.productName}
+                      <p className="text-xs text-muted">
+                        {p.productCode} · per {p.uom}
+                      </p>
+                    </td>
+                    {p.prices.map((v) => (
+                      <td className="p-3" key={v.channel}>
+                        {v.unitPriceCentavos === null ? (
+                          <span className="font-medium">No price yet</span>
+                        ) : (
+                          money(v.unitPriceCentavos)
+                        )}
+                      </td>
                     ))}
-                  </select>
-                </FormField>
-                <FormField label="Effective from">
-                  <input
-                    type="date"
-                    name="effectiveFrom"
-                    required
-                    defaultValue={manilaToday()}
-                  />
-                </FormField>
-                <FormField label="Rule">
-                  <select
-                    value={kind}
-                    onChange={(e) => setKind(e.target.value)}
-                  >
-                    <option value="percent_off">Percent off</option>
-                    <option value="buy_x_get_y">Buy X, get Y free</option>
-                    <option value="bundle">Bundle price</option>
-                  </select>
-                </FormField>
-                {productField(
-                  "first",
-                  kind === "buy_x_get_y" ? "Buy product" : "First product",
-                )}
-                {kind !== "percent_off" &&
-                  productField(
-                    "second",
-                    kind === "buy_x_get_y" ? "Free product" : "Second product",
-                  )}
-                {kind === "percent_off" ? (
-                  <FormField label="Discount percent">
-                    <input
-                      name="percent"
-                      type="number"
-                      min="0.01"
-                      max="100"
-                      step="0.01"
-                      required
-                    />
-                  </FormField>
-                ) : kind === "bundle" ? (
-                  <FormField label="Bundle price in centavos">
-                    <input
-                      name="bundlePrice"
-                      type="number"
-                      min="0"
-                      step="1"
-                      required
-                    />
-                  </FormField>
-                ) : null}
-                <p className="text-xs text-muted">
-                  Product choices follow the current matrix page and product
-                  search.
-                </p>
-                <Button type="submit" isDisabled={busy}>
-                  Create promotion
-                </Button>
-              </form>
-            </details>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            {matrix.data && !matrix.data.channels.length ? (
+              <p className="p-4 text-sm text-muted">
+                No price lists yet. Add one on Price lists.
+              </p>
+            ) : null}
+          </div>
+          <div className="p-4">
+            <Pager
+              label="Product pages"
+              page={cursors.length + 1}
+              canPrevious={cursors.length > 0}
+              canNext={!!matrix.data?.next}
+              onPrevious={() => setCursors((x) => x.slice(0, -1))}
+              onNext={() =>
+                matrix.data?.next &&
+                setCursors((x) => [...x, matrix.data!.next!])
+              }
+            />
+          </div>
+        </Card>
+      ) : null}
+
+      {tab === "promotions" ? (
+        <>
+          <p className="text-sm text-muted">
+            One promotion applies per order; they never stack.
+          </p>
+          <ListPage<Promotion>
+            noun={{ one: "promotion", many: "promotions" }}
+            rows={promoRows ? pageOf(promoRows) : promotions.error ? [] : null}
+            total={promoRows?.length ?? null}
+            loading={!promotions.data && !promotions.error}
+            searchPlaceholder="Search by name or code"
+            onAdd={canEdit ? () => setAdding("promotion") : undefined}
+            {...listParams}
+            rowKey={(r) => r.id}
+            columns={[
+              {
+                key: "name",
+                label: "Promotion",
+                primary: true,
+                text: (r) => r.name,
+                render: (r) => (
+                  <>
+                    {r.name}
+                    {r.source === "sample" ? (
+                      <span className="ml-2 text-[12px] font-normal text-muted">
+                        Sample
+                      </span>
+                    ) : null}
+                  </>
+                ),
+              },
+              {
+                key: "kind",
+                label: "Kind",
+                text: (r) => ruleWord(r.rule.kind),
+                render: (r) => ruleWord(r.rule.kind),
+              },
+              {
+                key: "list",
+                label: "Price list",
+                text: (r) => listName(r.priceListId),
+                render: (r) => listName(r.priceListId),
+              },
+              {
+                key: "status",
+                label: "Status",
+                text: (r) => statusWord(r.status),
+                render: (r) => statusWord(r.status),
+              },
+              ...(canEdit
+                ? [
+                    {
+                      key: "edit",
+                      label: "",
+                      align: "right" as const,
+                      render: (r: Promotion) => (
+                        <Link
+                          href={hrefWith({ promotion: r.id })}
+                          scroll={false}
+                          className={rowButton}
+                          aria-label={`Edit ${r.name}`}
+                        >
+                          Edit
+                        </Link>
+                      ),
+                    },
+                  ]
+                : []),
+            ]}
+          />
+        </>
+      ) : null}
+
+      <Drawer
+        open={adding === "list"}
+        title="Add price list"
+        onClose={() => setAdding(null)}
+      >
+        <form onSubmit={addList} className="grid gap-3">
+          <FormField label="Name">
+            <input name="name" required maxLength={160} />
+          </FormField>
+          <FormField label="Code">
+            <input name="code" required maxLength={80} />
+          </FormField>
+          <FormField label="Channel" hint="Leave empty for the default list.">
+            <input name="channelKey" />
+          </FormField>
+          <FormField label="Starts on">
+            <input
+              name="effectiveFrom"
+              type="date"
+              required
+              defaultValue={manilaToday()}
+            />
+          </FormField>
+          {formActions(() => setAdding(null))}
+        </form>
+      </Drawer>
+
+      <Drawer
+        open={canEditPrices && editing && !!selectedList}
+        title="Edit price list"
+        onClose={() => set({ edit: null })}
+      >
+        {selectedList ? (
+          <div className="grid gap-6">
+            <form
+              key={selectedList.id + selectedList.status}
+              onSubmit={editList}
+              className="grid gap-3"
+            >
+              <FormField label="Name">
+                <input
+                  name="name"
+                  required
+                  maxLength={160}
+                  defaultValue={selectedList.name}
+                />
+              </FormField>
+              <FormField
+                label="Status"
+                hint="Inactive lists are not used for new orders."
+              >
+                <select name="status" defaultValue={selectedList.status}>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </FormField>
+              {formActions(() => set({ edit: null }))}
+            </form>
+            <div className="grid gap-2 border-t border-separator pt-4">
+              <Button
+                variant="danger"
+                isDisabled={busy}
+                onPress={() => void removeList()}
+                className="justify-self-start"
+              >
+                Remove
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Drawer>
+
+      <Drawer
+        open={adding === "promotion"}
+        title="Add promotion"
+        wide
+        onClose={() => setAdding(null)}
+      >
+        <form onSubmit={addPromotion} className="grid gap-3 sm:grid-cols-2">
+          <FormField label="Name">
+            <input name="name" required />
+          </FormField>
+          <FormField label="Code">
+            <input name="code" required />
+          </FormField>
+          <FormField label="Price list">
+            <select name="priceListId">
+              <option value="">Every list</option>
+              {lists.data?.rows.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name} ({p.channelKey ?? "Default"})
+                </option>
+              ))}
+            </select>
+          </FormField>
+          <FormField label="Starts on">
+            <input
+              type="date"
+              name="effectiveFrom"
+              required
+              defaultValue={manilaToday()}
+            />
+          </FormField>
+          <FormField label="Kind">
+            <select value={kind} onChange={(e) => setKind(e.target.value)}>
+              <option value="percent_off">Percent off</option>
+              <option value="buy_x_get_y">Buy X, get Y free</option>
+              <option value="bundle">Bundle price</option>
+            </select>
+          </FormField>
+          {productField(
+            "first",
+            kind === "buy_x_get_y" ? "Buy product" : "First product",
           )}
-        </div>
-      </Card>
+          {kind !== "percent_off" &&
+            productField(
+              "second",
+              kind === "buy_x_get_y" ? "Free product" : "Second product",
+            )}
+          {kind === "percent_off" ? (
+            <FormField label="Discount percent">
+              <input
+                name="percent"
+                type="number"
+                min="0.01"
+                max="100"
+                step="0.01"
+                required
+              />
+            </FormField>
+          ) : kind === "bundle" ? (
+            <FormField label="Bundle price in centavos">
+              <input
+                name="bundlePrice"
+                type="number"
+                min="0"
+                step="1"
+                required
+              />
+            </FormField>
+          ) : null}
+          {formActions(() => setAdding(null))}
+        </form>
+      </Drawer>
+
+      <Drawer
+        open={canEdit && !!selectedPromo}
+        title="Edit promotion"
+        onClose={() => set({ promotion: null })}
+      >
+        {selectedPromo ? (
+          <div className="grid gap-6">
+            <form
+              key={selectedPromo.id + selectedPromo.status}
+              onSubmit={editPromotion}
+              className="grid gap-3"
+            >
+              <FormField label="Name">
+                <input name="name" required defaultValue={selectedPromo.name} />
+              </FormField>
+              <FormField label="Status">
+                <select name="status" defaultValue={selectedPromo.status}>
+                  <option value="active">Active</option>
+                  <option value="inactive">Inactive</option>
+                </select>
+              </FormField>
+              {formActions(() => set({ promotion: null }))}
+            </form>
+            <div className="border-t border-separator pt-4">
+              <Button
+                variant="danger"
+                isDisabled={busy}
+                onPress={() => void removePromotion()}
+              >
+                Remove
+              </Button>
+            </div>
+          </div>
+        ) : null}
+      </Drawer>
     </div>
   );
 }

@@ -162,7 +162,7 @@ function Settings({ options }: { options: Options }) {
             ))}
           </div>
           <button className={action} disabled={cmd.pending}>
-            Publish new mapping version
+            Save mapping
           </button>
         </Form>
         {query.data?.profiles.map((p) => (
@@ -207,7 +207,7 @@ function Settings({ options }: { options: Options }) {
             </Field>
           </div>
           <button className={action} disabled={cmd.pending}>
-            Publish type version
+            Save type
           </button>
         </Form>
         <ul className="mt-4 grid gap-2 text-sm">
@@ -321,7 +321,7 @@ function Settings({ options }: { options: Options }) {
               </Field>
             </div>
             <button className={action} disabled={cmd.pending}>
-              Publish access period
+              Save access
             </button>
           </Form>
           <p className="mt-3 text-sm text-muted">

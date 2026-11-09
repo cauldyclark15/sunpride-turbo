@@ -64,7 +64,7 @@ export const OPERATIONS_SECTIONS = [
       { id: "queue", label: "To receive", href: "/operations/receive" },
       {
         id: "delivery",
-        label: "Receive a delivery",
+        label: "Add delivery",
         href: "/operations/receive/delivery",
       },
     ],
@@ -83,7 +83,7 @@ export const OPERATIONS_SECTIONS = [
     access: "ops-counts",
     subs: [
       { id: "mine", label: "My counts", href: "/operations/counts" },
-      { id: "plan", label: "Plan a count", href: "/operations/counts/plan" },
+      { id: "plan", label: "Add count", href: "/operations/counts/plan" },
       { id: "review", label: "Review", href: "/operations/counts/review" },
     ],
   },

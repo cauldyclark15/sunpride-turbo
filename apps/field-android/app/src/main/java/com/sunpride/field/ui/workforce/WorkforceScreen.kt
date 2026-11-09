@@ -90,14 +90,14 @@ fun WorkforceScreen(controller: FieldController,location: VisitLocation,modifier
             }
             SectionCard("Prospects") {
                 Column(Modifier.padding(start=16.dp,end=16.dp,bottom=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
-                    Text("Capture a storefront, location and the office's KYC form. The office reviews duplicates before adding it to the approved universe.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-                    TonalButton("New prospect",{choose("workforce.prospect")},Modifier.fillMaxWidth().testTag("workforce-prospect"),policy?.let { it.valid(System.currentTimeMillis())&&it.canProspect }==true&&!controller.busy,glyph=GlyphKind.PLUS)
+                    Text("Storefront photo, location and details. The office checks it.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+                    TonalButton("Add prospect",{choose("workforce.prospect")},Modifier.fillMaxWidth().testTag("workforce-prospect"),policy?.let { it.valid(System.currentTimeMillis())&&it.canProspect }==true&&!controller.busy,glyph=GlyphKind.PLUS)
                 }
             }
             if(policy==null)NoticeCard("Connect and refresh today's field forms. The office may need to configure this team.",tone=Look.Tone.WARN,textTag="workforce-policy-missing")
             else Text("${policy.label} · version ${policy.version}\n${policy.source}",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant,modifier=Modifier.padding(horizontal=4.dp))
             if(mode!=null&&policy!=null) {
-                SectionCard(if(mode=="workforce.prospect")"New prospect" else if(mode=="workforce.clockIn")"Clock-in evidence" else "Close attendance day") {
+                SectionCard(if(mode=="workforce.prospect")"Add prospect" else if(mode=="workforce.clockIn")"Clock-in evidence" else "Close attendance day") {
                     Column(Modifier.padding(start=16.dp,end=16.dp,bottom=16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)) {
                         if(mode=="workforce.prospect") {
                             FieldTextField(name,{name=it.take(200)},label={Text("Prospect name")},singleLine=true,modifier=Modifier.fillMaxWidth().testTag("workforce-name"))
@@ -135,7 +135,7 @@ fun WorkforceScreen(controller: FieldController,location: VisitLocation,modifier
                 }
             }
         }
-        if(mode!=null)ActionBar { PrimaryBottomButton(if(controller.busy)"Saving…" else if(mode=="workforce.prospect")"Save prospect on phone" else if(mode=="workforce.clockIn")"Save clock-in on phone" else "Save clock-out on phone",{
+        if(mode!=null)ActionBar { PrimaryBottomButton(if(controller.busy)"Saving…" else "Save",{
             controller.saveWorkforce(mode!!,name,answers,geo,jpeg,photoAt) {saved=true;mode=null;generation++}
         },Modifier.testTag("workforce-save"),!controller.busy&&!taking&&policy?.valid(System.currentTimeMillis())==true&&(mode=="workforce.clockOut"||(geo!=null&&jpeg!=null))) }
     }

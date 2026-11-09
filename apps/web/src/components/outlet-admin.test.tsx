@@ -6,7 +6,11 @@ import {
 } from "./master-data/fixtures";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Doc, Id } from "./master-data/model";
-import { OutletAdmin, performOutletAction } from "./outlet-admin";
+import {
+  OutletAdmin,
+  OutletEditor,
+  performOutletAction,
+} from "./outlet-admin";
 
 const state = vi.hoisted(() => ({
   values: {} as Record<string, unknown>,
@@ -83,7 +87,9 @@ const form = (values: Record<string, string>) =>
 const render = () => {
   state.nullIndex = 0;
   state.emptyIndex = 0;
-  return renderToStaticMarkup(createElement(OutletAdmin));
+  return renderToStaticMarkup(
+    createElement(OutletEditor, { outletId: outlet._id }),
+  );
 };
 beforeEach(() => {
   state.selected = null;
@@ -108,60 +114,51 @@ beforeEach(() => {
 });
 
 describe("Outlet admin (unmounted)", () => {
-  it("renders paginated scoped outlet list and skips detail until selection", () => {
+  it("Setup › Outlets points to the one Stores list instead of a second list", () => {
+    state.nullIndex = 0;
+    const view = renderToStaticMarkup(createElement(OutletAdmin));
+    expect(view).toContain("Stores are added and edited on the Stores page.");
+    expect(view).toContain('href="/stores"');
+    expect(view).not.toContain("Create outlet");
+    expect(state.queries.map((q) => q.name)).not.toContain(
+      "outlets/queries:list",
+    );
+  });
+  it("the store editor shows the profile with Edit and plain words", () => {
     const view = render();
     expect(view).toContain("Corner Store · SHOP-1");
     expect(view).toContain("Prospect");
     expect(view).toContain("Pending");
-    expect(view).not.toContain("Page 1");
-    expect(state.queries).toContainEqual({
-      name: "outlets/queries:detail",
-      args: "skip",
-    });
+    expect(view).toMatch(/>Edit store<\/button>/);
+    expect(view).toContain("Add GPS pin");
+    expect(view).not.toMatch(/Propose|Create|Unlinked prospect/);
   });
-  it("omits the normal active status pill but keeps row actions", () => {
-    state.values["outlets/queries:list"] = {
-      page: [{ ...outlet, status: "active" }],
-      isDone: true,
-      continueCursor: "",
-    };
-    const row =
-      render().match(/<ul aria-label="Outlet list"[^>]*>(.*?)<\/ul>/)?.[1] ??
-      "";
-    expect(row).toContain("Corner Store");
-    expect(row).toContain("Open</button>");
-    expect(row).not.toContain("Active</span>");
-  });
-  it("mounts the new-store approvals and flags provisional outlets", () => {
-    state.values["outlets/queries:list"] = {
-      page: [{ ...outlet, status: "active", enrolmentStatus: "provisional" }],
-      isDone: true,
-      continueCursor: "",
-    };
+  it("flags provisional stores", () => {
     state.values["outlets/queries:detail"] = {
       outlet: { ...outlet, status: "active", enrolmentStatus: "provisional" },
       customerLink: null,
       pin: null,
     };
-    state.selected = outlet._id;
     const view = render();
-    expect(view).toContain("Mounted new stores");
-    const row =
-      view.match(/<ul aria-label="Outlet list"[^>]*>(.*?)<\/ul>/)?.[1] ?? "";
-    expect(row).toContain("Provisional");
-    expect(view).toContain("awaiting supervisor or manager approval");
+    expect(view).toContain("Provisional");
+    expect(view).toContain("Waiting for approval");
   });
-  it("shows history, verification, and disables self-review controls", () => {
-    state.selected = outlet._id;
+  it("shows history, GPS pins, and disables self-review controls", () => {
     const view = render();
     expect(view).toContain("Customer history");
-    expect(view).toContain("Unlinked prospect / site");
-    expect(view).toContain("Verification");
+    expect(view).toContain("Not linked yet");
+    expect(view).toContain("GPS pins");
     expect(view).toMatch(/disabled=""[^>]*>Approve/);
     expect(view).toMatch(/disabled=""[^>]*>Reject/);
     state.values["domains/profiles:current"] = { authSubject: "reviewer" };
     expect(render()).toMatch(/>Approve<\/button>/);
     expect(render()).not.toMatch(/disabled=""[^>]*>Approve/);
+  });
+  it("hides edit controls without outlet.manage", () => {
+    state.values["lib/capabilities:currentPermissions"] = {
+      capabilities: ["outlet.read"],
+    };
+    expect(render()).not.toContain("Edit store");
   });
   it("routes proposal and independent decision with required reasons", async () => {
     const calls = actions();

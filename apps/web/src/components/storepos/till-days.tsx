@@ -412,7 +412,7 @@ export function TillDayDetailView({
           detail.day.status !== "closed_no_z" && (
             <details>
               <summary className="min-h-12 cursor-pointer py-3 text-sm font-medium">
-                Record a cash movement
+                Add cash movement
               </summary>
               <CashMovementForm
                 sessions={open.map((s) => ({ id: s.id, cashier: s.cashier }))}

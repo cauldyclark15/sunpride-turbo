@@ -131,7 +131,7 @@ it("lets an MCP approver record their own away periods", () => {
   expect(html).toContain("My away periods");
   expect(html).toContain("1 Nov 2026 – 3 Nov 2026");
   expect(html).toContain("Annual leave");
-  expect(html).toContain("Record away period");
+  expect(html).toContain("Add away period");
   expect(
     state.calls.find((c) => c.name === "coverage/away:list")?.args,
   ).toMatchObject({ profileId: "me" });

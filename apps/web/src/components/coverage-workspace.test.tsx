@@ -74,10 +74,10 @@ vi.mock("react", async (original) => {
     useEffect: () => {},
     useState: (initial: unknown) => {
       state.hookCalls++;
-      // The selected-plan state is the 4th useState: the v2 ModuleWorkspace
+      // The selected-plan state is the 3rd useState (the tab lives in ?tab=): the v2 ModuleWorkspace
       // holds none of its own (it held two before: setup message and busy).
       return [
-        state.hookCalls === 4 &&
+        state.hookCalls === 3 &&
         [
           "visits",
           "history",
@@ -106,9 +106,11 @@ vi.mock("react", async (original) => {
     useRef: () => ({ current: false }),
   };
 });
+const nav = vi.hoisted(() => ({ search: "" }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/sales-force",
-  useRouter: () => ({ push: vi.fn() }),
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(nav.search || `tab=${state.tab}`),
 }));
 vi.mock("@sunpride/ui", () => ({
   FormField: ({
@@ -452,7 +454,7 @@ describe("sales force coverage module", () => {
   it("shows only Month for MCP deadlines and needs no plan picker", () => {
     state.tab = "deadlines";
     const html = render();
-    expect(html).toContain("MCP deadlines");
+    expect(html).toContain(">Deadlines<");
     expect(html).toContain('aria-label="Coverage month"');
     expect(html).not.toContain('aria-label="Scoped coverage plan"');
     expect(state.calls.some((c) => c.name === "coverage/discovery:list")).toBe(

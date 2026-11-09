@@ -313,7 +313,7 @@ class FieldSalesGuideScreenshotsTest {
         waitTag("order-new")
         rule.onNodeWithTag("order-new").performScrollTo().performClick()
         waitTag("order-title")
-        rule.onNodeWithTag("order-title").assertTextContains("New order")
+        rule.onNodeWithTag("order-title").assertTextContains("Add order")
         rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-qty-prod-1"))
         rule.onNodeWithTag("order-qty-prod-1").performTextInput("24")
         androidx.test.espresso.Espresso.closeSoftKeyboard()

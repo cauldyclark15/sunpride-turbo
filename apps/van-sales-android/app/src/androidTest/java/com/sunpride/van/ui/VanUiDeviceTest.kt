@@ -265,6 +265,25 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("damage-decision-0").performScrollTo().assertTextEquals("Goods are sellable after inspection")
         assertEquals(48L,runBlocking { c.repository.truckStock.first() }.first { it.productId == row.let { JSONObject(it.operationJson).getJSONObject("payload").getString("productId") } }.availableBase)
     }
+    /** Lane 3: Add customer is a FAB on the Sell list, always visible, and never covers the last customer row. */
+    @Test fun customersAddFabVisibleAndClearOfLastRow() {
+        mount(); open(Page.CUSTOMERS)
+        rule.onNodeWithTag("add-walk-in").assertIsDisplayed()
+        rule.onNodeWithText("Add customer",useUnmergedTree = true).assertIsDisplayed()
+        captureVanScreenshot(rule,"lane3-customers")
+        val last = rule.onAllNodes(SemanticsMatcher("customer row") { n -> n.config.getOrElseNullable(androidx.compose.ui.semantics.SemanticsProperties.TestTag) { null }?.startsWith("customer-") == true }).fetchSemanticsNodes().lastOrNull()
+        if (last != null) {
+            val tag = last.config[androidx.compose.ui.semantics.SemanticsProperties.TestTag]
+            rule.onNodeWithTag(tag).performScrollTo()
+            repeat(4) { rule.onNodeWithTag(tag).performTouchInput { swipeUp() } }; rule.waitForIdle()
+            val row = rule.onNodeWithTag(tag).getBoundsInRoot(); val fab = rule.onNodeWithTag("add-walk-in").getBoundsInRoot()
+            org.junit.Assert.assertTrue("Add customer covers the last row", row.bottom <= fab.top || row.right <= fab.left)
+            captureVanScreenshot(rule,"lane3-customers-bottom")
+        }
+        rule.onNodeWithTag("add-walk-in").performClick()
+        rule.onNodeWithTag("save-walk-in").assertTextEquals("Save")
+        captureVanScreenshot(rule,"lane3-add-customer")
+    }
     @Test fun walkInRequiresReasonAndAppearsWithSourceLabel() {
         mount(); open(Page.CUSTOMERS)
         rule.onNodeWithTag("add-walk-in").performClick()

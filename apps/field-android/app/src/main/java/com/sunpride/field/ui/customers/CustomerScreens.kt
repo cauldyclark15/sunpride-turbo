@@ -210,7 +210,7 @@ fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (S
             }, Modifier.weight(1f).testTag("customer-call"), enabled = dial != null, glyph = GlyphKind.PHONE)
         }
         changeLabel?.let { com.sunpride.field.ui.StatusChip(it, Look.Tone.WARN, textTag = "customer-change-pending") }
-        if (onEdit != null && STORE_EDIT_ENABLED) SecondaryButton("Edit store", onEdit, Modifier.fillMaxWidth().testTag("customer-edit"))
+        if (onEdit != null && com.sunpride.field.ui.STORE_EDIT_ENABLED) SecondaryButton("Edit store", onEdit, Modifier.fillMaxWidth().testTag("customer-edit"))
         actionError?.let { Text(it, color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("customer-action-error")) }
 

@@ -3,6 +3,8 @@ package com.sunpride.van.ui
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.platform.testTag
 import com.sunpride.van.ledger.BatchPosition
 import com.sunpride.van.sync.VanBootstrapCodec
@@ -40,9 +42,9 @@ import org.json.JSONObject
     } }
     LaunchedEffect(c.trip?.tripId,c.busy,c.repository.sapMasterLifetime()) { if(!c.busy)refresh() }
     ScreenFrame("Route controls",c::back,message=message) {
-        Text("Saved offline on this phone. Warehouse receipt and supervisor sign-off follow after sync.")
+        Text("Saved on this phone. Sent at the next sync.",style=MaterialTheme.typography.bodyMedium)
         val state=snapshot?.optString("settlementState")?.takeIf { it!="null" && it.isNotEmpty() }
-        if(c.tripClosed) Text(when(state) { "pending_supervisor"->"Pending supervisor";"rejected"->"Returned for correction · office follow-up needed";"posted"->"Posted";"approved_pending_sap"->"Approved · waiting for SAP";else->"Locally completed · pending sync" },Modifier.testTag("local-settlement-state"))
+        if(c.tripClosed) Text(when(state) { "pending_supervisor"->"Pending supervisor";"rejected"->"Returned for correction · office follow-up needed";"posted"->"Posted";"approved_pending_sap"->"Approved · waiting for SAP";else->"Done here · waiting to sync" },Modifier.testTag("local-settlement-state"))
         scorecard?.let {card->SectionCard("Daily scorecard") {
             Text("Sales before returns · ${routeMoney(card.optString("salesCentavos"))}",Modifier.testTag("route-scorecard-sales"))
             Text("Calls · ${card.optInt("calls")} of ${card.optInt("plannedCalls")} planned stores")
@@ -61,8 +63,8 @@ import org.json.JSONObject
         }
         SectionCard("Actual stop times") {
             Choice("Stop store",customer,c.customers.map {it.outletId to it.name}) {customer=it}
-            SecondaryButton("Record arrival",{save {c.repository.recordStop(customer,"arrival")}},enabled=!busy && !c.tripClosed && customer.isNotBlank())
-            SecondaryButton("Record departure",{save {c.repository.recordStop(customer,"departure")}},enabled=!busy && !c.tripClosed && customer.isNotBlank())
+            SecondaryButton("Arrived",{save {c.repository.recordStop(customer,"arrival")}},enabled=!busy && !c.tripClosed && customer.isNotBlank())
+            SecondaryButton("Left store",{save {c.repository.recordStop(customer,"departure")}},enabled=!busy && !c.tripClosed && customer.isNotBlank())
             saved.filter {it.getString("kind")=="stop"}.takeLast(8).forEach {o->val f=o.getJSONObject("facts");Text("${f.getString("phase")} · ${o.optString("outletName").takeIf {it.isNotBlank() && it!="null"}?:c.customers.firstOrNull {it.outletId==f.optString("outletId")}?.name?:"Store"}")}
         }
         SectionCard("Cold chain") {
@@ -117,11 +119,12 @@ import org.json.JSONObject
     }
 }
 private fun routeMoney(value: String?): String = value?.toLongOrNull()?.let {java.text.NumberFormat.getCurrencyInstance(java.util.Locale.forLanguageTag("en-PH")).format(java.math.BigDecimal.valueOf(it,2))}?:"Not available"
-@Composable private fun Choice(label: String,value: String,items: List<Pair<String,String>>,onChange:(String)->Unit) {
-    var expanded by remember {mutableStateOf(false)}
+/** Every option visible as a chip (no hidden dropdown menu); the picked one is filled. */
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+@Composable internal fun Choice(label: String,value: String,items: List<Pair<String,String>>,onChange:(String)->Unit) {
     Text(label,style=MaterialTheme.typography.labelMedium)
-    androidx.compose.foundation.layout.Box {
-        SecondaryButton(items.firstOrNull {it.first==value}?.second?:"Choose",{expanded=true})
-        DropdownMenu(expanded,{expanded=false}) {items.forEach { item->DropdownMenuItem({Text(item.second)},{onChange(item.first);expanded=false})}}
+    androidx.compose.foundation.layout.FlowRow(horizontalArrangement=androidx.compose.foundation.layout.Arrangement.spacedBy(8.dp)) {
+        items.forEach { item->FilterChip(selected=item.first==value,onClick={onChange(item.first)},label={Text(item.second)},
+            modifier=Modifier.heightIn(min=48.dp).testTag("choice-${label.lowercase().replace(' ','-')}-${item.first.ifBlank {"none"}}")) }
     }
 }

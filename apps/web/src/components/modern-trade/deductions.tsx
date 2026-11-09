@@ -200,7 +200,7 @@ export function DeductionWorkspace({
                 captures evidence; SAP settles the invoice.
               </p>
               <button className={action} disabled={cmd.pending}>
-                Capture deduction
+                Add deduction
               </button>
             </Form>
           </div>
@@ -353,7 +353,7 @@ export function DeductionCase({
                 </label>
               ) : null}
               <button className={action} disabled={cmd.pending}>
-                Save case update
+                Save
               </button>
             </Form>
           </div>

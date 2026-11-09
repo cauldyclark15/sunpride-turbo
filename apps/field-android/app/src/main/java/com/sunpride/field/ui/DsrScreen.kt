@@ -39,7 +39,7 @@ import java.util.UUID
  Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("distributor-field-mode"),verticalArrangement=Arrangement.spacedBy(12.dp)){
   Text(data?.optString("distributorName")?:"Distributor field work",style=MaterialTheme.typography.headlineSmall)
   NoticeCard("Shared outlet universe · partner-scoped PJP, MSL and calls. No employee office access.")
-  FieldButton(controller::syncNow,Modifier.fillMaxWidth(),enabled=!controller.busy){Text(if(controller.busy)"Syncing…"else"Sync distributor work")}
+  FieldButton(controller::syncNow,Modifier.fillMaxWidth(),enabled=!controller.busy){Text(if(controller.busy)"Syncing…"else"Sync")}
   controller.error?.let{NoticeCard(it,tone=Look.Tone.BAD)};controller.today.warning?.let{NoticeCard(it,tone=Look.Tone.WARN)}
   if(data==null){NoticeCard("Connect to verify the current distributor assignment before recording.",tone=Look.Tone.WARN,glyph=GlyphKind.LOCK);return@Column}
   Text(data.optString("pjpSource"),style=MaterialTheme.typography.bodySmall)
@@ -71,7 +71,7 @@ import java.util.UUID
    if(start!=null&&start.isNull("ackId"))payload.put("localVisitRequestId",start.getString("requestId"))else payload.put("visitId",start?.optString("ackId")?:remote?.getString("id"))
    controller.queueDomain(kind,payload,checkNotNull(aggregate),dependencies)
   }
-  FieldButton({if(location.requiresPermission)permission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION))else capture()},enabled=!locating&&!controller.busy){Text(if(locating)"Getting location…"else"Capture genuine location")}
+  FieldButton({if(location.requiresPermission)permission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION,Manifest.permission.ACCESS_COARSE_LOCATION))else capture()},enabled=!locating&&!controller.busy){Text(if(locating)"Getting location…"else"Get location")}
   if(fix!=null)Text("Location captured. The shared accuracy, age, mock and radius checks still apply.",style=MaterialTheme.typography.bodySmall)
   if(!open){
    FieldTextField(reason,{reason=it},label={Text("Extra-call reason, if outside today's beat")},modifier=Modifier.fillMaxWidth())
@@ -90,12 +90,12 @@ import java.util.UUID
     val mslIndex=mslPage.coerceIn(0,maxOf(0,(required.size-1)/6))
     if(required.size>6)Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){FieldButton({mslPage=mslIndex-1},enabled=mslIndex>0){Text("Previous MSL")};Text("${answers.size} of ${required.size} answered");FieldButton({mslPage=mslIndex+1},enabled=(mslIndex+1)*6<required.size){Text("Next MSL")}}
     for(line in required.drop(mslIndex*6).take(6)){val product=line.getString("productId");Text(line.getString("name"));Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){FieldButton({answers=answers+(product to "present")}){Text(if(answers[product]=="present")"Present ✓"else"Present")};FieldButton({answers=answers+(product to "absent")}){Text(if(answers[product]=="absent")"Absent ✓"else"Absent")}}}
-    FieldButton({attempt{CallFlowEngine.keyFor(config,"availability")?.let{CallFlowEngine.advance(config,done,"availability",hasOrder)};val rows=JSONArray();for(l in required)rows.put(JSONObject().put("productId",l.getString("productId")).put("state",checkNotNull(answers[l.getString("productId")])).put("method","tap"));send("dsr.availability.record",JSONObject().put("checkId",UUID.randomUUID().toString()).put("snapshotId",msl.getString("snapshotId")).put("callKey",aggregate).put("complete",true).put("lines",rows))}},enabled=!controller.busy&&required.isNotEmpty()&&required.all{answers[it.getString("productId")]!=null}){Text("Save complete availability")}
+    FieldButton({attempt{CallFlowEngine.keyFor(config,"availability")?.let{CallFlowEngine.advance(config,done,"availability",hasOrder)};val rows=JSONArray();for(l in required)rows.put(JSONObject().put("productId",l.getString("productId")).put("state",checkNotNull(answers[l.getString("productId")])).put("method","tap"));send("dsr.availability.record",JSONObject().put("checkId",UUID.randomUUID().toString()).put("snapshotId",msl.getString("snapshotId")).put("callKey",aggregate).put("complete",true).put("lines",rows))}},enabled=!controller.busy&&required.isNotEmpty()&&required.all{answers[it.getString("productId")]!=null}){Text("Save availability")}
    }
    if(CallFlowEngine.keyFor(config,"order_build")!=null){
     Text("Distributor order request",style=MaterialTheme.typography.titleMedium);Text("Quantity intent only. This does not issue a Sunpride invoice or approve price/credit.")
     for(p in catalog.drop(productIndex*6).take(6)){val product=p.getString("productId");FieldTextField((cart[product]?:0).takeIf{it>0}?.toString().orEmpty(),{value->if(value.isBlank())cart=cart-product else value.toIntOrNull()?.takeIf{it in 1..99999}?.let{cart=cart+(product to it)}},label={Text(p.optString("name",p.optString("code","Product"))+" · "+p.getString("uom"))},modifier=Modifier.fillMaxWidth())}
-    FieldButton({attempt{CallFlowEngine.advance(config,done,"order_build",true);val rows=JSONArray();for((product,quantity) in cart){val p=objects(data.getJSONArray("products")).first{it.getString("productId")==product};rows.put(JSONObject().put("productId",product).put("uom",p.getString("uom")).put("quantity",quantity))};send("dsr.visit.activity",JSONObject().put("activity",JSONObject().put("kind","order_intent").put("clientOrderId",UUID.randomUUID().toString()).put("lines",rows)))}},enabled=cart.isNotEmpty()&&!controller.busy){Text("Save order request")}
+    FieldButton({attempt{CallFlowEngine.advance(config,done,"order_build",true);val rows=JSONArray();for((product,quantity) in cart){val p=objects(data.getJSONArray("products")).first{it.getString("productId")==product};rows.put(JSONObject().put("productId",product).put("uom",p.getString("uom")).put("quantity",quantity))};send("dsr.visit.activity",JSONObject().put("activity",JSONObject().put("kind","order_intent").put("clientOrderId",UUID.randomUUID().toString()).put("lines",rows)))}},enabled=cart.isNotEmpty()&&!controller.busy){Text("Save order")}
    }
    FieldTextField(note,{note=it},label={Text("Call note")},modifier=Modifier.fillMaxWidth(),minLines=2)
    if(CallFlowEngine.keyFor(config,"note")!=null)FieldButton({attempt{CallFlowEngine.advance(config,done,"note",hasOrder);send("dsr.visit.activity",JSONObject().put("activity",JSONObject().put("kind","note").put("text",note.trim()))) }},enabled=note.trim().length in 1..2000&&!controller.busy){Text("Save note")}

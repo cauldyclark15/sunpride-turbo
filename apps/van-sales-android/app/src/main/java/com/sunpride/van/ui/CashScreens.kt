@@ -43,7 +43,7 @@ import com.sunpride.van.pos.*
         footer = if (saved == null && expected != null) "Counted ${declared?.let { PosMoney.format(it,currency) } ?: "—"} · expected ${PosMoney.format(expected,currency)}" else null,
         message = c.message) {
         when {
-            summary == null -> Text("Getting this trip's sales…")
+            summary == null -> Text("Loading…")
             saved != null -> SavedCount(saved,summary.tripNumber)
             !summary.countable -> Text("Start the trip before counting cash.",Modifier.testTag("cash-blocked"))
             else -> {
@@ -61,7 +61,7 @@ import com.sunpride.van.pos.*
                     }
                 }
                 SectionCard("Count bills and coins") {
-                    Text("Count only cash from today's sales. Leave out your change fund.",style = MaterialTheme.typography.bodyMedium)
+                    Text("Count today's sales cash only, not your change fund.",style = MaterialTheme.typography.bodyMedium)
                     CashDenominations.PHP.forEach { denomination ->
                         val text = draft.pieces[denomination.minor] ?: ""
                         val pieces = CashReconciliationRules.parsePieces(text)

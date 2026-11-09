@@ -87,7 +87,7 @@ fun OrderDraftScreen(visit: VisitDisplay, sheet: CallSheet, controller: FieldCon
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
-                    Text(if (draft == null) "New order" else "Order draft", style = MaterialTheme.typography.headlineSmall,
+                    Text(if (draft == null) "Add order" else "Edit order", style = MaterialTheme.typography.headlineSmall,
                         modifier = Modifier.testTag("order-title"))
                     Text(orderAssociation(visit, draft), style = MaterialTheme.typography.bodyMedium,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("order-association"))

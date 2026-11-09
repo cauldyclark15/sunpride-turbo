@@ -48,7 +48,7 @@ export function previewQuery(f: PlanForm) {
 }
 
 /**
- * Plan a count (supervisor): where, what, who counts, blind or not, when, and whether it repeats.
+ * Add count (supervisor): where, what, who counts, blind or not, when, and whether it repeats.
  * Shows how many lines the choice gives before anything is created.
  */
 export function PlanCount({
@@ -139,7 +139,7 @@ export function PlanCount({
     !(form.mode === "filter" && !form.search.trim() && !form.category.trim());
   return (
     <div className="grid gap-4 pb-28">
-      <h1 className="text-2xl font-semibold">Plan a count</h1>
+      <h1 className="text-2xl font-semibold">Add count</h1>
 
       <Panel className="grid gap-3">
         <label className="grid gap-1">
@@ -310,7 +310,7 @@ export function PlanCount({
             disabled={pending || !ready || Boolean(preview.data?.tooLarge) || preview.data?.lines === 0}
             onClick={() => void submit()}
           >
-            Create count
+            Save
           </PrimaryButton>
         </div>
       </footer>

@@ -70,7 +70,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null, photoForTest: ByteArray? = null,
     initialName: String = "", editing: CustomerRecord? = null, onChangeSaved: (() -> Unit)? = null) {
     // Edit store sends a change request for this store (never a new store); the office approves it first.
-    val edit = editing != null && com.sunpride.field.ui.customers.STORE_EDIT_ENABLED
+    val edit = editing != null && com.sunpride.field.ui.STORE_EDIT_ENABLED
     val current = remember(editing) { editing?.let { CensusRules.Current(it.name, (it.address ?: it.account?.address).orEmpty(),
         it.account?.buyerName.orEmpty(), it.account?.contactNumber.orEmpty()) } }
     val context = LocalContext.current
