@@ -18,7 +18,7 @@ class TargetProgressTest {
         val (text,day,_)=raw();val data=TargetProgressCodec.decode(text,day)
         assertEquals(TargetProgressCodec.METRICS,data.rows.map{it.metric}.toSet())
         val volume=data.rows.single{it.metric=="volume"};assertEquals("EA",volume.unit);assertEquals(BigDecimal("24"),volume.actual);assertEquals(BigDecimal("12"),volume.prior)
-        val sales=data.rows.single{it.metric=="sales_value"};assertEquals("₱200.00",TargetProgressText.value(sales.actual,sales.unit))
+        val sales=data.rows.single{it.metric=="sales_value"};assertEquals("₱200",TargetProgressText.value(sales.actual,sales.unit))
         val msl=data.rows.single{it.metric=="msl_compliance"};assertEquals("100%",TargetProgressText.value(msl.actual,msl.unit));assertEquals("on_target",msl.status)
         assertEquals("Not recorded",TargetProgressText.value(null,"EA"))
         assertThrows(IllegalArgumentException::class.java){TargetProgressCodec.decode(JSONObject(text).put("asOfDate","2000-01-01").toString(),day)}
