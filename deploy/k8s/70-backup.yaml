@@ -1,0 +1,47 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: sunpride-pg-backups, namespace: sunpride}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: linode-block-storage-retain
+  resources: {requests: {storage: 20Gi}}
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata: {name: sunpride-pg-backup, namespace: sunpride}
+spec:
+  schedule: "0 2 * * *"
+  timeZone: Asia/Manila
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 2
+      template:
+        spec:
+          restartPolicy: OnFailure
+          securityContext: {fsGroup: 999}
+          containers:
+            - name: dump
+              image: pgvector/pgvector:0.8.7-pg17
+              env:
+                - {name: PGHOST, value: sunpride-pg}
+                - {name: PGUSER, value: sunpride}
+                - {name: PGDATABASE, value: sunpride}
+                - name: PGPASSWORD
+                  valueFrom: {secretKeyRef: {name: sunpride-pg, key: password}}
+              command: ["/bin/bash", "-ceu"]
+              args:
+                - |
+                  f=/backups/sunpride-$(date -u +%Y%m%dT%H%M%SZ).dump
+                  pg_dump -Fc -f "$f.part" && mv "$f.part" "$f"
+                  ls -1t /backups/sunpride-*.dump | tail -n +8 | xargs -r rm -f
+                  ls -lh /backups
+              resources:
+                requests: {cpu: 50m, memory: 64Mi}
+                limits: {cpu: 500m, memory: 512Mi}
+              volumeMounts: [{name: backups, mountPath: /backups}]
+          volumes:
+            - name: backups
+              persistentVolumeClaim: {claimName: sunpride-pg-backups}

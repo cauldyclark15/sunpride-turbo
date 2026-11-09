@@ -1,0 +1,18 @@
+# kubectl --context lke495913-ctx apply -k deploy/k8s   (bump newTag after build-images.sh)
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+resources:
+  - 00-namespace.yaml
+  - 10-postgres.yaml
+  - 20-sap-mock.yaml
+  - 30-api.yaml
+  - 40-web.yaml
+  - 50-docs.yaml
+  - 60-ingress.yaml
+  - 61-ingress-prod.yaml
+  - 70-backup.yaml
+images:
+  - {name: cauldyclark15/sunpride-api, newTag: "6947ee24dd"}
+  - {name: cauldyclark15/sunpride-web, newTag: "42c3ee65a2"}
+  - {name: cauldyclark15/sunpride-sap-mock, newTag: "42c3ee65a2"}
+  - {name: cauldyclark15/sunpride-docs, newTag: "42c3ee65a2"}

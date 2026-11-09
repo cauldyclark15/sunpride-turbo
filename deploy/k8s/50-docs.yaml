@@ -1,0 +1,25 @@
+apiVersion: v1
+kind: Service
+metadata: {name: sunpride-docs, namespace: sunpride}
+spec:
+  selector: {app: sunpride-docs}
+  ports: [{name: http, port: 80, targetPort: 8080}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: sunpride-docs, namespace: sunpride}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: sunpride-docs}}
+  template:
+    metadata: {labels: {app: sunpride-docs}}
+    spec:
+      imagePullSecrets: [{name: regcred}]
+      containers:
+        - name: docs
+          image: cauldyclark15/sunpride-docs:placeholder
+          ports: [{containerPort: 8080}]
+          readinessProbe: {httpGet: {path: /, port: 8080}, periodSeconds: 15}
+          resources:
+            requests: {cpu: 10m, memory: 16Mi}
+            limits: {cpu: 200m, memory: 64Mi}

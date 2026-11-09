@@ -1,0 +1,9 @@
+# sap-mock runs as a sidecar in the api pod (30-api.yaml): the api only accepts a mock SAP on
+# 127.0.0.1/localhost (transport.js sapConfig safety check). This file keeps just its volume.
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: {name: sunpride-sap-mock-data, namespace: sunpride}
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: linode-block-storage-retain
+  resources: {requests: {storage: 10Gi}}

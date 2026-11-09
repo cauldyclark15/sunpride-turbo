@@ -1,0 +1,52 @@
+# Phase 1 test hosts. At cutover add sunpride.cauldnclark.com / docs.cauldnclark.com (see README).
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sunpride
+  namespace: sunpride
+  annotations:
+    cert-manager.io/cluster-issuer: cnc-cert
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 50m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+    nginx.ingress.kubernetes.io/use-regex: "true"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [sunpride-k8s.cauldnclark.com]
+      secretName: sunpride-k8s-tls
+  rules:
+    - host: sunpride-k8s.cauldnclark.com
+      http:
+        paths:
+          - path: /(api|ws|sync|healthz)(/.*)?$
+            pathType: ImplementationSpecific
+            backend: {service: {name: sunpride-api, port: {number: 4320}}}
+          - path: /
+            pathType: Prefix
+            backend: {service: {name: sunpride-web, port: {number: 4330}}}
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: sunpride-docs
+  namespace: sunpride
+  annotations:
+    cert-manager.io/cluster-issuer: cnc-cert
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/proxy-body-size: 50m
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts: [docs-k8s.cauldnclark.com]
+      secretName: docs-k8s-tls
+  rules:
+    - host: docs-k8s.cauldnclark.com
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend: {service: {name: sunpride-docs, port: {number: 80}}}

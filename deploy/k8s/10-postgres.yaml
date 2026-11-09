@@ -1,0 +1,53 @@
+apiVersion: v1
+kind: Service
+metadata: {name: sunpride-pg, namespace: sunpride}
+spec:
+  selector: {app: sunpride-pg}
+  ports: [{name: pg, port: 5432, targetPort: 5432}]
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: sunpride-pg, namespace: sunpride}
+spec:
+  serviceName: sunpride-pg
+  replicas: 1
+  selector: {matchLabels: {app: sunpride-pg}}
+  template:
+    metadata: {labels: {app: sunpride-pg}}
+    spec:
+      securityContext: {fsGroup: 999}
+      containers:
+        - name: postgres
+          image: pgvector/pgvector:0.8.7-pg17
+          # Sized for a 2Gi limit / ~1 CPU.
+          args: ["-c", "max_connections=60", "-c", "shared_buffers=512MB", "-c", "effective_cache_size=1280MB", "-c", "work_mem=8MB", "-c", "maintenance_work_mem=128MB", "-c", "wal_buffers=16MB", "-c", "min_wal_size=256MB", "-c", "max_wal_size=1GB", "-c", "checkpoint_completion_target=0.9", "-c", "random_page_cost=1.1", "-c", "effective_io_concurrency=100", "-c", "max_worker_processes=4", "-c", "max_parallel_workers=2", "-c", "max_parallel_workers_per_gather=1", "-c", "timezone=Asia/Manila", "-c", "log_min_duration_statement=1000"]
+          env:
+            - {name: POSTGRES_DB, value: sunpride}
+            - {name: POSTGRES_USER, value: sunpride}
+            - name: POSTGRES_PASSWORD
+              valueFrom: {secretKeyRef: {name: sunpride-pg, key: password}}
+            - {name: PGDATA, value: /var/lib/postgresql/data/pgdata}
+          ports: [{containerPort: 5432, name: pg}]
+          resources:
+            requests: {cpu: 250m, memory: 1Gi}
+            limits: {cpu: "1", memory: 2Gi}
+          readinessProbe:
+            exec: {command: ["pg_isready", "-U", "sunpride", "-d", "sunpride", "-h", "127.0.0.1"]}
+            periodSeconds: 10
+          livenessProbe:
+            exec: {command: ["pg_isready", "-U", "sunpride", "-h", "127.0.0.1"]}
+            initialDelaySeconds: 60
+            periodSeconds: 30
+            failureThreshold: 6
+          volumeMounts:
+            - {name: data, mountPath: /var/lib/postgresql/data}
+            - {name: dshm, mountPath: /dev/shm}
+      volumes:
+        - name: dshm
+          emptyDir: {medium: Memory, sizeLimit: 256Mi}
+  volumeClaimTemplates:
+    - metadata: {name: data}
+      spec:
+        accessModes: [ReadWriteOnce]
+        storageClassName: linode-block-storage-retain
+        resources: {requests: {storage: 20Gi}}

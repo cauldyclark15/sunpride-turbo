@@ -1,0 +1,28 @@
+apiVersion: v1
+kind: Service
+metadata: {name: sunpride-web, namespace: sunpride}
+spec:
+  selector: {app: sunpride-web}
+  ports: [{name: http, port: 4330, targetPort: 4330}]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: sunpride-web, namespace: sunpride}
+spec:
+  replicas: 1
+  selector: {matchLabels: {app: sunpride-web}}
+  template:
+    metadata: {labels: {app: sunpride-web}}
+    spec:
+      imagePullSecrets: [{name: regcred}]
+      containers:
+        - name: web
+          image: cauldyclark15/sunpride-web:placeholder
+          env: [{name: API_ORIGIN, value: "http://sunpride-api:4320"}]
+          ports: [{containerPort: 4330}]
+          readinessProbe:
+            tcpSocket: {port: 4330}
+            periodSeconds: 10
+          resources:
+            requests: {cpu: 100m, memory: 256Mi}
+            limits: {cpu: "1", memory: 768Mi}

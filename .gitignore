@@ -52,3 +52,6 @@ apps/pwa/public/workbox-*.js
 package-lock.json
 pnpm-lock.yaml
 yarn.lock
+
+# k8s image build staging (licensed vendor files)
+deploy/k8s/.vendor/
