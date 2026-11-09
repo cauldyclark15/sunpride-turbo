@@ -54,11 +54,18 @@ import java.util.Base64
 
 /** F-011 complete offline survey, independently queued from selling calls.
  * SP-0163: two location choices (Use my location / Search address), landmark, duplicate warning, optional batch. */
-@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> Unit, modifier: Modifier = Modifier,
-    stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null,
-    /** Tests only: start with a storefront photo (emulators have no working camera). */ photoForTest: ByteArray? = null) {
+    stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null) =
+    CensusScreenForTest(backend, location, onBack, modifier, stores, onOpenStore, photoForTest = null)
+
+/** Tests only: [photoForTest] starts with a storefront photo (emulators have no working camera). Release code
+ * calls [CensusScreen], which always passes null; lint's VisibleForTests check blocks other production callers. */
+@androidx.annotation.VisibleForTesting(otherwise = androidx.annotation.VisibleForTesting.PRIVATE)
+@OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
+@Composable
+internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation, onBack: () -> Unit, modifier: Modifier = Modifier,
+    stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null, photoForTest: ByteArray? = null) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
@@ -204,6 +211,7 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
     }
     fun save() {
         backend ?: return
+        if (busy) return // one save at a time, even for two taps in the same frame
         saveNote = null; staleRetry = false
         val miss = missingNow()
         if (miss.isNotEmpty()) {
@@ -212,8 +220,8 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
             scope.launch { delay(50); requesters[miss.first()]?.bringIntoView() }
             return
         }
+        busy = true // synchronously, before the coroutine is dispatched
         scope.launch {
-            busy = true
             try {
                 // Use my location goes stale after two minutes: get a fresh fix instead of refusing. Address search is not a GPS fix.
                 if (mode == "gps" && CensusRules.fixIsStale(fix, System.currentTimeMillis())) {
@@ -227,7 +235,7 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
                         val r = places?.let { api -> withTimeoutOrNull(5_000) { withContext(Dispatchers.IO) { api.reverse(got.getDouble("latitude"), got.getDouble("longitude")) } } }
                         moved = Moved(DuplicateRules.distanceMeters(old?.optDouble("latitude"), old?.optDouble("longitude"),
                             got.getDouble("latitude"), got.getDouble("longitude")) ?: 0.0, (r as? CensusPlaces.Result.Ok)?.value)
-                        saveNote = "Your location changed. Check the address below Save."
+                        saveNote = "Your location changed. Check the address, then save."
                         return@launch
                     }
                 }
@@ -361,10 +369,10 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
                 Text("New address", style = MaterialTheme.typography.labelMedium)
                 Text(m.address.formattedAddress, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("census-moved-address"))
                 PrimaryBottomButton("Use the new address and save", {
-                    address = m.address.formattedAddress; autoAddress = address; reverse = m.address; moved = null; save()
-                }, Modifier.fillMaxWidth().testTag("census-moved-new"))
+                    if (!busy) { address = m.address.formattedAddress; autoAddress = address; reverse = m.address; moved = null; save() }
+                }, Modifier.fillMaxWidth().testTag("census-moved-new"), !busy)
             } else Text("No address found for the new spot. Check the address before you save.", style = MaterialTheme.typography.bodyMedium)
-            SecondaryButton("Keep \"${address.take(60)}\" and save", { moved = null; save() }, Modifier.fillMaxWidth().testTag("census-moved-keep"))
+            SecondaryButton("Keep my address and save", { if (!busy) { moved = null; save() } }, Modifier.fillMaxWidth().testTag("census-moved-keep"), !busy)
         }
     } }
     if (pending != null && duplicates.isNotEmpty()) ModalBottomSheet(onDismissRequest = { pending = null; duplicates = emptyList() }) {
@@ -390,7 +398,7 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
         }
     }
 }
-private const val STALE_FIX = "Get a fresh GPS fix with accuracy under 50 m. Mock locations cannot be used."
+private const val STALE_FIX = "Couldn't get your location. Move to an open spot and tap Try again."
 private class Moved(val meters: Double, val address: CensusPlaces.Address?)
 /** A required field plus its plain-words message once Save found it missing; Save scrolls here. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)

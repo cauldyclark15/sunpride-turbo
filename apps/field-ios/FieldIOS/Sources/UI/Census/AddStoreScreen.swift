@@ -70,6 +70,7 @@ struct AddStoreScreen: View {
     @State private var refreshing = false
     @State private var moved: Moved?
     @State private var showingMoved = false
+    @State private var saveTask: Task<Void, Never>?
     private var marked: Set<Field> { attempted ? Set(CensusCapture.missing(draft)) : [] }
 
     #if DEBUG
@@ -135,10 +136,10 @@ struct AddStoreScreen: View {
                             .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("addStoreSaveNote")
                     }
                     if staleRetry {
-                        SecondaryButton(title: "Try again", fullWidth: true) { Task { await save() } }
+                        SecondaryButton(title: "Try again", disabled: busy, fullWidth: true) { startSave() }
                             .accessibilityIdentifier("addStoreSaveRetry")
                     }
-                    PrimaryBottomButton(title: refreshing ? "Checking your location…" : busy ? "Checking…" : "Save store", disabled: busy) { Task { await save() } }
+                    PrimaryBottomButton(title: refreshing ? "Checking your location…" : busy ? "Checking…" : "Save store", disabled: busy) { tap { startSave() } }
                         .accessibilityIdentifier("addStoreSave")
                 }
                 .frame(maxWidth: 520) // iPad: the button matches the form column, not the screen.
@@ -162,6 +163,8 @@ struct AddStoreScreen: View {
             if let config, !config.showsBatchPicker { draft.batchId = config.batches.first?.id }
             saved = model.censusCaptures()
         }
+        // Leaving mid-save (e.g. during "Checking your location…") cancels it: nothing is queued afterwards.
+        .onDisappear { saveTask?.cancel(); saveTask = nil }
         .calmScreenChrome()
     }
 
@@ -390,19 +393,21 @@ struct AddStoreScreen: View {
                             note("New address")
                             Text(address.addressLine).font(SunprideTokens.TypeStyle.row).accessibilityIdentifier("movedAddress")
                         }
-                        PrimaryBottomButton(title: "Use the new address and save") {
+                        PrimaryBottomButton(title: "Use the new address and save", disabled: busy) { tap {
+                            guard !busy else { return }
                             draft.address = address.addressLine; autoAddress = draft.address; draft.resolved = address
                             areaLine = address.areaLine; showingMoved = false; moved = nil
-                            Task { await save() }
-                        }
+                            startSave()
+                        } }
                         .accessibilityIdentifier("movedUseNew")
                     } else {
                         note("No address found for the new spot. Check the address before you save.")
                     }
-                    SecondaryButton(title: "Keep my address and save", fullWidth: true) {
+                    SecondaryButton(title: "Keep my address and save", disabled: busy, fullWidth: true) { tap {
+                        guard !busy else { return }
                         showingMoved = false; moved = nil
-                        Task { await save() }
-                    }
+                        startSave()
+                    } }
                     .accessibilityIdentifier("movedKeep")
                 }
                 .padding(16)
@@ -526,7 +531,25 @@ struct AddStoreScreen: View {
         }
     }
 
+    /// A save button's action. UI tests set FIELD_TEST_DOUBLE_TAP to replay a same-frame double tap (XCUITest's
+    /// doubleTap lands one tap per frame, so it can't); Release builds always run the action once.
+    private func tap(_ action: () -> Void) {
+        action()
+        #if DEBUG
+        if ProcessInfo.processInfo.environment["FIELD_TEST_DOUBLE_TAP"] != nil { action() }
+        #endif
+    }
+
+    /// One save at a time: `busy` is set synchronously here, before any await, so a second tap in the same
+    /// frame (or during "Checking your location…") is ignored rather than starting a second save.
+    private func startSave() {
+        guard !busy else { return }
+        busy = true
+        saveTask = Task { await save(); saveTask = nil }
+    }
+
     private func save() async {
+        defer { busy = false; refreshing = false }
         message = nil; saveNote = nil; staleRetry = false
         let missing = CensusCapture.missing(draft)
         if let first = missing.first {
@@ -538,14 +561,15 @@ struct AddStoreScreen: View {
         // Use my location goes stale after two minutes: get a fresh fix instead of refusing.
         // Address-search pins are not GPS fixes and keep today's path.
         if case .gps(let old)? = draft.location, CensusCapture.fixIsStale(old, at: Int64(Date().timeIntervalSince1970 * 1000)) {
-            busy = true; refreshing = true
+            refreshing = true
             #if DEBUG
             LocationCapture.stubSaveRefresh = true
             #endif
             let outcome = await locationCapture.capture()
-            busy = false; refreshing = false
+            if Task.isCancelled { return }
+            refreshing = false
             guard case .captured(let got) = outcome, CensusCapture.gpsUsable(got, at: Int64(Date().timeIntervalSince1970 * 1000)) else {
-                saveNote = CensusCapture.Failure.location.message; staleRetry = true
+                saveNote = Self.refreshFailed; staleRetry = true
                 return
             }
             fix = got; lastFix = (got.latitude, got.longitude)
@@ -554,6 +578,7 @@ struct AddStoreScreen: View {
                 var address: PlaceAddress?
                 if config?.addressSearch == true, let service = model.censusService, !model.isOffline {
                     address = (try? await service.reverse(latitude: got.latitude, longitude: got.longitude)) ?? nil
+                    if Task.isCancelled { return }
                 }
                 moved = Moved(meters: CensusDuplicates.distanceMeters(old.latitude, old.longitude, got.latitude, got.longitude) ?? 0,
                               address: address)
@@ -567,8 +592,6 @@ struct AddStoreScreen: View {
         do { _ = try CensusCapture.payload(draft, now: Date()) }
         catch let failure as CensusCapture.Failure { message = failure.message; saveNote = failure.message; return }
         catch { message = "Check the store details."; saveNote = message; return }
-        busy = true
-        defer { busy = false }
         var query = CensusDuplicates.Query(name: draft.name, phone: draft.ownerPhone)
         switch draft.location {
         case .gps(let f)?: query.latitude = f.latitude; query.longitude = f.longitude
@@ -583,6 +606,7 @@ struct AddStoreScreen: View {
             if let lat = query.latitude, let lng = query.longitude { body["latitude"] = lat; body["longitude"] = lng }
             if let place = query.placeId { body["placeId"] = place }
             server = (try? await service.duplicateCheck(body)) ?? []
+            if Task.isCancelled { return }
         }
         let merged = CensusDuplicates.merge(local: local, server: server)
             .filter { !draft.acknowledgedDuplicateIds.contains($0.id) }
@@ -593,6 +617,9 @@ struct AddStoreScreen: View {
         }
         commit()
     }
+
+    /// Same plain line as Android when a fresh fix can't be had on Save.
+    static let refreshFailed = "Couldn't get your location. Move to an open spot and tap Try again."
 
     private func sameStore() {
         let outlet = candidates.first { candidate in
