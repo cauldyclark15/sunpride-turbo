@@ -1,6 +1,7 @@
 "use client";
 
 import { Notice } from "@sunpride/ui";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useState } from "react";
 import { apiFetch, useApi } from "@/lib/api";
@@ -52,17 +53,6 @@ const COLUMNS: ListColumn<TransferSummary>[] = [
       </>
     ),
     text: (t) => String(t.lineCount),
-  },
-  {
-    key: "edit",
-    label: "",
-    align: "right",
-    // the whole row is the link to the transfer; this is its visible Edit
-    render: () => (
-      <span className="inline-flex h-9 items-center rounded-lg border border-border px-3 text-[13px] font-medium text-foreground">
-        Edit
-      </span>
-    ),
   },
 ];
 
@@ -128,6 +118,14 @@ export function TransfersListView({
       columns={COLUMNS}
       rowKey={(t) => t.id}
       rowHref={(t) => hrefFor(t.id)}
+      rowEnd={(t) => (
+        <Link
+          href={hrefFor(t.id)}
+          className="inline-flex h-9 items-center rounded-lg border border-border px-3 text-[13px] font-medium text-foreground"
+        >
+          Edit
+        </Link>
+      )}
       loading={loading}
     />
   );
