@@ -1,7 +1,10 @@
 "use client";
 
 import { FiscalWorkspace } from "../../fiscal/fiscal-workspace";
-import { CollectionsPlanPanel } from "../../collections-plan-panel";
+import {
+  CollectionsPlanPanel,
+  readMoneyTab,
+} from "../../collections-plan-panel";
 import { csvHref, useAnalytics } from "../api";
 import { formatPct, formatPhp, formatSince } from "../format";
 import {
@@ -196,27 +199,35 @@ export function MoneyView({
 }
 
 export function MoneyPage() {
-  const { query } = usePageQuery();
+  const { query, params } = usePageQuery();
   const result = useAnalytics("money", query);
+  const overview = readMoneyTab(params) === "overview";
   return (
     <CockpitPage
       title="Money"
       question="Are we collecting?"
       header={result.data}
       bar={
-        <PeriodScopeBar
-          showCompare={false}
-          scopeLabel={result.data?.scope.label}
-        />
+        overview ? (
+          <PeriodScopeBar
+            showCompare={false}
+            scopeLabel={result.data?.scope.label}
+          />
+        ) : undefined
       }
     >
-      <PageData result={result} label="money figures">
-        {(data) => <MoneyView data={data} csv={csvHref("money", query)} />}
-      </PageData>
-      <FiscalWorkspace moneyOnly />
-      <div className="mt-6">
-        <CollectionsPlanPanel />
-      </div>
+      <CollectionsPlanPanel
+        overview={
+          <>
+            <PageData result={result} label="money figures">
+              {(data) => (
+                <MoneyView data={data} csv={csvHref("money", query)} />
+              )}
+            </PageData>
+            <FiscalWorkspace moneyOnly />
+          </>
+        }
+      />
     </CockpitPage>
   );
 }

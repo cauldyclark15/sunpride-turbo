@@ -121,7 +121,7 @@ export function SupervisorAwayPanel({
           )
         }
       >
-        Record away period
+        Add away period
       </button>
       {error && (
         <p role="alert" className="text-danger">

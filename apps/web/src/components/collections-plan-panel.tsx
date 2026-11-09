@@ -1,8 +1,12 @@
 "use client";
-import { useRef, useState } from "react";
+import { useRef, useState, type ReactNode } from "react";
 import { useApi, useLive, useMutate } from "../lib/api";
-import { formatPhp } from "./cockpit/format";
+import { formatDate, formatPhp } from "./cockpit/format";
+import { Drawer } from "./cockpit/kit/drawer";
+import { useUrlState } from "./cockpit/use-url-state";
 import { CollectionEvidence } from "./collection-evidence";
+import { ListPage, PAGE_SIZE, readPage } from "./list-page/list-page";
+import { UrlTabs } from "./url-tabs";
 
 type Item = {
   ref: string;
@@ -141,8 +145,99 @@ export function suggestedStops(actions: Action[]) {
     }));
 }
 
-/** F-613: Money → Collections plan. */
-export function CollectionsPlanPanel() {
+export type MoneyTab = "promises" | "cheques" | "route" | "overview";
+export const MONEY_TABS: { id: MoneyTab; label: string }[] = [
+  { id: "promises", label: "Promises" },
+  { id: "cheques", label: "Cheques" },
+  { id: "route", label: "Collector route" },
+  { id: "overview", label: "Overview" },
+];
+/** ?tab= for Money; anything unknown is the promises list. */
+export function readMoneyTab(params: URLSearchParams): MoneyTab {
+  const t = params.get("tab");
+  return MONEY_TABS.some((x) => x.id === t) ? (t as MoneyTab) : "promises";
+}
+
+export function promiseStatus(p: Pick<Promise_, "status" | "overdue">) {
+  if (p.status === "open") return p.overdue ? "Overdue" : "Open";
+  return p.status[0]!.toUpperCase() + p.status.slice(1);
+}
+export function promiseFilter(p: Pick<Promise_, "status" | "overdue">) {
+  return p.status === "open" && p.overdue ? "overdue" : p.status;
+}
+/** Search + filter + one page of rows, all on the client (the API returns the whole list). */
+export function pageOf<T>(
+  rows: T[],
+  {
+    q,
+    filter,
+    page,
+    text,
+    group,
+  }: {
+    q: string;
+    filter: string | null;
+    page: number;
+    text: (r: T) => string;
+    group: (r: T) => string;
+  },
+) {
+  const needle = q.trim().toLowerCase();
+  const hits = rows.filter(
+    (r) =>
+      (!filter || group(r) === filter) &&
+      (!needle || text(r).toLowerCase().includes(needle)),
+  );
+  return {
+    total: hits.length,
+    rows: hits.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE),
+  };
+}
+/** What can happen next to a cheque; empty means no Edit. */
+export function chequeNext(q: Pick<Cheque, "status" | "postDated">) {
+  if (q.status === "received" && !q.postDated) return ["deposited"] as const;
+  if (q.status === "deposited") return ["cleared", "bounced"] as const;
+  return [] as const;
+}
+const count = <T,>(rows: T[], group: (r: T) => string, id: string) =>
+  rows.filter((r) => group(r) === id).length;
+
+const field = "grid gap-1 text-sm";
+const input =
+  "min-h-10 w-full min-w-0 rounded-[10px] border border-border bg-surface px-3 py-2 text-sm";
+const primary =
+  "min-h-10 rounded-[10px] bg-foreground px-4 py-2 text-sm font-semibold text-background disabled:opacity-40";
+const editButton =
+  "min-h-9 rounded-[10px] border border-border px-3 py-1.5 text-sm font-medium";
+
+function FormBar({
+  onCancel,
+  disabled,
+  why,
+}: {
+  onCancel: () => void;
+  disabled: boolean;
+  why?: string;
+}) {
+  return (
+    <div className="sticky bottom-0 grid gap-1 border-t border-separator bg-surface pt-3">
+      <div className="flex gap-2">
+        <button type="submit" className={primary} disabled={disabled}>
+          Save
+        </button>
+        <button type="button" className={button} onClick={onCancel}>
+          Cancel
+        </button>
+      </div>
+      {disabled && why ? <p className="text-xs text-muted">{why}</p> : null}
+    </div>
+  );
+}
+
+/** F-613: Money → promises, cheques, collector route, and an Overview tab with the figures. */
+export function CollectionsPlanPanel({ overview }: { overview?: ReactNode }) {
+  const { params, set } = useUrlState();
+  const tab = readMoneyTab(params);
   const [routeDate, setRouteDate] = useState("");
   const data = useApi<Collections>(
     ["money", "collections", routeDate],
@@ -151,6 +246,13 @@ export function CollectionsPlanPanel() {
   useLive(["analytics"], [["money"]]);
   const { mutate } = useMutate();
   const keys = useRef(new Map<string, string>());
+  const [drawer, setDrawer] = useState<
+    | { kind: "add-promise" }
+    | { kind: "add-cheque" }
+    | { kind: "edit-promise"; id: string }
+    | { kind: "edit-cheque"; id: string }
+    | null
+  >(null);
   const [customer, setCustomer] = useState(""),
     [item, setItem] = useState(""),
     [amount, setAmount] = useState(""),
@@ -163,7 +265,8 @@ export function CollectionsPlanPanel() {
       date: "",
       replaces: "",
     }),
-    [outcomeNote, setOutcomeNote] = useState<Record<string, string>>({}),
+    [outcome, setOutcome] = useState(""),
+    [outcomeNote, setOutcomeNote] = useState(""),
     [collector, setCollector] = useState(""),
     [picked, setPicked] = useState<string[] | null>(null),
     [busy, setBusy] = useState(false),
@@ -201,35 +304,692 @@ export function CollectionsPlanPanel() {
       setBusy(false);
     }
   }
+  const open = (next: typeof drawer) => {
+    setError("");
+    setOutcome("");
+    setOutcomeNote("");
+    setDrawer(next);
+  };
+  const close = () => setDrawer(null);
+  const q = params.get("q") ?? "";
+  const filter = params.get("status");
+  const page = readPage(params);
+  const listProps = {
+    page,
+    onPage: (n: number) => set({ page: n > 1 ? String(n) : null }),
+    q,
+    onSearch: (v: string) =>
+      set({ q: v || null, page: null }, { replace: true }),
+    filter,
+    onFilter: (id: string | null) => set({ status: id, page: null }),
+  };
+  const tabs = (
+    <UrlTabs
+      label="Money"
+      tabs={MONEY_TABS}
+      tab={tab}
+      onTab={(t) =>
+        set({
+          tab: t === "promises" ? null : t,
+          q: null,
+          page: null,
+          status: null,
+        })
+      }
+    />
+  );
+  if (tab === "overview")
+    return (
+      <div className="grid gap-4">
+        {tabs}
+        {overview}
+        {data.data ? <CollectionsSummary data={data.data} /> : null}
+      </div>
+    );
   if (data.error)
-    return <p role="alert">The collections plan could not be loaded.</p>;
-  if (!data.data) return <p>Loading the collections plan…</p>;
-  const d = data.data,
-    s = d.summary;
-  const rate = keptRate(s.keptLast28, s.brokenLast28),
-    prior = keptRate(s.keptPrior28, s.brokenPrior28);
+    return (
+      <div className="grid gap-4">
+        {tabs}
+        <p role="alert">Money could not be loaded.</p>
+      </div>
+    );
+  if (!data.data)
+    return (
+      <div className="grid gap-4">
+        {tabs}
+        <p>Loading…</p>
+      </div>
+    );
+  const d = data.data;
   const chosen = d.customers.find((c) => c.customerCode === customer);
   const suggestions = suggestedStops(d.actions);
   const stops = (picked ?? suggestions.slice(0, 12).map((x) => x.customerCode))
     .map((code) => suggestions.find((x) => x.customerCode === code))
     .filter((x): x is NonNullable<typeof x> => !!x);
-  const bounced = d.cheques.filter((q) => q.status === "bounced");
+  const bounced = d.cheques.filter((x) => x.status === "bounced");
+  const editingPromise =
+    drawer?.kind === "edit-promise"
+      ? d.promises.find((p) => p.id === drawer.id)
+      : undefined;
+  const editingCheque =
+    drawer?.kind === "edit-cheque"
+      ? d.cheques.find((x) => x.id === drawer.id)
+      : undefined;
+  const customerSelect = (
+    <label className={field}>
+      Store
+      <select
+        required
+        className={input}
+        value={customer}
+        onChange={(e) => {
+          setCustomer(e.target.value);
+          setItem("");
+        }}
+      >
+        <option value="">Choose store</option>
+        {d.customers.map((c) => (
+          <option key={c.customerCode} value={c.customerCode}>
+            {c.name} — {formatPhp(c.arMinor)} owed
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+  const promiseText = (p: Promise_) =>
+    `${p.name} ${p.customerCode} ${p.openItemLabel ?? ""} ${p.note}`;
+  const chequeText = (x: Cheque) =>
+    `${x.name} ${x.customerCode} ${x.bank} ${x.chequeNumber}`;
+  const chequeGroup = (x: Cheque) => x.status;
   return (
-    <section
-      aria-label="Collections plan"
-      className="grid gap-4 rounded-xl border border-border p-4"
-    >
-      <header>
-        <h2 className="text-lg font-medium">
-          Are we collecting what customers owe, and who goes where?
-        </h2>
-        <p className="text-sm text-muted">
-          {d.source} as of {d.asOf}. Promises, cheques and routes plan the work;
-          they never change the balance.
-        </p>
-      </header>
-      {error && <p role="alert">{error}</p>}
-      {notice && <p role="status">{notice}</p>}
+    <div className="grid gap-4">
+      {tabs}
+      {notice && !drawer ? <p role="status">{notice}</p> : null}
+      {tab === "promises" ? (
+        <ListPage<Promise_>
+          {...listProps}
+          {...pageOf(d.promises, {
+            q,
+            filter,
+            page,
+            text: promiseText,
+            group: promiseFilter,
+          })}
+          noun={{ one: "promise", many: "promises" }}
+          searchPlaceholder="Search by store"
+          onAdd={d.canPlan ? () => open({ kind: "add-promise" }) : undefined}
+          filters={(["open", "overdue", "kept", "broken"] as const).map(
+            (id) => ({
+              id,
+              label: id[0]!.toUpperCase() + id.slice(1),
+              count: count(d.promises, promiseFilter, id),
+            }),
+          )}
+          rowKey={(p) => p.id}
+          columns={[
+            {
+              key: "store",
+              label: "Store",
+              primary: true,
+              render: (p) => p.name,
+              text: (p) => p.name,
+            },
+            {
+              key: "item",
+              label: "For",
+              render: (p) => p.openItemLabel ?? "Whole balance",
+              text: (p) => p.openItemLabel ?? "Whole balance",
+            },
+            {
+              key: "amount",
+              label: "Amount",
+              align: "right",
+              render: (p) => formatPhp(p.amountMinor),
+              text: (p) => (p.amountMinor / 100).toFixed(2),
+            },
+            {
+              key: "on",
+              label: "Pay by",
+              render: (p) => formatDate(p.promisedOn),
+              text: (p) => p.promisedOn,
+            },
+            {
+              key: "status",
+              label: "Status",
+              render: (p) => promiseStatus(p),
+              text: (p) => promiseStatus(p),
+            },
+            {
+              key: "edit",
+              label: "",
+              align: "right",
+              render: (p) =>
+                d.canPlan && p.status === "open" ? (
+                  <button
+                    type="button"
+                    className={editButton}
+                    onClick={() => open({ kind: "edit-promise", id: p.id })}
+                  >
+                    Edit
+                  </button>
+                ) : null,
+            },
+          ]}
+        />
+      ) : tab === "cheques" ? (
+        <ListPage<Cheque>
+          {...listProps}
+          {...pageOf(d.cheques, {
+            q,
+            filter,
+            page,
+            text: chequeText,
+            group: chequeGroup,
+          })}
+          noun={{ one: "cheque", many: "cheques" }}
+          searchPlaceholder="Search by store, bank or cheque number"
+          onAdd={d.canPlan ? () => open({ kind: "add-cheque" }) : undefined}
+          filters={(
+            ["received", "deposited", "cleared", "bounced"] as const
+          ).map((id) => ({
+            id,
+            label: id[0]!.toUpperCase() + id.slice(1),
+            count: count(d.cheques, chequeGroup, id),
+          }))}
+          rowKey={(x) => x.id}
+          columns={[
+            {
+              key: "store",
+              label: "Store",
+              primary: true,
+              render: (x) => x.name,
+              text: (x) => x.name,
+            },
+            {
+              key: "cheque",
+              label: "Cheque",
+              render: (x) => `${x.bank} ${x.chequeNumber}`,
+              text: (x) => `${x.bank} ${x.chequeNumber}`,
+            },
+            {
+              key: "amount",
+              label: "Amount",
+              align: "right",
+              render: (x) => formatPhp(x.amountMinor),
+              text: (x) => (x.amountMinor / 100).toFixed(2),
+            },
+            {
+              key: "date",
+              label: "Date",
+              render: (x) =>
+                `${formatDate(x.chequeDate)}${x.postDated ? " · post-dated" : ""}`,
+              text: (x) => x.chequeDate,
+            },
+            {
+              key: "status",
+              label: "Status",
+              render: (x) => x.status[0]!.toUpperCase() + x.status.slice(1),
+              text: (x) => x.status,
+            },
+            {
+              key: "edit",
+              label: "",
+              align: "right",
+              render: (x) =>
+                d.canPlan && chequeNext(x).length ? (
+                  <button
+                    type="button"
+                    className={editButton}
+                    onClick={() => open({ kind: "edit-cheque", id: x.id })}
+                  >
+                    Edit
+                  </button>
+                ) : null,
+            },
+          ]}
+        />
+      ) : (
+        <section aria-label="Collector route" className="grid gap-3">
+          <div className="flex flex-wrap items-end gap-2">
+            <label className={field}>
+              Day
+              <input
+                type="date"
+                className={input}
+                min={d.asOf}
+                value={routeDate || d.routeDate}
+                onChange={(e) => setRouteDate(e.target.value)}
+              />
+            </label>
+            {d.canPlan && (
+              <label className={field}>
+                Collector
+                <select
+                  className={input}
+                  value={collector}
+                  onChange={(e) => setCollector(e.target.value)}
+                >
+                  <option value="">Choose collector</option>
+                  {d.collectors.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </div>
+          {error ? <p role="alert">{error}</p> : null}
+          {d.routes.length === 0 ? (
+            <p className="text-sm text-muted">
+              No route for {formatDate(d.routeDate)}.
+            </p>
+          ) : null}
+          {d.routes.map((r) => (
+            <article key={r.collectorId} className={card}>
+              <p className="text-sm font-medium">{r.collector}</p>
+              <ol className="list-decimal pl-5 text-sm">
+                {r.stops.map((x) => (
+                  <li key={x.sequence}>
+                    {x.name} — {REASON[x.reason]}
+                  </li>
+                ))}
+              </ol>
+            </article>
+          ))}
+          {d.canPlan && collector && (
+            <div className="grid gap-2">
+              <p className="text-sm text-muted">
+                Most urgent first. Untick to skip.
+              </p>
+              <ul className="grid gap-1 text-sm">
+                {suggestions.slice(0, 30).map((x) => (
+                  <li key={x.customerCode}>
+                    <label className="flex items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={stops.some(
+                          (y) => y.customerCode === x.customerCode,
+                        )}
+                        onChange={(e) => {
+                          const base = stops.map((y) => y.customerCode);
+                          setPicked(
+                            e.target.checked
+                              ? [...base, x.customerCode]
+                              : base.filter((c) => c !== x.customerCode),
+                          );
+                        }}
+                      />
+                      {x.name} — {REASON[x.reason]}
+                    </label>
+                  </li>
+                ))}
+              </ul>
+              <button
+                className={primary}
+                disabled={busy || stops.length === 0}
+                onClick={() =>
+                  post(
+                    "route",
+                    {
+                      routeDate: routeDate || d.routeDate,
+                      collectorProfileId: collector,
+                      stops: stops.map((x) => ({
+                        customerCode: x.customerCode,
+                        reason: x.reason,
+                      })),
+                    },
+                    "Route saved.",
+                  )
+                }
+              >
+                Save
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+      <Drawer
+        open={drawer?.kind === "add-promise"}
+        title="Add promise"
+        onClose={close}
+      >
+        <form
+          aria-label="Add promise"
+          className="grid gap-3"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const minor = pesos(amount);
+            if (minor == null) return;
+            if (
+              await post(
+                "promise",
+                {
+                  customerCode: customer,
+                  openItemRef: item || undefined,
+                  amountMinor: minor,
+                  promisedOn,
+                  note,
+                },
+                "Promise saved.",
+                true,
+              )
+            ) {
+              setAmount("");
+              setNote("");
+              close();
+            }
+          }}
+        >
+          {customerSelect}
+          <label className={field}>
+            For
+            <select
+              className={input}
+              value={item}
+              onChange={(e) => setItem(e.target.value)}
+            >
+              <option value="">Whole balance</option>
+              {chosen?.openItems.map((i) => (
+                <option key={i.ref} value={i.ref}>
+                  Due {formatDate(i.dueDate)} — {formatPhp(i.remainingMinor)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className={field}>
+            Amount (₱)
+            <input
+              required
+              className={input}
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+            />
+          </label>
+          <label className={field}>
+            Pay by
+            <input
+              required
+              className={input}
+              type="date"
+              min={d.asOf}
+              value={promisedOn}
+              onChange={(e) => setPromisedOn(e.target.value)}
+            />
+          </label>
+          <label className={field}>
+            Note
+            <input
+              required
+              className={input}
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </label>
+          {error ? <p role="alert">{error}</p> : null}
+          <FormBar
+            onCancel={close}
+            disabled={busy || !customer || pesos(amount) == null}
+            why={!customer ? "Pick a store first" : "Type an amount"}
+          />
+        </form>
+      </Drawer>
+      <Drawer
+        open={drawer?.kind === "add-cheque"}
+        title="Add cheque"
+        onClose={close}
+      >
+        <form
+          aria-label="Add cheque"
+          className="grid gap-3"
+          onSubmit={async (e) => {
+            e.preventDefault();
+            const minor = pesos(cheque.amount);
+            if (minor == null) return;
+            if (
+              await post(
+                "cheque",
+                {
+                  customerCode: customer,
+                  chequeNumber: cheque.number,
+                  bank: cheque.bank,
+                  amountMinor: minor,
+                  chequeDate: cheque.date,
+                  replacesId: cheque.replaces || undefined,
+                },
+                "Cheque saved.",
+                true,
+              )
+            ) {
+              setCheque({
+                number: "",
+                bank: "",
+                amount: "",
+                date: "",
+                replaces: "",
+              });
+              close();
+            }
+          }}
+        >
+          {customerSelect}
+          <label className={field}>
+            Bank
+            <input
+              required
+              className={input}
+              value={cheque.bank}
+              onChange={(e) => setCheque({ ...cheque, bank: e.target.value })}
+            />
+          </label>
+          <label className={field}>
+            Cheque number
+            <input
+              required
+              className={input}
+              value={cheque.number}
+              onChange={(e) => setCheque({ ...cheque, number: e.target.value })}
+            />
+          </label>
+          <label className={field}>
+            Amount (₱)
+            <input
+              required
+              className={input}
+              inputMode="decimal"
+              value={cheque.amount}
+              onChange={(e) => setCheque({ ...cheque, amount: e.target.value })}
+            />
+          </label>
+          <label className={field}>
+            Cheque date
+            <input
+              required
+              className={input}
+              type="date"
+              value={cheque.date}
+              onChange={(e) => setCheque({ ...cheque, date: e.target.value })}
+            />
+          </label>
+          {bounced.some((x) => x.customerCode === customer) ? (
+            <label className={field}>
+              Replaces bounced
+              <select
+                className={input}
+                value={cheque.replaces}
+                onChange={(e) =>
+                  setCheque({ ...cheque, replaces: e.target.value })
+                }
+              >
+                <option value="">None</option>
+                {bounced
+                  .filter((x) => x.customerCode === customer)
+                  .map((x) => (
+                    <option key={x.id} value={x.id}>
+                      {x.bank} {x.chequeNumber}
+                    </option>
+                  ))}
+              </select>
+            </label>
+          ) : null}
+          {error ? <p role="alert">{error}</p> : null}
+          <FormBar
+            onCancel={close}
+            disabled={busy || !customer}
+            why="Pick a store first"
+          />
+        </form>
+      </Drawer>
+      <Drawer
+        open={!!editingPromise}
+        title={`Edit promise · ${editingPromise?.name ?? ""}`}
+        onClose={close}
+      >
+        {editingPromise ? (
+          <form
+            aria-label="Edit promise"
+            className="grid gap-3"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (
+                await post(
+                  "promise/settle",
+                  {
+                    promiseId: editingPromise.id,
+                    outcome,
+                    note: outcomeNote,
+                  },
+                  "Promise saved.",
+                )
+              )
+                close();
+            }}
+          >
+            <p className="text-sm">
+              {formatPhp(editingPromise.amountMinor)} by{" "}
+              {formatDate(editingPromise.promisedOn)} ·{" "}
+              {promiseStatus(editingPromise)}
+            </p>
+            <label className={field}>
+              Outcome
+              <select
+                required
+                className={input}
+                value={outcome}
+                onChange={(e) => setOutcome(e.target.value)}
+              >
+                <option value="">Choose</option>
+                <option value="kept">Kept</option>
+                {editingPromise.overdue ? (
+                  <option value="broken">Broken</option>
+                ) : null}
+                <option value="cancelled">Cancelled</option>
+              </select>
+            </label>
+            <label className={field}>
+              Note
+              <input
+                required
+                className={input}
+                value={outcomeNote}
+                onChange={(e) => setOutcomeNote(e.target.value)}
+              />
+            </label>
+            {d.canPlan ? (
+              <CollectionEvidence kind="promise" id={editingPromise.id} />
+            ) : null}
+            {error ? <p role="alert">{error}</p> : null}
+            <FormBar
+              onCancel={close}
+              disabled={busy || !outcome || !outcomeNote.trim()}
+              why="Pick an outcome and add a note"
+            />
+          </form>
+        ) : null}
+      </Drawer>
+      <Drawer
+        open={!!editingCheque}
+        title={`Edit cheque · ${editingCheque ? `${editingCheque.bank} ${editingCheque.chequeNumber}` : ""}`}
+        onClose={close}
+      >
+        {editingCheque ? (
+          <form
+            aria-label="Edit cheque"
+            className="grid gap-3"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (
+                await post(
+                  "cheque/event",
+                  {
+                    chequeId: editingCheque.id,
+                    kind: outcome,
+                    ...(outcome === "bounced" ? { note: outcomeNote } : {}),
+                  },
+                  "Cheque saved.",
+                )
+              )
+                close();
+            }}
+          >
+            <p className="text-sm">
+              {editingCheque.name} · {formatPhp(editingCheque.amountMinor)} ·{" "}
+              {formatDate(editingCheque.chequeDate)}
+            </p>
+            <label className={field}>
+              Status
+              <select
+                required
+                className={input}
+                value={outcome}
+                onChange={(e) => setOutcome(e.target.value)}
+              >
+                <option value="">Choose</option>
+                {chequeNext(editingCheque).map((k) => (
+                  <option key={k} value={k}>
+                    {k[0]!.toUpperCase() + k.slice(1)}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {outcome === "bounced" ? (
+              <label className={field}>
+                Bounce reason
+                <input
+                  required
+                  className={input}
+                  value={outcomeNote}
+                  onChange={(e) => setOutcomeNote(e.target.value)}
+                />
+              </label>
+            ) : null}
+            {d.canPlan ? (
+              <CollectionEvidence kind="cheque" id={editingCheque.id} />
+            ) : null}
+            {error ? <p role="alert">{error}</p> : null}
+            <FormBar
+              onCancel={close}
+              disabled={
+                busy ||
+                !outcome ||
+                (outcome === "bounced" && !outcomeNote.trim())
+              }
+              why={!outcome ? "Pick a status" : "Add the bounce reason"}
+            />
+          </form>
+        ) : null}
+      </Drawer>
+    </div>
+  );
+}
+
+/** Overview tab: collection figures and what needs action. */
+export function CollectionsSummary({ data: d }: { data: Collections }) {
+  const s = d.summary;
+  const rate = keptRate(s.keptLast28, s.brokenLast28);
+  return (
+    <section aria-label="Collections" className="grid gap-4">
       <div className="grid gap-3 md:grid-cols-5">
         {[
           [
@@ -240,24 +1000,20 @@ export function CollectionsPlanPanel() {
           [
             "Promised to pay",
             formatPhp(s.openPromisesMinor),
-            `${formatPhp(s.dueThisWeekMinor)} due this week; ${s.overduePromises} overdue`,
+            `${formatPhp(s.dueThisWeekMinor)} due this week`,
           ],
           [
             "Promises kept, 28 days",
             rate == null ? "—" : `${rate}%`,
-            `${s.keptLast28} kept, ${s.brokenLast28} broken; prior 28 days ${prior == null ? "none settled" : `${prior}%`}`,
+            `${s.keptLast28} kept, ${s.brokenLast28} broken`,
           ],
-          [
-            "Post-dated cheques held",
-            formatPhp(s.postDatedMinor),
-            "Deposit each on its date",
-          ],
-          ["Bounced, awaiting replacement", String(s.bouncedOpen), "Target 0"],
+          ["Post-dated cheques", formatPhp(s.postDatedMinor), ""],
+          ["Bounced, not replaced", String(s.bouncedOpen), ""],
         ].map(([label, value, sub]) => (
           <article key={label} className={card}>
             <p className="text-sm text-muted">{label}</p>
             <p className="text-xl font-medium tabular-nums">{value}</p>
-            <p className="text-xs text-muted">{sub}</p>
+            {sub ? <p className="text-xs text-muted">{sub}</p> : null}
           </article>
         ))}
       </div>
@@ -268,474 +1024,11 @@ export function CollectionsPlanPanel() {
           {d.actions.slice(0, 20).map((a) => (
             <li key={a.kind + a.id}>
               <span className="font-medium">{ACTION[a.kind]}</span> ·{" "}
-              {a.name ?? a.customerCode} · {formatPhp(a.amountMinor)} · {a.on}.{" "}
-              {a.next}
+              {a.name ?? a.customerCode} · {formatPhp(a.amountMinor)} ·{" "}
+              {formatDate(a.on)}. {a.next}
             </li>
           ))}
         </ul>
-      </section>
-      <section aria-label="Promises to pay" className="grid gap-2">
-        <h3 className="font-medium">Promises to pay</h3>
-        <table className="w-full text-sm [&_td]:px-2 [&_td]:py-1 [&_th]:px-2 [&_th]:py-1">
-          <thead>
-            <tr>
-              <th className="text-left">Customer</th>
-              <th className="text-left">Open item</th>
-              <th className="text-right">Amount</th>
-              <th className="text-left">Promised day</th>
-              <th className="text-left">Status</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {d.promises.map((p) => (
-              <tr key={p.id}>
-                <td>
-                  {p.name}
-                  {d.canPlan && <CollectionEvidence kind="promise" id={p.id} />}
-                </td>
-                <td>{p.openItemLabel ?? "Whole balance"}</td>
-                <td className="text-right tabular-nums">
-                  {formatPhp(p.amountMinor)}
-                </td>
-                <td>{p.promisedOn}</td>
-                <td>
-                  {p.status === "open"
-                    ? p.overdue
-                      ? "Overdue"
-                      : "Open"
-                    : `${p.status[0]!.toUpperCase()}${p.status.slice(1)}: ${p.outcomeNote}`}
-                </td>
-                <td>
-                  {d.canPlan && p.status === "open" && (
-                    <div className="flex flex-wrap items-center gap-1">
-                      <input
-                        aria-label={`Outcome note for ${p.name}`}
-                        placeholder="Outcome note"
-                        value={outcomeNote[p.id] ?? ""}
-                        onChange={(e) =>
-                          setOutcomeNote({
-                            ...outcomeNote,
-                            [p.id]: e.target.value,
-                          })
-                        }
-                      />
-                      {(
-                        [
-                          "kept",
-                          ...(p.overdue ? ["broken"] : []),
-                          "cancelled",
-                        ] as const
-                      ).map((o) => (
-                        <button
-                          key={o}
-                          className={button}
-                          disabled={busy || !(outcomeNote[p.id] ?? "").trim()}
-                          onClick={() =>
-                            post(
-                              "promise/settle",
-                              {
-                                promiseId: p.id,
-                                outcome: o,
-                                note: outcomeNote[p.id],
-                              },
-                              "Promise updated.",
-                            )
-                          }
-                        >
-                          {o === "kept"
-                            ? "Kept"
-                            : o === "broken"
-                              ? "Broken"
-                              : "Cancel"}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {d.canPlan && (
-          <form
-            aria-label="Record a promise"
-            className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 [&_input]:w-full [&_input]:min-w-0 [&_select]:w-full [&_select]:min-w-0"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const minor = pesos(amount);
-              if (minor == null) return;
-              if (
-                await post(
-                  "promise",
-                  {
-                    customerCode: customer,
-                    openItemRef: item || undefined,
-                    amountMinor: minor,
-                    promisedOn,
-                    note,
-                  },
-                  "Promise recorded.",
-                  true,
-                )
-              ) {
-                setAmount("");
-                setNote("");
-              }
-            }}
-          >
-            <label className="grid gap-1 text-sm">
-              Customer
-              <select
-                required
-                value={customer}
-                onChange={(e) => {
-                  setCustomer(e.target.value);
-                  setItem("");
-                }}
-              >
-                <option value="">Choose customer</option>
-                {d.customers.map((c) => (
-                  <option key={c.customerCode} value={c.customerCode}>
-                    {c.name} — {formatPhp(c.arMinor)} owed
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm">
-              Open item
-              <select value={item} onChange={(e) => setItem(e.target.value)}>
-                <option value="">Whole balance</option>
-                {chosen?.openItems.map((i) => (
-                  <option key={i.ref} value={i.ref}>
-                    Due {i.dueDate} — {formatPhp(i.remainingMinor)}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="grid gap-1 text-sm">
-              Amount (₱)
-              <input
-                required
-                inputMode="decimal"
-                value={amount}
-                onChange={(e) => setAmount(e.target.value)}
-              />
-            </label>
-            <label className="grid gap-1 text-sm">
-              Promised day
-              <input
-                required
-                type="date"
-                min={d.asOf}
-                value={promisedOn}
-                onChange={(e) => setPromisedOn(e.target.value)}
-              />
-            </label>
-            <label className="grid gap-1 text-sm">
-              Note
-              <input
-                required
-                value={note}
-                onChange={(e) => setNote(e.target.value)}
-              />
-            </label>
-            <button
-              className={button}
-              disabled={busy || !customer || pesos(amount) == null}
-            >
-              Record promise
-            </button>
-          </form>
-        )}
-      </section>
-      <section aria-label="Cheques" className="grid gap-2">
-        <h3 className="font-medium">Cheques</h3>
-        <table className="w-full text-sm [&_td]:px-2 [&_td]:py-1 [&_th]:px-2 [&_th]:py-1">
-          <thead>
-            <tr>
-              <th className="text-left">Customer</th>
-              <th className="text-left">Cheque</th>
-              <th className="text-right">Amount</th>
-              <th className="text-left">Cheque date</th>
-              <th className="text-left">Status</th>
-              <th />
-            </tr>
-          </thead>
-          <tbody>
-            {d.cheques.map((q) => (
-              <tr key={q.id}>
-                <td>
-                  {q.name}
-                  {d.canPlan && <CollectionEvidence kind="cheque" id={q.id} />}
-                </td>
-                <td>
-                  {q.bank} {q.chequeNumber}
-                </td>
-                <td className="text-right tabular-nums">
-                  {formatPhp(q.amountMinor)}
-                </td>
-                <td>
-                  {q.chequeDate}
-                  {q.postDated ? " (post-dated)" : ""}
-                </td>
-                <td>{q.status[0]!.toUpperCase() + q.status.slice(1)}</td>
-                <td>
-                  {d.canPlan && q.status === "received" && !q.postDated && (
-                    <button
-                      className={button}
-                      disabled={busy}
-                      onClick={() =>
-                        post(
-                          "cheque/event",
-                          { chequeId: q.id, kind: "deposited" },
-                          "Marked deposited.",
-                        )
-                      }
-                    >
-                      Deposited
-                    </button>
-                  )}
-                  {d.canPlan && q.status === "deposited" && (
-                    <div className="flex flex-wrap items-center gap-1">
-                      <button
-                        className={button}
-                        disabled={busy}
-                        onClick={() =>
-                          post(
-                            "cheque/event",
-                            { chequeId: q.id, kind: "cleared" },
-                            "Marked cleared.",
-                          )
-                        }
-                      >
-                        Cleared
-                      </button>
-                      <input
-                        aria-label={`Bounce reason for ${q.bank} ${q.chequeNumber}`}
-                        placeholder="Bounce reason"
-                        value={outcomeNote[q.id] ?? ""}
-                        onChange={(e) =>
-                          setOutcomeNote({
-                            ...outcomeNote,
-                            [q.id]: e.target.value,
-                          })
-                        }
-                      />
-                      <button
-                        className={button}
-                        disabled={busy || !(outcomeNote[q.id] ?? "").trim()}
-                        onClick={() =>
-                          post(
-                            "cheque/event",
-                            {
-                              chequeId: q.id,
-                              kind: "bounced",
-                              note: outcomeNote[q.id],
-                            },
-                            "Marked bounced.",
-                          )
-                        }
-                      >
-                        Bounced
-                      </button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-        {d.canPlan && (
-          <form
-            aria-label="Record a cheque"
-            className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3 [&_input]:w-full [&_input]:min-w-0 [&_select]:w-full [&_select]:min-w-0"
-            onSubmit={async (e) => {
-              e.preventDefault();
-              const minor = pesos(cheque.amount);
-              if (minor == null) return;
-              if (
-                await post(
-                  "cheque",
-                  {
-                    customerCode: customer,
-                    chequeNumber: cheque.number,
-                    bank: cheque.bank,
-                    amountMinor: minor,
-                    chequeDate: cheque.date,
-                    replacesId: cheque.replaces || undefined,
-                  },
-                  "Cheque recorded.",
-                  true,
-                )
-              )
-                setCheque({
-                  number: "",
-                  bank: "",
-                  amount: "",
-                  date: "",
-                  replaces: "",
-                });
-            }}
-          >
-            <p className="text-sm sm:col-span-2 lg:col-span-3">
-              Records a cheque for the customer chosen above.
-            </p>
-            <label className="grid gap-1 text-sm">
-              Bank
-              <input
-                required
-                value={cheque.bank}
-                onChange={(e) => setCheque({ ...cheque, bank: e.target.value })}
-              />
-            </label>
-            <label className="grid gap-1 text-sm">
-              Cheque number
-              <input
-                required
-                value={cheque.number}
-                onChange={(e) =>
-                  setCheque({ ...cheque, number: e.target.value })
-                }
-              />
-            </label>
-            <label className="grid gap-1 text-sm">
-              Amount (₱)
-              <input
-                required
-                inputMode="decimal"
-                value={cheque.amount}
-                onChange={(e) =>
-                  setCheque({ ...cheque, amount: e.target.value })
-                }
-              />
-            </label>
-            <label className="grid gap-1 text-sm">
-              Cheque date
-              <input
-                required
-                type="date"
-                value={cheque.date}
-                onChange={(e) => setCheque({ ...cheque, date: e.target.value })}
-              />
-            </label>
-            <label className="grid gap-1 text-sm">
-              Replaces bounced
-              <select
-                value={cheque.replaces}
-                onChange={(e) =>
-                  setCheque({ ...cheque, replaces: e.target.value })
-                }
-              >
-                <option value="">None</option>
-                {bounced
-                  .filter((q) => q.customerCode === customer)
-                  .map((q) => (
-                    <option key={q.id} value={q.id}>
-                      {q.bank} {q.chequeNumber}
-                    </option>
-                  ))}
-              </select>
-            </label>
-            <button className={button} disabled={busy || !customer}>
-              Record cheque
-            </button>
-          </form>
-        )}
-      </section>
-      <section aria-label="Collector route" className="grid gap-2">
-        <h3 className="font-medium">Collector route for {d.routeDate}</h3>
-        <div className="flex flex-wrap items-end gap-2">
-          <label className="grid gap-1 text-sm">
-            Day
-            <input
-              type="date"
-              min={d.asOf}
-              value={routeDate || d.routeDate}
-              onChange={(e) => setRouteDate(e.target.value)}
-            />
-          </label>
-          {d.canPlan && (
-            <label className="grid gap-1 text-sm">
-              Collector
-              <select
-                value={collector}
-                onChange={(e) => setCollector(e.target.value)}
-              >
-                <option value="">Choose collector</option>
-                {d.collectors.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          )}
-        </div>
-        {d.routes.map((r) => (
-          <article key={r.collectorId} className={card}>
-            <p className="text-sm font-medium">{r.collector}</p>
-            <ol className="list-decimal pl-5 text-sm">
-              {r.stops.map((x) => (
-                <li key={x.sequence}>
-                  {x.name} — {REASON[x.reason]}
-                </li>
-              ))}
-            </ol>
-          </article>
-        ))}
-        {d.canPlan && collector && (
-          <div className="grid gap-2">
-            <p className="text-sm text-muted">
-              Suggested from the list above, most urgent first. Untick to drop a
-              stop; order is the visiting order (no road-travel engine yet).
-            </p>
-            <ul className="grid gap-1 text-sm">
-              {suggestions.slice(0, 30).map((x) => (
-                <li key={x.customerCode}>
-                  <label className="flex items-center gap-2">
-                    <input
-                      type="checkbox"
-                      checked={stops.some(
-                        (y) => y.customerCode === x.customerCode,
-                      )}
-                      onChange={(e) => {
-                        const base = stops.map((y) => y.customerCode);
-                        setPicked(
-                          e.target.checked
-                            ? [...base, x.customerCode]
-                            : base.filter((c) => c !== x.customerCode),
-                        );
-                      }}
-                    />
-                    {x.name} — {REASON[x.reason]}
-                  </label>
-                </li>
-              ))}
-            </ul>
-            <button
-              className={button}
-              disabled={busy || stops.length === 0}
-              onClick={() =>
-                post(
-                  "route",
-                  {
-                    routeDate: routeDate || d.routeDate,
-                    collectorProfileId: collector,
-                    stops: stops.map((x) => ({
-                      customerCode: x.customerCode,
-                      reason: x.reason,
-                    })),
-                  },
-                  "Route saved.",
-                )
-              }
-            >
-              Save route ({stops.length} {stops.length === 1 ? "stop" : "stops"}
-              )
-            </button>
-          </div>
-        )}
       </section>
     </section>
   );

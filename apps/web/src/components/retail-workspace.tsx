@@ -572,7 +572,7 @@ export function RetailWorkspace() {
                       <option value="reject">Reject</option>
                     </select>
                     <button className={button} disabled={busy}>
-                      Record action
+                      Save
                     </button>
                   </form>
                 )}
@@ -628,7 +628,7 @@ export function RetailWorkspace() {
                   </div>
                   {canManage && (
                     <button className={button} onClick={() => setSelected(m)}>
-                      Edit next version
+                      Edit
                     </button>
                   )}
                 </article>
@@ -717,7 +717,7 @@ export function RetailWorkspace() {
                     placeholder="Work completed or discrepancy"
                   />
                   <button className={button} disabled={busy}>
-                    Record service / reconciliation
+                    Save
                   </button>
                 </form>
               )}
@@ -802,7 +802,7 @@ export function RetailWorkspace() {
                     <input className={input} name="reason" required />
                   </Field>
                   <button className={button} disabled={busy}>
-                    Record custody action
+                    Save
                   </button>
                 </form>
               )}
@@ -1077,8 +1077,8 @@ function MasterEditor({
     <form className={panel} onSubmit={(e) => void save(e)}>
       <h3>
         {selected
-          ? `Publish next version of ${selected.label}`
-          : "Create an effective-dated record"}
+          ? `Edit ${selected.label}`
+          : "Add record"}
       </h3>
       {!selected && (
         <Field title="Record type">
@@ -1362,7 +1362,7 @@ function MasterEditor({
         </>
       )}
       <button className={button} disabled={busy}>
-        Publish prospective version
+        Save
       </button>
     </form>
   );

@@ -303,7 +303,7 @@ export function CoveragePlanner({
                     )
                   }
                 >
-                  New plan
+                  Add plan
                 </Button>
               )}
             </div>
