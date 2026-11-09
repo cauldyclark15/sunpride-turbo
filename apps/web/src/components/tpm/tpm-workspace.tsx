@@ -2,7 +2,12 @@
 import { useRef, useState, type FormEvent, type ReactNode } from "react";
 import { mutate, useApi, useLive } from "../../lib/api";
 import { usePermissions } from "../../lib/auth";
+import Link from "next/link";
+import { Drawer } from "../cockpit/kit/drawer";
 import { TrendChart } from "../cockpit/kit/trend-chart";
+import { useUrlState } from "../cockpit/use-url-state";
+import { ListPage, PAGE_SIZE, readPage } from "../list-page/list-page";
+import { PageTabs, rowButton, shortDate } from "../pricing/page-tabs";
 import {
   ClaimEvidencePreview,
   type EvidencePreview,
@@ -164,9 +169,33 @@ function Snapshot({ data }: { data: Summary }) {
     </div>
   );
 }
+const TPM_TABS = [
+  { id: "campaigns", label: "Campaigns" },
+  { id: "schemes", label: "Schemes" },
+  { id: "spend", label: "Spend & ROI" },
+  { id: "overview", label: "Overview" },
+] as const;
+type TpmTab = (typeof TPM_TABS)[number]["id"];
+export function readTpmTab(params: URLSearchParams): TpmTab {
+  const t = params.get("tab");
+  return TPM_TABS.some((x) => x.id === t) ? (t as TpmTab) : "campaigns";
+}
+const cap = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
+const CAMPAIGN_FILTERS = [
+  { id: "draft", label: "Draft" },
+  { id: "active", label: "Active" },
+  { id: "closed", label: "Closed" },
+];
 export function TradeMarketingWorkspace() {
   const permissions = usePermissions(),
     canEdit = permissions.can("masterdata.manage");
+  const { params, set, hrefWith } = useUrlState();
+  const tab = readTpmTab(params);
+  const q = params.get("q") ?? "";
+  const status = params.get("status");
+  const page = readPage(params);
+  const editId = params.get("campaign");
+  const [adding, setAdding] = useState(false);
   const summary = useApi<Summary>(["tpm", "summary"], "/api/v1/tpm/summary");
   const campaigns = useApi<{ rows: Campaign[] }>(
     ["tpm", "campaigns"],
@@ -196,20 +225,36 @@ export function TradeMarketingWorkspace() {
       revision: number;
     }[];
   }>(["tpm", "roi-policies"], "/api/v1/tpm/roi/policies");
-  const [selected, setSelected] = useState<Campaign | null>(null);
   useLive(["tpm"], [["tpm"]]);
+  const editing = campaigns.data?.rows.find((c) => c.versionId === editId);
+  const needle = q.trim().toLowerCase();
+  const matched = campaigns.data?.rows.filter(
+    (c) =>
+      (!status || c.status === status) &&
+      (!needle ||
+        `${c.name} ${c.code} ${c.mechanic}`.toLowerCase().includes(needle)),
+  );
+  const tabHref = (id: string) =>
+    hrefWith({
+      tab: id === "campaigns" ? null : id,
+      q: null,
+      page: null,
+      status: null,
+      campaign: null,
+    });
   return (
-    <div className="grid gap-5">
-      <p className="text-sm text-muted">
-        Which campaigns are earning their budget, and what needs action? Sample
-        campaigns are labelled. ROI is directional, not a certified financial
-        result.
-      </p>
+    <div className="grid gap-4">
+      <PageTabs
+        label="Trade Marketing"
+        tabs={TPM_TABS}
+        current={tab}
+        href={tabHref}
+      />
       <QueryState
         error={summary.error ?? campaigns.error ?? options.error ?? roi.error}
         loading={!summary.data || !campaigns.data}
       />
-      {summary.data ? (
+      {tab === "overview" && summary.data ? (
         <>
           <Snapshot data={summary.data} />
           <Panel title="Claims trend · last 28 days">
@@ -228,95 +273,122 @@ export function TradeMarketingWorkspace() {
           </Panel>
         </>
       ) : null}
-      <Panel title="Campaigns and budget">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left text-sm">
-            <thead>
-              <tr>
-                {[
-                  "Campaign",
-                  "Period",
-                  "Committed / budget",
-                  "Expected volume",
-                  "Next action",
-                ].map((x) => (
-                  <th className="p-2 text-xs text-muted" key={x}>
-                    {x}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {campaigns.data?.rows.map((c) => (
-                <tr className="border-t border-border" key={c.versionId}>
-                  <td className="p-2">
-                    {c.name}
-                    <p className="text-xs text-muted">
-                      Version {c.version} · {words(c.status)} ·{" "}
-                      {c.source === "sample" ? "Sample data" : "Office"}
-                    </p>
-                  </td>
-                  <td className="p-2">
-                    {day(c.effectiveFrom)} → {day(c.effectiveTo)}
-                  </td>
-                  <td className="p-2">
-                    {peso(c.committedCentavos)} / {peso(c.budgetCentavos)}
-                  </td>
-                  <td className="p-2">
-                    {c.expectedVolumeBase.toLocaleString()} pieces
-                  </td>
-                  <td className="p-2">
-                    {canEdit ? (
-                      <button className={button} onClick={() => setSelected(c)}>
-                        Create next version
-                      </button>
-                    ) : (
-                      "Review budget"
-                    )}
-                  </td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-        {!campaigns.data?.rows.length ? (
-          <p className="text-sm text-muted">
-            No campaigns yet. Set a period and budget to start.
-          </p>
-        ) : null}
-      </Panel>
-      {canEdit ? (
-        <Panel
-          title={
-            selected ? "Create a prospective campaign version" : "New campaign"
+      {tab === "campaigns" ? (
+        <ListPage<Campaign>
+          noun={{ one: "campaign", many: "campaigns" }}
+          rows={
+            matched
+              ? matched.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE)
+              : campaigns.error
+                ? []
+                : null
           }
-        >
-          <CampaignEditor
-            key={selected?.versionId ?? "new"}
-            campaign={selected}
-            options={options.data}
-          />
-          {selected ? (
-            <button className={button} onClick={() => setSelected(null)}>
-              New campaign instead
-            </button>
-          ) : null}
-        </Panel>
+          total={matched?.length ?? null}
+          loading={!campaigns.data && !campaigns.error}
+          page={page}
+          onPage={(n) => set({ page: n > 1 ? String(n) : null })}
+          q={q}
+          onSearch={(next) =>
+            set({ q: next || null, page: null }, { replace: true })
+          }
+          searchPlaceholder="Search by campaign name or code"
+          onAdd={canEdit ? () => setAdding(true) : undefined}
+          filters={CAMPAIGN_FILTERS}
+          filter={status}
+          onFilter={(id) => set({ status: id, page: null })}
+          rowKey={(c) => c.versionId}
+          columns={[
+            {
+              key: "name",
+              label: "Campaign",
+              primary: true,
+              text: (c) => c.name,
+              render: (c) => (
+                <>
+                  {c.name}
+                  {c.source === "sample" ? (
+                    <span className="ml-2 text-[12px] font-normal text-muted">
+                      Sample
+                    </span>
+                  ) : null}
+                </>
+              ),
+            },
+            {
+              key: "status",
+              label: "Status",
+              text: (c) => cap(words(c.status)),
+              render: (c) => cap(words(c.status)),
+            },
+            {
+              key: "period",
+              label: "Period",
+              text: (c) =>
+                `${shortDate(c.effectiveFrom)} – ${shortDate(c.effectiveTo)}`,
+              render: (c) =>
+                `${shortDate(c.effectiveFrom)} – ${shortDate(c.effectiveTo)}`,
+            },
+            {
+              key: "budget",
+              label: "Spent / budget",
+              text: (c) =>
+                `${peso(c.committedCentavos)} / ${peso(c.budgetCentavos)}`,
+              render: (c) =>
+                `${peso(c.committedCentavos)} / ${peso(c.budgetCentavos)}`,
+            },
+            ...(canEdit
+              ? [
+                  {
+                    key: "edit",
+                    label: "",
+                    align: "right" as const,
+                    render: (c: Campaign) => (
+                      <Link
+                        href={hrefWith({ campaign: c.versionId })}
+                        scroll={false}
+                        className={rowButton}
+                        aria-label={`Edit ${c.name}`}
+                      >
+                        Edit
+                      </Link>
+                    ),
+                  },
+                ]
+              : []),
+          ]}
+        />
       ) : null}
-      {canEdit && campaigns.data && options.data ? (
-        <Panel title="Scheme authoring · shared engine version 1">
+      {canEdit ? (
+        <Drawer
+          open={adding || !!editing}
+          wide
+          title={editing ? "Edit campaign" : "Add campaign"}
+          onClose={() => (editing ? set({ campaign: null }) : setAdding(false))}
+        >
+          {adding || editing ? (
+            <CampaignEditor
+              key={editing?.versionId ?? "new"}
+              campaign={editing ?? null}
+              options={options.data}
+            />
+          ) : null}
+        </Drawer>
+      ) : null}
+      {tab === "schemes" && canEdit && campaigns.data && options.data ? (
+        <Panel title="Schemes">
           <SchemeEditor
             campaigns={campaigns.data.rows}
             options={options.data}
           />
           <p className="text-xs text-muted">
-            Lower precedence runs first. Stacked discounts use the remaining net
-            value. Campaign period and scope always apply; exclusions win. New
-            governed selling waits for Finance authority to be connected.
+            Lower precedence runs first; exclusions always win.
           </p>
         </Panel>
       ) : null}
-      {canEdit && campaigns.data ? (
+      {tab === "schemes" && !canEdit ? (
+        <p className="text-sm text-muted">Only setup managers add schemes.</p>
+      ) : null}
+      {tab === "spend" && canEdit && campaigns.data ? (
         <Panel title="Commit planned spend">
           <CommandForm
             path="/api/v1/tpm/budget/commit"
@@ -343,145 +415,153 @@ export function TradeMarketingWorkspace() {
           </CommandForm>
         </Panel>
       ) : null}
-      <Panel title="Measured promotion uplift and ROI">
-        <p className="text-sm text-muted">
-          Baseline: the immediately preceding equal-length period of complete
-          secondary sales. Margin and other costs use the sources below. Closed
-          campaigns are evaluated automatically after 30 days; missing feeds
-          remain unknown.
-        </p>
-        {roi.data?.aggregates?.map((g) => (
-          <p key={g.dimension + g.key} className="text-sm">
-            {words(g.dimension)} · {g.label}
-            {g.sample ? " · Sample" : ""}: incremental{" "}
-            {g.incrementalVolumeBase.toLocaleString()} pieces · spend{" "}
-            {peso(g.spendCentavos)} · net ROI{" "}
-            {g.netRoiBps == null
-              ? "Unknown"
-              : `${(g.netRoiBps / 100).toFixed(1)}%`}
+      {tab === "spend" ? (
+        <Panel title="Measured promotion uplift and ROI">
+          <p className="text-sm text-muted">
+            Compared with the same length of time just before. Missing data
+            stays unknown.
           </p>
-        ))}
-        {performance.error ? (
-          <p role="alert">Unable to load measurement sources.</p>
-        ) : null}
-        {performance.data?.rows.map((p) => (
-          <p key={p.id} className="text-xs text-muted">
-            {p.campaign_name} · {p.account_key} · {p.product_name} ·{" "}
-            {words(p.source)} margin source, revision {p.revision}
-          </p>
-        ))}
-        {canEdit && campaigns.data && options.data && performance.data ? (
-          <CommandForm
-            path="/api/v1/tpm/roi/policy"
-            label="Save margin and cost source"
-            reuseCompleted={false}
-            build={(d) => ({
-              campaignVersionId: d.get("campaign"),
-              distributorId: d.get("distributor"),
-              productId: d.get("product"),
-              unitMarginCentavos: centavos(d.get("margin")),
-              otherCostCentavos: centavos(d.get("cost")),
-              marginReference: d.get("marginRef"),
-              costReference: d.get("costRef"),
-              source: d.get("sourceMode"),
-            })}
-          >
-            <Field label="Campaign">
-              <CampaignPicker campaigns={campaigns.data.rows} />
-            </Field>
-            <Field label="Distributor account">
-              <select name="distributor" required className={input}>
-                {performance.data.distributors.map((d) => (
-                  <option key={d.id} value={d.id}>
-                    {d.name} · {d.account_key}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Product">
-              <select name="product" required className={input}>
-                {options.data.products.map((p) => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}
-                  </option>
-                ))}
-              </select>
-            </Field>
-            <Field label="Margin per base piece · ₱">
-              <input name="margin" required className={input} />
-            </Field>
-            <Field label="Other campaign cost allocated to this SKU · ₱">
-              <input name="cost" required defaultValue="0" className={input} />
-            </Field>
-            <Field label="SAP margin extract or sample reference">
-              <input name="marginRef" required className={input} />
-            </Field>
-            <Field label="Cost evidence reference, including explicit zero">
-              <input name="costRef" required className={input} />
-            </Field>
-            <Field label="Source">
-              <select name="sourceMode" className={input}>
-                <option value="sample">
-                  Clearly marked sample assumptions
-                </option>
-                <option value="operational">
-                  Operational source documents
-                </option>
-              </select>
-            </Field>
-          </CommandForm>
-        ) : null}
-        <div className="grid gap-3 md:grid-cols-3">
-          {roi.data?.rows.map((r) => (
-            <article key={r.id} className="rounded-md border border-border p-4">
-              <h3 className="font-medium">{r.campaignName}</h3>
-              <p className="text-xs text-muted">
-                {r.accountKey} · {r.mechanic}
-              </p>
-              <p className="mt-3 text-sm">
-                Baseline {r.baselineVolumeBase.toLocaleString()} → promoted{" "}
-                {r.promotedVolumeBase.toLocaleString()} pieces
-              </p>
-              <p className="text-sm">
-                Incremental {r.incrementalVolumeBase.toLocaleString()} pieces ·
-                spend {peso(r.spendCentavos)}
-              </p>
-              <p className="mt-2 text-sm">
-                Gross ROI{" "}
-                {r.grossRoiBps == null
-                  ? "Unknown"
-                  : `${(r.grossRoiBps / 100).toFixed(1)}%`}{" "}
-                · net ROI{" "}
-                {r.netRoiBps == null
-                  ? "Unknown"
-                  : `${(r.netRoiBps / 100).toFixed(1)}%`}
-              </p>
-              <p className="text-xs text-muted">
-                {r.sample ? "Sample · " : ""}Directional · review baseline and
-                SAP margin source
-              </p>
-            </article>
+          {roi.data?.aggregates?.map((g) => (
+            <p key={g.dimension + g.key} className="text-sm">
+              {words(g.dimension)} · {g.label}
+              {g.sample ? " · Sample" : ""}: incremental{" "}
+              {g.incrementalVolumeBase.toLocaleString()} pieces · spend{" "}
+              {peso(g.spendCentavos)} · net ROI{" "}
+              {g.netRoiBps == null
+                ? "Unknown"
+                : `${(g.netRoiBps / 100).toFixed(1)}%`}
+            </p>
           ))}
-        </div>
-        {canEdit && campaigns.data ? (
-          <CommandForm
-            path="/api/v1/tpm/roi/evaluate"
-            reuseCompleted={false}
-            label="Evaluate from governed sources"
-            build={(d) => ({
-              campaignVersionId: d.get("campaign"),
-              accountKey: d.get("account"),
-            })}
-          >
-            <Field label="Campaign">
-              <CampaignPicker campaigns={campaigns.data.rows} />
-            </Field>
-            <Field label="Account code">
-              <input name="account" required className={input} />
-            </Field>
-          </CommandForm>
-        ) : null}
-      </Panel>
+          {performance.error ? (
+            <p role="alert">Unable to load measurement sources.</p>
+          ) : null}
+          {performance.data?.rows.map((p) => (
+            <p key={p.id} className="text-xs text-muted">
+              {p.campaign_name} · {p.account_key} · {p.product_name} ·{" "}
+              {words(p.source)} margin source, revision {p.revision}
+            </p>
+          ))}
+          {canEdit && campaigns.data && options.data && performance.data ? (
+            <CommandForm
+              path="/api/v1/tpm/roi/policy"
+              label="Save margin and cost source"
+              reuseCompleted={false}
+              build={(d) => ({
+                campaignVersionId: d.get("campaign"),
+                distributorId: d.get("distributor"),
+                productId: d.get("product"),
+                unitMarginCentavos: centavos(d.get("margin")),
+                otherCostCentavos: centavos(d.get("cost")),
+                marginReference: d.get("marginRef"),
+                costReference: d.get("costRef"),
+                source: d.get("sourceMode"),
+              })}
+            >
+              <Field label="Campaign">
+                <CampaignPicker campaigns={campaigns.data.rows} />
+              </Field>
+              <Field label="Distributor account">
+                <select name="distributor" required className={input}>
+                  {performance.data.distributors.map((d) => (
+                    <option key={d.id} value={d.id}>
+                      {d.name} · {d.account_key}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Product">
+                <select name="product" required className={input}>
+                  {options.data.products.map((p) => (
+                    <option key={p.id} value={p.id}>
+                      {p.name}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              <Field label="Margin per base piece · ₱">
+                <input name="margin" required className={input} />
+              </Field>
+              <Field label="Other campaign cost allocated to this SKU · ₱">
+                <input
+                  name="cost"
+                  required
+                  defaultValue="0"
+                  className={input}
+                />
+              </Field>
+              <Field label="SAP margin extract or sample reference">
+                <input name="marginRef" required className={input} />
+              </Field>
+              <Field label="Cost evidence reference, including explicit zero">
+                <input name="costRef" required className={input} />
+              </Field>
+              <Field label="Source">
+                <select name="sourceMode" className={input}>
+                  <option value="sample">
+                    Clearly marked sample assumptions
+                  </option>
+                  <option value="operational">
+                    Operational source documents
+                  </option>
+                </select>
+              </Field>
+            </CommandForm>
+          ) : null}
+          <div className="grid gap-3 md:grid-cols-3">
+            {roi.data?.rows.map((r) => (
+              <article
+                key={r.id}
+                className="rounded-md border border-border p-4"
+              >
+                <h3 className="font-medium">{r.campaignName}</h3>
+                <p className="text-xs text-muted">
+                  {r.accountKey} · {r.mechanic}
+                </p>
+                <p className="mt-3 text-sm">
+                  Baseline {r.baselineVolumeBase.toLocaleString()} → promoted{" "}
+                  {r.promotedVolumeBase.toLocaleString()} pieces
+                </p>
+                <p className="text-sm">
+                  Incremental {r.incrementalVolumeBase.toLocaleString()} pieces
+                  · spend {peso(r.spendCentavos)}
+                </p>
+                <p className="mt-2 text-sm">
+                  Gross ROI{" "}
+                  {r.grossRoiBps == null
+                    ? "Unknown"
+                    : `${(r.grossRoiBps / 100).toFixed(1)}%`}{" "}
+                  · net ROI{" "}
+                  {r.netRoiBps == null
+                    ? "Unknown"
+                    : `${(r.netRoiBps / 100).toFixed(1)}%`}
+                </p>
+                <p className="text-xs text-muted">
+                  {r.sample ? "Sample · " : ""}Directional · review baseline and
+                  SAP margin source
+                </p>
+              </article>
+            ))}
+          </div>
+          {canEdit && campaigns.data ? (
+            <CommandForm
+              path="/api/v1/tpm/roi/evaluate"
+              reuseCompleted={false}
+              label="Evaluate from governed sources"
+              build={(d) => ({
+                campaignVersionId: d.get("campaign"),
+                accountKey: d.get("account"),
+              })}
+            >
+              <Field label="Campaign">
+                <CampaignPicker campaigns={campaigns.data.rows} />
+              </Field>
+              <Field label="Account code">
+                <input name="account" required className={input} />
+              </Field>
+            </CommandForm>
+          ) : null}
+        </Panel>
+      ) : null}
     </div>
   );
 }
