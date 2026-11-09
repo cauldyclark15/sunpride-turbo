@@ -143,7 +143,7 @@ describe("Operations: verbs first (IP-NAV)", () => {
     expect(subs("stock")).toEqual(
       expect.arrayContaining(["Stock on hand", "Stock card", "Bad orders", "Expiry"]),
     );
-    expect(subs("counts")).toEqual(["My counts", "Plan a count", "Review"]);
+    expect(subs("counts")).toEqual(["My counts", "Add count", "Review"]);
     expect(subs("van-day")).toEqual(
       expect.arrayContaining(["Board", "Roster", "Suggested loads"]),
     );

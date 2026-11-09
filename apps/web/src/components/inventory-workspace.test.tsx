@@ -264,7 +264,7 @@ describe("Inventory owner overview on the v2 API", () => {
     expect(html).toContain("Target 50 cs");
     expect(html).toContain("28 days ago 38 cs");
     expect(html).toContain("Stock value over the last 14 days");
-    expect(html).toContain("Transfer</button>");
+    expect(html).toContain("/operations/transfers?add=1&amp;from=");
     expect(html).toContain("Count</button>");
     expect(html).toContain("Adjust</button>");
     expect(html).toContain("Export CSV");
@@ -331,7 +331,7 @@ describe("Inventory owner overview on the v2 API", () => {
     state.canWrite = false;
     const html = render();
     expect(html).toContain("Corned beef");
-    expect(html).not.toContain("Transfer</button>");
+    expect(html).not.toContain("/operations/transfers?add=1");
     expect(html).not.toContain("Adjust</button>");
   });
 });
