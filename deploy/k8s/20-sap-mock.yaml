@@ -27,7 +27,7 @@ spec:
       securityContext: {fsGroup: 1000}
       containers:
         - name: sap-mock
-          image: cauldyclark15/sunpride-sap-mock:TAG
+          image: cauldyclark15/sunpride-sap-mock:placeholder
           env:
             - {name: HOST, value: 0.0.0.0}
             - {name: PORT, value: "4435"}

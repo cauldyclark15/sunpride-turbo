@@ -17,7 +17,7 @@ spec:
       imagePullSecrets: [{name: regcred}]
       containers:
         - name: web
-          image: cauldyclark15/sunpride-web:TAG
+          image: cauldyclark15/sunpride-web:placeholder
           env: [{name: API_ORIGIN, value: "http://sunpride-api:4320"}]
           ports: [{containerPort: 4330}]
           readinessProbe:

@@ -17,7 +17,7 @@ spec:
       imagePullSecrets: [{name: regcred}]
       containers:
         - name: docs
-          image: cauldyclark15/sunpride-docs:TAG
+          image: cauldyclark15/sunpride-docs:placeholder
           ports: [{containerPort: 8080}]
           readinessProbe: {httpGet: {path: /, port: 8080}, periodSeconds: 15}
           resources:

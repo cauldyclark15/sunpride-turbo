@@ -38,7 +38,7 @@ JSON
 )" >/dev/null
   k wait --for=condition=Ready "pod/$pod" --timeout=180s >/dev/null
   k exec -i "$pod" -- sh -c "$cmd"
-  k delete pod "$pod" --wait=false >/dev/null
+  k delete pod "$pod" --wait=true >/dev/null  # free the RWO volume before the app pod reattaches it
 }
 
 for s in "${steps[@]}"; do case $s in
