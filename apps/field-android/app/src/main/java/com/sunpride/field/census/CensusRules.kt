@@ -53,6 +53,43 @@ object CensusRules {
     }
     fun captureId(): String = UUID.randomUUID().toString()
 
+    /** Live-test fix: Save with missing fields must point at each one in plain words, in form order. */
+    enum class Field(val message: String) {
+        NAME("Type the store name"), OWNER("Type the owner's name"), PHONE("Type the owner's phone number"),
+        CHANNEL("Choose a channel"), SUBCHANNEL("Choose a sub-channel"), LOCATION("Tap Use my location or Search address"),
+        ADDRESS("Type the address"), PHOTO("Take a storefront photo")
+    }
+    /** Every missing or incomplete required field, top of the form first. [mode] is "", "gps" or "places". */
+    fun missing(name: String, owner: String, phone: String, channel: String, subchannel: String, mode: String,
+        hasFix: Boolean, hasPlace: Boolean, address: String, hasPhoto: Boolean): List<Field> = buildList {
+        if (name.isBlank()) add(Field.NAME)
+        if (owner.isBlank()) add(Field.OWNER)
+        if (phone.count { it.isDigit() } < 7) add(Field.PHONE)
+        if (!uuid.matches(channel)) add(Field.CHANNEL)
+        if (!uuid.matches(subchannel)) add(Field.SUBCHANNEL)
+        if (mode == "" || (mode == "gps" && !hasFix) || (mode == "places" && !hasPlace)) add(Field.LOCATION)
+        if (address.isBlank()) add(Field.ADDRESS)
+        if (!hasPhoto) add(Field.PHOTO)
+    }
+    /** Short line next to Save. */
+    fun missingSummary(count: Int): String = if (count == 1) "Fill in the field marked above" else "Fill in the $count fields marked above"
+
+    const val MAX_FIX_AGE_MS = 120_000L
+    /** Same freshness rule as [validate]: a GPS fix older than two minutes is refused. */
+    fun fixIsStale(fix: JSONObject?, now: Long): Boolean = fix != null && kotlin.math.abs(now - fix.optLong("fixTime", 0L)) > MAX_FIX_AGE_MS
+    /** Same accuracy rule as Use my location: strictly under 50 m and not a mock location. */
+    fun fixUsable(fix: JSONObject?): Boolean {
+        val a = fix?.optDouble("accuracyMeters", Double.NaN) ?: return false
+        return !fix.optBoolean("mockSignal") && a > 0 && a < 50
+    }
+    const val MOVED_METERS = 50.0
+    /** The refreshed point is far enough from the confirmed one that the agent must check the address again. */
+    fun movedTooFar(old: JSONObject?, new: JSONObject): Boolean {
+        val d = DuplicateRules.distanceMeters(old?.optDouble("latitude"), old?.optDouble("longitude"),
+            new.optDouble("latitude"), new.optDouble("longitude")) ?: return false
+        return d > MOVED_METERS
+    }
+
     /** Contract 'Phone UX' 4: the batch is optional. Hide the picker until the config is loaded, when no batches
      * are offered (the server files the capture under the unit's ongoing default batch), or when the server has a
      * default batch and there is at most one batch to choose from. */

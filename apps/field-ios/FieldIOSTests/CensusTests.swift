@@ -192,6 +192,45 @@ final class CensusCaptureTests: XCTestCase {
         XCTAssertTrue(CensusCapture.validStored(p, now: clock.now))
     }
 
+    // Live test 2026-11-09: Save names every missing field, top first.
+    func testMissingListsEveryRequiredFieldInFormOrder() throws {
+        XCTAssertEqual(CensusCapture.missing(CensusCapture.Draft()), CensusCapture.Field.allCases)
+        var d = try draft()
+        XCTAssertEqual(CensusCapture.missing(d), [])
+        d.ownerName = " "; d.subchannelId = nil
+        XCTAssertEqual(CensusCapture.missing(d), [.owner, .subchannel])
+        d = try draft(); d.ownerPhone = "123"; d.location = nil
+        XCTAssertEqual(CensusCapture.missing(d), [.phone, .location])
+        XCTAssertEqual(CensusCapture.Field.channel.message, "Choose a channel")
+        XCTAssertEqual(CensusCapture.missingSummary(2), "Fill in the 2 fields marked above")
+        XCTAssertEqual(CensusCapture.missingSummary(1), "Fill in the field marked above")
+        d = try draft(); d.location = .gps(try fix(ageMs: 600_000))
+        XCTAssertEqual(CensusCapture.missing(d), [], "a stale fix is refreshed on Save, not reported missing")
+    }
+
+    func testStaleFixAndMovedRules() throws {
+        let now = Int64(clock.now.timeIntervalSince1970 * 1000)
+        XCTAssertFalse(CensusCapture.fixIsStale(try fix(ageMs: 120_000), at: now))
+        XCTAssertTrue(CensusCapture.fixIsStale(try fix(ageMs: 120_001), at: now))
+        let a = try VisitLocation(latitude: 10.3157, longitude: 123.8854, accuracyMeters: 5, fixTime: now)
+        let near = try VisitLocation(latitude: 10.3160, longitude: 123.8854, accuracyMeters: 5, fixTime: now) // ~33 m
+        let far = try VisitLocation(latitude: 10.3163, longitude: 123.8854, accuracyMeters: 5, fixTime: now)  // ~67 m
+        XCTAssertFalse(CensusCapture.movedTooFar(a, near))
+        XCTAssertTrue(CensusCapture.movedTooFar(a, far))
+    }
+
+    @MainActor func testStaleStubScenariosNeverMockAndFollowTheAccuracyRule() {
+        let now = Date()
+        let at = Int64(now.timeIntervalSince1970 * 1000)
+        guard case .captured(let first) = LocationCapture.stubOutcome("stale", now: now) else { return XCTFail() }
+        XCTAssertTrue(CensusCapture.gpsUsable(first, at: at)); XCTAssertFalse(first.mockSignal)
+        XCTAssertTrue(CensusCapture.fixIsStale(first, at: at + 10_000))
+        guard case .captured(let fresh) = LocationCapture.stubOutcome("stale-moved", now: now, refresh: true) else { return XCTFail() }
+        XCTAssertTrue(CensusCapture.movedTooFar(first, fresh))
+        guard case .captured(let weak) = LocationCapture.stubOutcome("stale-fail", now: now, refresh: true) else { return XCTFail() }
+        XCTAssertFalse(CensusCapture.gpsUsable(weak, at: at))
+    }
+
     func testRefusesWeakMockOldFixesAndBadInput() throws {
         func refused(_ change: (inout CensusCapture.Draft) throws -> Void) throws -> CensusCapture.Failure? {
             var d = try draft(); try change(&d)

@@ -59,6 +59,19 @@ struct AddStoreScreen: View {
     @State private var saved: [(id: UUID, name: String, state: String)] = []
     @Environment(\.dismiss) private var dismiss
 
+    // Live test 2026-11-09: Save never fails silently; a stale Use-my-location fix is refreshed on Save.
+    typealias Field = CensusCapture.Field
+    struct Moved: Equatable { let meters: Double; let address: PlaceAddress? }
+    @State private var attempted = false
+    @State private var scrollTarget: Field?
+    @State private var scrollTick = 0
+    @State private var saveNote: String?
+    @State private var staleRetry = false
+    @State private var refreshing = false
+    @State private var moved: Moved?
+    @State private var showingMoved = false
+    private var marked: Set<Field> { attempted ? Set(CensusCapture.missing(draft)) : [] }
+
     #if DEBUG
     private var fakeCamera: Bool { ProcessInfo.processInfo.environment["FIELD_FAKE_CAMERA"] != nil || StubBackend.scenario != nil }
     #else
@@ -66,6 +79,7 @@ struct AddStoreScreen: View {
     #endif
 
     var body: some View {
+        ScrollViewReader { proxy in
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
@@ -106,17 +120,33 @@ struct AddStoreScreen: View {
             .padding(.bottom, 72)
             .frame(maxWidth: .infinity) // iPad: centred column on a full-width background.
         }
+        .onChange(of: scrollTick) { _, _ in
+            guard let scrollTarget else { return }
+            withAnimation { proxy.scrollTo(scrollTarget, anchor: .top) }
+        }
+        }
         .scrollDismissesKeyboard(.immediately)
         .background(SunprideTokens.background)
         .safeAreaInset(edge: .bottom) {
             if config != nil {
-                PrimaryBottomButton(title: busy ? "Checking…" : "Save store", disabled: busy) { Task { await save() } }
-                    .accessibilityIdentifier("addStoreSave")
-                    .frame(maxWidth: 520) // iPad: the button matches the form column, not the screen.
-                    .padding(16).frame(maxWidth: .infinity).background(SunprideTokens.background)
+                VStack(alignment: .leading, spacing: 8) {
+                    if let note = saveNote ?? (marked.isEmpty ? nil : CensusCapture.missingSummary(marked.count)) {
+                        Text(note).font(SunprideTokens.TypeStyle.meta).foregroundStyle(SunprideTokens.dangerText)
+                            .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("addStoreSaveNote")
+                    }
+                    if staleRetry {
+                        SecondaryButton(title: "Try again", fullWidth: true) { Task { await save() } }
+                            .accessibilityIdentifier("addStoreSaveRetry")
+                    }
+                    PrimaryBottomButton(title: refreshing ? "Checking your location…" : busy ? "Checking…" : "Save store", disabled: busy) { Task { await save() } }
+                        .accessibilityIdentifier("addStoreSave")
+                }
+                .frame(maxWidth: 520) // iPad: the button matches the form column, not the screen.
+                .padding(16).frame(maxWidth: .infinity).background(SunprideTokens.background)
             }
         }
         .sheet(isPresented: $showingDuplicates) { duplicateSheet }
+        .sheet(isPresented: $showingMoved) { movedSheet }
         .fullScreenCover(isPresented: $showingCamera) {
             CameraPicker { image in
                 showingCamera = false
@@ -150,6 +180,18 @@ struct AddStoreScreen: View {
             Text("The office checks every new store before it is added to the list.")
                 .font(SunprideTokens.TypeStyle.meta).foregroundStyle(SunprideTokens.secondaryText)
         }
+    }
+
+    /// A required field, its scroll anchor, and its plain-words message once Save found it missing.
+    @ViewBuilder private func marking<Content: View>(_ f: Field, @ViewBuilder _ content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 4) {
+            content()
+            if marked.contains(f) {
+                Text(f.message).font(SunprideTokens.TypeStyle.meta).foregroundStyle(SunprideTokens.dangerText)
+                    .accessibilityIdentifier("addStoreMissing-\(f.rawValue)")
+            }
+        }
+        .id(f)
     }
 
     private func note(_ text: String) -> some View {
@@ -188,9 +230,9 @@ struct AddStoreScreen: View {
                     picker("Gathering batch (optional)", config.batches, selected: draft.batchId,
                            empty: "Ongoing gathering (default)", id: "addStoreBatch") { draft.batchId = $0 }
                 }
-                field("Store name", $draft.name, id: "addStoreName")
-                field("Owner name", $draft.ownerName, id: "addStoreOwner")
-                field("Owner phone", $draft.ownerPhone, id: "addStorePhone", keyboard: .phonePad)
+                marking(.name) { field("Store name", $draft.name, id: "addStoreName") }
+                marking(.owner) { field("Owner name", $draft.ownerName, id: "addStoreOwner") }
+                marking(.phone) { field("Owner phone", $draft.ownerPhone, id: "addStorePhone", keyboard: .phonePad) }
             }
             .padding(16)
         }
@@ -199,12 +241,16 @@ struct AddStoreScreen: View {
     private func typeCard(_ config: CensusConfig) -> some View {
         SectionCard(title: "Type of store") {
             VStack(alignment: .leading, spacing: 12) {
-                picker("Channel", config.channels, selected: draft.channelId, empty: "Choose…", id: "addStoreChannel") {
-                    if draft.channelId != $0 { draft.subchannelId = nil }
-                    draft.channelId = $0
+                marking(.channel) {
+                    picker("Channel", config.channels, selected: draft.channelId, empty: "Choose…", id: "addStoreChannel") {
+                        if draft.channelId != $0 { draft.subchannelId = nil }
+                        draft.channelId = $0
+                    }
                 }
-                picker("Sub-channel", config.subchannels(of: draft.channelId), selected: draft.subchannelId,
-                       empty: draft.channelId == nil ? "Choose a channel first" : "Choose…", id: "addStoreSubchannel") { draft.subchannelId = $0 }
+                marking(.subchannel) {
+                    picker("Sub-channel", config.subchannels(of: draft.channelId), selected: draft.subchannelId,
+                           empty: draft.channelId == nil ? "Choose a channel first" : "Choose…", id: "addStoreSubchannel") { draft.subchannelId = $0 }
+                }
                 VStack(alignment: .leading, spacing: 6) {
                     Text("Sales potential").font(SunprideTokens.TypeStyle.meta.weight(.medium)).foregroundStyle(SunprideTokens.text)
                     Picker("Sales potential", selection: $draft.estimatedClass) {
@@ -236,6 +282,7 @@ struct AddStoreScreen: View {
                         .accessibilityIdentifier("addStoreSearchAddress")
                     }
                 }
+                marking(.location) { EmptyView() }
                 if case .gps(let fix)? = draft.location {
                     StatusPill(label: "Your location · ±\(Int(fix.accuracyMeters.rounded())) m").accessibilityIdentifier("addStoreAccuracy")
                 } else if case .places? = draft.location {
@@ -250,8 +297,10 @@ struct AddStoreScreen: View {
                     }
                 }
                 if mode == .search { searchBox }
-                CalmField(label: "Address") {
-                    TextField("Street, barangay, city", text: $draft.address).accessibilityIdentifier("addStoreAddress")
+                marking(.address) {
+                    CalmField(label: "Address") {
+                        TextField("Street, barangay, city", text: $draft.address).accessibilityIdentifier("addStoreAddress")
+                    }
                 }
                 if let areaLine { note(areaLine).accessibilityIdentifier("addStoreArea") }
                 if let addressNote { note(addressNote).accessibilityIdentifier("addStoreAddressNote") }
@@ -292,8 +341,10 @@ struct AddStoreScreen: View {
                 if cameraAccess == .denied || cameraAccess == .restricted, !fakeCamera {
                     note("Camera access is off. Allow it in Settings to take the storefront photo.")
                 }
-                SecondaryButton(title: draft.photo == nil ? "Take storefront photo" : "Retake photo", fullWidth: true) { shoot() }
-                    .accessibilityIdentifier("addStorePhoto")
+                marking(.photo) {
+                    SecondaryButton(title: draft.photo == nil ? "Take storefront photo" : "Retake photo", fullWidth: true) { shoot() }
+                        .accessibilityIdentifier("addStorePhoto")
+                }
             }
             .padding(16)
         }
@@ -320,6 +371,39 @@ struct AddStoreScreen: View {
                     PrimaryBottomButton(title: "It's this store") { sameStore() }.accessibilityIdentifier("duplicateSame")
                     SecondaryButton(title: "It's a different store", fullWidth: true) { differentStore() }
                         .accessibilityIdentifier("duplicateDifferent")
+                }
+                .padding(16)
+            }
+            .background(SunprideTokens.background)
+        }
+        .presentationDetents([.medium, .large])
+    }
+
+    private var movedSheet: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 16) {
+                    Text("Your location changed").font(SunprideTokens.TypeStyle.heading).accessibilityIdentifier("movedTitle")
+                    note("You are \(Int((moved?.meters ?? 0).rounded())) m from where you first set the location.")
+                    if let address = moved?.address {
+                        VStack(alignment: .leading, spacing: 4) {
+                            note("New address")
+                            Text(address.addressLine).font(SunprideTokens.TypeStyle.row).accessibilityIdentifier("movedAddress")
+                        }
+                        PrimaryBottomButton(title: "Use the new address and save") {
+                            draft.address = address.addressLine; autoAddress = draft.address; draft.resolved = address
+                            areaLine = address.areaLine; showingMoved = false; moved = nil
+                            Task { await save() }
+                        }
+                        .accessibilityIdentifier("movedUseNew")
+                    } else {
+                        note("No address found for the new spot. Check the address before you save.")
+                    }
+                    SecondaryButton(title: "Keep my address and save", fullWidth: true) {
+                        showingMoved = false; moved = nil
+                        Task { await save() }
+                    }
+                    .accessibilityIdentifier("movedKeep")
                 }
                 .padding(16)
             }
@@ -443,12 +527,46 @@ struct AddStoreScreen: View {
     }
 
     private func save() async {
-        message = nil
+        message = nil; saveNote = nil; staleRetry = false
+        let missing = CensusCapture.missing(draft)
+        if let first = missing.first {
+            // Never silent: mark every missing field and scroll to the first one.
+            attempted = true
+            scrollTarget = first; scrollTick += 1
+            return
+        }
+        // Use my location goes stale after two minutes: get a fresh fix instead of refusing.
+        // Address-search pins are not GPS fixes and keep today's path.
+        if case .gps(let old)? = draft.location, CensusCapture.fixIsStale(old, at: Int64(Date().timeIntervalSince1970 * 1000)) {
+            busy = true; refreshing = true
+            #if DEBUG
+            LocationCapture.stubSaveRefresh = true
+            #endif
+            let outcome = await locationCapture.capture()
+            busy = false; refreshing = false
+            guard case .captured(let got) = outcome, CensusCapture.gpsUsable(got, at: Int64(Date().timeIntervalSince1970 * 1000)) else {
+                saveNote = CensusCapture.Failure.location.message; staleRetry = true
+                return
+            }
+            fix = got; lastFix = (got.latitude, got.longitude)
+            draft.location = .gps(got)
+            if CensusCapture.movedTooFar(old, got) {
+                var address: PlaceAddress?
+                if config?.addressSearch == true, let service = model.censusService, !model.isOffline {
+                    address = (try? await service.reverse(latitude: got.latitude, longitude: got.longitude)) ?? nil
+                }
+                moved = Moved(meters: CensusDuplicates.distanceMeters(old.latitude, old.longitude, got.latitude, got.longitude) ?? 0,
+                              address: address)
+                saveNote = "Your location changed. Check the address, then save."
+                showingMoved = true
+                return
+            }
+        }
         // Keep the address text the agent confirmed; drop Google's parts if the agent rewrote the address.
         if draft.address != autoAddress, case .gps? = draft.location { draft.resolved = nil }
         do { _ = try CensusCapture.payload(draft, now: Date()) }
-        catch let failure as CensusCapture.Failure { message = failure.message; return }
-        catch { message = "Check the store details."; return }
+        catch let failure as CensusCapture.Failure { message = failure.message; saveNote = failure.message; return }
+        catch { message = "Check the store details."; saveNote = message; return }
         busy = true
         defer { busy = false }
         var query = CensusDuplicates.Query(name: draft.name, phone: draft.ownerPhone)
@@ -499,10 +617,10 @@ struct AddStoreScreen: View {
             reset()
             message = "\(name) saved on this phone. It is sent to the office for review when you are online."
             saved = model.censusCaptures()
-        } catch let failure as CensusCapture.Failure { message = failure.message }
-        catch StoreError.leaseExpired { message = "Day access closed. Connect and sync, then save again." }
-        catch StoreError.heldForReview { message = "Work is held for review. Contact your supervisor." }
-        catch { message = "Could not save. Check the details and try again." }
+        } catch let failure as CensusCapture.Failure { message = failure.message; saveNote = message }
+        catch StoreError.leaseExpired { message = "Day access closed. Connect and sync, then save again."; saveNote = message }
+        catch StoreError.heldForReview { message = "Work is held for review. Contact your supervisor."; saveNote = message }
+        catch { message = "Could not save. Check the details and try again."; saveNote = message }
     }
 
     private func reset() {
@@ -511,5 +629,6 @@ struct AddStoreScreen: View {
         draft.batchId = batch
         fix = nil; mode = nil; gpsProblem = nil; addressNote = nil; areaLine = nil; autoAddress = nil
         searchText = ""; predictions = []; searchSession = nil; candidates = []
+        attempted = false; saveNote = nil; staleRetry = false; moved = nil
     }
 }

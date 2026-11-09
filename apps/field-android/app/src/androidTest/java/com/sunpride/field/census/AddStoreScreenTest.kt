@@ -1,10 +1,14 @@
 package com.sunpride.field.census
 
 import androidx.activity.enableEdgeToEdge
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.statusBarsPadding
 import android.Manifest
 import android.graphics.Bitmap
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.ui.test.assertTextContains
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
@@ -139,5 +143,117 @@ class AddStoreScreenTest {
         assertTrue("save bottom ${bounds.bottom} must be <= ${height - nav} (nav inset $nav)", bounds.bottom <= height - nav + 0.5f)
         assertTrue(bounds.top > 0f)
         shot("00-save-above-nav")
+    }
+
+    // ---- Live test 2026-11-09: missing fields and a stale location on Save ----
+    private val jpeg = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 1, 2, 0xff.toByte(), 0xd9.toByte())
+    private fun at(lat: Double, ageMs: Long = 0) = JSONObject().put("latitude", lat).put("longitude", 123.8854).put("accuracyMeters", 12.0)
+        .put("fixTime", System.currentTimeMillis() - ageMs).put("provider", "fused").put("mockSignal", false)
+    /** First tap of Use my location gets a fix that is already 3 minutes old; Save's refresh waits on [gate]. */
+    private class SequenceGps(val first: JSONObject, val gate: kotlinx.coroutines.CompletableDeferred<JSONObject?>) : VisitLocation {
+        var calls = 0
+        override val requiresPermission = false
+        override suspend fun fix(): JSONObject? { calls++; return if (calls == 1) first else gate.await() }
+    }
+    private fun showWith(backend: Backend, location: VisitLocation) = rule.setContent {
+        MaterialTheme(colorScheme = SunprideTokens.lightColors) {
+            // Like the app shell: content starts below the status bar.
+            androidx.compose.material3.Surface(androidx.compose.ui.Modifier.fillMaxSize().statusBarsPadding()) { CensusScreen(backend, location, {}, photoForTest = jpeg) }
+        }
+    }
+    private fun hideKeyboard() {
+        rule.runOnUiThread { val w = rule.activity.window
+            androidx.core.view.WindowInsetsControllerCompat(w, w.decorView).hide(androidx.core.view.WindowInsetsCompat.Type.ime()) }
+        rule.waitForIdle(); Thread.sleep(400)
+    }
+    private fun fillAll() {
+        rule.onNodeWithTag("census-name").performTextInput("Bebot Grocery")
+        rule.onNodeWithTag("census-owner").performTextInput("Bebot Reyes")
+        rule.onNodeWithTag("census-phone").performTextInput("0917 765 4321")
+        choose("census-channel", "General trade"); choose("census-subchannel", "Sari-sari")
+    }
+    private fun choose(tag: String, option: String) {
+        rule.onNodeWithTag(tag).performScrollTo().performClick(); rule.waitForIdle()
+        rule.waitUntil(5_000) { rule.onAllNodesWithText(option).fetchSemanticsNodes().isNotEmpty() }
+        Thread.sleep(300) // let the menu popup finish opening before the tap
+        rule.onNodeWithText(option).performClick(); rule.waitForIdle()
+        rule.waitUntil(5_000) { rule.onAllNodesWithText(option).fetchSemanticsNodes().size == 1 && runCatching { rule.onNodeWithTag(tag).assertTextContains(option, substring = true) }.isSuccess }
+    }
+
+    @Test fun saveWithMissingFieldsMarksEachOneAndScrollsToTheFirst() {
+        rule.runOnUiThread { rule.activity.enableEdgeToEdge() }
+        val backend = Backend(config(true), online)
+        val gate = kotlinx.coroutines.CompletableDeferred<JSONObject?>()
+        showWith(backend, SequenceGps(at(10.3157), gate)); waitTag("census-gps")
+        rule.onNodeWithTag("census-name").performTextInput("Bebot Grocery")
+        rule.onNodeWithTag("census-phone").performTextInput("0917 765 4321")
+        hideKeyboard()
+        rule.onNodeWithTag("census-landmark").performScrollTo()  // the agent is scrolled down near Save
+        rule.onNodeWithTag("census-save").performClick(); rule.waitForIdle()
+        for (f in listOf("owner", "channel", "subchannel", "location", "address")) waitTag("census-missing-$f", 3_000)
+        assertTrue(rule.onAllNodesWithTag("census-missing-name").fetchSemanticsNodes().isEmpty())
+        assertTrue(rule.onAllNodesWithTag("census-missing-photo").fetchSemanticsNodes().isEmpty())
+        rule.onNodeWithTag("census-missing-channel").assertTextContains("Choose a channel")
+        rule.onNodeWithTag("census-save-note").assertTextContains("Fill in the 5 fields marked above")
+        // Scrolled to the first missing field (owner) and it is on screen.
+        rule.onNodeWithTag("census-missing-owner").assertIsDisplayed()
+        shot("ux-missing-fields")
+        assertTrue(backend.queued.isEmpty())
+        // Filling a field clears its mark; the count follows.
+        rule.onNodeWithTag("census-owner").performTextInput("Bebot Reyes")
+        rule.waitUntil(3_000) { rule.onAllNodesWithTag("census-missing-owner").fetchSemanticsNodes().isEmpty() }
+        rule.onNodeWithTag("census-save-note").assertTextContains("Fill in the 4 fields marked above")
+    }
+
+    @Test fun staleFixIsRefreshedOnSaveAndKeepsTheConfirmedAddress() {
+        rule.runOnUiThread { rule.activity.enableEdgeToEdge() }
+        val backend = Backend(config(false), oldServer)
+        val gate = kotlinx.coroutines.CompletableDeferred<JSONObject?>()
+        val gps = SequenceGps(at(10.3157, ageMs = 180_000), gate)
+        showWith(backend, gps); waitTag("census-gps")
+        fillAll()
+        rule.onNodeWithTag("census-gps").performScrollTo().performClick(); waitTag("census-accuracy")
+        rule.onNodeWithTag("census-address").performScrollTo().performTextInput("Purok 3, Barangay Tres")
+        hideKeyboard()
+        rule.onNodeWithTag("census-save").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithText("Checking your location…").fetchSemanticsNodes().isNotEmpty() }
+        assertEquals(2, gps.calls)
+        shot("ux-checking-location")
+        gate.complete(at(10.3159)) // ~22 m away: keep the address the agent confirmed
+        rule.waitUntil(10_000) { backend.queued.isNotEmpty() }
+        val p = backend.queued.single()
+        assertEquals("gps", p.getString("locationSource")); assertEquals("Purok 3, Barangay Tres", p.getString("address"))
+        assertEquals(10.3159, p.getJSONObject("location").getDouble("latitude"), 1e-9)
+        assertTrue(kotlin.math.abs(System.currentTimeMillis() - p.getJSONObject("location").getLong("fixTime")) < 60_000)
+    }
+
+    @Test fun staleFixThatMovedFarAsksToConfirmTheNewAddress() {
+        val backend = Backend(config(true), online)
+        val gate = kotlinx.coroutines.CompletableDeferred<JSONObject?>(at(10.3166)) // ~100 m away
+        showWith(backend, SequenceGps(at(10.3157, ageMs = 180_000), gate)); waitTag("census-gps")
+        fillAll()
+        rule.onNodeWithTag("census-gps").performScrollTo().performClick(); waitTag("census-accuracy")
+        rule.waitUntil(5_000) { rule.onAllNodesWithTag("census-address-line").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("census-save").performClick()
+        waitTag("census-moved"); rule.onNodeWithTag("census-moved-address").assertTextContains("12 Colon St, Cebu City")
+        assertTrue(backend.queued.isEmpty())
+        shot("ux-location-moved")
+        rule.onNodeWithTag("census-moved-new").performClick()
+        rule.waitUntil(10_000) { backend.queued.isNotEmpty() }
+        assertEquals(10.3166, backend.queued.single().getJSONObject("location").getDouble("latitude"), 1e-9)
+    }
+
+    @Test fun staleFixThatCannotBeRefreshedShowsThePlainMessageAndRetry() {
+        val backend = Backend(config(false), oldServer)
+        val gate = kotlinx.coroutines.CompletableDeferred<JSONObject?>().apply { complete(null) } // no fix
+        showWith(backend, SequenceGps(at(10.3157, ageMs = 180_000), gate)); waitTag("census-gps")
+        fillAll()
+        rule.onNodeWithTag("census-gps").performScrollTo().performClick(); waitTag("census-accuracy")
+        rule.onNodeWithTag("census-address").performScrollTo().performTextInput("Purok 3")
+        rule.onNodeWithTag("census-save").performClick()
+        waitTag("census-retry")
+        rule.onNodeWithTag("census-save-note").assertTextContains("Get a fresh GPS fix", substring = true)
+        rule.onNodeWithText("Save store").assertExists()
+        assertTrue(backend.queued.isEmpty())
     }
 }

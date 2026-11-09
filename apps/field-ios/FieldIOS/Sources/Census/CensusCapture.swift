@@ -231,6 +231,47 @@ enum CensusCapture {
 
     private static func isUUID(_ s: String) -> Bool { s.count == 36 && UUID(uuidString: s) != nil }
 
+    /// Live test 2026-11-09: Save names every missing required field in plain words, top of the form first.
+    enum Field: String, CaseIterable, Hashable, Sendable {
+        case name, owner, phone, channel, subchannel, location, address, photo
+        var message: String {
+            switch self {
+            case .name: "Type the store name"
+            case .owner: "Type the owner's name"
+            case .phone: "Type the owner's phone number"
+            case .channel: "Choose a channel"
+            case .subchannel: "Choose a sub-channel"
+            case .location: "Tap Use my location or Search address"
+            case .address: "Type the address"
+            case .photo: "Take a storefront photo"
+            }
+        }
+    }
+    /// Missing or incomplete required fields. A stale GPS fix is not "missing": Save refreshes it.
+    static func missing(_ d: Draft) -> [Field] {
+        let t = { (s: String) in s.trimmingCharacters(in: .whitespacesAndNewlines) }
+        var out: [Field] = []
+        if t(d.name).isEmpty { out.append(.name) }
+        if t(d.ownerName).isEmpty { out.append(.owner) }
+        if d.ownerPhone.filter({ $0.isASCII && $0.isNumber }).count < 7 { out.append(.phone) }
+        if !(d.channelId.map(isUUID) ?? false) { out.append(.channel) }
+        if !(d.subchannelId.map(isUUID) ?? false) { out.append(.subchannel) }
+        if d.location == nil { out.append(.location) }
+        if t(d.address).isEmpty { out.append(.address) }
+        if d.photo == nil { out.append(.photo) }
+        return out
+    }
+    static func missingSummary(_ count: Int) -> String {
+        count == 1 ? "Fill in the field marked above" : "Fill in the \(count) fields marked above"
+    }
+    /// Same two-minute rule as `gpsUsable`.
+    static func fixIsStale(_ fix: VisitLocation, at: Int64) -> Bool { abs(at - fix.fixTime) > maxFixSkewMs }
+    static let movedMeters = 50.0
+    /// The refreshed point moved far enough that the agent must check the address again.
+    static func movedTooFar(_ old: VisitLocation, _ new: VisitLocation) -> Bool {
+        (CensusDuplicates.distanceMeters(old.latitude, old.longitude, new.latitude, new.longitude) ?? 0) > movedMeters
+    }
+
     /// The wire payload. Throws the first plain-words problem.
     static func payload(_ d: Draft, now: Date) throws -> [String: Any] {
         let t = { (s: String) in s.trimmingCharacters(in: .whitespacesAndNewlines) }

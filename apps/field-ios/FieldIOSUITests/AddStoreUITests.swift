@@ -279,4 +279,90 @@ final class AddStoreUITests: XCTestCase {
         XCTAssertTrue(save.isHittable)
         shot(app, "save-above-keyboard")
     }
+
+    // MARK: Live test 2026-11-09
+
+    func testSaveWithMissingFieldsMarksEachOneAndScrollsToTheFirst() {
+        let app = launch("registers")
+        signIn(app)
+        openAddStore(app)
+        type(app, "addStoreName", "Bebot Grocery")
+        type(app, "addStorePhone", "09177654321")
+        dismissKeyboard(app)
+        tapButton(app, "addStorePhoto") // scrolled down near Save
+        app.buttons["addStoreSave"].tap()
+        let owner = app.staticTexts["addStoreMissing-owner"]
+        XCTAssertTrue(owner.waitForExistence(timeout: 5), "first missing field marked")
+        for f in ["channel", "subchannel", "location", "address"] {
+            XCTAssertTrue(app.staticTexts["addStoreMissing-\(f)"].exists, f)
+        }
+        XCTAssertFalse(app.staticTexts["addStoreMissing-name"].exists)
+        XCTAssertFalse(app.staticTexts["addStoreMissing-photo"].exists)
+        XCTAssertEqual(app.staticTexts["addStoreMissing-channel"].label, "Choose a channel")
+        XCTAssertEqual(app.staticTexts["addStoreSaveNote"].label, "Fill in the 5 fields marked above")
+        // Scrolled up to the owner field: on screen, above the Save bar.
+        let deadline = Date().addingTimeInterval(3)
+        while !owner.isHittable && Date() < deadline { usleep(100_000) }
+        XCTAssertTrue(owner.isHittable, "scrolled to the first missing field")
+        XCTAssertLessThan(owner.frame.maxY, app.buttons["addStoreSave"].frame.minY)
+        shot(app, "ux-missing-fields")
+        type(app, "addStoreOwner", "Bebot Reyes")
+        let gone = Date().addingTimeInterval(3)
+        while owner.exists && Date() < gone { usleep(100_000) }
+        XCTAssertFalse(owner.exists, "filling a field clears its mark")
+        XCTAssertEqual(app.staticTexts["addStoreSaveNote"].label, "Fill in the 4 fields marked above")
+    }
+
+    /// Wait until the stub's 115-s-old fix passes the two-minute rule, then Save.
+    private func staleSetup(_ mode: String) -> XCUIApplication {
+        let app = launch("registers", ["FIELD_STUB_LOCATION": mode])
+        signIn(app)
+        openAddStore(app)
+        fillDetails(app, name: "Bebot Grocery")
+        tapButton(app, "addStoreUseLocation")
+        XCTAssertTrue(app.staticTexts["Your location · ±5 m"].waitForExistence(timeout: 10))
+        let field = app.textFields["addStoreAddress"]
+        let filled = Date().addingTimeInterval(10)
+        while (field.value as? String)?.contains("Osmeña") != true && Date() < filled { usleep(200_000) }
+        XCTAssertEqual(field.value as? String, "8 Osmeña Boulevard, Barangay Dos, Cebu City", "the address the agent confirmed")
+        dismissKeyboard(app)
+        tapButton(app, "addStorePhoto")
+        sleep(7)
+        return app
+    }
+
+    func testStaleFixIsRefreshedOnSaveAndKeepsTheConfirmedAddress() {
+        let app = staleSetup("stale")
+        app.buttons["addStoreSave"].tap()
+        let checking = app.buttons["Checking your location…"]
+        XCTAssertTrue(checking.waitForExistence(timeout: 3), "busy label while refreshing")
+        shot(app, "ux-checking-location")
+        XCTAssertTrue(app.staticTexts["duplicateTitle"].waitForExistence(timeout: 10) || app.staticTexts["addStoreMessage"].waitForExistence(timeout: 1))
+        if app.buttons["duplicateDifferent"].exists { app.buttons["duplicateDifferent"].tap() }
+        let message = app.staticTexts["addStoreMessage"]
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        XCTAssertTrue(message.label.contains("saved on this phone"), message.label)
+        XCTAssertFalse(app.staticTexts["movedTitle"].exists, "11 m: the confirmed address is kept")
+    }
+
+    func testStaleFixThatMovedFarAsksToConfirmTheNewAddress() {
+        let app = staleSetup("stale-moved")
+        app.buttons["addStoreSave"].tap()
+        XCTAssertTrue(app.staticTexts["movedTitle"].waitForExistence(timeout: 10), "100 m: ask to confirm")
+        XCTAssertEqual(app.staticTexts["movedAddress"].label, "8 Osmeña Boulevard, Barangay Dos, Cebu City")
+        shot(app, "ux-location-moved")
+        app.buttons["movedUseNew"].tap()
+        if app.buttons["duplicateDifferent"].waitForExistence(timeout: 8) { app.buttons["duplicateDifferent"].tap() }
+        let message = app.staticTexts["addStoreMessage"]
+        XCTAssertTrue(message.waitForExistence(timeout: 5))
+        XCTAssertTrue(message.label.contains("saved on this phone"), message.label)
+    }
+
+    func testStaleFixThatCannotBeRefreshedShowsThePlainMessageAndRetry() {
+        let app = staleSetup("stale-fail")
+        app.buttons["addStoreSave"].tap()
+        XCTAssertTrue(app.buttons["addStoreSaveRetry"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["addStoreSaveNote"].label.contains("use your location"), app.staticTexts["addStoreSaveNote"].label)
+        XCTAssertFalse(app.descendants(matching: .any)["addStoreSaved"].firstMatch.exists, "nothing queued")
+    }
 }

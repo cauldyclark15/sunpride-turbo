@@ -51,4 +51,33 @@ class CensusRulesTest {
             val p = payload().put(key, value); assertThrows(IllegalArgumentException::class.java) { CensusRules.validate(p) }
         }
     }
+
+    // Live test 2026-11-09: Save names every missing field, top first.
+    @Test fun missingListsEveryRequiredFieldInFormOrder() {
+        val all = CensusRules.missing("", "", "", "", "", "", false, false, "", false)
+        assertEquals(CensusRules.Field.entries.toList(), all)
+        val ch = UUID.randomUUID().toString()
+        val some = CensusRules.missing("Nena", "", "0917 123 4567", ch, "", "gps", true, false, "Colon St", true)
+        assertEquals(listOf(CensusRules.Field.OWNER, CensusRules.Field.SUBCHANNEL), some)
+        assertEquals("Choose a channel", CensusRules.Field.CHANNEL.message)
+        assertEquals(listOf(CensusRules.Field.LOCATION), CensusRules.missing("N", "O", "09171234567", ch, ch, "places", true, false, "A", true))
+        assertEquals(listOf(CensusRules.Field.PHONE), CensusRules.missing("N", "O", "123", ch, ch, "gps", true, false, "A", true))
+        assertTrue(CensusRules.missing("N", "O", "09171234567", ch, ch, "gps", true, false, "A", true).isEmpty())
+        assertEquals("Fill in the 2 fields marked above", CensusRules.missingSummary(2))
+        assertEquals("Fill in the field marked above", CensusRules.missingSummary(1))
+    }
+    @Test fun staleFixUsesTheSameTwoMinuteAndAccuracyRules() {
+        val fix = JSONObject().put("latitude", 10.3157).put("longitude", 123.8854).put("accuracyMeters", 12.0).put("fixTime", 1_000L).put("mockSignal", false)
+        assertFalse(CensusRules.fixIsStale(fix, 121_000L)); assertTrue(CensusRules.fixIsStale(fix, 121_001L))
+        assertFalse(CensusRules.fixIsStale(null, 999_999L))
+        assertTrue(CensusRules.fixUsable(fix))
+        assertFalse(CensusRules.fixUsable(JSONObject(fix.toString()).put("accuracyMeters", 50.0)))
+        assertFalse(CensusRules.fixUsable(JSONObject(fix.toString()).put("mockSignal", true)))
+        assertFalse(CensusRules.fixUsable(null))
+    }
+    @Test fun addressIsKeptUnlessTheFreshPointMovedMoreThan50m() {
+        val a = JSONObject().put("latitude", 10.3157).put("longitude", 123.8854)
+        assertFalse(CensusRules.movedTooFar(a, JSONObject().put("latitude", 10.3160).put("longitude", 123.8854))) // ~33 m
+        assertTrue(CensusRules.movedTooFar(a, JSONObject().put("latitude", 10.3163).put("longitude", 123.8854)))  // ~67 m
+    }
 }

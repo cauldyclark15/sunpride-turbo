@@ -168,7 +168,13 @@ final class LocationCapture: NSObject, @preconcurrency CLLocationManagerDelegate
         busy = true
         defer { busy = false }
         #if DEBUG
-        if StubBackend.scenario != nil { return Self.stubOutcome(ProcessInfo.processInfo.environment["FIELD_STUB_LOCATION"]) }
+        if StubBackend.scenario != nil {
+            let mode = ProcessInfo.processInfo.environment["FIELD_STUB_LOCATION"]
+            let refresh = Self.stubSaveRefresh; Self.stubSaveRefresh = false
+            // Stale scenarios: the refresh on Save takes a moment so "Checking your location…" is visible.
+            if mode?.hasPrefix("stale") == true, refresh { try? await Task.sleep(for: .seconds(2)) }
+            return Self.stubOutcome(mode, refresh: refresh)
+        }
         #endif
         let servicesOn = await Task.detached { CLLocationManager.locationServicesEnabled() }.value
         guard servicesOn else { return .unavailable(.locationOff) }
@@ -235,8 +241,19 @@ final class LocationCapture: NSObject, @preconcurrency CLLocationManagerDelegate
 
     #if DEBUG
     /// In-process UI backend only; no OS permission dialog and no real coordinates in test artifacts.
-    static func stubOutcome(_ mode: String?, now: Date = Date()) -> LocationOutcome {
+    /// Set by Add a store just before its Save-time refresh, so stale scenarios can tell the two captures apart.
+    static var stubSaveRefresh = false
+    /// Stale scenarios: ordinary captures are 115 s old (usable, stale a few seconds later); the Save refresh is
+    /// fresh at ~11 m ("stale"), ~100 m away ("stale-moved") or too weak ("stale-fail"). Never a mock signal.
+    static func stubOutcome(_ mode: String?, now: Date = Date(), refresh: Bool = false) -> LocationOutcome {
         let time = Int64(now.timeIntervalSince1970 * 1000)
+        if let mode, mode.hasPrefix("stale") {
+            let fix: VisitLocation?
+            if !refresh { fix = try? VisitLocation(latitude: 0, longitude: 0, accuracyMeters: 5, fixTime: time - 115_000) }
+            else if mode == "stale-fail" { fix = try? VisitLocation(latitude: 0, longitude: 0, accuracyMeters: 120, fixTime: time) }
+            else { fix = try? VisitLocation(latitude: mode == "stale-moved" ? 0.0009 : 0.0001, longitude: 0, accuracyMeters: 5, fixTime: time) }
+            return fix.map(LocationOutcome.captured) ?? .unavailable(.noFix)
+        }
         switch mode {
         case "denied": return .unavailable(.permissionDenied)
         case "off": return .unavailable(.locationOff)
