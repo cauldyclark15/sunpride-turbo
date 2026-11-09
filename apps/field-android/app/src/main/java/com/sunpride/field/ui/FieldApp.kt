@@ -98,6 +98,9 @@ fun FieldApp(
     var censusName by rememberSaveable { mutableStateOf("") }
     // The store being edited in the store form (Store › Edit); null when adding a new store.
     var censusEdit by rememberSaveable { mutableStateOf<String?>(null) }
+    // Edit store changes the office has not applied yet, by store id (label shown on the store page).
+    var storeChanges by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var storeChangesTick by remember { mutableStateOf(0) }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val location = remember(visitLocation) { visitLocation ?: com.sunpride.field.ui.diagnosticvisit.AndroidVisitLocation(context) }
@@ -117,6 +120,14 @@ fun FieldApp(
     var chatAtRoot by remember { mutableStateOf(true) }
     var customerId by rememberSaveable { mutableStateOf<String?>(null) }
     val customer = customerId?.let { id -> controller.today.customers.firstOrNull { it.outletId == id } }
+    LaunchedEffect(page, customerId, controller.today, storeChangesTick, backend) {
+        if (page != "customer") return@LaunchedEffect
+        val stores = controller.today.customers.associate { c -> c.outletId to com.sunpride.field.census.CensusRules.Current(
+            c.name, (c.address ?: c.account?.address).orEmpty(), c.account?.buyerName.orEmpty(), c.account?.contactNumber.orEmpty()) }
+        val changes = try { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { backend?.storeChanges().orEmpty() } }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyList() }
+        storeChanges = com.sunpride.field.census.CensusRules.waitingChanges(changes, stores, System.currentTimeMillis())
+    }
     // SP-0128: a sealed session waits for the system prompt; the app starts once it is opened (or the
     // person chose the password), and again after a later successful unlock from the password screen.
     val locked = biometrics?.step == BiometricGate.Step.LOCKED
@@ -263,7 +274,8 @@ fun FieldApp(
                 val spec = headerSpec(ready, locked, signedIn = controller.state != EnrollmentState.SignedOut, page = page,
                     visitOpen = visitOpen, controller = controller, routeCode = controller.today.routeCode,
                     editingStore = censusEdit != null).let {
-                    if (ready && !visitOpen && visits && page == "customer" && customer != null)
+                    if (ready && !visitOpen && visits && page == "customer" && customer != null &&
+                        com.sunpride.field.ui.customers.STORE_EDIT_ENABLED)
                         it.copy(action = HeaderAction("Edit", editStore, "customer-header-edit")) else it
                 }
                 FieldHeader(spec.title, subtitle = spec.subtitle, titleTag = spec.titleTag,
@@ -345,7 +357,8 @@ fun FieldApp(
                     com.sunpride.field.census.CensusScreen(backend, location, { page = origin }, modifier,
                         stores = controller.today.customers, onOpenStore = { id -> customerId = id; page = "customer" },
                         initialName = censusName,
-                        editing = censusEdit?.let { id -> controller.today.customers.firstOrNull { it.outletId == id } })
+                        editing = censusEdit?.let { id -> controller.today.customers.firstOrNull { it.outletId == id } },
+                        onChangeSaved = { censusEdit = null; storeChangesTick++; page = "customer" })
                 }
                 ready && page == "workforce" -> com.sunpride.field.ui.workforce.WorkforceScreen(controller,location,modifier)
                 // SP-0146 v2 messaging: the shared chat module; Back inside it steps back, Back on its list returns here.
@@ -393,7 +406,8 @@ fun FieldApp(
                     onDial = { uri -> openDialer(context, uri) }, modifier = modifier,
                     onVisit = controller::openDiagnostic, visitEnabled = visits, now = minuteNow,
                     unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features,
-                    onEdit = if (visits) ({ censusEdit = customerId; go("census") }) else null)
+                    onEdit = if (visits) ({ censusEdit = customerId; go("census") }) else null,
+                    changeLabel = storeChanges[customer.outletId])
                 ready && page == "customer" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,
                     onAddStore = if (visits) ({ typed -> censusName = typed; censusEdit = null; go("census") }) else null)

@@ -191,4 +191,16 @@ class CustomerScreensTest {
         content { CustomerDetailScreen(pena, data, onNavigate = { true }, onDial = { true }, now = now) }
         rule.onNodeWithTag("customer-edit").assertDoesNotExist()
     }
+
+    @Test fun pendingChangeShowsOnTheStorePage() {
+        content { CustomerDetailScreen(pena, data, onNavigate = { true }, onDial = { true }, now = now, onEdit = {},
+            changeLabel = com.sunpride.field.census.CensusRules.CHANGE_WAITING) }
+        rule.onNodeWithTag("customer-change-pending", useUnmergedTree = true).assertIsDisplayed()
+            .assertTextContains("Change waiting for office")
+    }
+
+    @Test fun noPendingLabelWithoutAChange() {
+        content { CustomerDetailScreen(pena, data, onNavigate = { true }, onDial = { true }, now = now, onEdit = {}) }
+        rule.onNodeWithTag("customer-change-pending", useUnmergedTree = true).assertDoesNotExist()
+    }
 }

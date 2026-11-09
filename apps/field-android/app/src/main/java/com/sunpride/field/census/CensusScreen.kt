@@ -57,9 +57,9 @@ import java.util.Base64
 @Composable
 fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> Unit, modifier: Modifier = Modifier,
     stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null, initialName: String = "",
-    editing: CustomerRecord? = null) =
+    editing: CustomerRecord? = null, onChangeSaved: (() -> Unit)? = null) =
     CensusScreenForTest(backend, location, onBack, modifier, stores, onOpenStore, photoForTest = null, initialName = initialName,
-        editing = editing)
+        editing = editing, onChangeSaved = onChangeSaved)
 
 /** Tests only: [photoForTest] starts with a storefront photo (emulators have no working camera). Release code
  * calls [CensusScreen], which always passes null; lint's VisibleForTests check blocks other production callers. */
@@ -68,7 +68,11 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
 @Composable
 internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation, onBack: () -> Unit, modifier: Modifier = Modifier,
     stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null, photoForTest: ByteArray? = null,
-    initialName: String = "", editing: CustomerRecord? = null) {
+    initialName: String = "", editing: CustomerRecord? = null, onChangeSaved: (() -> Unit)? = null) {
+    // Edit store sends a change request for this store (never a new store); the office approves it first.
+    val edit = editing != null && com.sunpride.field.ui.customers.STORE_EDIT_ENABLED
+    val current = remember(editing) { editing?.let { CensusRules.Current(it.name, (it.address ?: it.account?.address).orEmpty(),
+        it.account?.buyerName.orEmpty(), it.account?.contactNumber.orEmpty()) } }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
@@ -135,7 +139,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         (0 until a.length()).map { a.getJSONObject(it) }.filter { key != "subchannels" || it.getJSONObject("data").getString("channelId") == channel }
             .map { it.getString("id") to it.optString("label", it.optString("name")) }
     }.orEmpty()
-    fun missingNow() = CensusRules.missing(name, owner, phone, channel, subchannel, mode, fix != null, picked != null, address, jpeg != null)
+    fun missingNow() = if (edit) CensusRules.missingForChange(name, owner, phone, mode, fix != null, picked != null, address)
+        else CensusRules.missing(name, owner, phone, channel, subchannel, mode, fix != null, picked != null, address, jpeg != null)
     val marked = if (attempted) missingNow().toSet() else emptySet()
     fun useMyLocation() {
         if (location.requiresPermission && ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
@@ -197,6 +202,11 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 CensusRules.validate(p)
                 withContext(Dispatchers.IO) { backendNow.queueCensus(p) }
                 history = withContext(Dispatchers.IO) { backendNow.censusHistory() }
+                if (CensusRules.isChange(p)) {
+                    message = "Change saved on phone. The office checks it first."
+                    onChangeSaved?.invoke()
+                    return@launch
+                }
                 message = "Store saved on this phone. It will be reviewed after sync."
                 reset()
             } catch (e: Exception) {
@@ -210,6 +220,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         val place = picked?.takeIf { mode == "places" }?.let {
             CensusRules.Place(it.placeId ?: "", it.latitude ?: Double.NaN, it.longitude ?: Double.NaN, it.formattedAddress, it.components.json())
         }
+        if (edit) return CensusRules.changePayload(CensusRules.captureId(), editing!!.outletId, name, address, owner, phone,
+            System.currentTimeMillis(), if (mode == "gps") fix else null, place, landmark, jpeg?.let { Base64.getEncoder().encodeToString(it) })
         return CensusRules.payload(CensusRules.captureId(), CensusRules.chosenBatch(showBatch, batch), name, address, owner, phone, channel, subchannel,
             estimatedClass, System.currentTimeMillis(), if (mode == "gps") fix else null, place, landmark,
             reverse?.takeIf { mode == "gps" }?.let { it.formattedAddress to it.components.json() }, acknowledged,
@@ -247,6 +259,13 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 }
                 if (mode == "gps" && fix == null) throw IllegalArgumentException("Tap Use my location and wait for a good signal.")
                 val draft = build(emptyList()); CensusRules.validate(draft)
+                if (edit) {
+                    // A change is for this store: no duplicate check, nothing to send when nothing changed.
+                    if (!CensusRules.changed(current!!, name, address, owner, phone, landmark, draft.has("location"), jpeg != null)) {
+                        saveNote = "Nothing was changed."; return@launch
+                    }
+                    busy = false; queue(draft); return@launch
+                }
                 val loc = draft.getJSONObject("location")
                 val query = DuplicateRules.Store("", name, phone, loc.getDouble("latitude"), loc.getDouble("longitude"), draft.optString("placeId").ifEmpty { null })
                 val local = DuplicateRules.find(query, stores.map { DuplicateRules.Store(it.outletId, it.name, null, it.latitude, it.longitude, address = it.address) })
@@ -266,13 +285,13 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     Column(modifier.fillMaxSize().imePadding()) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (editing != null) Text("The office checks your changes before they show.", style = MaterialTheme.typography.bodySmall,
+            if (edit) Text("The office checks your changes first.", style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("census-edit-note"))
             NoticeCard(message, tone = if (config == null) Look.Tone.WARN else Look.Tone.NEUTRAL,
                 glyph = if (config == null) GlyphKind.INFO else GlyphKind.LOCK, textTag = "census-message")
             SectionCard("Store") {
                 Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    if (showBatch) CensusPicker("Gathering batch (optional)", choices("batches"), batch, { batch = it }, "census-batch",
+                    if (showBatch && !edit) CensusPicker("Gathering batch (optional)", choices("batches"), batch, { batch = it }, "census-batch",
                         empty = "Ongoing gathering (default)")
                     Marked(CensusRules.Field.NAME, marked, requesters) { FieldTextField(name, { name = it }, label = { Text("Store name") }, singleLine = true, isError = CensusRules.Field.NAME in marked, modifier = Modifier.fillMaxWidth().testTag("census-name")) }
                 }
@@ -284,7 +303,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                         keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = androidx.compose.ui.text.input.KeyboardType.Phone)) }
                 }
             }
-            SectionCard("Channel") {
+            if (!edit) SectionCard("Channel") {
                 Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Marked(CensusRules.Field.CHANNEL, marked, requesters) { CensusPicker("Channel", choices("channels"), channel, { channel = it; subchannel = "" }, "census-channel") }
                     Marked(CensusRules.Field.SUBCHANNEL, marked, requesters) { CensusPicker("Sub-channel", choices("subchannels"), subchannel, { subchannel = it }, "census-subchannel",
@@ -303,6 +322,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                                 Modifier.weight(1f).testTag("census-search-mode"), !busy)
                         }
                     }
+                    if (edit && mode == "") Text("Keep the store's pin, or set a new one.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("census-edit-location"))
                     Marked(CensusRules.Field.LOCATION, marked, requesters) { }
                     if (mode == "gps") fix?.let { StatusChip("Your location ±${it.getDouble("accuracyMeters").toInt()} m", Look.Tone.GOOD, textTag = "census-accuracy") }
                     locationNote?.let { Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("census-location-note")) }
@@ -366,7 +387,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             val note = saveNote ?: if (marked.isNotEmpty()) CensusRules.missingSummary(marked.size) else null
             note?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("census-save-note")) }
             if (staleRetry) TonalButton("Try again", ::save, Modifier.fillMaxWidth().testTag("census-retry"), !busy)
-            PrimaryBottomButton(if (refreshing) "Checking your location…" else "Save store", ::save, Modifier.fillMaxWidth().testTag("census-save"), !busy && config != null && !camera)
+            PrimaryBottomButton(if (refreshing) "Checking your location…" else if (edit) "Save changes" else "Save store", ::save, Modifier.fillMaxWidth().testTag("census-save"), !busy && (edit || config != null) && !camera)
         }
     }
     moved?.let { m -> ModalBottomSheet(onDismissRequest = { moved = null }) {

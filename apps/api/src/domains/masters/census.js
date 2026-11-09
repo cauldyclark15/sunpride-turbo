@@ -9,7 +9,7 @@ import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { OpRejected } from "../../core/sync.js";
 import { ApiError } from "../../core/errors.js";
 import { required, uuid, integer, rule } from "../org/model.js";
-import { scopeFilterForActor, subtree } from "../org/scope.js";
+import { scopeFilterForActor, subtree, outletOwnerUnit } from "../org/scope.js";
 import { definitionsAt, reference, masterDto } from "./definitions.js";
 import { placeDetails, PlacesUnavailable, placesConfigured } from "./places.js";
 import {
@@ -84,45 +84,9 @@ function readAcknowledged(v) {
   return [...new Set(v.map((/** @type {any} */ id) => uuid(id)))];
 }
 
-/** F-011 standalone survey adapter, not a second call-flow engine. Photo bytes are
- * bounded to 160 KiB and ride one signed durable operation; no placeholder file IDs.
- * SP-0162: location from GPS (default) or a Google place re-resolved here.
- * @param {any} ctx @param {any} p */
-export async function captureCensus(ctx, p) {
-  if (!FIELD_APPS.includes(ctx.app))
-    throw new OpRejected("unsupported_operation");
-  const fresh = await currentActor(ctx.db, ctx.actor);
-  const checked = await reauthorizeDevice(ctx.db, fresh, ctx.device.id);
-  if (checked.device.app !== ctx.app)
-    throw new OpRejected("unsupported_operation");
-  ctx = { ...ctx, actor: fresh };
-  const actor = await requireCapability(ctx, "outlet.enrol.propose");
-  let batch;
-  if (p.batchId !== undefined && p.batchId !== null) {
-    [batch] =
-      await ctx.db`select * from census_batches where id=${uuid(p.batchId)}`;
-    if (!batch) rule("Census batch not found.");
-  } else {
-    if (!actor.orgUnitId) rule("Your access has no organizational scope");
-    batch = await defaultBatch(ctx.db, actor.orgUnitId);
-    if (!batch) rule("Census batch not found.");
-  }
-  await requireCapability(ctx, "outlet.enrol.propose", batch.org_unit_id);
-  const at = integer(p.deviceTime, ctx.now - 7 * 86400000, ctx.now + 120000);
-  if (
-    new Date(batch.effective_from).getTime() > at ||
-    (batch.effective_to && new Date(batch.effective_to).getTime() <= at)
-  )
-    rule("The census batch was not open at capture time.");
-  const id = uuid(p.captureId),
-    name = required(p.name, "Store name", 200),
-    address = required(p.address, "Address", 500);
-  const ownerName = required(p.ownerName, "Owner contact name", 150),
-    ownerPhone = required(p.ownerPhone, "Owner phone", 40);
-  if (ownerPhone.replace(/\D/g, "").length < 7)
-    rule("Enter a complete owner phone number.");
-  if (!["A", "B", "C", "D"].includes(p.estimatedClass))
-    rule("Estimate class A, B, C or D.");
+/** Location of a capture: a fresh non-mock GPS fix (default) or a searched Google place.
+ * @param {any} p @param {number} at */
+function readLocation(p, at) {
   const source = p.locationSource ?? "gps";
   if (!["gps", "places"].includes(source))
     rule("Choose how the location was set.");
@@ -153,19 +117,11 @@ export async function captureCensus(ctx, p) {
     placeId = required(p.placeId, "Address search place", 300);
     if (!point) rule("Choose an address from the search list.");
   }
-  const components = readComponents(p.addressComponents);
-  const formattedAddress = optionalText(
-    p.formattedAddress,
-    "Address from search",
-    500,
-  );
-  const landmark = optionalText(p.landmark, "Landmark", 200);
-  const acknowledged = readAcknowledged(p.acknowledgedDuplicateIds);
-  const channel = await reference(ctx, p.channelId, "channel", at),
-    sub = await reference(ctx, p.subchannelId, "subchannel", at);
-  if (sub.data.channelId !== channel.id)
-    rule("Choose the channel's matching sub-channel.");
-  const encoded = required(p.photoJpegBase64, "Storefront photo", 220000);
+  return { source, placeId, l };
+}
+/** @param {any} encodedValue */
+function readJpeg(encodedValue) {
+  const encoded = required(encodedValue, "Storefront photo", 220000);
   const bytes = Buffer.from(encoded, "base64");
   if (
     bytes.toString("base64") !== encoded ||
@@ -178,6 +134,207 @@ export async function captureCensus(ctx, p) {
   )
     rule("Take a storefront JPEG photo up to 160 KiB.");
   validateCensusJpeg(bytes);
+  return bytes;
+}
+/** @param {any} ctx @param {string} id @param {Buffer} bytes @param {any} actor */
+async function storeJpeg(ctx, id, bytes, actor) {
+  const digest = sha256Hex(bytes),
+    relative = `${digest.slice(0, 2)}/${digest}`;
+  const folder = join(filesDir(ctx.env), digest.slice(0, 2));
+  await mkdir(folder, { recursive: true });
+  const temp = join(folder, `${digest}.${crypto.randomUUID()}.tmp`);
+  try {
+    await Bun.write(temp, bytes);
+    await rename(temp, join(filesDir(ctx.env), relative));
+  } finally {
+    await rm(temp, { force: true });
+  }
+  const [file] =
+    await ctx.db`insert into files(owner_id,purpose,sha256,mime,size,path,status,device_id,created_by) values(${id},'census-storefront',${digest},'image/jpeg',${bytes.length},${relative},'stored',${ctx.device.id},${actor.userId}) on conflict(created_by,purpose,owner_id,sha256) do update set status='stored' returning id`;
+  return file;
+}
+/** The store as the office knows it now: the old side of an Edit store change.
+ * @param {any} db @param {string} outletId */
+export async function storeSnapshot(db, outletId) {
+  const [row] = await db`select o.name,o.address,o.directions landmark,
+    c.name owner_name,c.phone owner_phone,p.latitude,p.longitude,
+    (select f.file_id from outlet_photos f where f.outlet_id=o.id and f.deleted_at is null order by f.ordinal limit 1) photo_file_id
+    from outlets o
+    left join lateral (select name,phone from outlet_contacts where outlet_id=o.id and deleted_at is null order by ordinal limit 1) c on true
+    left join lateral (select latitude,longitude from outlet_pins where outlet_id=o.id and status='verified' and deleted_at is null and effective_from<=now() and (effective_to is null or effective_to>now()) order by effective_from desc limit 1) p on true
+    where o.id=${outletId}`;
+  return row
+    ? {
+        name: row.name,
+        address: row.address ?? null,
+        landmark: row.landmark ?? null,
+        ownerName: row.owner_name ?? null,
+        ownerPhone: row.owner_phone ?? null,
+        latitude: row.latitude ?? null,
+        longitude: row.longitude ?? null,
+        photoFileId: row.photo_file_id ?? null,
+      }
+    : null;
+}
+/** Field "Edit store": a change request for an EXISTING store, linked by target_outlet_id.
+ * The whole proposed store rides the op (the phone pre-fills the form); location and photo
+ * are optional (left out = unchanged). Same permission as Add store; the office approves
+ * it in the store-gathering review and Approve updates that store, never a new one.
+ * @param {any} ctx @param {any} actor @param {any} p */
+async function captureChange(ctx, actor, p) {
+  const targetId = uuid(p.targetOutletId);
+  const { access } = await import("../org/readers.js");
+  const outlet = await access(ctx, "outlets", targetId, "outlet.enrol.propose");
+  if (outlet.deleted_at || outlet.status === "inactive")
+    rule("This store is closed and cannot be edited.");
+  const unit = await outletOwnerUnit(ctx.db, targetId, ctx.now);
+  const batch = await defaultBatch(ctx.db, unit ?? actor.orgUnitId);
+  if (!batch) rule("Census batch not found.");
+  const at = integer(p.deviceTime, ctx.now - 7 * 86400000, ctx.now + 120000);
+  const id = uuid(p.captureId),
+    name = required(p.name, "Store name", 200),
+    address = required(p.address, "Address", 500);
+  const ownerName = required(p.ownerName, "Owner contact name", 150),
+    ownerPhone = required(p.ownerPhone, "Owner phone", 40);
+  if (ownerPhone.replace(/\D/g, "").length < 7)
+    rule("Enter a complete owner phone number.");
+  const moved = p.location !== undefined && p.location !== null;
+  const loc = moved ? readLocation(p, at) : null;
+  const components = moved ? readComponents(p.addressComponents) : null;
+  const formattedAddress = moved
+    ? optionalText(p.formattedAddress, "Address from search", 500)
+    : null;
+  const landmark = optionalText(p.landmark, "Landmark", 200);
+  const bytes =
+    p.photoJpegBase64 === undefined ||
+    p.photoJpegBase64 === null ||
+    p.photoJpegBase64 === ""
+      ? null
+      : readJpeg(p.photoJpegBase64);
+  const hash = sha256Hex(canonicalJson(p));
+  const [prior] =
+    await ctx.db`select id,payload_hash,actor_profile_id from census_captures where id=${id}`;
+  if (prior) {
+    if (
+      prior.payload_hash !== hash ||
+      prior.actor_profile_id !== actor.profileId
+    )
+      throw new OpRejected("idempotency_conflict");
+    return { entityId: id, eventIds: [] };
+  }
+  const before = await storeSnapshot(ctx.db, targetId);
+  if (!before) rule("Store not found.");
+  const same = (/** @type {any} */ a, /** @type {any} */ b) =>
+    String(a ?? "").trim() === String(b ?? "").trim();
+  if (
+    !moved &&
+    !bytes &&
+    same(before.name, name) &&
+    same(before.address, address) &&
+    same(before.ownerName, ownerName) &&
+    same(before.ownerPhone, ownerPhone) &&
+    (landmark === null || same(before.landmark, landmark))
+  )
+    rule("Nothing was changed.");
+  const file = bytes ? await storeJpeg(ctx, id, bytes, actor) : null;
+  const gps = loc?.source === "gps";
+  await ctx.db`insert into census_captures(id,batch_id,actor_profile_id,payload_hash,name,address,latitude,longitude,accuracy_meters,captured_at,owner_name,owner_phone,channel_id,subchannel_id,estimated_class,photo_file_id,location_provider,location_recorded_at,device_id,location_source,place_id,address_components,formatted_address,landmark,app,kind,target_outlet_id,previous_values) values(${id},${batch.id},${actor.profileId},${hash},${name},${address},${loc ? loc.l.latitude : null},${loc ? loc.l.longitude : null},${gps ? loc.l.accuracyMeters : null},${new Date(at)},${ownerName},${ownerPhone},${null},${null},${null},${file?.id ?? null},${loc ? (gps ? loc.l.provider : "places") : null},${loc ? new Date(gps ? loc.l.fixTime : at) : null},${ctx.device.id},${loc?.source ?? "gps"},${loc?.placeId ?? null},${components},${formattedAddress},${landmark},${ctx.app},'change',${targetId},${before})`;
+  if (loc?.source === "places")
+    await ctx.enqueue({
+      kind: RESOLVE_PLACE_JOB,
+      key: id,
+      payload: { captureId: id },
+    });
+  await ctx.db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${actor.userId},'F-011.census.change','census',${id},${JSON.stringify({ targetOutletId: targetId })})`;
+  await ctx.change("census", id, batch.org_unit_id);
+  ctx.publish("masters");
+  return { entityId: id, eventIds: [] };
+}
+/** Approve a store change: update the existing store in place (no new store row).
+ * @param {any} ctx @param {any} capture @param {any} actor @param {string} reason */
+async function applyChange(ctx, capture, actor, reason) {
+  const id = capture.target_outlet_id;
+  const [outlet] =
+    await ctx.db`select id,status,deleted_at from outlets where id=${id} for update`;
+  if (!outlet || outlet.deleted_at) rule("Store not found.");
+  // Landmark / place left out of the change keep the store's current value.
+  const placeId =
+    capture.latitude !== null && capture.location_source === "places"
+      ? capture.place_id
+      : null;
+  await ctx.db`update outlets set name=${capture.name},address=${capture.address},directions=coalesce(${capture.landmark ?? null}::text,directions),place_id=coalesce(${placeId}::text,place_id) where id=${id}`;
+  await ctx.db`insert into outlet_contacts(outlet_id,ordinal,name,phone) values(${id},0,${capture.owner_name},${capture.owner_phone}) on conflict (outlet_id,ordinal) do update set name=excluded.name,phone=excluded.phone,deleted_at=null,updated_at=now()`;
+  if (capture.photo_file_id)
+    await ctx.db`insert into outlet_photos(outlet_id,ordinal,file_id) values(${id},0,${capture.photo_file_id}) on conflict (outlet_id,ordinal) do update set file_id=excluded.file_id,deleted_at=null,updated_at=now()`;
+  if (capture.latitude !== null) {
+    const now = ctx.now;
+    const [current] =
+      await ctx.db`select id,effective_from from outlet_pins where outlet_id=${id} and status='verified' and deleted_at is null and (effective_to is null or effective_to>${new Date(now)}) order by effective_from desc limit 1`;
+    const from = Math.max(
+      now,
+      current ? new Date(current.effective_from).getTime() + 1 : now,
+    );
+    if (current)
+      await ctx.db`update outlet_pins set effective_to=${new Date(from)} where id=${current.id}`;
+    await ctx.db`insert into outlet_pins(outlet_id,latitude,longitude,radius_meters,source,evidence_storage_id,status,effective_from,proposed_by,proposed_at,verified_by,verified_at,reviewer_reason) values(${id},${capture.latitude},${capture.longitude},50,'census',${capture.photo_file_id ?? null},'verified',${new Date(from)},${capture.actor_profile_id},${capture.captured_at},${actor.userId},${new Date(now)},${reason})`;
+  }
+  return id;
+}
+/** F-011 standalone survey adapter, not a second call-flow engine. Photo bytes are
+ * bounded to 160 KiB and ride one signed durable operation; no placeholder file IDs.
+ * SP-0162: location from GPS (default) or a Google place re-resolved here.
+ * @param {any} ctx @param {any} p */
+export async function captureCensus(ctx, p) {
+  if (!FIELD_APPS.includes(ctx.app))
+    throw new OpRejected("unsupported_operation");
+  const fresh = await currentActor(ctx.db, ctx.actor);
+  const checked = await reauthorizeDevice(ctx.db, fresh, ctx.device.id);
+  if (checked.device.app !== ctx.app)
+    throw new OpRejected("unsupported_operation");
+  ctx = { ...ctx, actor: fresh };
+  const actor = await requireCapability(ctx, "outlet.enrol.propose");
+  if (p.kind === "change") return captureChange(ctx, actor, p);
+  if (p.kind !== undefined && p.kind !== "new") rule("Unknown store request.");
+  let batch;
+  if (p.batchId !== undefined && p.batchId !== null) {
+    [batch] =
+      await ctx.db`select * from census_batches where id=${uuid(p.batchId)}`;
+    if (!batch) rule("Census batch not found.");
+  } else {
+    if (!actor.orgUnitId) rule("Your access has no organizational scope");
+    batch = await defaultBatch(ctx.db, actor.orgUnitId);
+    if (!batch) rule("Census batch not found.");
+  }
+  await requireCapability(ctx, "outlet.enrol.propose", batch.org_unit_id);
+  const at = integer(p.deviceTime, ctx.now - 7 * 86400000, ctx.now + 120000);
+  if (
+    new Date(batch.effective_from).getTime() > at ||
+    (batch.effective_to && new Date(batch.effective_to).getTime() <= at)
+  )
+    rule("The census batch was not open at capture time.");
+  const id = uuid(p.captureId),
+    name = required(p.name, "Store name", 200),
+    address = required(p.address, "Address", 500);
+  const ownerName = required(p.ownerName, "Owner contact name", 150),
+    ownerPhone = required(p.ownerPhone, "Owner phone", 40);
+  if (ownerPhone.replace(/\D/g, "").length < 7)
+    rule("Enter a complete owner phone number.");
+  if (!["A", "B", "C", "D"].includes(p.estimatedClass))
+    rule("Estimate class A, B, C or D.");
+  const { source, placeId, l } = readLocation(p, at);
+  const components = readComponents(p.addressComponents);
+  const formattedAddress = optionalText(
+    p.formattedAddress,
+    "Address from search",
+    500,
+  );
+  const landmark = optionalText(p.landmark, "Landmark", 200);
+  const acknowledged = readAcknowledged(p.acknowledgedDuplicateIds);
+  const channel = await reference(ctx, p.channelId, "channel", at),
+    sub = await reference(ctx, p.subchannelId, "subchannel", at);
+  if (sub.data.channelId !== channel.id)
+    rule("Choose the channel's matching sub-channel.");
+  const bytes = readJpeg(p.photoJpegBase64);
   const hash = sha256Hex(canonicalJson(p));
   const [prior] =
     await ctx.db`select id,payload_hash,actor_profile_id from census_captures where id=${id}`;
@@ -214,19 +371,7 @@ export async function captureCensus(ctx, p) {
   const flag = candidates.some(
     (/** @type {any} */ c) => !acknowledged.includes(c.id),
   );
-  const digest = sha256Hex(bytes),
-    relative = `${digest.slice(0, 2)}/${digest}`;
-  const folder = join(filesDir(ctx.env), digest.slice(0, 2));
-  await mkdir(folder, { recursive: true });
-  const temp = join(folder, `${digest}.${crypto.randomUUID()}.tmp`);
-  try {
-    await Bun.write(temp, bytes);
-    await rename(temp, join(filesDir(ctx.env), relative));
-  } finally {
-    await rm(temp, { force: true });
-  }
-  const [file] =
-    await ctx.db`insert into files(owner_id,purpose,sha256,mime,size,path,status,device_id,created_by) values(${id},'census-storefront',${digest},'image/jpeg',${bytes.length},${relative},'stored',${ctx.device.id},${actor.userId}) on conflict(created_by,purpose,owner_id,sha256) do update set status='stored' returning id`;
+  const file = await storeJpeg(ctx, id, bytes, actor);
   const gps = source === "gps";
   await ctx.db`insert into census_captures(id,batch_id,actor_profile_id,payload_hash,name,address,latitude,longitude,accuracy_meters,captured_at,owner_name,owner_phone,channel_id,subchannel_id,estimated_class,photo_file_id,location_provider,location_recorded_at,device_id,location_source,place_id,address_components,formatted_address,landmark,acknowledged_duplicate_ids,duplicate_candidates,duplicate_flag,app) values(${id},${batch.id},${actor.profileId},${hash},${name},${address},${latitude},${longitude},${gps ? l.accuracyMeters : null},${new Date(at)},${ownerName},${ownerPhone},${channel.id},${sub.id},${p.estimatedClass},${file.id},${gps ? l.provider : "places"},${new Date(gps ? l.fixTime : at)},${ctx.device.id},${source},${placeId},${components},${formattedAddress},${landmark},${acknowledged},${candidates},${flag},${ctx.app})`;
   if (pendingPlace)
@@ -307,7 +452,38 @@ export async function reviewCensus(ctx, p) {
     await ctx.db`select 1 from census_reviews where capture_id=${capture.id}`;
   if (prior) rule("This capture was already reviewed.");
   let outletId = p.outletId ? uuid(p.outletId) : null;
-  if (p.decision === "duplicate") {
+  if (capture.kind === "change") {
+    // Edit store: Approve updates the linked store in place; Reject leaves it untouched.
+    if (p.decision === "duplicate") rule("Approve or reject a store change.");
+    outletId = capture.target_outlet_id;
+    if (p.decision === "accept") {
+      if (capture.latitude !== null) {
+        if (capture.location_status === "pending")
+          rule(
+            "Still checking the address. Try again in a minute.",
+            "location_pending",
+          );
+        if (
+          capture.location_source === "places" &&
+          capture.location_status === "verified"
+        ) {
+          capture.latitude = capture.place_latitude;
+          capture.longitude = capture.place_longitude;
+        }
+        if (capture.location_status === "mismatch") {
+          if (p.pinChoice === "place" && capture.place_latitude !== null) {
+            capture.latitude = capture.place_latitude;
+            capture.longitude = capture.place_longitude;
+          } else if (p.pinChoice !== "device")
+            rule(
+              "The pin and the searched address are far apart. Confirm which pin is right.",
+              "location_mismatch",
+            );
+        }
+      }
+      await applyChange(ctx, capture, actor, reason);
+    }
+  } else if (p.decision === "duplicate") {
     if (!outletId) rule("Choose the existing survivor store.");
     const { access } = await import("../org/readers.js");
     const outlet = await access(ctx, "outlets", outletId, "outlet.verify");
@@ -353,13 +529,15 @@ export async function reviewCensus(ctx, p) {
     await ctx.db`insert into outlet_photos(outlet_id,ordinal,file_id) values(${outletId},0,${capture.photo_file_id})`;
     await ctx.db`insert into outlet_pins(outlet_id,latitude,longitude,radius_meters,source,evidence_storage_id,status,effective_from,proposed_by,proposed_at,verified_by,verified_at,reviewer_reason) values(${outletId},${capture.latitude},${capture.longitude},50,'census',${capture.photo_file_id},'verified',${new Date(ctx.now)},${capture.actor_profile_id},${capture.captured_at},${actor.userId},${new Date(ctx.now)},${reason})`;
   } else outletId = null;
+  if (capture.kind === "change" && p.decision === "reject") outletId = null;
   await ctx.db`insert into census_reviews(capture_id,decision,outlet_id,actor_profile_id,reason) values(${capture.id},${p.decision},${outletId},${actor.profileId},${reason})`;
-  await ctx.db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${actor.userId},'F-011.census.review','census',${capture.id},${JSON.stringify({ decision: p.decision, outletId, reason, ...(capture.location_status === "mismatch" && p.decision === "accept" ? { pinChoice: p.pinChoice } : {}) })})`;
+  await ctx.db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${actor.userId},'F-011.census.review','census',${capture.id},${JSON.stringify({ decision: p.decision, kind: capture.kind, outletId, reason, ...(capture.location_status === "mismatch" && p.decision === "accept" ? { pinChoice: p.pinChoice } : {}) })})`;
   const [made] = outletId
     ? await ctx.db`select code from outlets where id=${outletId}`
     : [];
   return {
     id: capture.id,
+    kind: capture.kind,
     outletId,
     decision: p.decision,
     code: made?.code ?? null,
@@ -394,12 +572,12 @@ export async function censusQueue(ctx) {
   const actor = await requireCapability(ctx, "outlet.verify");
   const { unitIds } = await scopeFilterForActor(ctx.db, actor);
   const batches = await ctx.db`select b.id,b.name,b.expected_outlets,
-    (select count(*)::int from census_captures c where c.batch_id=b.id) captured,
-    (select count(*)::int from census_captures c join census_reviews r on r.capture_id=c.id where c.batch_id=b.id and r.decision='accept') accepted,
+    (select count(*)::int from census_captures c where c.batch_id=b.id and c.kind='new') captured,
+    (select count(*)::int from census_captures c join census_reviews r on r.capture_id=c.id where c.batch_id=b.id and c.kind='new' and r.decision='accept') accepted,
     (select count(*)::int from census_captures c left join census_reviews r on r.capture_id=c.id where c.batch_id=b.id and r.id is null) pending
     from census_batches b where (${unitIds === null} or org_unit_id::text=any(${ctx.db.array(unitIds ?? [], "TEXT")})) order by b.created_at desc limit 101`;
   const rows =
-    await ctx.db`select c.id,c.name,c.address,c.accuracy_meters,c.captured_at,c.owner_name,c.owner_phone,c.estimated_class,p.name agent,b.name batch,coalesce(case when pc.status='verified' then pc.place_latitude end,c.latitude) latitude,coalesce(case when pc.status='verified' then pc.place_longitude end,c.longitude) longitude,c.location_source,c.formatted_address,c.address_components,c.landmark,c.duplicate_flag,c.duplicate_candidates,c.acknowledged_duplicate_ids,c.actor_profile_id,(case when c.location_source='gps' then 'verified' when pc.capture_id is null then 'pending' else pc.status end) location_status,c.latitude device_latitude,c.longitude device_longitude,pc.place_latitude,pc.place_longitude,ch.label channel,sc.label subchannel from census_captures c join profiles p on p.id=c.actor_profile_id join census_batches b on b.id=c.batch_id left join census_place_checks pc on pc.capture_id=c.id left join lateral (select v.label from master_versions v where v.master_id=c.channel_id order by v.version desc limit 1) ch on true left join lateral (select v.label from master_versions v where v.master_id=c.subchannel_id order by v.version desc limit 1) sc on true left join census_reviews r on r.capture_id=c.id where r.id is null and (${unitIds === null} or b.org_unit_id::text=any(${ctx.db.array(unitIds ?? [], "TEXT")})) order by c.captured_at limit 101`;
+    await ctx.db`select c.id,c.name,c.address,c.accuracy_meters,c.captured_at,c.owner_name,c.owner_phone,c.estimated_class,p.name agent,b.name batch,coalesce(case when pc.status='verified' then pc.place_latitude end,c.latitude) latitude,coalesce(case when pc.status='verified' then pc.place_longitude end,c.longitude) longitude,c.location_source,c.formatted_address,c.address_components,c.landmark,c.duplicate_flag,c.duplicate_candidates,c.acknowledged_duplicate_ids,c.actor_profile_id,(case when c.location_source='gps' then 'verified' when pc.capture_id is null then 'pending' else pc.status end) location_status,c.latitude device_latitude,c.longitude device_longitude,pc.place_latitude,pc.place_longitude,ch.label channel,sc.label subchannel,c.kind,c.target_outlet_id,c.previous_values,(c.photo_file_id is not null) has_photo,t.code target_code from census_captures c left join outlets t on t.id=c.target_outlet_id join profiles p on p.id=c.actor_profile_id join census_batches b on b.id=c.batch_id left join census_place_checks pc on pc.capture_id=c.id left join lateral (select v.label from master_versions v where v.master_id=c.channel_id order by v.version desc limit 1) ch on true left join lateral (select v.label from master_versions v where v.master_id=c.subchannel_id order by v.version desc limit 1) sc on true left join census_reviews r on r.capture_id=c.id where r.id is null and (${unitIds === null} or b.org_unit_id::text=any(${ctx.db.array(unitIds ?? [], "TEXT")})) order by c.captured_at limit 101`;
   return {
     batches: batches.slice(0, 100).map((/** @type {any} */ b) => ({
       ...b,
@@ -407,9 +585,74 @@ export async function censusQueue(ctx) {
       targetPct: 98,
     })),
     // B1: stored candidates were computed at capture time; drop any this reader cannot see now.
-    rows: await candidatesInScope(ctx.db, rows.slice(0, 100), unitIds),
+    rows: await withChanges(
+      ctx.db,
+      await candidatesInScope(ctx.db, rows.slice(0, 100), unitIds),
+    ),
     truncated: rows.length > 100 || batches.length > 100,
   };
+}
+/** Edit store rows: old -> new per field, against the store as it is NOW (the snapshot taken
+ * at capture time is the fallback if the store has gone). Unchanged fields are left out.
+ * @param {any} db @param {any[]} rows */
+async function withChanges(db, rows) {
+  const out = [];
+  for (const r of rows) {
+    if (r.kind !== "change") {
+      out.push({ ...r, kind: r.kind ?? "new", changes: [] });
+      continue;
+    }
+    const now =
+      (await storeSnapshot(db, r.target_outlet_id)) ?? r.previous_values ?? {};
+    /** @type {{field:string,label:string,old:string|null,new:string|null}[]} */
+    const changes = [];
+    const text = (/** @type {any} */ v) =>
+      v === null || v === undefined || String(v).trim() === ""
+        ? null
+        : String(v).trim();
+    /** @param {string} field @param {string} label @param {any} before @param {any} after */
+    const add = (field, label, before, after) => {
+      if (text(before) !== text(after))
+        changes.push({ field, label, old: text(before), new: text(after) });
+    };
+    add("name", "Store name", now.name, r.name);
+    add("address", "Address", now.address, r.address);
+    add("ownerName", "Owner", now.ownerName, r.owner_name);
+    add("ownerPhone", "Owner phone", now.ownerPhone, r.owner_phone);
+    if (r.landmark !== null)
+      add("landmark", "Landmark", now.landmark, r.landmark);
+    if (r.device_latitude !== null) {
+      const pin = (/** @type {any} */ a, /** @type {any} */ b) =>
+        a === null || a === undefined
+          ? null
+          : `${Number(a).toFixed(5)}, ${Number(b).toFixed(5)}`;
+      changes.push({
+        field: "location",
+        label: "Location",
+        old: pin(now.latitude, now.longitude),
+        new: pin(r.latitude, r.longitude),
+      });
+    }
+    if (r.has_photo)
+      changes.push({
+        field: "photo",
+        label: "Photo",
+        old: now.photoFileId ? "Current photo" : null,
+        new: "New photo",
+      });
+    out.push({
+      ...r,
+      latitude: r.latitude ?? now.latitude ?? null,
+      longitude: r.longitude ?? now.longitude ?? null,
+      target: {
+        id: r.target_outlet_id,
+        code: r.target_code ?? null,
+        name: now.name ?? null,
+      },
+      changes,
+    });
+  }
+  return out;
 }
 /** @param {any} ctx */
 export async function censusPhoto(ctx) {

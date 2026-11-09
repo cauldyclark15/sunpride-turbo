@@ -196,7 +196,7 @@ export async function findDuplicates(ctx, q, unitIds) {
     select c.id, c.name, c.address, c.place_id, c.latitude, c.longitude, c.owner_phone
     from census_captures c join census_batches b on b.id = c.batch_id
     left join census_reviews r on r.capture_id = c.id
-    where r.id is null
+    where r.id is null and c.kind = 'new'
       and (${q.excludeCaptureId ?? null}::uuid is null or c.id <> ${q.excludeCaptureId ?? null}::uuid)
       and (${nationwide} or b.org_unit_id::text = any(${units}))
       and (
