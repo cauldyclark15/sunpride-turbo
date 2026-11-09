@@ -11,6 +11,13 @@ COPY --from=manifests /out/ ./
 RUN bun install --frozen-lockfile --production --ignore-scripts --filter @sunpride/api
 
 FROM oven/bun:1.3.14-slim
+# Linux replacements for the Mac-only tools the api shells out to:
+#  - MT OCR (ocr.swift / Apple Vision) -> tesseract + eng, poppler for PDFs (scripts/ocr-tesseract.js)
+#  - APK release inspection (aapt + apksigner from the Android SDK) -> Debian's aapt/apksigner
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends tesseract-ocr tesseract-ocr-eng poppler-utils aapt apksigner \
+ && rm -rf /var/lib/apt/lists/* \
+ && aapt version && apksigner --version && tesseract --version | head -1
 WORKDIR /app
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=4320
 COPY --from=deps /app/ ./

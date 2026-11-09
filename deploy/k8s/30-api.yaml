@@ -52,7 +52,11 @@ spec:
           resources:
             requests: {cpu: 200m, memory: 384Mi}
             limits: {cpu: "1", memory: 1Gi}
-          volumeMounts: [{name: files, mountPath: /data/files}]
+          volumeMounts:
+            - {name: files, mountPath: /data/files}
+            # staged APKs (SP_APP_RELEASE_DIR) live on the sap-mock volume: copy-data `files` wipes
+            # sunpride-api-files, `sap` only replaces the sqlite file.
+            - {name: sapdata, mountPath: /data/sapvol}
         - name: sap-mock
           image: cauldyclark15/sunpride-sap-mock:placeholder
           env:
@@ -83,3 +87,9 @@ data:
   FILES_DIR: /data/files
   PUBLIC_ORIGIN: https://sunpride-k8s.cauldnclark.com
   DB_POOL_MAX: "20"
+  # MT OCR on Linux (ocr.js otherwise needs macOS swift)
+  SUNPRIDE_OCR_COMMAND: '["bun","/app/apps/api/scripts/ocr-tesseract.js"]'
+  # APK release inspection (apk-artifacts.js) with Debian aapt/apksigner instead of the Mac SDK
+  SP_ANDROID_BUILD_TOOLS: /usr/bin
+  SP_ANDROID_JAVA_HOME: /usr/lib/jvm/default-java
+  SP_APP_RELEASE_DIR: /data/sapvol/app-releases
