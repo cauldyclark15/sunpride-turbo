@@ -3,7 +3,10 @@ package com.sunpride.catalogue
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import org.json.JSONObject
@@ -73,38 +76,72 @@ object TargetProgressRepository {
     }
 }
 object TargetProgressText {
+    private fun pesos(v:BigDecimal):String{val p=v.movePointLeft(2);val whole=p.stripTrailingZeros().scale()<=0
+        return "₱"+NumberFormat.getNumberInstance(Locale.ENGLISH).apply{minimumFractionDigits=if(whole)0 else 2;maximumFractionDigits=2}.format(p)}
+    private fun count(v:BigDecimal)=NumberFormat.getNumberInstance(Locale.ENGLISH).apply{maximumFractionDigits=2}.format(v)
+    /** Plain unit words for reps. */
+    fun unitWord(unit:String)=when(unit){"store-SKU points"->"products in stores";"EA"->"pcs";else->unit}
     fun value(v:BigDecimal?,unit:String):String {
         if(v==null)return "Not recorded"
-        return when(unit){"centavos"->"₱"+NumberFormat.getNumberInstance(Locale.ENGLISH).apply{minimumFractionDigits=2;maximumFractionDigits=2}.format(v.movePointLeft(2));"basis points"->v.movePointLeft(2).stripTrailingZeros().toPlainString()+"%";else->v.stripTrailingZeros().toPlainString()+" "+unit}
+        return when(unit){"centavos"->pesos(v);"basis points"->v.movePointLeft(2).stripTrailingZeros().toPlainString()+"%";else->count(v)+" "+unitWord(unit)}
+    }
+    /** Big number on the right: money and % as-is, counts without the unit (the label names it). */
+    fun big(v:BigDecimal?,unit:String)=when{v==null->"—";unit=="centavos"||unit=="basis points"->value(v,unit);else->count(v)}
+    fun target(row:TargetMeasure)=row.target?.let{"of "+value(it,row.unit)}
+    fun lastMonth(row:TargetMeasure)=row.prior?.let{"Last month "+value(if(row.unit=="centavos")it.movePointLeft(2).setScale(0,java.math.RoundingMode.HALF_UP).movePointRight(2) else it,row.unit)}
+    fun status(row:TargetMeasure)=if(row.target==null)null else when(row.status){"on_target","on_pace"->"On track";"behind"->"Behind";else->null}
+    fun fraction(row:TargetMeasure):Float?{val t=row.target?:return null;if(t.signum()==0)return 1f
+        return ((row.actual?:BigDecimal.ZERO).toDouble()/t.toDouble()).toFloat().coerceIn(0f,1f)}
+    fun updated(date:String)=runCatching{"Updated "+java.time.LocalDate.parse(date).format(java.time.format.DateTimeFormatter.ofPattern("MMM d",Locale.ENGLISH))}.getOrDefault("Updated $date")
+    const val MISSING_NOTE="Targets not set yet — ask your supervisor"
+    const val SHOWN=4
+}
+@Composable private fun TargetRow(row:TargetMeasure){
+    Column(Modifier.fillMaxWidth().testTag("target-row-${row.metric}${row.label.hashCode()}"),verticalArrangement=Arrangement.spacedBy(4.dp)){
+        Row(verticalAlignment=Alignment.CenterVertically){
+            Text(row.label,Modifier.weight(1f).padding(end=8.dp),style=MaterialTheme.typography.bodyLarge,maxLines=2,overflow=TextOverflow.Ellipsis)
+            Text(TargetProgressText.big(row.actual,row.unit),style=MaterialTheme.typography.titleLarge,fontWeight=FontWeight.SemiBold,maxLines=1)
+        }
+        val muted=MaterialTheme.colorScheme.onSurfaceVariant
+        val f=TargetProgressText.fraction(row)
+        if(f!=null){
+            LinearProgressIndicator(progress={f},modifier=Modifier.fillMaxWidth().height(6.dp),drawStopIndicator={})
+            Row(verticalAlignment=Alignment.CenterVertically){
+                Text(TargetProgressText.target(row)!!,Modifier.weight(1f),style=MaterialTheme.typography.bodyMedium,color=muted)
+                TargetProgressText.status(row)?.let{s->
+                    val behind=s=="Behind"
+                    Surface(shape=MaterialTheme.shapes.small,color=if(behind)MaterialTheme.colorScheme.errorContainer else MaterialTheme.colorScheme.secondaryContainer,
+                        contentColor=if(behind)MaterialTheme.colorScheme.onErrorContainer else MaterialTheme.colorScheme.onSecondaryContainer){
+                        Text(s,Modifier.padding(horizontal=8.dp,vertical=2.dp),style=MaterialTheme.typography.labelMedium)}
+                }
+            }
+        }else Text("No target yet",style=MaterialTheme.typography.bodyMedium,color=muted)
+        TargetProgressText.lastMonth(row)?.let{Text(it,style=MaterialTheme.typography.bodySmall,color=muted)}
     }
 }
 @Composable fun TargetProgressCard(view:TargetProgressView,modifier:Modifier=Modifier){
     var expired by remember(view.data?.expiresAt){mutableStateOf(false)}
-    var page by remember(view.data?.profileId,view.data?.month){mutableStateOf(0)}
+    var all by remember(view.data?.profileId,view.data?.month){mutableStateOf(false)}
+    var details by remember{mutableStateOf(false)}
     LaunchedEffect(view.data?.expiresAt){view.data?.let{kotlinx.coroutines.delay((it.expiresAt-System.currentTimeMillis()).coerceAtLeast(0)+1);expired=true}}
     val data=view.data?.takeIf{!expired&&it.expiresAt>System.currentTimeMillis()&&view.current()}
-    Surface(modifier.fillMaxWidth().testTag("month-targets"),shape=MaterialTheme.shapes.medium){Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)){
-        Text("Month targets",style=MaterialTheme.typography.titleMedium)
-        if(data==null)Text(view.message?:"Sync to see current targets")else{
-            Text("${data.month} · office actuals through ${data.date}")
-            view.message?.let{Text(it)}
-            view.savedAt?.let{Text("Saved office snapshot · pending phone work is not yet included",style=MaterialTheme.typography.bodySmall)}
-            val shownPage=page.coerceIn(0,data.rows.lastIndex/6)
-            for(row in data.rows.drop(shownPage*6).take(6)){Column(verticalArrangement=Arrangement.spacedBy(2.dp)){
-                Text(row.label,style=MaterialTheme.typography.titleSmall)
-                Text("${TargetProgressText.value(row.actual,row.unit)} / ${row.target?.let{TargetProgressText.value(it,row.unit)}?:"Not published"}")
-                Text("Pace ${TargetProgressText.value(row.pace,row.unit)} · prior comparable period ${TargetProgressText.value(row.prior,row.unit)}",style=MaterialTheme.typography.bodySmall)
-                if(row.status in setOf("behind","unknown","not_set"))Text(row.nextAction,style=MaterialTheme.typography.bodySmall)
-                row.sourceRef?.let{Text("Target source: $it",style=MaterialTheme.typography.bodySmall)}
-            }}
-            if(data.rows.size>6){
-                Text("${shownPage*6+1}–${minOf((shownPage+1)*6,data.rows.size)} of ${data.rows.size} targets")
-                Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){
-                    OutlinedButton({page=shownPage-1},enabled=shownPage>0){Text("Previous")}
-                    OutlinedButton({page=shownPage+1},enabled=(shownPage+1)*6<data.rows.size){Text("Next")}
-                }
-            }
-            Text(data.definition,style=MaterialTheme.typography.bodySmall)
+    val muted=MaterialTheme.colorScheme.onSurfaceVariant
+    Surface(modifier.fillMaxWidth().testTag("month-targets"),shape=MaterialTheme.shapes.medium){Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(12.dp)){
+        Row(verticalAlignment=Alignment.Bottom){
+            Text("This month",Modifier.weight(1f),style=MaterialTheme.typography.titleMedium)
+            data?.let{Text(TargetProgressText.updated(it.date),style=MaterialTheme.typography.bodySmall,color=muted)}
+        }
+        if(data==null){Text(view.message?:"Sync to see current targets",color=muted);return@Column}
+        view.message?.let{Text(it,style=MaterialTheme.typography.bodySmall,color=muted)}
+        val rows=if(all)data.rows else data.rows.take(TargetProgressText.SHOWN)
+        rows.forEachIndexed{i,row->if(i>0)HorizontalDivider();TargetRow(row)}
+        if(data.rows.size>TargetProgressText.SHOWN)TextButton({all=!all},Modifier.testTag("targets-show-all"),contentPadding=PaddingValues(0.dp)){Text(if(all)"Show less" else "Show all (${data.rows.size})")}
+        if(data.rows.any{it.target==null})Text(TargetProgressText.MISSING_NOTE,style=MaterialTheme.typography.bodyMedium,color=muted)
+        TextButton({details=!details},Modifier.testTag("targets-details"),contentPadding=PaddingValues(0.dp)){Text(if(details)"Hide details" else "Details")}
+        if(details)Column(verticalArrangement=Arrangement.spacedBy(6.dp)){
+            if(view.savedAt!=null)Text("Saved copy — work still on this phone is not counted yet.",style=MaterialTheme.typography.bodySmall,color=muted)
+            data.rows.mapNotNull{it.sourceRef}.distinct().forEach{Text("Target source: $it",style=MaterialTheme.typography.bodySmall,color=muted)}
+            Text(data.definition,style=MaterialTheme.typography.bodySmall,color=muted)
         }
     }}
 }
