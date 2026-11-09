@@ -43,10 +43,16 @@ const listView = (r) => ({
   effectiveTo: r.effective_to ? new Date(r.effective_to).getTime() : null,
   lineCount: Number(r.line_count ?? 0),
 });
-/** @param {any} c @param {any} b */
-async function saveList(c, b) {
+/** When SAP is connected (SAP_MODE set) it owns prices: office save, import and delete are refused.
+ * SAP's own replication writes price lists directly (integration/replicas.js), never through these routes.
+ * @param {any} c */
+function refuseWhenSapOwnsPrices(c) {
   if (c.env?.SAP_MODE != null)
     fail("SAP owns prices; use the replicated conditions", "sap_read_only");
+}
+/** @param {any} c @param {any} b */
+async function saveList(c, b) {
+  refuseWhenSapOwnsPrices(c);
   const code = text(b.priceListCode ?? b.code, "Price list code", 80),
     name = text(b.name ?? code, "Price list name", 160);
   const from = instant(b.effectiveFrom),
@@ -83,6 +89,7 @@ async function saveList(c, b) {
 }
 /** All row errors collected before any write. @param {any} c @param {any} b */
 async function importList(c, b) {
+  refuseWhenSapOwnsPrices(c);
   const from = instant(b.effectiveFrom);
   text(b.priceListCode, "Price list code", 80);
   if (!Array.isArray(b.rows) || !b.rows.length || b.rows.length > 4000)
@@ -225,6 +232,7 @@ export function installPricingRoutes(router) {
           authorize,
           async (cc) => {
             if (action === "delete") {
+              refuseWhenSapOwnsPrices(cc);
               const id = uuid(b.id);
               await cc.db`update price_lists set deleted_at = now(),status = 'inactive' where id = ${id} and organization_id = ${ORGANIZATION}`;
               await touched(cc, "price_list", id);

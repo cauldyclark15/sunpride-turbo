@@ -999,3 +999,67 @@ test("F-502 F-504 F-511 real order quote, authority refusal, stacked allocation 
     await h.db`select count(*) as n from tpm_posting_instructions where earning_id=${earnings[0].id}`;
   expect(Number(posts.n)).toBe(1);
 });
+
+// Last in the file: it adds a price list that the earlier global price/line counts must not see.
+test("when SAP owns prices, office price import and delete are refused like save", async () => {
+  const input = {
+    priceListCode: "SAPGUARD",
+    channelKey: "sapguard",
+    effectiveFrom: "2020-01-01T00:00:00Z",
+    rows: [{ productCode: "P1", uom: "PC", unitPriceCentavos: 1000 }],
+  };
+  // Without SAP connected (this suite's staging feed) import and delete still work. Raw call:
+  // this list is not replicated as SAP conditions, so it never reaches the price tests below.
+  const raw = async (/** @type {string} */ path, /** @type {any} */ body) => {
+    const res = await h.fetch(`/api/v1/${path}`, {
+      method: "POST",
+      headers: { cookie: admin.cookie, "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    return { status: res.status, body: await res.json() };
+  };
+  expect((await raw("pricing/price-lists/import", input)).body.ok).toBe(true);
+  const [list] =
+    await h.db`select id from price_lists where code='SAPGUARD' and deleted_at is null`;
+  const lines = async () =>
+    Number(
+      (
+        await h.db`select count(*)::int n from price_list_lines where price_list_id=${list.id} and deleted_at is null`
+      )[0].n,
+    );
+  const before = await lines();
+  h.env.SAP_MODE = "mock";
+  try {
+    for (const [path, body] of /** @type {[string, any][]} */ ([
+      [
+        "pricing/price-lists/import",
+        {
+          ...input,
+          rows: [{ productCode: "P1", uom: "PC", unitPriceCentavos: 1500 }],
+          effectiveFrom: "2021-01-01T00:00:00Z",
+        },
+      ],
+      ["pricing/price-lists/delete", { id: list.id }],
+      [
+        "pricing/price-lists/save",
+        {
+          priceListCode: "SAPGUARD2",
+          channelKey: "sapguard",
+          effectiveFrom: "2020-01-01T00:00:00Z",
+        },
+      ],
+    ])) {
+      const r = await raw(path, body);
+      expect(r.status).toBe(422);
+      expect(JSON.stringify(r.body)).toContain("SAP owns prices");
+    }
+    const [still] =
+      await h.db`select deleted_at,status from price_lists where id=${list.id}`;
+    expect(still.deleted_at).toBeNull();
+    expect(await lines()).toBe(before);
+  } finally {
+    delete h.env.SAP_MODE;
+  }
+  const gone = await raw("pricing/price-lists/delete", { id: list.id });
+  expect(gone.body.ok).toBe(true);
+});
