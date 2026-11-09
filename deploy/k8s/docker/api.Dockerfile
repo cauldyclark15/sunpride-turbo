@@ -15,6 +15,7 @@ WORKDIR /app
 ENV NODE_ENV=production HOST=0.0.0.0 PORT=4320
 COPY --from=deps /app/ ./
 COPY packages/db ./packages/db
+COPY packages/integration-contracts ./packages/integration-contracts
 COPY apps/api ./apps/api
 RUN rm -rf apps/api/**/*.test.js 2>/dev/null; mkdir -p /data/files && chown -R bun:bun /data
 USER bun
