@@ -94,6 +94,8 @@ fun FieldApp(
     batteryGuide: com.sunpride.field.location.BatteryGuideHost? = null,
 ) {
     val visits = FieldFeature.VISITS in features
+    // Name typed into an empty customer search, carried into the Add a store form.
+    var censusName by rememberSaveable { mutableStateOf("") }
     val scope = rememberCoroutineScope()
     val context = LocalContext.current
     val location = remember(visitLocation) { visitLocation ?: com.sunpride.field.ui.diagnosticvisit.AndroidVisitLocation(context) }
@@ -333,7 +335,8 @@ fun FieldApp(
                 }
                 ready && page == "census" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
                     com.sunpride.field.census.CensusScreen(backend, location, { page = origin }, modifier,
-                        stores = controller.today.customers, onOpenStore = { id -> customerId = id; page = "customer" })
+                        stores = controller.today.customers, onOpenStore = { id -> customerId = id; page = "customer" },
+                        initialName = censusName)
                 }
                 ready && page == "workforce" -> com.sunpride.field.ui.workforce.WorkforceScreen(controller,location,modifier)
                 // SP-0146 v2 messaging: the shared chat module; Back inside it steps back, Back on its list returns here.
@@ -347,7 +350,7 @@ fun FieldApp(
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
                 ready && page == "more" -> MoreScreen(modifier = modifier, status = status, now = now,
                     onSync = { go("sync") }, onAccount = { go("account") }, onSupport = { go("support") },
-                    onCatalogue = { go("catalogue") }, onCensus = if (visits) ({ go("census") }) else null,
+                    onCatalogue = { go("catalogue") }, onCensus = if (visits) ({ censusName = ""; go("census") }) else null,
                     onWorkforce = { controller.openWorkforce(); go("workforce") },
                     onJointCall = if (controller.today.supervisor) ({ go("jointcall") }) else null,
                     onCollections = { go("collections") },
@@ -374,7 +377,7 @@ fun FieldApp(
                     onVisit = controller::openDiagnostic, visitEnabled = visits, offline = offline)
                 ready && page == "customers" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,
-                    onAddStore = if (visits) ({ go("census") }) else null)
+                    onAddStore = if (visits) ({ typed -> censusName = typed; go("census") }) else null)
                 ready && page == "customer" && customer != null -> com.sunpride.field.ui.customers.CustomerDetailScreen(
                     customer, controller.today, onNavigate = { uri -> openMaps(context, uri) },
                     onDial = { uri -> openDialer(context, uri) }, modifier = modifier,
@@ -382,7 +385,7 @@ fun FieldApp(
                     unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features)
                 ready && page == "customer" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,
-                    onAddStore = if (visits) ({ go("census") }) else null)
+                    onAddStore = if (visits) ({ typed -> censusName = typed; go("census") }) else null)
                 ready && page == "team" -> com.sunpride.field.ui.team.TeamScreen(controller.team,
                     controller.teamDirectOnly, controller.teamLoading, minuteNow,
                     onFilter = { controller.loadTeam(it) }, onRefresh = { controller.loadTeam() }, modifier = modifier)
@@ -393,6 +396,7 @@ fun FieldApp(
                     onRoute = { page = "route" }, onCustomers = { page = "customers" },
                     onTeam = if (FieldFeature.TEAM in features) ({ go("team") }) else null,
                     showTitle = false,
+                    onAddStore = if (visits) ({ censusName = ""; go("census") }) else null,
                     workDay = {
                         dayView?.let { view ->
                         com.sunpride.field.ui.location.WorkDayCard(view, dayBusy,

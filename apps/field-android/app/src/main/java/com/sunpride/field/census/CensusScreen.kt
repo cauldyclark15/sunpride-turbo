@@ -56,8 +56,8 @@ import java.util.Base64
  * SP-0163: two location choices (Use my location / Search address), landmark, duplicate warning, optional batch. */
 @Composable
 fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> Unit, modifier: Modifier = Modifier,
-    stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null) =
-    CensusScreenForTest(backend, location, onBack, modifier, stores, onOpenStore, photoForTest = null)
+    stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null, initialName: String = "") =
+    CensusScreenForTest(backend, location, onBack, modifier, stores, onOpenStore, photoForTest = null, initialName = initialName)
 
 /** Tests only: [photoForTest] starts with a storefront photo (emulators have no working camera). Release code
  * calls [CensusScreen], which always passes null; lint's VisibleForTests check blocks other production callers. */
@@ -65,7 +65,8 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
 @OptIn(ExperimentalMaterial3Api::class, androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable
 internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation, onBack: () -> Unit, modifier: Modifier = Modifier,
-    stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null, photoForTest: ByteArray? = null) {
+    stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null, photoForTest: ByteArray? = null,
+    initialName: String = "") {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
@@ -74,7 +75,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     var history by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var message by remember { mutableStateOf("Loading store setup…") }
     var busy by remember { mutableStateOf(false) }
-    var name by rememberSaveable { mutableStateOf("") }; var address by rememberSaveable { mutableStateOf("") }
+    var name by rememberSaveable { mutableStateOf(initialName.take(80)) }; var address by rememberSaveable { mutableStateOf("") }
     var owner by rememberSaveable { mutableStateOf("") }; var phone by rememberSaveable { mutableStateOf("") }
     var batch by rememberSaveable { mutableStateOf("") }; var channel by rememberSaveable { mutableStateOf("") }
     var subchannel by rememberSaveable { mutableStateOf("") }; var estimatedClass by rememberSaveable { mutableStateOf("D") }

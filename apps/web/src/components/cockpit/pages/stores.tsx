@@ -2,7 +2,10 @@
 
 import { RetailWorkspace } from "../../storepos/retail-workspace";
 import { DormancyPanel } from "../../dormancy-panel";
-import { StoreGatheringTab } from "../../store-gathering/tab";
+import {
+  StoreGatheringTab,
+  StoresHeaderActions,
+} from "../../store-gathering/tab";
 
 import Link from "next/link";
 import { OutletContextView } from "./tower";
@@ -276,6 +279,7 @@ export function StoresView({
 
 export function StoresPage() {
   const [tab, setTab] = useState("distribution");
+  const [adding, setAdding] = useState(false);
   const { query, params, link, set } = usePageQuery(["status", "q", "limit"]);
   const status = (
     TABS.some((t) => t.id === params.get("status"))
@@ -294,6 +298,20 @@ export function StoresPage() {
             : "Where is distribution weak?"
       }
       header={tab === "distribution" ? result.data : undefined}
+      actions={
+        <StoresHeaderActions
+          onAdd={() => {
+            setTab("gathering");
+            setAdding(true);
+            requestAnimationFrame(() =>
+              document
+                .getElementById("add-store")
+                ?.scrollIntoView({ block: "start" }),
+            );
+          }}
+          onReview={() => setTab("gathering")}
+        />
+      }
       bar={
         tab !== "distribution" ? undefined : (
           <PeriodScopeBar scopeLabel={result.data?.scope.label} />
@@ -303,7 +321,7 @@ export function StoresPage() {
       <div
         role="tablist"
         aria-label="Store channel"
-        className="mb-4 flex gap-2"
+        className="mb-4 flex gap-2 overflow-x-auto"
       >
         <button
           role="tab"
@@ -331,7 +349,7 @@ export function StoresPage() {
         </button>
       </div>
       {tab === "gathering" ? (
-        <StoreGatheringTab />
+        <StoreGatheringTab adding={adding} onAdding={setAdding} />
       ) : tab === "retail" ? (
         <RetailWorkspace />
       ) : (
@@ -360,6 +378,8 @@ export function StoresPage() {
           </div>
         </>
       )}
+      {/* room for the phone-width sticky Add store button */}
+      <div aria-hidden="true" className="h-16 lg:hidden" />
     </CockpitPage>
   );
 }

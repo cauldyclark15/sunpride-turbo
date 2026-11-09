@@ -10,6 +10,8 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import com.sunpride.field.storage.CallSheetHeader
@@ -129,5 +131,30 @@ class CustomerScreensTest {
         rule.onNodeWithTag("customers-open").assertTextContains("2 outlets saved on this phone", substring = true)
             .performClick()
         assertEquals(1, opened)
+    }
+
+    @Test fun addStoreFabNeverCoversTheLastRowAndEmptySearchPrefillsTheName() {
+        val many = (1..30).map { CustomerRecord("o$it", "Store %02d".format(it), "OUT-$it") }
+        val added = mutableListOf<String>()
+        content { CustomerSearchScreen(TodayData(stale = false, customers = many), onOpen = {}, now = now,
+            onAddStore = { added += it }) }
+        rule.onNodeWithTag("customer-list").performScrollToIndex(many.size + 1)
+        rule.waitForIdle()
+        val fab = rule.onNodeWithTag("customer-add-store-fab").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val last = rule.onAllNodesWithTag("customer-result").fetchSemanticsNodes().maxBy { it.boundsInRoot.bottom }
+        assertEquals("Store 30", last.config[androidx.compose.ui.semantics.SemanticsProperties.Text]
+            .firstOrNull { it.text.startsWith("Store") }?.text)
+        org.junit.Assert.assertTrue("FAB overlaps last row: fab=$fab row=${last.boundsInRoot}",
+            fab.top >= last.boundsInRoot.bottom)
+        rule.onNodeWithTag("customer-add-store-fab").assertTextContains("Add store").performClick()
+        rule.onNodeWithTag("customer-list").performScrollToIndex(0)
+        rule.onNodeWithTag("customer-search").performTextInput("Aling Nena")
+        rule.onNodeWithTag("customer-add-store").assertTextContains("Add store").performClick()
+        assertEquals(listOf("", "Aling Nena"), added)
+    }
+
+    @Test fun noAddStoreFabWithoutPermission() {
+        content { CustomerSearchScreen(data, onOpen = {}, now = now) }
+        rule.onNodeWithTag("customer-add-store-fab").assertDoesNotExist()
     }
 }
