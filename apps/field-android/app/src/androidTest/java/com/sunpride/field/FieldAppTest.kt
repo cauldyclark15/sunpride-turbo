@@ -4,6 +4,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -182,7 +183,7 @@ class FieldAppTest {
         rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-name") }
         rule.onNodeWithTag("account-back").performClick()
         rule.onNodeWithTag("customers-open").performScrollTo().performClick()
-        rule.onNodeWithTag("customer-add-store-fab").assertIsDisplayed().performClick()
+        rule.onNodeWithTag("customer-add-store-fab").assertIsDisplayed().assertContentDescriptionEquals("Add store").performClick()
         rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-name") }
     }
 

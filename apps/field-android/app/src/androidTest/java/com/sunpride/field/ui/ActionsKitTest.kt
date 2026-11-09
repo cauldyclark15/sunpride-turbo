@@ -18,6 +18,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.assertIsDisplayed
@@ -83,7 +84,7 @@ class ActionsKitTest {
         var added = 0
         rule.setContent { KitHost(onAdd = { added++ }) }
         val fab = rule.onNodeWithTag("add-fab").assertIsDisplayed()
-        rule.onNode(hasTestTag("add-fab") and hasAnyDescendant(hasText("Add store")), useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("add-fab").assertContentDescriptionEquals("Add store")
         val fabBox = fab.getUnclippedBoundsInRoot()
         val navBox = rule.onNodeWithTag("fake-nav").getUnclippedBoundsInRoot()
         assertTrue("FAB ${fabBox.bottom} overlaps nav ${navBox.top}", fabBox.bottom <= navBox.top)

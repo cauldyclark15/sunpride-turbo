@@ -1,6 +1,7 @@
 package com.sunpride.field.ui.customers
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -150,7 +151,7 @@ class CustomerScreensTest {
             .firstOrNull { it.text.startsWith("Store") }?.text)
         org.junit.Assert.assertTrue("FAB overlaps last row: fab=$fab row=${last.boundsInRoot}",
             fab.top >= last.boundsInRoot.bottom)
-        rule.onNode(androidx.compose.ui.test.hasTestTag("customer-add-store-fab") and androidx.compose.ui.test.hasAnyDescendant(androidx.compose.ui.test.hasText("Add store")), useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("customer-add-store-fab").assertContentDescriptionEquals("Add store")
         rule.onNodeWithTag("customer-add-store-fab").performClick()
         rule.onNodeWithTag("customer-list").performScrollToIndex(0)
         rule.onNodeWithTag("customer-search").performTextInput("Aling Nena")

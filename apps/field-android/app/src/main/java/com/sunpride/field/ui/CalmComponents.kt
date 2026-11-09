@@ -440,11 +440,14 @@ fun BoxScope.AddFab(label: String, onClick: () -> Unit, modifier: Modifier = Mod
         modifier = modifier.align(Alignment.BottomEnd)
             .windowInsetsPadding(WindowInsets.navigationBars.union(WindowInsets.ime)
                 .only(WindowInsetsSides.Bottom + WindowInsetsSides.End))
-            .padding(16.dp).heightIn(min = 56.dp).testTag(tag),
+            .padding(16.dp).heightIn(min = 56.dp).testTag(tag)
+            // The full label is the button's accessible name; the "+" glyph is decoration.
+            .semantics { contentDescription = label },
         shape = RoundedCornerShape(28.dp),
         containerColor = MaterialTheme.colorScheme.primary, contentColor = MaterialTheme.colorScheme.onPrimary,
         text = { Text(label, style = MaterialTheme.typography.titleSmall, maxLines = 1) },
-        icon = { Text("+", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold) })
+        icon = { Text("+", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold,
+            modifier = Modifier.clearAndSetSemantics {}) })
 }
 
 /** Which rows are picked for a bulk action. Long-press a row to start; tap toggles while anything is picked. */

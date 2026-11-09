@@ -1,6 +1,7 @@
 package com.sunpride.field.ui.route
 
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.ui.test.assertContentDescriptionEquals
 import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -126,7 +127,7 @@ class RouteScreenTest {
         }
         rule.onNodeWithTag("route-list").performTouchInput { swipeUp() ; swipeUp(); swipeUp() }
         rule.waitForIdle()
-        rule.onNode(androidx.compose.ui.test.hasTestTag("route-add-visit") and androidx.compose.ui.test.hasAnyDescendant(androidx.compose.ui.test.hasText("Add visit")), useUnmergedTree = true).assertExists()
+        rule.onNodeWithTag("route-add-visit").assertContentDescriptionEquals("Add visit")
         val fab = rule.onNodeWithTag("route-add-visit").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val last = rule.onAllNodesWithTag("route-stop").fetchSemanticsNodes().maxBy { it.boundsInRoot.bottom }.boundsInRoot
         org.junit.Assert.assertTrue("FAB overlaps last stop: fab=$fab stop=$last", fab.top >= last.bottom)
