@@ -22,6 +22,17 @@ function storeWith(path: string, data: unknown) {
 const render = (store: ApiStore, node: React.ReactNode) =>
   renderToStaticMarkup(createElement(ApiProvider, { store }, node));
 afterEach(() => vi.unstubAllGlobals());
+const sapRow = {
+  _id: "sap-product-id",
+  code: "SKU-1",
+  name: "Sample meat",
+  category: "Sample",
+  uom: "PCS",
+  uomDisplay: "1 case = 24 pcs",
+  priceStatus: "Governed price required",
+  active: true,
+  conversions: [],
+};
 
 describe("master data using the real API hooks", () => {
   it("shows product pack conversion and governed price status, never the legacy zero price or raw identity", () => {
@@ -152,6 +163,36 @@ describe("master data using the real API hooks", () => {
     expect(html).not.toContain(">Edit<");
     expect(html).not.toContain("Add product");
     expect(html).not.toContain("Loading master data");
+  });
+  it("keeps Add product and row Edit when SAP does not own products", () => {
+    const store = storeWith("catalog/products/list", {
+      page: [sapRow],
+      isDone: true,
+      continueCursor: "",
+    });
+    const html = render(store, createElement(MasterDataWorkspace));
+    expect(html).toContain("Add product");
+    expect(html).toContain(">Edit</button>");
+    expect(html).not.toContain("come from SAP");
+  });
+  it("is read-only with one plain line when SAP owns products", () => {
+    const store = storeWith("catalog/products/list", {
+      page: [sapRow],
+      isDone: true,
+      continueCursor: "",
+    });
+    store.setData(["setup", "org/permissions", {}], {
+      capabilities: ["masterdata.manage", "outlet.read"],
+      role: "super_admin",
+      scopeUnitIds: [],
+      sapOwnsMasters: true,
+      sapOwnsPrices: true,
+    });
+    const html = render(store, createElement(MasterDataWorkspace));
+    expect(html).toContain("Sample meat");
+    expect(html).not.toContain("Add product");
+    expect(html).not.toContain(">Edit<");
+    expect(html.match(/Products come from SAP\./g)).toHaveLength(1);
   });
   it("serializes page options and search to the actual Bun GET route", async () => {
     const transport = vi.fn(

@@ -182,6 +182,35 @@ describe("prices · price lists", () => {
   });
 });
 
+describe("prices · SAP owns prices", () => {
+  it("keeps Add, Edit, Remove and Active when SAP does not own prices", () => {
+    state.values["org/permissions"] = { sapOwnsPrices: false };
+    expect(render()).toContain("Add price list");
+    expect(render()).not.toContain("come from SAP");
+    const open = render("list=raw-list&edit=1");
+    expect(open).toContain("Remove");
+    expect(open).toContain('value="active"');
+    expect(open).toContain("Add prices");
+  });
+  it("hides Add, Edit, Remove and Active with one plain line when SAP owns prices", () => {
+    state.values["org/permissions"] = { sapOwnsPrices: true };
+    const list = render();
+    expect(list).toContain("General trade");
+    expect(list).not.toContain("Add price list");
+    expect(list).not.toContain(">Edit<");
+    expect(list.match(/Prices come from SAP\./g)).toHaveLength(1);
+    const open = render("list=raw-list&edit=1");
+    expect(open).not.toContain("Edit price list");
+    expect(open).not.toContain("Remove");
+    expect(open).not.toContain('value="active"');
+    expect(open).not.toContain("Add prices");
+    expect(open.match(/Prices come from SAP\./g)).toHaveLength(1);
+    // promotions are not SAP prices: still editable
+    expect(render("tab=promotions")).toContain("Add promotion");
+    expect(render("tab=promotions")).not.toContain("come from SAP");
+  });
+});
+
 describe("prices · tabs in ?tab=", () => {
   it("reads the tab from the URL with Price lists as default", () => {
     expect(readPricingTab(new URLSearchParams(""))).toBe("lists");

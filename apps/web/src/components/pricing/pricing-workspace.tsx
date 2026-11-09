@@ -172,9 +172,17 @@ export function PricingWorkspace() {
         signal,
       }),
   );
+  // Same read (and cache key) as Master data: with SAP connected, prices are SAP's and the API refuses saves.
+  const org = useApi<{ sapOwnsPrices?: boolean }>(
+    can("report.read") ? ["setup", "org/permissions", {}] : null,
+    "/api/v1/org/permissions",
+  );
   useLive(["orders"], [["pricing"]]);
   if (!can("report.read")) return null;
   const canEdit = can("masterdata.manage");
+  const sapOwnsPrices = org.data?.sapOwnsPrices === true;
+  /** Price lists and their prices; promotions stay with [canEdit]. */
+  const canEditPrices = canEdit && !sapOwnsPrices;
   const selectedList = lists.data?.rows.find((p) => p.id === openList);
   const selectedPromo = promotions.data?.rows.find((p) => p.id === openPromo);
   const tabHref = (id: string) =>
@@ -420,6 +428,11 @@ export function PricingWorkspace() {
         </p>
       )}
       {notice && <p role="status">{notice}</p>}
+      {sapOwnsPrices && tab !== "promotions" ? (
+        <p className="text-sm text-muted" data-testid="sap-owns-prices">
+          Prices come from SAP.
+        </p>
+      ) : null}
 
       {tab === "lists" && openList ? (
         <section className="grid gap-4" aria-label="Price list">
@@ -444,7 +457,7 @@ export function PricingWorkspace() {
                 </p>
               ) : null}
             </div>
-            {canEdit && selectedList ? (
+            {canEditPrices && selectedList ? (
               <Link
                 href={hrefWith({ edit: "1" })}
                 scroll={false}
@@ -476,7 +489,7 @@ export function PricingWorkspace() {
               ) : null}
             </ul>
           </Card>
-          {canEdit && selectedList ? (
+          {canEditPrices && selectedList ? (
             <Card label="Add prices" icon={<WorkspaceIcon name="commercial" />}>
               <form onSubmit={importPrices} className="grid gap-3 p-4">
                 <FormField label="Prices start on">
@@ -511,7 +524,7 @@ export function PricingWorkspace() {
           total={listRows?.length ?? null}
           loading={!lists.data && !lists.error}
           searchPlaceholder="Search by name, code or channel"
-          onAdd={canEdit ? () => setAdding("list") : undefined}
+          onAdd={canEditPrices ? () => setAdding("list") : undefined}
           {...listParams}
           rowKey={(r) => r.id}
           columns={[
@@ -561,7 +574,7 @@ export function PricingWorkspace() {
               render: (r) =>
                 `${r.lineCount.toLocaleString("en-PH")} ${r.lineCount === 1 ? "price" : "prices"}`,
             },
-            ...(canEdit
+            ...(canEditPrices
               ? [
                   {
                     key: "edit",
@@ -778,7 +791,7 @@ export function PricingWorkspace() {
       </Drawer>
 
       <Drawer
-        open={canEdit && editing && !!selectedList}
+        open={canEditPrices && editing && !!selectedList}
         title="Edit price list"
         onClose={() => set({ edit: null })}
       >

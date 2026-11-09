@@ -217,6 +217,10 @@ export type Permissions = {
   role: Role;
   scopeUnitIds: string[];
   national?: boolean;
+  /** SAP is connected: products/customers are SAP's (read-only here). */
+  sapOwnsMasters?: boolean;
+  /** SAP is connected: prices are SAP's (read-only here). */
+  sapOwnsPrices?: boolean;
 };
 export type Health = {
   asOf: number;

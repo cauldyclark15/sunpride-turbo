@@ -76,7 +76,9 @@ export function MasterDataWorkspace({
   const permissions = useOrgQuery("org/permissions", {});
   const canEdit =
     (permissions?.capabilities.includes("masterdata.manage") ?? false) &&
-    permissions?.national !== false;
+    permissions?.national !== false &&
+    // SAP owns products and customers when connected; the API refuses those saves.
+    !permissions?.sapOwnsMasters;
   const filter = "";
   const pageInput = {
     q,
@@ -406,6 +408,13 @@ export function MasterDataWorkspace({
           setEditing(null);
         }}
       />
+      {permissions?.sapOwnsMasters && kind !== "outlets" ? (
+        <p className="text-sm text-muted" data-testid="sap-owns-masters">
+          {kind === "customers"
+            ? "Customers come from SAP."
+            : "Products come from SAP."}
+        </p>
+      ) : null}
       <ListPage
         noun={NOUN[kind]}
         rows={rows}
