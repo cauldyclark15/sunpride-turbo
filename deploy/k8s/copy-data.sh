@@ -76,11 +76,11 @@ sap)
   echo "[sap] $SRC_SAP_DB -> pvc sunpride-sap-mock-data"
   snap="$DUMP_DIR/sap-mock-$stamp.sqlite"
   sqlite3 "file:$SRC_SAP_DB?mode=ro" ".backup '$snap'"
-  k scale deploy/sunpride-sap-mock --replicas=0 2>/dev/null || true
-  k wait --for=delete pod -l app=sunpride-sap-mock --timeout=120s 2>/dev/null || true
+  k scale deploy/sunpride-api --replicas=0 2>/dev/null || true
+  k wait --for=delete pod -l app=sunpride-api --timeout=120s 2>/dev/null || true
   with_pvc sunpride-sap-mock-data 'rm -f /data/sap-mock.sqlite /data/sap-mock.sqlite-wal /data/sap-mock.sqlite-shm; cat > /data/sap-mock.sqlite && ls -l /data' < "$snap"
   rm -f "$snap"
-  k scale deploy/sunpride-sap-mock --replicas=1 2>/dev/null || true
+  k scale deploy/sunpride-api --replicas=1 2>/dev/null || true
   ;;
 *) echo "unknown step $s (db|files|sap)"; exit 2 ;;
 esac; done

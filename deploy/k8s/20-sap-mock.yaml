@@ -1,3 +1,5 @@
+# sap-mock runs as a sidecar in the api pod (30-api.yaml): the api only accepts a mock SAP on
+# 127.0.0.1/localhost (transport.js sapConfig safety check). This file keeps just its volume.
 apiVersion: v1
 kind: PersistentVolumeClaim
 metadata: {name: sunpride-sap-mock-data, namespace: sunpride}
@@ -5,41 +7,3 @@ spec:
   accessModes: [ReadWriteOnce]
   storageClassName: linode-block-storage-retain
   resources: {requests: {storage: 10Gi}}
----
-apiVersion: v1
-kind: Service
-metadata: {name: sunpride-sap-mock, namespace: sunpride}
-spec:
-  selector: {app: sunpride-sap-mock}
-  ports: [{name: http, port: 4435, targetPort: 4435}]
----
-apiVersion: apps/v1
-kind: Deployment
-metadata: {name: sunpride-sap-mock, namespace: sunpride}
-spec:
-  replicas: 1
-  strategy: {type: Recreate}
-  selector: {matchLabels: {app: sunpride-sap-mock}}
-  template:
-    metadata: {labels: {app: sunpride-sap-mock}}
-    spec:
-      imagePullSecrets: [{name: regcred}]
-      securityContext: {fsGroup: 1000}
-      containers:
-        - name: sap-mock
-          image: cauldyclark15/sunpride-sap-mock:placeholder
-          env:
-            - {name: HOST, value: 0.0.0.0}
-            - {name: PORT, value: "4435"}
-            - {name: SAP_MOCK_DB, value: /data/sap-mock.sqlite}
-            - name: SAP_MOCK_TOKEN
-              valueFrom: {secretKeyRef: {name: sunpride-app, key: SAP_TOKEN}}
-          ports: [{containerPort: 4435}]
-          readinessProbe: {tcpSocket: {port: 4435}, periodSeconds: 10}
-          resources:
-            requests: {cpu: 20m, memory: 64Mi}
-            limits: {cpu: 500m, memory: 256Mi}
-          volumeMounts: [{name: data, mountPath: /data}]
-      volumes:
-        - name: data
-          persistentVolumeClaim: {claimName: sunpride-sap-mock-data}

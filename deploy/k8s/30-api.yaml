@@ -53,7 +53,21 @@ spec:
             requests: {cpu: 200m, memory: 384Mi}
             limits: {cpu: "1", memory: 1Gi}
           volumeMounts: [{name: files, mountPath: /data/files}]
+        - name: sap-mock
+          image: cauldyclark15/sunpride-sap-mock:placeholder
+          env:
+            - {name: HOST, value: 127.0.0.1}
+            - {name: PORT, value: "4435"}
+            - {name: SAP_MOCK_DB, value: /data/sap-mock.sqlite}
+            - name: SAP_MOCK_TOKEN
+              valueFrom: {secretKeyRef: {name: sunpride-app, key: SAP_TOKEN}}
+          resources:
+            requests: {cpu: 20m, memory: 64Mi}
+            limits: {cpu: 500m, memory: 256Mi}
+          volumeMounts: [{name: sapdata, mountPath: /data}]
       volumes:
+        - name: sapdata
+          persistentVolumeClaim: {claimName: sunpride-sap-mock-data}
         - name: files
           persistentVolumeClaim: {claimName: sunpride-api-files}
 ---
@@ -65,7 +79,7 @@ data:
   PORT: "4320"
   BOOTSTRAP_ADMIN_EMAILS: jcing.jc@gmail.com
   SAP_MODE: mock
-  SAP_ORIGIN: http://sunpride-sap-mock:4435
+  SAP_ORIGIN: http://127.0.0.1:4435
   FILES_DIR: /data/files
   PUBLIC_ORIGIN: https://sunpride-k8s.cauldnclark.com
   DB_POOL_MAX: "20"
