@@ -118,14 +118,23 @@ export function summaryLine(c: Candidate): string {
 }
 
 /** SP-0162 office Add store: address search + draggable pin + live duplicate check. */
-export function AddStore({ onDone }: { onDone?: () => void }) {
+export function AddStore({
+  onDone,
+  initialName = "",
+  bare = false,
+}: {
+  onDone?: () => void;
+  initialName?: string;
+  /** Inside a titled sheet: no card frame or heading of its own. */
+  bare?: boolean;
+}) {
   const { can } = usePermissions();
   const allowed = can("outlet.manage");
   const setup = useApi<Setup>(
     allowed ? ["masters", "store-setup"] : null,
     "/api/v1/masters/store-setup",
   );
-  const [name, setName] = useState("");
+  const [name, setName] = useState(initialName);
   const [phone, setPhone] = useState("");
   const [address, setAddress] = useState("");
   const [parts, setParts] = useState<AddressParts | null>(null);
@@ -285,7 +294,7 @@ export function AddStore({ onDone }: { onDone?: () => void }) {
   const matches = dupName.length >= 2 ? candidates : [];
   const blocked = matches.length > 0 && !acknowledged;
   return (
-    <Card label="Add a store">
+    <Frame bare={bare}>
       {setup.error ? (
         <Notice title={setup.error.message} tone="danger" />
       ) : null}
@@ -470,6 +479,20 @@ export function AddStore({ onDone }: { onDone?: () => void }) {
           {message}
         </p>
       ) : null}
-    </Card>
+    </Frame>
+  );
+}
+
+function Frame({
+  bare,
+  children,
+}: {
+  bare: boolean;
+  children: React.ReactNode;
+}) {
+  return bare ? (
+    <div>{children}</div>
+  ) : (
+    <Card label="Add a store">{children}</Card>
   );
 }

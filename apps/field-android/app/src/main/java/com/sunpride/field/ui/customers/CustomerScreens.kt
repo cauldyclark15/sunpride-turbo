@@ -58,15 +58,20 @@ import com.sunpride.field.ui.route.DailyRoutes
  */
 @Composable
 fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Modifier = Modifier,
-    offline: Boolean = false, now: Long = System.currentTimeMillis(), onAddStore: (() -> Unit)? = null) {
+    offline: Boolean = false, now: Long = System.currentTimeMillis(), onAddStore: ((String) -> Unit)? = null) {
     var query by rememberSaveable { mutableStateOf("") }
     var onlyToday by rememberSaveable { mutableStateOf(false) }
     val found = remember(data.customers, query) { CustomerDirectory.search(data.customers, query) }
     val todayCount = remember(data.customers) { data.customers.count { it.today != null } }
     val results = if (onlyToday) found.filter { it.today != null } else found
     // SP-0140: a lazy list, so a scope with hundreds of outlets composes only the rows on screen.
-    LazyColumn(modifier.fillMaxSize().testTag("customer-list"),
-        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 24.dp)) {
+    // Add store is always one tap away: an extended FAB bottom-right, above the bottom bar (the caller's
+    // modifier already carries the scaffold/system-bar insets). The list gets extra bottom padding so the
+    // FAB never covers the last row.
+    Box(modifier.fillMaxSize()) {
+    LazyColumn(Modifier.fillMaxSize().testTag("customer-list"),
+        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp,
+            bottom = if (onAddStore != null) AddStoreFabClearance else 24.dp)) {
         item(key = "search") {
             SearchField(query, { query = it.take(80) }, "Search name, code or address",
                 Modifier.padding(bottom = 4.dp).testTag("customer-search"),
@@ -101,11 +106,28 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
                     else "No outlet matches \"${query.trim()}\". Only outlets on your plan are on this phone.",
                     style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(4.dp).testTag("customer-no-match"))
                 // SP-0163: a search that finds nothing offers to add the store.
-                if (onAddStore != null && query.isNotBlank()) com.sunpride.field.ui.TonalButton("Add a store", onAddStore,
+                if (onAddStore != null && query.isNotBlank()) com.sunpride.field.ui.TonalButton("Add store", { onAddStore(query.trim()) },
                     Modifier.fillMaxWidth().padding(top = 8.dp).testTag("customer-add-store"), glyph = GlyphKind.STORE)
             }
             else -> items(results, key = { it.outletId }) { record -> StoreRow(record, now) { onOpen(record.outletId) } }
         }
+    }
+    if (onAddStore != null) AddStoreFab({ onAddStore("") },
+        Modifier.align(Alignment.BottomEnd).padding(end = 16.dp, bottom = 16.dp))
+    }
+}
+
+/** Room left under a list so the Add store FAB (56dp + 16dp margin) never sits on the last row. */
+internal val AddStoreFabClearance = 96.dp
+
+@Composable
+internal fun AddStoreFab(onClick: () -> Unit, modifier: Modifier = Modifier) {
+    // The content-slot overload: a plain icon + label row that is always expanded and readable by tests/TalkBack.
+    androidx.compose.material3.ExtendedFloatingActionButton(onClick = onClick,
+        modifier = modifier.testTag("customer-add-store-fab")) {
+        Glyph(GlyphKind.STORE, MaterialTheme.colorScheme.onPrimaryContainer, 20.dp)
+        Spacer(Modifier.size(8.dp))
+        Text("Add store", style = MaterialTheme.typography.labelLarge)
     }
 }
 

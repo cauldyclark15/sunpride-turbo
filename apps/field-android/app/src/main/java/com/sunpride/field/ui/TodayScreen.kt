@@ -45,7 +45,9 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
     offline: Boolean = false, onRoute: (() -> Unit)? = null, onCustomers: (() -> Unit)? = null,
     onTeam: (() -> Unit)? = null, unplannedEnabled: Boolean = diagnosticEnabled, showTitle: Boolean = true,
     /** SP-0136 work-day card (Start day / End day, location sharing status). */
-    workDay: (@Composable () -> Unit)? = null) {
+    workDay: (@Composable () -> Unit)? = null,
+    /** Agents allowed to add stores get a plain Add store action near the top. */
+    onAddStore: (() -> Unit)? = null) {
     val summary = remember(data) { TodaySummary.of(data) }
     val bar = summary.planned > 0
     Box(modifier.fillMaxSize()) {
@@ -60,6 +62,8 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
             }
             if (onCustomers != null) FindStoreRow(data, onCustomers)
             workDay?.invoke()
+            if (onAddStore != null) TonalButton("Add store", onAddStore,
+                Modifier.fillMaxWidth().testTag("today-add-store"), glyph = GlyphKind.STORE)
             if (summary.planned > 0) CallProgressCard(summary)
             Column(Modifier.testTag("today-route"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 SectionTitle(summary.routeCode?.let { "Route $it · ${summary.planned} stops" } ?: "Visits · ${summary.planned}",

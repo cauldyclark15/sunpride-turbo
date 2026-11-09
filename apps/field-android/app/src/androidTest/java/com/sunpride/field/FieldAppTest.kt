@@ -14,6 +14,7 @@ import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToIndex
 import androidx.compose.ui.test.performTextClearance
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.unit.Density
@@ -167,6 +168,60 @@ class FieldAppTest {
         rule.onNodeWithTag("customers-title").assertIsDisplayed()
         rule.onNodeWithTag("nav-today").performClick()
         rule.onNodeWithTag("today-title").assertIsDisplayed()
+    }
+
+    // Add store is easy to find: FAB on Stores and an action on Today for users who may add stores.
+    @Test fun addStoreFabOnStoresAndTodayActionOpenTheAddAStoreScreen() {
+        val backend = ScriptedBackend(EnrollmentState.Ready("dev1")).apply {
+            signedIn = true
+            customers = listOf(com.sunpride.field.ui.customers.CustomerRecord("o1", "First Store", "OUT-1"))
+        }
+        rule.setContent { FieldApp(configured, dark = false, backend = backend, features = beta) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("today-title") }
+        rule.onNodeWithTag("today-add-store").performScrollTo().assertTextContains("Add store").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-name") }
+        rule.onNodeWithTag("account-back").performClick()
+        rule.onNodeWithTag("customers-open").performScrollTo().performClick()
+        rule.onNodeWithTag("customer-add-store-fab").assertIsDisplayed().assertTextContains("Add store").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-name") }
+    }
+
+    @Test fun addStoreIsHiddenWithoutPermission() {
+        val backend = ScriptedBackend(EnrollmentState.Ready("dev1")).apply {
+            signedIn = true
+            customers = listOf(com.sunpride.field.ui.customers.CustomerRecord("o1", "First Store", "OUT-1"))
+        }
+        rule.setContent { FieldApp(configured, dark = false, debug = false, backend = backend) } // visits off
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("customers-open") }
+        rule.onNodeWithTag("today-add-store").assertDoesNotExist()
+        rule.onNodeWithTag("customers-open").performClick()
+        rule.onNodeWithTag("customer-add-store-fab").assertDoesNotExist()
+    }
+
+    // Screenshots for the Add store review (fixture data, emulator only). Runs only with -e shots true.
+    @Test fun addStoreScreenshots() {
+        org.junit.Assume.assumeTrue(androidx.test.platform.app.InstrumentationRegistry.getArguments().getString("shots") == "true")
+        val backend = ScriptedBackend(EnrollmentState.Ready("dev1")).apply {
+            signedIn = true
+            visits = listOf(VisitDisplay("Aling Nena Sari-Sari", "Planned", "Scheduled", "o1", "p1", sequence = 1),
+                VisitDisplay("Sto. Niño Grocery", "Planned", "Scheduled", "o2", "p2", sequence = 2))
+            customers = (1..20).map { com.sunpride.field.ui.customers.CustomerRecord("o$it",
+                "Sample Store %02d".format(it), "OUT-%03d".format(it), address = "$it Rizal Ave, Pasig") }
+        }
+        rule.setContent { FieldApp(configured, dark = false, backend = backend, features = beta) }
+        val ui = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().uiAutomation
+        fun shot(name: String) { rule.waitForIdle(); Thread.sleep(600)
+            ui.executeShellCommand("screencap -p /data/local/tmp/addstore-$name.png").close(); Thread.sleep(1200) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("today-add-store") }
+        shot("android-today")
+        rule.onNodeWithTag("nav-stores").performClick()
+        rule.onNodeWithTag("customer-list").performScrollToIndex(21)
+        shot("android-stores-fab-bottom")
+        rule.onNodeWithTag("nav-more").performClick()
+        shot("android-more")
+        rule.onNodeWithTag("census-open").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-name") }
+        shot("android-add-a-store")
     }
 
     // SP-0124: the beta build records visits (no longer DEV-only) and hides the beta list.

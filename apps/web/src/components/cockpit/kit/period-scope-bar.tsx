@@ -69,7 +69,7 @@ export function filterSummary(
           : formatDate(day);
   } else {
     const range = effectiveRange(common, today);
-    const preset = presetOf(range.from, range.to, today);
+    const preset = presetOf(range.from, range.to, today, params.get("period"));
     period =
       PERIOD_PRESETS.find((item) => item.id === preset)?.label ??
       formatDateRange(range.from, range.to);
@@ -193,7 +193,7 @@ function BarControls({
   const today = manilaToday();
   const common = readCommon(params);
   const range = effectiveRange(common, today);
-  const preset = presetOf(range.from, range.to, today);
+  const preset = presetOf(range.from, range.to, today, params.get("period"));
   const [customOpen, setCustomOpen] = useState(preset === "custom");
   const units = useUnits(true);
   const day = isIsoDate(params.get("date")) ? params.get("date")! : today;
@@ -227,7 +227,11 @@ function BarControls({
                 className={`${segment} ${preset === item.id && !customOpen ? segmentOn : segmentOff}`}
                 onClick={() => {
                   setCustomOpen(false);
-                  set({ ...presetRange(item.id, today), ...RESET });
+                  set({
+                    ...presetRange(item.id, today),
+                    period: item.id,
+                    ...RESET,
+                  });
                 }}
               >
                 {item.label}
@@ -252,7 +256,12 @@ function BarControls({
                 className={dateInput}
                 onChange={(event) =>
                   isIsoDate(event.target.value) &&
-                  set({ from: event.target.value, to: range.to, ...RESET })
+                  set({
+                    from: event.target.value,
+                    to: range.to,
+                    period: null,
+                    ...RESET,
+                  })
                 }
               />
               <span>to</span>
@@ -264,7 +273,12 @@ function BarControls({
                 className={dateInput}
                 onChange={(event) =>
                   isIsoDate(event.target.value) &&
-                  set({ from: range.from, to: event.target.value, ...RESET })
+                  set({
+                    from: range.from,
+                    to: event.target.value,
+                    period: null,
+                    ...RESET,
+                  })
                 }
               />
             </div>
