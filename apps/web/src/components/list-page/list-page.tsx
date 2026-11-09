@@ -184,6 +184,7 @@ export function ListPage<T>({
   columns,
   rowKey,
   rowHref,
+  rowEnd,
   bulkActions = [],
   exportName,
   loading = false,
@@ -206,6 +207,8 @@ export function ListPage<T>({
   columns: ListColumn<T>[];
   rowKey: (row: T) => string;
   rowHref?: (row: T) => string;
+  /** Always-visible control at the row end (e.g. an Edit button); sits outside the row link. */
+  rowEnd?: (row: T) => ReactNode;
   bulkActions?: BulkAction<T>[];
   exportName?: string;
   loading?: boolean;
@@ -251,7 +254,7 @@ export function ListPage<T>({
     });
   const primary = columns.find((c) => c.primary) ?? columns[0]!;
   const rest = columns.filter((c) => c !== primary);
-  const grid = `2.5rem minmax(0,2fr) ${rest.map(() => "minmax(0,1fr)").join(" ")}`;
+  const grid = `2.5rem minmax(0,2fr) ${rest.map(() => "minmax(0,1fr)").join(" ")}${rowEnd ? " auto" : ""}`;
 
   return (
     <div className="grid gap-4 pb-20 sm:pb-0">
@@ -401,6 +404,7 @@ export function ListPage<T>({
                 {c.label}
               </span>
             ))}
+            {rowEnd ? <span role="columnheader" /> : null}
           </div>
           <ul className="divide-y divide-separator">
             {rows.map((r) => {
@@ -425,12 +429,12 @@ export function ListPage<T>({
                 <li
                   key={key}
                   role="row"
-                  className="grid grid-cols-[1.25rem_minmax(0,1fr)] items-center gap-x-3 sm:gap-x-4 px-4 py-3 hover:bg-default-soft sm:[grid-template-columns:var(--cols)]"
+                  className={`grid ${rowEnd ? "grid-cols-[1.25rem_minmax(0,1fr)_auto]" : "grid-cols-[1.25rem_minmax(0,1fr)]"} items-center gap-x-3 sm:gap-x-4 px-4 py-3 hover:bg-default-soft sm:[grid-template-columns:var(--cols)]`}
                   style={{ ["--cols" as string]: grid }}
                 >
                   <input
                     type="checkbox"
-                    aria-label={`Select ${key}`}
+                    aria-label={`Select ${primary.text?.(r) ?? key}`}
                     checked={picked.has(key)}
                     onChange={() => toggle(key)}
                     className="size-4"
@@ -442,6 +446,9 @@ export function ListPage<T>({
                   ) : (
                     <span className={cls}>{body}</span>
                   )}
+                  {rowEnd ? (
+                    <span className="justify-self-end">{rowEnd(r)}</span>
+                  ) : null}
                 </li>
               );
             })}

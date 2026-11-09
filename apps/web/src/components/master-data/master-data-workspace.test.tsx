@@ -47,10 +47,19 @@ describe("master data using the real API hooks", () => {
     expect(html).toContain("Sample meat");
     expect(html).not.toContain("private-product-id");
     expect(html).not.toContain("₱0");
-    expect(html).toContain("Search master data");
+    expect(html).toContain("Search products by name or code");
     expect(html).toContain("Master data pages");
     expect(html).toContain("Export CSV");
-    expect(html).toContain("Edit");
+    // Add product sits in the header row, before the table
+    expect(html).toMatch(/data-testid="list-add"[^>]*>.*Add product/);
+    expect(html.indexOf("list-add")).toBeLessThan(html.indexOf("list-table"));
+    // a visible Edit on the row; no repeated price jargon, no intro paragraph
+    expect(html).toMatch(/aria-label="Edit Sample meat"[^>]*>Edit<\/button>/);
+    expect(html).not.toContain("Governed price");
+    expect(html).not.toContain("governed price lists");
+    expect(html).toContain("No price yet");
+    // phone: ListPage rows become cards; no sideways-scrolling <table>
+    expect(html).not.toContain("<table");
   });
   it("shows customer channel, territory and peso credit instead of a database identity", () => {
     const store = storeWith("catalog/customers/list", {
@@ -98,8 +107,8 @@ describe("master data using the real API hooks", () => {
       <MasterDataWorkspace initialSection="outlets" />,
     );
     expect(html).toContain("South Cebu");
-    expect(html).toContain("Not set");
-    expect(html).toContain("Open store setup");
+    expect(html).toContain('href="/stores?edit=store-selection"');
+    expect(html).not.toContain("Add store");
     expect(html).not.toContain(">store-selection<");
   });
   it("opens Setup health with five actionable exceptions and honest unknown prior history", () => {
@@ -139,8 +148,9 @@ describe("master data using the real API hooks", () => {
       scopeUnitIds: [],
     });
     const html = render(store, createElement(MasterDataWorkspace));
-    expect(html).toContain("No matches");
+    expect(html).toContain("No products yet");
     expect(html).not.toContain(">Edit<");
+    expect(html).not.toContain("Add product");
     expect(html).not.toContain("Loading master data");
   });
   it("serializes page options and search to the actual Bun GET route", async () => {

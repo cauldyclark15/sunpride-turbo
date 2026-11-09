@@ -109,7 +109,13 @@ describe("New store approvals", () => {
     expect(view).toContain("e.g. SP000001");
     expect(view).toMatch(/>Approve<\/button>/);
     expect(view).toMatch(/>Reject<\/button>/);
-    expect(view).toContain("PROV-000001) proposed by Juan DSP");
+    expect(view).toContain("PROV-000001) added by Juan DSP");
+    // a ListPage table with search and a visible Open per row
+    expect(view).toContain('data-testid="list-search"');
+    expect(view).toContain('data-testid="list-table"');
+    expect(view).toMatch(/>Open<\/button>/);
+    expect(view).toContain("Oct 4");
+    expect(view).not.toMatch(/2026-10-04/);
     expect(state.queries).toContainEqual({
       name: "outlets/enrolment:mine",
       args: "skip",
@@ -127,7 +133,7 @@ describe("New store approvals", () => {
   });
 
   it("shows the reason form for the chosen decision", () => {
-    state.target = { id: enrolmentId, decision: "rejected" };
+    state.target = "rejected";
     const view = render();
     expect(view).toContain("Rejection reason");
     expect(view).toContain("Reject store");

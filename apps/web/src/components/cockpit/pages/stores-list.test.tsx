@@ -22,7 +22,9 @@ import {
   StoresTabs,
   pageNumbers,
   readPage,
+  readStoreStatus,
   readStoresTab,
+  storeFilters,
 } from "./stores-list";
 
 const row = (n: number): StoreRow => ({
@@ -136,5 +138,44 @@ describe("store list", () => {
     expect(out).not.toContain("Add store");
     expect(out).not.toContain("as a new store");
     expect(out).toContain("No store named “x”");
+  });
+});
+
+describe("store status chips", () => {
+  it("reads ?status= and ignores unknown values", () => {
+    expect(readStoreStatus(new URLSearchParams("status=dormant"))).toBe(
+      "dormant",
+    );
+    expect(readStoreStatus(new URLSearchParams("status=nope"))).toBeNull();
+    expect(readStoreStatus(new URLSearchParams(""))).toBeNull();
+  });
+  it("uses the API's per-status counts for the current search", () => {
+    const chips = storeFilters({ all: 9, active: 5, dormant: 3, lost: 1 });
+    expect(chips.map((c) => [c.id, c.count])).toEqual([
+      ["active", 5],
+      ["new", 0],
+      ["dormant", 3],
+      ["lost", 1],
+      ["never", 0],
+    ]);
+    expect(storeFilters(undefined).every((c) => c.count === null)).toBe(true);
+  });
+  it("renders chips with counts, the chosen one pressed, and Edit per row", () => {
+    const out = view({
+      status: "dormant",
+      matches: { all: 301, active: 200, dormant: 101 },
+      onStatus: () => {},
+      onEdit: () => {},
+    });
+    expect(out).toMatch(/aria-pressed="true"[^>]*>Dormant<span[^>]*>101</);
+    expect(out).toMatch(/aria-pressed="false"[^>]*>Buying<span[^>]*>200</);
+    expect(out).toMatch(/aria-label="Edit Mercado 1"[^>]*>Edit<\/button>/);
+    // Edit sits outside the row link
+    expect(out).not.toMatch(/<a [^>]*>(?:(?!<\/a>).)*>Edit<\/button>/);
+  });
+  it("hides chips and Edit when not wired", () => {
+    const out = view();
+    expect(out).not.toContain('aria-label="Filter"');
+    expect(out).not.toContain(">Edit</button>");
   });
 });

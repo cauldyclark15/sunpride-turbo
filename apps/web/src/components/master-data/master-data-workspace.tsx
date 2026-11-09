@@ -1,20 +1,15 @@
 "use client";
 
-import { useState, type FormEvent } from "react";
-import {
-  Card,
-  DataTable,
-  FormField,
-  Pager,
-  UnderlineTabs,
-  type DataColumn,
-} from "@sunpride/ui";
+import Link from "next/link";
+import { useCallback, useState, type FormEvent } from "react";
+import { FormField, Pager, UnderlineTabs } from "@sunpride/ui";
 import { Button } from "@heroui/react";
 import { useOrgMutation, useOrgQuery } from "./api";
 import type { Customer, Outlet, Product } from "./model";
-import { SetupSearch } from "./setup-health";
 import { collectExport, csvText, downloadCsv } from "./export";
 import { useSetupParam } from "./location";
+import { ListPage, type ListColumn } from "../list-page/list-page";
+import { Drawer } from "../cockpit/kit/drawer";
 
 type Kind = "products" | "customers" | "outlets";
 type Row = {
@@ -31,6 +26,8 @@ type Row = {
   customer?: Customer;
   outlet?: Outlet;
 };
+/** What the form is doing: editing a row, or adding a new product/customer. */
+type Editing = { row: Row | null; kind: "products" | "customers" };
 const money = (v: number | null) =>
   v === null
     ? "Not set"
@@ -43,15 +40,36 @@ const tabs = [
   ["customers", "Customers"],
   ["outlets", "Stores"],
 ] as const;
+const KINDS = tabs.map(([id]) => id) as readonly Kind[];
+const NOUN: Record<Kind, { one: string; many: string }> = {
+  products: { one: "product", many: "products" },
+  customers: { one: "customer", many: "customers" },
+  outlets: { one: "store", many: "stores" },
+};
+const editClass =
+  "inline-flex h-9 items-center rounded-lg border border-border px-3 text-[13px] font-medium text-foreground hover:bg-default-soft";
+
+/** Write URL params in place (tabs, search and filter survive reload and links). */
+function setParams(values: Record<string, string | null>) {
+  const url = new URL(window.location.href);
+  for (const [k, v] of Object.entries(values))
+    if (v) url.searchParams.set(k, v);
+    else url.searchParams.delete(k);
+  window.history.replaceState(null, "", url);
+  window.dispatchEvent(new Event("popstate"));
+}
+
 export function MasterDataWorkspace({
   initialSection = "products",
 }: { initialSection?: Kind } = {}) {
+  const tabParam = useSetupParam("tab");
+  const kind: Kind = KINDS.includes(tabParam as Kind)
+    ? (tabParam as Kind)
+    : initialSection;
   const missingPrice = useSetupParam("missingPrice") === "true";
-  const [kind, setKind] = useState<Kind>(initialSection);
-  const [q, setQ] = useState("");
-  const [filter, setFilter] = useState("");
+  const q = useSetupParam("q");
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
-  const [selected, setSelected] = useState<Row | null>(null);
+  const [editing, setEditing] = useState<Editing | null>(null);
   const [error, setError] = useState("");
   const [message, setMessage] = useState("");
   const [busy, setBusy] = useState(false);
@@ -59,15 +77,11 @@ export function MasterDataWorkspace({
   const canEdit =
     (permissions?.capabilities.includes("masterdata.manage") ?? false) &&
     permissions?.national !== false;
+  const filter = "";
   const pageInput = {
     q,
     paginationOpts: { numItems: 25, cursor: cursors.at(-1) ?? null },
     ...(missingPrice && kind === "products" ? { missingPrice: "true" } : {}),
-    ...(filter
-      ? kind === "products"
-        ? { category: filter }
-        : { channel: filter }
-      : {}),
   };
   const products = useOrgQuery(
     "catalog/products/list",
@@ -83,84 +97,97 @@ export function MasterDataWorkspace({
   );
   const units = useOrgQuery(
     "catalog/uoms",
-    canEdit && selected?.product ? {} : "skip",
+    canEdit && editing?.kind === "products" ? {} : "skip",
   );
   const saveProduct = useOrgMutation("catalog/saveProduct");
   const saveCustomer = useOrgMutation("catalog/saveCustomer");
+  const onSearch = useCallback((next: string) => {
+    setParams({ q: next || null });
+    setCursors([null]);
+  }, []);
   const page =
     kind === "products" ? products : kind === "customers" ? customers : outlets;
-  const rows: Row[] =
-    kind === "products"
-      ? (products?.page ?? []).map((p) => ({
-          id: p._id,
-          code: p.code,
-          name: p.name,
-          category: p.category,
-          unit: p.uomDisplay ?? p.uom,
-          channel: "—",
-          territory: "—",
-          credit: null,
-          status: p.active ? "Active" : "Inactive",
-          product: p,
-        }))
-      : kind === "customers"
-        ? (customers?.page ?? []).map((c) => ({
-            id: c._id,
-            code: c.code,
-            name: c.name,
-            category: "—",
-            unit: "—",
-            channel: c.channel,
-            territory: c.territory,
-            credit: c.creditLimitCentavos,
-            status: c.active ? "Active" : "Inactive",
-            customer: c,
+  const rows: Row[] | null =
+    page === undefined
+      ? null
+      : kind === "products"
+        ? (products?.page ?? []).map((p) => ({
+            id: p._id,
+            code: p.code,
+            name: p.name,
+            category: p.category,
+            unit: p.uomDisplay ?? p.uom,
+            channel: "—",
+            territory: "—",
+            credit: null,
+            status: p.active ? "Active" : "Inactive",
+            product: p,
           }))
-        : (outlets?.page ?? []).map((o) => ({
-            id: o._id,
-            code: o.code,
-            name: o.name,
-            category: "—",
-            unit: "—",
-            channel: o.channel ?? "Needs setup",
-            territory: o.territoryName ?? "Unassigned",
-            credit: o.creditLimitCentavos ?? null,
-            status:
-              o.enrolmentStatus === "provisional"
-                ? "Awaiting approval"
-                : o.status.replace(/^./, (v) => v.toUpperCase()),
-            outlet: o,
-          }));
+        : kind === "customers"
+          ? (customers?.page ?? []).map((c) => ({
+              id: c._id,
+              code: c.code,
+              name: c.name,
+              category: "—",
+              unit: "—",
+              channel: c.channel,
+              territory: c.territory,
+              credit: c.creditLimitCentavos,
+              status: c.active ? "Active" : "Inactive",
+              customer: c,
+            }))
+          : (outlets?.page ?? []).map((o) => ({
+              id: o._id,
+              code: o.code,
+              name: o.name,
+              category: "—",
+              unit: "—",
+              channel: o.channel ?? "No channel",
+              territory: o.territoryName ?? "No area",
+              credit: o.creditLimitCentavos ?? null,
+              status:
+                o.enrolmentStatus === "provisional"
+                  ? "Waiting for approval"
+                  : o.status.replace(/^./, (v) => v.toUpperCase()),
+              outlet: o,
+            }));
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    if (!selected || busy) return;
+    if (!editing || busy) return;
+    const selected = editing.row;
     const data = new FormData(event.currentTarget);
     setBusy(true);
     setError("");
     setMessage("");
     try {
       const name = String(data.get("name") ?? "").trim(),
-        reason = String(data.get("reason") ?? "").trim();
+        reason = String(data.get("reason") ?? "").trim(),
+        code = String(data.get("code") ?? "").trim();
       if (!name || !reason) throw new Error("Name and reason are required.");
+      if (!selected && !code) throw new Error("Code is required.");
       const active = data.get("active") === "on";
-      if (selected.product)
+      if (editing.kind === "products")
         await saveProduct({
-          productId: selected.id,
+          ...(selected ? { productId: selected.id } : { code }),
           name,
           category: String(data.get("category")),
           baseUomId: String(data.get("baseUomId")),
-          quantityScale: Number(selected.product.quantityScale ?? 1),
+          quantityScale: selected
+            ? Number(selected.product?.quantityScale ?? 1)
+            : 10 **
+              (units?.find((u) => u._id === String(data.get("baseUomId")))
+                ?.decimalPlaces ?? 0),
           active,
           reason,
         });
-      else if (selected.customer) {
+      else {
         const amount = String(data.get("creditLimit") ?? "");
         if (!/^\d+(\.\d{1,2})?$/.test(amount))
           throw new Error(
             "Enter a peso credit limit with at most two decimal places.",
           );
         await saveCustomer({
-          customerId: selected.id,
+          ...(selected ? { customerId: selected.id } : { code }),
           name,
           channel: String(data.get("channel")),
           territory: String(data.get("territory")),
@@ -169,8 +196,8 @@ export function MasterDataWorkspace({
           reason,
         });
       }
-      setSelected(null);
-      setMessage("Master data saved.");
+      setEditing(null);
+      setMessage("Saved.");
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : "Save failed.");
     } finally {
@@ -280,146 +307,141 @@ export function MasterDataWorkspace({
       setBusy(false);
     }
   }
-  const columns: DataColumn<Row>[] = [
-    {
-      key: "name",
-      label: kind === "products" ? "Product" : "Account",
-      render: (r) => (
-        <span>
-          <span className="block font-medium">{r.name}</span>
-          <span className="text-xs text-muted">{r.code}</span>
-        </span>
-      ),
-    },
-    ...(kind === "products"
+  const nameCol: ListColumn<Row> = {
+    key: "name",
+    label: kind === "products" ? "Product" : kind === "customers" ? "Customer" : "Store",
+    primary: true,
+    render: (r) => r.name,
+    text: (r) => r.name,
+  };
+  const codeCol: ListColumn<Row> = {
+    key: "code",
+    label: "Code",
+    render: (r) => <span className="tabular-nums">{r.code}</span>,
+    text: (r) => r.code,
+  };
+  const statusCol: ListColumn<Row> = {
+    key: "status",
+    label: "Status",
+    render: (r) => r.status,
+    text: (r) => r.status,
+  };
+  const columns: ListColumn<Row>[] =
+    kind === "products"
       ? [
+          nameCol,
+          codeCol,
           {
             key: "unit",
-            label: "Pack and category",
-            render: (r: Row) => (
-              <span>
-                {r.unit}
-                <span className="block text-xs text-muted">
-                  {r.category} · Governed price required
-                </span>
-              </span>
-            ),
+            label: "Pack",
+            render: (r) => r.unit,
+            text: (r) => r.unit,
           },
+          {
+            key: "category",
+            label: "Category",
+            render: (r) => r.category,
+            text: (r) => r.category,
+          },
+          statusCol,
         ]
       : [
+          nameCol,
+          codeCol,
           {
             key: "channel",
-            label: "Channel / territory",
-            render: (r: Row) => (
-              <span>
-                {r.channel}
-                <span className="block text-xs text-muted">{r.territory}</span>
-              </span>
-            ),
+            label: "Channel · area",
+            render: (r) => `${r.channel} · ${r.territory}`,
+            text: (r) => `${r.channel} · ${r.territory}`,
           },
-          {
-            key: "credit",
-            label: "Credit limit",
-            render: (r: Row) => money(r.credit),
-          },
-        ]),
-    { key: "status", label: "Status", render: (r) => r.status },
-    {
-      key: "actions",
-      label: "Next action",
-      render: (r) =>
-        r.outlet ? (
-          <a
-            className="underline"
-            href={`/admin?section=outlets&outlet=${encodeURIComponent(r.id)}`}
-          >
-            Open store setup
-          </a>
-        ) : canEdit ? (
-          <Button
-            size="sm"
-            variant="outline"
-            onPress={() => {
-              setSelected(r);
-              setError("");
-            }}
+          ...(kind === "customers"
+            ? [
+                {
+                  key: "credit",
+                  label: "Credit limit",
+                  align: "right" as const,
+                  render: (r: Row) => money(r.credit),
+                  text: (r: Row) => money(r.credit),
+                },
+              ]
+            : []),
+          statusCol,
+        ];
+  const rowEnd =
+    kind === "outlets"
+      ? (r: Row) => (
+          <Link
+            className={editClass}
+            href={`/stores?edit=${encodeURIComponent(r.id)}`}
+            aria-label={`Edit ${r.name}`}
           >
             Edit
-          </Button>
-        ) : (
-          <span className="text-muted">Read only</span>
-        ),
-    },
-  ];
+          </Link>
+        )
+      : canEdit
+        ? (r: Row) => (
+            <button
+              type="button"
+              className={editClass}
+              aria-label={`Edit ${r.name}`}
+              onClick={() => {
+                setEditing({ row: r, kind: kind as Editing["kind"] });
+                setError("");
+              }}
+            >
+              Edit
+            </button>
+          )
+        : undefined;
+  const selected = editing?.row ?? null;
   return (
     <div className="grid gap-4">
-      <p className="text-sm text-muted">
-        Can the team identify every product and account correctly? Pack
-        conversions, channel and territory must be set before selling. Selling
-        prices come from governed price lists, not a zero-valued product field.
-      </p>
       <UnderlineTabs
         label="Master data sections"
         items={tabs}
         activeId={kind}
         onChange={(value) => {
-          setKind(value);
+          setParams({ tab: value === "products" ? null : value, q: null });
           setCursors([null]);
-          setQ("");
-          setFilter("");
-          setSelected(null);
+          setEditing(null);
         }}
       />
-      <Card
-        label={
+      <ListPage
+        noun={NOUN[kind]}
+        rows={rows}
+        total={
+          page && page.isDone && cursors.length === 1 ? page.page.length : null
+        }
+        page={1}
+        onPage={() => {}}
+        q={q}
+        onSearch={onSearch}
+        searchPlaceholder={`Search ${NOUN[kind].many} by name or code`}
+        onAdd={
+          canEdit && kind !== "outlets"
+            ? () => {
+                setEditing({ row: null, kind: kind as Editing["kind"] });
+                setError("");
+              }
+            : undefined
+        }
+        filters={
           kind === "products"
-            ? "Products"
-            : kind === "customers"
-              ? "Customers"
-              : "Stores"
+            ? [{ id: "missingPrice", label: "No price yet" }]
+            : undefined
         }
-        count={rows.length}
-        actions={
-          <Button
-            variant="outline"
-            isPending={busy}
-            onPress={() => void exportRows()}
-          >
-            Export CSV
-          </Button>
-        }
-        flush
-      >
-        <div className="grid sm:grid-cols-2">
-          <SetupSearch
-            label="Search master data"
-            value={q}
-            onChange={(value) => {
-              setQ(value);
-              setCursors([null]);
-            }}
-          />
-          <SetupSearch
-            label={kind === "products" ? "Filter category" : "Filter channel"}
-            value={filter}
-            onChange={(value) => {
-              setFilter(value);
-              setCursors([null]);
-            }}
-          />
-        </div>
-        {page === undefined ? (
-          <p className="p-4">Loading master data…</p>
-        ) : (
-          <DataTable
-            bare
-            rows={rows}
-            columns={columns}
-            empty={
-              <p className="p-4">No matches. Change the search or filters.</p>
-            }
-          />
-        )}
+        filter={missingPrice && kind === "products" ? "missingPrice" : null}
+        onFilter={(id) => {
+          setParams({ missingPrice: id ? "true" : null });
+          setCursors([null]);
+        }}
+        columns={columns}
+        rowKey={(r) => r.id}
+        rowEnd={rowEnd}
+        exportName={NOUN[kind].many}
+        loading={page === undefined}
+      />
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <Pager
           label="Master data pages"
           page={cursors.length}
@@ -430,29 +452,54 @@ export function MasterDataWorkspace({
             page && setCursors((old) => [...old, page.continueCursor])
           }
         />
-      </Card>
-      {selected && canEdit ? (
-        <Card label={`Edit · ${selected.name}`}>
-          <form onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
+        <Button
+          variant="outline"
+          isPending={busy}
+          onPress={() => void exportRows()}
+        >
+          Export CSV
+        </Button>
+      </div>
+      <Drawer
+        open={!!editing && canEdit}
+        title={
+          selected
+            ? `Edit ${selected.name}`
+            : `Add ${editing ? NOUN[editing.kind].one : ""}`
+        }
+        wide
+        onClose={() => setEditing(null)}
+      >
+        {editing ? (
+          <form
+            key={selected?.id ?? "new"}
+            onSubmit={submit}
+            className="grid gap-3 sm:grid-cols-2"
+          >
+            {!selected ? (
+              <FormField label="Code">
+                <input name="code" required />
+              </FormField>
+            ) : null}
             <FormField label="Name">
-              <input name="name" defaultValue={selected.name} required />
+              <input name="name" defaultValue={selected?.name} required />
             </FormField>
-            {selected.product ? (
+            {editing.kind === "products" ? (
               <>
                 <FormField label="Category">
                   <input
                     name="category"
-                    defaultValue={selected.product.category}
+                    defaultValue={selected?.product?.category}
                     required
                   />
                 </FormField>
                 <FormField label="Base unit">
                   <select
                     name="baseUomId"
-                    defaultValue={selected.product.baseUomId}
+                    defaultValue={selected?.product?.baseUomId}
                     required
                   >
-                    <option value="">Select unit</option>
+                    <option value="">Pick a unit</option>
                     {units?.map((u) => (
                       <option key={u._id} value={u._id}>
                         {u.name} · {u.code}
@@ -466,14 +513,14 @@ export function MasterDataWorkspace({
                 <FormField label="Channel">
                   <input
                     name="channel"
-                    defaultValue={selected.channel}
+                    defaultValue={selected?.channel}
                     required
                   />
                 </FormField>
-                <FormField label="Territory">
+                <FormField label="Area">
                   <input
                     name="territory"
-                    defaultValue={selected.territory}
+                    defaultValue={selected?.territory}
                     required
                   />
                 </FormField>
@@ -483,35 +530,40 @@ export function MasterDataWorkspace({
                     type="number"
                     min="0"
                     step="0.01"
-                    defaultValue={(selected.credit ?? 0) / 100}
+                    defaultValue={(selected?.credit ?? 0) / 100}
                     required
                   />
                 </FormField>
               </>
             )}
-            <label>
+            <label className="flex items-center gap-2 text-[14px]">
               <input
                 name="active"
                 type="checkbox"
-                defaultChecked={selected.status === "Active"}
-              />{" "}
+                defaultChecked={!selected || selected.status === "Active"}
+              />
               Active
             </label>
             <FormField label="Reason">
               <textarea name="reason" required rows={2} />
             </FormField>
-            <div className="flex gap-2">
+            {error ? (
+              <p role="alert" className="text-sm text-danger sm:col-span-2">
+                {error}
+              </p>
+            ) : null}
+            <div className="flex gap-2 sm:col-span-2">
               <Button type="submit" variant="primary" isPending={busy}>
-                Save change
+                Save
               </Button>
-              <Button variant="outline" onPress={() => setSelected(null)}>
+              <Button variant="outline" onPress={() => setEditing(null)}>
                 Cancel
               </Button>
             </div>
           </form>
-        </Card>
-      ) : null}
-      {error ? (
+        ) : null}
+      </Drawer>
+      {error && !editing ? (
         <p role="alert" className="text-sm text-danger">
           {error}
         </p>

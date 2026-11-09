@@ -6,6 +6,9 @@ import { useWaitingCount } from "../../store-gathering/tab";
 import { StoreGatheringReview } from "../../store-gathering/review";
 import { LocationCoverage } from "../../store-gathering/location-coverage";
 import { AddStore } from "../../store-gathering/add-store";
+import { NewStoreApprovals } from "../../new-store-approvals";
+import { OutletEditor } from "../../outlet-admin";
+import type { Id } from "../../master-data/model";
 import { usePermissions } from "../../../lib/auth";
 import { Drawer } from "../kit/drawer";
 import {
@@ -13,6 +16,7 @@ import {
   StoreListView,
   StoresTabs,
   readPage,
+  readStoreStatus,
   readStoresTab,
   type StoresTab,
 } from "./stores-list";
@@ -46,18 +50,8 @@ import type {
   StoreResponse,
   StoresResponse,
   StoreRow,
-  StoreStatus,
 } from "../types";
 import { buttonClass, usePageQuery } from "./shared";
-
-const TABS: Array<{ id: StoreStatus | null; label: string; kpi?: string }> = [
-  { id: null, label: "All", kpi: "universe" },
-  { id: "active", label: "Buying", kpi: "activeBuying" },
-  { id: "dormant", label: "Dormant", kpi: "dormant" },
-  { id: "new", label: "New", kpi: "newStores" },
-  { id: "lost", label: "Lost", kpi: "lostStores" },
-  { id: "never", label: "Never bought" },
-];
 
 export function storeColumns(now: number): DrillColumn<StoreRow>[] {
   return [
@@ -156,31 +150,19 @@ export function storeColumns(now: number): DrillColumn<StoreRow>[] {
   ];
 }
 
+/** Performance tab: period figures, the weekly chart and a sales table. Finding and editing stores is the Stores tab. */
 export function StoresView({
   data,
-  status,
-  q,
   csv,
   now: nowProp,
   link = (href) => href,
-  onStatus,
-  onSearch,
-  onMore,
 }: {
   data: StoresResponse;
-  status: StoreStatus | null;
-  q: string;
   csv: string;
   now?: number;
   link?: (href: string) => string;
-  onStatus?: (status: StoreStatus | null) => void;
-  onSearch?: (q: string) => void;
-  onMore?: () => void;
 }) {
   const now = nowProp ?? data.freshness.asOf;
-  const [text, setText] = useState(q);
-  const kpiValue = (key?: string) =>
-    data.kpis.find((k) => k.key === key)?.value ?? null;
   return (
     <div className="grid gap-4">
       <KpiGrid kpis={data.kpis} />
@@ -202,58 +184,10 @@ export function StoresView({
           ]}
         />
       </Panel>
-      <Panel
-        csvHref={csv}
-        title="Stores"
-        flush
-        actions={
-          <form
-            role="search"
-            onSubmit={(event) => {
-              event.preventDefault();
-              onSearch?.(text.trim());
-            }}
-          >
-            <input
-              type="search"
-              aria-label="Search stores"
-              placeholder="Find a store"
-              value={text}
-              onChange={(event) => setText(event.target.value)}
-              className="!min-h-11 h-11 w-44 !rounded-lg !text-[16px] lg:!min-h-8 lg:h-8 lg:!text-[13px]"
-            />
-          </form>
-        }
-      >
-        <div
-          role="tablist"
-          aria-label="Store status"
-          className="flex gap-1 overflow-x-auto px-4 pb-3 sm:px-5"
-        >
-          {TABS.map((tab) => {
-            const on = status === tab.id;
-            const count = kpiValue(tab.kpi);
-            return (
-              <button
-                key={tab.label}
-                role="tab"
-                type="button"
-                aria-selected={on}
-                onClick={() => onStatus?.(tab.id)}
-                className={`h-8 shrink-0 whitespace-nowrap rounded-lg px-3 text-[13px] font-medium ${on ? "bg-foreground text-background" : "border border-border text-muted hover:text-foreground"}`}
-              >
-                {tab.label}
-                {count !== null ? (
-                  <span className="ml-1.5 tabular-nums opacity-70">
-                    {formatCount(count)}
-                  </span>
-                ) : null}
-              </button>
-            );
-          })}
-        </div>
+      <Panel csvHref={csv} title="Sales by store" flush>
         <DrillTable
-          label="Stores"
+          label="Sales by store"
+          initialSort={{ key: "sales", dir: "desc" }}
           columns={storeColumns(now)}
           rows={data.rows}
           rowKey={(r) => r.storeId}
@@ -261,23 +195,7 @@ export function StoresView({
             link(`/stores/store?storeId=${encodeURIComponent(r.storeId)}`)
           }
           empty={
-            q ? (
-              <EmptyState variant="zero" title={`No store matches “${q}”`} />
-            ) : (
-              <EmptyState
-                variant="zero"
-                title={`No ${status ? humanize(status).toLowerCase() : ""} stores in this period`}
-              />
-            )
-          }
-          footer={
-            data.next ? (
-              <div className="ck-noprint flex justify-center px-4 py-3">
-                <button type="button" className={buttonClass} onClick={onMore}>
-                  Show more stores
-                </button>
-              </div>
-            ) : null
+            <EmptyState variant="zero" title="No store sales in this period" />
           }
         />
       </Panel>
@@ -292,12 +210,13 @@ export function StoresPage() {
   const tab = readStoresTab(params, hidden);
   const canAdd = can("outlet.manage");
   const [adding, setAdding] = useState<string | null>(null);
+  const editing = tab === "list" ? params.get("edit") : null;
   const waiting = useWaitingCount();
   const go = (next: StoresTab) =>
     set(
       next === "list"
         ? { tab: null }
-        : { tab: next, page: null, q: null, status: null },
+        : { tab: next, page: null, q: null, status: null, edit: null },
     );
   return (
     <div className="ck-page grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
@@ -319,9 +238,13 @@ export function StoresPage() {
           link={link}
           canAdd={canAdd}
           onAdd={(name) => setAdding(name)}
+          onEdit={canAdd ? (id) => set({ edit: id }) : undefined}
         />
       ) : tab === "new" ? (
-        <StoreGatheringReview />
+        <div className="grid gap-8">
+          <NewStoreApprovals />
+          <StoreGatheringReview />
+        </div>
       ) : tab === "map" ? (
         <LocationCoverage />
       ) : tab === "winback" ? (
@@ -341,6 +264,20 @@ export function StoresPage() {
           <AddStore key={adding} initialName={adding} bare />
         ) : null}
       </Drawer>
+      <Drawer
+        open={!!editing}
+        title="Edit store"
+        wide
+        onClose={() => set({ edit: null })}
+      >
+        {editing ? (
+          <OutletEditor
+            key={editing}
+            outletId={editing as Id<"outlets">}
+            onDone={() => set({ edit: null })}
+          />
+        ) : null}
+      </Drawer>
     </div>
   );
 }
@@ -352,6 +289,7 @@ function StoresListTab({
   link,
   canAdd,
   onAdd,
+  onEdit,
 }: {
   query: Record<string, string | undefined>;
   params: URLSearchParams;
@@ -359,11 +297,14 @@ function StoresListTab({
   link: (href: string) => string;
   canAdd: boolean;
   onAdd: (name: string) => void;
+  onEdit?: (storeId: string) => void;
 }) {
   const page = readPage(params);
+  const status = readStoreStatus(params);
   const q = params.get("q") ?? "";
   const result = useAnalytics("stores", {
     ...query,
+    status: status ?? undefined,
     page: String(page),
     limit: String(PAGE_SIZE),
   });
@@ -384,6 +325,10 @@ function StoresListTab({
       onSearch={onSearch}
       onPage={(n) => set({ page: n > 1 ? String(n) : null })}
       onAdd={onAdd}
+      status={status}
+      matches={result.data?.matches}
+      onStatus={(next) => set({ status: next, page: null })}
+      onEdit={onEdit ? (r) => onEdit(r.storeId) : undefined}
       storeHref={(r) =>
         link(`/stores/store?storeId=${encodeURIComponent(r.storeId)}`)
       }
@@ -394,13 +339,9 @@ function StoresListTab({
 /** Figures for the period: the only tab with the period filter. */
 function PerformanceTab() {
   const [view, setView] = useState<"distribution" | "retail">("distribution");
-  const { query, params, link, set } = usePageQuery(["status", "q", "limit"]);
-  const status = (
-    TABS.some((t) => t.id === params.get("status"))
-      ? params.get("status")
-      : null
-  ) as StoreStatus | null;
-  const result = useAnalytics("stores", query);
+  const { query, link } = usePageQuery([]);
+  // The top 200 stores (API limit) are enough for a ranked sales table.
+  const result = useAnalytics("stores", { ...query, limit: "200" });
   return (
     <div className="grid gap-4">
       <PeriodScopeBar scopeLabel={result.data?.scope.label} />
@@ -429,18 +370,8 @@ function PerformanceTab() {
           {(data) => (
             <StoresView
               data={data}
-              status={status}
-              q={params.get("q") ?? ""}
               csv={csvHref("stores", query)}
               link={link}
-              onStatus={(s) => set({ status: s, limit: null })}
-              onSearch={(q) => set({ q: q || null, limit: null })}
-              onMore={() =>
-                set(
-                  { limit: String(Number(params.get("limit") || 50) + 50) },
-                  { replace: true },
-                )
-              }
             />
           )}
         </PageData>
