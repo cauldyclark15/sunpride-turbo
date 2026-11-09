@@ -12,7 +12,7 @@ const page1 = [
   head,
   "1\t1\t0\t0\t0\t0\t0\t0\t100\t100\t-1\t",
   w(1, 1, 1, 96, "PO"), w(1, 1, 2, 94, "NUMBER:"), w(1, 1, 3, 90, "SAMPLE-0580"),
-  w(1, 2, 1, 92, "DELIVERY"), w(1, 2, 2, 92, "DATE:"), w(1, 2, 3, 88, "2026-10-24"),
+  w(1, 2, 1, 92, "DELIVERY\u2014DATE:"), w(1, 2, 3, 88, "2026-10-24"),
   "4\t1\t2\t1\t1\t0\t0\t0\t10\t10\t-1\t",
   w(2, 1, 1, 91, "SAMPLE-SKU"), w(2, 1, 2, 95, "PC"), w(2, 1, 3, 97, "2"), w(2, 1, 4, 89, "25.50"),
 ].join("\n");
@@ -23,11 +23,11 @@ test("F-306 tesseract adapter emits the ocr.swift shape: modelVersion, row text,
   expect(Object.keys(r).sort()).toEqual(["modelVersion", "observations", "text"]);
   expect(r.modelVersion).toBe(MODEL_VERSION);
   expect(r.text).toBe(
-    "PO NUMBER: SAMPLE-0580\nDELIVERY DATE: 2026-10-24\nSAMPLE-SKU PC 2 25.50\nThank you",
+    "PO NUMBER: SAMPLE-0580\nDELIVERY-DATE: 2026-10-24\nSAMPLE-SKU PC 2 25.50\nThank you",
   );
   expect(r.observations).toEqual([
     { page: 1, text: "PO NUMBER: SAMPLE-0580", confidence: 0.933 },
-    { page: 1, text: "DELIVERY DATE: 2026-10-24", confidence: 0.907 },
+    { page: 1, text: "DELIVERY-DATE: 2026-10-24", confidence: 0.9 },
     { page: 1, text: "SAMPLE-SKU PC 2 25.50", confidence: 0.93 },
     { page: 2, text: "Thank you", confidence: 0.75 },
   ]);

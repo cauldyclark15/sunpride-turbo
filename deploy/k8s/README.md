@@ -59,6 +59,8 @@ Manual run: `kubectl -n sunpride create job --from=cronjob/sunpride-pg-backup su
 
 Prep (day before, no impact)
 - Rebuild images from the main commit being cut over (`build-images.sh`), bump tags, `apply -k`; check test host.
+  The api image must be ≥ the phase-1b one (tesseract, aapt/apksigner) and `sunpride-api-env` must carry
+  `SUNPRIDE_OCR_COMMAND`, `SP_ANDROID_*`, `SP_APP_RELEASE_DIR`.
 - Add `sunpride.cauldnclark.com` (and `docs.cauldnclark.com`) to `60-ingress.yaml` (own TLS secrets);
   change `PUBLIC_ORIGIN` in `sunpride-api-env` to `https://sunpride.cauldnclark.com`. Don't apply yet.
 - Lower the TTL of nothing (the tunnel records are proxied CNAMEs; Cloudflare flips are near-instant).
@@ -77,7 +79,8 @@ Freeze → copy → flip (T0)
    proxy back on afterwards (SSL mode must then be Full/Strict).
 6. Verify on the real host: `/healthz` db true, sign-in, `/today`, two-client `/ws` invalidation, an Android
    and iPhone sync, one SAP-mock flow.
-7. Leave the Mac launchd agents stopped-but-installed for rollback; stop the tunnel route for the host only
+7. Mac scripts: load the k8s-pg-forward agent and apply the switch list below.
+8. Leave the Mac launchd agents stopped-but-installed for rollback; stop the tunnel route for the host only
    after a day of green.
 
 Rollback (any time before Mac data is discarded)
@@ -87,11 +90,51 @@ Rollback (any time before Mac data is discarded)
 
 Expected downtime: ≈10–15 min (freeze + ~5 min restore + api start + cert issue/DNS), most of it the restore.
 
-## After cutover: Mac-side things that still point at the Mac
+## Linux replacements for Mac-only tooling (api image)
 
-See `~/cnc/_plans/sunpride-inv-pos/reports/K8S-PHASE1.md` (“Cutover planning”) for the full list:
-`sunpride-ops/common.py` + `pickup.py` + `scripts/board.js` (live DB via `pg-dev-url`), `release.py`
-(`SP_OPS_API=http://127.0.0.1:4320` and APK inspection with the Mac's Android SDK), `sunpride-demo-daily.sh`
-(seed via `pg-dev-url`), `sunpride-docs-publish.py` (writes `~/cnc/_sites/sunpride-docs`, served by the Mac),
-`landing_context.py` (`deployed-sha`). Each needs either a DB URL through
-`kubectl -n sunpride port-forward svc/sunpride-pg 15432:5432` or the public API URL.
+- **MT photo/PDF OCR**: `apps/api/src/domains/mt/ocr.js` runs `SUNPRIDE_OCR_COMMAND`
+  (`["bun","/app/apps/api/scripts/ocr-tesseract.js"]`, set in `sunpride-api-env`). The adapter uses
+  tesseract 5 + `eng` (images) and poppler `pdftoppm` (PDFs, ≤8 pages) inside the pod and prints the same
+  `{modelVersion:"tesseract-eng/v1",text,observations:[{page,text,confidence}]}` shape as `ocr.swift`.
+  Unit test: `apps/api/test/ocr-tesseract.test.js`.
+- **APK release inspection** (`apps/api/src/domains/integrity/apk-artifacts.js`, used by
+  `POST /api/v1/integrity/app-releases/publish` and `scripts/stage-app-release.js`): Debian `aapt` +
+  `apksigner` (`SP_ANDROID_BUILD_TOOLS=/usr/bin`, `SP_ANDROID_JAVA_HOME=/usr/lib/jvm/default-java`). Same
+  checks as on the Mac (single signer, cert SHA-256, package/version, sha256 of bytes). Staged APKs live in
+  `SP_APP_RELEASE_DIR=/data/sapvol/app-releases` on the `sunpride-sap-mock-data` volume (mounted into the api
+  container at `/data/sapvol`; `copy-data.sh files` wipes the files volume, `sap` only replaces the sqlite).
+  Stage + publish a built APK:
+  ```bash
+  POD=$(kubectl -n sunpride get pod -l app=sunpride-api -o name | head -1)
+  kubectl -n sunpride cp ~/cnc/_releases/sunpride/field-beta/1.0.0-beta.N/sunpride-field-1.0.0-beta.N.apk ${POD#pod/}:/tmp/r.apk -c api
+  kubectl -n sunpride exec $POD -c api -- bun scripts/stage-app-release.js /tmp/r.apk   # prints sha256 + metadata
+  kubectl -n sunpride exec $POD -c api -- rm /tmp/r.apk
+  # then publish as a super_admin: web Integrity → App releases, or POST /api/v1/integrity/app-releases/publish {sha256,notes,effectiveFrom}
+  ```
+  Note: `release.py`'s own call (`POST /api/v1/apps/releases`, `GET /api/v1/apps/latest`) does **not exist**
+  in the api (404 → it logs `RELEASE_API_MISSING` and carries on); it never touches the Android SDK through
+  the api. It only needs `SP_OPS_API` switched (below).
+
+## After cutover: Mac-side switch list (do at cutover, not before)
+
+Supported DB path from the Mac: `~/.hermes/scripts/sunpride-k8s-pg-forward.sh` keeps
+`kubectl -n sunpride port-forward --address 127.0.0.1 svc/sunpride-pg 55432:5432` alive (restart loop +
+`pg_isready` probe). launchd template (not loaded):
+`~/.hermes/scripts/com.cauldnclark.sunpride.k8s-pg-forward.plist.template` →
+`cp` to `~/Library/LaunchAgents/com.cauldnclark.sunpride.k8s-pg-forward.plist`, `launchctl bootstrap gui/$(id -u) <that file>`.
+Key file `~/.sunpride-keys/k8s-pg-url` (600) = `postgres://sunpride:***@127.0.0.1:55432/sunpride`.
+
+| File:line | From | To |
+|---|---|---|
+| `~/.hermes/scripts/sunpride-ops/common.py:156` (board transport) | `KEYS / "pg-dev-url"` | `KEYS / "k8s-pg-url"` |
+| `~/.hermes/scripts/sunpride-ops/pickup.py:102-103` (board command in lane briefs) | `c.KEYS / "pg-dev-url"` | `c.KEYS / "k8s-pg-url"` |
+| `~/.hermes/scripts/sunpride-ops/pickup.py:74,78,83` (lane DB create/URL) | Mac pg 127.0.0.1:5432 + `pg-dev-url` | **keep** — lane DBs stay on the Mac Postgres (dev only). `pg-dev-url` must keep pointing at the Mac (it's the lane URL template). Lane seed data then comes from the frozen Mac copy; refresh with `pg_dump` of k8s via the forward if needed |
+| `~/.hermes/scripts/sunpride-ops/release.py:16` | `SP_OPS_API` default `http://127.0.0.1:4320` | `https://sunpride.cauldnclark.com` (or set `SP_OPS_API` in its launchd env). APK in-app registration: stage+publish procedure above |
+| `~/.hermes/scripts/sunpride-demo-daily.sh:12` | `~/.sunpride-keys/pg-dev-url` | `~/.sunpride-keys/k8s-pg-url` (needs the forward agent running; job runs from `~/cnc/.worktrees/sunpride-v2-serve`, keep that worktree at the deployed commit) |
+| `~/.hermes/scripts/sunpride-ops/landing_context.py:42` | `OPS_HOME/deployed-sha` written by the Mac deploy | write it from the deploy step: `kubectl -n sunpride get deploy sunpride-api -o jsonpath='{.spec.template.spec.containers[0].image}'` → tag = short sha (or have the deploy write the full sha) |
+| `~/.hermes/scripts/sunpride-docs-publish.py:14` (`SITE`) + docstring line 6 | writes `~/cnc/_sites/sunpride-docs`, served by the Mac docs agent | unchanged path; publishing now = run it, then `deploy/k8s/build-images.sh docs`, bump the docs `newTag` in `kustomization.yaml`, `kubectl apply -k deploy/k8s` (docs pod rolls in seconds). The docs content is baked into the image; nothing on the cluster reads the Mac folder |
+| `~/.hermes/scripts/sunpride-k8s-backup-pull.sh` | – | no change (already cluster-side); schedule daily ~03:00 Manila |
+| `sunpride-v2-watchdog.py`, `sunpride-auto-pickup.py`, `prekickoff-check.sh` | lane worktrees / public URL | no change |
+| `~/.sunpride-keys/pg-dev-url` | live Mac DB | leave as is (Mac DB becomes the rollback copy + lane template) |
+
+Proven (phase 1b): forward → `bun scripts/board.js list` and `psql … count(*)` against the k8s DB.

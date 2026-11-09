@@ -31,7 +31,8 @@ export function resultFromTsv(pages) {
       rows.set(key, row);
     }
     for (const row of rows.values()) {
-      const text = row.words.join(" ");
+      // Tesseract often reads a printed hyphen as an en/em dash; the PO field patterns expect "-".
+      const text = row.words.join(" ").replace(/[\u2010-\u2015\u2212]/g, "-");
       const confidence =
         Math.round(
           (row.conf.reduce((a, b) => a + b, 0) / row.conf.length) * 10,
