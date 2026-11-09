@@ -174,7 +174,7 @@ private fun resultMeta(record: CustomerRecord, now: Long, withAddress: Boolean =
 fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (String) -> Boolean,
     onDial: (String) -> Boolean, modifier: Modifier = Modifier, onVisit: (VisitDisplay) -> Unit = {},
     visitEnabled: Boolean = false, now: Long = System.currentTimeMillis(), unplannedEnabled: Boolean = visitEnabled,
-    onEdit: (() -> Unit)? = null) {
+    onEdit: (() -> Unit)? = null, changeLabel: String? = null) {
     var actionError by remember { mutableStateOf<String?>(null) }
     val navigation = DailyRoutes.navigationUri(record.asVisit())
     val dial = CustomerDirectory.dialUri(record.account?.contactNumber)
@@ -209,7 +209,8 @@ fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (S
                 dial?.let { actionError = if (onDial(it)) null else "No phone app on this device" }
             }, Modifier.weight(1f).testTag("customer-call"), enabled = dial != null, glyph = GlyphKind.PHONE)
         }
-        if (onEdit != null) SecondaryButton("Edit store", onEdit, Modifier.fillMaxWidth().testTag("customer-edit"))
+        changeLabel?.let { com.sunpride.field.ui.StatusChip(it, Look.Tone.WARN, textTag = "customer-change-pending") }
+        if (onEdit != null && com.sunpride.field.ui.STORE_EDIT_ENABLED) SecondaryButton("Edit store", onEdit, Modifier.fillMaxWidth().testTag("customer-edit"))
         actionError?.let { Text(it, color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("customer-action-error")) }
 

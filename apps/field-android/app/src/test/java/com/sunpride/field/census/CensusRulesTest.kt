@@ -80,4 +80,50 @@ class CensusRulesTest {
         assertFalse(CensusRules.movedTooFar(a, JSONObject().put("latitude", 10.3160).put("longitude", 123.8854))) // ~33 m
         assertTrue(CensusRules.movedTooFar(a, JSONObject().put("latitude", 10.3163).put("longitude", 123.8854)))  // ~67 m
     }
+
+    // Field "Edit store": a change request linked to the existing store.
+    private val target = UUID.randomUUID().toString()
+    private fun change(name: String = "Nena Mini Mart") = CensusRules.changePayload(UUID.randomUUID().toString(), target, name,
+        "5 Rizal St", "Nena Cruz", "0917 555 0101", 1000L, null, null, "", null)
+    @Test fun storeEditPayloadIsAChangeForTheStoreWithoutNewStoreFields() {
+        val p = change()
+        assertEquals("change", p.getString("kind")); assertEquals(target, p.getString("targetOutletId"))
+        assertFalse(p.has("channelId")); assertFalse(p.has("location")); assertFalse(p.has("photoJpegBase64")); assertFalse(p.has("batchId"))
+        CensusRules.validate(p) // no channel, location or photo needed
+        val intent = CensusRules.intent(StoreScope("account", "device", "scope"), p, 1000)
+        assertEquals(CensusRules.KIND, intent.kind)
+        assertTrue(CensusRules.isChange(JSONObject(intent.serializedOperation).getJSONObject("payload")))
+    }
+    @Test fun storeEditChecksTheFieldsItSends() {
+        assertThrows(IllegalArgumentException::class.java) { CensusRules.validate(change(name = " ")) }
+        assertThrows(Exception::class.java) { CensusRules.validate(change().put("targetOutletId", "o1")) }
+        assertThrows(IllegalArgumentException::class.java) { CensusRules.validate(change().put("channelId", UUID.randomUUID().toString())) }
+        val stale = change().put("locationSource", "gps").put("location", JSONObject().put("latitude", 10.3).put("longitude", 123.9)
+            .put("accuracyMeters", 80.0).put("fixTime", 1000L).put("provider", "gps").put("mockSignal", false))
+        assertThrows(IllegalArgumentException::class.java) { CensusRules.validate(stale) }
+        assertEquals(emptyList<CensusRules.Field>(), CensusRules.missingForChange("A", "B", "0917 555 0101", "", false, false, "x"))
+        assertEquals(listOf(CensusRules.Field.LOCATION), CensusRules.missingForChange("A", "B", "0917 555 0101", "gps", false, false, "x"))
+    }
+    @Test fun storeEditKnowsWhenNothingChanged() {
+        val now = CensusRules.Current("Aling Nena", "5 Rizal St", "Nena", "0917")
+        assertFalse(CensusRules.changed(now, " Aling Nena", "5 Rizal St", "Nena", "0917", "", moved = false, photo = false))
+        assertTrue(CensusRules.changed(now, "Nena Mini Mart", "5 Rizal St", "Nena", "0917", "", moved = false, photo = false))
+        assertTrue(CensusRules.changed(now, "Aling Nena", "5 Rizal St", "Nena", "0917", "", moved = true, photo = false))
+        assertTrue(CensusRules.changed(now, "Aling Nena", "5 Rizal St", "Nena", "0917", "", moved = false, photo = true))
+    }
+    @Test fun storeEditPendingLabelUntilTheOfficeApplies() {
+        val p = change()
+        val before = mapOf(target to CensusRules.Current("Aling Nena Store", "5 Rizal St", "Nena Cruz", "0917 555 0101"))
+        // Approved: the store's name/address now match; the owner is not on the phone's store record.
+        val applied = mapOf(target to CensusRules.Current("Nena Mini Mart", "5 Rizal St", "", ""))
+        assertEquals(mapOf(target to "Change waiting for office · Saved on phone"),
+            CensusRules.waitingChanges(listOf(Triple(p, "pending", 1000L)), before, 2000L))
+        assertEquals(mapOf(target to "Change waiting for office"), CensusRules.waitingChanges(listOf(Triple(p, "done", 1000L)), before, 2000L))
+        assertEquals(emptyMap<String, String>(), CensusRules.waitingChanges(listOf(Triple(p, "done", 1000L)), applied, 2000L))
+        assertEquals(emptyMap<String, String>(), CensusRules.waitingChanges(listOf(Triple(p, "done", 1000L)), before,
+            1000L + CensusRules.CHANGE_WAIT_MS + 1))
+        assertEquals(mapOf(target to "Change needs a look"), CensusRules.waitingChanges(listOf(Triple(p, "review", 1000L)), before, 2000L))
+        // New-store captures never show as a change.
+        assertEquals(emptyMap<String, String>(), CensusRules.waitingChanges(listOf(Triple(payload(), "pending", 1000L)), before, 2000L))
+    }
 }

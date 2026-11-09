@@ -81,7 +81,28 @@ export type Capture = {
   acknowledged_duplicate_ids: string[];
   channel: string | null;
   subchannel: string | null;
+  /** "change" = field Edit store: a change to an existing store (old -> new per field). */
+  kind?: "new" | "change";
+  target?: { id: string; code: string | null; name: string | null } | null;
+  changes?: StoreChange[];
+  has_photo?: boolean;
 };
+
+export type StoreChange = {
+  field: string;
+  label: string;
+  old: string | null;
+  new: string | null;
+};
+
+export function isChange(c: Pick<Capture, "kind">): boolean {
+  return c.kind === "change";
+}
+
+/** Old -> new in plain words; an empty side reads "Not set". */
+export function changeLine(c: StoreChange): string {
+  return `${c.old ?? "Not set"} → ${c.new ?? "Not set"}`;
+}
 
 export type Batch = {
   id: string;

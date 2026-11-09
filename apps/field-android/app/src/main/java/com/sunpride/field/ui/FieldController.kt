@@ -120,6 +120,8 @@ interface FieldBackend {
     fun censusConfig(): JSONObject? = null
     fun censusHistory(): List<Pair<String, String>> = emptyList()
     fun queueCensus(payload: JSONObject) { error("Census unavailable") }
+    /** Edit store requests on this phone: (payload, outbox state, created at). */
+    fun storeChanges(): List<Triple<JSONObject, String, Long>> = emptyList()
     /** SP-0163 address search and duplicate check via our API proxy; null when there is no live session. */
     fun censusPlaces(): com.sunpride.field.census.CensusPlaces? = null
     fun photoTypes(): List<com.sunpride.field.storage.PhotoType> = emptyList()
@@ -436,6 +438,11 @@ class LiveFieldBackend(
         store.history().filter { it.first.kind == com.sunpride.field.census.CensusRules.KIND }.map {
             JSONObject(it.first.serializedOperation).getJSONObject("payload").getString("name") to it.second.state
         }
+    }
+    override fun storeChanges(): List<Triple<JSONObject, String, Long>> = if (storedScope() == null) emptyList() else withStore { store ->
+        store.history().filter { it.first.kind == com.sunpride.field.census.CensusRules.KIND }.map {
+            Triple(JSONObject(it.first.serializedOperation).getJSONObject("payload"), it.second.state, it.first.createdAt)
+        }.filter { com.sunpride.field.census.CensusRules.isChange(it.first) }
     }
     override fun censusPlaces(): com.sunpride.field.census.CensusPlaces =
         com.sunpride.field.census.CensusPlaces({ path -> functions.api.get(path) }, { path, body -> functions.api.post(path, body) })

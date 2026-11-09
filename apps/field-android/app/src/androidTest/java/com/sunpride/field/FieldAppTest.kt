@@ -188,10 +188,9 @@ class FieldAppTest {
         rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-name") }
     }
 
-    // Store detail: Edit is hidden (both entry points) until a real store-change flow exists — today it would
-    // submit a new store. See STORE_EDIT_ENABLED.
-    @Test fun storeDetailHidesEditUntilStoreChangeFlowExists() {
-        assertEquals(false, com.sunpride.field.ui.STORE_EDIT_ENABLED)
+    // Store detail: Edit top-right in the header and as a button; both open the Edit store form filled from the store.
+    @Test fun storeDetailEditOpensTheFilledStoreForm() {
+        assertEquals(true, com.sunpride.field.ui.STORE_EDIT_ENABLED)
         val backend = ScriptedBackend(EnrollmentState.Ready("dev1")).apply {
             signedIn = true
             customers = listOf(com.sunpride.field.ui.customers.CustomerRecord("o1", "First Store", "OUT-1", address = "1 Rizal St"))
@@ -200,9 +199,13 @@ class FieldAppTest {
         rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("customers-open") }
         rule.onNodeWithTag("customers-open").performScrollTo().performClick()
         rule.onNodeWithTag("customer-result").performClick()
-        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("customer-header") }
-        rule.onNodeWithTag("customer-header-edit").assertDoesNotExist()
-        rule.onNodeWithTag("customer-edit").assertDoesNotExist()
+        rule.onNodeWithTag("customer-header-edit").assertIsDisplayed().assertTextContains("Edit").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-edit-note") }
+        rule.onNodeWithText("Edit store").assertIsDisplayed() // header title
+        rule.onNodeWithTag("census-name").assertTextContains("First Store")
+        rule.onNodeWithTag("account-back").performClick()
+        rule.onNodeWithTag("customer-edit").assertIsDisplayed().performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-edit-note") }
     }
 
     @Test fun addStoreIsHiddenWithoutPermission() {

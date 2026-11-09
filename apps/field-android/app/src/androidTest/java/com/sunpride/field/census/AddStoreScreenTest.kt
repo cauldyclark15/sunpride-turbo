@@ -16,6 +16,7 @@ import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performScrollTo
 import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.performTextClearance
 import androidx.test.platform.app.InstrumentationRegistry
 import com.sunpride.field.auth.AuthFailure
 import com.sunpride.field.auth.EnrollmentState
@@ -288,5 +289,44 @@ class AddStoreScreenTest {
         rule.onNodeWithTag("census-owner").performScrollTo().assertTextContains("Nena Cruz")
         rule.onNodeWithTag("census-phone").performScrollTo().assertTextContains("0917 555 0101")
         rule.onNodeWithTag("census-address").performScrollTo().assertTextContains("5 Rizal St")
+        rule.onNodeWithTag("census-edit-note").assertTextContains("The office checks your changes first.")
+    }
+
+    private val target = UUID.randomUUID().toString()
+    private fun editStore() = com.sunpride.field.ui.customers.CustomerRecord(target, "Aling Nena Store", "OUT-9", address = "5 Rizal St",
+        account = com.sunpride.field.storage.CallSheetHeader("Aling Nena Store", null, "Nena Cruz", "0917 555 0101", null, null,
+            null, null, null, null))
+
+    // Save on Edit store sends a change request for THIS store (kind change + target), never a new store.
+    @Test fun editStoreSaveSendsAChangeForTheStoreNotANewStore() {
+        val backend = Backend(config(false), oldServer); var saved = 0
+        rule.setContent { MaterialTheme(colorScheme = SunprideTokens.lightColors) {
+            CensusScreen(backend, gps, {}, editing = editStore(), onChangeSaved = { saved++ }) } }
+        waitTag("census-edit-note")
+        // Edit store asks only for what a change needs: no channel, class or batch pickers.
+        assertTrue(rule.onAllNodesWithTag("census-channel").fetchSemanticsNodes().isEmpty())
+        assertTrue(rule.onAllNodesWithTag("census-batch").fetchSemanticsNodes().isEmpty())
+        rule.onNodeWithTag("census-save").assertTextContains("Save changes")
+        rule.onNodeWithTag("census-name").performTextClearance()
+        rule.onNodeWithTag("census-name").performTextInput("Nena Mini Mart")
+        shot("edit-01-changed-name")
+        rule.onNodeWithTag("census-save").performClick()
+        rule.waitUntil(10_000) { backend.queued.isNotEmpty() }
+        val p = backend.queued.single()
+        assertEquals("change", p.getString("kind"))
+        assertEquals(target, p.getString("targetOutletId"))
+        assertEquals("Nena Mini Mart", p.getString("name"))
+        assertEquals("Nena Cruz", p.getString("ownerName"))
+        assertFalse(p.has("channelId")); assertFalse(p.has("location")); assertFalse(p.has("photoJpegBase64"))
+        rule.waitUntil(5_000) { saved == 1 }
+    }
+
+    @Test fun editStoreWithNothingChangedSendsNothing() {
+        val backend = Backend(config(false), oldServer)
+        rule.setContent { MaterialTheme(colorScheme = SunprideTokens.lightColors) { CensusScreen(backend, gps, {}, editing = editStore()) } }
+        waitTag("census-edit-note")
+        rule.onNodeWithTag("census-save").performClick()
+        waitTag("census-save-note"); rule.onNodeWithTag("census-save-note").assertTextContains("Nothing was changed.")
+        Thread.sleep(500); assertTrue(backend.queued.isEmpty())
     }
 }

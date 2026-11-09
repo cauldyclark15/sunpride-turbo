@@ -11,6 +11,8 @@ import {
   approveBlock,
   candidatePoints,
   capturedWhen,
+  changeLine,
+  isChange,
   formatDistance,
   mergeCandidates,
   metersBetween,
@@ -58,13 +60,17 @@ export function CaptureRow({
       aria-pressed={selected}
       className={`flex w-full items-center gap-3 rounded-lg border p-2 text-left ${selected ? "border-foreground" : "border-border hover:bg-default-soft"}`}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element -- protected same-origin photo, no optimizer */}
-      <img
-        src={`/api/v1/masters/census/${capture.id}/photo`}
-        alt=""
-        loading="lazy"
-        className="h-12 w-12 shrink-0 rounded-md bg-default-soft object-cover"
-      />
+      {isChange(capture) && !capture.has_photo ? (
+        <span className="h-12 w-12 shrink-0 rounded-md bg-default-soft" />
+      ) : (
+        /* eslint-disable-next-line @next/next/no-img-element -- protected same-origin photo, no optimizer */
+        <img
+          src={`/api/v1/masters/census/${capture.id}/photo`}
+          alt=""
+          loading="lazy"
+          className="h-12 w-12 shrink-0 rounded-md bg-default-soft object-cover"
+        />
+      )}
       <span className="min-w-0 flex-1">
         <span className="block truncate text-sm font-medium">
           {capture.name}
@@ -74,9 +80,18 @@ export function CaptureRow({
         </span>
       </span>
       <span className="flex shrink-0 flex-col items-end gap-1">
-        <span className="rounded-md border border-border px-1.5 py-0.5 text-[11px]">
-          {sourceBadge(capture)}
-        </span>
+        {isChange(capture) ? (
+          <span
+            data-testid="capture-change-badge"
+            className="rounded-md bg-foreground px-1.5 py-0.5 text-[11px] font-medium text-background"
+          >
+            Change
+          </span>
+        ) : (
+          <span className="rounded-md border border-border px-1.5 py-0.5 text-[11px]">
+            {sourceBadge(capture)}
+          </span>
+        )}
         {capture.duplicate_flag ? (
           <span className="rounded-md bg-warning-soft px-1.5 py-0.5 text-[11px] font-medium text-warning">
             Maybe already listed
@@ -401,6 +416,172 @@ export function CaptureDetail({
   );
 }
 
+/** Field Edit store: old -> new per field, then Approve (updates the existing store) or Reject. */
+export function ChangeDetail({
+  capture,
+  decision,
+  busy,
+  pinChoice = null,
+  onPinChoice,
+  onDecision,
+  onSubmit,
+  onClose,
+}: {
+  capture: Capture;
+  decision: Decision;
+  busy?: boolean;
+  pinChoice?: PinChoice | null;
+  onPinChoice?: (c: PinChoice) => void;
+  onDecision: (d: Decision) => void;
+  onSubmit: (e: FormEvent<HTMLFormElement>) => void;
+  onClose: () => void;
+}) {
+  const moved = (capture.changes ?? []).some((c) => c.field === "location");
+  const blocked =
+    decision === "accept" && moved ? approveBlock(capture, pinChoice) : null;
+  const store = capture.target?.name ?? capture.name;
+  return (
+    <form
+      key={capture.id}
+      onSubmit={onSubmit}
+      data-testid="change-detail"
+      className="grid gap-4 rounded-xl border border-border p-4"
+    >
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold">
+            Change to {store}
+            {capture.target?.code ? (
+              <span className="ml-2 text-xs font-normal text-muted">
+                {capture.target.code}
+              </span>
+            ) : null}
+          </h3>
+          <p className="text-xs text-muted">
+            Sent by {capture.agent} · {capturedWhen(capture.captured_at)}
+          </p>
+        </div>
+        <button type="button" className={button} onClick={onClose}>
+          Close
+        </button>
+      </div>
+      <table className="w-full text-sm" aria-label="Changes">
+        <thead>
+          <tr className="text-left text-xs text-muted">
+            <th className="py-1 pr-3 font-normal">What</th>
+            <th className="py-1 pr-3 font-normal">Now</th>
+            <th className="py-1 font-normal">New</th>
+          </tr>
+        </thead>
+        <tbody>
+          {(capture.changes ?? []).map((c) => (
+            <tr
+              key={c.field}
+              className="border-t border-border align-top"
+              data-testid={`change-${c.field}`}
+              aria-label={`${c.label}: ${changeLine(c)}`}
+            >
+              <td className="py-2 pr-3 text-xs text-muted">{c.label}</td>
+              <td className="py-2 pr-3 text-muted line-through">
+                {c.old ?? "Not set"}
+              </td>
+              <td className="py-2 font-medium">{c.new ?? "Not set"}</td>
+            </tr>
+          ))}
+          {!capture.changes?.length ? (
+            <tr>
+              <td colSpan={3} className="py-2 text-muted">
+                The store already matches this change.
+              </td>
+            </tr>
+          ) : null}
+        </tbody>
+      </table>
+      {capture.has_photo ? (
+        /* eslint-disable-next-line @next/next/no-img-element -- protected same-origin photo */
+        <img
+          src={`/api/v1/masters/census/${capture.id}/photo`}
+          alt={`New storefront photo of ${store}`}
+          className="max-h-60 w-full rounded-xl border border-border object-cover"
+        />
+      ) : null}
+      {moved && capture.location_status === "pending" ? (
+        <p className="text-xs text-muted" role="status">
+          Checking the address…
+        </p>
+      ) : null}
+      {moved && capture.location_status === "mismatch" ? (
+        <div role="radiogroup" aria-label="Pin to keep" className="flex gap-2">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={pinChoice === "device"}
+            className={pinChoice === "device" ? primary : button}
+            onClick={() => onPinChoice?.("device")}
+          >
+            Keep the agent&apos;s pin
+          </button>
+          {capture.place_latitude != null ? (
+            <button
+              type="button"
+              role="radio"
+              aria-checked={pinChoice === "place"}
+              className={pinChoice === "place" ? primary : button}
+              onClick={() => onPinChoice?.("place")}
+            >
+              Use the searched address pin
+            </button>
+          ) : null}
+        </div>
+      ) : null}
+      <fieldset className="grid gap-3 border-t border-border pt-4">
+        <legend className="sr-only">Decision</legend>
+        <div role="radiogroup" className="flex flex-wrap gap-2">
+          {(
+            [
+              ["accept", "Approve change"],
+              ["reject", "Reject"],
+            ] as const
+          ).map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="radio"
+              aria-checked={decision === value}
+              className={decision === value ? primary : button}
+              onClick={() => onDecision(value)}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <label className="grid gap-1 text-xs">
+          {decision === "reject" ? "Why is it rejected?" : "Note"}
+          <input
+            className={field}
+            name="reason"
+            required
+            defaultValue={decision === "accept" ? "Checked the changes" : ""}
+            key={decision}
+          />
+        </label>
+        <div>
+          <button
+            type="submit"
+            className={primary}
+            disabled={busy || Boolean(blocked)}
+          >
+            {decision === "accept" ? "Approve change" : "Reject change"}
+          </button>
+          {blocked ? (
+            <span className="ml-2 text-xs text-muted">{blocked}</span>
+          ) : null}
+        </div>
+      </fieldset>
+    </form>
+  );
+}
+
 /** SP-0162 rebuilt store gathering review (was the F-011 census queue). */
 export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
   const { can } = usePermissions();
@@ -416,17 +597,19 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
   const [live, setLive] = useState<Candidate[]>([]);
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState("");
-  const [filter, setFilter] = useState<"all" | "flagged">("all");
+  const [filter, setFilter] = useState<"all" | "flagged" | "changes">("all");
   const rows = useMemo(
     () =>
       (queue.data?.rows ?? []).filter(
-        (r) => filter === "all" || r.duplicate_flag,
+        (r) =>
+          filter === "all" ||
+          (filter === "changes" ? isChange(r) : r.duplicate_flag),
       ),
     [queue.data, filter],
   );
   const selected = queue.data?.rows.find((r) => r.id === selectedId) ?? null;
   useEffect(() => {
-    if (!selected) return;
+    if (!selected || isChange(selected)) return;
     const controller = new AbortController();
     apiFetch<{ candidates: Candidate[] }>(
       "/api/v1/masters/census/duplicate-check",
@@ -464,14 +647,21 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
           ...(decision === "accept" && pinChoice ? { pinChoice } : {}),
           reason: f.get("reason"),
         },
-        { idempotencyKey: crypto.randomUUID(), invalidate: [["masters"]] },
+        {
+          idempotencyKey: crypto.randomUUID(),
+          invalidate: [["masters"], ["stores"]],
+        },
       );
       setMessage(
-        decision === "accept"
-          ? `${selected.name} is now a store${result.code ? ` (code ${result.code})` : ""}.`
-          : decision === "duplicate"
-            ? `${selected.name} was linked to ${survivor?.name ?? "the existing store"}.`
-            : `${selected.name} was rejected.`,
+        isChange(selected)
+          ? decision === "accept"
+            ? `${selected.target?.name ?? selected.name}: change saved to the store.`
+            : `Change to ${selected.target?.name ?? selected.name} was rejected.`
+          : decision === "accept"
+            ? `${selected.name} is now a store${result.code ? ` (code ${result.code})` : ""}.`
+            : decision === "duplicate"
+              ? `${selected.name} was linked to ${survivor?.name ?? "the existing store"}.`
+              : `${selected.name} was rejected.`,
       );
       setSelectedId(null);
       setSurvivor(null);
@@ -490,9 +680,8 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
         <Notice title={queue.error.message} tone="danger" />
       ) : null}
       <p className="text-sm text-muted">
-        Stores your agents gathered in the field. Check the photo, the owner and
-        the pin, then approve, link to an existing store, or reject. The person
-        who gathered a store cannot review it.
+        New stores and changes to stores your agents sent from the field. Check
+        them, then approve or reject. The person who sent one cannot review it.
       </p>
       {queue.data?.batches.length ? (
         <div className="my-3 flex flex-wrap gap-2 text-xs">
@@ -511,6 +700,7 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
           [
             ["all", "All waiting"],
             ["flagged", "Maybe already listed"],
+            ["changes", "Changes"],
           ] as const
         ).map(([id, label]) => (
           <button
@@ -554,7 +744,18 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
             />
           ) : null}
         </div>
-        {selected ? (
+        {selected && isChange(selected) ? (
+          <ChangeDetail
+            capture={selected}
+            decision={decision}
+            busy={busy}
+            pinChoice={pinChoice}
+            onPinChoice={setPinChoice}
+            onDecision={setDecision}
+            onSubmit={submit}
+            onClose={() => setSelectedId(null)}
+          />
+        ) : selected ? (
           <CaptureDetail
             capture={selected}
             candidates={candidates}

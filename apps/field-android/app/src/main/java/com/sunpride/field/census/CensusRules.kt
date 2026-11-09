@@ -14,7 +14,11 @@ object CensusRules {
     const val MAX_PHOTO_BYTES = 160 * 1024
     val COMPONENTS = setOf("street", "barangay", "city", "province", "region", "postalCode")
     private val uuid = Regex("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")
+    /** Field "Edit store": a change request for an existing store (same op, kind = change). */
+    const val CHANGE = "change"
+    fun isChange(p: JSONObject): Boolean = p.optString("kind") == CHANGE
     fun validate(p: JSONObject) {
+        if (isChange(p)) return validateChange(p)
         // SP-0163: batchId is optional (server files it under the agent's ongoing batch); when sent it must be valid.
         val keys = listOf("captureId", "channelId", "subchannelId") + (if (p.has("batchId") && !p.isNull("batchId")) listOf("batchId") else emptyList())
         keys.forEach { require(uuid.matches(p.getString(it))) { "Choose a valid census batch and channel." } }
@@ -43,6 +47,91 @@ object CensusRules {
         require(photo.size in 4..MAX_PHOTO_BYTES && photo[0] == 0xff.toByte() && photo[1] == 0xd8.toByte() &&
             photo[photo.size - 2] == 0xff.toByte() && photo.last() == 0xd9.toByte()) { "Take a storefront photo." }
     }
+    /** A change carries the whole edited store; location and photo are optional (left out = unchanged). */
+    fun validateChange(p: JSONObject) {
+        require(uuid.matches(p.getString("captureId")) && uuid.matches(p.getString("targetOutletId"))) { "Open the store again, then edit it." }
+        for ((key, max) in listOf("name" to 200, "address" to 500, "ownerName" to 150, "ownerPhone" to 40))
+            require(p.getString(key).trim().length in 1..max) { "Complete the store and owner details." }
+        require(p.getString("ownerPhone").count { it.isDigit() } >= 7) { "Enter a complete owner phone number." }
+        require(p.optString("landmark").length <= 200) { "Keep the landmark under 200 characters." }
+        require(!p.has("channelId") && !p.has("batchId")) { "A store change cannot move the store to another batch or channel." }
+        val at = p.getLong("deviceTime")
+        p.optJSONObject("location")?.let { l ->
+            require(l.getDouble("latitude").isFinite() && l.getDouble("latitude") in -90.0..90.0)
+            require(l.getDouble("longitude").isFinite() && l.getDouble("longitude") in -180.0..180.0)
+            when (p.optString("locationSource", "gps")) {
+                "places" -> require(p.optString("placeId").isNotBlank()) { "Pick the address again from the search list." }
+                "gps" -> require(l.getDouble("accuracyMeters") > 0 && l.getDouble("accuracyMeters") < 50 && !l.getBoolean("mockSignal") &&
+                    l.getString("provider") in listOf("gps", "fused", "network") && kotlin.math.abs(at - l.getLong("fixTime")) <= 120_000) {
+                    "Get a fresh GPS fix with accuracy under 50 m. Mock locations cannot be used."
+                }
+                else -> throw IllegalArgumentException("Choose Use my location or Search address.")
+            }
+        }
+        p.optString("photoJpegBase64").takeIf { it.isNotEmpty() }?.let {
+            val photo = Base64.getDecoder().decode(it)
+            require(photo.size in 4..MAX_PHOTO_BYTES && photo[0] == 0xff.toByte() && photo[1] == 0xd8.toByte() &&
+                photo[photo.size - 2] == 0xff.toByte() && photo.last() == 0xd9.toByte()) { "Take a storefront photo." }
+        }
+    }
+    /** Required fields of Edit store: name, owner, phone and address. Location and photo stay as they are unless set. */
+    fun missingForChange(name: String, owner: String, phone: String, mode: String, hasFix: Boolean, hasPlace: Boolean,
+        address: String): List<Field> = buildList {
+        if (name.isBlank()) add(Field.NAME)
+        if (owner.isBlank()) add(Field.OWNER)
+        if (phone.count { it.isDigit() } < 7) add(Field.PHONE)
+        if ((mode == "gps" && !hasFix) || (mode == "places" && !hasPlace)) add(Field.LOCATION)
+        if (address.isBlank()) add(Field.ADDRESS)
+    }
+    /** The store as it is on the phone, to compare with the edited form. */
+    data class Current(val name: String, val address: String, val ownerName: String, val ownerPhone: String)
+    /** True when the edited form differs from the store (a new location or photo always counts). */
+    fun changed(current: Current, name: String, address: String, ownerName: String, ownerPhone: String, landmark: String,
+        moved: Boolean, photo: Boolean): Boolean = moved || photo || landmark.isNotBlank() ||
+        current.name.trim() != name.trim() || current.address.trim() != address.trim() ||
+        current.ownerName.trim() != ownerName.trim() || current.ownerPhone.trim() != ownerPhone.trim()
+    /** Edit store payload: same op as Add store, linked to the existing store by [targetOutletId]. */
+    fun changePayload(captureId: String, targetOutletId: String, name: String, address: String, ownerName: String,
+        ownerPhone: String, deviceTime: Long, gpsFix: JSONObject?, place: Place?, landmark: String, photo: String?): JSONObject {
+        val p = JSONObject().put("kind", CHANGE).put("targetOutletId", targetOutletId).put("captureId", captureId)
+            .put("name", name.trim()).put("address", address.trim()).put("ownerName", ownerName.trim())
+            .put("ownerPhone", ownerPhone.trim()).put("deviceTime", deviceTime)
+        if (place != null) {
+            p.put("locationSource", "places").put("placeId", place.placeId)
+                .put("location", JSONObject().put("latitude", place.latitude).put("longitude", place.longitude))
+            place.formattedAddress?.let { p.put("formattedAddress", it.take(500)) }
+            place.components?.takeIf { it.length() > 0 }?.let { p.put("addressComponents", it) }
+        } else if (gpsFix != null) p.put("locationSource", "gps").put("location", gpsFix)
+        landmark.trim().takeIf { it.isNotEmpty() }?.let { p.put("landmark", it.take(200)) }
+        photo?.takeIf { it.isNotEmpty() }?.let { p.put("photoJpegBase64", it) }
+        return p
+    }
+    /** Label per store with an Edit store change the office has not applied yet. Queued: "Change waiting for office · Saved on phone".
+     * Sent: "Change waiting for office" while the store still differs from the proposal (an approved change arrives
+     * with the next sync and clears it). Refused by the server: "Change needs a look". [history] is (payload, outbox
+     * state, created at), oldest first; the newest change per store wins. */
+    fun waitingChanges(history: List<Triple<JSONObject, String, Long>>, stores: Map<String, Current>, now: Long): Map<String, String> {
+        val out = linkedMapOf<String, String>()
+        history.filter { (p, _, _) -> isChange(p) }.sortedBy { it.third }.forEach { (p, state, at) ->
+            val id = p.optString("targetOutletId"); val store = stores[id] ?: return@forEach
+            // Only name and address come back to the phone from the store record (owner and phone ride the account
+            // header, which the office keeps separately), so only they can show that the office applied the change.
+            val differs = store.name.trim() != p.optString("name").trim() || store.address.trim() != p.optString("address").trim()
+            val label = when {
+                state == "review" -> CHANGE_REFUSED
+                state != "done" -> CHANGE_ON_PHONE
+                differs && now - at <= CHANGE_WAIT_MS -> CHANGE_WAITING
+                else -> null
+            }
+            if (label == null) out.remove(id) else out[id] = label
+        }
+        return out
+    }
+    const val CHANGE_ON_PHONE = "Change waiting for office · Saved on phone"
+    const val CHANGE_WAITING = "Change waiting for office"
+    const val CHANGE_REFUSED = "Change needs a look"
+    /** A sent change that never shows up (rejected) stops showing as waiting after two weeks. */
+    const val CHANGE_WAIT_MS = 14L * 24 * 3600_000
     fun intent(scope: StoreScope, payload: JSONObject, now: Long): IntentRow {
         validate(payload)
         require(kotlin.math.abs(now - payload.getLong("deviceTime")) <= 120_000)
