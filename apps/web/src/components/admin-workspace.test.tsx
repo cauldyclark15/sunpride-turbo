@@ -356,7 +356,6 @@ describe("Admin workspace tabs", () => {
     for (const [tab, section] of [
       ["assignments", "Assignments"],
       ["routes", "Routes"],
-      ["outlets", "Outlets"],
       ["territories", "Territories"],
     ] as const) {
       state.tabOverride = tab;

@@ -379,20 +379,20 @@ information sheet (CIS) or a store photo. The store stays provisional until a su
 manager approves it. The system issues the customer code; nobody types it. Existing stores
 keep their current codes.
 
-1. Open Field › Coverage › **Setup**, then **Outlets**.
-2. Find **New stores to approve**.
-3. Check the store name, channel, who proposed it, the address, contact and GPS position.
+1. Open **Stores**, then the **New stores** tab.
+2. Find **New stores to approve**. Search by name or code; click **Open** on a row.
+3. Check the store name, channel, who added it, the address, contact and GPS position.
 4. Open the store photo or the **Customer information sheet**.
 5. To approve: click **Approve**, enter the **Approval reason**, click
-   **Approve and issue code**. You see **Store approved. Customer code** followed by the new
+   **Approve and give code**. You see **Store approved. Customer code** followed by the new
    code. The store's GPS pin is verified at the same time.
 6. To reject: click **Reject**, enter the **Rejection reason**, click **Reject store**. You
-   see **Store rejected and deactivated.**
+   see **Store rejected.**
 7. **Cancel** closes the form without a decision.
 
 If you proposed the store, the buttons are disabled:
 **Another approver must decide your own proposal.** Recent decisions are listed under
-**Recent new-store updates**.
+**Recent updates**.
 
 ## 10. Organization units, people and teams
 
@@ -496,21 +496,21 @@ store. Revise that plan (section 6.2) before the change.
 
 ## 12. Outlets, GPS pins and route order
 
-### 12.1 Create or edit an outlet
+### 12.1 Add or edit a store
 
-1. Open Admin › **Outlets** and click **Create outlet**.
-2. Enter **Code**, choose the **Custodian unit**, enter **Name**.
-3. Choose the **Site status**: **Prospect / unlinked** or **Active**.
-4. Fill in address, channel, contact and visit details you know.
-5. Enter a **Reason** and save.
+Stores live in one list: **Stores**. Admin › **Outlets** only links there.
 
-To edit: **Open** the outlet, click **Edit profile**, change and save. To link it to a
-customer account: **Change customer link**, choose the **Existing customer** (or
-**Unlink (prospect)**), set the date and reason, save. **Customer history** keeps the
+1. Open **Stores** and click **Add store** (top right; on a phone, the button above the tab
+   bar).
+2. Fill in the name, address and channel, then save.
+
+To edit: click **Edit** at the end of the store's row, then **Edit store**, change and
+**Save**. To link it to a customer account: **Edit customer link**, choose the **Customer**
+(or **Not linked**), set the date and reason, **Save**. **Customer history** keeps the
 changes.
 
 New stores found in the field should come through the phone and new-store approval
-(section 9), not through **Create outlet**.
+(section 9).
 
 ### 12.2 GPS pins
 
@@ -518,17 +518,17 @@ Two different people are needed: one proposes, another verifies.
 
 To propose:
 
-1. Open the outlet. Under **Verification** click **Propose GPS pin**.
+1. Open **Stores**, click **Edit** on the store, then **Add GPS pin**.
 2. Enter **Latitude** and **Longitude**.
-3. Optionally change **Radius meters (default 75)**. Use a larger radius for a mall or
+3. Optionally change **Radius in meters (default 75)**. Use a larger radius for a mall or
    warehouse.
-4. Enter the **Source** and, if useful, an **Evidence note**.
-5. Optionally set **Future effective date (optional)**.
-6. Enter a **Reason** and save.
+4. Enter the **Source** and, if useful, a **Note**.
+5. Optionally set **Starts on (optional)**.
+6. Enter a **Reason** and **Save**.
 
 To verify (Sales manager, Administrator, Super admin — not the proposer):
 
-1. Open the outlet and look under **Verification** for the **Pending** pin.
+1. Open the store's **Edit** sheet and look under **GPS pins** for the **Pending** pin.
 2. Click **Approve** or **Reject**, enter a **Reason** and save.
 3. The pin shows **Verified** or **Rejected**.
 

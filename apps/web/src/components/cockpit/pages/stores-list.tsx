@@ -1,6 +1,10 @@
 "use client";
 
-import { ListPage, type ListColumn } from "../../list-page/list-page";
+import {
+  ListPage,
+  type ListColumn,
+  type ListFilter,
+} from "../../list-page/list-page";
 import type { StoreRow, StoreStatus } from "../types";
 
 /** /stores tabs, persisted as ?tab=. The default list carries no tab param. */
@@ -74,6 +78,34 @@ const STORE_COLUMNS: ListColumn<StoreRow>[] = [
   },
 ];
 
+/** Status chips for the list, in the order people scan them. */
+export const STORE_FILTERS: Array<{ id: StoreStatus; label: string }> = [
+  { id: "active", label: "Buying" },
+  { id: "new", label: "New" },
+  { id: "dormant", label: "Dormant" },
+  { id: "lost", label: "Lost" },
+  { id: "never", label: "Never bought" },
+];
+
+/** ?status= as a known store status; anything else means all stores. */
+export function readStoreStatus(params: URLSearchParams): StoreStatus | null {
+  const s = params.get("status");
+  return STORE_FILTERS.some((f) => f.id === s) ? (s as StoreStatus) : null;
+}
+
+/** Chips with the per-status counts the API returns for the current search. */
+export function storeFilters(
+  matches?: Partial<Record<StoreStatus | "all", number>>,
+): ListFilter[] {
+  return STORE_FILTERS.map((f) => ({
+    ...f,
+    count: matches ? (matches[f.id] ?? 0) : null,
+  }));
+}
+
+export const editButtonClass =
+  "inline-flex h-9 items-center rounded-lg border border-border px-3 text-[13px] font-medium text-foreground hover:bg-default-soft";
+
 /** The default /stores view, built on the shared ListPage. */
 export function StoreListView({
   rows,
@@ -86,6 +118,10 @@ export function StoreListView({
   onPage,
   onAdd,
   storeHref,
+  status = null,
+  matches,
+  onStatus,
+  onEdit,
 }: {
   rows: StoreRow[] | null;
   total: number | null;
@@ -97,6 +133,11 @@ export function StoreListView({
   onPage: (page: number) => void;
   onAdd: (name: string) => void;
   storeHref: (row: StoreRow) => string;
+  status?: StoreStatus | null;
+  matches?: Partial<Record<StoreStatus | "all", number>>;
+  onStatus?: (status: StoreStatus | null) => void;
+  /** Opens the store's edit form; omit when the person may not edit stores. */
+  onEdit?: (row: StoreRow) => void;
 }) {
   return (
     <ListPage
@@ -112,6 +153,23 @@ export function StoreListView({
       columns={STORE_COLUMNS}
       rowKey={(r) => r.storeId}
       rowHref={storeHref}
+      filters={onStatus ? storeFilters(matches) : undefined}
+      filter={status}
+      onFilter={(id) => onStatus?.((id as StoreStatus | null) ?? null)}
+      rowEnd={
+        onEdit
+          ? (r) => (
+              <button
+                type="button"
+                className={editButtonClass}
+                aria-label={`Edit ${r.name}`}
+                onClick={() => onEdit(r)}
+              >
+                Edit
+              </button>
+            )
+          : undefined
+      }
       loading={loading}
     />
   );
