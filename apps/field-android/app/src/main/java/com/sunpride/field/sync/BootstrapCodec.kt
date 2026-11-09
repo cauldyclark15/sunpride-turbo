@@ -89,6 +89,9 @@ object BootstrapCodec {
         if (v.has("code") && v.get("code") !is String) throw WireFailure("Invalid code")
         if (v.has("customerId")) v.str("customerId")
         if (v.has("address")) v.str("address")
+        // Optional store owner contact (added 2026-11, Edit store): name and phone strings.
+        if (v.has("ownerName")) v.str("ownerName")
+        if (v.has("ownerPhone")) v.str("ownerPhone")
         // Signed planned-visit territory (order association, SP-0061): both or neither.
         if (v.has("territoryId") != v.has("territoryCode")) throw WireFailure("Invalid territory")
         if (v.has("territoryId")) { v.str("territoryId"); v.str("territoryCode") }

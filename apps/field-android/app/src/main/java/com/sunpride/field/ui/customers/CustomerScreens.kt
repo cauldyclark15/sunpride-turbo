@@ -177,7 +177,7 @@ fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (S
     onEdit: (() -> Unit)? = null, changeLabel: String? = null) {
     var actionError by remember { mutableStateOf<String?>(null) }
     val navigation = DailyRoutes.navigationUri(record.asVisit())
-    val dial = CustomerDirectory.dialUri(record.account?.contactNumber)
+    val dial = CustomerDirectory.dialUri(record.contactPhone)
     val stop = remember(data.visits, record.outletId) {
         DailyRoutes.build(data.visits, null).stops.firstOrNull { it.visit.outletId == record.outletId }
     }
@@ -225,8 +225,8 @@ fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (S
                 else -> "No pin or address yet"
             })
             account?.takeIf { it.accountName != record.name }?.let { Fact("Account", it.accountName) }
-            account?.buyerName?.let { Fact("Buyer", it) }
-            account?.contactNumber?.let { Fact("Contact", it) }
+            record.contactName?.let { Fact(if (record.ownerName != null) "Owner" else "Buyer", it) }
+            record.contactPhone?.let { Fact("Contact", it) }
             account?.accountInCharge?.let { Fact("Account in charge", it) }
             account?.receivingInCharge?.let { Fact("Receiving", it) }
             account?.distributorName?.let { Fact("Distributor", it) }

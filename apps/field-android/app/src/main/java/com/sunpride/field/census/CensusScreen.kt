@@ -72,7 +72,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     // Edit store sends a change request for this store (never a new store); the office approves it first.
     val edit = editing != null && com.sunpride.field.ui.STORE_EDIT_ENABLED
     val current = remember(editing) { editing?.let { CensusRules.Current(it.name, (it.address ?: it.account?.address).orEmpty(),
-        it.account?.buyerName.orEmpty(), it.account?.contactNumber.orEmpty()) } }
+        it.contactName.orEmpty(), it.contactPhone.orEmpty()) } }
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
@@ -84,8 +84,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     // Edit store: the same form, filled from the store; the office checks the changes before they replace the record.
     var name by rememberSaveable { mutableStateOf((editing?.name ?: initialName).take(80)) }
     var address by rememberSaveable { mutableStateOf(editing?.let { it.address ?: it.account?.address }.orEmpty()) }
-    var owner by rememberSaveable { mutableStateOf(editing?.account?.buyerName.orEmpty()) }
-    var phone by rememberSaveable { mutableStateOf(editing?.account?.contactNumber.orEmpty()) }
+    var owner by rememberSaveable { mutableStateOf(editing?.contactName.orEmpty()) }
+    var phone by rememberSaveable { mutableStateOf(editing?.contactPhone.orEmpty()) }
     var batch by rememberSaveable { mutableStateOf("") }; var channel by rememberSaveable { mutableStateOf("") }
     var subchannel by rememberSaveable { mutableStateOf("") }; var estimatedClass by rememberSaveable { mutableStateOf("D") }
     var landmark by rememberSaveable { mutableStateOf("") }

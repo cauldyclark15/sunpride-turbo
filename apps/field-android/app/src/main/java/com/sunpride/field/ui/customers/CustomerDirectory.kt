@@ -42,7 +42,13 @@ data class CustomerRecord(
     val history: List<HistoryEntry> = emptyList(),
     /** Today's planned call (with its live status) when there is one. */
     val today: VisitDisplay? = null,
+    /** The store's own owner contact (Add store, approved Edit store, office edit); wins over the account header. */
+    val ownerName: String? = null,
+    val ownerPhone: String? = null,
 ) {
+    /** Who to ask for and the number Call dials: the store's owner contact, else the account header. */
+    val contactName: String? get() = ownerName ?: account?.buyerName
+    val contactPhone: String? get() = ownerPhone ?: account?.contactNumber
     /** A shape the daily-route navigation helper understands. */
     fun asVisit(): VisitDisplay = today ?: VisitDisplay(name, "", "", outletId, outletCode = outletCode,
         customerCode = customerCode, address = address, latitude = latitude, longitude = longitude)
@@ -91,7 +97,8 @@ object CustomerDirectory {
                 o.text("address"), latitude.takeIf { pinned }, longitude.takeIf { pinned }, outletRoute,
                 routeCode.takeIf { outletRoute != null && outletRoute == routeId }, accounts[row.id],
                 plansByOutlet[row.id].orEmpty().sortedBy { it.serviceDate }.distinctBy { it.plannedVisitId },
-                historyByOutlet[row.id].orEmpty(), today.firstOrNull { it.outletId == row.id })
+                historyByOutlet[row.id].orEmpty(), today.firstOrNull { it.outletId == row.id },
+                o.text("ownerName"), o.text("ownerPhone"))
         }.distinctBy { it.outletId }
     }
 
@@ -142,7 +149,7 @@ object CustomerDirectory {
         .replace(Regex("[^a-z0-9]+"), " ").trim()
 
     private fun fields(record: CustomerRecord) = listOfNotNull(record.name, record.outletCode, record.customerCode,
-        record.address, record.account?.accountName, record.account?.buyerName, record.routeCode)
+        record.address, record.account?.accountName, record.contactName, record.routeCode)
 
     /**
      * Offline search over the cached directory. Every word must appear somewhere (name, codes,

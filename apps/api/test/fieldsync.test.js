@@ -330,6 +330,19 @@ describe("FIELDSYNC projections through real core proof/cursor harness", () => {
       ].sort(),
     );
   });
+  test("outlets carry the store's owner contact (approved Edit store shows on the phone)", async () => {
+    const before = (await pull()).body.bundles[0].data.outlets[0];
+    expect(before.ownerName).toBeUndefined();
+    expect(before.ownerPhone).toBeUndefined();
+    await h.db`insert into outlet_contacts(outlet_id,ordinal,name,phone) values(${f.outlet},0,'New Owner','0917 555 0199')`;
+    try {
+      const o = (await pull()).body.bundles[0].data.outlets[0];
+      expect(o.ownerName).toBe("New Owner");
+      expect(o.ownerPhone).toBe("0917 555 0199");
+    } finally {
+      await h.db`delete from outlet_contacts where outlet_id=${f.outlet}`;
+    }
+  });
   test("snapshot carries this person's own recorded calls so a mid-day bootstrap knows done stops", async () => {
     await h.db`update visit_executions set state='checked-out',checked_out_at=now(),productivity='verified' where id=${f.visit}`;
     const { body } = await pull();

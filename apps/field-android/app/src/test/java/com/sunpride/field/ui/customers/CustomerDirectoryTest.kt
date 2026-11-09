@@ -121,4 +121,17 @@ class CustomerDirectoryTest {
             listOf(SnapshotItem("v", "nope", "2026-10-04")), "not json", emptyMap(), emptyList(), emptyList())
         assertEquals(listOf("o1"), records.map { it.outletId })
     }
+    @Test fun storeOwnerContactWinsOverTheAccountHeader() {
+        val withOwner = SnapshotItem("o1", JSONObject().put("id", "o1").put("name", "Peña").put("routeId", JSONObject.NULL)
+            .put("ownerName", "New Owner").put("ownerPhone", "0917 555 0199").toString())
+        val records = CustomerDirectory.build(listOf(withOwner, outlet("o2", "No owner")), emptyMap(), emptyList(), null,
+            mapOf("o1" to header, "o2" to header), emptyList(), emptyList()).associateBy { it.outletId }
+        // Approved Edit store owner/phone come back on the outlet and replace the account header's buyer/contact.
+        assertEquals("New Owner", records.getValue("o1").contactName)
+        assertEquals("0917 555 0199", records.getValue("o1").contactPhone)
+        assertEquals("tel:09175550199", CustomerDirectory.dialUri(records.getValue("o1").contactPhone))
+        // Without an owner contact the account header still works as before.
+        assertEquals("Ana Cruz", records.getValue("o2").contactName)
+        assertEquals("0917 123 4567", records.getValue("o2").contactPhone)
+    }
 }

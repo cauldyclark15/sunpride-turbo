@@ -329,6 +329,21 @@ async function bundleData(ctx) {
           value.callFlow.retail = await outletRetail(ctx, { ...value, id });
       }
   }
+  // The store's own owner contact (Add store / approved Edit store / office edit): the phone shows it
+  // and dials it ahead of the call-sheet header. Partners never receive it (as with buyer/contact).
+  if (!partner && outlets.size) {
+    const contacts =
+      await db`select distinct on (outlet_id) outlet_id,name,phone from outlet_contacts
+      where outlet_id in ${db([...outlets.keys()])} and deleted_at is null order by outlet_id,ordinal`;
+    for (const c of contacts) {
+      const value = outlets.get(c.outlet_id);
+      if (!value) continue;
+      if (typeof c.name === "string" && c.name.trim())
+        value.ownerName = c.name.trim();
+      if (typeof c.phone === "string" && c.phone.trim())
+        value.ownerPhone = c.phone.trim();
+    }
+  }
   const agenda = await agendaForPlans(ctx, planned);
   const outletIds = [...outlets.keys()];
   const lookupIds = outletIds.length ? outletIds : [ZERO_UUID];
