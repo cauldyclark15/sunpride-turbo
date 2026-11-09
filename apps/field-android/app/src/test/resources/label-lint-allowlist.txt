@@ -1,0 +1,8 @@
+# Existing New/Create/Manage literals (see ButtonLabelLintTest). Only ever remove lines.
+java/com/sunpride/field/census/CensusScreen.kt|New address
+java/com/sunpride/field/ui/ChangePasswordScreen.kt|New password
+java/com/sunpride/field/ui/JointCallScreen.kt|New joint call
+java/com/sunpride/field/ui/diagnosticvisit/DiagnosticVisitScreen.kt|New order
+java/com/sunpride/field/ui/diagnosticvisit/RetailAuditPanel.kt|New SKU
+java/com/sunpride/field/ui/orders/OrderDraftScreen.kt|New order
+java/com/sunpride/field/ui/workforce/WorkforceScreen.kt|New prospect
