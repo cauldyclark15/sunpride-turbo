@@ -22,6 +22,7 @@ import {
 } from "./data.js";
 import { suggestLine, historyDays } from "./suggested-order.js";
 import { ApiError } from "../../core/errors.js";
+import { storeMatches } from "./store-search.js";
 import { releasesAt } from "../availability/masters.js";
 import { callSnapshot } from "../availability/calls.js";
 import { bounded } from "../fieldsync/model.js";
@@ -71,6 +72,8 @@ async function storeFacts(db, p, s) {
       name: o.name,
       channel: o.channel,
       territory: o.territory_name ?? null,
+      customerCode: o.customer_code ?? null,
+      address: o.address ?? null,
       status: state,
       salesPeriod: c?.sales ?? 0,
       salesPrior: prev?.sales ?? 0,
@@ -110,12 +113,15 @@ export async function storesPage(ctx, p, s) {
     ).size,
   }));
   const state = q.get("status"),
-    search = (q.get("q") ?? "").toLowerCase(),
+    search = (q.get("q") ?? "").slice(0, 80),
     cursor = q.get("cursor"),
-    limit = Number(q.get("limit") ?? 50);
+    limit = Number(q.get("limit") ?? 50),
+    page = Number(q.get("page") ?? 1);
   if (
     (state && !["active", "dormant", "new", "lost", "never"].includes(state)) ||
     !Number.isInteger(limit) ||
+    !Number.isInteger(page) ||
+    page < 1 ||
     limit < 1 ||
     limit > 200
   )
@@ -124,6 +130,22 @@ export async function storesPage(ctx, p, s) {
       400,
       "Choose a valid store filter and limit from 1 to 200",
     );
+  const searched = search
+    ? rows.filter((/** @type {any} */ r) => storeMatches(r, search))
+    : rows;
+  /** Counts per status for the current search, so the filter chips never contradict the list. */
+  const matches = {
+    all: searched.length,
+    active: searched.filter((/** @type {any} */ r) =>
+      ["active", "new"].includes(r.status),
+    ).length,
+    ...Object.fromEntries(
+      ["dormant", "new", "lost", "never"].map((k) => [
+        k,
+        searched.filter((/** @type {any} */ r) => r.status === k).length,
+      ]),
+    ),
+  };
   const filtered = rows
     .filter(
       (/** @type {any} */ r) =>
@@ -131,7 +153,7 @@ export async function storesPage(ctx, p, s) {
           (state === "active"
             ? ["active", "new"].includes(r.status)
             : r.status === state)) &&
-        (!search || `${r.code} ${r.name}`.toLowerCase().includes(search)) &&
+        (!search || storeMatches(r, search)) &&
         (!cursor || r.storeId > cursor),
     )
     .sort((/** @type {any} */ a, /** @type {any} */ b) =>
@@ -201,7 +223,13 @@ export async function storesPage(ctx, p, s) {
           ?.n ?? 0,
       ),
     })),
-    rows: q.get("format") === "xlsx" ? filtered : filtered.slice(0, limit),
+    matches,
+    total: filtered.length,
+    page,
+    rows:
+      q.get("format") === "xlsx"
+        ? filtered
+        : filtered.slice((page - 1) * limit, page * limit),
     next:
       q.get("format") === "xlsx"
         ? null

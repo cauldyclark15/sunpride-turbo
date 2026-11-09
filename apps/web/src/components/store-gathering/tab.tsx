@@ -50,6 +50,17 @@ export function StoreGatheringTab({
   );
 }
 
+/** How many gathered stores wait for review; null when the user may not review or it is loading. */
+export function useWaitingCount(): number | null {
+  const { can } = usePermissions();
+  const allowed = can("outlet.verify");
+  const queue = useApi<Queue>(
+    allowed ? ["masters", "census"] : null,
+    "/api/v1/masters/census-queue",
+  );
+  return allowed && queue.data ? queue.data.rows.length : null;
+}
+
 /** How many gathered stores wait for review, in words; null when the user may not review. */
 export function useWaitingForReview(): string | null {
   const { can } = usePermissions();

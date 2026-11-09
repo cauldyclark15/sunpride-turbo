@@ -21,11 +21,14 @@ export function Drawer({
   title,
   onClose,
   children,
+  wide = false,
 }: {
   open: boolean;
   title: string;
   onClose: () => void;
   children: ReactNode;
+  /** 720px instead of 440px, for two-column forms. */
+  wide?: boolean;
 }) {
   const closeRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
@@ -49,7 +52,7 @@ export function Drawer({
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className="relative flex h-[100dvh] w-full flex-col overflow-hidden border-border bg-surface shadow-xl sm:h-auto sm:w-[440px] sm:rounded-l-2xl sm:border"
+        className={`relative flex h-[100dvh] w-full flex-col overflow-hidden border-border bg-surface shadow-xl sm:h-auto sm:rounded-l-2xl sm:border ${wide ? "sm:w-[min(720px,100vw)]" : "sm:w-[440px]"}`}
       >
         <header className="flex items-center justify-between gap-3 border-b border-separator px-5 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:py-4">
           <h2 className="text-[15px] font-semibold text-foreground">{title}</h2>

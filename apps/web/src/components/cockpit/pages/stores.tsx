@@ -2,14 +2,24 @@
 
 import { RetailWorkspace } from "../../storepos/retail-workspace";
 import { DormancyPanel } from "../../dormancy-panel";
+import { useWaitingCount } from "../../store-gathering/tab";
+import { StoreGatheringReview } from "../../store-gathering/review";
+import { LocationCoverage } from "../../store-gathering/location-coverage";
+import { AddStore } from "../../store-gathering/add-store";
+import { usePermissions } from "../../../lib/auth";
+import { Drawer } from "../kit/drawer";
 import {
-  StoreGatheringTab,
-  StoresHeaderActions,
-} from "../../store-gathering/tab";
+  PAGE_SIZE,
+  StoreListView,
+  StoresTabs,
+  readPage,
+  readStoresTab,
+  type StoresTab,
+} from "./stores-list";
 
 import Link from "next/link";
 import { OutletContextView } from "./tower";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import { csvHref, useAnalytics } from "../api";
 import {
   formatCases,
@@ -278,8 +288,110 @@ export function StoresView({
 }
 
 export function StoresPage() {
-  const [tab, setTab] = useState("distribution");
-  const [adding, setAdding] = useState(false);
+  const { query, params, link, set, hrefWith } = usePageQuery(["status", "q"]);
+  const tab = readStoresTab(params);
+  const { can } = usePermissions();
+  const canAdd = can("outlet.manage");
+  const [adding, setAdding] = useState<string | null>(null);
+  const waiting = useWaitingCount();
+  const go = (next: StoresTab) =>
+    set(
+      next === "list"
+        ? { tab: null }
+        : { tab: next, page: null, q: null, status: null },
+    );
+  return (
+    <div className="ck-page grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
+      <h1 className="text-[26px] font-semibold tracking-tight text-foreground">
+        Stores
+      </h1>
+      <StoresTabs
+        tab={tab}
+        onTab={go}
+        hrefFor={(t) => hrefWith(t === "list" ? { tab: null } : { tab: t })}
+        badges={{ new: waiting }}
+      />
+      {tab === "list" ? (
+        <StoresListTab
+          query={query}
+          params={params}
+          set={set}
+          link={link}
+          canAdd={canAdd}
+          onAdd={(name) => setAdding(name)}
+        />
+      ) : tab === "new" ? (
+        <StoreGatheringReview />
+      ) : tab === "map" ? (
+        <LocationCoverage />
+      ) : tab === "winback" ? (
+        <DormancyPanel />
+      ) : (
+        <PerformanceTab />
+      )}
+      <Drawer
+        open={adding !== null}
+        title="Add a store"
+        wide
+        onClose={() => setAdding(null)}
+      >
+        {adding !== null ? (
+          <AddStore key={adding} initialName={adding} bare />
+        ) : null}
+      </Drawer>
+    </div>
+  );
+}
+
+function StoresListTab({
+  query,
+  params,
+  set,
+  link,
+  canAdd,
+  onAdd,
+}: {
+  query: Record<string, string | undefined>;
+  params: URLSearchParams;
+  set: ReturnType<typeof usePageQuery>["set"];
+  link: (href: string) => string;
+  canAdd: boolean;
+  onAdd: (name: string) => void;
+}) {
+  const page = readPage(params);
+  const q = params.get("q") ?? "";
+  const result = useAnalytics("stores", {
+    ...query,
+    page: String(page),
+    limit: String(PAGE_SIZE),
+  });
+  const onSearch = useCallback(
+    (next: string) => set({ q: next || null, page: null }, { replace: true }),
+    [set],
+  );
+  return (
+    <StoreListView
+      rows={result.data?.rows ?? (result.error ? [] : null)}
+      total={
+        result.data ? (result.data.total ?? result.data.rows.length) : null
+      }
+      page={page}
+      q={q}
+      loading={result.data === undefined && !result.error}
+      canAdd={canAdd}
+      onSearch={onSearch}
+      onPage={(n) => set({ page: n > 1 ? String(n) : null })}
+      onAdd={onAdd}
+      storeHref={(r) =>
+        link(`/stores/store?storeId=${encodeURIComponent(r.storeId)}`)
+      }
+    />
+  );
+}
+
+/** Figures for the period: the only tab with the period filter. */
+function PerformanceTab() {
+  const [view, setView] = useState<"distribution" | "retail">("distribution");
   const { query, params, link, set } = usePageQuery(["status", "q", "limit"]);
   const status = (
     TABS.some((t) => t.id === params.get("status"))
@@ -288,99 +400,50 @@ export function StoresPage() {
   ) as StoreStatus | null;
   const result = useAnalytics("stores", query);
   return (
-    <CockpitPage
-      title="Stores"
-      question={
-        tab === "retail"
-          ? "Which retail store needs action?"
-          : tab === "gathering"
-            ? "Which stores still need a verified location?"
-            : "Where is distribution weak?"
-      }
-      header={tab === "distribution" ? result.data : undefined}
-      actions={
-        <StoresHeaderActions
-          onAdd={() => {
-            setTab("gathering");
-            setAdding(true);
-            requestAnimationFrame(() =>
-              document
-                .getElementById("add-store")
-                ?.scrollIntoView({ block: "start" }),
-            );
-          }}
-          onReview={() => setTab("gathering")}
-        />
-      }
-      bar={
-        tab !== "distribution" ? undefined : (
-          <PeriodScopeBar scopeLabel={result.data?.scope.label} />
-        )
-      }
-    >
-      <div
-        role="tablist"
-        aria-label="Store channel"
-        className="mb-4 flex gap-2 overflow-x-auto"
-      >
+    <div className="grid gap-4">
+      <PeriodScopeBar scopeLabel={result.data?.scope.label} />
+      <div role="tablist" aria-label="Store channel" className="flex gap-2">
         <button
           role="tab"
-          aria-selected={tab === "distribution"}
+          aria-selected={view === "distribution"}
           className={buttonClass}
-          onClick={() => setTab("distribution")}
+          onClick={() => setView("distribution")}
         >
           Distribution
         </button>
         <button
           role="tab"
-          aria-selected={tab === "retail"}
+          aria-selected={view === "retail"}
           className={buttonClass}
-          onClick={() => setTab("retail")}
+          onClick={() => setView("retail")}
         >
           Retail POS
         </button>
-        <button
-          role="tab"
-          aria-selected={tab === "gathering"}
-          className={buttonClass}
-          onClick={() => setTab("gathering")}
-        >
-          Locations and gathering
-        </button>
       </div>
-      {tab === "gathering" ? (
-        <StoreGatheringTab adding={adding} onAdding={setAdding} />
-      ) : tab === "retail" ? (
+      {view === "retail" ? (
         <RetailWorkspace />
       ) : (
-        <>
-          <PageData result={result} label="store figures">
-            {(data) => (
-              <StoresView
-                data={data}
-                status={status}
-                q={params.get("q") ?? ""}
-                csv={csvHref("stores", query)}
-                link={link}
-                onStatus={(s) => set({ status: s, limit: null })}
-                onSearch={(q) => set({ q: q || null, limit: null })}
-                onMore={() =>
-                  set(
-                    { limit: String(Number(params.get("limit") || 50) + 50) },
-                    { replace: true },
-                  )
-                }
-              />
-            )}
-          </PageData>
-          <div className="mt-6">
-            <DormancyPanel />
-          </div>
-        </>
+        <PageData result={result} label="store figures">
+          {(data) => (
+            <StoresView
+              data={data}
+              status={status}
+              q={params.get("q") ?? ""}
+              csv={csvHref("stores", query)}
+              link={link}
+              onStatus={(s) => set({ status: s, limit: null })}
+              onSearch={(q) => set({ q: q || null, limit: null })}
+              onMore={() =>
+                set(
+                  { limit: String(Number(params.get("limit") || 50) + 50) },
+                  { replace: true },
+                )
+              }
+            />
+          )}
+        </PageData>
       )}
-      {/* room for the phone-width sticky Add store button */}
-      <div aria-hidden="true" className="h-16 lg:hidden" />
-    </CockpitPage>
+    </div>
   );
 }
 

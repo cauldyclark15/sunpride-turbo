@@ -256,6 +256,11 @@ export type StoresResponse = ResponseHeader & {
   uboTrend: Array<{ weekStart: string; ubo: number }>;
   rows: StoreRow[];
   next: string | null;
+  /** Rows matching the search + status filter (all pages). */
+  total?: number;
+  page?: number;
+  /** Per-status counts for the current search. */
+  matches?: Partial<Record<StoreStatus | "all", number>>;
 };
 
 // ---------- /analytics/store ----------
