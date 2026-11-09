@@ -10,7 +10,7 @@ import {
 } from "../../../packages/integration-contracts/sap/v1/index.js";
 
 /** F-001/F-003: persistent mock, including the accepted-but-response-lost window.
- * @param {{path:string,port?:number,token?:string,seed?:boolean}} opts
+ * @param {{path:string,port?:number,hostname?:string,token?:string,seed?:boolean}} opts
  */
 export function startMock(opts) {
   mkdirSync(dirname(opts.path), { recursive: true });
@@ -63,7 +63,7 @@ export function startMock(opts) {
     );
   }
   const server = Bun.serve({
-    hostname: "127.0.0.1",
+    hostname: opts.hostname ?? "127.0.0.1",
     port: opts.port ?? 4435,
     maxRequestBodySize: 2 * 1024 * 1024,
     async fetch(req) {
@@ -489,6 +489,7 @@ if (import.meta.main) {
       process.env.SAP_MOCK_DB ??
       `${process.env.TMPDIR ?? process.env.HOME + "/.hermes/cache/scratch"}/sunpride-sap-mock.sqlite`,
     port: Number(process.env.PORT ?? 4435),
+    hostname: process.env.HOST,
     token: process.env.SAP_MOCK_TOKEN,
   });
   console.log(`Sample SAP v1 listening on ${mock.origin}`);
