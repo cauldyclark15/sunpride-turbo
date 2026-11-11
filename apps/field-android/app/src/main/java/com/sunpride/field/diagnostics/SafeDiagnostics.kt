@@ -28,13 +28,26 @@ object SafeLog {
     // SP-0136 location events carry no position, only that sharing started/stopped/uploaded.
     val codes = setOf("sync_started", "sync_retry", "sync_complete", "sync_held", "worker_stopped", "crash",
         "photo_saved", "photo_retry", "photo_complete", "location_started", "location_stopped",
-        "location_start_refused", "location_uploaded", "location_retry")
+        "location_start_refused", "location_uploaded", "location_retry", "photo_save_failed")
     fun event(code: String) {
         if (BuildConfig.DEBUG && code in codes) Log.i("SunprideField", Redactor.mask(code))
     }
     fun event(context: Context, code: String) {
         event(code)
         runCatching { Breadcrumbs(context.noBackupFilesDir).add(code) }
+    }
+    /** NF-4: a swallowed failure is still recorded: the fixed code, the exception type and its MASKED message
+     * (never the stack, payload or photo). Without this the photo failure on the bench could not be diagnosed. */
+    fun failure(context: Context?, code: String, error: Throwable) {
+        if (code !in codes) return
+        val line = describe(code, error)
+        runCatching { Log.w("SunprideField", line) }
+        context?.let { runCatching { Breadcrumbs(it.noBackupFilesDir).add(code) } }
+    }
+    fun describe(code: String, error: Throwable): String {
+        val cause = generateSequence(error) { it.cause }.take(3)
+            .joinToString(" <- ") { "${it.javaClass.simpleName}: ${Redactor.mask(it.message.orEmpty()).take(160)}" }
+        return "$code $cause"
     }
 }
 
