@@ -2,7 +2,7 @@
 //  ensure(): create what is missing (idempotent), return "created" | "kept" | "partial".
 //  check(): read-only facts; any false/0/null value marks the section MISS.
 import { api, db, key, one, section, TAG, TODAY, uid } from "./test-day.js";
-import { cashierFor, unitLevelSeries } from "./test-day-picks.js";
+import { accentedNamesMissing, cashierFor, unitLevelSeries } from "./test-day-picks.js";
 
 const ADMIN = "admin@sunpride.test";
 const AGENT = "agent@sunpride.test";
@@ -807,8 +807,10 @@ section(
   },
 );
 
-// ---------------------------------------------------------------- outlets with ñ / é / period names (on the agent's route today)
-const ACCENTED = [
+// ---------------------------------------------------------------- outlets with ñ / é / period names (in the agent's territory)
+// Office-made stores (office Add store + route assignment), NOT renamed SAP sample outlets: SAP owns the names of the
+// outlets it sends and the next masters pull put the old names back (r3: the kit said "created", the DB had none).
+export const ACCENTED = [
   "Sample Tindahan ni Aling Peña",
   "Sample Café Ébano Store",
   "Sample St. Jude Sari-sari",
@@ -818,44 +820,76 @@ section(
   ["FLD-047", "EDGE-003", "EDGE-004"],
   async () => {
     const agent = await profile(AGENT);
-    const have =
-      await db`select name from outlets where name in ${db(ACCENTED)}`;
-    if (have.length === ACCENTED.length) return "kept";
-    // Rename three of today's planned stops (not ones the packs name by code) through the office outlet editor.
-    const used = new Set([
-      "SMP-O0069",
-      "SMP-O0061",
-      "SMP-O0060",
-      "SMP-O0016",
-      "SMP-O0017",
-      "SMP-O0018",
-    ]);
-    const stops = (
-      await db`select o.id,o.code,o.name from planned_visits v join outlets o on o.id=v.outlet_id where v.assignee_profile_id=${agent.id} and v.service_date=${TODAY} and v.deleted_at is null order by o.code desc`
-    ).filter((/** @type {any} */ s) => !used.has(s.code));
-    const missing = ACCENTED.filter(
-      (n) => !have.some((/** @type {any} */ h) => h.name === n),
-    );
-    for (const [i, name] of missing.entries()) {
-      const s = stops[i];
+    // Next to one of today's stops (not ones the packs name by code): same unit and territory.
+    const used = new Set(["SMP-O0069", "SMP-O0061", "SMP-O0060", "SMP-O0016", "SMP-O0017", "SMP-O0018"]);
+    const stop = (
+      await db`select o.code,o.custodian_org_unit_id unit,a.territory_id
+        from planned_visits v join outlets o on o.id=v.outlet_id
+        join outlet_assignments a on a.outlet_id=o.id and a.deleted_at is null and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now())
+        where v.assignee_profile_id=${agent.id} and v.service_date=${TODAY} and v.deleted_at is null order by o.code desc`
+    ).find((/** @type {any} */ s) => !used.has(s.code));
+    if (!stop) throw new Error("no assigned stop on the agent's plan today");
+    const from = Date.now() + 3_000; // assignments must be future-effective
+    let did = "kept";
+    for (const name of ACCENTED) {
+      // Office codes (TD-ACC-n) are never sent by SAP, so no masters pull can rename them.
+      const code = `TD-ACC-${ACCENTED.indexOf(name) + 1}`;
+      const existing = await one(
+        db`select id,name from outlets where code=${code} and deleted_at is null`,
+      );
+      const outletId =
+        existing?.id ??
+        (await api(
+          ADMIN,
+          "/api/v1/outlets/create",
+          {
+            name,
+            code,
+            custodianOrgUnitId: stop.unit,
+            address: "Sample address, Mandaue-Consolacion, Cebu",
+            status: "active",
+            reason: `${TAG} accent/punctuation search fixture`,
+          },
+          { key: key(`accent-store:${name}`) },
+        ));
+      if (!existing) did = "created";
+      if (existing && existing.name !== name) {
+        await api(ADMIN, "/api/v1/outlets/edit", { outletId, name, reason: `${TAG} accent/punctuation search fixture` }, { key: key(`accent-name:${name}`) });
+        did = "created";
+      }
+      const placed = await one(
+        db`select 1 from outlet_assignments where outlet_id=${outletId} and territory_id=${stop.territory_id} and deleted_at is null and (effective_to is null or effective_to>now())`,
+      );
+      if (placed) continue;
+      did = "created";
       await api(
         ADMIN,
-        "/api/v1/outlets/edit",
+        "/api/v1/outlets/assignments/assign",
         {
-          outletId: s.id,
-          name,
-          reason: `${TAG} accent/punctuation search fixture (was ${s.name})`,
+          outletId,
+          // Territory only: today's route is locked by the approved coverage plan; the agent's phone lists every
+          // store in the territory (Stores tab), which is what the search cases need.
+          territoryId: stop.territory_id,
+          effectiveFrom: from,
+          reason: `${TAG} accent/punctuation search fixture`,
         },
-        { key: key(`rename:${name}`) },
+        { key: key(`accent-place:${name}`) },
       );
     }
-    return "created";
+    if (did === "kept") return did;
+    await new Promise((r) => setTimeout(r, Math.max(0, from - Date.now()) + 500));
+    return did;
   },
   async () => {
     const agent = await profile(AGENT);
-    const r =
-      await db`select o.name from planned_visits v join outlets o on o.id=v.outlet_id where v.assignee_profile_id=${agent.id} and v.service_date=${TODAY} and o.name in ${db(ACCENTED)}`;
-    return { accentedStopsToday: r.length === 3 ? 3 : 0 };
+    const missing = await accentedNamesMissing(db, ACCENTED);
+    const placed =
+      await db`select distinct o.name from outlets o join outlet_assignments a on a.outlet_id=o.id and a.deleted_at is null and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now())
+        where o.name in ${db(ACCENTED)} and a.territory_id in (select a2.territory_id from planned_visits v join outlet_assignments a2 on a2.outlet_id=v.outlet_id and a2.deleted_at is null and (a2.effective_to is null or a2.effective_to>now()) where v.assignee_profile_id=${agent.id} and v.service_date=${TODAY} and v.deleted_at is null)`;
+    return {
+      accentedStoresNotSapOwned: missing.length === 0 ? ACCENTED.length : 0,
+      accentedStoresInAgentTerritory: placed.length === ACCENTED.length ? placed.length : 0,
+    };
   },
 );
 

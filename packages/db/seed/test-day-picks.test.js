@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { cashierFor, unitLevelSeries } from "./test-day-picks.js";
+import { accentedNamesMissing, cashierFor, sapOwnedOutletCodes, unitLevelSeries } from "./test-day-picks.js";
 import { startHarness, createUser } from "../../../apps/api/test/harness.js";
 
 /** @type {any} */ let h;
@@ -34,4 +34,24 @@ test("pos-tills: the cashier is a tester who works in the store's unit", () => {
   expect(cashierFor("vans", people)).toBe("van@");
   expect(cashierFor("field", people)).toBe("agent@");
   expect(cashierFor("elsewhere", people)).toBeNull();
+});
+
+test("accent-names: a name held only by a SAP-keyed outlet is missing (SAP puts its own name back); an office outlet keeps it", async () => {
+  const names = ["Sample Tindahan ni Aling Peña", "Sample Café Ébano Store", "Sample St. Jude Sari-sari"];
+  const outlet = (/** @type {string} */ code, /** @type {string} */ name) =>
+    h.db`insert into outlets(organization_id,code,name,status,custodian_org_unit_id,created_by) values('sunpride',${code},${name},'active',${unit},'fixture')`;
+  // r3: the kit renamed SAP sample outlets; SAP still sends them, so the next masters pull restored their names.
+  await outlet("TDP-SAP-1", names[0]);
+  await h.db`insert into sap_replicas(organization_id,master_id,kind,sap_key,sap_version,source,effective_from,payload_hash,payload)
+    values('sunpride',${crypto.randomUUID()},'outlet','TDP-SAP-1','1','sample',now(),'h',${{ data: { code: "TDP-SAP-1", name: "Sample Sari-sari 1" } }})`;
+  expect([...(await sapOwnedOutletCodes(h.db, ["TDP-SAP-1", "TD-ACC-2"]))]).toEqual(["TDP-SAP-1"]);
+  expect(await accentedNamesMissing(h.db, names)).toEqual(names);
+  await outlet("TD-ACC-1", names[0]);
+  await outlet("TD-ACC-2", names[1]);
+  expect(await accentedNamesMissing(h.db, names)).toEqual([names[2]]);
+  await outlet("TD-ACC-3", names[2]);
+  expect(await accentedNamesMissing(h.db, names)).toEqual([]);
+  // The exact strings are stored (no mojibake).
+  const [row] = await h.db`select name from outlets where code='TD-ACC-2'`;
+  expect(row.name).toBe("Sample Café Ébano Store");
 });
