@@ -4,6 +4,7 @@ import { Button, Input } from "@heroui/react";
 import { Card, FormField, Notice } from "@sunpride/ui";
 import { useState, type ReactNode } from "react";
 import { apiFetch, useApi, useMutate } from "@/lib/api";
+import { usePermissions } from "@/lib/auth";
 import { DocNumber } from "../doc-number";
 import { Peso } from "../peso";
 import { QtyCasesPieces } from "../qty-cases-pieces";
@@ -25,6 +26,22 @@ const CANCELLABLE: TransferStatus[] = [
   "picking",
 ];
 
+/** Same capabilities the API lifecycle commands require. */
+const STEP_CAPABILITY: Record<NonNullable<ReturnType<typeof nextStep>>["command"], string> = {
+  approve: "inventory.approve",
+  pick: "inventory.write",
+  dispatch: "inventory.write",
+  receive: "inventory.write",
+  "resolve-variance": "inventory.approve",
+};
+const WAITING: Record<NonNullable<ReturnType<typeof nextStep>>["command"], string> = {
+  approve: "Waiting for an approver to approve it and hold the stock.",
+  pick: "Waiting for the depot to start picking.",
+  dispatch: "Waiting for the depot to dispatch it.",
+  receive: "Waiting for the receiving side to receive it.",
+  "resolve-variance": "Waiting for an approver to decide the difference.",
+};
+
 /** Pure view of one movement document: header, the one next step, every line with its batches. */
 export function TransferDetailView({
   transfer,
@@ -34,6 +51,7 @@ export function TransferDetailView({
   onCommand,
   dispatchHeader,
   onDispatchHeader,
+  can = () => true,
 }: {
   transfer: Transfer;
   /** Receive grid or difference form, shown under the header. */
@@ -51,10 +69,16 @@ export function TransferDetailView({
     vehiclePlate: string;
     receiverName: string;
   }) => void;
+  /** Capability check for the signed-in person (WEB-073: never offer a step the API will refuse). */
+  can?: (capability: string) => boolean;
 }) {
-  const step = nextStep(transfer.status);
+  const next = nextStep(transfer.status);
+  const step = next && can(STEP_CAPABILITY[next.command]) ? next : null;
+  const waiting = next && !step ? WAITING[next.command] : null;
+  const mayCancel =
+    CANCELLABLE.includes(transfer.status) && can("inventory.approve");
   const field =
-    "min-h-12 w-full rounded-[10px] border border-field-border bg-field-background px-3 text-base";
+    "min-h-12 w-full rounded-[10px] border border-border bg-surface px-3 text-base";
   const who = (p: { name: string | null } | null) => p?.name ?? "—";
   return (
     <div className="grid gap-4">
@@ -163,7 +187,8 @@ export function TransferDetailView({
                 {step.label}
               </Button>
             ) : null}
-            {CANCELLABLE.includes(transfer.status) ? (
+            {waiting ? <p className="text-base text-muted">{waiting}</p> : null}
+            {mayCancel ? (
               <Button
                 variant="outline"
                 className="min-h-12 text-base"
@@ -333,6 +358,7 @@ export function TransferDetail({ transferId }: { transferId: string }) {
   });
   const intent = useIntent();
   const write = useMutate();
+  const { can } = usePermissions();
   const t = detail.data;
   if (detail.error)
     return (
@@ -382,6 +408,7 @@ export function TransferDetail({ transferId }: { transferId: string }) {
         receiverName: header.receiverName || t.header.receiverName || "",
       }}
       onDispatchHeader={setHeader}
+      can={can}
     />
   );
 }
