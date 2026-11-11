@@ -1088,4 +1088,14 @@ test("when SAP owns prices, office price import and delete are refused like save
   }
   const gone = await raw("pricing/price-lists/delete", { id: list.id });
   expect(gone.body.ok).toBe(true);
+  // WEB-138: a code already used (even by a removed list) is refused in plain words, not "Something went wrong".
+  const dup = await raw("pricing/price-lists/save", {
+    priceListCode: "SAPGUARD",
+    channelKey: "sapguard-dup",
+    effectiveFrom: "2030-01-01T00:00:00Z",
+  });
+  expect(dup.status).toBe(422);
+  expect(dup.body.error.message).toBe(
+    "A price list with code SAPGUARD already exists. Choose another code.",
+  );
 });

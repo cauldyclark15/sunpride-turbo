@@ -70,7 +70,9 @@ export function parsePriceRows(text: string) {
     .map((line) => line.split(",").map((s) => s.trim()));
   if (!rows.length || rows.length > 4000)
     throw new Error("Paste 1–4,000 product, unit and centavo rows.");
-  return rows.map((r, i) => {
+  // WEB-139: report every bad row (with its line number), not only the first.
+  const bad: string[] = [];
+  const parsed = rows.map((r, i) => {
     if (
       r.length !== 3 ||
       !r[0] ||
@@ -78,11 +80,13 @@ export function parsePriceRows(text: string) {
       !/^\d+$/.test(r[2] ?? "") ||
       !Number.isSafeInteger(Number(r[2]))
     )
-      throw new Error(
+      bad.push(
         `Row ${i + 1}: enter product code, selling unit, whole centavos.`,
       );
     return { productCode: r[0]!, uom: r[1]!, unitPriceCentavos: Number(r[2]) };
   });
+  if (bad.length) throw new Error(bad.join(" · "));
+  return parsed;
 }
 
 /** Rows matching the search text and status chip, before paging. */
@@ -519,6 +523,11 @@ export function PricingWorkspace() {
                 >
                   <textarea name="rows" rows={5} required />
                 </FormField>
+                {error ? (
+                  <p role="alert" className="text-sm text-danger">
+                    {error}
+                  </p>
+                ) : null}
                 <div>
                   <Button type="submit" variant="primary" isDisabled={busy}>
                     Save

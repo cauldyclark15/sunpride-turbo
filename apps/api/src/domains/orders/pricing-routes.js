@@ -65,6 +65,13 @@ async function saveList(c, b) {
     ? await c.db`select * from price_lists where id = ${uuid(b.id)} and organization_id = ${ORGANIZATION} and deleted_at is null for update`
     : [];
   if (b.id && !old) fail("Price list not found");
+  if (!old) {
+    // WEB-138: codes are unique for good (a removed list keeps its code), so say so before the insert fails.
+    const [taken] =
+      await c.db`select 1 from price_lists where organization_id = ${ORGANIZATION} and code = ${code} limit 1`;
+    if (taken)
+      fail(`A price list with code ${code} already exists. Choose another code.`);
+  }
   if (
     old &&
     (old.code !== code ||

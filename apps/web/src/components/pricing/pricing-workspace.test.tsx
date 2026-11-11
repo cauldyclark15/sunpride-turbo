@@ -253,6 +253,13 @@ describe("price helpers", () => {
     expect(() => parsePriceRows("FOOD,,1250")).toThrow("Row 1");
     expect(() => parsePriceRows("")).toThrow();
   });
+  it("WEB-139: lists every bad row with its line number before anything is sent", () => {
+    expect(() =>
+      parsePriceRows("SMP-PCH-227,PC,4400\nZZZ-NOPE,PC,abc\nSMP-PCH-432,,6100"),
+    ).toThrow(
+      "Row 2: enter product code, selling unit, whole centavos. · Row 3: enter product code, selling unit, whole centavos.",
+    );
+  });
   it("matches on name, code and status", () => {
     const rows = [list(1), list(2, { status: "inactive" })];
     expect(matchRows(rows, "l2", null).map((r) => r.id)).toEqual(["list-2"]);
