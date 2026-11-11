@@ -39,6 +39,7 @@ import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { actorFor } from "../../core/context.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { writeAudit } from "../org/audit.js";
+import { access } from "../org/readers.js";
 import {
   approveCustomer,
   readCustomer,
@@ -181,7 +182,7 @@ async function resolveRows(db, rows, lookups) {
   /** @type {UploadError[]} */ const errors = [...checked.errors];
   const codes = [...checked.items.values()].map((i) => i.code).filter(Boolean);
   const outlets = codes.length
-    ? await db`select id,code,status,custodian_org_unit_id from outlets where organization_id=${ORGANIZATION} and deleted_at is null and code=any(${db.array(codes, "TEXT")}::text[])`
+    ? await db`select o.id,o.code,o.status,coalesce(s.owner_unit_id,o.custodian_org_unit_id) as owner_unit_id from outlets o left join analytics_store_scope s on s.id=o.id where o.organization_id=${ORGANIZATION} and o.deleted_at is null and o.code=any(${db.array(codes, "TEXT")}::text[])`
     : [];
   /** @type {Map<string, any>} */ const outletByCode = new Map(
     outlets.map((/** @type {any} */ o) => [o.code, o]),
@@ -205,7 +206,9 @@ async function resolveRows(db, rows, lookups) {
       bad.add(row.rowNumber);
     };
     if (existing) {
-      if (lookups.scope && !lookups.scope.has(existing.custodian_org_unit_id))
+      // Same scope basis as the Customers list and the writer's access check: the unit that
+      // owns the store's territory (else its custodian unit).
+      if (lookups.scope && !lookups.scope.has(existing.owner_unit_id))
         fail(
           "customer_out_of_scope",
           `Customer ${item.code} already exists in an area outside the ones you manage.`,
@@ -368,6 +371,8 @@ async function writeRow(c, entry, row, lookups, run) {
         422,
         `Customer ${item.code} is inactive. Reactivate it on the Customers page before updating it by upload.`,
       );
+    // The writer's own scope rule (as PUT /api/v1/customers/:id), re-checked in the chunk.
+    await access(c, "outlets", current.id, "outlet.manage");
     const existing = await readCustomer(c.db, current.id);
     outletId = await saveCustomer(
       c,

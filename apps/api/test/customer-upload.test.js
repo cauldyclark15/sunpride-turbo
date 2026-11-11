@@ -612,4 +612,26 @@ describe("SP-0170 customer upload — scope", () => {
     );
     expect(other.status).toBe(404);
   }, 30000);
+
+  test("scope follows the store's territory owner (as the Customers list), not only its custodian unit", async () => {
+    // Custodian Cebu (the uploader's unit) but assigned to a Davao-owned territory: the
+    // Customers list and PUT refuse it to the Cebu user, so the upload must refuse it too.
+    const [t] =
+      await h.db`insert into territories(organization_id,code,name,status,effective_from,created_by) values('sunpride','DVO-T1','Davao territory','active','2020-01-01','fixture') returning id`;
+    await h.db`insert into territory_ownerships(territory_id,org_unit_id,effective_from,actor_subject,reason) values(${t.id},${ids.davao},'2020-01-01','fixture','fixture')`;
+    const [o] =
+      await h.db`insert into outlets(organization_id,code,name,status,custodian_org_unit_id,created_by) values('sunpride','CEB-DVO-1','Cebu-held Davao store','active',${ids.cebu},'fixture') returning id`;
+    await h.db`insert into outlet_assignments(outlet_id,territory_id,effective_from,actor_subject,reason) values(${o.id},${t.id},'2020-01-01','fixture','fixture')`;
+    const pre = await call(
+      "ops",
+      "/preview",
+      file([row(2, { code: "CEB-DVO-1" })]),
+    );
+    expect(pre.status).toBe(200);
+    expect(
+      pre.body.errors.map((/** @type {any} */ e) => `${e.rowNumber}:${e.code}`),
+    ).toEqual(["2:customer_out_of_scope"]);
+    const [same] = await h.db`select name from outlets where id=${o.id}`;
+    expect(same.name).toBe("Cebu-held Davao store");
+  }, 30000);
 });
