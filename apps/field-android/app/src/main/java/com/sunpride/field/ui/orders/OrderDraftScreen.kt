@@ -51,12 +51,16 @@ import com.sunpride.field.ui.SearchField
 import com.sunpride.field.ui.SecondaryButton
 import com.sunpride.field.ui.StatusChip
 import com.sunpride.field.ui.VisitDisplay
+import kotlinx.coroutines.flow.distinctUntilChanged
 
 /** What the editor shows about the order's customer/territory/route before and after the first save. */
 fun orderAssociation(visit: VisitDisplay, draft: OrderDraft?): String = listOfNotNull(
     (draft?.customerCode ?: visit.customerCode ?: visit.outletCode)?.let { "Customer $it" },
     draft?.territoryCode?.let { "Territory $it" },
 ).joinToString(" · ").ifEmpty { visit.outlet }
+
+/** Index of the search box in the order list (title, price note, search). */
+private const val SEARCH_ITEM = 2
 
 /** Offline editor: account products, selling-unit choices and cached price previews. */
 @Composable
@@ -82,8 +86,20 @@ fun OrderDraftScreen(visit: VisitDisplay, sheet: CallSheet, controller: FieldCon
     val stale = draft?.let { OrderDraftRules.staleLines(it, sheet, terms) }.orEmpty()
     val changedPrices = draft != null && (stale.isNotEmpty() || draft.priceList != terms?.priceList)
     val results = OrderCatalog.search(catalog, query)
+    // FLD-112: with the keyboard up the list is only about 255 dp tall, and the title and price note filled it, so
+    // every result (and "No match") sat below the fold: the search looked like it emptied the list. While a query
+    // is typed, the search box moves to the top so the results start right under it. Keyed on the list height too:
+    // the keyboard shrinks the list after the first letter, and a scroll made while everything still fitted is a no-op.
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    androidx.compose.runtime.LaunchedEffect(listState) {
+        androidx.compose.runtime.snapshotFlow { query.isNotBlank() to listState.layoutInfo.viewportSize.height }
+            .distinctUntilChanged()
+            .collect { (typing, _) ->
+                if (typing && listState.firstVisibleItemIndex < SEARCH_ITEM) listState.scrollToItem(SEARCH_ITEM)
+            }
+    }
     Column(modifier.fillMaxSize().imePadding()) {
-        LazyColumn(Modifier.weight(1f).testTag("order-products"), verticalArrangement = Arrangement.spacedBy(12.dp),
+        LazyColumn(Modifier.weight(1f).testTag("order-products"), state = listState, verticalArrangement = Arrangement.spacedBy(12.dp),
             contentPadding = PaddingValues(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 16.dp)) {
             item {
                 Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {

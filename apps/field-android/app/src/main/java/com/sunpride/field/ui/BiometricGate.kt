@@ -14,7 +14,38 @@ import com.sunpride.field.auth.LockableSessionVault
  * main thread (prompt callbacks arrive there). The field app's data, held work and sync rules are untouched:
  * the gate only decides whether the stored session is opened before [FieldController.start] runs.
  */
-class BiometricGate(private val vault: LockableSessionVault, private val crypto: BiometricCrypto) {
+class BiometricGate(private val vault: LockableSessionVault, private val crypto: BiometricCrypto,
+    private val declined: OfferMemory = OfferMemory.InMemory()) {
+    /**
+     * FLD-015: the people on this phone who answered "Not now" to the offer. Kept outside the session
+     * stores so sign-out does not forget it; keyed by a hash of the lower-cased email, never the email.
+     */
+    interface OfferMemory {
+        fun declined(person: String): Boolean
+        fun decline(person: String)
+
+        class InMemory : OfferMemory {
+            private val people = mutableSetOf<String>()
+            override fun declined(person: String) = person in people
+            override fun decline(person: String) { people += person }
+        }
+
+        class Prefs(context: android.content.Context) : OfferMemory {
+            private val prefs = context.getSharedPreferences("biometric_offer", android.content.Context.MODE_PRIVATE)
+            override fun declined(person: String) = prefs.getBoolean(person, false)
+            override fun decline(person: String) { prefs.edit().putBoolean(person, true).apply() }
+        }
+
+        companion object {
+            fun key(email: String): String = java.security.MessageDigest.getInstance("SHA-256")
+                .digest(email.trim().lowercase(java.util.Locale.ROOT).toByteArray(Charsets.UTF_8))
+                .joinToString("") { "%02x".format(it) }
+        }
+    }
+
+    /** Hashed person of the last password sign-in, so "Not now" is remembered for them. */
+    private var person: String? = null
+
     enum class Step {
         /** No sealed session, or it is unlocked: the app runs as before. */
         OPEN,
@@ -95,12 +126,14 @@ class BiometricGate(private val vault: LockableSessionVault, private val crypto:
     fun usePassword() { busy = false; message = null; if (step == Step.LOCKED) step = Step.PASSWORD }
 
     /** A password sign-in succeeded (the vault already dropped any old sealed session). */
-    fun passwordSignedIn() {
+    fun passwordSignedIn(email: String? = null) {
+        person = email?.takeIf { it.isNotBlank() }?.let(OfferMemory::key)
         retirePending()
         enabled = vault.biometricOn
         message = null
         step = Step.OPEN
-        offer = !enabled && availability() == BiometricAvailability.AVAILABLE
+        val askedBefore = person?.let { runCatching { declined.declined(it) }.getOrDefault(false) } ?: false
+        offer = !enabled && !askedBefore && availability() == BiometricAvailability.AVAILABLE
     }
 
     /** "Turn on": prompt once, then seal the current session under the biometric key. */
@@ -130,7 +163,8 @@ class BiometricGate(private val vault: LockableSessionVault, private val crypto:
         }
     }
 
-    fun decline() { offer = false }
+    /** "Not now": remembered for this person on this phone, so a later password sign-in does not ask again. */
+    fun decline() { offer = false; person?.let { runCatching { declined.decline(it) } } }
 
     /** The backend replaced the session's sealed copy after a password change. Never re-offer automatically. */
     fun passwordChanged() {

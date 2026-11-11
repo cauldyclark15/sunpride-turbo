@@ -26,6 +26,21 @@ test("NF-2 kit sees the store's branch-level series on any registration, so it a
   expect(await unitLevelSeries(h.db, unit, "credit_memo")).toBeNull();
 });
 
+test("r4 pos-tills: the kit sees every series the API's NF-2 tie rule would refuse next to (future-dated too), and only those", async () => {
+  // r4: test-day pos-tills hit "422 Series ... already numbers these sales invoices at this level". The kit's own
+  // check must use the API's tie predicate, else a series it misses makes the API refuse the kit's create.
+  const other = crypto.randomUUID();
+  await h.db`insert into org_units(id,organization_id,code,name,type_code,status,effective_from) values(${other},'sunpride','TDP2','Sample 2','national','active',now()-interval '1 day')`;
+  const [reg] =
+    await h.db`insert into fiscal_registrations(org_unit_id,entity_name,branch_name,tin,address,document_type,status,effective_from,entered_by,sample,tax_basis_points) select ${other},'S','b','S','a','credit_memo','draft','2026-01-01',entered_by,false,1200 from fiscal_registrations where org_unit_id=${unit} limit 1 returning id`;
+  // Starts tomorrow: still numbers this level from tomorrow, so the API refuses a second open-ended one.
+  await h.db`insert into fiscal_series(registration_id,vehicle_id,prefix,first_serial,last_serial,next_allocate,effective_from) values(${reg.id},null,'TDP2-FUTURE-CM',1,9,1,now()+interval '1 day')`;
+  expect((await unitLevelSeries(h.db, other, "credit_memo"))?.prefix).toBe("TDP2-FUTURE-CM");
+  // Used up: the API lets a new range in, so the kit must create one.
+  await h.db`update fiscal_series set next_allocate=last_serial+1 where prefix='TDP2-FUTURE-CM'`;
+  expect(await unitLevelSeries(h.db, other, "credit_memo")).toBeNull();
+});
+
 test("pos-tills: the cashier is a tester who works in the store's unit", () => {
   const people = [
     { email: "agent@", org_unit_id: "field" },

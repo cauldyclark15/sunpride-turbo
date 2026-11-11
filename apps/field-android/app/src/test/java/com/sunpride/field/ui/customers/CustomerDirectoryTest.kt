@@ -149,4 +149,16 @@ class CustomerDirectoryTest {
         assertEquals("Ana Cruz", records.getValue("o2").contactName)
         assertEquals("0917 123 4567", records.getValue("o2").contactPhone)
     }
+
+    /** FLD-052 (r4): a sheet holding only the store's own name used to leave Summary with no account line at all. */
+    @Test fun summaryAlwaysSaysSomethingAboutTheAccount() {
+        val bare = CallSheetHeader("Sample Luz Sari-sari", null, null, null, null, null, null, null, null, null)
+        val (rows, note) = CustomerDirectory.accountFacts(CustomerRecord("o1", "Sample Luz Sari-sari", account = bare))
+        assertTrue(rows.isEmpty())
+        assertEquals("No account details yet", note)
+        assertEquals("No account sheet yet", CustomerDirectory.accountFacts(CustomerRecord("o1", "S")).second)
+        val (full, none) = CustomerDirectory.accountFacts(CustomerRecord("o1", "Store", account = header, ownerName = "Lito"))
+        assertEquals(listOf("Account", "Owner", "Contact", "Account in charge", "Distributor", "Delivery schedule"), full.map { it.first })
+        assertNull(none)
+    }
 }

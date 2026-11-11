@@ -40,6 +40,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import com.sunpride.field.ui.FieldController
 import com.sunpride.field.ui.PrimaryBottomButton
@@ -50,6 +51,8 @@ import java.io.ByteArrayOutputStream
 /** Instrumentation-only seam: a fixed JPEG instead of the camera. Always null in production. */
 internal object PhotoCameraSeam {
     @Volatile var fake: (() -> ByteArray)? = null
+    /** Instrumentation-only: act as if the camera prompt was already answered "Don't allow". */
+    @Volatile var denied: Boolean = false
 }
 
 /**
@@ -64,9 +67,11 @@ fun PhotoCaptureScreen(controller: FieldController, modifier: Modifier = Modifie
     var capture by remember { mutableStateOf<ImageCapture?>(null) }
     var taking by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
-    var granted by remember { mutableStateOf(fake != null || ContextCompat.checkSelfPermission(context,
-        Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) }
-    var asked by remember { mutableStateOf(false) }
+    val denied = PhotoCameraSeam.denied
+    val activity = context as? android.app.Activity
+    var granted by remember { mutableStateOf(!denied && (fake != null || ContextCompat.checkSelfPermission(context,
+        Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED)) }
+    var asked by remember { mutableStateOf(denied) }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {
         granted = it; asked = true
     }
@@ -102,21 +107,12 @@ fun PhotoCaptureScreen(controller: FieldController, modifier: Modifier = Modifie
                     }
                 }
             }
-            Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(SunprideTokens.shapes.small).testTag("photo-preview"),
-                contentAlignment = Alignment.Center) {
-                when {
-                    fake != null -> Text("Test camera", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    granted -> CameraPreview({ capture = it }, { cameraError = "Camera unavailable on this phone." },
-                        Modifier.fillMaxSize())
-                    else -> Column(horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.spacedBy(12.dp), modifier = Modifier.padding(16.dp)) {
-                        Text(if (asked) "Camera access is off. Allow it in Settings to take visit photos."
-                            else "Allow camera access to take visit photos.",
-                            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("camera-permission"))
-                        com.sunpride.field.ui.SecondaryButton("Allow camera", { permission.launch(Manifest.permission.CAMERA) },
-                            Modifier.testTag("camera-allow"))
-                    }
-                }
+            // FLD-099: without the camera there is no preview box; the reason sits by the Allow camera button below,
+            // where a centred line in a 3:4 box used to fall under the fold on a 360 dp phone.
+            if (fake != null || granted) Box(Modifier.fillMaxWidth().aspectRatio(3f / 4f).clip(SunprideTokens.shapes.small)
+                .testTag("photo-preview"), contentAlignment = Alignment.Center) {
+                if (fake != null) Text("Test camera", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                else CameraPreview({ capture = it }, { cameraError = "Camera unavailable on this phone." }, Modifier.fillMaxSize())
             }
             Text("Photos stay on this phone, locked, until they upload. You can end the call before they do.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -126,8 +122,15 @@ fun PhotoCaptureScreen(controller: FieldController, modifier: Modifier = Modifie
             androidx.compose.foundation.layout.Spacer(Modifier.height(16.dp))
         }
         androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
+        if (!granted && fake == null) Text(if (asked) "Camera access is off. Allow it in Settings to take visit photos."
+            else "Allow camera access to take visit photos.", style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.padding(bottom = 8.dp).testTag("camera-permission"))
         PrimaryBottomButton(if (taking) "Taking photo…" else if (!granted) "Allow camera" else "Take photo", {
-            if (!granted) permission.launch(Manifest.permission.CAMERA) else shoot()
+            if (granted) shoot()
+            else if (asked && activity?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.CAMERA) } == false)
+                runCatching { context.startActivity(android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                    android.net.Uri.fromParts("package", context.packageName, null))) }
+            else permission.launch(Manifest.permission.CAMERA)
         }, Modifier.testTag("photo-take"),
             type != null && !taking && !controller.busy && (!granted || fake != null || capture != null))
     }

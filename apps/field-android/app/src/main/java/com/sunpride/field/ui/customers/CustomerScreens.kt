@@ -224,15 +224,9 @@ fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (S
                 navigation != null -> "Address only, no verified pin"
                 else -> "No pin or address yet"
             })
-            account?.takeIf { it.accountName != record.name }?.let { Fact("Account", it.accountName) }
-            record.contactName?.let { Fact(if (record.ownerName != null) "Owner" else "Buyer", it) }
-            record.contactPhone?.let { Fact("Contact", it) }
-            account?.accountInCharge?.let { Fact("Account in charge", it) }
-            account?.receivingInCharge?.let { Fact("Receiving", it) }
-            account?.distributorName?.let { Fact("Distributor", it) }
-            account?.distributorSchedule?.let { Fact("Delivery schedule", it) }
-            account?.foc?.let { Fact("FOC", it) }
-            if (account == null) Note("No account sheet yet")
+            val (accountRows, accountNote) = CustomerDirectory.accountFacts(record)
+            accountRows.forEach { (label, value) -> Fact(label, value) }
+            accountNote?.let { Note(it) }
         }
 
         SectionCard("Route", Modifier.semantics(mergeDescendants = true) {}.testTag("customer-route")) {

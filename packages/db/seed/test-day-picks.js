@@ -3,12 +3,14 @@
 /** The active branch-level (no van, no register) series of `type` in a unit, on ANY registration.
  * The kit used to look only at the unit's first registration and so added a second branch-level
  * series next to the seed's own store series; two at one level leave handhelds without a range (NF-2).
+ * Same predicate as the API's tie check (fiscal/series.js createSeries): any not-yet-ended, not-used-up series,
+ * including one that starts later, so the kit never asks for a series the API refuses (r4 pos-tills 422).
  * @param {any} db @param {string} unitId @param {string} type */
 export async function unitLevelSeries(db, unitId, type) {
   const [row] =
     await db`select s.id,s.prefix from fiscal_series s join fiscal_registrations r on r.id=s.registration_id
       where r.org_unit_id=${unitId} and r.document_type=${type} and s.vehicle_id is null and r.device_id is null
-      and s.effective_from<=now() and (s.effective_to is null or s.effective_to>now()) order by s.created_at limit 1`;
+      and s.next_allocate<=s.last_serial and (s.effective_to is null or s.effective_to>now()) order by s.created_at limit 1`;
   return row ?? null;
 }
 

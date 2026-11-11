@@ -33,7 +33,7 @@ class MainActivity : FragmentActivity() {
         val app = applicationContext
         val vault = SessionVaults.app(app)
         // SP-0128: the prompt object is created here so it is bound to this activity instance.
-        val biometrics = BiometricGate(vault, AndroidBiometricCrypto(this))
+        val biometrics = BiometricGate(vault, AndroidBiometricCrypto(this), BiometricGate.OfferMemory.Prefs(app))
         val backend = LiveFieldBackend(environment, vault, app) { KeystoreDeviceKey.loadOrCreate(app) }
         val batteryGuide = com.sunpride.field.location.AndroidBatteryGuide(app) // SP-0140
         setContent {
