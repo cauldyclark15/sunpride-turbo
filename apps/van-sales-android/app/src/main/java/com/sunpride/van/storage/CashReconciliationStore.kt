@@ -67,6 +67,13 @@ class CashReconciliationStore(private val store: RoomVanStore) {
         return OpeningFloat.resolve(fromBundle, bundle != null && !bundle.isNull("startedAt"), saved)
     }
 
+    /** NF-5: the office's cash for this trip's sales that are not on this phone (seller switched phones mid-trip). */
+    suspend fun otherPhones(tripId: String): ServerTripCash.OtherPhones {
+        val bundle = dao.trip(s, d)?.takeIf { it.tripId == tripId }?.let { JSONObject(it.json) }
+        val local = dao.saleRows(s, d).filter { it.tripId == tripId }.map { it.saleId }.toSet()
+        return ServerTripCash.otherPhones(runCatching { ServerTripCash.decode(bundle) }.getOrNull(), local)
+    }
+
     /** True once this trip's cash is counted on this phone; selling and voiding then stop. */
     suspend fun counted(tripId: String): Boolean = dao.cashReconciliation(s, d, tripId) != null
 
@@ -74,7 +81,7 @@ class CashReconciliationStore(private val store: RoomVanStore) {
         val t = dao.trip(s, d) ?: return@withTransaction null
         val saved = dao.cashReconciliation(s, d, t.tripId)
         CashSummary(t.tripId, t.tripNumber, store.canSync() && countable(t) && saved == null,
-            CashReconciliationRules.expectation(payments(t.tripId), openingFloat(t.tripId), RefundStore(store).cashRefunds(t.tripId)), saved?.result(t.tripNumber, false))
+            CashReconciliationRules.expectation(payments(t.tripId), openingFloat(t.tripId), RefundStore(store).cashRefunds(t.tripId), otherPhones(t.tripId)), saved?.result(t.tripNumber, false))
     }
 
     /**
@@ -94,7 +101,7 @@ class CashReconciliationStore(private val store: RoomVanStore) {
         }
         require(CashReconciliationRules.validId(request.reconciliationId)) { "Reconciliation ID must be a UUID-v4" }
         if (!countable(t)) throw CashRefused(CashProblem.NOT_ON_ROUTE)
-        val expectation = CashReconciliationRules.expectation(payments(t.tripId), openingFloat(t.tripId), RefundStore(store).cashRefunds(t.tripId))
+        val expectation = CashReconciliationRules.expectation(payments(t.tripId), openingFloat(t.tripId), RefundStore(store).cashRefunds(t.tripId), otherPhones(t.tripId))
         if (expectation.expectedMinor != request.expectedMinor) throw CashRefused(CashProblem.EXPECTED_CHANGED)
         val declared = CashReconciliationRules.declared(request.counts) ?: throw CashRefused(CashProblem.COUNT_INVALID)
         val authorized = CashReconciliationRules.authorize(policy(), t.tripId, expectation.expectedMinor, declared,

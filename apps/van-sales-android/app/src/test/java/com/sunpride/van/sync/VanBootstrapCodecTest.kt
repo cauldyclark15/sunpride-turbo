@@ -95,6 +95,14 @@ class VanBootstrapCodecTest {
         o.getJSONObject("trip").put("openingFloatCentavos",10_000_001)
         assertTrue("a float over the cap is not a bundle we trust",runCatching { VanBootstrapCodec.decode(o.toString()) }.isFailure)
     }
+    /** NF-5: the server's per-sale cash rides the handheld trip; the frozen v1 validator must not see it (VAN-075 r3: every bootstrap failed). */
+    @Test fun serverCashRidesTheTripAndStaysOutOfTheFrozenValidator() {
+        val o = JSONObject(fixture())
+        o.getJSONObject("trip").put("openingFloatCentavos",100_000).put(com.sunpride.van.pos.ServerTripCash.FIELD,
+            org.json.JSONArray().put(JSONObject().put("saleId","s1").put("kind","sale").put("amountMinor","50000")))
+        val b = VanBootstrapCodec.decode(o.toString())
+        assertEquals(100_000L,b.trip!!.openingFloatCentavos)
+    }
     @Test fun wireCopyMatchesCommittedAuthority() {
         assertEquals(JSONObject(fixture("van-v1.schema.json")).toString(),JSONObject(VanWireSchema.SCHEMA).toString())
     }

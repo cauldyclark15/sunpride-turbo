@@ -54,6 +54,9 @@ import com.sunpride.van.pos.*
                         style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("cash-float"))
                     Text("${e.cashSales} cash ${if (e.cashSales == 1) "sale" else "sales"} on this phone" +
                         (if (e.voidedSales > 0) " · ${e.voidedSales} voided left out" else ""),style = MaterialTheme.typography.bodyMedium)
+                    if (e.otherPhoneSales > 0 || e.otherPhoneMinor != 0L)
+                        Text("Includes ${e.otherPhoneSales} cash ${if (e.otherPhoneSales == 1) "sale" else "sales"} from your other phone · ${PosMoney.format(e.otherPhoneMinor,e.currency)}",
+                            style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("cash-other-phone"))
                     if (e.others.isNotEmpty()) {
                         Text("Not in the cash bag",style = MaterialTheme.typography.titleMedium)
                         e.others.forEach { m -> Text("${m.label} · ${m.count} ${if (m.count == 1) "sale" else "sales"} · ${PosMoney.format(m.amountMinor,e.currency)}",
