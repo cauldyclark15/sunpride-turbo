@@ -482,6 +482,8 @@ export async function saveCustomer(c, b, opts = {}) {
        .join(",")}, deleted_at=null`,
     cols.map((k) => row[k]),
   );
+  // Analytics tiles are gated by the outlets fingerprint: a profile change must move it too.
+  await c.db`update outlets set updated_at=now() where id=${outletId}`;
   if (Array.isArray(input.shipTos) || !existing) {
     await c.db`update customer_ship_tos set deleted_at=now() where outlet_id=${outletId} and deleted_at is null`;
     for (const [i, s] of (v.shipTos ?? []).entries())
@@ -637,4 +639,36 @@ export function fieldList() {
     adp: f.adp === true,
     max: f.max ?? null,
   }));
+}
+
+/** Mobile bootstrap/sync summary per store (SP-0170, ADDITIVE): `channel` is the Distribution
+ * Channel name (the old display key, now from the client's data) and `customerMaster` carries the
+ * client's classification. Price keys (`channelKey`) are untouched.
+ * @param {any} db @param {string[]} ids
+ * @returns {Promise<Map<string, {channel:string|null, customerMaster:Record<string, string|null>}>>} */
+export async function customerMasterSummaries(db, ids) {
+  /** @type {Map<string, any>} */ const out = new Map();
+  if (!ids.length) return out;
+  const rows =
+    await db`select s.id,s.channel,s.subchannel,s.sales_org_code,s.distribution_channel_code,s.customer_group1_code,
+      s.customer_group2_code,s.customer_group2_name,s.customer_group_code,s.customer_group_name,p.completeness
+      from analytics_store_scope s left join customer_profiles p on p.outlet_id=s.id and p.deleted_at is null
+      where s.id in ${db(ids)}`;
+  for (const r of rows)
+    out.set(r.id, {
+      channel: r.distribution_channel_code ? r.channel : null,
+      customerMaster: {
+        salesOrgCode: r.sales_org_code ?? null,
+        distributionChannelCode: r.distribution_channel_code ?? null,
+        distributionChannelName: r.distribution_channel_code ? r.channel : null,
+        customerGroup1Code: r.customer_group1_code ?? null,
+        customerGroup1Name: r.customer_group1_code ? r.subchannel : null,
+        customerGroup2Code: r.customer_group2_code ?? null,
+        customerGroup2Name: r.customer_group2_name ?? null,
+        customerGroupCode: r.customer_group_code ?? null,
+        customerGroupName: r.customer_group_name ?? null,
+        completeness: r.completeness ?? null,
+      },
+    });
+  return out;
 }

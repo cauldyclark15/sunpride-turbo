@@ -37,6 +37,7 @@ import {
   CASH_VARIANCE_REASONS,
   STOCK_VARIANCE_REASONS,
 } from "./model.js";
+import { customerMasterSummaries } from "../masters/customers.js";
 
 /** @param {any} env @param {string|null} tripId */
 export function policy(env, tripId) {
@@ -472,6 +473,13 @@ export async function bundle(ctx, env) {
     for (const customer of customers)
       if (flowConfigs.has(customer.outletId))
         customer.callFlow = flowConfigs.get(customer.outletId);
+    // SP-0170: the client's customer classification (additive keys only).
+    const summaries = await customerMasterSummaries(
+      db,
+      customers.map((c) => c.outletId),
+    );
+    for (const customer of customers)
+      Object.assign(customer, summaries.get(customer.outletId) ?? {});
     const availability = [];
     const retailEnabled =
       (
