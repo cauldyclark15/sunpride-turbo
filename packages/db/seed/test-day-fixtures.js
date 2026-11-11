@@ -2,7 +2,16 @@
 //  ensure(): create what is missing (idempotent), return "created" | "kept" | "partial".
 //  check(): read-only facts; any false/0/null value marks the section MISS.
 import { api, db, key, one, section, TAG, TODAY, uid } from "./test-day.js";
-import { accentedNamesMissing, cashierFor, unitLevelSeries } from "./test-day-picks.js";
+import {
+  accentedNamesMissing,
+  ACTIVITY_RULES,
+  cashierFor,
+  creditRoom,
+  formKinds,
+  officeAddedUnplaced,
+  stopsWithMsl,
+  unitLevelSeries,
+} from "./test-day-picks.js";
 
 const ADMIN = "admin@sunpride.test";
 const AGENT = "agent@sunpride.test";
@@ -11,6 +20,8 @@ const MANAGER = "manager@sunpride.test";
 const SUPERVISOR = "supervisor@sunpride.test";
 const APPROVER = "approver@sunpride.test";
 const OPS = "operations1@trial.sunpride.test";
+/** The field login the phone packs use (PHONE-F). */
+const FIELD = "agent1@trial.sunpride.test";
 
 const profile = async (/** @type {string} */ email) =>
   one(
@@ -1347,6 +1358,223 @@ section(
         ? (sel.totals?.validCalls ?? 0) + " valid calls"
         : null,
       undecided: !sel?.decision,
+    };
+  },
+);
+
+// ---------------------------------------------------------------- field forms on agent1@trial's day (r4 batch 2)
+/** agent1@trial's planned stops today, in route order. */
+const fieldStops = async () => {
+  const me = await profile(FIELD);
+  if (!me) return [];
+  return db`select distinct on (o.id) o.id,o.code,o.name,o.channel,o.channel_id,o.classification,s.sequence
+    from planned_visits v join outlets o on o.id=v.outlet_id left join coverage_plan_slots s on s.id=v.plan_slot_id
+    where v.assignee_profile_id=${me.id} and v.service_date=${TODAY} and v.deleted_at is null and o.deleted_at is null
+    order by o.id`.then((/** @type {any[]} */ rows) =>
+    rows.sort((a, b) => (a.sequence ?? 0) - (b.sequence ?? 0) || a.code.localeCompare(b.code)),
+  );
+};
+/** Today's stops that have an MSL profile for their channel but not their class (sample "SAMPLE-A"). */
+const mslChannelStops = async () => {
+  const stops = await fieldStops();
+  const channels = new Set(
+    (
+      await db`select distinct v.data->>'channelId' as c from master_definitions d join master_versions v on v.master_id=d.id
+        where d.kind='msl' and v.status='active' and v.effective_from<=now() and (v.effective_to is null or v.effective_to>now())`
+    ).map((/** @type {any} */ r) => r.c),
+  );
+  return stops.filter((/** @type {any} */ o) => o.channel_id && channels.has(o.channel_id));
+};
+/** Revenue-potential inputs that derive class A (52,000,000 centavos) or B (26,000,000) under the sample policy. */
+const POTENTIAL = {
+  A: { transactionsPerDay: 200, averageBasketCentavos: 10000, tradingDaysPerMonth: 26, captureRatePct: 100 },
+  B: { transactionsPerDay: 100, averageBasketCentavos: 10000, tradingDaysPerMonth: 26, captureRatePct: 100 },
+};
+const RETAIL_EQUIPMENT = "TD-FREEZER-FIELD";
+section(
+  "field-forms",
+  ["FLD-091", "FLD-092", "FLD-093", "FLD-094", "FLD-100", "FLD-101", "FLD-102", "FLD-114"],
+  async () => {
+    let did = "kept";
+    const from = Date.now() + 5000;
+    const reason = `${TAG} field forms fixture (r4 batch 2)`;
+    // 1) FLD-091..094: publish the activity rules; the phone downloads published rows only.
+    for (const [intent, activities] of Object.entries(ACTIVITY_RULES)) {
+      const have = await one(
+        db`select 1 as x from visit_activity_rules where organization_id='sunpride' and intent=${intent} and deleted_at is null and (effective_to is null or effective_to>now())`,
+      );
+      if (have) continue;
+      did = "created";
+      await api(
+        ADMIN,
+        "/api/v1/visits/activity-rules/set",
+        { intent, activities, effectiveFrom: from, provisional: true, sourceRef: `SAMPLE ${reason}` },
+        { key: key(`activity-rule:${intent}`) },
+      );
+    }
+    // 2) FLD-100/101: an MSL framework profile matches the governed class (A-D) only, and it replaces the
+    //    legacy per-store release. Classify the first two GT/MT stops through the office's own command.
+    const candidates = await mslChannelStops();
+    const msl = candidates.slice(0, 2);
+    const retail = candidates[2];
+    const policy = await one(
+      db`select v.id from master_definitions d join master_versions v on v.master_id=d.id where d.kind='class_policy' and v.status='active' and v.effective_from<=now() and (v.effective_to is null or v.effective_to>now()) limit 1`,
+    );
+    for (const [stop, klass] of [
+      ...msl.map((/** @type {any} */ o) => [o, "A"]),
+      ...(retail ? [[retail, "B"]] : []),
+    ]) {
+      if (stop.classification === klass || !policy) continue;
+      did = "created";
+      await api(
+        ADMIN,
+        "/api/v1/masters/outlets/classify",
+        { outletId: stop.id, policyVersionId: policy.id, inputs: POTENTIAL[/** @type {"A"|"B"} */ (klass)], reason },
+        { key: key(`classify:${stop.code}:${klass}`) },
+      );
+    }
+    // 3) FLD-102: the Retail execution panel rides the merchandiser call flow. Bind it to (channel, class B),
+    //    which only the stop classified B above has, and give that store a freezer.
+    if (retail) {
+      const bound = await one(
+        db`select 1 as x from call_flow_channel_bindings where app='field-android' and channel_code=${retail.channel} and outlet_class='B' and channel_profile='merchandiser' and (effective_to is null or effective_to>now())`,
+      );
+      if (!bound) {
+        did = "created";
+        await api(
+          ADMIN,
+          "/api/v1/callflow/binding/publish",
+          { app: "field-android", channelCode: retail.channel, outletClass: "B", channelProfile: "merchandiser", effectiveFrom: from },
+          { key: key(`merch-binding:${retail.channel}`) },
+        );
+      }
+      const freezer = await one(
+        db`select 1 as x from retail_master_versions where kind='equipment' and code=${RETAIL_EQUIPMENT} and (effective_to is null or effective_to>now())`,
+      );
+      const cold = await one(
+        db`select id from retail_master_versions where kind='cold_policy' and data->>'type'='freezer' and effective_from<=now() and (effective_to is null or effective_to>now()) order by code limit 1`,
+      );
+      if (!freezer && cold) {
+        did = "created";
+        await api(
+          ADMIN,
+          "/api/v1/retail/masters/publish",
+          {
+            requestKey: uid(`freezer:${retail.code}`),
+            kind: "equipment",
+            code: RETAIL_EQUIPMENT,
+            label: `Sample freezer at ${retail.name}`,
+            effectiveFrom: from,
+            data: {
+              serial: `${TAG}-FR-1`,
+              model: "Sample 200 L chest freezer",
+              sapFixedAssetId: `${TAG}-FA-1`,
+              custodian: "Sample store custodian",
+              agreement: "Sample own-products agreement",
+              location: "Cebu",
+              type: "freezer",
+              outletId: retail.id,
+              deployedAt: Date.now() - 30 * 86_400_000,
+              policyVersionId: cold.id,
+            },
+          },
+          { key: key(`freezer:${retail.code}`) },
+        );
+      }
+    }
+    if (did === "created")
+      await new Promise((r) => setTimeout(r, Math.max(0, from - Date.now()) + 500));
+    return did;
+  },
+  async () => {
+    const rules =
+      await db`select r.intent,a.kind from visit_activity_rules r join visit_activity_rule_activities a on a.visit_activity_rule_id=r.id and a.deleted_at is null
+        where r.organization_id='sunpride' and r.deleted_at is null and r.effective_from<=now() and (r.effective_to is null or r.effective_to>now())`;
+    const kinds = new Set(rules.map((/** @type {any} */ r) => r.kind));
+    const stops = await fieldStops();
+    const withMsl = await stopsWithMsl(
+      db,
+      stops.map((/** @type {any} */ o) => o.id),
+    );
+    const retail =
+      await db`select o.code from outlets o join call_flow_channel_bindings b on b.app='field-android' and b.channel_profile='merchandiser'
+        and b.channel_code in (o.channel,'*') and b.outlet_class in (o.classification,'*') and b.effective_from<=now() and (b.effective_to is null or b.effective_to>now())
+        join retail_master_versions e on e.kind='equipment' and e.data->>'outletId'=o.id::text and e.effective_from<=now() and (e.effective_to is null or e.effective_to>now())
+        where o.id in ${db(stops.length ? stops.map((/** @type {any} */ o) => o.id) : [uid("none")])}`;
+    const credit =
+      await db`select o.code, round(c.credit_limit*100)::bigint as "limitMinor",
+        coalesce((select sum(round(x.total*100))::bigint from orders x where x.customer_code=c.code and x.status in ('submitted','pending_approval','approved','sent_to_sap','review_required')),0) as "openMinor"
+        from outlets o join outlet_customer_links l on l.outlet_id=o.id and l.deleted_at is null and l.effective_from<=now() and (l.effective_to is null or l.effective_to>now())
+        join customers c on c.id=l.customer_id where o.id in ${db(stops.length ? stops.map((/** @type {any} */ o) => o.id) : [uid("none")])} and c.credit_limit>0`;
+    const room = creditRoom(credit, 1_000_000); // at least PHP 10,000 left: a small order stays within
+    const forms = formKinds(ACTIVITY_RULES);
+    return {
+      activityForms: forms.every((k) => kinds.has(k)) ? forms.join("/") : 0,
+      availabilityStores: withMsl.length ? withMsl.join(",") : 0,
+      retailExecutionStore: retail[0]?.code ?? 0,
+      creditRoomStore: room[0] ? `${room[0].code} (PHP ${(room[0].roomMinor / 100).toFixed(2)} left)` : 0,
+    };
+  },
+);
+
+// ---------------------------------------------------------------- a new store on today's field area (E2E-012, SYNC-007)
+const OFFICE_ADDED = { code: "TD-OFFICE-ADD-1", name: "Office Added Test Today" };
+section(
+  "route-today",
+  ["E2E-012", "SYNC-007"],
+  async () => {
+    // The web's Assignments form takes tomorrow or later only; the API takes any instant from now.
+    // Rerun `--only route-today` after adding a store named "Office Added ..." on the web: it is placed
+    // in agent1@trial's territory within seconds (run it with the phone offline for SYNC-007).
+    let did = "kept";
+    const stop = (await fieldStops())[0];
+    if (!stop) throw new Error("agent1@trial has no planned stop today");
+    const area = await one(
+      db`select a.territory_id,o.custodian_org_unit_id as unit from outlet_assignments a join outlets o on o.id=a.outlet_id where a.outlet_id=${stop.id} and a.deleted_at is null and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now())`,
+    );
+    const existing = await one(
+      db`select id from outlets where code=${OFFICE_ADDED.code} and deleted_at is null`,
+    );
+    if (!existing) {
+      did = "created";
+      await api(
+        OPS,
+        "/api/v1/outlets/create",
+        {
+          name: OFFICE_ADDED.name,
+          code: OFFICE_ADDED.code,
+          custodianOrgUnitId: area.unit,
+          channel: stop.channel ?? "gt",
+          address: "Sample address, Cebu",
+          status: "active",
+          reason: `${TAG} office-added store for today`,
+        },
+        { key: key("office-added-store") },
+      );
+    }
+    const from = Date.now() + 5000;
+    for (const o of await officeAddedUnplaced(db)) {
+      did = "created";
+      await api(
+        ADMIN,
+        "/api/v1/outlets/assignments/assign",
+        { outletId: o.id, territoryId: area.territory_id, effectiveFrom: from, reason: `${TAG} place an office-added store today` },
+        { key: key(`office-added-place:${o.id}`) },
+      );
+    }
+    if (did === "created")
+      await new Promise((r) => setTimeout(r, Math.max(0, from - Date.now()) + 500));
+    return did;
+  },
+  async () => {
+    const me = await profile(FIELD);
+    const placed =
+      await db`select o.code from outlets o join outlet_assignments a on a.outlet_id=o.id and a.deleted_at is null and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now())
+        join territory_salespeople s on s.territory_id=a.territory_id and s.deleted_at is null and s.effective_from<=now() and (s.effective_to is null or s.effective_to>now())
+        where o.name ilike 'Office Added%' and o.status='active' and s.profile_id=${me?.id ?? uid("none")} order by o.code`;
+    return {
+      officeAddedOnAgentArea: placed.length ? placed.map((/** @type {any} */ r) => r.code).join(",") : 0,
+      unplacedOfficeAdded: (await officeAddedUnplaced(db)).length === 0,
     };
   },
 );

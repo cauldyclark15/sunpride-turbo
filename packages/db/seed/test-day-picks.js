@@ -1,4 +1,6 @@
 // Pure choices behind test-day-fixtures.js, kept apart so they can be tested without the API.
+import { outletAt, releasesAt } from "../../../apps/api/src/domains/availability/masters.js";
+import { resolveSet } from "../../../apps/api/src/domains/availability/rules.js";
 
 /** The active branch-level (no van, no register) series of `type` in a unit, on ANY registration.
  * The kit used to look only at the unit's first registration and so added a second branch-level
@@ -46,4 +48,63 @@ export async function accentedNamesMissing(db, names) {
       .map((/** @type {any} */ r) => r.name),
   );
   return names.filter((n) => !kept.has(n));
+}
+
+/** FLD-091..094: published activity rules so the phone shows the Merchandising, Promotion, Inventory check
+ * and Price check forms. Same lists as the API's provisional defaults (visits/rules.js), published for real:
+ * the phone bootstrap carries only published rule rows, never the defaults. */
+export const ACTIVITY_RULES = {
+  merchandise: [
+    { kind: "merchandising", required: true },
+    { kind: "price_check", required: false },
+  ],
+  promotion: [{ kind: "promotion", required: true }],
+  audit: [
+    { kind: "inventory_check", required: true },
+    { kind: "price_check", required: false },
+    { kind: "merchandising", required: false },
+  ],
+};
+/** The activity forms the rules above put on the phone. @param {Record<string,{kind:string}[]>} rules */
+export function formKinds(rules) {
+  return [...new Set(Object.values(rules).flat().map((a) => a.kind))].sort();
+}
+
+/** FLD-100: the stores among `outletIds` that resolve a must-stock (MSL) set, by the API's own resolver.
+ * Once any MSL framework profile is active it REPLACES the legacy release, and a profile matches only the
+ * outlet's governed class (A-D): the sample's "SAMPLE-A" stores therefore get no MSL and no Availability card.
+ * @param {any} db @param {string[]} outletIds @param {number} [at] */
+export async function stopsWithMsl(db, outletIds, at = Date.now()) {
+  const releases = await releasesAt(db, "msl", at);
+  const out = [];
+  for (const id of outletIds) {
+    const outlet = await outletAt(db, id);
+    let set = null;
+    try {
+      set = resolveSet(outlet, releases);
+    } catch {
+      set = null; // two equal-precedence sets: the call refuses, so no card either
+    }
+    if (set?.payload?.lines?.length) out.push(outlet.code);
+  }
+  return out;
+}
+
+/** FLD-114: today's stops whose customer has a credit limit with at least `minRoomMinor` left after the
+ * open orders the phone counts (submitted .. review_required). Best room first.
+ * @param {{code:string,limitMinor:number,openMinor:number}[]} rows @param {number} minRoomMinor */
+export function creditRoom(rows, minRoomMinor) {
+  return rows
+    .map((r) => ({ code: r.code, roomMinor: Number(r.limitMinor) - Number(r.openMinor) }))
+    .filter((r) => Number(r.roomMinor) >= minRoomMinor && r.roomMinor > 0)
+    .sort((a, b) => b.roomMinor - a.roomMinor || a.code.localeCompare(b.code));
+}
+
+/** E2E-012 / SYNC-007: active stores the office added on the web (name "Office Added ...") that sit in no
+ * territory yet. The web's Assignments form only takes tomorrow or later; the API takes any instant from now,
+ * so the kit places them today. @param {any} db */
+export async function officeAddedUnplaced(db) {
+  return db`select o.id,o.code,o.name from outlets o where o.name ilike 'Office Added%' and o.status='active' and o.deleted_at is null
+    and not exists(select 1 from outlet_assignments a where a.outlet_id=o.id and a.deleted_at is null and (a.effective_to is null or a.effective_to>now()))
+    order by o.created_at,o.code limit 20`;
 }

@@ -1,5 +1,15 @@
 import { afterAll, beforeAll, expect, test } from "bun:test";
-import { accentedNamesMissing, cashierFor, sapOwnedOutletCodes, unitLevelSeries } from "./test-day-picks.js";
+import {
+  accentedNamesMissing,
+  ACTIVITY_RULES,
+  cashierFor,
+  creditRoom,
+  formKinds,
+  officeAddedUnplaced,
+  sapOwnedOutletCodes,
+  stopsWithMsl,
+  unitLevelSeries,
+} from "./test-day-picks.js";
 import { startHarness, createUser } from "../../../apps/api/test/harness.js";
 
 /** @type {any} */ let h;
@@ -69,4 +79,50 @@ test("accent-names: a name held only by a SAP-keyed outlet is missing (SAP puts 
   // The exact strings are stored (no mojibake).
   const [row] = await h.db`select name from outlets where code='TD-ACC-2'`;
   expect(row.name).toBe("Sample Café Ébano Store");
+});
+
+test("FLD-091..094: the published activity rules put all four forms on the phone", () => {
+  expect(formKinds(ACTIVITY_RULES)).toEqual(["inventory_check", "merchandising", "price_check", "promotion"]);
+  expect(Object.keys(ACTIVITY_RULES).sort()).toEqual(["audit", "merchandise", "promotion"]);
+});
+
+test("FLD-100: an active MSL framework profile matches the governed class only, so a SAMPLE-A store has no MSL until classified", async () => {
+  const [ch] = await h.db`insert into master_definitions(kind,code) values('channel','TDP-GT') returning id`;
+  const channel = ch.id;
+  const [o] =
+    await h.db`insert into outlets(organization_id,code,name,status,custodian_org_unit_id,created_by,classification) values('sunpride','TDP-MSL-1','Sample MSL store','active',${unit},'fixture','SAMPLE-A') returning id`;
+  await h.db`update outlets set channel_id=${channel} where id=${o.id}`;
+  const [product] =
+    await h.db`insert into products(code,name,category,uom,unit_price,active) values('TDP-MSL-P','Sample MSL product','Sample','PC',1,true) returning id`;
+  // A legacy per-store release names the store, but the framework replaces it once a profile is active.
+  await h.db`insert into availability_releases(kind,policy_key,version,label,status,effective_from,payload,source_ref,actor_subject)
+    values('msl','TDP-LEGACY',1,'Sample legacy','published',now()-interval '1 day',${{ lines: [{ productId: product.id, minimumBase: 1 }], priority: 0, outletIds: [o.id] }},'fixture','fixture')`;
+  const [def] = await h.db`insert into master_definitions(kind,code) values('msl','TDP-MSL-GT-A') returning id`;
+  await h.db`insert into master_versions(master_id,version,label,status,data,effective_from,reason)
+    values(${def.id},1,'Sample GT A','active',${{ channelId: channel, subchannelId: null, outletClass: "A", productIds: [product.id] }},now()-interval '1 day','fixture')`;
+  expect(await stopsWithMsl(h.db, [o.id])).toEqual([]);
+  // The kit classifies the store through the office command; class A then resolves the GT-A profile.
+  await h.db`update outlets set classification='A' where id=${o.id}`;
+  expect(await stopsWithMsl(h.db, [o.id])).toEqual(["TDP-MSL-1"]);
+});
+
+test("FLD-114: the credit store is one with room left after the open orders, best room first", () => {
+  const rows = [
+    { code: "SMP-O0291", limitMinor: 0, openMinor: 350800 },
+    { code: "SMP-O0237", limitMinor: 25_000_000, openMinor: 24_500_000 },
+    { code: "SMP-O0240", limitMinor: 40_000_000, openMinor: 0 },
+    { code: "SMP-O0236", limitMinor: 40_000_000, openMinor: 391_159 },
+  ];
+  expect(creditRoom(rows, 1_000_000).map((r) => r.code)).toEqual(["SMP-O0240", "SMP-O0236"]);
+  expect(creditRoom([{ code: "X", limitMinor: 0, openMinor: 0 }], 1)).toEqual([]);
+});
+
+test("E2E-012 / SYNC-007: a web-added 'Office Added' store with no territory is picked up, and dropped once placed", async () => {
+  const [o] =
+    await h.db`insert into outlets(organization_id,code,name,status,custodian_org_unit_id,created_by) values('sunpride','TDP-OA-1','Office Added Test 001','active',${unit},'fixture') returning id`;
+  expect((await officeAddedUnplaced(h.db)).map((/** @type {any} */ r) => r.code)).toContain("TDP-OA-1");
+  const [t] =
+    await h.db`insert into territories(organization_id,code,name,status,effective_from,created_by) values('sunpride','TDP-T1','Sample territory','active',now()-interval '1 day','fixture') returning id`;
+  await h.db`insert into outlet_assignments(outlet_id,territory_id,effective_from,actor_subject,reason) values(${o.id},${t.id},now(),'fixture','test')`;
+  expect((await officeAddedUnplaced(h.db)).map((/** @type {any} */ r) => r.code)).not.toContain("TDP-OA-1");
 });
