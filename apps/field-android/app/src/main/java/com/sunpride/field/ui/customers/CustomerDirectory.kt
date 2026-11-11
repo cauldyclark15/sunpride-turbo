@@ -45,7 +45,12 @@ data class CustomerRecord(
     /** The store's own owner contact (Add store, approved Edit store, office edit); wins over the account header. */
     val ownerName: String? = null,
     val ownerPhone: String? = null,
+    /** FLD-207: a call on this store is open (an unplanned call has no [today] row). */
+    val callOpen: Boolean = false,
 ) {
+    /** The chip on the Stores row: today's planned status, else "In progress" for an open unplanned call. */
+    val visitStatus: String? get() = today?.status?.takeIf { it in setOf("Done", "In progress", "Needs review") }
+        ?: "In progress".takeIf { callOpen }
     /** Who to ask for and the number Call dials: the store's owner contact, else the account header. */
     val contactName: String? get() = ownerName ?: account?.buyerName
     val contactPhone: String? get() = ownerPhone ?: account?.contactNumber
@@ -111,6 +116,7 @@ object CustomerDirectory {
                 v.optJSONArray("intents")?.let { a -> (0 until a.length()).mapNotNull { a.opt(it) as? String } } ?: emptyList())
         }.groupBy({ it.first }, { it.second })
         val historyByOutlet = historyByOutlet(history)
+        val open = runCatching { com.sunpride.field.storage.VisitCallRules.openOutlets(history) }.getOrDefault(emptySet())
         return outlets.mapNotNull { row ->
             val o = runCatching { JSONObject(row.json) }.getOrNull() ?: return@mapNotNull null
             val latitude = o.number("latitude")?.takeIf { it in -90.0..90.0 }
@@ -123,7 +129,7 @@ object CustomerDirectory {
                 routeCode.takeIf { outletRoute != null && outletRoute == routeId }, accounts[row.id],
                 plansByOutlet[row.id].orEmpty().sortedBy { it.serviceDate }.distinctBy { it.plannedVisitId },
                 historyByOutlet[row.id].orEmpty(), today.firstOrNull { it.outletId == row.id },
-                o.text("ownerName"), o.text("ownerPhone"))
+                o.text("ownerName"), o.text("ownerPhone"), callOpen = row.id in open)
         }.distinctBy { it.outletId }
     }
 

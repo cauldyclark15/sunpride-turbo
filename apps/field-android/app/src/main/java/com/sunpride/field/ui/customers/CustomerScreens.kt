@@ -131,7 +131,7 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
 @Composable
 private fun StoreRow(record: CustomerRecord, now: Long, picked: Boolean, clicks: Modifier) {
     val visit = record.today
-    val emphasis = visit != null && visit.status != "Done"
+    val emphasis = (visit != null && visit.status != "Done") || record.callOpen
     Surface(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
             .clip(SunprideTokens.shapes.large).then(clicks).testTag("customer-result")
             .semantics { selected = picked },
@@ -150,7 +150,7 @@ private fun StoreRow(record: CustomerRecord, now: Long, picked: Boolean, clicks:
                 record.address?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
-            when (visit?.status) {
+            when (record.visitStatus) {
                 "Done" -> StatusChip("Done", Look.Tone.GOOD)
                 "In progress" -> StatusChip("In progress", Look.Tone.ACCENT)
                 "Needs review" -> StatusChip("Needs review", Look.Tone.BAD)
@@ -193,6 +193,7 @@ fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (S
         if (visitEnabled && (record.today != null || unplannedEnabled)) {
             val today = record.today
             val label = when {
+                today == null && record.callOpen -> "Continue visit"
                 today == null -> "Unplanned visit"
                 today.status == "In progress" -> "Continue visit"
                 else -> "Open visit"

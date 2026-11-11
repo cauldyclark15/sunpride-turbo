@@ -302,7 +302,9 @@ fun FieldApp(
                 val spec = headerSpec(ready, locked, signedIn = controller.state != EnrollmentState.SignedOut, page = page,
                     visitOpen = visitOpen, controller = controller, routeCode = controller.today.routeCode,
                     editingStore = censusEdit != null).let {
-                    if (STORE_EDIT_ENABLED && ready && !visitOpen && visits && page == "customer" && customer != null)
+                    // FLD-207: no header Edit while ANY call is open, not only while the visit screen shows.
+                    val callOpen = controller.today.customers.any { c -> c.callOpen || c.today?.status == "In progress" }
+                    if (STORE_EDIT_ENABLED && ready && !visitOpen && !callOpen && visits && page == "customer" && customer != null)
                         it.copy(action = HeaderAction("Edit", editStore, "customer-header-edit")) else it
                 }
                 FieldHeader(spec.title, subtitle = spec.subtitle, titleTag = spec.titleTag,
