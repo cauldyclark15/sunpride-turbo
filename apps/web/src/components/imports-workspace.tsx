@@ -46,7 +46,7 @@ const TASKS: { kind: Kind; label: string; description: string }[] = [
     kind: "store_upload",
     label: "Customers",
     description:
-      "Add or update stores from the customer template, with a row-by-row report.",
+      "Add or update customers from Sunpride's customer template (Excel or CSV), with a row-by-row report.",
   },
   {
     kind: "customers",

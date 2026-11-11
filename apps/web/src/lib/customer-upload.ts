@@ -25,7 +25,12 @@ import type { ReferenceRow } from "@sunpride/customer-master";
 import { downloadCsv } from "./import-csv-export";
 
 export type { UploadError, UploadRow };
-export { CUSTOMER_COLUMNS, CUSTOMER_HEADERS, CUSTOMER_CHUNK_SIZE, CUSTOMER_MAX_ROWS };
+export {
+  CUSTOMER_COLUMNS,
+  CUSTOMER_HEADERS,
+  CUSTOMER_CHUNK_SIZE,
+  CUSTOMER_MAX_ROWS,
+};
 export const CUSTOMER_UPLOAD_API = "/api/v1/imports/customer-upload";
 /** Rows per async-validation request (progress granularity). */
 export const PREVIEW_BATCH = 1000;
@@ -55,11 +60,7 @@ export type PreviewResult = {
   rows: PreviewRow[];
 };
 export type RunStatus =
-  | "queued"
-  | "running"
-  | "completed"
-  | "completed_with_errors"
-  | "interrupted";
+  "queued" | "running" | "completed" | "completed_with_errors" | "interrupted";
 export type RunSummary = {
   id: string;
   fileName: string;
@@ -203,7 +204,13 @@ export function reportCsv(rows: RunRow[]) {
   return (
     "\uFEFF" +
     [
-      line([...CUSTOMER_HEADERS, "Result", "Action", "Problem column", "Problem"]),
+      line([
+        ...CUSTOMER_HEADERS,
+        "Result",
+        "Action",
+        "Problem column",
+        "Problem",
+      ]),
       ...rows.map((r) => {
         const result =
           r.status === "succeeded"
@@ -238,9 +245,8 @@ function downloadBlob(name: string, blob: Blob) {
 
 /** The Excel template, built in the browser by the same code as the client file. */
 export async function downloadTemplateXlsx(reference: ReferenceRow[]) {
-  const { customerTemplateXlsx } = await import(
-    "@sunpride/import-templates/customers-xlsx"
-  );
+  const { customerTemplateXlsx } =
+    await import("@sunpride/import-templates/customers-xlsx");
   const bytes = await customerTemplateXlsx(reference);
   downloadBlob(
     CUSTOMER_TEMPLATE_FILE_NAME,

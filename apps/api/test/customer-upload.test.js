@@ -6,7 +6,12 @@ import { loadPhGeography } from "@sunpride/db/ph-geography";
 import {
   CUSTOMER_HEADERS,
   EXAMPLE,
+  LIST_SHEET_OF,
 } from "@sunpride/import-templates/customers";
+import {
+  customerTemplateXlsx,
+  readWorkbookSheets,
+} from "@sunpride/import-templates/customers-xlsx";
 import { startHarness, profileStore, createUser } from "./harness.js";
 import { install } from "../src/domains/imports/index.js";
 import { install as org } from "../src/domains/org/index.js";
@@ -142,6 +147,34 @@ describe("SP-0170 customer upload — template", () => {
       "Pricing Procedure",
     ]);
     expect((await call("viewer", "/template")).status).toBe(403);
+    // The generated .xlsx: every list sheet's "Dropdown value" column = the DB rows.
+    const sheets = await readWorkbookSheets(
+      await customerTemplateXlsx(r.body.reference),
+    );
+    const db =
+      await h.db`select list,code,name from customer_reference_values where active order by list, sales_org_code, channel_code, group1_code, sort_order`;
+    const label = (/** @type {any} */ x) =>
+      x.code === x.name ? x.name : `${x.name} (${x.code})`;
+    for (const [list, sheet] of Object.entries(LIST_SHEET_OF)) {
+      if (list.startsWith("customer_group_")) continue;
+      const got = /** @type {string[][]} */ (sheets[sheet])
+        .slice(2)
+        .map((row) => row.filter(Boolean).at(-1));
+      expect(got).toEqual(
+        db.filter((/** @type {any} */ x) => x.list === list).map(label),
+      );
+    }
+    const chain = /** @type {string[][]} */ (sheets["Cust. Grp. 1&2"]).slice(2);
+    const g1 = new Set(
+      chain.filter((v) => v[2]).map((v) => `${v[0]}|${v[1]}|${v[2]}`),
+    );
+    const g2 = new Set(
+      chain.filter((v) => v[3]).map((v) => `${v[0]}|${v[1]}|${v[2]}|${v[3]}`),
+    );
+    const [{ n1, n2 }] =
+      await h.db`select count(*) filter (where list='customer_group_1')::int n1, count(*) filter (where list='customer_group_2')::int n2 from customer_reference_values where active`;
+    expect(g1.size).toBe(n1);
+    expect(g2.size).toBe(n2);
   });
 });
 
@@ -239,7 +272,8 @@ describe("SP-0170 customer upload — validation", () => {
       ]),
     );
     const mobile = r.body.errors.find(
-      (/** @type {any} */ e) => e.rowNumber === 6 && e.code === "invalid_mobile",
+      (/** @type {any} */ e) =>
+        e.rowNumber === 6 && e.code === "invalid_mobile",
     );
     expect(mobile).toMatchObject({ column: "mobileNo", value: "12345" });
     expect(mobile.message).toContain("Mobile No.");

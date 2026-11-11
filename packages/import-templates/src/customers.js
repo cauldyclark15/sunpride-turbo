@@ -92,7 +92,8 @@ const HINTS = /** @type {Record<string,string>} */ ({
   email: "e.g. owner@example.ph",
   money: "Amount in pesos, e.g. 15000.",
 });
-const POSTAL_HINT = "4-digit ZIP code of the Municipality (PHLPost), e.g. 6000.";
+const POSTAL_HINT =
+  "4-digit ZIP code of the Municipality (PHLPost), e.g. 6000.";
 
 /** Column ids: the customer-master key; ship-to fields are prefixed so the two "Mobile No." and
  * "Email Address" columns stay distinct. @param {string} key */
@@ -602,10 +603,7 @@ export function rowToCustomer(row, index, geo = null) {
     "paymentTermsCode",
     "pricingProcedureCode",
   ])
-    list(
-      key,
-      index.all(/** @type {string} */ (columnById(key)?.list)),
-    );
+    list(key, index.all(/** @type {string} */ (columnById(key)?.list)));
   const salesOrgCode = list("salesOrgCode", index.all("sales_organization"));
   const parent = salesOrgCode ? { salesOrgCode } : {};
   list("salesOfficeCode", index.options("sales_office", parent));
@@ -984,7 +982,9 @@ export function dropdownSources(sheets) {
   for (const c of CUSTOMER_COLUMNS) {
     if (c.kind !== "list" || !c.list || c.list === "country") continue;
     const s = /** @type {ListSheet} */ (
-      sheets.find((x) => x.name === LIST_SHEET_OF[/** @type {string} */ (c.list)])
+      sheets.find(
+        (x) => x.name === LIST_SHEET_OF[/** @type {string} */ (c.list)],
+      )
     );
     const column =
       c.list === "customer_group_1"

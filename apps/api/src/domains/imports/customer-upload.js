@@ -465,13 +465,7 @@ async function processChunk(run, actor, lookups, chunkIndex, owner) {
       }
       try {
         const result = await tx(t, (/** @type {any} */ sp) =>
-          writeRow(
-            { ...c, db: sp },
-            entry,
-            row,
-            lookups,
-            run,
-          ),
+          writeRow({ ...c, db: sp }, entry, row, lookups, run),
         );
         await t`update customer_upload_rows set status='succeeded', action=${result.action}, outlet_id=${result.outletId}, errors='[]'::jsonb, attempts=attempts+1, processed_at=now() where run_id=${run.id} and row_number=${row.rowNumber}`;
       } catch (e) {

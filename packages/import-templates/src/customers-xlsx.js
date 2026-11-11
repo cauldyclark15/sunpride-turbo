@@ -86,7 +86,7 @@ export function buildCustomerTemplateWorkbook(reference) {
     sheet.getCell(1, 1).font = { bold: true };
     s.columns.forEach((h, i) => {
       const cell = sheet.getCell(2, i + 1);
-      cell.value = h;
+      if (h) cell.value = h;
       cell.font = { bold: true };
       sheet.getColumn(i + 1).width = Math.max(12, h.length + 4);
       sheet.getColumn(i + 1).numFmt = "@";
@@ -123,7 +123,7 @@ export function buildCustomerTemplateWorkbook(reference) {
       errorStyle: "information",
       errorTitle: c.label,
       error:
-        'Not a dropdown value. A code or description is also accepted; the upload checks it.',
+        "Not a dropdown value. A code or description is also accepted; the upload checks it.",
       showInputMessage: true,
       promptTitle: c.label,
       prompt: requiredText(c).slice(0, 250),
@@ -134,9 +134,8 @@ export function buildCustomerTemplateWorkbook(reference) {
 
 /** The template as .xlsx bytes. @param {ReferenceRow[]} reference */
 export async function customerTemplateXlsx(reference) {
-  const buffer = await buildCustomerTemplateWorkbook(
-    reference,
-  ).xlsx.writeBuffer();
+  const buffer =
+    await buildCustomerTemplateWorkbook(reference).xlsx.writeBuffer();
   return new Uint8Array(/** @type {ArrayBuffer} */ (buffer));
 }
 
@@ -186,4 +185,24 @@ export async function readCustomerXlsx(bytes) {
     grid.push({ rowNumber, cells });
   });
   return grid;
+}
+
+/** Every sheet of a workbook as text grids (row 1 first), e.g. to check the list sheets.
+ * @param {Uint8Array|ArrayBuffer} bytes @returns {Promise<Record<string, string[][]>>} */
+export async function readWorkbookSheets(bytes) {
+  const wb = new ExcelJS.Workbook();
+  await wb.xlsx.load(/** @type {any} */ (bytes));
+  /** @type {Record<string, string[][]>} */ const out = {};
+  for (const ws of wb.worksheets) {
+    /** @type {string[][]} */ const rows = [];
+    for (let n = 1; n <= ws.rowCount; n++) {
+      const values = /** @type {any[]} */ (ws.getRow(n).values ?? []);
+      const cells = [];
+      for (let i = 1; i < Math.max(values.length, 1); i++)
+        cells.push(cellText(values[i]));
+      rows.push(cells);
+    }
+    out[ws.name] = rows;
+  }
+  return out;
 }

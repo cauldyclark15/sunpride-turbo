@@ -24,6 +24,7 @@ COPY --from=deps /app/ ./
 COPY packages/db ./packages/db
 COPY packages/integration-contracts ./packages/integration-contracts
 COPY packages/import-templates ./packages/import-templates
+COPY packages/customer-master ./packages/customer-master
 COPY apps/api ./apps/api
 RUN rm -rf apps/api/**/*.test.js 2>/dev/null; mkdir -p /data/files && chown -R bun:bun /data
 USER bun
