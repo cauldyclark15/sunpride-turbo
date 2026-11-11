@@ -138,8 +138,9 @@ private data class CountDraft(val cases: String = "", val pieces: String = "", v
                         }
                     }
                     if (candidates.isEmpty()) Text("Nobody else is on this trip's crew.", style = MaterialTheme.typography.bodyLarge)
-                    if (chosen != null) PinDigits(pin, { pin = it; error = null }, "crew-pin", !c.busy)
+                    // VAN-018: the refusal sits above the keypad; below it, it was off screen on a 360x800 phone.
                     error?.let { Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("crew-error")) }
+                    if (chosen != null) PinDigits(pin, { pin = it; error = null }, "crew-pin", !c.busy)
                 }
                 PrimaryBottomButton(if (c.busy) "Checking…" else "Switch", { chosen?.let { m -> c.switchCrew(m, pin) { r -> if (r == null) onClose() else { error = r; pin = "" } } } }, chosen != null && pin.length >= 6 && !c.busy, "crew-go")
                 SecondaryButton("Cancel", onClose, Modifier.testTag("crew-cancel"), enabled = !c.busy)

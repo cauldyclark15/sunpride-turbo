@@ -168,6 +168,8 @@ export function vanProjection(env) {
         ...(p.refunds === true ? { refunds: true } : {}),
         // IP-SCPWD-CAP: the senior/PWD weekly limit and each card's use this week; only a phone that asks gets it.
         ...(p.privilegeCap === true ? { privilegeCap: true } : {}),
+        // VAN-034: a van handheld with no POS mode row gets no `storePos`, so the limit rides `policy.privilegeCap` for a build that asks.
+        ...(p.vanPrivilegeCap === true ? { vanPrivilegeCap: true } : {}),
       };
     },
     snapshot,
@@ -219,6 +221,11 @@ export async function bundle(ctx, env) {
       modeFacts && ctx.params.privilegeCap === true
         ? { ...modeFacts, privilegeCap: await capBundle(db, Date.now(), env) }
         : modeFacts;
+    // VAN-034: the weekly limit for a van-only handheld (no POS mode, so no `storePos`); the codec strips it before the frozen v1 check.
+    const vanCap =
+      ctx.params.vanPrivilegeCap === true && !(modeFacts && ctx.params.privilegeCap === true)
+        ? { privilegeCap: await capBundle(db, Date.now(), env) }
+        : {};
     let trips =
       storePos?.mode === "store"
         ? []
@@ -241,6 +248,7 @@ export async function bundle(ctx, env) {
       policy: {
         ...policy(env, null),
         ...(storePos ? { storePos } : {}),
+        ...vanCap,
         ...(handheld
           ? {
               handheld: await handheldInfo(db, actor, device, null),
@@ -547,6 +555,7 @@ export async function bundle(ctx, env) {
       policy: {
         ...tripPolicy,
         ...(storePos ? { storePos } : {}),
+        ...vanCap,
         ...(handheld
           ? {
               handheld: await handheldInfo(db, actor, device, trip),

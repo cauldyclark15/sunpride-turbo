@@ -230,8 +230,12 @@ export function company(d, hashes) {
       org_unit_id: p.org_unit_id,
       role: p.role,
       position_id: p.position_id,
+      // VAN-056: van@ sells in Cebu City North, outside Elena's Mandaue scope, so she could not issue his void codes;
+      // his direct supervisor is the region's sales manager, whose scope holds his trips.
       supervisor_id:
-        p.role === "sales"
+        p.id === people.van.id
+          ? people.manager.id
+          : p.role === "sales"
           ? supervisors[
               (agents.find((a) => a.id === p.id)?.index ?? 0) < 6 ? 0 : 1
             ].id

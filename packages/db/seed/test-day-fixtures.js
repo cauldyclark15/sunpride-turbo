@@ -571,7 +571,7 @@ const VAN1 = "van1@trial.sunpride.test";
 const van = (path, body, k, who = ADMIN) =>
   api(who, `/api/v1/van/${path}`, body, { key: key(`van:${k}`) });
 const tripOf = (/** @type {string} */ sellerId) =>
-  db`select t.id,t.trip_number,t.status,t.created_by,t.vehicle_id,t.source_location_id,t.route_id,t.driver_name from van_trips t where t.salesperson_profile_id=${sellerId} and t.service_date=${TODAY} and t.status not in ('cancelled','closed') and t.deleted_at is null order by t.created_at`;
+  db`select t.id,t.trip_number,t.status,t.started_device_id,t.created_by,t.vehicle_id,t.source_location_id,t.route_id,t.driver_name from van_trips t where t.salesperson_profile_id=${sellerId} and t.service_date=${TODAY} and t.status not in ('cancelled','closed') and t.deleted_at is null order by t.created_at`;
 section(
   "van-day",
   [
@@ -675,6 +675,17 @@ section(
           },
           `roster:${t.vehicle_id}:${s.id}`,
         );
+        did = "created";
+      }
+    }
+    // NF-R4-V1: the seeded on-route trip is `active` with no start handheld; give it van@'s registered van phone so
+    // invoices, prints and the close manifest carry the device (the API also binds it on the first operation).
+    if (t0 && t0.status === "active" && !t0.started_device_id) {
+      const phone = await one(
+        db`select id from registered_devices where profile_id=${seller.id} and app='van-android' and status='active' order by created_at desc limit 1`,
+      );
+      if (phone) {
+        await db`update van_trips set started_device_id=${phone.id},updated_at=now() where id=${t0.id} and started_device_id is null`;
         did = "created";
       }
     }
