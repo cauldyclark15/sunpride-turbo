@@ -401,7 +401,14 @@ export function checkDraft(
   // The generated address is what the server will store.
   input.customerAddress = d.values.customerAddress ?? "";
   const r = validateCustomer(input, { level, lists: index });
-  return errorsToFields(r.errors);
+  // A "same as customer" ship-to repeats the customer's own fields: report those once, there.
+  const copied = new Set(["shipToParty", "shipToAddress", "mobileNo", "email"]);
+  const errors = r.errors.filter((e: { field: string; index?: number }) => {
+    if (e.index === undefined) return true;
+    const key = e.field.split(".").pop() ?? "";
+    return !(d.shipTos[e.index]?.sameAsCustomer && copied.has(key));
+  });
+  return errorsToFields(errors);
 }
 
 type ServerError = { field?: string; message?: string; label?: string };
@@ -427,7 +434,7 @@ export function fieldErrorsFrom(error: unknown): {
     fields: errorsToFields(list),
     message:
       list.length > 1
-        ? `${list.length} fields need attention before this can be saved.`
+        ? `${list.length} fields need attention. Each one is marked below.`
         : (e?.message ?? "The customer could not be saved."),
   };
 }

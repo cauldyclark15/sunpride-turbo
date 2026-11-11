@@ -438,6 +438,9 @@ describe("conditional required (SPEC rules 5/6)", () => {
     expect(checkDraft(index, dt, "complete").distributorCode).toBe(
       "Distributor Code is required.",
     );
+    // A bad customer mobile is reported once, not again on the "same as customer" ship-to.
+    const bad = checkDraft(index, setField(d, "mobileNo", "12345"), "draft");
+    expect(Object.keys(bad)).toEqual(["mobileNo"]);
     // Drafts only need Customer Name.
     expect(
       checkDraft(index, fill(emptyDraft(), [["customerName", "X"]]), "draft"),
@@ -518,7 +521,7 @@ describe("approval errors land next to the field", () => {
       "shipTos[0].mobileNo":
         "Mobile No. must be a Philippine mobile number: 09XXXXXXXXX or +639XXXXXXXXX.",
     });
-    expect(message).toBe("2 fields need attention before this can be saved.");
+    expect(message).toBe("2 fields need attention. Each one is marked below.");
     expect(fieldErrorsFrom({ message: "Not found." })).toEqual({
       fields: {},
       message: "Not found.",
