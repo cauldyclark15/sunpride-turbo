@@ -402,3 +402,30 @@ describe("Variance resolution", () => {
     expect(html).toContain("Confirm and close");
   });
 });
+
+describe("WEB-073: the next step is offered only to someone who may take it", () => {
+  const as = (t: Transfer, can: (c: string) => boolean) =>
+    wrap(
+      createElement(TransferDetailView, {
+        transfer: t,
+        onCommand: noop,
+        dispatchHeader: { driverName: "", vehiclePlate: "", receiverName: "" },
+        onDispatchHeader: noop,
+        can,
+      }),
+    );
+  it("an office clerk without approval sees who approves next, not an Approve button or Cancel", () => {
+    const html = as(base({ status: "requested" }), (c) => c === "inventory.write");
+    expect(html).not.toContain("Approve and hold the stock");
+    expect(html).not.toContain(">Cancel<");
+    expect(html).toContain("Waiting for an approver to approve it and hold the stock.");
+  });
+  it("an approver sees Approve; the clerk sees Start picking once approved", () => {
+    expect(as(base({ status: "requested" }), (c) => c === "inventory.approve")).toContain("Approve and hold the stock");
+    expect(as(base({ status: "approved" }), (c) => c === "inventory.write")).toContain("Start picking");
+  });
+  it("the dispatch facts are bordered inputs", () => {
+    const html = as(base({ status: "picking" }), () => true);
+    expect(html).toMatch(/<input[^>]*border-border/);
+  });
+});

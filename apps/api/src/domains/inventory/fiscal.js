@@ -14,6 +14,29 @@ import {
   STATUS_FIELDS,
   invalid,
 } from "./common.js";
+/** WEB-081: a branch with no stock band for the requester's role gets a setup path, not a generic policy error.
+ * Ambiguous bands still fall through to the matrix's own refusal. @param {any} db @param {string} orgUnitId @param {string} role */
+async function requireStockBand(db, orgUnitId, role) {
+  const [band] =
+    await db`select 1 from fiscal_authority_rules where org_unit_id=${orgUnitId} and kind='stock' and role=${role} and effective_from<=now() and (effective_to is null or effective_to>now()) limit 1`;
+  if (band) return;
+  const [unit] = await db`select name from org_units where id=${orgUnitId}`;
+  throw new ApiError(
+    "authority_missing",
+    409,
+    `No stock approval limit is set for ${unit?.name ?? "this branch"}. An administrator adds one in Admin → Fiscal & authority → Price and discount authority (Override: Stock).`,
+  );
+}
+/** Capability that posts a counted difference: the till path uses the approver's own band.
+ * @param {string} counterRole @param {string} [creatorCapability] */
+export function postingCapability(
+  counterRole,
+  creatorCapability = "inventory.count.submit",
+) {
+  return roleHas(counterRole, creatorCapability)
+    ? "inventory.approve"
+    : "inventory.adjustment.approve";
+}
 /** F-124: the existing independent stock approval is also the one fiscal matrix decision.
  * Values/roles/locations are re-derived, never accepted from an authority form.
  * @param {any} c @param {any} document @param {any[]} rows @param {string} [creatorCapability] @param {{tillCount?:boolean}} [options] */
@@ -127,6 +150,7 @@ export async function enforceInventoryAuthority(
         totalMinor: String(amount),
       },
     };
+    await requireStockBand(c.db, orgUnitId, requester.role);
     if (onApprover) {
       const rule = await authorityRule(c.db, requester, input);
       if (amount > BigInt(rule.self_limit_centavos))

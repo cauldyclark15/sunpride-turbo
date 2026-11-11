@@ -4,6 +4,7 @@ import { Button } from "@heroui/react";
 import { Card, Notice } from "@sunpride/ui";
 import { useState } from "react";
 import { apiFetch, useApi, useMutate } from "@/lib/api";
+import { usePermissions } from "@/lib/auth";
 import { DocNumber } from "../doc-number";
 import { Peso } from "../peso";
 import { StatusPill } from "../status-pill";
@@ -52,7 +53,8 @@ export function BoardRowCard({
           {row.crew.filter((c) => c.role !== "seller").length ? (
             <span className="text-sm text-muted">
               {" "}
-              + {row.crew
+              +{" "}
+              {row.crew
                 .filter((c) => c.role !== "seller")
                 .map((c) => `${c.name} (${c.role})`)
                 .join(", ")}
@@ -129,6 +131,7 @@ export function VanDayBoardView({
   onApproveClean,
   onCopyYesterday,
   onDate,
+  canManage = true,
 }: {
   board: DayBoard;
   pendingTrip?: string | null;
@@ -138,6 +141,8 @@ export function VanDayBoardView({
   onApproveClean: (tripIds: string[]) => void;
   onCopyYesterday: () => void;
   onDate?: (date: string) => void;
+  /** van.manage: copy yesterday and approve loads (WEB-082). */
+  canManage?: boolean;
 }) {
   const clean = cleanTripIds(board.rows);
   const stages = byStage(board.rows);
@@ -159,26 +164,32 @@ export function VanDayBoardView({
         <span className="text-base font-medium" role="status">
           {board.summary.text}
         </span>
-        <span className="ml-auto flex flex-wrap gap-2">
-          <Button
-            variant="secondary"
-            className="min-h-12 text-base"
-            onPress={onCopyYesterday}
-          >
-            Copy yesterday
-          </Button>
-          <Button
-            variant="primary"
-            className="min-h-12 text-base"
-            isDisabled={!clean.length}
-            isPending={bulkPending}
-            onPress={() => onApproveClean(clean)}
-          >
-            {clean.length
-              ? `Approve ${clean.length} clean load${clean.length === 1 ? "" : "s"}`
-              : "No clean loads to approve"}
-          </Button>
-        </span>
+        {canManage ? (
+          <span className="ml-auto flex flex-wrap gap-2">
+            <Button
+              variant="secondary"
+              className="min-h-12 text-base"
+              onPress={onCopyYesterday}
+            >
+              Copy yesterday
+            </Button>
+            <Button
+              variant="primary"
+              className="min-h-12 text-base"
+              isDisabled={!clean.length}
+              isPending={bulkPending}
+              onPress={() => onApproveClean(clean)}
+            >
+              {clean.length
+                ? `Approve ${clean.length} clean load${clean.length === 1 ? "" : "s"}`
+                : "No clean loads to approve"}
+            </Button>
+          </span>
+        ) : (
+          <span className="ml-auto text-sm text-muted">
+            The office (operations or an administrator) plans van loads.
+          </span>
+        )}
       </div>
       {board.summary.lastRun ? (
         <p className="text-sm text-muted">
@@ -232,6 +243,7 @@ export function VanDayBoard({
   const [error, setError] = useState<string | null>(null);
   const write = useMutate();
   const intent = useIntent();
+  const { can } = usePermissions();
   const board = useApi<DayBoard>(
     ["van", "day-board", day, unitId ?? ""],
     ({ signal }) =>
@@ -248,7 +260,8 @@ export function VanDayBoard({
         meta="Check your connection and try again."
       />
     );
-  if (!board.data) return <p className="p-4 text-muted">Loading the van day…</p>;
+  if (!board.data)
+    return <p className="p-4 text-muted">Loading the van day…</p>;
   const post = async (path: string, body: Record<string, unknown>) => {
     setError(null);
     try {
@@ -267,6 +280,7 @@ export function VanDayBoard({
       bulkPending={write.pending && pendingTrip === "bulk"}
       error={error}
       onDate={setDay}
+      canManage={can("van.manage")}
       onCopyYesterday={() => {
         const from = new Date(`${day}T00:00:00Z`);
         from.setUTCDate(from.getUTCDate() - 1);

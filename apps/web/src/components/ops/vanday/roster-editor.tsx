@@ -90,7 +90,11 @@ export function RosterEditorView({
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold">Weekly roster</h2>
         {readOnly ? null : (
-          <Button variant="primary" className="min-h-12 text-base" onPress={onAdd}>
+          <Button
+            variant="primary"
+            className="min-h-12 text-base"
+            onPress={onAdd}
+          >
             Add roster line
           </Button>
         )}
@@ -101,8 +105,8 @@ export function RosterEditorView({
             {rows.map((r) => (
               <li key={r.rosterId} className="grid gap-1 px-4 py-3">
                 <span className="text-base">
-                  <span className="font-semibold">{r.vehicleCode}</span> {r.plateNumber} ·{" "}
-                  {r.routeName ?? "No route"}
+                  <span className="font-semibold">{r.vehicleCode}</span>{" "}
+                  {r.plateNumber} · {r.routeName ?? "No route"}
                 </span>
                 <span className="text-base">
                   {r.sellerName}
@@ -116,7 +120,11 @@ export function RosterEditorView({
                 </span>
                 {r.status === "active" && !readOnly ? (
                   <span className="flex gap-2">
-                    <Button variant="secondary" className="min-h-12 text-base" onPress={() => onEdit(r)}>
+                    <Button
+                      variant="secondary"
+                      className="min-h-12 text-base"
+                      onPress={() => onEdit(r)}
+                    >
                       Edit
                     </Button>
                   </span>
@@ -137,133 +145,177 @@ export function RosterEditorView({
           meta="Operations or an admin changes it."
         />
       ) : !editing ? null : (
-      <Card label={form.rosterId ? "Edit roster line" : "Add roster line"}>
-        <div className="grid gap-4">
-          <div className="grid gap-3 sm:grid-cols-2">
-            <FormField label="Truck">
-              <select
-                className={field}
-                value={form.vehicleId}
-                onChange={(e) => onForm({ ...form, vehicleId: e.target.value })}
-              >
-                <option value="">Choose</option>
-                {choices.vehicles.map((v) => (
-                  <option key={v.vehicleId} value={v.vehicleId}>
-                    {v.name ?? v.plateNumber} ({v.plateNumber})
-                  </option>
-                ))}
-              </select>
-            </FormField>
-            <FormField label="Route">
-              <select
-                className={field}
-                value={form.routeId}
-                onChange={(e) => onForm({ ...form, routeId: e.target.value })}
-              >
-                <option value="">No route</option>
-                {choices.routes.map((r) => (
-                  <option key={r.routeId} value={r.routeId}>
-                    {r.name}
-                  </option>
-                ))}
-              </select>
-            </FormField>
-            {person("sellerProfileId", "Seller")}
-            {person("helperProfileId", "Helper", true)}
-            {person("driverProfileId", "Driver", true)}
-            <FormField label="From">
-              <input
-                type="date"
-                className={field}
-                value={form.effectiveFrom}
-                onChange={(e) => onForm({ ...form, effectiveFrom: e.target.value })}
-              />
-            </FormField>
-          </div>
-          <div className="flex flex-wrap gap-2" role="group" aria-label="Days of the week">
-            {WEEKDAYS.map((d) => (
-              <button
-                key={d.n}
-                type="button"
-                aria-pressed={form.weekdays.includes(d.n)}
-                className={`min-h-12 min-w-14 rounded-full border px-4 text-base ${
-                  form.weekdays.includes(d.n)
-                    ? "border-accent bg-accent-soft font-medium"
-                    : "border-border bg-surface"
-                }`}
-                onClick={() => onForm({ ...form, weekdays: toggleDay(form.weekdays, d.n) })}
-              >
-                {d.label}
-              </button>
-            ))}
-          </div>
-          {problems.length ? (
-            <ul className="grid gap-1 text-sm text-danger" role="alert">
-              {problems.map((p) => (
-                <li key={p}>{p}</li>
-              ))}
-            </ul>
-          ) : null}
-          {error ? <Notice tone="danger" title="This could not be saved." meta={error} /> : null}
-          <div className="flex flex-wrap gap-2">
-            <Button
-              variant="primary"
-              className="min-h-12 text-base"
-              isDisabled={problems.length > 0}
-              isPending={pending}
-              onPress={onSave}
+        <Card label={form.rosterId ? "Edit roster line" : "Add roster line"}>
+          <div className="grid gap-4">
+            <div className="grid gap-3 sm:grid-cols-2">
+              <FormField label="Truck">
+                <select
+                  className={field}
+                  value={form.vehicleId}
+                  onChange={(e) =>
+                    onForm({ ...form, vehicleId: e.target.value })
+                  }
+                >
+                  <option value="">Choose</option>
+                  {choices.vehicles.map((v) => (
+                    <option key={v.vehicleId} value={v.vehicleId}>
+                      {v.name ?? v.plateNumber} ({v.plateNumber})
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              <FormField label="Route">
+                <select
+                  className={field}
+                  value={form.routeId}
+                  onChange={(e) => onForm({ ...form, routeId: e.target.value })}
+                >
+                  <option value="">No route</option>
+                  {choices.routes.map((r) => (
+                    <option key={r.routeId} value={r.routeId}>
+                      {r.name}
+                    </option>
+                  ))}
+                </select>
+              </FormField>
+              {person("sellerProfileId", "Seller")}
+              {person("helperProfileId", "Helper", true)}
+              {person("driverProfileId", "Driver", true)}
+              <FormField label="From">
+                <input
+                  type="date"
+                  className={field}
+                  value={form.effectiveFrom}
+                  onChange={(e) =>
+                    onForm({ ...form, effectiveFrom: e.target.value })
+                  }
+                />
+              </FormField>
+            </div>
+            <div
+              className="flex flex-wrap gap-2"
+              role="group"
+              aria-label="Days of the week"
             >
-              Save
-            </Button>
-            <Button variant="secondary" className="min-h-12 text-base" onPress={onCancel}>
-              Cancel
-            </Button>
-            {form.rosterId ? (
-              <Button
-                variant="ghost"
-                className="min-h-12 text-base"
-                onPress={() => {
-                  const row = rows.find((x) => x.rosterId === form.rosterId);
-                  if (row) onEnd(row);
-                }}
-              >
-                Remove
-              </Button>
+              {WEEKDAYS.map((d) => (
+                <button
+                  key={d.n}
+                  type="button"
+                  aria-pressed={form.weekdays.includes(d.n)}
+                  className={`min-h-12 min-w-14 rounded-full border px-4 text-base ${
+                    form.weekdays.includes(d.n)
+                      ? "border-accent bg-accent-soft font-medium"
+                      : "border-border bg-surface"
+                  }`}
+                  onClick={() =>
+                    onForm({ ...form, weekdays: toggleDay(form.weekdays, d.n) })
+                  }
+                >
+                  {d.label}
+                </button>
+              ))}
+            </div>
+            {problems.length ? (
+              <ul className="grid gap-1 text-sm text-danger" role="alert">
+                {problems.map((p) => (
+                  <li key={p}>{p}</li>
+                ))}
+              </ul>
             ) : null}
+            {error ? (
+              <Notice
+                tone="danger"
+                title="This could not be saved."
+                meta={error}
+              />
+            ) : null}
+            <div className="flex flex-wrap gap-2">
+              <Button
+                variant="primary"
+                className="min-h-12 text-base"
+                isDisabled={problems.length > 0}
+                isPending={pending}
+                onPress={onSave}
+              >
+                Save
+              </Button>
+              <Button
+                variant="secondary"
+                className="min-h-12 text-base"
+                onPress={onCancel}
+              >
+                Cancel
+              </Button>
+              {form.rosterId ? (
+                <Button
+                  variant="ghost"
+                  className="min-h-12 text-base"
+                  onPress={() => {
+                    const row = rows.find((x) => x.rosterId === form.rosterId);
+                    if (row) onEnd(row);
+                  }}
+                >
+                  Remove
+                </Button>
+              ) : null}
+            </div>
           </div>
-        </div>
-      </Card>
+        </Card>
       )}
     </div>
   );
 }
 
-export function RosterEditor({ today, unitId }: { today: string; unitId?: string }) {
+export function RosterEditor({
+  today,
+  unitId,
+}: {
+  today: string;
+  unitId?: string;
+}) {
   const [form, setForm] = useState<RosterForm>(emptyRosterForm(today));
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const write = useMutate();
   const intent = useIntent();
-  const list = useApi<{ items: RosterRow[] }>(["van", "rosters", unitId ?? ""], ({ signal }) =>
-    apiFetch<{ items: RosterRow[] }>("/api/v1/van/rosters", {
-      query: unitId ? { unitId } : {},
-      signal,
-    }),
+  const list = useApi<{ items: RosterRow[] }>(
+    ["van", "rosters", unitId ?? ""],
+    ({ signal }) =>
+      apiFetch<{ items: RosterRow[] }>("/api/v1/van/rosters", {
+        query: unitId ? { unitId } : {},
+        signal,
+      }),
   );
-  const choices = useApi<RosterChoices>(["van", "planning", today], ({ signal }) =>
-    apiFetch<RosterChoices>("/api/v1/van/planning", { query: { date: today }, signal }),
+  const choices = useApi<RosterChoices>(
+    ["van", "planning", today],
+    ({ signal }) =>
+      apiFetch<RosterChoices>("/api/v1/van/planning", {
+        query: { date: today },
+        signal,
+      }),
   );
   // A role without van.manage may read the roster; only the planning choices (who and what can be rostered) are refused.
   const readOnly =
-    !list.error && choices.error instanceof ApiError && choices.error.status === 403;
+    !list.error &&
+    choices.error instanceof ApiError &&
+    choices.error.status === 403;
   if (list.error || (choices.error && !readOnly))
-    return <Notice tone="danger" title="The roster could not load." meta="Check your connection and try again." />;
-  if (!list.data || (!choices.data && !readOnly)) return <p className="p-4 text-muted">Loading the roster…</p>;
+    return (
+      <Notice
+        tone="danger"
+        title="The roster could not load."
+        meta="Check your connection and try again."
+      />
+    );
+  if (!list.data || (!choices.data && !readOnly))
+    return <p className="p-4 text-muted">Loading the roster…</p>;
   const post = async (body: Record<string, unknown>) => {
     const path = "/api/v1/van/rosters/save";
     setError(null);
     try {
-      await write.mutate(path, intent.withKey(path, body), { invalidate: [["van"]] });
+      await write.mutate(path, intent.withKey(path, body), {
+        invalidate: [["van"]],
+      });
       intent.done(path, body);
       setForm(emptyRosterForm(today));
       setEditing(false);
@@ -305,7 +357,9 @@ export function RosterEditor({ today, unitId }: { today: string; unitId?: string
           effectiveFrom: r.effectiveFrom,
         });
       }}
-      onEnd={(r) => post({ rosterId: r.rosterId, vehicleId: r.vehicleId, end: true })}
+      onEnd={(r) =>
+        post({ rosterId: r.rosterId, vehicleId: r.vehicleId, end: true })
+      }
     />
   );
 }

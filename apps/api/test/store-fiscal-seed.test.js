@@ -128,3 +128,28 @@ test("the refund series helper gives every sample store and sample vehicle one c
     vehicles: 0,
   });
 });
+
+test("WEB-081: a sample stock place's branch gets a stock band for every role that counts there, unmarked branches none", async () => {
+  // A depot in its own marked branch where no one has a profile: counts there are partitioned by the depot's
+  // branch, so the counter's role needs a band in THAT branch (a clerk's home unit is elsewhere).
+  const depot = crypto.randomUUID(),
+    client = crypto.randomUUID();
+  await h.db`insert into org_units(id,organization_id,code,name,type_code,status,effective_from) values(${depot},'sunpride','DEPOT-X','Sample depot X','national','active',now()-interval '1 day'),(${client},'sunpride','CLIENT-X','Client depot','national','active',now()-interval '1 day')`;
+  await h.db`insert into sample_data_rows(batch,table_name,row_id,key) values('store-fiscal','org_units',${depot},'unit-DEPOT-X')`;
+  for (const [unit, code] of [[depot, "DEPOT-X"], [client, "CLIENT-X"]]) {
+    const [l] =
+      await h.db`insert into inventory_locations(organization_id,org_unit_id,site_code,code,name,type,active,allows_picking,allows_receiving,allows_sale,allows_production) values('sunpride',${unit},'CEBU',${code},${code},'warehouse',true,true,true,true,false) returning id`;
+    await h.db`insert into sample_data_rows(batch,table_name,row_id,key) values('store-fiscal','inventory_locations',${l.id},${"loc-" + code})`;
+  }
+  await seedFiscal(h.db);
+  const roles = async (/** @type {string} */ unit) =>
+    (await h.db`select role from fiscal_authority_rules where org_unit_id=${unit} and kind='stock' order by role`).map((/** @type {any} */ r) => r.role);
+  expect(await roles(depot)).toEqual(["admin", "manager", "operations", "super_admin"]);
+  expect(await roles(client)).toEqual([]);
+  const [unmarked] =
+    await h.db`select count(*)::int n from fiscal_authority_rules t where t.org_unit_id=${depot} and not exists(select 1 from sample_data_rows m where m.row_id=t.id::text)`;
+  expect(unmarked.n).toBe(0);
+  const again = await h.db`select count(*)::int n from fiscal_authority_rules where org_unit_id=${depot}`;
+  await seedFiscal(h.db);
+  expect((await h.db`select count(*)::int n from fiscal_authority_rules where org_unit_id=${depot}`)[0].n).toBe(again[0].n);
+});

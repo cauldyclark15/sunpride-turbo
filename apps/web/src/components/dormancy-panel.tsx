@@ -60,11 +60,6 @@ export type Dormancy = {
   units: { id: string; name: string }[];
 };
 
-const SOURCE: Record<string, string> = {
-  class_frequency: "outlet class visit frequency",
-  outlet_cadence: "outlet visit cadence",
-  policy_fallback: "policy fallback cycle",
-};
 const ACTION: Record<string, string> = {
   recovery_visit: "Recovery visit",
   win_back_offer: "Win-back offer",
@@ -81,6 +76,14 @@ export function crossedOn(c: DormancyCase) {
     Date.parse(c.lastPurchaseOn + "T00:00:00Z") +
     c.thresholdCycles * c.cycleDays * 86_400_000;
   return new Date(t).toISOString().slice(0, 10);
+}
+
+/** WEB-171: one plain line per Win-back row; the rule, its version and the cycle source stay in Settings. */
+export function caseLine(c: DormancyCase) {
+  const cycles = `${c.missedCycles} cycle${c.missedCycles === 1 ? "" : "s"} without an order`;
+  return c.status === "open"
+    ? `Last bought ${shortDate(c.lastPurchaseOn)} · ${cycles} · dormant since ${shortDate(crossedOn(c))}.`
+    : `Was dormant from ${shortDate(crossedOn(c))} after ${cycles}.`;
 }
 
 /** F-210: the owner's next step for one case, exceptions first. */
@@ -228,13 +231,7 @@ export function DormancyPanel({
                 </a>{" "}
                 · {c.code} · {c.territory}
               </h3>
-              <p className="text-sm">
-                {c.status === "open"
-                  ? `No purchase since ${c.lastPurchaseOn}: ${c.missedCycles} missed cycles of ${c.cycleDays} days (rule: ${c.thresholdCycles}). Dormant since ${crossedOn(c)}; detected ${c.detectedOn}.`
-                  : `Dormant since ${crossedOn(c)} (detected ${c.detectedOn}) after ${c.missedCycles} missed cycles.`}{" "}
-                Cycle from the {SOURCE[c.cycleSource] ?? "configured cycle"};
-                rule version {c.policyVersion}.
-              </p>
+              <p className="text-sm">{caseLine(c)}</p>
               <p className="text-sm font-medium">Next: {nextStep(c)}</p>
               {c.actions.length > 0 && (
                 <ul className="mt-2 text-sm">

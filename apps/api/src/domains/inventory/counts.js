@@ -22,7 +22,7 @@ import {
   visibleLocations,
 } from "./common.js";
 import { commands, post } from "./commands.js";
-import { enforceInventoryAuthority } from "./fiscal.js";
+import { enforceInventoryAuthority, postingCapability } from "./fiscal.js";
 import { requireReason } from "./reasons.js";
 import { toleranceFor, withinTolerance } from "./tolerances.js";
 import { quantity, unitInfo } from "./units.js";
@@ -1299,6 +1299,20 @@ async function linesRoute(ctx) {
   };
 }
 
+/** WEB-081/093: why this person may decide lines but not post the count (null when they may). A count with no
+ * difference posts nothing, so anyone with count approval may close it.
+ * @param {any} db @param {any} session @param {any} actor */
+export async function postBlockedReason(db, session, actor) {
+  const [diff] =
+    await db`select 1 from stock_count_lines where session_id=${session.id} and coalesce(variance_base,0)<>0 and review_decision is distinct from 'rejected' limit 1`;
+  if (!diff) return null;
+  const [counter] =
+    await db`select role from profiles where user_id=${session.created_by} and deleted_at is null limit 1`;
+  if (roleHas(actor.role, postingCapability(counter?.role ?? "")))
+    return null;
+  return "A count that changes the stock is approved by an approver. You can still decide each line.";
+}
+
 /** GET counts/review: biggest peso difference first, tolerance chips, summary. @param {any} ctx */
 async function reviewRoute(ctx) {
   const actor = await requireCapability(ctx, "inventory.count.approve");
@@ -1369,6 +1383,9 @@ async function reviewRoute(ctx) {
     session.status === "submitted" &&
     !counter &&
     roleHas(actor.role, "inventory.count.approve");
+  const approveBlockedReason = canApprove
+    ? await postBlockedReason(ctx.db, session, actor)
+    : null;
   return {
     session: {
       id: session.id,
@@ -1382,6 +1399,7 @@ async function reviewRoute(ctx) {
     },
     canSeeExpected: see,
     canApprove,
+    approveBlockedReason,
     tolerance: {
       maxCentavos: tol.maxCentavos,
       maxPieces: tol.maxQtyBase,

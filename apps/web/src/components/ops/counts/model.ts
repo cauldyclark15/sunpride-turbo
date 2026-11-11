@@ -152,6 +152,8 @@ export type CountReview = {
   };
   canSeeExpected: boolean;
   canApprove: boolean;
+  /** Set when this person may decide lines but an approver must post the difference. */
+  approveBlockedReason?: string | null;
   tolerance: {
     maxCentavos: number | null;
     maxPieces: number | null;

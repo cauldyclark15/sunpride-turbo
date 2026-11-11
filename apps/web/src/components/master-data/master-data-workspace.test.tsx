@@ -4,7 +4,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiProvider, ApiStore, apiFetch } from "../../lib/api";
 import { orgQueryParams, useOrgMutation } from "./api";
 import { collectExport, csvText } from "./export";
-import { MasterDataWorkspace } from "./master-data-workspace";
+import { BaseUnitSelect, MasterDataWorkspace } from "./master-data-workspace";
 import { SetupHealth } from "./setup-health";
 import type { CommandArgs } from "./model";
 
@@ -312,5 +312,51 @@ describe("complete safe CSV export", () => {
     await expect(
       collectExport("catalog/products/list", {}, failure),
     ).rejects.toThrow("second page failed");
+  });
+});
+
+describe("WEB-135: Edit product keeps the product's base unit", () => {
+  const units = [
+    { _id: "u-pc", name: "Piece", code: "PC" },
+    { _id: "u-cs", name: "Case", code: "CS" },
+  ];
+  it("waits for the units, then preselects the product's base unit", () => {
+    const loading = renderToStaticMarkup(
+      createElement(BaseUnitSelect, { units: undefined, value: "u-cs" }),
+    );
+    expect(loading).not.toContain("<select");
+    expect(loading).toContain("Loading units");
+    const ready = renderToStaticMarkup(
+      createElement(BaseUnitSelect, { units, value: "u-cs" }),
+    );
+    expect(ready).toMatch(/<option value="u-cs" selected="">Case · CS/);
+  });
+});
+
+describe("WEB-135: SAP off still leaves SAP-loaded materials read-only", () => {
+  it("shows From SAP instead of Edit on a SAP-keyed product, and Edit on an office product", () => {
+    const store = storeWith("catalog/products/list", {
+      page: [
+        {
+          ...sapRow,
+          _id: "p-sap",
+          name: "Sample Embutido 250g",
+          sapKey: "SMP-EMB-250",
+        },
+        {
+          ...sapRow,
+          _id: "p-office",
+          code: "R2-TEST-001",
+          name: "R2 Test Product",
+          sapKey: null,
+        },
+      ],
+      isDone: true,
+      continueCursor: "",
+    });
+    const html = render(store, createElement(MasterDataWorkspace));
+    expect(html).not.toContain('aria-label="Edit Sample Embutido 250g"');
+    expect(html).toContain("From SAP");
+    expect(html).toContain('aria-label="Edit R2 Test Product"');
   });
 });

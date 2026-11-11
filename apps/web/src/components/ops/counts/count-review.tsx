@@ -353,7 +353,9 @@ export function CountReviewScreen({
     }
   }
 
-  const hint = review ? approveHint(review.summary) : null;
+  const hint = review
+    ? (review.approveBlockedReason ?? approveHint(review.summary))
+    : null;
   const final = review?.session.status === "posted";
   return (
     <div className="grid gap-4 pb-28">

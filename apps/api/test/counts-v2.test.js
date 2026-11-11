@@ -785,3 +785,47 @@ describe("WEB-078: the web sends the request key as the idempotency-key header",
     expect(again.body.id).toBe(first.body.id);
   });
 });
+
+describe("WEB-081/093: who may post a counted difference is said before the click", () => {
+  it("a manager reviews lines but is told an approver posts a difference; the approver posts it", async () => {
+    const loc = await location(`Review-${crypto.randomUUID()}`);
+    const p = await product();
+    await stockIn(loc, [{ p, qty: 10 }]);
+    const plan = await command(planner, "counts/plan", { locationId: loc, assignedTo: clerk.userId, blindCount: false });
+    const sid = plan.body.id;
+    const ls = (await lines(clerk, sid)).lines;
+    expect((await command(clerk, "counts/save-lines", { sessionId: sid, lines: [{ lineId: ls[0].id, countedBase: 9 }] })).status).toBe(200);
+    expect((await command(clerk, "counts/submit", { sessionId: sid })).status).toBe(200);
+    // The planner is a counter here (they created it); use a second manager who did not count.
+    const mgr = await person("manager");
+    const asManager = await read(mgr, `counts/review?sessionId=${sid}`);
+    expect(asManager.status).toBe(200);
+    expect(asManager.body.canApprove).toBe(true); // may still decide lines
+    expect(asManager.body.approveBlockedReason).toBe(
+      "A count that changes the stock is approved by an approver. You can still decide each line.",
+    );
+    const refused = await command(mgr, "counts/approve", { sessionId: sid });
+    expect(refused.status).toBe(403);
+    const asApprover = await read(sup, `counts/review?sessionId=${sid}`);
+    expect(asApprover.body.approveBlockedReason).toBeNull();
+    expect((await command(sup, "counts/approve", { sessionId: sid })).status).toBe(200);
+  }, 60000);
+
+  it("with no stock band for the location's branch the approver is told where to set one up", async () => {
+    const boss = await person("super_admin"); // counts it; no super_admin stock band in this branch
+    const loc = await location(`NoBand-${crypto.randomUUID()}`);
+    const p = await product();
+    await stockIn(loc, [{ p, qty: 10 }]);
+    const plan = await command(admin, "counts/plan", { locationId: loc, assignedTo: boss.userId, blindCount: false });
+    expect(plan.status).toBe(200);
+    const sid = plan.body.id;
+    const ls = (await lines(boss, sid)).lines;
+    await command(boss, "counts/save-lines", { sessionId: sid, lines: [{ lineId: ls[0].id, countedBase: 9 }] });
+    await command(boss, "counts/submit", { sessionId: sid });
+    const res = await command(sup, "counts/approve", { sessionId: sid });
+    expect(res.status).toBe(409);
+    expect(res.body.error.message).toBe(
+      "No stock approval limit is set for Counts test. An administrator adds one in Admin → Fiscal & authority → Price and discount authority (Override: Stock).",
+    );
+  }, 60000);
+});

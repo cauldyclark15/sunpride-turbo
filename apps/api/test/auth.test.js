@@ -386,3 +386,17 @@ describe("native D3 flow", () => {
     );
   });
 });
+
+describe("WEB-016: a turned-off profile is told so, not 'not invited'", () => {
+  test("/api/me says access is turned off for a disabled profile", async () => {
+    const userId = await createUser(h, "off@example.com", "off password 1");
+    await h.db`insert into profiles(user_id,auth_subject,name,email,role,status) values(${userId},${userId},'Turned Off','off@example.com','viewer','disabled')`;
+    const res = await post("/api/auth/sign-in", { email: "off@example.com", password: "off password 1" });
+    const cookie = cookieOf(res);
+    const me = await h.fetch("/api/me", { headers: { cookie } });
+    expect(me.status).toBe(200);
+    const body = /** @type {any} */ (await me.json());
+    expect(body.profile).toBeNull();
+    expect(body.access).toBe("turned_off");
+  });
+});
