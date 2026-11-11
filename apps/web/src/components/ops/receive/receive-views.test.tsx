@@ -250,3 +250,20 @@ describe("Receive delivery grid", () => {
     expect(html).not.toContain("Batch number");
   });
 });
+
+describe("WEB-098/WEB-070: a posted delivery stays confirmed", () => {
+  it("shows Delivery posted with the receipt number and a way back", async () => {
+    const { DeliveryPostedView } = await import(".");
+    const html = renderToStaticMarkup(
+      createElement(DeliveryPostedView, {
+        number: "RCV-SMP-DEPOT-261111-0001",
+        onAnother: () => {},
+        onDone: () => {},
+      }),
+    );
+    expect(html).toContain("Delivery posted");
+    expect(html).toContain("Posted as RCV-SMP-DEPOT-261111-0001");
+    expect(html).toContain("Receive another delivery");
+    expect(html).toContain("Back to To receive");
+  });
+});

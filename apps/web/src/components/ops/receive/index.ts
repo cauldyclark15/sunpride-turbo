@@ -4,7 +4,11 @@ export type {
   QueueTransfer,
   QueueLoadIn,
 } from "./receive-queue";
-export { ReceiveDelivery, ReceiveDeliveryView } from "./receive-delivery";
+export {
+  DeliveryPostedView,
+  ReceiveDelivery,
+  ReceiveDeliveryView,
+} from "./receive-delivery";
 export { ReceiveTransfer, ReceiveGrid } from "./receive-transfer";
 export { PhotoCount } from "./photo-count";
 export {

@@ -115,6 +115,14 @@ const fromDate = (value: FormDataEntryValue | null) =>
   new Date(`${String(value)}T00:00:00+08:00`).getTime();
 const failure = (e: unknown) =>
   e instanceof Error ? e.message : "The change was not saved";
+/** F-501: the API refuses to ACTIVATE a new promotion that has no approved campaign budget, and this form has no
+ * campaign field, so a new promotion is saved Inactive (sending "active" made every save fail). */
+export function newPromotionBody<T extends object>(fields: T) {
+  return { ...fields, status: "inactive" as const };
+}
+export const NEW_PROMOTION_NOTICE =
+  "Saved as Inactive. A new promotion goes live only once it is linked to an approved campaign budget.";
+
 const statusWord = (s: string) => (s === "active" ? "Active" : "Inactive");
 const ruleWord = (kind: string) =>
   kind === "percent_off"
@@ -313,15 +321,20 @@ export function PricingWorkspace() {
               bundlePriceMinor: Number(f.get("bundlePrice")),
             };
     if (
-      await save("/api/v1/pricing/promotions/save", {
-        code: String(f.get("code")),
-        name: String(f.get("name")),
-        priceListId: String(f.get("priceListId")) || null,
-        effectiveFrom: fromDate(f.get("effectiveFrom")),
-        rule,
-      })
-    )
+      await save(
+        "/api/v1/pricing/promotions/save",
+        newPromotionBody({
+          code: String(f.get("code")),
+          name: String(f.get("name")),
+          priceListId: String(f.get("priceListId")) || null,
+          effectiveFrom: fromDate(f.get("effectiveFrom")),
+          rule,
+        }),
+      )
+    ) {
       setAdding(null);
+      setNotice(NEW_PROMOTION_NOTICE);
+    }
   }
   async function editPromotion(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
