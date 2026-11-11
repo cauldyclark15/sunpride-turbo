@@ -267,6 +267,12 @@ export async function captureProspect(ctx) {
     photoStorageIds: [p.photo.blobId],
     clientRequestId: ctx.op.clientOpId,
     note: "Captured through the offline prospect form",
+    // SP-0170 (additive): the client's customer fields when the phone sends them.
+    ...(p.customer &&
+    typeof p.customer === "object" &&
+    !Array.isArray(p.customer)
+      ? { customer: p.customer }
+      : {}),
   });
   if (!result) throw invalid("Prospect enrolment did not return its record");
   await update(ctx.db, "outlet_enrolments", result.enrolmentId, {

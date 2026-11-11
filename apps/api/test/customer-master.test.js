@@ -95,7 +95,8 @@ beforeAll(async () => {
   h = await startHarness({ installers: [org, masters] });
   await seedDemo(h.db, { days: 3, anchorDate: plusDays(todayManila(), 1) });
   await loadPhGeography(h.db);
-  for (const role of ["admin", "manager", "viewer"]) await signIn(role);
+  for (const role of ["admin", "manager", "viewer", "agent"])
+    await signIn(role);
 }, 240000);
 afterAll(async () => {
   await h?.close();
@@ -531,6 +532,89 @@ describe("SP-0170 customer writer", () => {
       errors: [
         expect.objectContaining({ code: "required", label: "Customer Grp 2" }),
       ],
+    });
+  });
+  test("field capture: enrolment carries the client's fields; office completes; approval allocates the code for both records", async () => {
+    const [agent] =
+      await h.db`select p.user_id,p.org_unit_id from profiles p where p.email='agent@sunpride.test'`;
+    const [file] =
+      await h.db`insert into files(purpose,sha256,mime,size,status,created_by) values('outlet_photo',${"a".repeat(64)},'image/jpeg',100,'stored',${agent.user_id}) returning id`;
+    const proposed = await call(
+      "agent",
+      "POST",
+      "/api/v1/outlets/enrolment/propose",
+      {
+        name: "Field Sari-sari",
+        address: "Near the chapel",
+        contactName: "Owner Ana",
+        contactPhone: "09170000001",
+        latitude: 10.3,
+        longitude: 123.9,
+        photoStorageIds: [file.id],
+        clientRequestId: crypto.randomUUID(),
+        customer: {
+          salesOrgCode: "1000",
+          distributionChannelCode: "41",
+          customerGroup1Code: "RSF",
+          customerGroup2Code: "RSS",
+          mobileNo: "09170000001",
+          typeOfBusiness: "Sole Proprietor",
+          regionCode: "0700000000",
+          provinceCode: "0702200000",
+          municipalityCode: "0730600000",
+          barangayCode: "0730600003",
+          postalCode: "6000",
+        },
+      },
+    );
+    if (proposed.status !== 200) console.log(JSON.stringify(proposed.body));
+    expect(proposed.status).toBe(200);
+    const outletId = proposed.body.outletId;
+    const draft = await readCustomer(h.db, outletId);
+    expect(draft).toMatchObject({
+      completeness: "draft",
+      distributionChannelName: "Route Sales",
+      customerAddress: "Apas, City of Cebu, Cebu 6000",
+      legacyChannel: "41",
+    });
+    expect(draft.shipTos).toEqual([
+      expect.objectContaining({
+        sameAsCustomer: true,
+        contactPerson: "Owner Ana",
+        mobileNo: "09170000001",
+      }),
+    ]);
+    expect(await accounting(outletId)).toEqual([]);
+    const completed = await call(
+      "admin",
+      "PUT",
+      `/api/v1/customers/${outletId}`,
+      {
+        customer: {
+          registeredName: "Ana Santos",
+          taxClassificationCode: "1",
+          customerGroupCode: "74",
+          paymentTermsCode: "ZC03",
+          pricingProcedureCode: "2",
+          deliveringPlantCode: "1000",
+          salesOfficeCode: "100",
+        },
+      },
+    );
+    expect(completed.status).toBe(200);
+    expect(completed.body.completeness).toBe("complete");
+    const approved = await call(
+      "manager",
+      "POST",
+      `/api/v1/customers/${outletId}/approve`,
+      { reason: "Checked" },
+    );
+    expect(approved.status).toBe(200);
+    expect(approved.body.code).toMatch(/^SP\d{6}$/);
+    expect(approved.body.enrolmentStatus).toBe("approved");
+    expect((await accounting(outletId))[0]).toMatchObject({
+      code: approved.body.code,
+      active: true,
     });
   });
 });

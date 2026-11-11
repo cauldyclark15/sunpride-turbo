@@ -374,9 +374,19 @@ export async function saveCustomer(c, b, opts = {}) {
   if (existing?.status === "inactive") rule("This customer is inactive.");
   /** @type {Record<string, any>} */ const merged = { ...(existing ?? {}) };
   for (const key of INPUT_KEYS) if (key in input) merged[key] = input[key];
-  if (!existing && !Array.isArray(merged.shipTos) && b.sameAsCustomer !== false)
+  const [hadProfile] = opts.outletId
+    ? await c.db`select 1 from customer_profiles where outlet_id=${opts.outletId} and deleted_at is null`
+    : [];
+  if (
+    !hadProfile &&
+    !(Array.isArray(input.shipTos) && input.shipTos.length) &&
+    b.sameAsCustomer !== false
+  )
     merged.shipTos = [
-      { sameAsCustomer: true, contactPerson: input.contactPerson ?? null },
+      {
+        sameAsCustomer: true,
+        contactPerson: input.contactPerson ?? b.contactPerson ?? null,
+      },
     ];
   const geo = await derive(c.db, merged, input, existing);
   const lists = await referenceRows(c.db);
@@ -484,7 +494,7 @@ export async function saveCustomer(c, b, opts = {}) {
   );
   // Analytics tiles are gated by the outlets fingerprint: a profile change must move it too.
   await c.db`update outlets set updated_at=now() where id=${outletId}`;
-  if (Array.isArray(input.shipTos) || !existing) {
+  if (Array.isArray(input.shipTos) || !hadProfile) {
     await c.db`update customer_ship_tos set deleted_at=now() where outlet_id=${outletId} and deleted_at is null`;
     for (const [i, s] of (v.shipTos ?? []).entries())
       await c.db`insert into customer_ship_tos(outlet_id,ordinal,ship_to_party,ship_to_address,contact_person,mobile_no,email,same_as_customer,updated_by)
@@ -508,7 +518,8 @@ export async function saveCustomer(c, b, opts = {}) {
         reason,
       });
   }
-  if (!opts.fieldCapture || existing) await syncAccountingCustomer(c, outletId);
+  // Field drafts get their accounting customer when the office approves them.
+  if (!opts.fieldCapture) await syncAccountingCustomer(c, outletId);
   await c.db`insert into audit_logs(subject,action,entity_type,entity_id,details)
     values(${row.updated_by},${existing ? "customer.update" : "customer.create"},'outlets',${outletId},${JSON.stringify({ reason, completeness: row.completeness })})`;
   return outletId;

@@ -511,6 +511,10 @@ export async function enrolmentCommand(c, action, b) {
     return null;
   }
   if (action === "propose") {
+    // SP-0170 field capture: an optional `customer` object carries the client's fields; its
+    // Distribution Channel stands in for the old free-text channel.
+    if (b.customer && typeof b.customer === "object" && !b.channel)
+      b = { ...b, channel: b.customer.distributionChannelCode };
     let unit = actor.orgUnitId;
     if (b.territoryId) {
       await access(c, "territories", uuid(b.territoryId), "territory.read");
@@ -601,6 +605,23 @@ export async function enrolmentCommand(c, action, b) {
     for (const [i, id] of photos.entries())
       await c.db`insert into outlet_enrolment_photos(outlet_enrolment_id,ordinal,file_id) values(${row.id},${i},${id})`;
     await enrolmentEvent(c, row, "proposed", provisionalCode);
+    if (b.customer && typeof b.customer === "object") {
+      const { saveCustomer } = await import("../masters/customers.js");
+      await saveCustomer(
+        c,
+        {
+          customer: {
+            customerName: b.name,
+            ...b.customer,
+            latitude: b.latitude,
+            longitude: b.longitude,
+          },
+          contactPerson: b.contactName,
+          reason: "New store enrolment",
+        },
+        { outletId: outlet.id, fieldCapture: true },
+      );
+    }
     return {
       outletId: outlet.id,
       enrolmentId: row.id,
@@ -670,5 +691,12 @@ export async function enrolmentCommand(c, action, b) {
     decision_reason: reason,
   });
   await enrolmentEvent(c, row, b.decision, assigned, reason);
+  // SP-0170: a customer-master store keeps its accounting customer 1:1 (approved code / inactive).
+  const [profile] =
+    await c.db`select 1 from customer_profiles where outlet_id=${outlet.id}`;
+  if (profile) {
+    const { syncAccountingCustomer } = await import("../masters/customers.js");
+    await syncAccountingCustomer(c, outlet.id);
+  }
   return { code: assigned };
 }
