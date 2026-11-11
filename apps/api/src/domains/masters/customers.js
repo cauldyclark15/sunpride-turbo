@@ -481,6 +481,33 @@ export async function saveCustomer(c, b, opts = {}) {
     address_custom: merged.addressCustom ?? false,
   });
   for (const [key, column] of PROFILE_COLUMNS) row[column] = v[key] ?? null;
+  // Denormalized names for readers (analytics view, mobile summaries).
+  const names = referenceIndex(lists);
+  /** @param {string} list @param {Record<string, string|null>} parent @param {string|null} code */
+  const nameOf = (list, parent, code) =>
+    code
+      ? (names.options(list, parent).find((r) => r.code === code)?.name ?? null)
+      : null;
+  row.distribution_channel_name = nameOf(
+    "distribution_channel",
+    { salesOrgCode: v.salesOrgCode },
+    v.distributionChannelCode,
+  );
+  row.customer_group1_name = nameOf(
+    "customer_group_1",
+    { salesOrgCode: v.salesOrgCode, channelCode: v.distributionChannelCode },
+    v.customerGroup1Code,
+  );
+  row.customer_group2_name = nameOf(
+    "customer_group_2",
+    {
+      salesOrgCode: v.salesOrgCode,
+      channelCode: v.distributionChannelCode,
+      group1Code: v.customerGroup1Code,
+    },
+    v.customerGroup2Code,
+  );
+  row.customer_group_name = nameOf("customer_group", {}, v.customerGroupCode);
   row.country_code = v.countryCode ?? "PH";
   for (const k of Object.keys(row)) if (row[k] === undefined) delete row[k];
   const cols = Object.keys(row);

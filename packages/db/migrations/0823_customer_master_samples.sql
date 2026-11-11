@@ -17,7 +17,8 @@
 --    aligned with its only linked accounting customer (orders/AR already carry that code, so
 --    the store takes it), profile with clearly marked "Sample …" values for required fields the
 --    old model never had, Cebu PSGC location by sample territory, one ship-to "same as
---    customer". Idempotent; the demo seed calls it again after seeding a fresh lane.
+--    customer"; the store's existing address line is kept (built only when missing).
+--    Idempotent; the demo seed calls it again after seeding a fresh lane.
 -- 3. analytics_store_scope.channel / .subchannel now read Distribution Channel / Customer Grp 1
 --    names (old key only when a store has no profile); channel targets are re-keyed the same way.
 
@@ -117,30 +118,45 @@ begin
          from outlet_contacts ct where ct.outlet_id = r.id and ct.deleted_at is null order by ct.ordinal limit 1),
       '09000000000') into v_mobile;
     v_credit := coalesce(r.customer_credit, 0);
-    v_address := customer_address_line(null, null, null, 'Sample street', null,
-      loc.barangay_name, loc.municipality_name, loc.province_name, loc.postal_code);
+    -- Customer Address: the store's existing one-liner is kept; only a missing one is built.
+    v_address := coalesce(nullif(btrim(r.address), ''),
+      customer_address_line(null, null, null, 'Sample street', null,
+        loc.barangay_name, loc.municipality_name, loc.province_name, loc.postal_code));
     insert into customer_profiles(outlet_id, registered_name, trade_name, email, mobile_no, tel_no, tin,
       tax_classification_code, country_code, region_code, region_name, province_code, province_name,
       municipality_code, municipality_name, barangay_code, barangay_name, street1, postal_code,
+      address_custom,
       sales_org_code, sales_office_code, distribution_channel_code, customer_group1_code,
       customer_group2_code, customer_group_code, type_of_business, payment_terms_code, credit_limit,
-      pricing_procedure_code, delivering_plant_code, completeness, source, updated_by)
+      pricing_procedure_code, delivering_plant_code, completeness, source, updated_by,
+      distribution_channel_name, customer_group1_name, customer_group2_name, customer_group_name)
     values (r.id,
       case when r.name ~* '^sample' then r.name else 'Sample ' || r.name end,
       null, null, v_mobile, null, null,
       '1', 'PH', loc.region_code, loc.region_name, loc.province_code, loc.province_name,
       loc.municipality_code, loc.municipality_name, loc.barangay_code, loc.barangay_name,
       'Sample street', loc.postal_code,
+      v_address is distinct from customer_address_line(null, null, null, 'Sample street', null,
+        loc.barangay_name, loc.municipality_name, loc.province_name, loc.postal_code),
       '1000', '100', m.channel_code, m.group1_code, m.group2_code, m.customer_group_code,
       m.type_of_business, case when v_credit > 0 then '0005' else 'ZC03' end, v_credit,
       case when m.channel_code in ('10','30') then '1' else '2' end, '1000',
       case when exists (select 1 from outlet_pins p where p.outlet_id = r.id and p.deleted_at is null
         and p.status in ('pending','verified')) then 'complete' else 'draft' end,
-      'sp0170-sample-migration', p_actor);
+      'sp0170-sample-migration', p_actor,
+      (select v.name from customer_reference_values v where v.list = 'distribution_channel'
+         and v.sales_org_code = '1000' and v.code = m.channel_code),
+      (select v.name from customer_reference_values v where v.list = 'customer_group_1'
+         and v.sales_org_code = '1000' and v.channel_code = m.channel_code and v.code = m.group1_code),
+      (select v.name from customer_reference_values v where v.list = 'customer_group_2'
+         and v.sales_org_code = '1000' and v.channel_code = m.channel_code
+         and v.group1_code = m.group1_code and v.code = m.group2_code),
+      (select v.name from customer_reference_values v where v.list = 'customer_group'
+         and v.code = m.customer_group_code));
     insert into customer_ship_tos(outlet_id, ordinal, ship_to_party, ship_to_address, contact_person,
       mobile_no, same_as_customer, updated_by)
     values (r.id, 0, r.name, v_address, 'Sample contact person', v_mobile, true, p_actor);
-    update outlets set address = v_address where id = r.id and address is distinct from v_address;
+    update outlets set address = v_address where id = r.id and address is null;
     profiled := profiled + 1;
   end loop;
   if profiled > 0 then
@@ -215,19 +231,7 @@ left join lateral (select l.* from outlet_customer_links l where l.outlet_id = o
   and l.deleted_at is null and l.effective_from <= now() and (l.effective_to is null or l.effective_to > now())
   order by l.effective_from desc limit 1) link on true
 left join customers c on c.id = link.customer_id and c.deleted_at is null
-left join lateral (select p.sales_org_code, p.distribution_channel_code, p.customer_group1_code,
-    p.customer_group2_code, p.customer_group_code,
-    (select v.name from customer_reference_values v where v.list = 'distribution_channel'
-       and v.sales_org_code = p.sales_org_code and v.code = p.distribution_channel_code) as distribution_channel_name,
-    (select v.name from customer_reference_values v where v.list = 'customer_group_1'
-       and v.sales_org_code = p.sales_org_code and v.channel_code = p.distribution_channel_code
-       and v.code = p.customer_group1_code) as customer_group1_name,
-    (select v.name from customer_reference_values v where v.list = 'customer_group_2'
-       and v.sales_org_code = p.sales_org_code and v.channel_code = p.distribution_channel_code
-       and v.group1_code = p.customer_group1_code and v.code = p.customer_group2_code) as customer_group2_name,
-    (select v.name from customer_reference_values v where v.list = 'customer_group'
-       and v.code = p.customer_group_code) as customer_group_name
-  from customer_profiles p where p.outlet_id = o.id and p.deleted_at is null) cm on true
+left join customer_profiles cm on cm.outlet_id = o.id and cm.deleted_at is null
 where o.deleted_at is null;
 
 -- Cached sales lines carry the channel they were computed with; recompute it from the scope.

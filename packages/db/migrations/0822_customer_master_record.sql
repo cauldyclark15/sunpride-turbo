@@ -44,6 +44,12 @@ create table customer_profiles (
   customer_group_code text,
   type_of_business text,
   sales_partner_code text,
+  -- Names of the chosen assignment codes, kept by the writer/loader so readers (analytics,
+  -- mobile bootstrap) need one join instead of four list lookups per store.
+  distribution_channel_name text,
+  customer_group1_name text,
+  customer_group2_name text,
+  customer_group_name text,
   -- Payment Arrangement
   payment_terms_code text,
   credit_limit numeric(14,2) check (credit_limit is null or credit_limit >= 0),

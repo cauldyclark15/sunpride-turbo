@@ -120,6 +120,15 @@ export async function loadCustomerReference(db, opts = {}) {
       await t`update customer_reference_values set active=false,updated_by=${actor}
       where active and list<>'sales_partner' and not (list||'|'||sales_org_code||'|'||channel_code||'|'||group1_code||'|'||code = any(${t.array(keys, "TEXT")})) returning id`;
     changed += retired.length;
+    // Keep the names denormalized on customer profiles in step with the lists.
+    await t`update customer_profiles p set distribution_channel_name=v.name from customer_reference_values v
+      where v.list='distribution_channel' and v.sales_org_code=p.sales_org_code and v.code=p.distribution_channel_code and p.distribution_channel_name is distinct from v.name`;
+    await t`update customer_profiles p set customer_group1_name=v.name from customer_reference_values v
+      where v.list='customer_group_1' and v.sales_org_code=p.sales_org_code and v.channel_code=p.distribution_channel_code and v.code=p.customer_group1_code and p.customer_group1_name is distinct from v.name`;
+    await t`update customer_profiles p set customer_group2_name=v.name from customer_reference_values v
+      where v.list='customer_group_2' and v.sales_org_code=p.sales_org_code and v.channel_code=p.distribution_channel_code and v.group1_code=p.customer_group1_code and v.code=p.customer_group2_code and p.customer_group2_name is distinct from v.name`;
+    await t`update customer_profiles p set customer_group_name=v.name from customer_reference_values v
+      where v.list='customer_group' and v.code=p.customer_group_code and p.customer_group_name is distinct from v.name`;
     if (changed)
       await t`insert into audit_logs(subject,action,entity_type,entity_id,details)
         values(${actor},'customer_master.reference.load','customer_reference_values',${REFERENCE_SOURCE},${JSON.stringify({ changed, rows: rows.length })})`;

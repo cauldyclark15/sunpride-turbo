@@ -101,7 +101,9 @@ street", ship-to Contact Person "Sample contact person", Mobile No. from the sto
 6000, Cebu South → Basak Pardo 6000, Talisay → Bulacao 6045); Sales Office 100 SFI Cebu; Plant
 1000 Cebu Production; Tax Class 1; Terms 0005 (accounts with a credit limit) else ZC03; Pricing
 Procedure 1 (channels 10/30) else 2. Customer Code: the store takes its only accounting
-customer's code (orders/AR already carry it), e.g. `SMP-O0001` → `SMP-C0001`. Channel targets
+customer's code (orders/AR already carry it), e.g. `SMP-O0001` → `SMP-C0001` (fresh seeds create
+the store with that code directly). The store's existing address line is kept as Customer Address
+(`addressCustom`); a one-liner is built only where none existed. Channel targets
 and people's channel scope are re-keyed to the channel most of their stores moved to
 (`gt`+`pmot` → Route Sales, summed; `supermarket` → General Trade; `kas` → Key Accounts).
 Stores without any pin (two kickoff samples) stay `draft`.

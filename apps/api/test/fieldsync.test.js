@@ -359,8 +359,9 @@ describe("FIELDSYNC projections through real core proof/cursor harness", () => {
     const before = (await pull()).body.bundles[0].data.outlets[0];
     for (const k of v1) expect(k in before).toBe(true);
     expect(before.channel).toBeNull();
-    await h.db`insert into customer_profiles(outlet_id,sales_org_code,distribution_channel_code,customer_group1_code,customer_group2_code,customer_group_code,completeness,updated_by)
-      values(${f.outlet},'1000','41','RSF','RSS','74','draft','sp0170-test')`;
+    await h.db`insert into customer_profiles(outlet_id,sales_org_code,distribution_channel_code,customer_group1_code,customer_group2_code,customer_group_code,completeness,updated_by,
+      distribution_channel_name,customer_group1_name,customer_group2_name,customer_group_name)
+      values(${f.outlet},'1000','41','RSF','RSS','74','draft','sp0170-test','Route Sales','RS Frozen','Sari-Sari Store','NO GROUP')`;
     try {
       const o = (await pull()).body.bundles[0].data.outlets[0];
       for (const k of v1) expect(o[k]).toEqual(before[k]);
