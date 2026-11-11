@@ -25,7 +25,7 @@ object CensusRules {
         val keys = listOf("captureId", "channelId", "subchannelId") + (if (p.has("batchId") && !p.isNull("batchId")) listOf("batchId") else emptyList())
         keys.forEach { require(uuid.matches(p.getString(it))) { "Choose a valid census batch and channel." } }
         for ((key, max) in listOf("name" to 200, "address" to 500, "ownerName" to 150, "ownerPhone" to 40))
-            require(p.getString(key).trim().length in 1..max) { "Complete the store and owner details." }
+            require(p.getString(key).trim().length in 1..max) { "Complete the customer and owner details." }
         require(p.getString("ownerPhone").count { it.isDigit() } >= 7) { "Enter a complete owner phone number." }
         require(p.getString("estimatedClass") in listOf("A", "B", "C", "D"))
         require(p.optString("landmark").length <= 200) { "Keep the landmark under 200 characters." }
@@ -51,12 +51,12 @@ object CensusRules {
     }
     /** A change carries the whole edited store; location and photo are optional (left out = unchanged). */
     fun validateChange(p: JSONObject) {
-        require(uuid.matches(p.getString("captureId")) && uuid.matches(p.getString("targetOutletId"))) { "Open the store again, then edit it." }
+        require(uuid.matches(p.getString("captureId")) && uuid.matches(p.getString("targetOutletId"))) { "Open the customer again, then edit it." }
         for ((key, max) in listOf("name" to 200, "address" to 500, "ownerName" to 150, "ownerPhone" to 40))
-            require(p.getString(key).trim().length in 1..max) { "Complete the store and owner details." }
+            require(p.getString(key).trim().length in 1..max) { "Complete the customer and owner details." }
         require(p.getString("ownerPhone").count { it.isDigit() } >= 7) { "Enter a complete owner phone number." }
         require(p.optString("landmark").length <= 200) { "Keep the landmark under 200 characters." }
-        require(!p.has("channelId") && !p.has("batchId")) { "A store change cannot move the store to another batch or channel." }
+        require(!p.has("channelId") && !p.has("batchId")) { "A customer change cannot move the customer to another batch or channel." }
         val at = p.getLong("deviceTime")
         p.optJSONObject("location")?.let { l ->
             require(l.getDouble("latitude").isFinite() && l.getDouble("latitude") in -90.0..90.0)
@@ -173,7 +173,7 @@ object CensusRules {
 
     /** Live-test fix: Save with missing fields must point at each one in plain words, in form order. */
     enum class Field(val message: String) {
-        NAME("Type the store name"), OWNER("Type the owner's name"), PHONE("Type the owner's phone number"),
+        NAME("Type the customer name"), OWNER("Type the owner's name"), PHONE("Type the owner's phone number"),
         CHANNEL("Choose a channel"), SUBCHANNEL("Choose a sub-channel"), LOCATION("Tap Use my location or Search address"),
         ADDRESS("Type the address"), PHOTO("Take a storefront photo")
     }

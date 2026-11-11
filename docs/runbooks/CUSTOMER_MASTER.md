@@ -63,6 +63,38 @@ every sample store. `seedDemo` and the daily advance call `customer_master_backf
 Without the geography load, saves that send PSGC codes fail `invalid_option` (the API never
 guesses geography).
 
+## Field app "Add customer" and offline data (SP-0170)
+
+The Android field app's new-store flow (More / Customers / Today → **Add customer**) is the
+census screen, now in the client's shape: General Information, Location, Assignment and the
+ship-to Contact Person (SPEC rule 10); the office completes the rest. It is sent through the
+existing offline outbox as the same `census.capture` op with a `customer` object (contract §6).
+The server routes such a capture through the enrolment writer (provisional code, pending pin from
+the phone's GPS, pending enrolment, `draft` profile with a "same as customer" ship-to) instead of
+the census review queue, so it appears in the office as a prospect customer to complete and
+approve. Old app versions (no `customer`) keep the census review path unchanged.
+
+Offline data, smallest correct set:
+
+- **Reference lists** (~250 rows) ride in `GET /api/v1/masters/census-config` as
+  `customerMaster: { salesOrgCode, provinceCodes, lists }` — already cached per grant on the
+  phone (CensusConfigCache). `salesOrgCode` = the Sales Organization most of the agent's
+  customers use (SFI 1000 when none); `provinceCodes` = provinces of the agent's customers.
+- **Geography**: `GET /api/v1/geography/pack` (every region, province, municipality and postal
+  code, ~1.7k rows, one request) and `GET /api/v1/geography/pack/barangays?provinceCode=`
+  (barangays one province at a time). The phone keeps them in its encrypted store
+  (`local.geography`, refreshed after 30 days when online): the pack, the barangays of
+  `provinceCodes`, and of any province picked while online. When a province's barangays are not
+  on the phone, Barangay is left for the office (not required at capture).
+- Field-required at capture (beyond the shared `draft` rules): Customer Name, Mobile No., Region,
+  Province, Municipality, Barangay (when on the phone), Postal Code (when the municipality has
+  one), Geographical Coordinates (GPS ±<50 m), Sales Organization, Distribution Channel, Customer
+  Grp 1/Grp 2 (when the chain has them), Customer Group, Type of Business, Contact Person, and the
+  storefront photo the enrolment needs.
+- The Kotlin port of the rules (`apps/field-android/.../census/CustomerMaster.kt`) is held to
+  the JS package by `packages/customer-master/fixtures/android-parity.json` (regenerate with
+  `bun packages/customer-master/scripts/android-parity.js`; both sides test it).
+
 ## Lifecycle
 
 1. **Field capture** (prospect): the phone's enrolment carries an optional `customer` object →

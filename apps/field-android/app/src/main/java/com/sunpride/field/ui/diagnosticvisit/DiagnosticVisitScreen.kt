@@ -249,7 +249,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         "No products set up for this account yet. Ask your office.",
                         Modifier.padding(16.dp).testTag("order-unavailable"),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    else ListRow("Add order", "Search this store's products", "activity",
+                    else ListRow("Add order", "Search this customer's products", "activity",
                         Modifier.testTag("order-new"), onClick = { controller.openOrder() })
                 }
                 SectionCard("Note") {

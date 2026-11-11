@@ -439,7 +439,6 @@ export async function createBatch(ctx, p) {
   await ctx.db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${actor.userId},'F-011.census.batch','census',${batch.id},'Census batch created')`;
   return { id: batch.id };
 }
-/** @param {any} ctx @param {any} p */
 /** SP-0170 "Add customer": the same census.capture op, with the client's `customer` object
  * (contract §6). It goes through the existing enrolment writer (provisional code, pending pin,
  * pending enrolment) and saves the customer profile at `draft`; the office completes Payment,
@@ -490,6 +489,7 @@ async function captureCustomer(ctx, actor, p) {
   ctx.publish("masters");
   return { entityId: result.outletId, eventIds: [] };
 }
+/** @param {any} ctx @param {any} p */
 export async function reviewCensus(ctx, p) {
   const actor = await requireCapability(ctx, "outlet.verify");
   const [capture] =

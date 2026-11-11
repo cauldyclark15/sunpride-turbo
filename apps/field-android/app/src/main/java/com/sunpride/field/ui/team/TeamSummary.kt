@@ -161,7 +161,7 @@ object TeamText {
     ).joinToString(" · ")
 
     fun kind(e: TeamException, now: Long, dayCloseAt: Long): String = when (e.kind) {
-        "location" -> if (e.result == "unreliable") "Location unreliable" else "Outside the store radius"
+        "location" -> if (e.result == "unreliable") "Location unreliable" else "Outside the customer radius"
         "out_of_sequence" -> "Out of MCP order"
         "unplanned" -> "Unplanned call"
         "nonproductive" -> "Nonproductive call"

@@ -121,7 +121,7 @@ class TeamSummaryTest {
         assertEquals("2 to review · 1 out of order · 1 nonproductive · 1 late sync", TeamText.flags(ana))
         assertEquals("", TeamText.flags(ana.copy(openExceptions = 0, outOfSequence = 0, nonproductive = 0, lateSync = 0)))
         val (location, order) = s.exceptions
-        assertEquals("Outside the store radius", TeamText.kind(location, now, close))
+        assertEquals("Outside the customer radius", TeamText.kind(location, now, close))
         assertEquals("Ana · Outlet 1 · 320 m away · Needs review on the web", TeamText.detail(location))
         assertEquals("Out of MCP order", TeamText.kind(order, now, close))
         assertEquals("Ana · Outlet 1 · stop 1 after 2", TeamText.detail(order))

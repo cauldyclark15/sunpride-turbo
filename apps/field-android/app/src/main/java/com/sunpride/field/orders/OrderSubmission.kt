@@ -87,7 +87,7 @@ object OrderSubmission {
             note = "Credit is checked by the office when the order arrives.")
         if (summary == null || summary.outletId != draft.outletId || summary.availability != "available") return unknown()
         val limit = summary.creditLimitMinor ?: return OrderCheck("Credit", null, blocking = false,
-            note = "No credit limit set for this store")
+            note = "No credit limit set for this customer")
         val own = totals(draft)
         val amount = own.totalMinor ?: return unknown()
         // An office-priced line has no known amount: the known part can prove "over", never "within".
@@ -106,11 +106,11 @@ object OrderSubmission {
         if (left == Long.MIN_VALUE) return unknown()
         return when {
             left < 0 -> OrderCheck("Credit", null, blocking = false,
-                note = "Over the store's credit limit by ${if (incomplete) "at least " else ""}${money(-left)}. You can still send it; the office must approve.",
+                note = "Over the customer's credit limit by ${if (incomplete) "at least " else ""}${money(-left)}. You can still send it; the office must approve.",
                 warning = true)
             incomplete -> OrderCheck("Credit", null, blocking = false,
                 note = "Some lines are priced by the office, so the office checks credit when the order arrives.")
-            else -> OrderCheck("Within the store's credit limit", null, blocking = false,
+            else -> OrderCheck("Within the customer's credit limit", null, blocking = false,
                 note = "${money(left)} left after this order")
         }
     }

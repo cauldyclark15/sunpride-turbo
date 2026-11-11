@@ -115,7 +115,7 @@ fun OrderReviewScreen(visit: VisitDisplay, controller: FieldController, modifier
                                 else if (check.warning) "order-check-warning" else if (check.ok) "order-check-ok" else "order-check-problem"),
                             horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                             val bad = check.warning || !check.ok
-                            val pass = !bad && (check.blocking || check.label == "Within the store's credit limit")
+                            val pass = !bad && (check.blocking || check.label == "Within the customer's credit limit")
                             Glyph(if (pass) GlyphKind.CHECK else GlyphKind.INFO,
                                 if (bad) MaterialTheme.colorScheme.error else if (pass) Look.text(Look.Tone.GOOD)
                                 else MaterialTheme.colorScheme.onSurfaceVariant, 20.dp, Modifier.padding(top = 2.dp))

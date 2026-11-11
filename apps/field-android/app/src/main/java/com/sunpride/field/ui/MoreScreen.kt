@@ -37,7 +37,7 @@ fun MoreScreen(
         Group("Your work") {
             ListRow("Products", "Search and scan. Works offline", "box",
                 Modifier.testTag("catalogue-open"), onClick = onCatalogue)
-            if (onCensus != null) { Rule(); ListRow("Add store", "Works offline",
+            if (onCensus != null) { Rule(); ListRow("Add customer", "Works offline",
                 "shop", Modifier.testTag("census-open"), onClick = onCensus) }
             Rule(); ListRow("Attendance", "Time in and out, prospects", "clock",
                 Modifier.testTag("workforce-open"), onClick = onWorkforce)

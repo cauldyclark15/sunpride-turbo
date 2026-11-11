@@ -113,7 +113,7 @@ class SuggestedOrderTest {
         assertEquals("complete", order.historyStatus)
         // ANA-009 scoped history: say why less history was used; unknown statuses add nothing.
         assertEquals("3 product(s) suggested · covers 8 days (7 to next visit + 1 lead time)\nLead time is provisional." +
-            "\nThis account is shared with another store, so its order history is not used.",
+            "\nThis account is shared with another customer, so its order history is not used.",
             SuggestedOrderRules.summary(order.copy(historyStatus = "shared_account")))
         assertEquals("Some of this account's orders are outside your area and were not counted.",
             SuggestedOrderRules.historyNote("partial_scope"))

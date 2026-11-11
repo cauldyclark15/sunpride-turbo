@@ -132,8 +132,8 @@ object SuggestedOrderRules {
     /** Why the engine used less history than usual (it never invents the missing part). */
     fun historyNote(status: String?): String? = when (status) {
         "partial_scope" -> "Some of this account's orders are outside your area and were not counted."
-        "shared_account" -> "This account is shared with another store, so its order history is not used."
-        "no_customer" -> "No customer account is linked to this store, so there is no order history."
+        "shared_account" -> "This account is shared with another customer, so its order history is not used."
+        "no_customer" -> "No customer account is linked to this customer, so there is no order history."
         else -> null
     }
 }
