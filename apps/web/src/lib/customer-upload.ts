@@ -1,27 +1,32 @@
 /**
- * SP-0169 store ("customer") upload — browser-side helpers.
+ * SP-0170 customer upload (machinery from SP-0169) — browser-side helpers.
  *
- * The template and the synchronous row rules come from the shared
- * `@sunpride/import-templates/customers` module, so the browser check on file pick and the
- * server's authoritative re-check run the very same code.
+ * The template (the client's "Customer Information template" layout), the file reader and the
+ * row rules come from the shared `@sunpride/import-templates/customers` module, which runs the
+ * `@sunpride/customer-master` rules at the `complete` level. The browser check on file pick and
+ * the server's authoritative re-check (which adds PSGC geography and existing customers) run the
+ * very same code.
  */
 import {
   CUSTOMER_CHUNK_SIZE,
+  CUSTOMER_COLUMNS,
   CUSTOMER_HEADERS,
   CUSTOMER_MAX_ROWS,
+  CUSTOMER_TEMPLATE_CSV_NAME,
   CUSTOMER_TEMPLATE_FILE_NAME,
   customerTemplateCsv,
-  headerError,
-  validateCustomerRowsSync,
+  parseCustomerFile,
+  sortErrors,
+  validateCustomerRows,
   type UploadError,
   type UploadRow,
 } from "@sunpride/import-templates/customers";
-import type { ParsedCsv } from "./csv";
+import type { ReferenceRow } from "@sunpride/customer-master";
 import { downloadCsv } from "./import-csv-export";
 
 export type { UploadError, UploadRow };
-export { CUSTOMER_HEADERS, CUSTOMER_CHUNK_SIZE, CUSTOMER_MAX_ROWS };
-export const STORE_UPLOAD_API = "/api/v1/imports/store-upload";
+export { CUSTOMER_COLUMNS, CUSTOMER_HEADERS, CUSTOMER_CHUNK_SIZE, CUSTOMER_MAX_ROWS };
+export const CUSTOMER_UPLOAD_API = "/api/v1/imports/customer-upload";
 /** Rows per async-validation request (progress granularity). */
 export const PREVIEW_BATCH = 1000;
 
@@ -50,7 +55,11 @@ export type PreviewResult = {
   rows: PreviewRow[];
 };
 export type RunStatus =
-  "queued" | "running" | "completed" | "completed_with_errors" | "interrupted";
+  | "queued"
+  | "running"
+  | "completed"
+  | "completed_with_errors"
+  | "interrupted";
 export type RunSummary = {
   id: string;
   fileName: string;
@@ -78,6 +87,7 @@ export type RunRow = {
   status: "pending" | "succeeded" | "failed";
   errors: {
     column: string | null;
+    label?: string | null;
     code: string;
     message: string;
     value: string;
@@ -95,52 +105,39 @@ export const STATUS_LABEL: Record<RunStatus, string> = {
   interrupted: "Interrupted",
 };
 
+/** The client's label of a column id ("shipTo.mobileNo" → "Mobile No. (ship-to)"). */
+export function columnLabel(id: string | null | undefined) {
+  if (!id) return "";
+  const c = CUSTOMER_COLUMNS.find((x) => x.id === id);
+  if (!c) return id;
+  return c.shipTo &&
+    CUSTOMER_COLUMNS.some((o) => !o.shipTo && o.label === c.label)
+    ? `${c.label} (ship-to)`
+    : c.label;
+}
+
+/** Read an .xlsx or .csv file into template rows. */
+export async function readCustomerFile(file: File) {
+  return parseCustomerFile(file.name, new Uint8Array(await file.arrayBuffer()));
+}
+
 /**
- * Instant (synchronous) checks on file pick: header, required cells, formats and duplicates.
- * Parse errors from the CSV/XLSX reader are kept, tied to their row.
+ * Instant (synchronous) checks on file pick: the shared rules at the `complete` level with the
+ * reference lists (geography is checked on the server).
  */
 export function syncValidate(
-  parsed: Pick<ParsedCsv, "header" | "rows" | "errors">,
-): {
-  fileErrors: UploadError[];
-  rowErrors: UploadError[];
-} {
-  const fileErrors: UploadError[] = [];
-  const header = headerError(parsed.header);
-  if (header) fileErrors.push(header);
-  if (!parsed.rows.length)
-    fileErrors.push({
-      rowNumber: 1,
-      code: "empty_file",
-      message: "The file has no store rows under the header.",
-    });
-  if (parsed.rows.length > CUSTOMER_MAX_ROWS)
-    fileErrors.push({
-      rowNumber: 1,
-      code: "too_many_rows",
-      message: `The file has ${parsed.rows.length} rows. Upload at most ${CUSTOMER_MAX_ROWS} stores per file.`,
-    });
-  const parseRowErrors: UploadError[] = parsed.errors
-    .filter((e) => e.rowNumber > 1)
-    .map((e) => ({ ...e }));
-  // Header-level parse errors are already covered by headerError's exact message.
-  if (fileErrors.length) return { fileErrors, rowErrors: parseRowErrors };
+  parsed: { rows: UploadRow[]; fileErrors: UploadError[] },
+  reference: ReferenceRow[],
+): { fileErrors: UploadError[]; rowErrors: UploadError[] } {
+  if (parsed.fileErrors.length)
+    return { fileErrors: parsed.fileErrors, rowErrors: [] };
   return {
-    fileErrors,
-    rowErrors: sortErrors([
-      ...parseRowErrors,
-      ...validateCustomerRowsSync(parsed.rows),
-    ]),
+    fileErrors: [],
+    rowErrors: validateCustomerRows(parsed.rows, reference).errors,
   };
 }
 
-export function sortErrors(errors: UploadError[]) {
-  const order = (c?: string) =>
-    c ? CUSTOMER_HEADERS.indexOf(c) : Number.MAX_SAFE_INTEGER;
-  return [...errors].sort(
-    (a, b) => a.rowNumber - b.rowNumber || order(a.column) - order(b.column),
-  );
-}
+export { sortErrors };
 
 /** rowNumber → column ("" for whole-row) → errors, for cell highlighting. */
 export function errorIndex(errors: UploadError[]) {
@@ -181,30 +178,32 @@ function cell(value: string | number | null | undefined) {
 const line = (cells: (string | number | null | undefined)[]) =>
   cells.map(cell).join(",");
 
-/** Every problem: row, column, offending value, code, message. */
+/** Every problem: row, the client's column label, offending value, message, code. */
 export function errorsCsv(errors: UploadError[]) {
   return (
+    "\uFEFF" +
     [
-      "row_number,column,value,code,message",
+      "Row,Column,Value,Problem,Code",
       ...errors.map((e) =>
-        line([e.rowNumber, e.column ?? "", e.value ?? "", e.code, e.message]),
+        line([
+          e.rowNumber,
+          e.label ?? columnLabel(e.column),
+          e.value ?? "",
+          e.message,
+          e.code,
+        ]),
       ),
-    ].join("\r\n") + "\r\n"
+    ].join("\r\n") +
+    "\r\n"
   );
 }
 
-/** Run report: the original columns + result + error, one line per uploaded row. */
+/** Run report: the template's columns + result + problems, one line per uploaded row. */
 export function reportCsv(rows: RunRow[]) {
   return (
+    "\uFEFF" +
     [
-      [
-        ...CUSTOMER_HEADERS,
-        "result",
-        "action",
-        "error_column",
-        "error_code",
-        "error_message",
-      ].join(","),
+      line([...CUSTOMER_HEADERS, "Result", "Action", "Problem column", "Problem"]),
       ...rows.map((r) => {
         const result =
           r.status === "succeeded"
@@ -213,24 +212,46 @@ export function reportCsv(rows: RunRow[]) {
               ? "failed"
               : "not processed";
         return line([
-          ...CUSTOMER_HEADERS.map((h) => r.values[h] ?? ""),
+          ...CUSTOMER_COLUMNS.map((c) => r.values[c.id] ?? ""),
           result,
           r.action ?? "",
-          r.errors.map((e) => e.column ?? "").join("; "),
-          r.errors.map((e) => e.code).join("; ") ||
-            (r.status === "pending" ? "not_processed" : ""),
+          r.errors.map((e) => e.label ?? columnLabel(e.column)).join("; "),
           r.errors.map((e) => e.message).join(" ") ||
             (r.status === "pending"
               ? "The import stopped before this row was processed. Resume the upload."
               : ""),
         ]);
       }),
-    ].join("\r\n") + "\r\n"
+    ].join("\r\n") +
+    "\r\n"
   );
 }
 
-export function downloadTemplate() {
-  downloadCsv(CUSTOMER_TEMPLATE_FILE_NAME, customerTemplateCsv());
+function downloadBlob(name: string, blob: Blob) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = name;
+  link.click();
+  URL.revokeObjectURL(url);
+}
+
+/** The Excel template, built in the browser by the same code as the client file. */
+export async function downloadTemplateXlsx(reference: ReferenceRow[]) {
+  const { customerTemplateXlsx } = await import(
+    "@sunpride/import-templates/customers-xlsx"
+  );
+  const bytes = await customerTemplateXlsx(reference);
+  downloadBlob(
+    CUSTOMER_TEMPLATE_FILE_NAME,
+    new Blob([bytes as BlobPart], {
+      type: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    }),
+  );
+}
+
+export function downloadTemplateCsv() {
+  downloadCsv(CUSTOMER_TEMPLATE_CSV_NAME, customerTemplateCsv());
 }
 
 /** 0–100 for a progress bar. */

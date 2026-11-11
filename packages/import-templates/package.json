@@ -4,12 +4,20 @@
   "private": true,
   "type": "module",
   "exports": {
-    "./customers": {
-      "types": "./src/customers.d.ts",
-      "default": "./src/customers.js"
-    }
+    "./customers": "./src/customers.js",
+    "./customers-xlsx": "./src/customers-xlsx.js"
   },
   "scripts": {
-    "test": "bun test"
+    "test": "bun test",
+    "typecheck": "tsc -p jsconfig.json",
+    "lint": "tsc -p jsconfig.json"
+  },
+  "dependencies": {
+    "@sunpride/customer-master": "workspace:*",
+    "exceljs": "4.4.0"
+  },
+  "devDependencies": {
+    "bun-types": "1.3.14",
+    "typescript": "5.9.3"
   }
 }

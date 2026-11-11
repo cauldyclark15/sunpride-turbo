@@ -1,8 +1,14 @@
-// SP-0169 store ("customer") CSV upload: validate → preview → background parallel import.
+// SP-0170 customer upload (machinery from SP-0169): validate → preview → background parallel
+// import of Sunpride's customer master rows (their "Customer Information template" layout).
 //
-// - Sync rules live in @sunpride/import-templates/customers and run in the browser AND here.
-// - Async rules (channel/sub-channel/area lookups, existing codes, scope) run on preview and
-//   again inside every chunk transaction at import time: the server is authoritative.
+// - Template, header mapping and row rules live in @sunpride/import-templates/customers, which
+//   runs the shared @sunpride/customer-master rules at the `complete` level. The browser runs
+//   them on file pick (no geography); here they run again with PSGC geography and the database
+//   (existing customers, scope) on preview AND inside every chunk transaction: the server is
+//   authoritative.
+// - Writes go through the customer-master writer (saveCustomer: store + profile + ship-to +
+//   pending pin + 1:1 accounting customer, audit), never raw inserts. Create or update by
+//   Customer Code; blank optional cells on an update keep the current values.
 // - A run is split into chunks of CUSTOMER_CHUNK_SIZE rows processed by at most
 //   `runtime.concurrency` workers. Each chunk is ONE transaction; each row a savepoint, so a bad
 //   row fails alone and every row's outcome commits together with its chunk.
@@ -12,28 +18,41 @@
 //   each chunk stores a server-owned chunk hash (chunkHashOf). Re-uploading the identical file
 //   returns the existing run instead of writing again.
 import { tx } from "@sunpride/db/client";
+import { referenceIndex } from "@sunpride/customer-master";
 import {
   CUSTOMER_CHUNK_SIZE,
+  CUSTOMER_COLUMNS,
   CUSTOMER_MAX_ROWS,
   cellOf,
-  composeAddress,
+  columnById,
+  columnOfField,
+  geoLookup,
   headerError,
+  listSheets,
   normaliseCode,
-  phMobile,
-  validateCustomerRowsSync,
+  sortErrors,
+  validateCustomerRows,
+  writerInput,
 } from "@sunpride/import-templates/customers";
 import { ApiError } from "../../core/errors.js";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { actorFor } from "../../core/context.js";
 import { scopeFilterForActor } from "../org/scope.js";
-import { outletCommand, pinCommand } from "../org/outlets.js";
 import { writeAudit } from "../org/audit.js";
+import {
+  approveCustomer,
+  readCustomer,
+  referenceRows,
+  saveCustomer,
+} from "../masters/customers.js";
 import { ORGANIZATION, chunkHashOf } from "./format.js";
 
-export const STORE_UPLOAD_KIND = "store_upload";
+export const CUSTOMER_UPLOAD_KIND = "customer_upload";
 const CAP = "masterdata.manage";
+const COLUMN_IDS = new Set(CUSTOMER_COLUMNS.map((c) => c.id));
 /** @typedef {import('@sunpride/import-templates/customers').UploadRow} UploadRow */
 /** @typedef {import('@sunpride/import-templates/customers').UploadError} UploadError */
+/** @typedef {import('@sunpride/import-templates/customers').GeoData} GeoData */
 
 /** Process-wide worker state. Tests tune the numbers and hooks. */
 export const runtime = {
@@ -53,16 +72,16 @@ export const runtime = {
 /** @param {any} body */
 function checkBody(body) {
   const header = body?.header;
-  const bad = headerError(Array.isArray(header) ? header : []);
+  const bad = headerError(Array.isArray(header) ? header.map(String) : []);
   if (bad) throw new ApiError("header_mismatch", 400, bad.message);
   const rows = body.rows;
   if (!Array.isArray(rows) || !rows.length)
-    throw new ApiError("empty_file", 400, "The file has no store rows.");
+    throw new ApiError("empty_file", 400, "The file has no customer rows.");
   if (rows.length > CUSTOMER_MAX_ROWS)
     throw new ApiError(
       "too_many_rows",
       400,
-      `Upload at most ${CUSTOMER_MAX_ROWS} stores per file. Split the file and upload each part.`,
+      `Upload at most ${CUSTOMER_MAX_ROWS} customers per file. Split the file and upload each part.`,
     );
   const numbers = new Set();
   for (const row of rows) {
@@ -75,9 +94,9 @@ function checkBody(body) {
       Array.isArray(row.values) ||
       Object.entries(row.values).some(
         ([key, value]) =>
-          !header.includes(key) ||
+          !COLUMN_IDS.has(key) ||
           typeof value !== "string" ||
-          value.length > 500,
+          value.length > 600,
       )
     )
       throw new ApiError(
@@ -90,7 +109,7 @@ function checkBody(body) {
   const fileName =
     typeof body.fileName === "string" && body.fileName.trim()
       ? body.fileName.trim().slice(0, 200)
-      : "upload.csv";
+      : "upload.xlsx";
   /** @type {UploadRow[]} */
   const clean = rows.map((/** @type {any} */ r) => ({
     rowNumber: r.rowNumber,
@@ -101,236 +120,106 @@ function checkBody(body) {
   return { header: header.map(String), rows: clean, fileName };
 }
 
-/** Reference data loaded once per validation pass. @param {any} db @param {any} actor */
+/** Reference lists, the PSGC regions/provinces/municipalities and the actor's scope, loaded
+ * once per validation pass or run. @param {any} db @param {any} actor */
 async function loadLookups(db, actor) {
-  const channels =
-    await db`select d.id,d.code,v.label from master_definitions d join master_versions v on v.master_id=d.id where d.kind='channel' and v.status='active' and v.effective_from<=now() and (v.effective_to is null or v.effective_to>now())`;
-  const subchannels =
-    await db`select d.id,d.code,v.label,v.data from master_definitions d join master_versions v on v.master_id=d.id where d.kind='subchannel' and v.status='active' and v.effective_from<=now() and (v.effective_to is null or v.effective_to>now())`;
-  const aliases =
-    await db`select legacy_key,channel_id,subchannel_id from master_channel_aliases`;
-  const units =
-    await db`select id,code,name from org_units where status='active' and deleted_at is null and effective_from<=now() and (effective_to is null or effective_to>now())`;
+  const lists = await referenceRows(db);
+  const regions = await db`select code,name from ph_regions order by code`;
+  const provinces =
+    await db`select code,name,region_code as "regionCode" from ph_provinces order by code`;
+  const municipalities =
+    await db`select code,name,province_code as "provinceCode",region_code as "regionCode" from ph_municipalities order by code`;
   const { unitIds } = await scopeFilterForActor(db, actor);
   return {
-    channels,
-    subchannels,
-    aliases,
-    units,
+    lists,
+    index: referenceIndex(lists),
+    /** @type {Omit<GeoData,'barangays'|'postalCodes'>} */
+    geo: { regions, provinces, municipalities },
     scope: unitIds === null ? null : new Set(unitIds),
   };
 }
+/** @typedef {Awaited<ReturnType<typeof loadLookups>>} Lookups */
 
-/** @param {any[]} list @param {string} key */
-function byCodeOrLabel(list, key) {
-  const upper = key.toUpperCase(),
-    lower = key.toLowerCase();
-  return list.filter(
-    (r) =>
-      String(r.code).toUpperCase() === upper ||
-      String(r.label ?? "").toLowerCase() === lower,
-  );
+/** Barangays and postal codes of the municipalities the rows name (42k barangays are never
+ * loaded whole). @param {any} db @param {UploadRow[]} rows @param {Lookups} lookups */
+async function geoFor(db, rows, lookups) {
+  const light = geoLookup({
+    ...lookups.geo,
+    barangays: [],
+    postalCodes: new Map(),
+  });
+  const codes = [
+    ...new Set(
+      rows
+        .map((r) => light.resolve(r.values).municipality?.code)
+        .filter(Boolean),
+    ),
+  ];
+  const barangays = codes.length
+    ? await db`select code,name,municipality_code as "municipalityCode" from ph_barangays where municipality_code=any(${db.array(codes, "TEXT")}::text[])`
+    : [];
+  const postal = codes.length
+    ? await db`select municipality_code,postal_code from ph_postal_codes where municipality_code=any(${db.array(codes, "TEXT")}::text[]) order by postal_code`
+    : [];
+  /** @type {Map<string,string[]>} */ const postalCodes = new Map();
+  for (const p of postal)
+    postalCodes.set(p.municipality_code, [
+      ...(postalCodes.get(p.municipality_code) ?? []),
+      p.postal_code,
+    ]);
+  return geoLookup({ ...lookups.geo, barangays, postalCodes });
 }
 
 /**
- * Async (database) rules. Adds errors for rows and returns resolved items for valid rows.
- * @param {any} db @param {UploadRow[]} rows @param {Awaited<ReturnType<typeof loadLookups>>} lookups @param {UploadError[]} syncErrors
+ * Full server validation: the shared rules with PSGC geography, then the database rules
+ * (existing customer in scope and not inactive). Returns errors and the resolved items.
+ * @param {any} db @param {UploadRow[]} rows @param {Lookups} lookups
  */
-async function resolveRows(db, rows, lookups, syncErrors) {
-  /** @type {UploadError[]} */ const errors = [...syncErrors];
-  const bad = new Set(syncErrors.map((e) => `${e.rowNumber}:${e.column}`));
-  const codes = rows
-    .map((r) => normaliseCode(cellOf(r, "customer_code")))
-    .filter(Boolean);
-  const billingCodes = rows.map((r) =>
-    normaliseCode(
-      cellOf(r, "billing_account_code") || cellOf(r, "customer_code"),
-    ),
-  );
+async function resolveRows(db, rows, lookups) {
+  const geo = await geoFor(db, rows, lookups);
+  const checked = validateCustomerRows(rows, lookups.index, geo);
+  /** @type {UploadError[]} */ const errors = [...checked.errors];
+  const codes = [...checked.items.values()].map((i) => i.code).filter(Boolean);
   const outlets = codes.length
     ? await db`select id,code,status,custodian_org_unit_id from outlets where organization_id=${ORGANIZATION} and deleted_at is null and code=any(${db.array(codes, "TEXT")}::text[])`
     : [];
-  const customers =
-    await db`select id,code,active from customers where deleted_at is null and code=any(${db.array(billingCodes, "TEXT")}::text[])`;
-  const outletByCode = new Map(
+  /** @type {Map<string, any>} */ const outletByCode = new Map(
     outlets.map((/** @type {any} */ o) => [o.code, o]),
   );
-  const customerByCode = new Map(
-    customers.map((/** @type {any} */ c) => [c.code, c]),
-  );
-  const unitName = new Map(
-    lookups.units.map((/** @type {any} */ u) => [u.id, u.name]),
-  );
-  /** @type {Map<number, any>} */ const resolved = new Map();
+  /** @type {Map<number, {item:any, existing:any}>} */ const resolved =
+    new Map();
+  const bad = new Set(checked.errors.map((e) => e.rowNumber));
   for (const row of rows) {
-    const start = errors.length;
-    /** @param {string} column @param {string} code @param {string} message */
-    const fail = (column, code, message) => {
-      if (bad.has(`${row.rowNumber}:${column}`)) return;
+    const item = /** @type {any} */ (checked.items.get(row.rowNumber));
+    const existing = outletByCode.get(item.code) ?? null;
+    /** @param {string} code @param {string} message */
+    const fail = (code, message) => {
       errors.push({
         rowNumber: row.rowNumber,
-        column,
+        column: "code",
+        label: "Customer Code",
         code,
         message,
-        value: cellOf(row, column),
+        value: cellOf(row, "code"),
       });
+      bad.add(row.rowNumber);
     };
-    const rowHadSync = syncErrors.some((e) => e.rowNumber === row.rowNumber);
-    // channel: governed code, exact label, or a mapped legacy key
-    const channelKey = cellOf(row, "channel");
-    /** @type {any} */ let channel = null;
-    if (channelKey) {
-      const ids = new Set(
-        byCodeOrLabel(lookups.channels, channelKey).map((c) => c.id),
-      );
-      for (const a of lookups.aliases)
-        if (a.legacy_key === channelKey.toLowerCase()) ids.add(a.channel_id);
-      if (ids.size !== 1)
-        fail(
-          "channel",
-          "unknown_channel",
-          `"${channelKey}" is not a channel. Use a channel code or name from Master data → Channels.`,
-        );
-      else
-        channel = lookups.channels.find(
-          (/** @type {any} */ c) => c.id === [...ids][0],
-        );
-    }
-    const subKey = cellOf(row, "sub_channel");
-    /** @type {any} */ let sub = null;
-    if (subKey && channel) {
-      const matches = byCodeOrLabel(lookups.subchannels, subKey);
-      for (const a of lookups.aliases)
-        if (a.legacy_key === subKey.toLowerCase() && a.subchannel_id) {
-          const s = lookups.subchannels.find(
-            (/** @type {any} */ x) => x.id === a.subchannel_id,
-          );
-          if (s && !matches.includes(s)) matches.push(s);
-        }
-      const inChannel = matches.filter((s) => s.data?.channelId === channel.id);
-      if (inChannel.length === 1) sub = inChannel[0];
-      else if (matches.length && !inChannel.length)
-        fail(
-          "sub_channel",
-          "sub_channel_mismatch",
-          `"${subKey}" belongs to a different channel than "${channelKey}".`,
-        );
-      else
-        fail(
-          "sub_channel",
-          "unknown_sub_channel",
-          `"${subKey}" is not a sub-channel of "${channelKey}".`,
-        );
-    }
-    const areaKey = cellOf(row, "area");
-    /** @type {any} */ let unit = null;
-    if (areaKey) {
-      const byCode = lookups.units.filter(
-        (/** @type {any} */ u) =>
-          String(u.code).toUpperCase() === areaKey.toUpperCase(),
-      );
-      const byName = lookups.units.filter(
-        (/** @type {any} */ u) =>
-          String(u.name).toLowerCase() === areaKey.toLowerCase(),
-      );
-      const found = byCode.length === 1 ? byCode : byName;
-      if (!found.length)
-        fail(
-          "area",
-          "unknown_area",
-          `"${areaKey}" is not an active territory or branch. Use its code or exact name.`,
-        );
-      else if (found.length > 1)
-        fail(
-          "area",
-          "ambiguous_area",
-          `More than one area is named "${areaKey}". Use the area's code instead.`,
-        );
-      else if (lookups.scope && !lookups.scope.has(found[0].id))
-        fail(
-          "area",
-          "area_out_of_scope",
-          `"${areaKey}" is outside the areas you manage.`,
-        );
-      else unit = found[0];
-    }
-    const code = normaliseCode(cellOf(row, "customer_code"));
-    const status = (cellOf(row, "status") || "active").toLowerCase();
-    const existing = code ? outletByCode.get(code) : undefined;
     if (existing) {
       if (lookups.scope && !lookups.scope.has(existing.custodian_org_unit_id))
         fail(
-          "customer_code",
-          "store_out_of_scope",
-          `Store ${code} already exists in an area outside the ones you manage.`,
+          "customer_out_of_scope",
+          `Customer ${item.code} already exists in an area outside the ones you manage.`,
         );
-      else if (existing.status === "inactive" && status !== "inactive")
+      else if (existing.status === "inactive")
         fail(
-          "status",
-          "store_inactive",
-          `Store ${code} is inactive. Reactivate it on the Stores page before updating it by upload.`,
-        );
-      else if (unit && existing.custodian_org_unit_id !== unit.id)
-        fail(
-          "area",
-          "area_change_not_supported",
-          `Store ${code} is in ${unitName.get(existing.custodian_org_unit_id) ?? "another area"}. Move stores between areas on the Stores page.`,
+          "customer_inactive",
+          `Customer ${item.code} is inactive. Reactivate it on the Customers page before updating it by upload.`,
         );
     }
-    const billingCode = normaliseCode(
-      cellOf(row, "billing_account_code") || cellOf(row, "customer_code"),
-    );
-    const billing = customerByCode.get(billingCode);
-    if (billing && !billing.active)
-      fail(
-        cellOf(row, "billing_account_code")
-          ? "billing_account_code"
-          : "customer_code",
-        "billing_account_inactive",
-        `Billing account ${billingCode} is inactive.`,
-      );
-    if (errors.length === start && !rowHadSync)
-      resolved.set(row.rowNumber, {
-        rowNumber: row.rowNumber,
-        code,
-        name: cellOf(row, "customer_name"),
-        status,
-        channel,
-        sub,
-        unit,
-        existing: existing ?? null,
-        billingCode,
-        billingExists: Boolean(billing),
-        sapId: cellOf(row, "sap_id") || null,
-        classification: cellOf(row, "classification") || null,
-        address: composeAddress(row),
-        ownerName: cellOf(row, "owner_name") || null,
-        ownerPhone: cellOf(row, "owner_phone")
-          ? phMobile(cellOf(row, "owner_phone"))
-          : null,
-        latitude: cellOf(row, "latitude")
-          ? Number(cellOf(row, "latitude"))
-          : null,
-        longitude: cellOf(row, "longitude")
-          ? Number(cellOf(row, "longitude"))
-          : null,
-        visitFrequencyDays: cellOf(row, "visit_frequency_days")
-          ? Number(cellOf(row, "visit_frequency_days"))
-          : null,
-      });
+    if (!bad.has(row.rowNumber))
+      resolved.set(row.rowNumber, { item, existing });
   }
-  errors.sort(
-    (a, b) =>
-      a.rowNumber - b.rowNumber ||
-      String(a.column).localeCompare(String(b.column)),
-  );
-  return { errors, resolved, outletByCode };
-}
-
-/** Full server validation (sync + async). @param {any} db @param {any} actor @param {UploadRow[]} rows */
-export async function validateStoreRows(db, actor, rows) {
-  const lookups = await loadLookups(db, actor);
-  return resolveRows(db, rows, lookups, validateCustomerRowsSync(rows));
+  return { errors: sortErrors(errors), resolved, outletByCode };
 }
 
 /** @param {any} ctx */
@@ -355,7 +244,7 @@ function runDto(run) {
   const pending = Math.max(0, total - run.succeeded_count - run.failed_count);
   return {
     id: run.id,
-    kind: STORE_UPLOAD_KIND,
+    kind: CUSTOMER_UPLOAD_KIND,
     fileName: run.file_name,
     status: run.status,
     rowCount: total,
@@ -393,139 +282,120 @@ async function refreshCounts(db, runId) {
       from customer_upload_rows where run_id=${runId}) s where r.id=${runId}`;
 }
 
-/** Map a write failure to a stable row error. @param {any} e */
-function writeError(e) {
+/** Map a write failure to stable row errors (writer validation errors keep their column).
+ * @param {any} e @param {Record<string,string>} cells */
+function writeErrors(e, cells) {
   const pg = e?.errno ?? e?.code;
-  if (["23505", "23P01"].includes(pg))
-    return {
-      code: "conflict",
-      message:
-        "Another change saved this store or its billing account at the same time. Retry failed rows.",
-    };
+  if (["23505", "23P01", "40P01"].includes(pg))
+    return [
+      {
+        column: null,
+        label: null,
+        code: "conflict",
+        message:
+          "Another change saved this customer at the same time. Retry failed rows.",
+        value: "",
+      },
+    ];
   if (e instanceof ApiError) {
-    if (e.code === "out_of_scope" || e.code === "no_scope")
-      return {
-        code: "store_out_of_scope",
-        message: "This store is outside the areas you manage.",
-      };
-    return {
-      code: e.code === "business_rule" ? "write_failed" : e.code,
-      message: e.message,
-    };
+    const details = /** @type {any} */ (e.details);
+    if (e.code === "validation_failed" && Array.isArray(details?.errors))
+      return details.errors.map((/** @type {any} */ x) => {
+        const column = columnOfField(String(x.field ?? ""));
+        return {
+          column: columnById(column) ? column : null,
+          label: x.label ?? null,
+          code: x.code,
+          message: x.message,
+          value: cells[column] ?? "",
+        };
+      });
+    if (e.code === "out_of_scope" || e.code === "no_scope" || e.status === 403)
+      return [
+        {
+          column: "code",
+          label: "Customer Code",
+          code: "customer_out_of_scope",
+          message: "This customer is outside the areas you manage.",
+          value: cells.code ?? "",
+        },
+      ];
+    return [
+      {
+        column: ["code_taken", "invalid_code", "code_locked"].includes(e.code)
+          ? "code"
+          : null,
+        label: null,
+        code: e.code === "business_rule" ? "write_failed" : e.code,
+        message: e.message,
+        value: "",
+      },
+    ];
   }
-  console.error("[store-upload] row write failed", e);
-  return {
-    code: "write_failed",
-    message:
-      "The store could not be saved. Retry failed rows; if it fails again, contact support.",
-  };
+  console.error("[customer-upload] row write failed", e);
+  return [
+    {
+      column: null,
+      label: null,
+      code: "write_failed",
+      message:
+        "The customer could not be saved. Retry failed rows; if it fails again, contact support.",
+      value: "",
+    },
+  ];
 }
 
 /**
- * Writes ONE store through the same writers the Stores page uses (outletCommand / pinCommand),
- * so effective-dated links, change_seq and audit invariants hold.
- * @param {any} c ctx with db (a savepoint), actor, now @param {any} item @param {any} run
+ * Writes ONE customer through the customer-master writer (the same one the Customers page
+ * uses): create or update by Customer Code, ship-to, pending pin, 1:1 accounting customer.
+ * New customers are approved (active) when the uploader may approve customers; otherwise they
+ * wait as prospects in the usual approval queue.
+ * @param {any} c ctx with db (a savepoint), actor, now @param {{item:any, existing:any}} entry
+ * @param {UploadRow} row @param {Lookups} lookups @param {any} run
  */
-async function writeRow(c, item, run) {
-  const db = c.db;
-  const reason = `Store upload ${run.file_name}, row ${item.rowNumber}`;
-  // Billing (accounting) customer: create if missing; concurrent chunks may race on a shared code.
-  await db`insert into customers(code,name,channel,territory,credit_limit,active,external_id,channel_id) values(${item.billingCode},${item.name},${item.channel.code},${item.unit.name},0,true,${item.sapId},${item.channel.id}) on conflict (code) do nothing`;
-  const [customer] =
-    await db`select id,active,external_id from customers where code=${item.billingCode}`;
-  if (!customer.active)
-    throw new ApiError(
-      "billing_account_inactive",
-      422,
-      `Billing account ${item.billingCode} is inactive.`,
-    );
-  if (item.sapId && !customer.external_id)
-    await db`update customers set external_id=${item.sapId} where id=${customer.id}`;
-  const contacts = item.ownerName
-    ? [{ name: item.ownerName, phone: item.ownerPhone ?? undefined }]
-    : undefined;
+async function writeRow(c, entry, row, lookups, run) {
+  const reason = `Customer upload ${run.file_name}, row ${row.rowNumber}`;
+  const { item } = entry;
+  // Re-read inside the savepoint: a concurrent change may have created or touched the code.
+  const [current] =
+    await c.db`select id,status from outlets where organization_id=${ORGANIZATION} and deleted_at is null and code=${item.code} for update`;
   let outletId, action;
-  if (item.existing) {
+  if (current) {
     action = "update";
-    outletId = item.existing.id;
-    const [current] =
-      await db`select status,channel_id from outlets where id=${outletId} for update`;
-    if (current.status === "inactive") {
-      // Validation allows this only when the file also says inactive: nothing to change.
-      return { action, outletId };
-    }
-    await outletCommand(c, "edit", {
-      outletId,
-      name: item.name,
-      ...(item.status !== "inactive" ? { status: item.status } : {}),
-      ...(item.classification ? { classification: item.classification } : {}),
-      address: item.address,
-      ...(item.visitFrequencyDays
-        ? { visitFrequencyDays: item.visitFrequencyDays }
-        : {}),
-      ...(contacts ? { contacts } : {}),
-      reason,
-    });
-    const [link] =
-      await db`select customer_id from outlet_customer_links where outlet_id=${outletId} and deleted_at is null and effective_from<=${new Date(c.now)} and (effective_to is null or effective_to>${new Date(c.now)})`;
-    if (link?.customer_id !== customer.id)
-      await outletCommand(c, "changeCustomerLink", {
-        outletId,
-        customerId: customer.id,
-        source: "customer_upload",
+    if (current.status === "inactive")
+      throw new ApiError(
+        "customer_inactive",
+        422,
+        `Customer ${item.code} is inactive. Reactivate it on the Customers page before updating it by upload.`,
+      );
+    const existing = await readCustomer(c.db, current.id);
+    outletId = await saveCustomer(
+      c,
+      {
+        customer: writerInput(item, row, lookups.index, existing),
         reason,
-      });
-    const subId =
-      item.sub?.id ??
-      (current.channel_id === item.channel.id ? undefined : null);
-    if (subId === undefined)
-      await db`update outlets set channel_id=${item.channel.id} where id=${outletId}`;
-    else
-      await db`update outlets set channel_id=${item.channel.id},subchannel_id=${subId} where id=${outletId}`;
+      },
+      { outletId: current.id },
+    );
   } else {
     action = "new";
-    outletId = await outletCommand(c, "create", {
-      name: item.name,
+    outletId = await saveCustomer(c, {
+      customer: writerInput(item, row, lookups.index, null),
       code: item.code,
-      custodianOrgUnitId: item.unit.id,
-      status: item.status === "inactive" ? "active" : item.status,
-      ...(item.classification ? { classification: item.classification } : {}),
-      address: item.address,
-      ...(item.visitFrequencyDays
-        ? { visitFrequencyDays: item.visitFrequencyDays }
-        : {}),
-      ...(contacts ? { contacts } : {}),
-      customerId: customer.id,
-      customerLinkSource: "customer_upload",
+      custodianOrgUnitId: c.actor.orgUnitId,
       reason,
     });
-    await db`update outlets set channel_id=${item.channel.id},subchannel_id=${item.sub?.id ?? null} where id=${outletId}`;
+    if (roleHas(c.actor.role, "outlet.enrol.approve"))
+      await approveCustomer(c, outletId, { reason });
   }
-  if (item.latitude !== null && item.longitude !== null) {
-    const [same] =
-      await db`select id from outlet_pins where outlet_id=${outletId} and deleted_at is null and status in ('pending','verified') and latitude=${item.latitude} and longitude=${item.longitude} limit 1`;
-    // Imported coordinates are a PROPOSAL: the field team verifies the pin on a visit.
-    if (!same)
-      await pinCommand(c, "propose", {
-        outletId,
-        latitude: item.latitude,
-        longitude: item.longitude,
-        radiusMeters: 75,
-        source: "customer_upload",
-        evidenceNote: `From store upload ${run.file_name}`,
-        reason,
-      });
-  }
-  if (item.status === "inactive")
-    await outletCommand(c, "deactivate", { outletId, reason });
-  await writeAudit(db, {
+  await writeAudit(c.db, {
     subject: c.actor.userId,
-    action: `SP-0169.store.upload_${action}`,
+    action: `SP-0170.customer.upload_${action}`,
     entityType: "outlets",
     entityId: outletId,
-    details: { runId: run.id, rowNumber: item.rowNumber },
+    details: { runId: run.id, rowNumber: row.rowNumber },
   });
-  await runtime.platform?.recordChange(db, {
+  await runtime.platform?.recordChange(c.db, {
     entity: "org.reference",
     entityId: outletId,
     scopeKey: "global",
@@ -538,6 +408,7 @@ async function writeRow(c, item, run) {
 const rowErrors = (errors) =>
   errors.map((e) => ({
     column: e.column ?? null,
+    label: e.label ?? (e.column ? (columnById(e.column)?.label ?? null) : null),
     code: e.code,
     message: e.message,
     value: e.value ?? "",
@@ -545,7 +416,7 @@ const rowErrors = (errors) =>
 
 /**
  * One chunk = one transaction. Returns false when the worker lost its lease.
- * @param {any} run @param {any} actor @param {any} lookups @param {number} chunkIndex @param {string} owner
+ * @param {any} run @param {any} actor @param {Lookups} lookups @param {number} chunkIndex @param {string} owner
  */
 async function processChunk(run, actor, lookups, chunkIndex, owner) {
   return tx(runtime.db, async (/** @type {any} */ t) => {
@@ -555,10 +426,11 @@ async function processChunk(run, actor, lookups, chunkIndex, owner) {
     const [live] =
       await t`select lease_owner from customer_upload_runs where id=${run.id}`;
     if (live?.lease_owner !== owner) return false;
+    await t`select set_config('sunpride.actor',${actor.userId},true)`;
     const all =
       await t`select row_number,cells,status from customer_upload_rows where run_id=${run.id} and chunk_index=${chunkIndex} order by row_number`;
     const digest = chunkHashOf({
-      kind: STORE_UPLOAD_KIND,
+      kind: CUSTOMER_UPLOAD_KIND,
       fileHash: run.file_hash,
       chunkIndex,
       rows: all.map((/** @type {any} */ r) => ({
@@ -567,7 +439,7 @@ async function processChunk(run, actor, lookups, chunkIndex, owner) {
       })),
     });
     if (digest !== chunk.chunk_hash)
-      throw new Error(`store upload chunk ${chunkIndex} integrity mismatch`);
+      throw new Error(`customer upload chunk ${chunkIndex} integrity mismatch`);
     const pending = all.filter(
       (/** @type {any} */ r) => r.status === "pending",
     );
@@ -578,28 +450,32 @@ async function processChunk(run, actor, lookups, chunkIndex, owner) {
       values: r.cells,
     }));
     // Authoritative re-check against the database as it is NOW.
-    const checked = await resolveRows(
-      t,
-      rows,
-      lookups,
-      validateCustomerRowsSync(rows),
-    );
-    const c = { db: t, actor, now: Date.now(), env: {} };
+    const checked = await resolveRows(t, rows, lookups);
+    // The writers' effective-dated links and readers' `<= now()` checks must agree inside this
+    // transaction: use the transaction's own clock for every row of the chunk.
+    const [{ ms }] =
+      await t`select (extract(epoch from now())*1000)::float8 as ms`;
+    const c = { db: t, actor, now: Math.floor(ms), env: {} };
     for (const row of rows) {
       const errs = checked.errors.filter((e) => e.rowNumber === row.rowNumber);
-      const item = checked.resolved.get(row.rowNumber);
-      if (errs.length || !item) {
+      const entry = checked.resolved.get(row.rowNumber);
+      if (errs.length || !entry) {
         await t`update customer_upload_rows set status='failed', errors=${rowErrors(errs)}, attempts=attempts+1, processed_at=now() where run_id=${run.id} and row_number=${row.rowNumber}`;
         continue;
       }
       try {
         const result = await tx(t, (/** @type {any} */ sp) =>
-          writeRow({ ...c, db: sp, now: Date.now() }, item, run),
+          writeRow(
+            { ...c, db: sp },
+            entry,
+            row,
+            lookups,
+            run,
+          ),
         );
         await t`update customer_upload_rows set status='succeeded', action=${result.action}, outlet_id=${result.outletId}, errors='[]'::jsonb, attempts=attempts+1, processed_at=now() where run_id=${run.id} and row_number=${row.rowNumber}`;
       } catch (e) {
-        const err = writeError(e);
-        await t`update customer_upload_rows set status='failed', errors=${[{ column: null, ...err, value: "" }]}, attempts=attempts+1, processed_at=now() where run_id=${run.id} and row_number=${row.rowNumber}`;
+        await t`update customer_upload_rows set status='failed', errors=${writeErrors(e, row.values)}, attempts=attempts+1, processed_at=now() where run_id=${run.id} and row_number=${row.rowNumber}`;
       }
     }
     await t`update customer_upload_chunks set attempts=attempts+1, completed_at=now() where run_id=${run.id} and chunk_index=${chunkIndex}`;
@@ -615,7 +491,7 @@ async function pool(items, n, fn) {
   /** @type {unknown} */ let failure = null;
   const lanes = Array.from({ length: Math.min(n, items.length) }, async () => {
     while (!stop && next < items.length) {
-      const item = items[next++];
+      const item = /** @type {T} */ (items[next++]);
       try {
         if (!(await fn(item))) stop = true;
       } catch (e) {
@@ -639,13 +515,17 @@ async function processRun(runId) {
   const beat = setInterval(() => {
     db`update customer_upload_runs set heartbeat_at=now(), lease_expires_at=now()+${runtime.leaseMs}*interval '1 millisecond' where id=${runId} and lease_owner=${owner}`.catch(
       (/** @type {unknown} */ e) =>
-        console.error("[store-upload] heartbeat failed", e),
+        console.error("[customer-upload] heartbeat failed", e),
     );
   }, runtime.heartbeatMs);
   try {
     const actor = await actorFor(db, run.acting_user_id);
-    if (!actor || !roleHas(actor.role, CAP)) {
-      await db`update customer_upload_rows set status='failed', errors=${[{ column: null, code: "forbidden", message: "The person running this upload no longer has permission to manage master data.", value: "" }]}, processed_at=now() where run_id=${runId} and status='pending'`;
+    if (
+      !actor ||
+      !roleHas(actor.role, CAP) ||
+      !roleHas(actor.role, "outlet.manage")
+    ) {
+      await db`update customer_upload_rows set status='failed', errors=${[{ column: null, label: null, code: "forbidden", message: "The person running this upload no longer has permission to manage customers.", value: "" }]}, processed_at=now() where run_id=${runId} and status='pending'`;
     } else {
       const lookups = await loadLookups(db, actor);
       const chunks = (
@@ -662,14 +542,15 @@ async function processRun(runId) {
     await refreshCounts(db, runId);
     await db`update customer_upload_runs set status=case when exists(select 1 from customer_upload_rows where run_id=${runId} and status in ('pending','failed')) then 'completed_with_errors' else 'completed' end, finished_at=now(), lease_owner=null, lease_expires_at=null where id=${runId} and lease_owner=${owner}`;
   } catch (e) {
-    console.error("[store-upload] run stopped", e);
+    console.error("[customer-upload] run stopped", e);
     await db`update customer_upload_runs set status='interrupted', interrupted_at=now(), lease_owner=null, lease_expires_at=null where id=${runId} and lease_owner=${owner}`.catch(
       () => {},
     );
   } finally {
     clearInterval(beat);
     await runtime.platform?.publish("imports");
-    await runtime.platform?.publish("outlets");
+    for (const topic of ["outlets", "masters", "org"])
+      await runtime.platform?.publish(topic);
   }
 }
 
@@ -682,18 +563,24 @@ export function startRun(runId) {
   return work;
 }
 
+/** Full server validation for a set of rows. @param {any} db @param {any} actor @param {UploadRow[]} rows */
+export async function validateUploadRows(db, actor, rows) {
+  return resolveRows(db, rows, await loadLookups(db, actor));
+}
+
 /** Create a run from a validated file. @param {any} ctx @param {any} body */
 export async function createRun(ctx, body) {
   const actor = await authorize(ctx);
+  await requireCapability(ctx, "outlet.manage");
   const input = checkBody(body);
   const fileHash = chunkHashOf({
-    kind: STORE_UPLOAD_KIND,
+    kind: CUSTOMER_UPLOAD_KIND,
     header: input.header,
     rows: input.rows,
   });
   const size = runtime.chunkSize;
   const result = await tx(ctx.db, async (/** @type {any} */ t) => {
-    await t`select pg_advisory_xact_lock(hashtextextended(${`store-upload:${ORGANIZATION}:${fileHash}`},0))`;
+    await t`select pg_advisory_xact_lock(hashtextextended(${`customer-upload:${ORGANIZATION}:${fileHash}`},0))`;
     const [previous] =
       await t`select * from customer_upload_runs where organization_id=${ORGANIZATION} and file_hash=${fileHash} order by created_at desc limit 1`;
     if (previous) {
@@ -706,7 +593,7 @@ export async function createRun(ctx, body) {
         );
       return { run: previous, duplicate: true };
     }
-    const checked = await validateStoreRows(t, actor, input.rows);
+    const checked = await validateUploadRows(t, actor, input.rows);
     const [profile] =
       await t`select name from profiles where id=${actor.profileId}`;
     const [run] =
@@ -721,7 +608,7 @@ export async function createRun(ctx, body) {
         run_id: run.id,
         chunk_index: ci,
         chunk_hash: chunkHashOf({
-          kind: STORE_UPLOAD_KIND,
+          kind: CUSTOMER_UPLOAD_KIND,
           fileHash,
           chunkIndex: ci,
           rows: [...part].sort((a, b) => a.rowNumber - b.rowNumber),
@@ -732,14 +619,14 @@ export async function createRun(ctx, body) {
         const errs = checked.errors.filter(
           (e) => e.rowNumber === row.rowNumber,
         );
-        const item = checked.resolved.get(row.rowNumber);
+        const entry = checked.resolved.get(row.rowNumber);
         rowRecords.push({
           run_id: run.id,
           row_number: row.rowNumber,
           chunk_index: ci,
-          customer_code: normaliseCode(cellOf(row, "customer_code")),
+          customer_code: normaliseCode(cellOf(row, "code")),
           cells: row.values,
-          action: item ? (item.existing ? "update" : "new") : null,
+          action: entry ? (entry.existing ? "update" : "new") : null,
           status: errs.length ? "failed" : "pending",
           errors: rowErrors(errs),
         });
@@ -747,16 +634,15 @@ export async function createRun(ctx, body) {
     }
     for (let i = 0; i < chunkRecords.length; i += 500)
       await t`insert into customer_upload_chunks ${t(chunkRecords.slice(i, i + 500))}`;
-    for (let i = 0; i < rowRecords.length; i += 500)
-      for (const r of rowRecords.slice(i, i + 500))
-        await t`insert into customer_upload_rows(run_id,row_number,chunk_index,customer_code,cells,action,status,errors,processed_at) values(${r.run_id},${r.row_number},${r.chunk_index},${r.customer_code},${r.cells},${r.action},${r.status},${r.errors},${r.status === "failed" ? new Date() : null})`;
+    for (const r of rowRecords)
+      await t`insert into customer_upload_rows(run_id,row_number,chunk_index,customer_code,cells,action,status,errors,processed_at) values(${r.run_id},${r.row_number},${r.chunk_index},${r.customer_code},${r.cells},${r.action},${r.status},${r.errors},${r.status === "failed" ? new Date() : null})`;
     await refreshCounts(t, run.id);
     const pending = rowRecords.some((r) => r.status === "pending");
     if (!pending)
       await t`update customer_upload_runs set status='completed_with_errors', finished_at=now() where id=${run.id}`;
     await writeAudit(t, {
       subject: actor.userId,
-      action: "SP-0169.store_upload.start",
+      action: "SP-0170.customer_upload.start",
       entityType: "customer_upload_runs",
       entityId: run.id,
       details: {
@@ -794,10 +680,10 @@ async function loadVisibleRun(ctx, id) {
 export async function previewUpload(ctx, body) {
   const actor = await authorize(ctx);
   const input = checkBody(body);
-  const checked = await validateStoreRows(ctx.db, actor, input.rows);
+  const checked = await validateUploadRows(ctx.db, actor, input.rows);
   const errorRows = new Set(checked.errors.map((e) => e.rowNumber));
   const rows = input.rows.map((r) => {
-    const code = normaliseCode(cellOf(r, "customer_code"));
+    const code = normaliseCode(cellOf(r, "code"));
     return {
       rowNumber: r.rowNumber,
       customerCode: code,
@@ -816,18 +702,46 @@ export async function previewUpload(ctx, body) {
   };
 }
 
+/** Rows of customer_reference_values the template's list sheets are generated from (the
+ * client's lists only; the Sales Partner fallback is not written into the template).
+ * @param {any} db */
+export async function templateReference(db) {
+  return (
+    await db`select list,sales_org_code,channel_code,group1_code,code,name from customer_reference_values where active order by list, sales_org_code, channel_code, group1_code, sort_order`
+  ).map((/** @type {any} */ r) => ({
+    list: r.list,
+    salesOrgCode: r.sales_org_code ?? "",
+    channelCode: r.channel_code ?? "",
+    group1Code: r.group1_code ?? "",
+    code: r.code,
+    name: r.name,
+  }));
+}
+
 /** @param {import('../../core/router.js').Router} router @param {any} platform */
-export function installStoreUpload(router, platform) {
+export function installCustomerUpload(router, platform) {
   runtime.db = platform.db;
   runtime.platform = platform;
-  platform.scheduler?.every?.(15_000, "imports.store_upload.sweep", () =>
+  platform.scheduler?.every?.(15_000, "imports.customer_upload.sweep", () =>
     sweepStaleRuns(platform.db),
   );
-  const base = "/api/v1/imports/store-upload";
-  // A full 5,000-row template file is ~3 MB of JSON: raise the cap for these two routes only.
+  const base = "/api/v1/imports/customer-upload";
+  // A full 5,000-row template file is a few MB of JSON: raise the cap for these two routes only.
   const big = { maxBytes: 8 * 1024 * 1024 };
   router.post(`${base}/preview`, (ctx) => previewUpload(ctx, ctx.body), big);
   router.post(`${base}/runs`, (ctx) => createRun(ctx, ctx.body), big);
+  // Template: the reference rows its list sheets and dropdowns are generated from (the browser
+  // builds the .xlsx with the shared code), plus the list sheets for checking.
+  router.get(`${base}/template`, async (ctx) => {
+    await authorize(ctx);
+    const reference = await templateReference(ctx.db);
+    return { reference, sheets: listSheets(reference) };
+  });
+  // Lists for the browser's instant checks (incl. the Sales Partner fallback the server accepts).
+  router.get(`${base}/reference`, async (ctx) => {
+    await authorize(ctx);
+    return { rows: await referenceRows(ctx.db) };
+  });
   router.get(`${base}/runs`, async (ctx) => {
     const actor = await authorize(ctx);
     await sweepStaleRuns(ctx.db);
@@ -865,6 +779,7 @@ export function installStoreUpload(router, platform) {
   });
   router.post(`${base}/runs/:id/resume`, async (ctx) => {
     const { run, actor } = await loadVisibleRun(ctx, ctx.params.id);
+    await requireCapability(ctx, "outlet.manage");
     const retryFailed = ctx.body?.retryFailed === true;
     if (["queued", "running"].includes(run.status))
       throw new ApiError(
@@ -892,8 +807,8 @@ export function installStoreUpload(router, platform) {
       await writeAudit(t, {
         subject: actor.userId,
         action: retryFailed
-          ? "SP-0169.store_upload.retry_failed"
-          : "SP-0169.store_upload.resume",
+          ? "SP-0170.customer_upload.retry_failed"
+          : "SP-0170.customer_upload.resume",
         entityType: "customer_upload_runs",
         entityId: run.id,
         details: { pending },

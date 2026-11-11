@@ -1,4 +1,4 @@
--- 0816_customer_uploads: SP-0169 store ("customer") CSV upload.
+-- 0825_customer_uploads: SP-0170 customer upload (machinery from SP-0169; renumbered after the 0820-0824 customer master migrations).
 -- One run per uploaded file; every row's outcome is persisted as its chunk commits, so an
 -- interrupted run reports exactly which rows succeeded, failed or were not processed, and a
 -- resume processes only the rows still pending. A lease/heartbeat marks a dead worker.
@@ -77,4 +77,4 @@ create trigger customer_upload_rows_set_updated_at before update on customer_upl
 
 -- ROLLBACK (manual):
 --   drop table customer_upload_rows; drop table customer_upload_chunks; drop table customer_upload_runs;
---   delete from schema_migrations where name = '0816_customer_uploads.sql';
+--   delete from schema_migrations where name = '0825_customer_uploads.sql';
