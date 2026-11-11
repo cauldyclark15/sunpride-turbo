@@ -306,6 +306,10 @@ describe("FIELDSYNC projections through real core proof/cursor harness", () => {
     expect(b.data.orderTerms[0].lines[0].unitPriceMinor).toBe(1250);
     expect(b.offlineLease.expiresAt).toBe(closeAt(date));
     expect(b.data.appConfig.orderCaptureEnabled).toBe(false);
+    // NF-4: the Field phone's visit-photo watermark needs the person's name from this header.
+    const [me] = await h.db`select name from profiles where id=${b.data.employee.id}`;
+    expect(me.name).toBeTruthy();
+    expect(b.data.employee.name).toBe(me.name);
     expect(Object.keys(b.data).sort()).toEqual(
       [
         "permissions",

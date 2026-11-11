@@ -519,7 +519,10 @@ class LiveFieldBackend(
             val me = snapshot.employeeId() ?: error("Missing verified person")
             val outlet = snapshot.outlets().firstOrNull { it.id == outletId }?.let { JSONObject(it.json) }
                 ?: error("Missing verified outlet")
-            val employee = snapshot.employeeName() ?: error("Missing verified person name")
+            val key = sessionKey()
+            val employee = com.sunpride.field.storage.EvidencePhotos.watermarkPerson(snapshot.employeeName(), me,
+                key?.let { prefs.getString("$it.personId", null) }, key?.let { prefs.getString("$it.personName", null) })
+                ?: error("Missing verified person name")
             com.sunpride.integrity.ExecutionWatermark.Facts(fix.latitude, fix.longitude, fix.accuracy.toDouble(),
                 capturedAt, employee, me, outlet.optString("name").ifBlank { outlet.optString("code") }, outletId)
         } } finally { snapshot.close() }
@@ -722,6 +725,10 @@ class LiveFieldBackend(
             try {
                 val verifiedMe=functions.api.me()
                 check(verifiedMe.getJSONObject("profile").getBoolean("active"))
+                // NF-4: remember the verified person's name for the visit-photo watermark (snapshots made by an
+                // older server carry no name in their employee header, and a delta sync never replaces that header).
+                verifiedMe.getJSONObject("profile").let { p -> prefs.edit().putString("$key.personId", p.optString("id"))
+                    .putString("$key.personName", p.optString("name").takeIf { it.isNotBlank() && it != "null" }).apply() }
                 if(verifiedMe.getJSONObject("profile").getString("role")=="distributor"){
                     check(prefs.edit().putBoolean("$key.partner",true).commit())
                     return dsrToday(deviceId,signer,verifiedMe,expectedKey=key)
@@ -1293,7 +1300,10 @@ class FieldController(
             refreshDiagnostic(); loadToday(sync = false)
         } catch (e: VisitRuleFailure) { diagnosticFailure = e.code; diagnosticError = e.code.text }
         catch (e: kotlinx.coroutines.CancellationException) { throw e }
-        catch (_: Exception) { diagnosticError = "Could not save this photo. Try again." }
+        catch (e: Exception) {
+            com.sunpride.field.diagnostics.SafeLog.failure(null, "photo_save_failed", e)
+            diagnosticError = "Could not save this photo. Try again."
+        }
         finally { busy = false }
     }
     fun closeActivityForm() = scope.launch(ui) { activityForm = null; diagnosticError = null }

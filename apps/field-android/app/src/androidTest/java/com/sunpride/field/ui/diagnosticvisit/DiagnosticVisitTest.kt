@@ -27,6 +27,8 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import androidx.compose.ui.test.assertTextEquals
 import org.junit.Rule
 import org.junit.Test
 import java.util.UUID
@@ -375,6 +377,48 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("order-discard").performClick()
         rule.waitUntil(10_000) { backend.orderDrafts().isEmpty() }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-new").fetchSemanticsNodes().isNotEmpty() }
+    }
+    /** FLD-110: an invalid Qty in a long catalogue says why on screen, next to the box and above the disabled Save. */
+    @Test fun invalidQuantityShowsTheWholeNumberRuleOnScreen() {
+        val products = (1..40).map { CallSheetProduct("product-$it", "SKU-$it", "Product $it", "PC", null, "₱10.00") }
+        val sheet = CallSheet("outlet-1", 1, CallSheetHeader("Test account", null, null, null, null, null, null, null, null, "SRP"), products)
+        val outlet = JSONObject().put("id", "outlet-1").put("name", "Test outlet").put("routeId", "route-1")
+            .put("customerId", "customer-1").put("territoryId", "territory-1").put("territoryCode", "PASIG-01")
+        val store = scoped()
+        runBlocking {
+            store.swap(store.stage(ScopedSnapshot("{\"id\":\"test\"}", null, emptyList(),
+                listOf(SnapshotItem("outlet-1", outlet.toString())),
+                listOf(SnapshotItem("customer-1", "{\"id\":\"customer-1\",\"code\":\"CUST-1\"}")), emptyList(),
+                listOf(sheet))), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        }
+        store.close()
+        val backend = Backend()
+        val location = object : VisitLocation { override val requiresPermission = false; override suspend fun fix(): JSONObject? = null }
+        rule.setContent { FieldApp(AppEnvironment("https://sunpride.cauldnclark.com"),
+            dark = false, debug = true, backend = backend, visitLocation = location) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
+        backend.queueVisit("visit.checkIn", null, null, null, "planned-1", "outlet-1", emptyList(), null, null, null, null, null)
+        rule.onNodeWithTag("visit-back").performClick()
+        rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-new").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("order-new").performScrollTo().performClick()
+        for (bad in listOf("2.5", "0", "100000")) {
+            rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-qty-product-1"))
+            rule.onNodeWithTag("order-qty-product-1").performTextClearance()
+            rule.onNodeWithTag("order-qty-product-1").performTextInput(bad)
+            androidx.test.espresso.Espresso.closeSoftKeyboard()
+            rule.waitForIdle()
+            rule.onNodeWithTag("order-invalid").assertIsDisplayed().assertTextEquals("Use whole numbers from 1 to 99,999.")
+            rule.onNodeWithTag("order-qty-error-product-1").assertIsDisplayed()
+            rule.onNodeWithTag("order-save").assertIsNotEnabled()
+        }
+        rule.onNodeWithTag("order-qty-product-1").performTextClearance()
+        rule.onNodeWithTag("order-qty-product-1").performTextInput("2")
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        rule.waitForIdle()
+        assertTrue(rule.onAllNodesWithTag("order-invalid").fetchSemanticsNodes().isEmpty())
+        rule.onNodeWithTag("order-save").assertIsEnabled()
     }
     /** SP-0088: account terms survive Room reopen; switch selling units, review credit and send despite warning. */
     @Test fun pricedOrderSwitchesUnitAndShowsAdvisoryCreditAboveThePhoneNavigationBar() {

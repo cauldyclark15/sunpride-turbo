@@ -34,6 +34,14 @@ class CallFlowEngineTest {
         refused { CallFlowEngine.location(config(),fix().put("integrityBlocked",true),1_000_000,true) }
         refused { CallFlowEngine.location(config(),fix().apply { remove("mockSignal") },1_000_000,true) }
     }
+    @Test fun `NF-3 a reported mock is refused unless the dev bench switch is on`() {
+        val mock = AndroidCallLocation.fixJson(10.33,123.94,5.0,1_000_000,"gps",reportedMock = true,benchTestProvider = false)
+        refused { CallFlowEngine.location(config(),mock,1_000_000) }
+        val bench = AndroidCallLocation.fixJson(10.33,123.94,5.0,1_000_000,"gps",reportedMock = true,benchTestProvider = true)
+        CallFlowEngine.location(config(),bench,1_000_000)
+        assertEquals(false,AndroidCallLocation.fixJson(10.33,123.94,5.0,1,"fused",false,false).get("mockSignal"))
+        assertEquals("unknown",AndroidCallLocation.fixJson(10.33,123.94,5.0,1,"test",false,false).getString("provider"))
+    }
     @Test fun `F-106 bad accuracy old fix and absent pin fail closed`() {
         refused { CallFlowEngine.location(config(),fix().put("accuracyMeters",51),1_000_000) }
         refused { CallFlowEngine.location(config(),fix(1),1_000_000) }

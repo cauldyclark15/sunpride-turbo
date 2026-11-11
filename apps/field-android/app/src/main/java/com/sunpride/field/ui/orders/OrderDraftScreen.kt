@@ -139,6 +139,10 @@ fun OrderDraftScreen(visit: VisitDisplay, sheet: CallSheet, controller: FieldCon
                                 Modifier.width(104.dp).testTag("order-qty-${item.productId}"),
                                 enabled = !controller.busy, isError = parsed[index].isFailure, placeholder = "Qty")
                         }
+                        // FLD-110: the reason sits under the red box itself (a list-end notice was off screen and never composed).
+                        if (parsed[index].isFailure) Text(OrderDraftFailure.Code.INVALID_QUANTITY.text,
+                            style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.error,
+                            modifier = Modifier.testTag("order-qty-error-${item.productId}"))
                         if (item.units.size > 1) {
                             Text("Selling unit", style = MaterialTheme.typography.labelMedium)
                             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
@@ -154,7 +158,6 @@ fun OrderDraftScreen(visit: VisitDisplay, sheet: CallSheet, controller: FieldCon
                     }
                 }
             }
-            if (invalid) item { NoticeCard("Use whole numbers from 1 to 99,999.", tone = Look.Tone.BAD) }
             controller.diagnosticError?.let { message -> item {
                 NoticeCard(message, tone = Look.Tone.BAD, textTag = "order-error")
             } }
@@ -163,6 +166,9 @@ fun OrderDraftScreen(visit: VisitDisplay, sheet: CallSheet, controller: FieldCon
             }
         }
         ActionBar {
+            // FLD-110: Save is disabled while a Qty is invalid; always say why next to it.
+            if (invalid) Text(OrderDraftFailure.Code.INVALID_QUANTITY.text, style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 6.dp).testTag("order-invalid"))
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 if (draft != null) SecondaryButton("Discard", { controller.discardOrderDraft() },
                     Modifier.weight(1f).testTag("order-discard"), !controller.busy, danger = true)

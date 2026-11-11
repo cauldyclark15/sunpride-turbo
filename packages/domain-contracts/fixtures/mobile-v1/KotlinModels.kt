@@ -97,6 +97,8 @@ data class BootstrapResponseDaySales(
 data class BootstrapResponseEmployee(
   // schema-field: bootstrapResponse.employee.id
   val id: String,
+  // schema-field: bootstrapResponse.employee.name
+  val name: String? = null,
   // schema-field: bootstrapResponse.employee.role
   val role: String,
   // schema-field: bootstrapResponse.employee.orgUnitId

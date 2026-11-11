@@ -17,3 +17,31 @@ export async function unitLevelSeries(db, unitId, type) {
 export function cashierFor(storeUnitId, people) {
   return people.find((p) => p && p.org_unit_id === storeUnitId)?.email ?? null;
 }
+
+/** SAP owns the name and address of every outlet it sends (integration replicas.js `update outlets set name=... where code=...`),
+ * so a rename of a SAP-keyed outlet is overwritten by the next masters pull. Returns the codes SAP currently sends.
+ * @param {any} db @param {string[]} codes */
+export async function sapOwnedOutletCodes(db, codes) {
+  if (!codes.length) return new Set();
+  const rows =
+    await db`select distinct payload->'data'->>'code' as code from sap_replicas where kind='outlet' and deleted_at is null and payload->'data'->>'code' in ${db(codes)}`;
+  return new Set(rows.map((/** @type {any} */ r) => r.code));
+}
+
+/** The accent/punctuation names that still need an outlet SAP cannot rename. A name held only by a SAP-keyed
+ * outlet counts as missing: the kit used to rename SAP sample outlets and SAP put the old names back (r3).
+ * @param {any} db @param {string[]} names */
+export async function accentedNamesMissing(db, names) {
+  const have =
+    await db`select name,code from outlets where name in ${db(names)} and deleted_at is null and status='active'`;
+  const sap = await sapOwnedOutletCodes(
+    db,
+    have.map((/** @type {any} */ r) => r.code),
+  );
+  const kept = new Set(
+    have
+      .filter((/** @type {any} */ r) => !sap.has(r.code))
+      .map((/** @type {any} */ r) => r.name),
+  );
+  return names.filter((n) => !kept.has(n));
+}

@@ -84,6 +84,23 @@ export function splitTenderFlag(ctx) {
 }
 
 /**
+ * NF-5: the cash payments the office holds for a trip (`sale`, `void_refund`, `refund`; method cash), per sale. The
+ * handheld adds the ones for sales it does not have (made on the seller's previous phone), so its expected cash equals
+ * `cashExpectation` instead of being refused at upload as "Expected cash changed".
+ * @param {any} db @param {string} tripId
+ */
+export async function serverCash(db, tripId) {
+  const rows =
+    await db`select sale_id,kind,amount_centavos::text as amount from van_payments
+      where trip_id=${tripId} and method='cash' and sale_id is not null order by created_at,id limit 5001`;
+  if (rows.length > 5000) return null;
+  return rows.map((/** @type {any} */ r) => ({
+    saleId: r.sale_id,
+    kind: r.kind,
+    amountMinor: r.amount,
+  }));
+}
+/**
  * IP-P0 (SPEC 5.3): who this handheld is for, so "No trip for today" can name the van and the supervisor.
  * The van is today's trip, else the last trip this handheld or seller drove. The supervisor is the seller's current
  * employee-assignment supervisor, else the profile's supervisor. Unknown parts are null. `supervisorPhone` is the
@@ -590,7 +607,12 @@ export async function bundle(ctx, env) {
         routeSessionId: trip.route_session_id,
         startedAt: trip.started_at ? new Date(trip.started_at).getTime() : null,
         ...(handheld
-          ? { openingFloatCentavos: Number(trip.opening_float_centavos ?? 0) }
+          ? {
+              openingFloatCentavos: Number(trip.opening_float_centavos ?? 0),
+              // NF-5: the trip's cash the office already holds, per sale, so a seller who signs in on another
+              // phone mid-trip counts against the same expected cash as the office (`cashExpectation`).
+              serverCash: await serverCash(db, trip.id),
+            }
           : {}),
       },
       load: load

@@ -140,6 +140,8 @@ object VanBootstrapCodec {
         legacy.getJSONObject("policy").remove("refunds")
         // IP-P0: the trip float and the recount facts are negotiated v2 additions to the frozen trip and load.
         legacy.optJSONObject("trip")?.remove(com.sunpride.van.pos.OpeningFloat.FIELD)
+        // NF-5: the trip's office-held cash per sale is a v2 handheld addition too (read by CashReconciliationStore).
+        legacy.optJSONObject("trip")?.remove(com.sunpride.van.pos.ServerTripCash.FIELD)
         legacy.optJSONObject("load")?.let { it.remove("confirmRequestId"); it.remove("rejectionNote") }
         o.getJSONObject("policy").optJSONObject("storePos")?.let(com.sunpride.van.storepos.StorePosConfig::decode)
         VanWireSchema.validate(legacy)
