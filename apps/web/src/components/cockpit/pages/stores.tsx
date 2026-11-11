@@ -6,6 +6,7 @@ import { useWaitingCount } from "../../store-gathering/tab";
 import { StoreGatheringReview } from "../../store-gathering/review";
 import { LocationCoverage } from "../../store-gathering/location-coverage";
 import { AddStore } from "../../store-gathering/add-store";
+import { CustomerUpload } from "../../customer-upload/customer-upload";
 import { NewStoreApprovals } from "../../new-store-approvals";
 import { OutletEditor } from "../../outlet-admin";
 import type { Id } from "../../master-data/model";
@@ -15,6 +16,7 @@ import {
   PAGE_SIZE,
   StoreListView,
   StoresTabs,
+  editButtonClass,
   readPage,
   readStoreStatus,
   readStoresTab,
@@ -46,11 +48,7 @@ import {
   TrendChart,
   type DrillColumn,
 } from "../kit";
-import type {
-  StoreResponse,
-  StoresResponse,
-  StoreRow,
-} from "../types";
+import type { StoreResponse, StoresResponse, StoreRow } from "../types";
 import { buttonClass, usePageQuery } from "./shared";
 
 export function storeColumns(now: number): DrillColumn<StoreRow>[] {
@@ -166,9 +164,7 @@ export function StoresView({
   return (
     <div className="grid gap-4">
       <KpiGrid kpis={data.kpis} />
-      <Panel
-        title="Buying stores by week"
-      >
+      <Panel title="Buying stores by week">
         <TrendChart
           label="Buying stores by week"
           unit="count"
@@ -210,6 +206,8 @@ export function StoresPage() {
   const tab = readStoresTab(params, hidden);
   const canAdd = can("outlet.manage");
   const [adding, setAdding] = useState<string | null>(null);
+  const canUpload = can("masterdata.manage");
+  const [uploading, setUploading] = useState(false);
   const editing = tab === "list" ? params.get("edit") : null;
   const waiting = useWaitingCount();
   const go = (next: StoresTab) =>
@@ -220,9 +218,20 @@ export function StoresPage() {
     );
   return (
     <div className="ck-page grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
-      <h1 className="text-[26px] font-semibold tracking-tight text-foreground">
-        Stores
-      </h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-[26px] font-semibold tracking-tight text-foreground">
+          Stores
+        </h1>
+        {canUpload ? (
+          <button
+            type="button"
+            className={editButtonClass}
+            onClick={() => setUploading(true)}
+          >
+            Upload customers
+          </button>
+        ) : null}
+      </div>
       <StoresTabs
         tab={tab}
         onTab={go}
@@ -263,6 +272,14 @@ export function StoresPage() {
         {adding !== null ? (
           <AddStore key={adding} initialName={adding} bare />
         ) : null}
+      </Drawer>
+      <Drawer
+        open={uploading}
+        title="Upload customers"
+        wide
+        onClose={() => setUploading(false)}
+      >
+        {uploading ? <CustomerUpload compact /> : null}
       </Drawer>
       <Drawer
         open={!!editing}

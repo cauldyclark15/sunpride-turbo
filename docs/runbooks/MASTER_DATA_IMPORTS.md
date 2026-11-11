@@ -91,6 +91,82 @@ same run: the server reports a **duplicate** and adds no stock. Editing the file
 and for opening stock a row whose lot already carries stock at that location is rejected with
 `duplicate_stock` instead of being posted twice.
 
+## Customers (stores) upload — SP-0169
+
+Where: **Stores → Upload customers**, or **Imports → Customers**. Same component in both
+places. Needs `masterdata.manage` (super admin, admin, operations). A user scoped to an area can
+only add or update stores in the areas they manage.
+
+Template: the fixed client template (`sunpride-customers-template.csv`, 18 columns, exact order).
+The single source is `packages/import-templates/src/customers.js`; a test proves it is
+byte-identical to the CSV and JSON spec sent to the client. **Download template** serves it.
+
+| Column | Rule |
+| --- | --- |
+| customer_code* | Up to 40 letters, numbers, `-`, `_`; stored upper-case; unique in the file. An existing code **updates** that store (preview shows *New* / *Update*). |
+| customer_name* | ≤ 200 characters. |
+| status | `active`, `inactive`, `prospect`; blank = active. |
+| channel* / sub_channel | Governed code or exact label (case-insensitive) or a legacy alias from `master_channel_aliases`; the sub-channel must belong to the channel. |
+| area* | Active org unit (territory/branch) by code or exact name; must be in the uploader's scope. Updates do not move a store between areas (`area_change_not_supported`). |
+| street_address*, barangay, city_municipality*, province* | Saved as one address line: `street, Brgy. barangay, city, province`. |
+| owner_name / owner_phone | PH mobile (`09…` or `+639…`, saved as `09XXXXXXXXX`); a phone needs a name. Replaces the store's contacts on update. |
+| billing_account_code | Blank = customer_code. Created as an accounting customer if missing; linked through an effective-dated `outlet_customer_links` row. Several stores may share one. |
+| sap_id | Saved on a new billing account (or one without an external id). |
+| latitude / longitude | Both or neither; valid ranges. Saved as a **pending** pin (source `customer_upload`) for the field team to verify. An identical pending/verified pin is not proposed twice. |
+| visit_frequency_days | Whole number 1–366. |
+
+Blank optional cells on an update keep the store's current value (except `status`: blank = active).
+
+### Steps
+
+1. **Upload file** — download the template, choose a CSV or XLSX file.
+2. **Validate** — instant browser checks (header, required, formats, duplicates — the same
+   shared rules the server runs), then server checks in batches of 1,000 rows with a progress bar
+   (channels, sub-channels, areas, existing codes, scope, inactive stores/billing accounts).
+3. **Preview** — every row; bad cells outlined with the message on hover and under the row;
+   *Show only rows with problems*; **Download errors** (`row_number,column,value,code,message`).
+   Fix the file and choose it again, or import the valid rows (rows with problems are recorded as
+   failed).
+4. **Import** — the request returns a run id at once; the server processes the file in the
+   background. The page polls live counts (succeeded / failed / not yet processed). The browser
+   can be closed.
+5. **Result** — totals, **Download report** (the original columns + `result`, `action`,
+   `error_column`, `error_code`, `error_message`), **Resume** and **Retry failed rows**.
+
+**Upload history** lists every run (when, who, file, rows, succeeded, failed, status); *Open*
+drills into the per-row report.
+
+### How the server runs it
+
+- Tables `customer_upload_runs`, `customer_upload_chunks`, `customer_upload_rows` (migration 0816).
+- The file is split into chunks of 100 rows, processed by at most 4 concurrent workers. Each
+  chunk is **one transaction**; each row is a savepoint so one bad row fails alone. Every row's
+  outcome commits with its chunk, so progress survives any crash.
+- Every chunk re-validates its rows against the database as it is at that moment (the server is
+  authoritative), then writes through the same writers as the Stores page (`outletCommand`
+  create/edit/changeCustomerLink/deactivate, `pinCommand` propose), with an audit row
+  (`SP-0169.store.upload_new|update`) and a change-feed entry per store.
+- **Idempotency**: the run identity is a server-computed hash of the header and rows; each chunk
+  stores a server-owned chunk hash checked before processing. Uploading the identical file again
+  returns the existing run (`duplicate: true`) and writes nothing.
+- **Interruption**: the worker holds a 30 s lease renewed every 5 s. A run whose lease expired
+  (server restart, crash) is marked `interrupted` by a sweep (every 15 s, and on every history or
+  run read). Rows already saved stay saved; **Resume** processes only rows still pending.
+  **Retry failed rows** re-queues failed rows (e.g. after adding a missing area).
+- API: `POST /api/v1/imports/store-upload/preview`, `POST …/runs`, `GET …/runs`,
+  `GET …/runs/:id[?rows=0]`, `POST …/runs/:id/resume {retryFailed}`. Preview and runs accept up
+  to 8 MB of JSON (a full 5,000-row file); every other route keeps the 1 MB cap.
+
+### Error codes (store upload)
+
+`header_mismatch`, `empty_file`, `too_many_rows`, `required`, `invalid_code`, `too_long`,
+`invalid_status`, `invalid_phone`, `owner_name_required`, `invalid_coordinates`,
+`coordinates_incomplete`, `invalid_visit_frequency`, `duplicate_in_file`, `unknown_channel`,
+`unknown_sub_channel`, `sub_channel_mismatch`, `unknown_area`, `ambiguous_area`,
+`area_out_of_scope`, `store_out_of_scope`, `area_change_not_supported`, `store_inactive`,
+`billing_account_inactive`, `conflict`, `write_failed`, `forbidden`, and `not_processed` in the
+report for rows an interrupted run never reached.
+
 ## Cutover sequence
 
 1. Provision the inventory foundation (Web → Inventory → **Provision inventory foundation**).

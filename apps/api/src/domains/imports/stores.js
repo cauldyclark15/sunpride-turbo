@@ -824,8 +824,10 @@ export function installStoreUpload(router, platform) {
     sweepStaleRuns(platform.db),
   );
   const base = "/api/v1/imports/store-upload";
-  router.post(`${base}/preview`, (ctx) => previewUpload(ctx, ctx.body));
-  router.post(`${base}/runs`, (ctx) => createRun(ctx, ctx.body));
+  // A full 5,000-row template file is ~3 MB of JSON: raise the cap for these two routes only.
+  const big = { maxBytes: 8 * 1024 * 1024 };
+  router.post(`${base}/preview`, (ctx) => previewUpload(ctx, ctx.body), big);
+  router.post(`${base}/runs`, (ctx) => createRun(ctx, ctx.body), big);
   router.get(`${base}/runs`, async (ctx) => {
     const actor = await authorize(ctx);
     await sweepStaleRuns(ctx.db);

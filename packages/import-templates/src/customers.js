@@ -154,6 +154,8 @@ export const CUSTOMER_ERROR_CODES = Object.freeze({
   area_out_of_scope: "The area is outside your assigned areas.",
   store_out_of_scope: "The existing store belongs to an area outside yours.",
   store_inactive: "The existing store is inactive.",
+  area_change_not_supported: "Uploads do not move a store to another area.",
+  forbidden: "The uploader no longer has permission.",
   billing_account_inactive: "The billing account is inactive.",
   conflict: "Another change touched this store at the same time.",
   write_failed: "The store could not be saved.",

@@ -168,6 +168,16 @@ describe("SP-0169 store upload — validation", () => {
     expect(r.status).toBe(400);
     expect(JSON.stringify(r.body)).toContain("header_mismatch");
   });
+  test("a full 5,000-row file (over the default 1 MB JSON cap) previews; 5,001 is refused", async () => {
+    const big = file(many("BIG", 5000));
+    expect(JSON.stringify(big).length).toBeGreaterThan(1024 * 1024);
+    const r = await call("boss", "/preview", big);
+    expect(r.status).toBe(200);
+    expect(r.body.validCount).toBe(5000);
+    const over = await call("boss", "/preview", file(many("BIG", 5001)));
+    expect(over.status).toBe(400);
+    expect(JSON.stringify(over.body)).toContain("too_many_rows");
+  }, 30000);
   test("viewer without masterdata.manage is denied", async () => {
     const r = await call("viewer", "/preview", file([row(2)]));
     expect(r.status).toBe(403);
