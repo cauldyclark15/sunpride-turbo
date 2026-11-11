@@ -224,7 +224,8 @@ export function OutletEditor({
   if (!canRead) return null;
   if (detail === undefined)
     return <p className="text-[14px] text-muted">Loading store…</p>;
-  if (!detail) return <p className="text-[14px] text-muted">Store not found.</p>;
+  if (!detail)
+    return <p className="text-[14px] text-muted">Store not found.</p>;
   return (
     <div className="grid gap-4">
       <section aria-label="Outlet profile" className="grid gap-2">
@@ -301,11 +302,7 @@ export function OutletEditor({
           {action === "edit" && (
             <>
               <FormField label="Name">
-                <input
-                  name="name"
-                  defaultValue={detail.outlet.name}
-                  required
-                />
+                <input name="name" defaultValue={detail.outlet.name} required />
               </FormField>
               <FormField label="Status">
                 <select

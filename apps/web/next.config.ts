@@ -66,14 +66,26 @@ export default function nextConfig(phase: string): NextConfig {
     async redirects() {
       // Kick-off presentation: a static deck in public/kickoff, outside the sign-in gate.
       return [
-        { source: "/kickoff", destination: "/kickoff/index.html", permanent: false },
+        {
+          source: "/kickoff",
+          destination: "/kickoff/index.html",
+          permanent: false,
+        },
         // User guides: a static site in public/guides, outside the sign-in gate.
-        { source: "/guides", destination: "/guides/index.html", permanent: false },
+        {
+          source: "/guides",
+          destination: "/guides/index.html",
+          permanent: false,
+        },
         // System flow diagrams: a static page in public/flow, outside the sign-in gate.
         { source: "/flow", destination: "/flow/index.html", permanent: false },
         // SP-0170: Stores became Customers (customer = store); old links keep working.
         { source: "/stores", destination: "/customers", permanent: false },
-        { source: "/stores/store", destination: "/customers/customer", permanent: false },
+        {
+          source: "/stores/store",
+          destination: "/customers/customer",
+          permanent: false,
+        },
       ];
     },
     async rewrites() {

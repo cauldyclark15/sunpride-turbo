@@ -5,17 +5,17 @@ import { DormancyPanel } from "../../dormancy-panel";
 import { useWaitingCount } from "../../store-gathering/tab";
 import { StoreGatheringReview } from "../../store-gathering/review";
 import { LocationCoverage } from "../../store-gathering/location-coverage";
-import { CustomerEditor, useCustomerReference } from "../../customers/customer-editor";
+import {
+  CustomerEditor,
+  useCustomerReference,
+} from "../../customers/customer-editor";
 import {
   CustomerListView,
   FILTER_DEPENDENTS,
   useCustomerList,
   type CustomerFilters,
 } from "../../customers/customer-list";
-import {
-  LIST_FILTER_KEYS,
-  type CustomerStatus,
-} from "../../customers/model";
+import { LIST_FILTER_KEYS, type CustomerStatus } from "../../customers/model";
 import { usePermissions } from "../../../lib/auth";
 import { Drawer } from "../kit/drawer";
 import {
@@ -50,11 +50,7 @@ import {
   TrendChart,
   type DrillColumn,
 } from "../kit";
-import type {
-  StoreResponse,
-  StoresResponse,
-  StoreRow,
-} from "../types";
+import type { StoreResponse, StoresResponse, StoreRow } from "../types";
 import { buttonClass, usePageQuery } from "./shared";
 
 export function storeColumns(now: number): DrillColumn<StoreRow>[] {
@@ -170,9 +166,7 @@ export function StoresView({
   return (
     <div className="grid gap-4">
       <KpiGrid kpis={data.kpis} />
-      <Panel
-        title="Buying stores by week"
-      >
+      <Panel title="Buying stores by week">
         <TrendChart
           label="Buying stores by week"
           unit="count"

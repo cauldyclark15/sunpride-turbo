@@ -74,7 +74,9 @@ export const OPERATIONS_SECTIONS = [
     label: "Transfers",
     href: "/operations/transfers",
     access: "ops-transfers",
-    subs: [{ id: "list", label: "All transfers", href: "/operations/transfers" }],
+    subs: [
+      { id: "list", label: "All transfers", href: "/operations/transfers" },
+    ],
   },
   {
     id: "counts",
@@ -191,7 +193,12 @@ export const LEGACY_REDIRECTS = {
 export type PageSlug = OwnerSlug | WebModuleSlug | OperationsSlug;
 
 /** Pages that belong to Operations: the new routes and the older pages that moved under a verb. */
-const OPERATIONS_SEGMENTS = new Set(["operations", "inventory", "van-trips", "workflows"]);
+const OPERATIONS_SEGMENTS = new Set([
+  "operations",
+  "inventory",
+  "van-trips",
+  "workflows",
+]);
 const OWNER_SLUGS = new Set<string>(OWNER_PAGES.map((page) => page.id));
 const WORKSPACES = new Set<string>(WORKSPACE_SLUGS);
 
@@ -398,7 +405,9 @@ export function visibleOperationsSubs(
 }
 
 /** The Operations verb a pathname belongs to, or null outside Operations. */
-export function operationsSectionFor(pathname: string): OperationsSection | null {
+export function operationsSectionFor(
+  pathname: string,
+): OperationsSection | null {
   const [, first = "", second = ""] = pathname.split("?")[0]!.split("/");
   const id = first === "operations" ? second || "stock" : MOVED_UNDER[first];
   return OPERATIONS_SECTIONS.find((section) => section.id === id) ?? null;

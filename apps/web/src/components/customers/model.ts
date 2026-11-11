@@ -126,7 +126,12 @@ export const DEPENDENTS: Record<string, string[]> = {
     "barangayCode",
     "postalCode",
   ],
-  regionCode: ["provinceCode", "municipalityCode", "barangayCode", "postalCode"],
+  regionCode: [
+    "provinceCode",
+    "municipalityCode",
+    "barangayCode",
+    "postalCode",
+  ],
   provinceCode: ["municipalityCode", "barangayCode", "postalCode"],
   municipalityCode: ["barangayCode", "postalCode"],
 };
@@ -271,7 +276,9 @@ export function setShipTo(
 ): Draft {
   return {
     ...d,
-    shipTos: d.shipTos.map((s, i) => (i === index ? { ...s, [key]: value } : s)),
+    shipTos: d.shipTos.map((s, i) =>
+      i === index ? { ...s, [key]: value } : s,
+    ),
   };
 }
 
@@ -365,7 +372,9 @@ export function toPayload(d: Draft, a?: { adp: boolean }) {
     ? blankToNull(d.values.customerAddress ?? "")
     : "";
   if (customer.creditLimit !== null && customer.creditLimit !== undefined)
-    customer.creditLimit = Number(String(customer.creditLimit).replace(/,/g, ""));
+    customer.creditLimit = Number(
+      String(customer.creditLimit).replace(/,/g, ""),
+    );
   customer.latitude = d.latitude.trim() === "" ? null : Number(d.latitude);
   customer.longitude = d.longitude.trim() === "" ? null : Number(d.longitude);
   customer.shipTos = d.shipTos.map((s) => {

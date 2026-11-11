@@ -311,7 +311,12 @@ export function MasterDataWorkspace({
   }
   const nameCol: ListColumn<Row> = {
     key: "name",
-    label: kind === "products" ? "Product" : kind === "customers" ? "Customer" : "Store",
+    label:
+      kind === "products"
+        ? "Product"
+        : kind === "customers"
+          ? "Customer"
+          : "Store",
     primary: true,
     render: (r) => r.name,
     text: (r) => r.name,

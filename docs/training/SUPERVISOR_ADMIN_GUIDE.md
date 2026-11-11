@@ -357,9 +357,8 @@ Common suggested fixes:
 
 The fixes below are suggested actions, not literal button labels. The current review message is **Review the outlet setup before approval** or **Revise this dated slot before approval**.
 
-
-| Suggested fix shown                                       | What to do                                                          |
-| --------------------------------------------------------- | ------------------------------------------------------------------- |
+| Suggested fix shown                                   | What to do                                                          |
+| ----------------------------------------------------- | ------------------------------------------------------------------- |
 | Reactivate or remove the draft visit                  | Store is inactive or missing: reactivate it or remove it from plan. |
 | Repair the local customer link or reactivate customer | Fix the store's customer link (section 12).                         |
 | Correct overlapping or missing territory assignment   | Assign the store to exactly one territory for that date.            |
@@ -744,8 +743,8 @@ PO under Commercial › **Outside-call POs**, and the salesperson records the ac
 | A new person sees nothing after signing in            | Assign their unit in Admin › **People** (section 10.2).                      |
 | **Review** tab is missing                             | Only Sales managers and Super admins approve plans.                          |
 | Approve is disabled on a plan                         | You prepared or submitted it, it is your own, or it has blocking exceptions. |
-| Revise the approved coverage plan first           | Revise the MCP that uses that store/route, then make the change.             |
-| Move requires outlet reassignment first           | Reassign the route's stores first, then move the route.                      |
+| Revise the approved coverage plan first               | Revise the MCP that uses that store/route, then make the change.             |
+| Move requires outlet reassignment first               | Reassign the route's stores first, then move the route.                      |
 | A store is missing from the coverage map              | It has no verified pin. Propose and verify one (section 12.2).               |
 | Imported visits do not show as ticks in the plan grid | Check them in **Calendar** or **Dated slots**; see section 20.               |
 | A phone cannot sync after being found                 | It may be revoked (permanent). Enrol it again as a new phone.                |

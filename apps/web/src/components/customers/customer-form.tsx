@@ -70,7 +70,10 @@ function Label({
   required: boolean;
 }) {
   return (
-    <label htmlFor={htmlFor} className="text-[12px] font-medium text-foreground">
+    <label
+      htmlFor={htmlFor}
+      className="text-[12px] font-medium text-foreground"
+    >
       {label}
       {required ? (
         <span className="text-[#b4101f]" title="Required">
@@ -218,17 +221,17 @@ export function CustomerForm({
     if (f.kind === "geo") {
       const parentKey = GEO_PARENT[f.key] as string;
       const parentChosen = Boolean(draft.values[parentKey]);
-      const opts = (parentChosen ? geo[GEO_LIST[f.key] as keyof GeoLists] : []).map(
-        (o) => ({
-          code: o.code,
-          label:
-            f.key === "postalCode"
-              ? o.name && o.name !== o.code
-                ? `${o.code} (${o.name})`
-                : o.code
-              : o.name,
-        }),
-      );
+      const opts = (
+        parentChosen ? geo[GEO_LIST[f.key] as keyof GeoLists] : []
+      ).map((o) => ({
+        code: o.code,
+        label:
+          f.key === "postalCode"
+            ? o.name && o.name !== o.code
+              ? `${o.code} (${o.name})`
+              : o.code
+            : o.name,
+      }));
       const parentLabel =
         FIELDS.find((x) => x.key === parentKey)?.label ?? "the parent";
       return (

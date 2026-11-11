@@ -6,11 +6,7 @@ import {
 } from "./master-data/fixtures";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Doc, Id } from "./master-data/model";
-import {
-  OutletAdmin,
-  OutletEditor,
-  performOutletAction,
-} from "./outlet-admin";
+import { OutletAdmin, OutletEditor, performOutletAction } from "./outlet-admin";
 
 const state = vi.hoisted(() => ({
   values: {} as Record<string, unknown>,
@@ -114,7 +110,9 @@ describe("Outlet admin (unmounted)", () => {
   it("Setup › Outlets points to the one Stores list instead of a second list", () => {
     state.nullIndex = 0;
     const view = renderToStaticMarkup(createElement(OutletAdmin));
-    expect(view).toContain("Customers are added and edited on the Customers page.");
+    expect(view).toContain(
+      "Customers are added and edited on the Customers page.",
+    );
     expect(view).toContain('href="/customers"');
     expect(view).not.toContain("Create outlet");
     expect(state.queries.map((q) => q.name)).not.toContain(

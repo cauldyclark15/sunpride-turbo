@@ -50,7 +50,11 @@ export const FILTER_DEPENDENTS: Record<string, (keyof CustomerFilters)[]> = {
   customerGroup1Code: ["customerGroup2Code"],
 };
 
-export function nameOf(index: ReferenceIndex, list: string, code: string | null) {
+export function nameOf(
+  index: ReferenceIndex,
+  list: string,
+  code: string | null,
+) {
   if (!code) return "";
   const row = (index.all(list) as RefOption[]).find((r) => r.code === code);
   return row ? optionLabel(row) : code;

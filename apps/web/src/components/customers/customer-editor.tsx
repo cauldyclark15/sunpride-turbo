@@ -104,8 +104,7 @@ export function CustomerEditor({
         {loaded.error ? loaded.error.message : "Loading customer…"}
       </p>
     );
-  if (!refLoaded)
-    return <p className="text-sm text-muted">Loading lists…</p>;
+  if (!refLoaded) return <p className="text-sm text-muted">Loading lists…</p>;
   return (
     <EditorBody
       key={loaded.data ? loaded.data.id : "new"}
@@ -306,7 +305,10 @@ function EditorBody({
           ) : null}
           {customer?.pinStatus ? (
             <span className="text-[12px] text-muted">
-              Pin {customer.pinStatus === "verified" ? "verified" : "waiting for a second person to verify"}
+              Pin{" "}
+              {customer.pinStatus === "verified"
+                ? "verified"
+                : "waiting for a second person to verify"}
             </span>
           ) : null}
         </div>
@@ -366,7 +368,11 @@ function EditorBody({
     } catch (e) {
       const { fields, message: text } = fieldErrorsFrom(e);
       const code = (e as { code?: string }).code;
-      if (code === "code_taken" || code === "code_locked" || code === "invalid_code")
+      if (
+        code === "code_taken" ||
+        code === "code_locked" ||
+        code === "invalid_code"
+      )
         fields.code = text;
       setErrors(fields);
       setMessage({ tone: "error", text });
@@ -412,7 +418,10 @@ function EditorBody({
       setCustomer(approved);
       setDraft(draftFromCustomer(approved));
       setErrors({});
-      setMessage({ tone: "ok", text: `Approved. Customer Code ${approved.code}.` });
+      setMessage({
+        tone: "ok",
+        text: `Approved. Customer Code ${approved.code}.`,
+      });
       onDone?.(approved);
     } catch (e) {
       const { fields, message: text } = fieldErrorsFrom(e);
@@ -463,7 +472,9 @@ function EditorBody({
       canEdit={canEdit}
       canApprove={canApprove}
       pinSlot={pinSlot}
-      units={!customer && (setup?.units.length ?? 0) > 1 ? (setup?.units ?? []) : []}
+      units={
+        !customer && (setup?.units.length ?? 0) > 1 ? (setup?.units ?? []) : []
+      }
       unitId={unitId || setup?.defaultUnitId || ""}
       onUnit={setUnitId}
       onSave={onSave}
@@ -561,7 +572,10 @@ export function CustomerEditorView({
         </div>
       ) : null}
       {message ? (
-        <p role="status" className={`rounded-lg border px-3 py-2 text-[13px] ${tone}`}>
+        <p
+          role="status"
+          className={`rounded-lg border px-3 py-2 text-[13px] ${tone}`}
+        >
           {message.text}
         </p>
       ) : null}
