@@ -120,6 +120,9 @@ interface FieldBackend {
     fun censusConfig(): JSONObject? = null
     fun censusHistory(): List<Pair<String, String>> = emptyList()
     fun queueCensus(payload: JSONObject) { error("Census unavailable") }
+    /** SP-0170 Add customer: PSGC geography kept on this phone (national pack + barangays of [provinces] and of
+     * every province fetched before). Downloads what is missing or older than 30 days when online. */
+    fun customerGeography(provinces: List<String>): com.sunpride.field.census.CustomerCapture.Geography? = null
     /** Edit store requests on this phone: (payload, outbox state, created at). */
     fun storeChanges(): List<Triple<JSONObject, String, Long>> = emptyList()
     /** The office's decisions on this person's sent store changes: fetched when online, else the copy saved on the phone. */
@@ -224,6 +227,10 @@ private const val SALES_CACHE = "local.daysales"
 // Edit store: office decisions on this person's changes, and the rejections already shown (separate entities:
 // putLocalCache keeps only one key prefix per entity).
 private const val STORE_CHANGES = "local.storechanges"
+/** SP-0170 offline PSGC geography for Add customer (public reference data; see docs/runbooks/CUSTOMER_MASTER.md). */
+private const val GEOGRAPHY = "local.geography"
+private const val GEOGRAPHY_MAX_AGE_MS = 30L * 24 * 3600_000
+private val PSGC = Regex("^[0-9]{10}$")
 private const val STORE_SEEN = "local.storeseen"
 
 /**
@@ -443,6 +450,33 @@ class LiveFieldBackend(
             isOffline={it is com.sunpride.field.auth.AuthFailure&&it.kind==com.sunpride.field.auth.AuthFailure.Kind.OFFLINE})
         cached?.let(::JSONObject)
     }
+    override fun customerGeography(provinces: List<String>): com.sunpride.field.census.CustomerCapture.Geography? =
+        if (storedScope() == null) null else withStore { store ->
+            val now = System.currentTimeMillis()
+            suspend fun cachedOrFetch(key: String, path: String): String? {
+                val saved = store.localCache(GEOGRAPHY, key)?.takeUnless { it.tombstone }
+                if (saved?.json != null && now - saved.revision in 0 until GEOGRAPHY_MAX_AGE_MS) return saved.json
+                val live = runCatching { functions.api.get(path).toString() }.getOrNull()
+                if (live != null) runCatching { store.putLocalCache(GEOGRAPHY, key, live, now, "") }
+                return live ?: saved?.json
+            }
+            val pack = cachedOrFetch("pack", "/api/v1/geography/pack") ?: return@withStore null
+            var geography = com.sunpride.field.census.CustomerCapture.Geography.parse(JSONObject(pack))
+            val known = store.localCache(GEOGRAPHY, "provinces")?.takeUnless { it.tombstone }?.json
+                ?.let { runCatching { org.json.JSONArray(it) }.getOrNull() }
+                ?.let { a -> (0 until a.length()).mapNotNull { a.opt(it) as? String } }.orEmpty()
+            val wanted = (provinces + known).filter { PSGC.matches(it) }.distinct().take(40)
+            val got = mutableListOf<String>()
+            for (province in wanted) {
+                val text = cachedOrFetch("brgy:$province", "/api/v1/geography/pack/barangays?provinceCode=$province") ?: continue
+                geography = geography.withBarangays(province,
+                    com.sunpride.field.census.CustomerCapture.Geography.barangays(JSONObject(text)))
+                got += province
+            }
+            if (got.toSet() != known.toSet())
+                runCatching { store.putLocalCache(GEOGRAPHY, "provinces", org.json.JSONArray(got).toString(), now, "") }
+            geography
+        }
     override fun censusHistory(): List<Pair<String, String>> = withStore { store ->
         store.history().filter { it.first.kind == com.sunpride.field.census.CensusRules.KIND }.map {
             JSONObject(it.first.serializedOperation).getJSONObject("payload").getString("name") to it.second.state

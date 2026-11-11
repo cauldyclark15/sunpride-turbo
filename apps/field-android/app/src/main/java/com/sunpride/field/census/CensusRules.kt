@@ -19,6 +19,8 @@ object CensusRules {
     fun isChange(p: JSONObject): Boolean = p.optString("kind") == CHANGE
     fun validate(p: JSONObject) {
         if (isChange(p)) return validateChange(p)
+        // SP-0170 Add customer: the client's customer object instead of the old channel/class fields.
+        if (p.has("customer")) return CustomerCapture.validate(p)
         // SP-0163: batchId is optional (server files it under the agent's ongoing batch); when sent it must be valid.
         val keys = listOf("captureId", "channelId", "subchannelId") + (if (p.has("batchId") && !p.isNull("batchId")) listOf("batchId") else emptyList())
         keys.forEach { require(uuid.matches(p.getString(it))) { "Choose a valid census batch and channel." } }
