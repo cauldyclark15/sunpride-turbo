@@ -8,7 +8,7 @@ export class ApiError extends Error {
    * @param {number} status HTTP status
    * @param {string} [message] plain words
    * @param {boolean} [retryable]
-   * @param {{ action?: 'retry'|'reauthenticate'|'rebootstrap'|'hold'|'update'|'none', retryAfterMs?: number|null }} [extra]
+   * @param {{ action?: 'retry'|'reauthenticate'|'rebootstrap'|'hold'|'update'|'none', retryAfterMs?: number|null, details?: Record<string, unknown>|null }} [extra]
    */
   constructor(code, status, message = code, retryable = false, extra = {}) {
     super(message);
@@ -18,6 +18,8 @@ export class ApiError extends Error {
     this.retryable = retryable;
     this.action = extra.action ?? defaultAction(status, retryable);
     this.retryAfterMs = extra.retryAfterMs ?? null;
+    /** Optional structured detail (e.g. SP-0170 field errors); only the contract §3 envelope carries it. */
+    this.details = extra.details ?? null;
   }
 }
 
@@ -69,6 +71,7 @@ export function errorBody(error, v2, now, path) {
       code: error.code,
       message: plainMessage(error, path),
       retryable: error.retryable,
+      ...(error.details ? { details: error.details } : {}),
     },
   };
 }

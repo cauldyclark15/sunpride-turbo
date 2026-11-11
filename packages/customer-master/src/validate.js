@@ -141,13 +141,20 @@ export function applicability(index, c) {
   const salesOrgCode = text(c.salesOrgCode),
     channelCode = text(c.distributionChannelCode),
     group1Code = text(c.customerGroup1Code);
+  // A channel outside the chosen sales org decides nothing about its groups.
+  const channelValid =
+    !!salesOrgCode &&
+    !!channelCode &&
+    index
+      .options("distribution_channel", { salesOrgCode })
+      .some((r) => r.code === channelCode);
   const group1Options =
-    salesOrgCode && channelCode
+    channelValid && salesOrgCode && channelCode
       ? index.options("customer_group_1", { salesOrgCode, channelCode })
       : null;
   // Without a Grp 1 yet, Grp 2 applies when any Grp 1 of the channel has Grp 2 values.
   const group2Options =
-    salesOrgCode && channelCode
+    channelValid && salesOrgCode && channelCode
       ? index.options("customer_group_2", {
           salesOrgCode,
           channelCode,

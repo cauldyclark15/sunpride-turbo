@@ -189,5 +189,7 @@ export async function seedDemo(
     return { ...(await retailSummary(t, summary)), duplicate: false };
   });
   await seedVanOps(db);
+  // SP-0170: every sample store gets the client's customer shape (idempotent SQL from 0823).
+  await db`select customer_master_backfill('system:sample-seed')`;
   return result;
 }
