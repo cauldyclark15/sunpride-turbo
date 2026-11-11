@@ -20,7 +20,9 @@
 --    customer"; the store's existing address line is kept (built only when missing).
 --    Idempotent; the demo seed calls it again after seeding a fresh lane.
 -- 3. analytics_store_scope.channel / .subchannel now read Distribution Channel / Customer Grp 1
---    names (old key only when a store has no profile); channel targets are re-keyed the same way.
+--    names (old key only when a store has no profile). customer_master_channel_name() maps an
+--    old key to the channel most of its stores moved to; channel targets, people's channel scope
+--    and territory channel are re-keyed with it (merged targets are summed, never duplicated).
 
 create function customer_master_legacy_mapping(p_channel text, p_name text,
   out channel_code text, out group1_code text, out group2_code text,
@@ -168,36 +170,57 @@ begin
   return jsonb_build_object('profiled', profiled, 'codesAligned', aligned);
 end $$;
 
--- Channel-level targets follow the analytics channel (Distribution Channel name). Old keys that
--- land on the same channel are summed into one current target; the others are retired.
+create function customer_master_channel_name(p_key text) returns text
+language sql stable as $$
+  select case
+    when p_key is null or btrim(p_key) = '' then p_key
+    when exists (select 1 from customer_reference_values v where v.list = 'distribution_channel' and v.name = p_key) then p_key
+    else coalesce(
+      (select v.name from outlets o join customer_profiles p on p.outlet_id = o.id
+         join customer_reference_values v on v.list = 'distribution_channel'
+           and v.sales_org_code = p.sales_org_code and v.code = p.distribution_channel_code
+       where o.deleted_at is null and lower(o.channel) = lower(p_key)
+       group by v.name, v.code order by count(*) desc, v.code limit 1),
+      (select v.name from customer_reference_values v where v.list = 'distribution_channel'
+         and v.sales_org_code = '1000' and v.code = (customer_master_legacy_mapping(p_key, null)).channel_code),
+      p_key)
+  end
+$$;
+
+-- Channel targets and people's channel scope follow the analytics channel (Distribution Channel
+-- name). An old key whose month already has a target under the new name is added into it; the
+-- merged-away row keeps its history but no amount, so every level still sums to company.
 create function customer_master_rekey_channel_targets() returns void
 language plpgsql as $$
+declare
+  t record;
+  v_key text;
+  v_existing uuid;
 begin
-  with mapped as (
-    -- An old key goes to the channel most of its stores moved to (ties: lowest channel code).
-    select t.id, t.month, t.amount_centavos,
-      coalesce(
-        (select v.name from outlets o join customer_profiles p on p.outlet_id = o.id
-           join customer_reference_values v on v.list = 'distribution_channel'
-             and v.sales_org_code = p.sales_org_code and v.code = p.distribution_channel_code
-         where o.deleted_at is null and lower(o.channel) = lower(t.target_key)
-         group by v.name, v.code order by count(*) desc, v.code limit 1),
-        (select v.name from customer_reference_values v where v.list = 'distribution_channel'
-           and v.sales_org_code = '1000' and v.code = (customer_master_legacy_mapping(t.target_key, null)).channel_code),
-        t.target_key) as new_key
-    from sales_targets t
-    where t.level = 'channel' and t.deleted_at is null
-      and not exists (select 1 from customer_reference_values v where v.list = 'distribution_channel' and v.name = t.target_key)
-  ), ranked as (
-    select m.*, row_number() over (partition by m.month, m.new_key order by m.id) as rn,
-      sum(m.amount_centavos) over (partition by m.month, m.new_key) as total
-    from mapped m
-  ), retired as (
-    update sales_targets t set deleted_at = now() from ranked r where r.id = t.id and r.rn > 1 returning t.id
-  )
-  update sales_targets t set target_key = r.new_key, amount_centavos = r.total,
-    value = round(r.total / 100.0, 2)
-  from ranked r where r.id = t.id and r.rn = 1 and (select count(*) from retired) >= 0;
+  for t in
+    select * from sales_targets
+    where level = 'channel' and deleted_at is null
+      and not exists (select 1 from customer_reference_values v where v.list = 'distribution_channel' and v.name = sales_targets.target_key)
+    order by month, id
+  loop
+    v_key := customer_master_channel_name(t.target_key);
+    if v_key is null or v_key = t.target_key then continue; end if;
+    select id into v_existing from sales_targets
+      where month = t.month and level = 'channel' and target_key = v_key and deleted_at is null and id <> t.id
+      limit 1;
+    if v_existing is null then
+      update sales_targets set target_key = v_key where id = t.id;
+    else
+      update sales_targets set deleted_at = now(), amount_centavos = 0, value = 0,
+        notes = concat_ws(' ', notes, 'SP-0170: merged into ' || v_key) where id = t.id;
+      update sales_targets set amount_centavos = amount_centavos + coalesce(t.amount_centavos, 0),
+        value = round((amount_centavos + coalesce(t.amount_centavos, 0)) / 100.0, 2) where id = v_existing;
+    end if;
+  end loop;
+  update profiles set channel_scope = customer_master_channel_name(channel_scope)
+  where channel_scope is not null and channel_scope is distinct from customer_master_channel_name(channel_scope);
+  update territories set channel = customer_master_channel_name(channel)
+  where channel is not null and channel is distinct from customer_master_channel_name(channel);
 end $$;
 
 select customer_master_backfill('system:migration:SP-0170');
