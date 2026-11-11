@@ -19,6 +19,12 @@
 --    old model never had, Cebu PSGC location by sample territory, one ship-to "same as
 --    customer"; the store's existing address line is kept (built only when missing).
 --    Idempotent; the demo seed calls it again after seeding a fresh lane.
+--    Only SAMPLE stores (seeded by system:sample*, named "Sample …" or coded SMP-/SAMPLE-) get
+--    invented sample values. Any other store (real data) gets an honest DRAFT profile: the
+--    channel chain mapped from its own channel, its accounting customer's name as Registered
+--    Name (that name is never overwritten), its own address/contact, and nothing invented
+--    (no sample location, street, tax, terms, office, plant or placeholder mobile); the office
+--    completes it before it is approved again through the customer form.
 -- 3. analytics_store_scope.channel / .subchannel now read Distribution Channel / Customer Grp 1
 --    names (old key only when a store has no profile). customer_master_channel_name() maps an
 --    old key to the channel most of its stores moved to; channel targets, people's channel scope
@@ -84,10 +90,13 @@ declare
   v_mobile text;
   v_address text;
   v_credit numeric(14,2);
+  v_sample boolean;
+  v_contact text;
+  real_rows integer := 0;
 begin
   for r in
     select o.*, t.code as territory_code, t.name as territory_name,
-      link.customer_id, c.code as customer_code, c.credit_limit as customer_credit,
+      link.customer_id, c.code as customer_code, c.name as customer_name, c.credit_limit as customer_credit,
       (select count(*) from outlet_customer_links x where x.customer_id = link.customer_id
          and x.deleted_at is null and (x.effective_to is null or x.effective_to > now())) as customer_links
     from outlets o
@@ -109,17 +118,46 @@ begin
       r.code := r.customer_code;
       aligned := aligned + 1;
     end if;
-    if r.customer_id is not null and r.customer_links = 1 then
+    v_sample := coalesce(r.created_by, '') like 'system:sample%'
+      or coalesce(r.name, '') ~* '^\s*sample\M' or coalesce(r.code, '') ~* '^(SMP|SAMPLE)-';
+    if r.customer_id is not null and r.customer_links = 1 and v_sample then
       update customers set name = r.name where id = r.customer_id and name is distinct from r.name;
     end if;
     select * into m from customer_master_legacy_mapping(r.channel, r.name);
     select * into loc from customer_master_sample_location(r.territory_code, r.territory_name);
-    select coalesce(
-      (select case when regexp_replace(ct.phone, '\D', '', 'g') ~ '^(09[0-9]{9}|639[0-9]{9})$'
-                   then regexp_replace(regexp_replace(ct.phone, '\D', '', 'g'), '^63', '0') end
-         from outlet_contacts ct where ct.outlet_id = r.id and ct.deleted_at is null order by ct.ordinal limit 1),
-      '09000000000') into v_mobile;
+    select case when regexp_replace(ct.phone, '\D', '', 'g') ~ '^(09[0-9]{9}|639[0-9]{9})$'
+                then regexp_replace(regexp_replace(ct.phone, '\D', '', 'g'), '^63', '0') end,
+           nullif(btrim(ct.name), '')
+      into v_mobile, v_contact
+      from outlet_contacts ct where ct.outlet_id = r.id and ct.deleted_at is null order by ct.ordinal limit 1;
     v_credit := coalesce(r.customer_credit, 0);
+    if not v_sample then
+      -- Real data: nothing invented; the office completes the profile (draft).
+      v_address := nullif(btrim(r.address), '');
+      insert into customer_profiles(outlet_id, registered_name, mobile_no, address_custom,
+        sales_org_code, distribution_channel_code, customer_group1_code, customer_group2_code,
+        customer_group_code, type_of_business, credit_limit, completeness, source, updated_by,
+        distribution_channel_name, customer_group1_name, customer_group2_name, customer_group_name)
+      values (r.id, coalesce(nullif(btrim(r.customer_name), ''), r.name), v_mobile, v_address is not null,
+        '1000', m.channel_code, m.group1_code, m.group2_code, m.customer_group_code, m.type_of_business,
+        v_credit, 'draft', 'sp0170-migration', p_actor,
+        (select v.name from customer_reference_values v where v.list = 'distribution_channel'
+           and v.sales_org_code = '1000' and v.code = m.channel_code),
+        (select v.name from customer_reference_values v where v.list = 'customer_group_1'
+           and v.sales_org_code = '1000' and v.channel_code = m.channel_code and v.code = m.group1_code),
+        (select v.name from customer_reference_values v where v.list = 'customer_group_2'
+           and v.sales_org_code = '1000' and v.channel_code = m.channel_code
+           and v.group1_code = m.group1_code and v.code = m.group2_code),
+        (select v.name from customer_reference_values v where v.list = 'customer_group'
+           and v.code = m.customer_group_code));
+      insert into customer_ship_tos(outlet_id, ordinal, ship_to_party, ship_to_address, contact_person,
+        mobile_no, same_as_customer, updated_by)
+      values (r.id, 0, r.name, v_address, v_contact, v_mobile, true, p_actor);
+      profiled := profiled + 1;
+      real_rows := real_rows + 1;
+      continue;
+    end if;
+    v_mobile := coalesce(v_mobile, '09000000000');
     -- Customer Address: the store's existing one-liner is kept; only a missing one is built.
     v_address := coalesce(nullif(btrim(r.address), ''),
       customer_address_line(null, null, null, 'Sample street', null,
@@ -164,10 +202,10 @@ begin
   if profiled > 0 then
     insert into audit_logs(subject, action, entity_type, entity_id, details)
     values (p_actor, 'customer_master.sample_backfill', 'outlets', 'SP-0170',
-      jsonb_build_object('profiled', profiled, 'codesAligned', aligned)::text);
+      jsonb_build_object('profiled', profiled, 'codesAligned', aligned, 'realDrafts', real_rows)::text);
   end if;
   perform customer_master_rekey_channel_targets();
-  return jsonb_build_object('profiled', profiled, 'codesAligned', aligned);
+  return jsonb_build_object('profiled', profiled, 'codesAligned', aligned, 'realDrafts', real_rows);
 end $$;
 
 create function customer_master_channel_name(p_key text) returns text

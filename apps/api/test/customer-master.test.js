@@ -311,6 +311,39 @@ describe("SP-0170 sample migration", () => {
     ).map((/** @type {any} */ r) => r.target_key);
     expect(keys).toEqual(["General Trade", "Key Accounts", "Route Sales"]);
   });
+  test("a non-sample (real) store gets an honest draft: nothing invented, its accounting name kept", async () => {
+    const [o] =
+      await h.db`insert into outlets(organization_id,code,name,status,channel,address,custodian_org_unit_id,created_by) values('sunpride','REAL-0001','Tindahan ni Mang Ben','active','pmot','5 Real St, Lapu-Lapu',${UNIT},'7c1f0000-0000-4000-8000-000000000001') returning id`;
+    await h.db`insert into outlet_contacts(outlet_id,ordinal,name,phone) values(${o.id},0,'Ben Reyes','+63 917 222 3333')`;
+    const [acct] =
+      await h.db`insert into customers(code,name,channel,territory,credit_limit,active) values('C-REAL-1','Reyes Trading Corp.','pmot','T1',5000,true) returning id`;
+    await h.db`insert into outlet_customer_links(outlet_id,customer_id,source,effective_from,actor_subject,reason) values(${o.id},${acct.id},'manual',now() - interval '1 day','fixture','fixture')`;
+    const [{ r }] =
+      await h.db`select customer_master_backfill('test:real') as r`;
+    expect(r.realDrafts).toBeGreaterThanOrEqual(1);
+    const c = await readCustomer(h.db, o.id);
+    expect(c).toMatchObject({
+      code: "C-REAL-1", // the store takes its accounting customer's code (rule 2)
+      completeness: "draft",
+      registeredName: "Reyes Trading Corp.",
+      customerAddress: "5 Real St, Lapu-Lapu",
+      mobileNo: "09172223333",
+      distributionChannelCode: "41",
+      customerGroupCode: "82",
+      regionCode: null,
+      street1: null,
+      taxClassificationCode: null,
+      paymentTermsCode: null,
+      salesOfficeCode: null,
+      deliveringPlantCode: null,
+    });
+    expect(c.shipTos[0]).toMatchObject({
+      contactPerson: "Ben Reyes",
+      mobileNo: "09172223333",
+    });
+    const [kept] = await h.db`select name from customers where id=${acct.id}`;
+    expect(kept.name).toBe("Reyes Trading Corp.");
+  });
 });
 
 describe("SP-0170 customer writer", () => {

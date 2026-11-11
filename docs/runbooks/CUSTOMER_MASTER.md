@@ -145,6 +145,15 @@ and people's channel scope are re-keyed to the channel most of their stores move
 (`gt`+`pmot` → Route Sales, summed; `supermarket` → General Trade; `kas` → Key Accounts).
 Stores without any pin (two kickoff samples) stay `draft`.
 
+Only **sample** stores (created by `system:sample*`, named "Sample …" or coded `SMP-`/`SAMPLE-`)
+get those invented values. Any other store found on a live DB (real data) gets an honest
+`draft` profile (source `sp0170-migration`): the channel chain mapped from its own channel,
+Registered Name = its accounting customer's name (which is not overwritten), its own address
+and first contact, and nothing invented (no sample location, street, tax, terms, office, plant
+or placeholder mobile). Find them with `GET /api/v1/customers?completeness=draft` and complete
+them in the Customers form. Its Customer Code still follows rule 2 (the store takes its only
+accounting customer's code).
+
 ## Decisions (SP-0170, beyond the SPEC)
 
 - One generic `customer_reference_values` table instead of 12 tables: one loader, one endpoint,
