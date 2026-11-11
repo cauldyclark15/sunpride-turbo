@@ -1,10 +1,11 @@
 import { BATCH, Dataset, persist, todayManila } from "./store.js";
 
 /** F-R01/R03/R08 additive, ownership-marked samples. Never restock a used shop or overwrite office edits.
- * @param {any} db */
-export async function completeStorePosSamples(db) {
+ * @param {any} db @param {string[]} [extraCodes] additional marked sample shops (test-day fixtures) */
+export async function completeStorePosSamples(db, extraCodes = []) {
+  const codes = ["SAMPLE-CEBU-COLON", "SAMPLE-CEBU-MANDAUE", ...extraCodes];
   const stores =
-    await db`select r.*,l.org_unit_id,l.organization_id,l.code,l.name as store_name from store_registers r join inventory_locations l on l.id=r.location_id join sample_data_rows m on m.table_name='inventory_locations' and m.row_id=l.id::text and m.batch=${BATCH} join sample_data_rows rm on rm.table_name='store_registers' and rm.row_id=r.id::text and rm.batch=${BATCH} where l.active and l.type='store' and l.code in ('SAMPLE-CEBU-COLON','SAMPLE-CEBU-MANDAUE')`;
+    await db`select r.*,l.org_unit_id,l.organization_id,l.code,l.name as store_name from store_registers r join inventory_locations l on l.id=r.location_id join sample_data_rows m on m.table_name='inventory_locations' and m.row_id=l.id::text and m.batch=${BATCH} join sample_data_rows rm on rm.table_name='store_registers' and rm.row_id=r.id::text and rm.batch=${BATCH} where l.active and l.type='store' and l.code in ${db(codes)}`;
   const data = new Dataset(todayManila(), 1);
   /** @type {any[]} */ const links = [];
   const products =
