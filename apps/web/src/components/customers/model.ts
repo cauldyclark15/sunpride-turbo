@@ -445,6 +445,18 @@ export function sectionFields(section: Section): FieldSpec[] {
 }
 
 /** Status shown to people: a field-captured customer is a prospect until approved. */
+/** Waits for an approver: an office/upload prospect, or a field "Add customer" store that is
+ * already visitable (active) under a provisional code until its enrolment is approved. */
+export function awaitsApproval(c: {
+  status: string;
+  enrolmentStatus: string | null;
+}): boolean {
+  return (
+    c.status === "prospect" ||
+    (c.status === "active" && c.enrolmentStatus === "provisional")
+  );
+}
+
 export const STATUS_LABEL: Record<CustomerStatus, string> = {
   prospect: "Prospect",
   active: "Active",

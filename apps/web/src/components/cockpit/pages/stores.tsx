@@ -287,7 +287,7 @@ export function StoresPage() {
               set={set}
               link={link}
               canAdd={false}
-              fixedStatus="prospect"
+              awaitingApproval
               onAdd={() => undefined}
               onEdit={canAdd ? (id) => set({ edit: id }) : undefined}
             />
@@ -347,7 +347,7 @@ function CustomersListTab({
   canAdd,
   onAdd,
   onEdit,
-  fixedStatus,
+  awaitingApproval = false,
 }: {
   params: URLSearchParams;
   set: ReturnType<typeof usePageQuery>["set"];
@@ -355,10 +355,11 @@ function CustomersListTab({
   canAdd: boolean;
   onAdd: (name: string) => void;
   onEdit?: (customerId: string) => void;
-  fixedStatus?: CustomerStatus;
+  /** The approval queue: prospects and provisional field captures, whatever their status. */
+  awaitingApproval?: boolean;
 }) {
   const page = readPage(params);
-  const status = fixedStatus ?? readCustomerStatus(params);
+  const status = awaitingApproval ? null : readCustomerStatus(params);
   const q = params.get("q") ?? "";
   const filters: CustomerFilters = {};
   for (const k of LIST_FILTER_KEYS) {
@@ -366,7 +367,7 @@ function CustomersListTab({
     if (v) filters[k] = v;
   }
   const { index } = useCustomerReference();
-  const result = useCustomerList(q, status, filters, page);
+  const result = useCustomerList(q, status, filters, page, awaitingApproval);
   const onSearch = useCallback(
     (next: string) => set({ q: next || null, page: null }, { replace: true }),
     [set],
@@ -388,7 +389,7 @@ function CustomersListTab({
       onPage={(n) => set({ page: n > 1 ? String(n) : null })}
       onAdd={onAdd}
       onStatus={(next) =>
-        fixedStatus ? undefined : set({ status: next, page: null })
+        awaitingApproval ? undefined : set({ status: next, page: null })
       }
       onFilter={(key, value) =>
         set({

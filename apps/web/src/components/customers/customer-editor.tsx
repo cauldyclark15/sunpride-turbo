@@ -18,6 +18,7 @@ import {
 } from "./customer-form";
 import {
   STATUS_LABEL,
+  awaitsApproval,
   applies,
   checkDraft,
   draftFromCustomer,
@@ -144,7 +145,7 @@ function EditorBody({
   });
   // A field-captured prospect opens with the fields still missing for approval highlighted.
   const [errors, setErrors] = useState<FieldErrors>(() =>
-    customer?.status === "prospect"
+    customer && awaitsApproval(customer)
       ? checkDraft(index, draftFromCustomer(customer), "complete")
       : {},
   );
@@ -152,7 +153,7 @@ function EditorBody({
     tone: "error" | "ok" | "info";
     text: string;
   } | null>(() => {
-    if (customer?.status !== "prospect") return null;
+    if (!customer || !awaitsApproval(customer)) return null;
     const n = Object.keys(
       checkDraft(index, draftFromCustomer(customer), "complete"),
     ).length;
@@ -206,7 +207,9 @@ function EditorBody({
     setDraft(next);
     // Re-check only the fields already flagged, so the highlight clears as people fix them.
     if (Object.keys(errors).length) {
-      const level = customer?.status === "prospect" ? "complete" : "draft";
+      const level = (customer ? awaitsApproval(customer) : false)
+        ? "complete"
+        : "draft";
       const now = checkDraft(index, next, level);
       setErrors((prev) => {
         const out: FieldErrors = {};
@@ -561,6 +564,12 @@ export function CustomerEditorView({
           >
             {STATUS_LABEL[customer.status]}
           </span>
+          {customer.status === "active" &&
+          customer.enrolmentStatus === "provisional" ? (
+            <span className="text-muted">
+              Provisional code · awaiting approval
+            </span>
+          ) : null}
           <span className="text-muted">
             {customer.completeness === "complete"
               ? "All required fields filled"
@@ -609,7 +618,7 @@ export function CustomerEditorView({
           <button type="submit" className={primaryClass} disabled={busy}>
             {customer ? "Save" : "Create customer"}
           </button>
-          {customer?.status === "prospect" && canApprove ? (
+          {(customer ? awaitsApproval(customer) : false) && canApprove ? (
             <button
               type="button"
               className={buttonClass}
@@ -656,7 +665,7 @@ export function CustomerEditorView({
             )
           ) : null}
         </div>
-      ) : customer?.status === "prospect" && canApprove ? (
+      ) : (customer ? awaitsApproval(customer) : false) && canApprove ? (
         <div className="flex gap-2">
           <button
             type="button"

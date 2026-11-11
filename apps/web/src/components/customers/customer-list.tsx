@@ -15,6 +15,7 @@ import {
 import { inputClass } from "./customer-form";
 import {
   STATUS_LABEL,
+  awaitsApproval,
   optionLabel,
   type CustomerRow,
   type CustomerStatus,
@@ -122,6 +123,9 @@ export function customerColumns(
             />
             {STATUS_LABEL[r.status] ?? r.status}
           </span>
+          {r.status === "active" && r.enrolmentStatus === "provisional" ? (
+            <span className="text-[12px] text-muted">Awaiting approval</span>
+          ) : null}
           {r.completeness === "draft" ? (
             <span className="text-[12px] text-muted">Incomplete</span>
           ) : null}
@@ -250,10 +254,12 @@ export function useCustomerList(
   status: CustomerStatus | null,
   filters: CustomerFilters,
   page: number,
+  awaitingApproval = false,
 ) {
   const query = {
     q: q || undefined,
     status: status ?? undefined,
+    awaitingApproval: awaitingApproval ? "true" : undefined,
     ...filters,
     limit: PAGE_SIZE,
     offset: (page - 1) * PAGE_SIZE,
@@ -329,10 +335,10 @@ export function CustomerListView({
                 <button
                   type="button"
                   className="inline-flex h-9 items-center rounded-lg border border-border px-3 text-[13px] font-medium text-foreground hover:bg-default-soft"
-                  aria-label={`${r.status === "prospect" ? "Complete" : "Edit"} ${r.customerName}`}
+                  aria-label={`${awaitsApproval(r) ? "Complete" : "Edit"} ${r.customerName}`}
                   onClick={() => onEdit(r)}
                 >
-                  {r.status === "prospect" ? "Complete" : "Edit"}
+                  {awaitsApproval(r) ? "Complete" : "Edit"}
                 </button>
               )
             : undefined

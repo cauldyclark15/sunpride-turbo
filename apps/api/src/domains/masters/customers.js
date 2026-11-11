@@ -619,6 +619,9 @@ export async function listCustomers(c) {
   if (status && !["prospect", "active", "inactive"].includes(status))
     throw new ApiError("invalid_request", 400, "Unknown status.");
   const completeness = param("completeness");
+  // The office approval queue: prospects plus field enrolments still provisional (the phone's
+  // "Add customer" store is active with a provisional code so the rep can visit it at once).
+  const awaiting = ["true", "1"].includes(param("awaitingApproval") ?? "");
   const nationwide = unitIds === null;
   const rows =
     await c.db`select o.id,o.code,o.name,o.address,o.status,o.enrolment_status,p.completeness,p.registered_name,count(*) over() as total_count,
@@ -628,6 +631,7 @@ export async function listCustomers(c) {
     from analytics_store_scope s join outlets o on o.id=s.id left join customer_profiles p on p.outlet_id=o.id and p.deleted_at is null
     where (${nationwide} or s.owner_unit_id::text=any(${c.db.array(unitIds ?? [], "TEXT")}))
       and (${status}::text is null or o.status=${status})
+      and (${!awaiting} or (o.status='prospect' or (o.status='active' and o.enrolment_status='provisional')))
       and (${completeness}::text is null or coalesce(p.completeness,'draft')=${completeness})
       and (${param("salesOrgCode")}::text is null or p.sales_org_code=${param("salesOrgCode")})
       and (${param("distributionChannelCode")}::text is null or p.distribution_channel_code=${param("distributionChannelCode")})

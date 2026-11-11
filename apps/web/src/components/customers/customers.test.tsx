@@ -21,6 +21,7 @@ import { CustomerListView } from "./customer-list";
 import { CustomerEditorView } from "./customer-editor";
 import {
   ADP_KEYS,
+  awaitsApproval,
   addShipTo,
   checkDraft,
   emptyDraft,
@@ -572,5 +573,43 @@ describe("approval errors land next to the field", () => {
     expect(ro).not.toContain(">Save<");
     expect(ro).not.toContain(">Deactivate<");
     expect(ro).toContain("Read only");
+  });
+
+  it("a field Add customer (active, provisional code) waits for approval like a prospect", () => {
+    const field = {
+      id: "o2",
+      code: "PROV-000001",
+      status: "active",
+      enrolmentStatus: "provisional",
+      completeness: "draft",
+      shipTos: [],
+    } as unknown as Customer;
+    expect(awaitsApproval(field)).toBe(true);
+    expect(awaitsApproval({ status: "prospect", enrolmentStatus: null })).toBe(
+      true,
+    );
+    expect(
+      awaitsApproval({ status: "active", enrolmentStatus: "approved" }),
+    ).toBe(false);
+    expect(
+      awaitsApproval({ status: "inactive", enrolmentStatus: "provisional" }),
+    ).toBe(false);
+    const html = renderToStaticMarkup(
+      <CustomerEditorView
+        customer={field}
+        draft={completeDraft()}
+        onChange={() => undefined}
+        index={index}
+        geo={GEO}
+        errors={{}}
+        message={null}
+        readOnly={false}
+        busy={false}
+        canEdit
+        canApprove
+      />,
+    );
+    expect(html).toContain(">Approve<");
+    expect(html).toContain("Provisional code · awaiting approval");
   });
 });

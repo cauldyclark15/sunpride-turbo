@@ -624,6 +624,26 @@ describe("SP-0170 customer writer", () => {
       }),
     ]);
     expect(await accounting(outletId)).toEqual([]);
+    // The office approval queue lists the field capture (active under a provisional code so
+    // the rep can visit it), which a plain status=prospect filter does not.
+    const queue = async () =>
+      (
+        await call(
+          "manager",
+          "GET",
+          "/api/v1/customers?awaitingApproval=true&limit=200&offset=0",
+        )
+      ).body.rows.map((/** @type {any} */ r) => r.id);
+    expect(await queue()).toContain(outletId);
+    expect(
+      (
+        await call(
+          "manager",
+          "GET",
+          "/api/v1/customers?status=prospect&limit=200",
+        )
+      ).body.rows.map((/** @type {any} */ r) => r.id),
+    ).not.toContain(outletId);
     const completed = await call(
       "admin",
       "PUT",
@@ -655,5 +675,6 @@ describe("SP-0170 customer writer", () => {
       code: approved.body.code,
       active: true,
     });
+    expect(await queue()).not.toContain(outletId);
   });
 });
