@@ -1,0 +1,2 @@
+customer_code,customer_name,status,channel,sub_channel,classification,area,street_address,barangay,city_municipality,province,owner_name,owner_phone,billing_account_code,sap_id,latitude,longitude,visit_frequency_days
+GT-000123,Aling Nena Sari-sari Store,active,General Trade,Sari-sari,B,Cebu City North,123 P. del Rosario St.,Kamputhaw,Cebu City,Cebu,Elena Cruz,09171234567,SAP-100045,100045,10.3157,123.8854,7

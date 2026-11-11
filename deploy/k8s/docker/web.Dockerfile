@@ -14,6 +14,7 @@ RUN bun install --frozen-lockfile --ignore-scripts --filter @sunpride/web
 COPY deploy/k8s/.vendor/heroui-pro-react/ /tmp/heroui-pro-react/
 RUN d=$(readlink -f packages/ui/node_modules/@heroui-pro/react) && cp -a /tmp/heroui-pro-react/. "$d"/ && test -f "$d/dist/index.js" && rm -rf /tmp/heroui-pro-react
 COPY packages/ui ./packages/ui
+COPY packages/import-templates ./packages/import-templates
 COPY packages/typescript-config ./packages/typescript-config
 COPY packages/eslint-config ./packages/eslint-config
 COPY apps/web ./apps/web

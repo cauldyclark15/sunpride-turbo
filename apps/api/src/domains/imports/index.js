@@ -17,6 +17,7 @@ import {
   stageMigration,
   installMigrationReview,
 } from "./migration.js";
+import { installStoreUpload } from "./stores.js";
 
 const CAPS = {
   customers: "masterdata.manage",
@@ -267,6 +268,8 @@ export async function commitImport(ctx, kind, input, platform) {
 }
 /** @param {import('../../core/router.js').Router} router @param {any} platform */
 export function install(router, platform) {
+  // SP-0169 routes are static paths and must register before the generic `:kind` routes.
+  installStoreUpload(router, platform);
   installMigrationReview(router, platform);
   platform.registerTopic("imports", (/** @type {any} */ actor) =>
     Object.values(CAPS).some((cap) => roleHas(actor.role, cap)),

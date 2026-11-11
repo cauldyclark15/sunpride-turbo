@@ -1,0 +1,15 @@
+{
+  "name": "@sunpride/import-templates",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./customers": {
+      "types": "./src/customers.d.ts",
+      "default": "./src/customers.js"
+    }
+  },
+  "scripts": {
+    "test": "bun test"
+  }
+}
