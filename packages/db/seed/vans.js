@@ -195,6 +195,27 @@ export function vans(d, c, stock, options = {}) {
           (s) => s.customer.code === order.customer_code,
         );
         const receiptNumber = `SMP-RECEIPT-${order.order_number}`;
+        // The retained invoice carries the same complete line facts a phone sale writes:
+        // office voids, refunds and SAP posting read `receipt.lines`, never re-price.
+        const saleLines = lines.map((line, ordinal) => {
+          const product = c.products.find((p) => p.code === line.product_code);
+          if (!product) throw new Error("Sample van product missing");
+          const totalMinor = Math.round(Number(line.line_total) * 100);
+          return {
+            product,
+            line,
+            ordinal,
+            facts: {
+              ...frozen(product),
+              quantityBase: String(line.quantity),
+              unitPriceMinor: String(Math.round(Number(line.unit_price) * 100)),
+              grossMinor: String(totalMinor),
+              discountMinor: "0",
+              totalMinor: String(totalMinor),
+              lineNumber: ordinal,
+            },
+          };
+        });
         const sale = d.add(
           "van_sales",
           order.id,
@@ -222,6 +243,7 @@ export function vans(d, c, stock, options = {}) {
               currency: "PHP",
               totalMinor: String(Math.round(Number(order.total) * 100)),
               discountMinor: "0",
+              lines: saleLines.map((l) => l.facts),
               payment: { kind: "cash", label: "Cash" },
               source: "sample",
               soldAt: Date.parse(order.created_at),
@@ -243,15 +265,7 @@ export function vans(d, c, stock, options = {}) {
           },
           order.created_at,
         );
-        for (const [ordinal, line] of lines.entries()) {
-          const product = c.products.find((p) => p.code === line.product_code);
-          if (!product) throw new Error("Sample van product missing");
-          const facts = {
-            ...frozen(product),
-            quantityBase: String(line.quantity),
-            totalMinor: String(Math.round(Number(line.line_total) * 100)),
-            lineNumber: ordinal,
-          };
+        for (const { product, line, ordinal, facts } of saleLines) {
           d.add(
             "van_sale_lines",
             `${order.id}-${ordinal}`,

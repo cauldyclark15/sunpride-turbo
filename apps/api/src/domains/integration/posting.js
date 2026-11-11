@@ -28,11 +28,30 @@ async function creditSnapshot(db, id) {
       }
     : null;
 }
+/** Orders captured before price snapshots existed (imports, the sample seed) keep only their stored
+ * lines; post exactly those, never a re-priced reconstruction.
+ * @param {any} db @param {string} orderId */
+async function legacyLines(db, orderId) {
+  const rows =
+    await db`select l.product_code, coalesce(l.uom, p.uom, 'PC') as uom,
+      coalesce(l.quantity_base, round(l.quantity)::bigint) as quantity_base,
+      coalesce(l.unit_price_centavos, round(l.unit_price * 100)::bigint) as unit_price_centavos
+      from order_lines l left join products p on p.code = l.product_code and p.deleted_at is null
+      where l.order_id = ${orderId} and l.deleted_at is null order by l.ordinal nulls last, l.created_at`;
+  return rows.map((/** @type {any} */ r) => ({
+    productCode: r.product_code,
+    uom: r.uom,
+    quantityBase: Number(r.quantity_base),
+    unitPriceCentavos:
+      r.unit_price_centavos === null ? null : Number(r.unit_price_centavos),
+  }));
+}
 /** F-119 immutable order price/tax snapshot is the payload; never reconstruct at retry.
  * @param {any} db @param {any} order
  */
 export async function enqueueOrderPosting(db, order) {
   const p = order.pricing_snapshot;
+  const lines = p?.lines ?? (await legacyLines(db, order.id));
   return enqueueSapPosting(db, {
     kind: "order",
     sourceType: "order",
@@ -47,11 +66,11 @@ export async function enqueueOrderPosting(db, order) {
       occurredAt: new Date(
         order.offline_created_at ?? order.created_at,
       ).getTime(),
-      lines: p.lines.map((/** @type {any} */ l) => line(l)),
+      lines: lines.map((/** @type {any} */ l) => line(l)),
       facts: {
         orderNumber: order.order_number,
         serviceDate: order.service_date,
-        pricing: p,
+        pricing: p ?? null,
         creditDecisionId: order.sap_credit_decision_id ?? null,
         creditDecision: await creditSnapshot(db, order.sap_credit_decision_id),
       },
