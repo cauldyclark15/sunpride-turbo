@@ -572,10 +572,10 @@ private fun CustomerSections(setup: CustomerCapture.Setup?, geography: CustomerC
             CmText("registeredName", form.registeredName, { onChange(form.copy(registeredName = it)) }, marks, requester, 200)
             CmText("tradeName", form.tradeName, { onChange(form.copy(tradeName = it)) }, marks, requester, 200)
             CmText("customerName", form.customerName, { onChange(form.copy(customerName = it)) }, marks, requester, 200)
-            Column(Modifier.fillMaxWidth().testTag("customer-customerAddress")) {
+            Column(Modifier.fillMaxWidth()) {
                 Text(CustomerCapture.label("customerAddress"), style = MaterialTheme.typography.labelMedium)
                 Text(CustomerCapture.address(form, geography).ifEmpty { "Built from the location below" },
-                    style = MaterialTheme.typography.bodyLarge)
+                    style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("customer-customerAddress"))
             }
             CmText("email", form.email, { onChange(form.copy(email = it)) }, marks, requester, 200,
                 androidx.compose.ui.text.input.KeyboardType.Email)

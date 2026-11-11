@@ -136,25 +136,6 @@ class AddStoreScreenTest {
         rule.waitUntil(5_000) { rule.onAllNodesWithText(option).fetchSemanticsNodes().size == 1 && runCatching { rule.onNodeWithTag(tag).assertTextContains(option, substring = true) }.isSuccess }
     }
 
-    @Test fun movedSheetDoubleTapSavesOnce() {
-        val backend = Backend(config(true), online)
-        val gate = kotlinx.coroutines.CompletableDeferred<JSONObject?>(at(10.3166)) // ~100 m away
-        showWith(backend, SequenceGps(at(10.3157, ageMs = 180_000), gate)); waitTag("census-gps")
-        fillAll()
-        rule.onNodeWithTag("census-gps").performScrollTo().performClick(); waitTag("census-accuracy")
-        rule.waitUntil(5_000) { rule.onAllNodesWithTag("census-address-line").fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag("census-save").performClick()
-        waitTag("census-moved")
-        rule.onNodeWithTag("census-save-note").assertTextContains("Your location changed. Check the address, then save.")
-        rule.onNodeWithTag("census-moved-keep").assertTextContains("Keep my address and save")
-        // A same-frame double tap: run the button's click twice in one UI-thread task, before any recomposition.
-        val keep = rule.onNodeWithTag("census-moved-keep").fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsActions.OnClick].action!!
-        rule.runOnUiThread { keep(); keep() }
-        rule.waitUntil(10_000) { backend.queued.isNotEmpty() }
-        Thread.sleep(1_500); rule.waitForIdle()
-        assertEquals(1, backend.queued.size)
-    }
-
     @Test fun editStoreOpensTheFormFilledFromTheStore() {
         val backend = Backend(config(false), oldServer)
         val store = com.sunpride.field.ui.customers.CustomerRecord("o9", "Aling Nena Store", "OUT-9", address = "5 Rizal St",

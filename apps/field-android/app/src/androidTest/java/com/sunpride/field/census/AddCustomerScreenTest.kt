@@ -66,7 +66,9 @@ class AddCustomerScreenTest {
     }
     private val jpeg = byteArrayOf(0xff.toByte(), 0xd8.toByte(), 1, 2, 0xff.toByte(), 0xd9.toByte())
     private fun shot(name: String) {
-        rule.waitForIdle(); Thread.sleep(500)
+        rule.runOnUiThread { val w = rule.activity.window
+            androidx.core.view.WindowInsetsControllerCompat(w, w.decorView).hide(androidx.core.view.WindowInsetsCompat.Type.ime()) }
+        rule.waitForIdle(); Thread.sleep(800)
         val bmp = InstrumentationRegistry.getInstrumentation().uiAutomation.takeScreenshot() ?: return
         val dir = File(InstrumentationRegistry.getInstrumentation().targetContext.filesDir, "cg-shots").apply { mkdirs() }
         File(dir, "field-$name.png").outputStream().use { bmp.compress(Bitmap.CompressFormat.PNG, 100, it) }
