@@ -87,6 +87,31 @@ export async function invoiceForSale(db, actor, trip, p, receipt, deviceId) {
   await enqueueSapPosting(db, document);
   return document;
 }
+/** NF-2. Which active series of `type` a handheld numbers from. Several may apply to one branch (a van's own
+ * series, a store's branch-level series, a register's machine registration). BIR numbering is per registered
+ * machine / per van, so the most specific one wins: a registration bound to THIS register, then the van's series,
+ * then the branch's. A series registered to another register never applies. Two at the same winning level is an
+ * office setup error and is refused loudly, never silently left without a range.
+ * @param {any[]} candidates @param {string} type @param {string} deviceId */
+export function mostSpecificSeries(candidates, type, deviceId) {
+  const level = (/** @type {any} */ s) =>
+    s.registration_device_id ? 3 : s.vehicle_id ? 2 : 1;
+  const usable = candidates.filter(
+    (s) =>
+      s.document_type === type &&
+      (!s.registration_device_id || s.registration_device_id === deviceId),
+  );
+  if (!usable.length) return null;
+  const top = Math.max(...usable.map(level));
+  const winners = usable.filter((s) => level(s) === top);
+  if (winners.length > 1)
+    refuse(
+      `Fiscal setup needs the office: ${winners.length} active ${type.replace("_", " ")} series apply to this handheld at the same level (${winners
+        .map((s) => s.prefix)
+        .join(", ")}). End all but one in Fiscal setup, or bind one to this van or register.`,
+    );
+  return winners[0];
+}
 /** F-019 bootstrap carries already reserved ranges. Repeat download never resets the phone counter.
  * IP-REFUND: `opts.creditMemo` (a phone that asked with `params.refunds`) also gets its credit-memo range; phones that
  * keep at most two ranges never see a third.
@@ -98,18 +123,17 @@ export async function fiscalBundle(db, actor, trip, deviceId, env, opts = {}) {
     ...(opts.creditMemo ? ["credit_memo"] : []),
   ];
   const candidates =
-    await db`select s.*,r.document_type from fiscal_series s join fiscal_registrations r on r.id=s.registration_id
+    await db`select s.*,r.document_type,r.device_id as registration_device_id from fiscal_series s join fiscal_registrations r on r.id=s.registration_id
     where r.org_unit_id=${trip.org_unit_id} and (s.vehicle_id is null or s.vehicle_id=${trip.vehicle_id}) and s.effective_from<=now() and (s.effective_to is null or s.effective_to>now())
+    and r.effective_from<=now() and (r.effective_to is null or r.effective_to>now())
+    and (s.next_allocate<=s.last_serial or exists(select 1 from fiscal_allocations a where a.series_id=s.id and a.device_id=${deviceId} and a.next_issue<=a.last_serial))
     and r.document_type in ${db(types)} order by s.prefix limit 101`;
   if (candidates.length > 100)
     refuse("Too many active document series; narrow the branch");
   const ranges = [];
   for (const type of types) {
-    const matches = candidates.filter(
-      (/** @type {any} */ s) => s.document_type === type,
-    );
-    if (matches.length !== 1) continue;
-    const s = matches[0];
+    const s = mostSpecificSeries(candidates, type, deviceId);
+    if (!s) continue;
     const [r] =
       await db`select * from fiscal_registrations where id=${s.registration_id}`;
     try {

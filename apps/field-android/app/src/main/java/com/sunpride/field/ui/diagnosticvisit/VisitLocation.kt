@@ -58,7 +58,7 @@ class AndroidVisitLocation(private val context: Context) : VisitLocation {
             catch (_: SecurityException) { null }
             catch (_: IllegalArgumentException) { null }
         }.firstOrNull { location -> System.currentTimeMillis()-location.time in 0..LocationPolicy.MAX_FIX_AGE_MS &&
-            com.sunpride.integrity.DeviceIntegrity.mock(location) }?.toFix()?.let { return LocationCapture.Captured(it) }
+            com.sunpride.integrity.DeviceIntegrity.mock(location, com.sunpride.field.BuildConfig.E2E_MOCK_LOCATION) }?.toFix()?.let { return LocationCapture.Captured(it) }
         val providers = buildList {
             if (Build.VERSION.SDK_INT >= 31 && manager.hasProvider(LocationManager.FUSED_PROVIDER) &&
                 manager.isProviderEnabled(LocationManager.FUSED_PROVIDER)) add(LocationManager.FUSED_PROVIDER)
@@ -112,6 +112,6 @@ class AndroidVisitLocation(private val context: Context) : VisitLocation {
     private fun Location.toFix(): LocationFix? = try {
         if (!hasAccuracy() || time <= 0) null
         else LocationFix(latitude, longitude, accuracy.toDouble(), time, LocationFix.provider(provider),
-            if (Build.VERSION.SDK_INT >= 31) isMock else @Suppress("DEPRECATION") isFromMockProvider)
+            com.sunpride.integrity.DeviceIntegrity.mock(this, com.sunpride.field.BuildConfig.E2E_MOCK_LOCATION))
     } catch (_: IllegalArgumentException) { null }
 }

@@ -2,6 +2,7 @@
 //  ensure(): create what is missing (idempotent), return "created" | "kept" | "partial".
 //  check(): read-only facts; any false/0/null value marks the section MISS.
 import { api, db, key, one, section, TAG, TODAY, uid } from "./test-day.js";
+import { cashierFor, unitLevelSeries } from "./test-day-picks.js";
 
 const ADMIN = "admin@sunpride.test";
 const AGENT = "agent@sunpride.test";
@@ -506,10 +507,8 @@ section(
       );
       if (!reg)
         throw new Error(`no ${type} registration in the van seller's unit`);
-      const have = await one(
-        db`select id from fiscal_series where registration_id=${reg.id} and vehicle_id is null and (effective_to is null or effective_to>now())`,
-      );
-      if (have) continue;
+      // Any registration's branch-level series serves the store; a second one would tie (NF-2).
+      if (await unitLevelSeries(db, van.org_unit_id, type)) continue;
       await api(ADMIN, "/api/v1/fiscal/series/create", {
         registrationId: reg.id,
         prefix,
@@ -519,9 +518,16 @@ section(
       });
       did = "created";
     }
+    // The sample shops now sit in van@'s unit; a cashier must work in the store's unit.
+    const testers = [
+      { email: AGENT, ...(await profile(AGENT)) },
+      { email: VAN, ...van },
+    ];
     for (const code of ["SAMPLE-CEBU-COLON", "SAMPLE-CEBU-MANDAUE"]) {
       const r = await registerFor(code);
-      if (await cashier(r.id, AGENT)) did = "created";
+      const who = cashierFor(r.org_unit_id, testers);
+      if (!who) throw new Error(`no tester works in ${code}'s unit`);
+      if (await cashier(r.id, who)) did = "created";
     }
     return did;
   },

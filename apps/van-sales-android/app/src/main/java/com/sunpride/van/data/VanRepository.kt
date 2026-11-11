@@ -291,7 +291,7 @@ class VanRepository private constructor(private val context: Context, private va
         // Explicit DEBUG practice fixture only; production never substitutes invented coordinates.
         val location = if (BuildConfig.DEBUG && stubMode != null) android.location.Location("SAMPLE practice fixture").apply {
             latitude=10.33; longitude=123.94; accuracy=5f; time=System.currentTimeMillis()
-        } else com.sunpride.integrity.DeviceIntegrity.captureLocation(context)
+        } else com.sunpride.integrity.DeviceIntegrity.captureLocation(context, benchTestProvider = com.sunpride.van.BuildConfig.E2E_MOCK_LOCATION)
         val person=checkNotNull(st.seller.first())
         val profile=if (BuildConfig.DEBUG && stubMode != null) "SAMPLE practice profile" else checkNotNull(devices.identity).profileId
         val facts=com.sunpride.integrity.ExecutionWatermark.Facts(location.latitude,location.longitude,location.accuracy.toDouble(),

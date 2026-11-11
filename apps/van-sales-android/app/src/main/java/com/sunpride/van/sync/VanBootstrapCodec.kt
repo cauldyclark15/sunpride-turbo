@@ -74,6 +74,9 @@ object VanBootstrapCodec {
             priceListMode = mode)
     }
     fun promotionUnit(o: JSONObject) = PromotionUnit(o.getString("productId"),o.getString("uomCode"),o.getInt("quantity").also { require(it > 0) })
+    /** The office stores `exclusive`/`stack` (promotions.stacking check, pricing-routes); the scheme wire uses
+     * `stackable`. The engine reads anything but `exclusive` as stackable. Refusing `stack` failed the whole bootstrap. */
+    val STACKING = setOf("exclusive", "stack", "stackable")
     fun promotion(o: JSONObject): Promotion {
         val from = o.getLong("effectiveFrom")
         val to = if (o.isNull("effectiveTo")) null else o.getLong("effectiveTo")
@@ -90,7 +93,7 @@ object VanBootstrapCodec {
             else -> throw IllegalArgumentException("Unknown promotion")
         }
         val version=if(o.has("engineVersion"))o.getInt("engineVersion") else 0;require(version in 0..1)
-        val stacking=if(o.has("stacking"))o.getString("stacking") else "exclusive";require(stacking in listOf("exclusive","stackable"))
+        val stacking=if(o.has("stacking"))o.getString("stacking") else "exclusive";require(stacking in STACKING)
         fun list(key:String):List<String>?=o.optJSONArray(key)?.let{a->require(a.length()<=600);(0 until a.length()).map{a.getString(it)}}
         val outlets=list("outletIds");if(version==1)require(!outlets.isNullOrEmpty()&&outlets.distinct().size==outlets.size)
         return Promotion(o.getString("promotionId"),o.getString("code"),o.getString("name"),

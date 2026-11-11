@@ -206,7 +206,7 @@ class TripLocationService : Service(), LocationListener {
 
         /** Android fix → wire fix; null when it is unusable. */
         fun toFix(location: Location): LocationFix? = runCatching {
-            val mock = if (Build.VERSION.SDK_INT >= 31) location.isMock else @Suppress("DEPRECATION") location.isFromMockProvider
+            val mock = com.sunpride.integrity.DeviceIntegrity.mock(location, com.sunpride.van.BuildConfig.E2E_MOCK_LOCATION)
             LocationFix(location.time,location.latitude,location.longitude,
                 if (location.hasAccuracy()) location.accuracy.toDouble() else LocationPolicy.MAX_ACCURACY_M,
                 if (location.hasSpeed()) location.speed.toDouble() else null,
