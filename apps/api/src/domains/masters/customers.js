@@ -256,6 +256,13 @@ export async function syncAccountingCustomer(c, outletId) {
   const [link] =
     await c.db`select l.*,cu.code as customer_code,(select count(*)::int from outlet_customer_links x where x.customer_id=l.customer_id and x.deleted_at is null and (x.effective_to is null or x.effective_to>now())) as sharers
       from outlet_customer_links l join customers cu on cu.id=l.customer_id where l.outlet_id=${outletId} and l.deleted_at is null and l.effective_from<=now() and (l.effective_to is null or l.effective_to>now()) order by l.effective_from desc limit 1`;
+  // A field enrolment that is still provisional (or was rejected) gets no accounting customer:
+  // its provisional code must never reach AR/SAP. Approval creates it with the final code.
+  if (
+    !link &&
+    (o.enrolment_status === "provisional" || o.enrolment_status === "rejected")
+  )
+    return null;
   const values = {
     name: o.name,
     credit_limit: o.profile_credit ?? 0,
@@ -581,7 +588,9 @@ export async function approveCustomer(c, outletId, b) {
     });
   await c.db`update outlets set status='active' where id=${outletId} and status<>'active'`;
   await c.db`update customer_profiles set completeness='complete',updated_by=${c.actor?.subject ?? "system"} where outlet_id=${outletId}`;
-  await syncAccountingCustomer(c, outletId);
+  // A decided field enrolment already created the accounting customer (final code) in the
+  // enrolment writer; a second interval in the same transaction would overlap it.
+  if (!enrolment) await syncAccountingCustomer(c, outletId);
   await c.db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${c.actor?.subject ?? "system"},'customer.approve','outlets',${outletId},${JSON.stringify({ reason })})`;
   return outletId;
 }

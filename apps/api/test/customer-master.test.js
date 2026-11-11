@@ -662,6 +662,9 @@ describe("SP-0170 customer writer", () => {
     );
     expect(completed.status).toBe(200);
     expect(completed.body.completeness).toBe("complete");
+    // Completing it in the office does not yet make an accounting customer: its code is still
+    // provisional and must never reach AR/SAP.
+    expect(await accounting(outletId)).toEqual([]);
     const approved = await call(
       "manager",
       "POST",
