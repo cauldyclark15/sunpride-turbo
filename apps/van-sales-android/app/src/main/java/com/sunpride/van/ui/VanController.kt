@@ -312,7 +312,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         scope?.launch {
             busy=true; message=null
             try {
-                val fix=if (callLocationSource != null) callLocationSource.invoke() else com.sunpride.callflow.AndroidCallLocation.capture(context)
+                val fix=if (callLocationSource != null) callLocationSource.invoke() else com.sunpride.van.location.VanCallLocation.capture(context)
                 repository.recordCall(kind,selected.outletId,fix,options)
                 refreshCall(); message="Call saved on this phone. Sync sends it to the office."
             } catch(e: CancellationException) { throw e }
