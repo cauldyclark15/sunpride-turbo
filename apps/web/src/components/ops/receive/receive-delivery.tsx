@@ -268,13 +268,47 @@ export function ReceiveDeliveryView({
   );
 }
 
+/** Shown after Post delivery: the confirmation stays on screen until the user leaves it (WEB-098/WEB-070). */
+export function DeliveryPostedView({
+  number,
+  onAnother,
+  onDone,
+}: {
+  number: string;
+  onAnother: () => void;
+  onDone?: () => void;
+}) {
+  return (
+    <Card label="Delivery posted">
+      <div className="grid gap-3">
+        <Notice
+          tone="success"
+          title={`Posted as ${number}`}
+          meta="Accepted quantities are in stock; rejected quantities are recorded with their reason."
+        />
+        <div className="flex flex-wrap gap-2">
+          <Button variant="primary" className="min-h-12" onPress={onAnother}>
+            Receive another delivery
+          </Button>
+          {onDone ? (
+            <Button variant="outline" className="min-h-12" onPress={onDone}>
+              Back to To receive
+            </Button>
+          ) : null}
+        </div>
+      </div>
+    </Card>
+  );
+}
+
 /** Container: loads locations and the catalog, builds the grid, posts ONE receipt for all lines. */
 export function ReceiveDelivery({
   defaultLocationId = "",
-  onPosted,
+  onDone,
 }: {
   defaultLocationId?: string;
-  onPosted?: (receipt: { id: string; number: string }) => void;
+  /** Leaves the confirmation (e.g. back to the Receive queue). Never called on post itself. */
+  onDone?: () => void;
 }) {
   const [header, setHeader] = useState(() => emptyHeader(defaultLocationId));
   const [lines, setLines] = useState<DeliveryLine[]>([]);
@@ -310,26 +344,15 @@ export function ReceiveDelivery({
   const problems = deliveryProblems(header, lines);
   if (posted)
     return (
-      <Card label="Delivery posted">
-        <div className="grid gap-3">
-          <Notice
-            tone="success"
-            title={`Posted as ${posted.number}`}
-            meta="All lines are in stock."
-          />
-          <Button
-            variant="primary"
-            className="min-h-12"
-            onPress={() => {
-              setPosted(null);
-              setLines([]);
-              setHeader(emptyHeader(header.locationId));
-            }}
-          >
-            Receive another delivery
-          </Button>
-        </div>
-      </Card>
+      <DeliveryPostedView
+        number={posted.number}
+        onDone={onDone}
+        onAnother={() => {
+          setPosted(null);
+          setLines([]);
+          setHeader(emptyHeader(header.locationId));
+        }}
+      />
     );
   return (
     <ReceiveDeliveryView
@@ -362,7 +385,6 @@ export function ReceiveDelivery({
           );
           intent.done(path, body);
           setPosted(result);
-          onPosted?.(result);
         } catch {
           // shown above; the same request can be retried safely
         }

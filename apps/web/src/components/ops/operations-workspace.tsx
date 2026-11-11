@@ -171,7 +171,7 @@ function Screen({ path, role }: { path: string[]; role: string }) {
         );
       if (screen === "delivery")
         return (
-          <ReceiveDelivery onPosted={() => push("/operations/receive")} />
+          <ReceiveDelivery onDone={() => push("/operations/receive")} />
         );
       break;
     case "transfers":
