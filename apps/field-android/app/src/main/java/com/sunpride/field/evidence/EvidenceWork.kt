@@ -31,6 +31,15 @@ object EvidenceWork {
     fun enqueue(context: Context) {
         com.sunpride.field.sync.work.CoalescedWork.enqueue(context, NAME, ::request) // SP-0140: one queued run
     }
+    private val finished = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    /**
+     * FLD-147: bumps each time a background upload run changes photo state. The open app re-reads its
+     * local status then, so the pill and the visit's Photos card move on from "photos uploading" at once.
+     */
+    val runs: kotlinx.coroutines.flow.StateFlow<Long> get() = finished
+    fun notifyFinished(report: UploadReport) {
+        if (report.uploaded > 0 || report.review > 0) finished.value = finished.value + 1
+    }
 }
 
 class EvidenceUploadWorker(context: Context, parameters: WorkerParameters) : CoroutineWorker(context, parameters) {
@@ -48,6 +57,7 @@ class EvidenceUploadWorker(context: Context, parameters: WorkerParameters) : Cor
                 backend.uploadEvidence()
             }
             if (report.uploaded > 0) com.sunpride.field.sync.work.SyncWork.enqueue(app) // release a configured End waiting on required evidence
+            EvidenceWork.notifyFinished(report)
             SafeLog.event(app, if (report.retryLater) "photo_retry" else "photo_complete")
             if (report.retryLater) Result.retry() else Result.success()
         } catch (e: kotlinx.coroutines.CancellationException) {

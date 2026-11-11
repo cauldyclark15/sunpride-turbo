@@ -14,6 +14,7 @@ class ServerFunctions(
     private val auth: AuthClient,
     private val http: OkHttpClient = defaultHttpClient()
 ) {
+    val apiOrigin: String get() = environment.apiOrigin
     fun uploadOrigin(url: String): Boolean = java.net.URI(url).let {
         val origin = java.net.URI(environment.apiOrigin)
         it.scheme == origin.scheme && it.host == origin.host && it.port == origin.port

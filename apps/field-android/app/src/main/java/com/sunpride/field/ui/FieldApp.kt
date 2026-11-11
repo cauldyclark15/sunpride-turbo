@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -187,6 +188,9 @@ fun FieldApp(
     val minuteNow by remember { androidx.compose.runtime.derivedStateOf { now / 60_000 * 60_000 } }
     val ready = controller.state is EnrollmentState.Ready
     val status = controller.today.syncStatus.copy(offline = offline)
+    // FLD-147: the upload worker runs outside the UI; when it finishes, refresh the pill and the Photos card.
+    val photoRuns by com.sunpride.field.evidence.EvidenceWork.runs.collectAsState()
+    LaunchedEffect(photoRuns) { if (photoRuns > 0 && ready) controller.photosChanged() }
     // F-616 prefetch after a verified snapshot/sync, never on every one-second UI pulse.
     LaunchedEffect(backend,ready,controller.today.lastSynced) {
         if(ready && controller.today.lastSynced!=null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {

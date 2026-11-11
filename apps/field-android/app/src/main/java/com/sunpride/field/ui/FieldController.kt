@@ -579,6 +579,7 @@ class LiveFieldBackend(
                 .whileAuthorized { runCatching { epoch==authorizationEpoch && storedScope()==scope }.getOrDefault(false) }.run() }
         } finally { store.close() }
         if(report.uploaded>0)com.sunpride.field.sync.work.SyncWork.enqueue(context)
+        com.sunpride.field.evidence.EvidenceWork.notifyFinished(report)
         return report
     }
     override fun queueActivity(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
@@ -1745,6 +1746,13 @@ class FieldController(
             val value = withContext(io) { backend.today(ready.deviceId, loaded, sync) }
             if (generation == sessionGeneration && state == ready) today = value
         } finally { checkSuggestedOrderLifetime() }
+    }
+    /** FLD-147: a background photo upload finished; re-read the local status and the open visit's photos. */
+    fun photosChanged() = scope.launch(ui) {
+        if (state is EnrollmentState.Ready && !busy) {
+            runCatching { loadToday(sync = false) }
+            if (diagnostic != null) runCatching { refreshDiagnostic() }
+        }
     }
     fun refreshCache() = scope.launch(ui) {
         if (state is EnrollmentState.Ready && !busy) {

@@ -159,4 +159,48 @@ class EvidenceUploaderTest {
         assertEquals(UploadReport(waiting = 1), EvidenceUploader(held, scope, heldFiles, api).run())
         assertTrue(api.calls.isEmpty())
     }
+
+    /** FLD-147: a refused claim URL (or any unexpected failure) is a counted try, never a silent endless retry. */
+    @Test fun unexpectedClaimFailureIsCountedAndEndsInReview() = runBlocking {
+        val (store, start, files) = setup()
+        val row = photo(store, files, start)
+        store.recordAck(start.requestId, "visit-server-1", "[]", 300)
+        val api = object : EvidenceApi {
+            override fun uploadUrl(visitId: String): Pair<String, String> = throw IllegalArgumentException("Failed requirement.")
+            override fun upload(url: String, bytes: ByteArray, mime: String) = error("unreached")
+            override fun attach(claim: String, visitId: String, storageId: String, row: EvidencePhotoRow) = error("unreached")
+        }
+        val first = EvidenceUploader(store, scope, files, api).run()
+        assertTrue(first.retryLater)
+        assertEquals(1, store.visitPhotos(start.clientVisitId).single().attempts)
+        repeat(EvidencePhotos.MAX_ATTEMPTS - 2) { EvidenceUploader(store, scope, files, api).run() }
+        val last = EvidenceUploader(store, scope, files, api).run()
+        assertEquals(1, last.review); assertFalse(last.retryLater)
+        assertEquals("upload_failed", store.visitPhotos(start.clientVisitId).single { it.localId == row.localId }.reviewCode)
+    }
+
+    /** FLD-147: the server's public origin (here the web proxy port) never decides where the bytes go. */
+    @Test fun uploadUrlAlwaysUsesThePhonesOwnApiOrigin() {
+        val id = "0b8f7a52-6a43-4c55-9f43-5b1a3f0e1c11"
+        assertEquals("http://127.0.0.1:4710/api/media/uploads/$id",
+            ServerEvidenceApi.trustedUploadUrl("http://127.0.0.1:4710", "http://127.0.0.1:4711/api/media/uploads/$id", id))
+        assertEquals("https://sunpride.example/api/media/uploads/$id",
+            ServerEvidenceApi.trustedUploadUrl("https://sunpride.example/", "https://evil.example/api/media/uploads/$id", id))
+        assertThrows(IllegalArgumentException::class.java) {
+            ServerEvidenceApi.trustedUploadUrl("http://127.0.0.1:4710", "http://127.0.0.1:4710/api/media/uploads/other", id) }
+        assertThrows(IllegalArgumentException::class.java) {
+            ServerEvidenceApi.trustedUploadUrl("http://127.0.0.1:4710", "http://127.0.0.1:4710/api/media/uploads/../x", "../x") }
+        Unit
+    }
+
+    /** FLD-147: a finished upload run tells the open app to re-read its status; an idle run does not. */
+    @Test fun finishedUploadRunSignalsTheOpenApp() {
+        val before = EvidenceWork.runs.value
+        EvidenceWork.notifyFinished(UploadReport(waiting = 1, retryLater = true))
+        assertEquals(before, EvidenceWork.runs.value)
+        EvidenceWork.notifyFinished(UploadReport(uploaded = 1))
+        assertEquals(before + 1, EvidenceWork.runs.value)
+        EvidenceWork.notifyFinished(UploadReport(review = 1))
+        assertEquals(before + 2, EvidenceWork.runs.value)
+    }
 }

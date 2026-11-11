@@ -80,4 +80,13 @@ class SyncStatusTest {
         assertEquals("Offline · saved data", SyncStatus.fromRoom(partition, emptyList(), offline = true).label(1100))
         assertEquals("Visit needs administrator review", SyncStatus.plainReason("name: any private value"))
     }
+
+    /** FLD-147: the pill says photos are uploading, so the Sync screen must not say "Nothing waiting". */
+    @Test fun photosWaitingAreNotNothingWaiting() {
+        val status = SyncStatus(lastSuccess = 1, leaseExpiresAt = Long.MAX_VALUE, cacheExpiresAt = Long.MAX_VALUE,
+            health = "synced", photosWaiting = 1)
+        assertEquals("Visits synced · photos uploading", status.label(10))
+        assertFalse(status.nothingWaiting)
+        assertTrue(status.copy(photosWaiting = 0).nothingWaiting)
+    }
 }

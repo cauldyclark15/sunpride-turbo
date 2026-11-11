@@ -40,9 +40,12 @@ fun SyncDetails(status: SyncStatus, onDismiss: () -> Unit, onSync: () -> Unit = 
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SectionCard("Status") {
-                ValueRow(if (status.queued == 0 && status.sending == 0) "Nothing waiting" else "Waiting",
-                    if (status.queued == 0 && status.sending == 0) "" else "${status.queued + status.sending}",
+                val visits = status.queued + status.sending
+                ValueRow(if (status.nothingWaiting) "Nothing waiting" else if (visits == 0) "Visits" else "Waiting",
+                    if (status.nothingWaiting) "" else if (visits == 0) "Synced" else "$visits",
                     Modifier.testTag("detail-waiting"))
+                if (status.photosWaiting > 0) ValueRow("Photos waiting", "${status.photosWaiting}",
+                    Modifier.testTag("detail-photos"))
                 if (status.review > 0) ValueRow("To review", "${status.review}")
                 if (status.held > 0) ValueRow("Held", "${status.held}")
                 if (status.sending > 0) ValueRow("Sending", "${status.sending}")
