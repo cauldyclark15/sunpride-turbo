@@ -117,4 +117,60 @@ describe("F-R01 Store cashier setup and blind review", () => {
     expect(html(createElement(StorePosAdmin, { deviceId: "pos" }))).toBe("");
     expect(storeStatus("needs_review")).toBe("Cash difference needs review");
   });
+  it("WEB-156 offers only same-unit registers and cashiers and lists who is assigned", () => {
+    state.data = {
+      locations: [],
+      registers: [
+        {
+          id: "north-reg",
+          name: "North register",
+          org_unit_id: "north",
+          terminal_code: "N1",
+          store_name: "North shop",
+          tolerance_centavos: null,
+        },
+        {
+          id: "south-reg",
+          name: "South register",
+          org_unit_id: "south",
+          terminal_code: "S1",
+          store_name: "South shop",
+          tolerance_centavos: null,
+        },
+      ],
+      devices: [
+        {
+          id: "pos",
+          name: "H10P",
+          org_unit_id: "north",
+          mode: "store",
+          register_id: "north-reg",
+        },
+      ],
+      people: [
+        { id: "ana", name: "Ana North", org_unit_id: "north" },
+        { id: "ben", name: "Ben South", org_unit_id: "south" },
+        { id: "cy", name: "Cy North", org_unit_id: "north" },
+      ],
+      cashiers: [
+        {
+          id: "assign-1",
+          register_id: "north-reg",
+          profile_id: "ana",
+          name: "Ana North",
+        },
+      ],
+      shifts: [],
+      canManage: true,
+      truncated: false,
+      transactionsEnabled: true,
+    };
+    const view = html(createElement(StorePosAdmin, { deviceId: "pos" }));
+    expect(view).toContain("North shop · North register");
+    expect(view).not.toContain("South register");
+    expect(view).toContain("Assigned cashiers");
+    expect(view).toContain("Remove cashier Ana North");
+    expect(view).toContain(">Cy North<");
+    expect(view).not.toContain("Ben South");
+  });
 });

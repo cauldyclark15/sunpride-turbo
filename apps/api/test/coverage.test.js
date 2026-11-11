@@ -537,6 +537,43 @@ test("custom cadence and anchor stay Manila date strings through SQL and a copie
   expect(detail.outlets[0].customLocalDates).toEqual(["2031-04-03"]);
   expect(detail.slots[0].serviceDate).toBe("2031-04-03");
 });
+test("WEB-115 a plan past 500 rows saves and opens; a broken approval still opens with a notice", async () => {
+  const p = await run(sales, "plans/create", {
+    assigneeProfileId: sales.id,
+    localMonth: "2031-05",
+  });
+  await run(sales, "plans/saveOutlets", { planId: p._id, outlets: roster() });
+  const dates = Array.from(
+    { length: 26 },
+    (_, i) => `2031-05-${String(i + 2).padStart(2, "0")}`,
+  );
+  const slots = dates.flatMap((date) =>
+    Array.from({ length: 25 }, (_, n) => ({
+      ...slot(date),
+      slotKey: `visit:${date}:${n}`,
+      sequence: n + 1,
+    })),
+  );
+  expect(slots.length).toBe(650);
+  await run(sales, "plans/saveSlots", { planId: p._id, slots });
+  const draft = await read(ctx(sales), "plans/detail", { planId: p._id });
+  expect(draft.slots).toHaveLength(650);
+  expect(draft.notices).toEqual([]);
+  await run(sales, "plans/submit", { planId: p._id });
+  await run(supervisor, "plans/approve", { planId: p._id });
+  const signed = await read(ctx(sales), "plans/detail", { planId: p._id });
+  expect(signed.signatureValid).toBe(true);
+  await h.db`update coverage_plans set content_hash='tampered' where id=${p._id}`;
+  const broken = await read(ctx(sales), "plans/detail", { planId: p._id });
+  expect(broken.signatureValid).toBe(false);
+  expect(broken.notices[0]).toContain("approval record does not match");
+  expect(broken.slots).toHaveLength(650);
+  const calendar = await read(ctx(sales), "views/calendar", {
+    planId: p._id,
+    paginationOpts: { numItems: 10, cursor: null },
+  });
+  expect(calendar.page.length).toBe(10);
+});
 test("minute activation job activates due signed plans and queues after-commit day refreshes", async () => {
   expect(
     h.app.scheduler.tasks.some((t) => t.name === "coverage.activation"),

@@ -173,12 +173,17 @@ export function install(router, platform) {
         await cc.db`select settings,version from distributor_policies where distributor_id=${d.id} and effective_to is null`;
       const users =
         await cc.db`select u.id,p.name,p.email,u.grants,u.effective_to from distributor_users u join profiles p on p.id=u.profile_id where u.distributor_id=${d.id} order by u.created_at desc limit 201`;
+      // WEB-145: capability audit history with who recorded it and when.
+      const audits =
+        await cc.db`select a.id,a.audit_date::text as audit_date,a.infrastructure_score,a.manpower_score,a.findings,a.created_at,p.name as audited_by_name from distributor_capability_audits a left join profiles p on p.id=a.audited_by where a.distributor_id=${d.id} order by a.audit_date desc,a.created_at desc limit 51`;
       return {
         distributor: d,
         master: m ?? null,
         policy: p ?? null,
         users: users.slice(0, 200),
         usersTruncated: users.length > 200,
+        audits: audits.slice(0, 50),
+        auditsTruncated: audits.length > 50,
       };
     }),
   );

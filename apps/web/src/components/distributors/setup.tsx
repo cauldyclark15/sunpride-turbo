@@ -36,7 +36,29 @@ type SetupData = {
     effective_to: string | null;
   }[];
   usersTruncated: boolean;
+  audits?: {
+    id: string;
+    audit_date: string;
+    infrastructure_score: number;
+    manpower_score: number;
+    findings: string;
+    created_at: string;
+    audited_by_name: string | null;
+  }[];
+  auditsTruncated?: boolean;
 };
+const plural = (n: number, one: string, many: string) =>
+  `${n} ${n === 1 ? one : many}`;
+/** WEB-145: what one SAP statement import did, row by row, in plain words. */
+export function importSummary(result: Record<string, unknown>) {
+  const applied = (result.applied ?? {}) as Record<string, number>;
+  const unchanged = (result.unchanged ?? {}) as Record<string, number>;
+  const rejected = Number(result.rejected ?? 0);
+  const ar = Number(applied.arItems ?? 0),
+    mv = Number(applied.movements ?? 0),
+    same = Number(unchanged.arItems ?? 0) + Number(unchanged.movements ?? 0);
+  return `Imported. Accepted ${plural(ar, "open item", "open items")} and ${plural(mv, "primary movement", "primary movements")}; ${plural(same, "row was", "rows were")} already up to date; ${plural(rejected, "row", "rows")} rejected.`;
+}
 const GRANTS = [
   "read",
   "order",
@@ -367,9 +389,11 @@ function SetupForms({
             const file = fileInput(f);
             if (file.size > 700000)
               throw new Error("File must be below 700 KB.");
-            await command(
-              "financial/sync",
-              JSON.parse(await file.text()) as Record<string, unknown>,
+            return importSummary(
+              await command(
+                "financial/sync",
+                JSON.parse(await file.text()) as Record<string, unknown>,
+              ),
             );
           }}
         >
@@ -431,6 +455,51 @@ function SetupForms({
           <textarea name="findings" required className={fieldClass} />
         </Field>
       </ActionForm>
+      <AuditHistory audits={s.audits ?? []} truncated={!!s.auditsTruncated} />
     </>
+  );
+}
+export function AuditHistory({
+  audits,
+  truncated,
+}: {
+  audits: NonNullable<SetupData["audits"]>;
+  truncated: boolean;
+}) {
+  return (
+    <Panel
+      title="Capability audits"
+      detail={
+        truncated
+          ? "Showing the latest 50 audits."
+          : "Every recorded audit, newest first."
+      }
+    >
+      {audits.length === 0 ? (
+        <p className="text-sm">No capability audit recorded yet.</p>
+      ) : (
+        <Table
+          headers={[
+            "Audit date",
+            "Infrastructure",
+            "Manpower",
+            "Findings",
+            "Recorded by",
+          ]}
+        >
+          {audits.map((a) => (
+            <tr key={a.id}>
+              <Cell>{a.audit_date}</Cell>
+              <Cell>{a.infrastructure_score} / 100</Cell>
+              <Cell>{a.manpower_score} / 100</Cell>
+              <Cell>{a.findings}</Cell>
+              <Cell>
+                {a.audited_by_name ?? "Former user"} · {when(a.created_at)}
+              </Cell>
+            </tr>
+          ))}
+        </Table>
+      )}
+    </Panel>
   );
 }

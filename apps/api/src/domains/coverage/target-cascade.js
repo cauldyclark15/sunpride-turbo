@@ -144,7 +144,15 @@ function readIdentity(body) {
 
 /** Prior three complete months, measured with the shared analytics sales facts.
  * @param {any} db @param {string} metric @param {string|null} product @param {string} childLevel @param {string[]} keys @param {string} month @param {any} scope */
-async function basisFor(db, metric, product, childLevel, keys, month, scope) {
+export async function basisFor(
+  db,
+  metric,
+  product,
+  childLevel,
+  keys,
+  month,
+  scope,
+) {
   const from = shift(month, -3) + "-01",
     to = monthEnd(shift(month, -1));
   if (!Object.hasOwn(BASIS_SQL, metric) || !keys.length)
@@ -161,15 +169,19 @@ async function basisFor(db, metric, product, childLevel, keys, month, scope) {
       : BASIS_SQL[/** @type {keyof typeof BASIS_SQL} */ (metric)];
   const source =
     metric === "volume"
-      ? "analytics_sales_facts f join order_lines l on l.id=f.line_id join products p on p.id=f.product_id left join product_inventory_policies ip on ip.product_id=p.id and ip.active and ip.deleted_at is null"
-      : "analytics_sales_facts f";
+      ? "facts f join order_lines l on l.id=f.line_id join products p on p.id=f.product_id left join product_inventory_policies ip on ip.product_id=p.id and ip.active and ip.deleted_at is null"
+      : "facts f";
   const unknown =
     metric === "volume"
       ? "count(*) filter(where l.quantity_base is null)"
       : "0";
   const units = scope.ids.length ? scope.ids : [null];
   const records =
-    await db`select ${db.unsafe(group)} as key,${db.unsafe(expression)} as v,${db.unsafe(unknown)} as unknown from ${db.unsafe(source)} where f.approved and f.service_date between ${from}::date and ${to}::date and ${db.unsafe(group)} in ${db(keys)} and (${product}::text is null or f.product_code=${product}) and f.agent_unit_id in ${db(units)} and (f.owner_unit_id in ${db(units)} or (f.store_id is null and ${scope.cross})) and (f.source_location_id is null or f.source_unit_id in ${db(units)}) group by 1`;
+    // WEB-037: read the window's approved facts once (materialized), then filter and group.
+    // Pushing the key/scope predicates into the view made the planner nest-loop every
+    // order against every store (30-80 s per preview); the fenced read takes well under 1 s.
+    await db`with facts as materialized (select * from analytics_sales_facts f where f.approved and f.service_date between ${from}::date and ${to}::date)
+    select ${db.unsafe(group)} as key,${db.unsafe(expression)} as v,${db.unsafe(unknown)} as unknown from ${db.unsafe(source)} where ${db.unsafe(group)} in ${db(keys)} and (${product}::text is null or f.product_code=${product}) and f.agent_unit_id in ${db(units)} and (f.owner_unit_id in ${db(units)} or (f.store_id is null and ${scope.cross})) and (f.source_location_id is null or f.source_unit_id in ${db(units)}) group by 1`;
   if (records.some((/** @type {any} */ r) => Number(r.unknown) > 0))
     return { from: null, to: null, values: new Map() };
   return {

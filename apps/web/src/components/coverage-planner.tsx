@@ -456,7 +456,12 @@ export function PlanEditor({
     detail.outlets.map(inputOutlet),
   );
   const [slots, setSlots] = useState<Slot[]>(() => detail.slots.map(inputSlot));
-  const [territoryId, setTerritoryId] = useState<Id<"territories"> | "">("");
+  // A draft starts on its own territory so "Add plan outlet" lists stores at once.
+  const [territoryId, setTerritoryId] = useState<Id<"territories"> | "">(() =>
+    editable
+      ? ((detail.plan.territoryIds?.[0] ?? "") as Id<"territories"> | "")
+      : "",
+  );
   const [routeId, setRouteId] = useState<Id<"routes"> | "">("");
   const [candidate, setCandidate] = useState<Id<"outlets"> | "">("");
   const [outletCursor, setOutletCursor] = useState<string | null>(null);
@@ -598,6 +603,19 @@ export function PlanEditor({
       aria-label="Selected coverage plan"
       className="grid gap-4 rounded border border-border p-3"
     >
+      {!!detail.notices?.length && (
+        <aside
+          role="alert"
+          aria-label="Plan record problem"
+          className="rounded border border-danger bg-danger/10 p-3"
+        >
+          <ul className="list-inside list-disc">
+            {detail.notices.map((n, i) => (
+              <li key={`${i}:${n}`}>{n}</li>
+            ))}
+          </ul>
+        </aside>
+      )}
       {!!detail.warnings.length && (
         <aside
           role="status"
@@ -725,6 +743,17 @@ export function PlanEditor({
           </button>
         )}
       </div>
+      {editable && !territoryId && (
+        <p role="status">
+          Choose a territory above to list the stores you can add to this plan.
+        </p>
+      )}
+      {editable && territoryId && roster && !assigned.length && (
+        <p role="status">
+          No more stores are assigned to this territory
+          {routeId ? " and route" : ""}. Choose another territory to add stores.
+        </p>
+      )}
       {editable && territoryId && (
         <div className="flex gap-2">
           <select

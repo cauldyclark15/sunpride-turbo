@@ -367,6 +367,9 @@ export async function syncFinancial(c, d, b) {
   )
     fail("Valid source required");
   const version = integer(b.version, 1);
+  // WEB-145: the import is all-or-nothing; report what each row did.
+  const applied = { arItems: 0, movements: 0 },
+    unchanged = { arItems: 0, movements: 0 };
   for (const item of list(b.arItems ?? [], 500)) {
     const key = text(item.sourceKey),
       balance = integer(item.balanceCentavos),
@@ -382,10 +385,16 @@ export async function syncFinancial(c, d, b) {
         Number(old.balance_centavos) !== balance ||
         old.source !== b.source
       )
-        fail("AR version conflict", "version_conflict", 409);
+        fail(
+          `AR version conflict on ${key}: a different version ${old.version} is already applied. Nothing was imported.`,
+          "version_conflict",
+          409,
+        );
+      unchanged.arItems++;
       continue;
     }
     await c.db`insert into distributor_ar_items(distributor_id,source_key,version,invoice_number,due_date,balance_centavos,source,received_at,effective_from) values(${d.id},${key},${version},${invoice},${due},${balance},${b.source},now(),now()) on conflict(distributor_id,source_key) do update set version=excluded.version,invoice_number=excluded.invoice_number,due_date=excluded.due_date,balance_centavos=excluded.balance_centavos,source=excluded.source,received_at=now(),updated_at=now()`;
+    applied.arItems++;
   }
   for (const item of list(b.movements ?? [], 500)) {
     const key = text(item.sourceKey),
@@ -412,10 +421,16 @@ export async function syncFinancial(c, d, b) {
         old.kind !== item.kind ||
         old.source !== b.source
       )
-        fail("Movement version conflict", "version_conflict", 409);
+        fail(
+          `Movement version conflict on ${key}: a different version ${old.version} is already applied. Nothing was imported.`,
+          "version_conflict",
+          409,
+        );
+      unchanged.movements++;
       continue;
     }
     await c.db`insert into distributor_primary_movements(distributor_id,source_key,version,movement_date,product_id,quantity_base,kind,source,received_at) values(${d.id},${key},${version},${day},${productId},${qty},${item.kind},${b.source},now()) on conflict(distributor_id,source_key) do update set version=excluded.version,movement_date=excluded.movement_date,product_id=excluded.product_id,quantity_base=excluded.quantity_base,kind=excluded.kind,source=excluded.source,received_at=now(),updated_at=now()`;
+    applied.movements++;
   }
   if (b.complete === true) {
     const from = date(b.from),
@@ -453,5 +468,8 @@ export async function syncFinancial(c, d, b) {
   return {
     arItems: (b.arItems ?? []).length,
     movements: (b.movements ?? []).length,
+    applied,
+    unchanged,
+    rejected: 0,
   };
 }

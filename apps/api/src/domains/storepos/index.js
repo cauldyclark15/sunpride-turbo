@@ -369,13 +369,26 @@ async function workspace(c) {
     const locations =
       await db`select id,name,org_unit_id from inventory_locations where type='store' and active and deleted_at is null and (${scope.unitIds === null} or org_unit_id in ${db(ids)}) order by name limit 501`;
     const registers =
-      await db`select r.id,r.name,r.terminal_code,r.location_id,l.name as store_name, (select tolerance_centavos::text from store_register_policies p where p.register_id=r.id and p.effective_from<=now() and (p.effective_to is null or p.effective_to>now())) as tolerance_centavos from store_registers r join inventory_locations l on l.id=r.location_id where l.active and l.deleted_at is null and (${scope.unitIds === null} or l.org_unit_id in ${db(ids)}) order by l.name,r.name limit 501`;
+      await db`select r.id,r.name,r.terminal_code,r.location_id,l.org_unit_id,l.name as store_name, (select tolerance_centavos::text from store_register_policies p where p.register_id=r.id and p.effective_from<=now() and (p.effective_to is null or p.effective_to>now())) as tolerance_centavos from store_registers r join inventory_locations l on l.id=r.location_id where l.active and l.deleted_at is null and (${scope.unitIds === null} or l.org_unit_id in ${db(ids)}) order by l.name,r.name limit 501`;
     const canManage = roleHas(actor.role, "admin.manage");
     const devices = canManage
       ? await db`select d.id,d.inventory_tag as name,d.org_unit_id,m.mode,m.register_id from registered_devices d left join pos_device_modes m on m.device_id=d.id and m.effective_from<=now() and (m.effective_to is null or m.effective_to>now()) where d.app='van-android' and d.status='active' and (${scope.unitIds === null} or d.org_unit_id in ${db(ids)}) order by d.inventory_tag limit 501`
       : [];
+    // WEB-156: offer exactly the people cashiers/save accepts (van.operate roles).
     const people = canManage
-      ? await db`select id,name,org_unit_id from profiles where status='active' and role='sales' and deleted_at is null and (${scope.unitIds === null} or org_unit_id in ${db(ids)}) order by name limit 501`
+      ? (
+          await db`select id,name,org_unit_id,role from profiles where status='active' and deleted_at is null and (${scope.unitIds === null} or org_unit_id in ${db(ids)}) order by name limit 2001`
+        )
+          .filter((/** @type {any} */ p) => roleHas(p.role, "van.operate"))
+          .map((/** @type {any} */ p) => ({
+            id: p.id,
+            name: p.name,
+            org_unit_id: p.org_unit_id,
+          }))
+      : [];
+    // WEB-156: who is assigned to each register now (removed rows keep history).
+    const cashiers = canManage
+      ? await db`select a.id,a.register_id,a.profile_id,p.name,a.effective_from from store_cashier_assignments a join profiles p on p.id=a.profile_id join store_registers r on r.id=a.register_id join inventory_locations l on l.id=r.location_id where a.effective_to is null and (${scope.unitIds === null} or l.org_unit_id in ${db(ids)}) order by p.name limit 2001`
       : [];
     const shifts =
       await db`select s.*,r.name as register_name,l.name as store_name,p.name as cashier_name,c.id as closure_id,c.declared_centavos,c.expected_centavos,c.variance_centavos,c.needs_review,c.closed_at,c.kind as closure_kind,d.decision,exists(select 1 from store_session_events e where e.shift_id=s.id and e.kind='suspended' and not exists(select 1 from store_session_events e2 where e2.shift_id=s.id and e2.kind='resumed' and e2.captured_at>e.captured_at)) as suspended from store_shifts s join store_registers r on r.id=s.register_id join inventory_locations l on l.id=r.location_id join profiles p on p.id=s.cashier_id left join store_shift_closures c on c.shift_id=s.id left join store_shift_decisions d on d.closure_id=c.id where l.active and l.deleted_at is null and (${scope.unitIds === null} or l.org_unit_id in ${db(ids)}) and (${actor.role !== "sales"} or s.cashier_id=${actor.profileId}) order by s.opened_at desc,s.id desc limit 501`;
@@ -384,15 +397,17 @@ async function workspace(c) {
       registers: registers.slice(0, 500),
       devices: devices.slice(0, 500),
       people: people.slice(0, 500),
+      cashiers: cashiers.slice(0, 2000),
       shifts: await Promise.all(
         shifts
           .slice(0, 500)
           .map((/** @type {any} */ s) => shiftView(db, actor, s)),
       ),
       canManage,
-      truncated: [locations, registers, devices, people, shifts].some(
-        (a) => a.length > 500,
-      ),
+      truncated:
+        [locations, registers, devices, people, shifts].some(
+          (a) => a.length > 500,
+        ) || cashiers.length > 2000,
       transactionsEnabled: true,
     };
   });

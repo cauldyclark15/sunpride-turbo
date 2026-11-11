@@ -233,6 +233,48 @@ describe("standalone coverage planner", () => {
     expect(html).toContain("Save outlet cadence");
     expect(html).toContain("Save dated slots");
   });
+  it("a new draft offers its territory's stores to add at once (WEB-115)", () => {
+    state.values["outlets/assignments:territoryRoster"] = [
+      {
+        _id: "assignment-2",
+        outletId: id<"outlets">("outlet-2"),
+        territoryId: id<"territories">("territory-1"),
+        sequence: 4,
+      },
+    ];
+    const empty = { ...detail(), outlets: [], slots: [] } as ReturnType<
+      typeof detail
+    >;
+    const html = render(
+      createElement(PlanEditor, { detail: empty, canPlan: true }),
+    );
+    expect(html).toContain("Select assigned outlet");
+    expect(html).toContain("stop 4");
+    expect(html).toContain("Add outlet to plan");
+    const noTerritory = render(
+      createElement(PlanEditor, {
+        detail: {
+          ...empty,
+          plan: { ...empty.plan, territoryIds: [] },
+        } as ReturnType<typeof detail>,
+        canPlan: true,
+      }),
+    );
+    expect(noTerritory).toContain("Choose a territory above");
+  });
+  it("opens a plan whose approval record is broken and says so (WEB-115)", () => {
+    const html = render(
+      createElement(PlanEditor, {
+        detail: {
+          ...detail("active"),
+          notices: ["This plan's approval record does not match its content."],
+        } as ReturnType<typeof detail>,
+        canPlan: true,
+      }),
+    );
+    expect(html).toContain("Plan record problem");
+    expect(html).toContain("approval record does not match");
+  });
   it("renders submitted and approved plans read-only; approved rows use frozen snapshots", () => {
     const submitted = render(
       createElement(PlanEditor, { detail: detail("submitted"), canPlan: true }),
