@@ -55,6 +55,31 @@ data class CustomerRecord(
 }
 
 object CustomerDirectory {
+    /**
+     * FLD-052: the account rows under Summary, then the note shown when none of them can be drawn.
+     * The Account row is skipped when it only repeats the store name.
+     */
+    fun accountFacts(record: CustomerRecord): Pair<List<Pair<String, String>>, String?> {
+        val account = record.account
+        val facts = listOfNotNull(
+            account?.takeIf { it.accountName != record.name }?.let { "Account" to it.accountName },
+            record.contactName?.let { (if (record.ownerName != null) "Owner" else "Buyer") to it },
+            record.contactPhone?.let { "Contact" to it },
+            account?.accountInCharge?.let { "Account in charge" to it },
+            account?.receivingInCharge?.let { "Receiving" to it },
+            account?.distributorName?.let { "Distributor" to it },
+            account?.distributorSchedule?.let { "Delivery schedule" to it },
+            account?.foc?.let { "FOC" to it },
+        )
+        // r4: a sheet holding only the store's name (the sample sheets) used to leave Summary silent about the account.
+        val note = when {
+            account == null -> "No account sheet yet"
+            facts.isEmpty() -> "No account details yet"
+            else -> null
+        }
+        return facts to note
+    }
+
     private const val HISTORY_LIMIT = 10
     private val manila: ZoneId = ZoneId.of("Asia/Manila")
 

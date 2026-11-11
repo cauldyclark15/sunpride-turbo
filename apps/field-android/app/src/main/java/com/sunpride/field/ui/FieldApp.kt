@@ -331,7 +331,7 @@ fun FieldApp(
                     onPassword = biometrics::usePassword, modifier = modifier)
                 controller.state == EnrollmentState.SignedOut -> SignInScreen(environment, controller.busy || controller.companySignInPending,
                     controller.error ?: biometrics?.message,
-                    { email, password -> controller.signIn(email, password) { biometrics?.passwordSignedIn() } }, modifier,
+                    { email, password -> controller.signIn(email, password) { biometrics?.passwordSignedIn(email) } }, modifier,
                     onBiometric = biometrics?.takeIf { it.canRetry }?.let { gate -> gate::unlock },
                     companyContent = { com.sunpride.integrity.CompanySignIn(environment.apiOrigin,"field-android",environment.isReady && !controller.busy,
                         controller::companyKey,controller::signCompanyMessage,controller::updateCompanyWaiting, { controller.companySignIn(it) }) })

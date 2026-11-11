@@ -10,7 +10,9 @@ Android field app only (`apps/field-android`).
   background, and it is cleared and hidden after Sign in or when the screen is left.
 - **Offer.** After a normal email + password sign-in, on a phone with a strong fingerprint/face enrolled,
   the app asks once: "Use fingerprint or face to sign in next time?" (Turn on / Not now). Turn on shows the
-  system prompt once.
+  system prompt once. Not now is remembered for that person on this phone (a hash of the email in app
+  preferences, kept across sign-out); they can still turn it on in Account. Another person signing in on the
+  same phone is asked for themselves.
 - **Next launch.** The system prompt opens the app with a fingerprint or face only (no phone PIN/pattern;
   its "Use password" button is the way out). Cancel or Use password goes to the password screen, which keeps a "Use fingerprint or face" button. Opening works offline:
   the saved day, customers and unsent work are on the phone; anything that talks to the server still needs
