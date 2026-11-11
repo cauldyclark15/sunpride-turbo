@@ -336,6 +336,71 @@ test("F-106 outside exception is separately approved before capture and consumed
   expect(r.consumed_by).not.toBe(null);
   expect((await push(f, accepted.op))[0].status).toBe("duplicate");
 });
+test("FLD-084 unplanned outside-radius start waits for a supervisor approval, then starts", async () => {
+  const f = await fixture();
+  const supervisor = await fixture({ role: "super_admin", unit: f.unit });
+  const at = Date.now();
+  const location = { ...f.fix, latitude: 11, fixTime: at };
+  const unplanned = {
+    plannedVisitId: null,
+    unplannedReason: "Owner asked for a delivery check",
+    intents: ["sell"],
+    deviceTime: at,
+    location,
+  };
+  // A reason alone does not start an outside-radius call.
+  expect((await start(f, unplanned)).result.status).not.toBe("applied");
+  const request = await webCall(f, "/api/v1/callflow/geofence/request", {
+    deviceId: f.d.deviceId,
+    outletId: f.outlet,
+    kind: "geofence_start",
+    reason: "Store entrance closed for construction",
+  });
+  expect(request.status).toBe(200);
+  // Requested but not yet decided: still refused.
+  expect(
+    (await start(f, { ...unplanned, geofenceApprovalId: request.body.id }))
+      .result.status,
+  ).not.toBe("applied");
+  expect(
+    (
+      await webCall(supervisor, "/api/v1/callflow/reviews/decide", {
+        reviewId: request.body.id,
+        decision: "approve",
+        reason: "Closure confirmed by phone",
+      })
+    ).status,
+  ).toBe(200);
+  // The approval reaches the phone with the store's call flow on the next sync.
+  const synced = await configuration(
+    h.db,
+    PROFILE_FIELD,
+    { id: f.outlet },
+    Date.now(),
+    { profileId: f.d.profile.id, deviceId: f.d.deviceId },
+  );
+  expect(
+    synced.geofenceApprovals.some(
+      (/** @type {any} */ g) =>
+        g.id === request.body.id && g.kind === "geofence_start",
+    ),
+  ).toBe(true);
+  const later = Date.now();
+  const accepted = await start(f, {
+    ...unplanned,
+    deviceTime: later,
+    location: { ...location, fixTime: later },
+    geofenceApprovalId: request.body.id,
+  });
+  expect(accepted.result.status).toBe("applied");
+  const [c] =
+    await h.db`select * from call_executions where visit_id=${accepted.result.ack.entityId}`;
+  expect(c.source).toBe("unplanned");
+  expect(c.unplanned_reason).toBe("Owner asked for a delivery check");
+  const [r] =
+    await h.db`select * from call_flow_reviews where id=${request.body.id}`;
+  expect(r.consumed_by).toBe(c.id);
+});
 test("F-107 F-120 F-205 van calls run the same engine through signed API operations", async () => {
   const f = await fixture({ app: "van-android" });
   const trip = crypto.randomUUID(),

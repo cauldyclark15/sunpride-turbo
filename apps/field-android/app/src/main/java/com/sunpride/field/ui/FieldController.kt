@@ -1342,8 +1342,10 @@ class FieldController(
             if (diagnostic == visit) loadOrderChecks()
         }
     }
+    /** FLD-084: set when this visit's Start or End was refused outside the radius; shows the approval request. */
+    var outsideRadius by mutableStateOf(false); private set
     fun openDiagnostic(visit: VisitDisplay) = scope.launch(ui) {
-        diagnostic = visit; diagnosticError = null; diagnosticFailure = null
+        diagnostic = visit; diagnosticError = null; diagnosticFailure = null; outsideRadius = false
         callSheetOpen = false; diagnosticCallSheet = null; diagnosticOrderTerms = null; activityForm = null; selectedIntents = emptyList()
         orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList(); orderReview = false; orderChecks = emptyList()
         endReview = null; photoCaptureOpen = false; diagnosticPhotos = emptyList()
@@ -1351,7 +1353,7 @@ class FieldController(
     }
     var diagnosticFailure by mutableStateOf<VisitRuleFailure.Code?>(null); private set
     fun closeDiagnostic() = scope.launch(ui) {
-        diagnostic = null; diagnosticError = null; diagnosticFailure = null; callSheetOpen = false; diagnosticCallSheet = null; diagnosticOrderTerms = null
+        diagnostic = null; diagnosticError = null; diagnosticFailure = null; outsideRadius = false; callSheetOpen = false; diagnosticCallSheet = null; diagnosticOrderTerms = null
         activityForm = null; selectedIntents = emptyList(); endReview = null
         orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList(); orderReview = false; orderChecks = emptyList()
         photoCaptureOpen = false; diagnosticPhotos = emptyList()
@@ -1579,13 +1581,18 @@ class FieldController(
                     reason, note, outcome, if (outcome == "nonproductive") reason?.trim() else null, location, flowOptions)
             }
             if (kind == "visit.checkOut") endReview = null
+            if (kind == "visit.checkIn" || kind == "visit.checkOut") outsideRadius = false
             // SP-0136: the day's first Start begins location sharing (if this person consented).
             if (kind == "visit.checkIn") runCatching { withContext(io) { backend.workDay?.onCheckIn(now()) } }
             refreshDiagnostic()
             loadToday(sync = false)
         } catch (e: VisitRuleFailure) { diagnosticFailure = e.code; diagnosticError = e.code.text }
         catch (e: kotlinx.coroutines.CancellationException) { throw e }
-        catch (e: com.sunpride.callflow.CallFlowRefused) { diagnosticError = e.message }
+        catch (e: com.sunpride.callflow.CallFlowRefused) {
+            diagnosticError = e.message
+            // FLD-084: the approval request appears only once the phone has refused an outside-radius fix.
+            if (com.sunpride.callflow.CallFlowEngine.outsideRadius(e.message)) outsideRadius = true
+        }
         catch (_: Exception) { diagnosticError = "Could not queue visit. Sync for access and check required fields." }
         finally { busy = false }
     }

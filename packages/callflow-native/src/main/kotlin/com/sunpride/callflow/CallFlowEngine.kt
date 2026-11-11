@@ -7,6 +7,9 @@ import kotlin.math.*
 /** F-006 F-107: this exact source is compiled by BOTH Android shells. No network, storage or UI dependency. */
 class CallFlowRefused(message: String) : IllegalStateException(message)
 object CallFlowEngine {
+    /** The outside-radius refusal: the shells show the supervisor-approval request only after this one. */
+    const val OUTSIDE_RADIUS = "Outside the store radius. Move closer or request supervisor approval before starting."
+    fun outsideRadius(message: String?) = message == OUTSIDE_RADIUS
     private fun refuse(message: String): Nothing = throw CallFlowRefused(message)
     fun objects(a: JSONArray): List<JSONObject> = (0 until a.length()).map(a::getJSONObject)
     fun validate(config: JSONObject): JSONObject {
@@ -39,7 +42,7 @@ object CallFlowEngine {
         val h = sin((lat-pin.getDouble("latitude"))*r/2).pow(2) + cos(lat*r)*cos(pin.getDouble("latitude")*r)*sin((lon-pin.getDouble("longitude"))*r/2).pow(2)
         val distance = 2*6_371_000*asin(sqrt(h.coerceIn(0.0,1.0)))
         if (distance > policy.getInt("radiusMeters") && !approvedOutside)
-            refuse("Outside the store radius. Move closer or request supervisor approval before starting.")
+            refuse(OUTSIDE_RADIUS)
         return distance > policy.getInt("radiusMeters")
     }
     fun approval(config: JSONObject, kind: String, at: Long, used: Set<String> = emptySet(), policyId: String = config.getJSONObject("policy").optString("id")): String? = config.optJSONArray("geofenceApprovals")?.let(::objects)

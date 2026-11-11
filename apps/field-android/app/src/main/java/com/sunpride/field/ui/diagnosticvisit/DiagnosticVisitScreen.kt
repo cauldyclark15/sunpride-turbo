@@ -100,7 +100,11 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
     val review = controller.endReview
     val result = if (checkedOut) controller.visitResult(visit) else null
     Column(modifier.fillMaxSize().bottomSafe().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()),
+        val scroll = rememberScrollState()
+        androidx.compose.runtime.LaunchedEffect(controller.outsideRadius) {
+            if (controller.outsideRadius) scroll.animateScrollTo(scroll.maxValue)
+        }
+        Column(Modifier.weight(1f).verticalScroll(scroll),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
             // The header names the store; this line says where the call stands.
             Text(listOfNotNull(visit.planned.takeUnless { it == "Scheduled" },
@@ -119,17 +123,25 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                     }
                 }
             }
+            // FLD-084: the unplanned visit's own Reason comes first, before any other reason field or the purposes.
+            if (!checkedIn && visit.plannedVisitId == null) SectionCard("Start") {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween) {
+                        Text("Unplanned visit", style = MaterialTheme.typography.bodyMedium)
+                        Switch(checked = true, onCheckedChange = null,
+                            enabled = false, modifier = Modifier.testTag("unplanned-toggle"))
+                    }
+                    LabeledField("Reason", reason, { reason = it },
+                        Modifier.fillMaxWidth().testTag("unplanned-reason"))
+                }
+            }
             flow?.let { configured ->
                 SectionCard(configured.getJSONObject("definition").getString("label")) {
                     com.sunpride.callflow.CallFlowEngine.objects(configured.getJSONObject("definition").getJSONArray("steps")).forEach { step ->
                         Text(step.getString("label") + if (step.getBoolean("required")) " · Required" else " · Optional",
                             Modifier.padding(horizontal = 16.dp,vertical = 4.dp),style = MaterialTheme.typography.bodySmall)
                     }
-                }
-                if (!checkedOut) {
-                    LabeledField("Outside-radius exception reason",geofenceReason,{geofenceReason=it},Modifier.fillMaxWidth().testTag("geofence-reason"))
-                    com.sunpride.field.ui.SecondaryButton("Request supervisor approval",{controller.requestCallGeofence(geofenceReason,checkedIn)},
-                        Modifier.testTag("geofence-request"),enabled = !controller.busy && geofenceReason.isNotBlank())
                 }
                 if (!checkedIn && canDeviate) LabeledField("Why visit out of sequence?",sequenceReason,{sequenceReason=it},
                     Modifier.fillMaxWidth().testTag("sequence-reason"))
@@ -158,18 +170,6 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         ChoiceRow(com.sunpride.field.storage.ActivityRules.intentLabel(intent), intent in intents,
                             { controller.toggleIntent(intent) }, Modifier.testTag("intent-$intent"), !controller.busy)
                     }
-                }
-            }
-            if (!checkedIn && visit.plannedVisitId == null) SectionCard("Start") {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Unplanned visit", style = MaterialTheme.typography.bodyMedium)
-                        Switch(checked = true, onCheckedChange = null,
-                            enabled = false, modifier = Modifier.testTag("unplanned-toggle"))
-                    }
-                    LabeledField("Reason", reason, { reason = it },
-                        Modifier.fillMaxWidth().testTag("unplanned-reason"))
                 }
             }
             val visibleChecklist = checklist.filterNot { flow?.getJSONObject("definition")?.optString("channelProfile")=="merchandiser" && it.kind in setOf("order_intent","promotion") }
@@ -351,6 +351,20 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         "${draft.lines.size} product${if (draft.lines.size == 1) "" else "s"} · ${controller.orderStatus(draft).label}",
                         "activity", Modifier.testTag("order-draft-closed"),
                         onClick = if (draft.submittedRequestId == null) null else { { controller.openOrder(draft.draftId) } })
+                }
+            }
+            // FLD-084 / F-106: an outside-radius Start or End needs a supervisor's approval before capture.
+            // The request shows only after the phone refused a fix outside the radius, next to the refusal.
+            if (flow != null && !checkedOut && controller.outsideRadius) SectionCard("Supervisor approval",
+                Modifier.testTag("geofence-card")) {
+                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    LabeledField("Outside-radius exception reason", geofenceReason, { geofenceReason = it },
+                        Modifier.fillMaxWidth().testTag("geofence-reason"))
+                    com.sunpride.field.ui.SecondaryButton("Request supervisor approval",
+                        { controller.requestCallGeofence(geofenceReason, checkedIn) },
+                        Modifier.testTag("geofence-request"), enabled = !controller.busy && geofenceReason.isNotBlank())
+                    Text("After approval, sync, then tap ${if (checkedIn) "End call" else "Start"} again.",
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             if (!checkedIn) startFailure?.let {
