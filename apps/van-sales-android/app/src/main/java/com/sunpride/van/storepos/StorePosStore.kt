@@ -47,11 +47,7 @@ class StorePosStore(private val store: RoomVanStore) {
         val config=writable()
         val saved=dao.outboxRows(s,d)
         check(project(config,saved).shift==null) {"A cashier session is already open"}
-        val zone=java.time.ZoneId.of("Asia/Manila")
-        val day=java.time.Instant.ofEpochMilli(store.now()).atZone(zone).toLocalDate().toString()
-        val localZ=saved.any {it.kind=="store.read" && it.status !in setOf("rejected","conflict","parked") && JSONObject(it.operationJson).getJSONObject("payload").let {p->p.optString("kind")=="z"&&java.time.Instant.ofEpochMilli(p.getLong("deviceTime")).atZone(zone).toLocalDate().toString()==day}}
-        val remoteZ=StoreCheckout.objects(config.details.optJSONArray("reads")).any {it.getString("kind")=="z"&&it.getJSONObject("snapshot").getString("date")==day}
-        check(!localZ&&!remoteZ){"This register has already closed its sales day"}
+        check(!zClosedToday(config,saved,store.now())){"This register has already closed its sales day"}
         val id=UUID.randomUUID().toString()
         queue("store.shift.open",id,config,JSONObject().put("openingCentavos",openingCentavos.toString()).put("policyId",config.policyId),id,null)
         id
@@ -76,6 +72,18 @@ class StorePosStore(private val store: RoomVanStore) {
         /** IP-P0: a store opening float is held to the office's ₱0..₱100,000 range, the same as a trip float; null when fine. */
         fun floatProblem(openingCentavos: Long): String? = if (OpeningFloat.valid(openingCentavos)) null else OpeningFloat.CAP_MESSAGE
         val KINDS=setOf("store.shift.open","store.shift.close","store.sale","store.void","store.refund","store.refund.part","store.read","store.receive","store.count","store.deposit","store.customer","store.print","store.cash","store.override","store.shift.suspend","store.shift.resume")
+        /** POS-005: till/Z state belongs to the register, not the phone. A Z on another register this phone served must not lock this one. */
+        fun onRegister(config: StorePosConfig?,rows: List<OutboxRow>): List<OutboxRow> {
+            val register=config?.registerId ?: return emptyList()
+            return rows.filter {it.tripId==register && (JSONObject(it.operationJson).optJSONObject("payload")?.optString("registerId",register) ?: register)==register}
+        }
+        fun zClosedToday(config: StorePosConfig,rows: List<OutboxRow>,now: Long): Boolean {
+            val zone=java.time.ZoneId.of("Asia/Manila")
+            val day=java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate().toString()
+            val localZ=onRegister(config,rows).any {it.kind=="store.read" && it.status !in setOf("rejected","conflict","parked") && JSONObject(it.operationJson).getJSONObject("payload").let {p->p.optString("kind")=="z"&&java.time.Instant.ofEpochMilli(p.getLong("deviceTime")).atZone(zone).toLocalDate().toString()==day}}
+            val remoteZ=StoreCheckout.objects(config.details.optJSONArray("reads")).any {it.getString("kind")=="z"&&it.getJSONObject("snapshot").getString("date")==day}
+            return localZ||remoteZ
+        }
         fun project(config: StorePosConfig?,rows: List<OutboxRow>): StorePosState {
             val all=rows.filter {it.kind in KINDS}
             val relevant=all.filter {JSONObject(it.operationJson).getJSONObject("payload").optString("modeVersionId")==config?.modeVersionId}

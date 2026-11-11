@@ -183,7 +183,7 @@ class StoreTransactions(private val store:RoomVanStore) {
             val server=StoreCheckout.objects(config.details.optJSONArray("sales"))
             val statuses=server.associate {it.getString("id") to it.getString("status")}
             val remote=server.map {it.getJSONObject("receipt")}
-            val local=rows.filter {it.kind=="store.sale"&&it.metadataJson!=null}.map {JSONObject(it.metadataJson!!).getJSONObject("receipt")}
+            val local=StorePosStore.onRegister(config,rows).filter {it.kind=="store.sale"&&it.metadataJson!=null}.map {JSONObject(it.metadataJson!!).getJSONObject("receipt")}
             return (local+remote).distinctBy {it.getString("saleId")}.map {JSONObject(it.toString()).put("_status",statuses[it.getString("saleId")]?:"saved")}.sortedByDescending {it.optLong("soldAt")}
         }
         fun document(r:JSONObject,reprint:Boolean=false):ReceiptDocument {
