@@ -512,6 +512,38 @@ describe("SP-0170 customer writer", () => {
       ),
     ).toBe(true);
     expect(list.body.nextCursor).toBeTruthy();
+    const paged = await call(
+      "viewer",
+      "GET",
+      "/api/v1/customers?distributionChannelCode=10&limit=2&offset=2",
+    );
+    expect(paged.status).toBe(200);
+    expect(paged.body.rows.map((/** @type {any} */ r) => r.code)).toEqual(
+      list.body.rows.slice(2, 4).map((/** @type {any} */ r) => r.code),
+    );
+    expect(paged.body.total).toBeGreaterThanOrEqual(5);
+    expect(paged.body.rows[0]).toHaveProperty("registeredName");
+    const office = list.body.rows.find(
+      (/** @type {any} */ r) => r.salesOfficeCode,
+    )?.salesOfficeCode;
+    if (office) {
+      const byOffice = await call(
+        "viewer",
+        "GET",
+        `/api/v1/customers?salesOfficeCode=${office}&limit=200`,
+      );
+      expect(
+        byOffice.body.rows.every(
+          (/** @type {any} */ r) => r.salesOfficeCode === office,
+        ),
+      ).toBe(true);
+    }
+    const none = await call(
+      "viewer",
+      "GET",
+      "/api/v1/customers?customerGroup2Code=__none__&offset=0",
+    );
+    expect(none.body).toMatchObject({ rows: [], total: 0 });
     expect(
       (
         await call("viewer", "POST", "/api/v1/customers", {

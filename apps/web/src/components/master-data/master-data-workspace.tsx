@@ -38,7 +38,7 @@ const money = (v: number | null) =>
 const tabs = [
   ["products", "Products"],
   ["customers", "Customers"],
-  ["outlets", "Stores"],
+  ["outlets", "Customers"],
 ] as const;
 const KINDS = tabs.map(([id]) => id) as readonly Kind[];
 const NOUN: Record<Kind, { one: string; many: string }> = {
@@ -374,7 +374,7 @@ export function MasterDataWorkspace({
       ? (r: Row) => (
           <Link
             className={editClass}
-            href={`/stores?edit=${encodeURIComponent(r.id)}`}
+            href={`/customers?edit=${encodeURIComponent(r.id)}`}
             aria-label={`Edit ${r.name}`}
           >
             Edit

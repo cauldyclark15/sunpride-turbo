@@ -27,7 +27,7 @@ describe("v2 navigation", () => {
       "Today",
       "Sales & targets",
       "Coverage & people",
-      "Stores",
+      "Customers",
       "Products & stock",
       "Vans & cash",
       "Money",
@@ -71,7 +71,7 @@ describe("v2 navigation", () => {
   it("marks the owner page active, including its detail pages", () => {
     expect(primaryIdFor("/today")).toBe("today");
     expect(primaryIdFor("/coverage-people/agent")).toBe("coverage-people");
-    expect(primaryIdFor("/stores/store")).toBe("stores");
+    expect(primaryIdFor("/customers/customer")).toBe("stores");
   });
 
   it("every internal role sees Messages (messaging.use); partners never do", () => {

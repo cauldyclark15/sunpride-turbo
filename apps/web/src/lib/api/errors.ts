@@ -9,18 +9,22 @@ export class ApiError extends Error {
   readonly retryable: boolean;
   /** HTTP status, or 0 when no response arrived (network, abort, parse). */
   readonly status: number;
+  /** The envelope's `details` when the server sent one (e.g. `{ errors: [...] }` on 422). */
+  readonly details: unknown;
 
   constructor(init: {
     code: string;
     message: string;
     retryable?: boolean;
     status?: number;
+    details?: unknown;
   }) {
     super(init.message);
     this.name = "ApiError";
     this.code = init.code;
     this.retryable = init.retryable ?? false;
     this.status = init.status ?? 0;
+    this.details = init.details;
   }
 
   toJSON(): NormalizedError {
@@ -60,7 +64,10 @@ export function errorFromResponse(status: number, body: unknown): ApiError {
       ? (body as { error: unknown }).error
       : undefined;
   if (envelope && typeof envelope === "object") {
-    const { code, message, retryable } = envelope as Record<string, unknown>;
+    const { code, message, retryable, details } = envelope as Record<
+      string,
+      unknown
+    >;
     return new ApiError({
       code: typeof code === "string" && code ? code : statusCode(status),
       message:
@@ -70,6 +77,7 @@ export function errorFromResponse(status: number, body: unknown): ApiError {
       retryable:
         typeof retryable === "boolean" ? retryable : retryableStatus(status),
       status,
+      details,
     });
   }
   return new ApiError({

@@ -29,7 +29,7 @@ export default function nextConfig(phase: string): NextConfig {
     phase === PHASE_DEVELOPMENT_SERVER || Boolean(process.env.API_ORIGIN);
   return {
     devIndicators: false,
-    transpilePackages: ["@sunpride/ui"],
+    transpilePackages: ["@sunpride/ui", "@sunpride/customer-master"],
     env: { NEXT_PUBLIC_SP_BUILD_ID: buildVersion() },
     async headers() {
       return [
@@ -71,6 +71,9 @@ export default function nextConfig(phase: string): NextConfig {
         { source: "/guides", destination: "/guides/index.html", permanent: false },
         // System flow diagrams: a static page in public/flow, outside the sign-in gate.
         { source: "/flow", destination: "/flow/index.html", permanent: false },
+        // SP-0170: Stores became Customers (customer = store); old links keep working.
+        { source: "/stores", destination: "/customers", permanent: false },
+        { source: "/stores/store", destination: "/customers/customer", permanent: false },
       ];
     },
     async rewrites() {

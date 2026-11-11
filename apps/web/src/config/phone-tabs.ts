@@ -26,7 +26,7 @@ const SHORT_LABELS: Record<string, string> = {
   "coverage-people": "Coverage",
   stock: "Stock",
   vans: "Vans",
-  stores: "Stores",
+  stores: "Customers",
   "live-map": "Map",
 };
 
@@ -71,7 +71,9 @@ const OTHER_TITLES: Record<string, string> = {
 /** The phone top-bar title for a pathname: the page's own name. */
 export function phoneTitleFor(pathname: string): string {
   const segment = pathname.split("/")[1] ?? "";
-  const owner = OWNER_PAGES.find((page) => page.id === segment);
+  const owner = OWNER_PAGES.find(
+    (page) => page.id === segment || page.href === `/${segment}`,
+  );
   if (owner) return TITLE_LABELS[owner.id] ?? owner.label;
   if (segment === "dashboard") return "Today";
   if (segment === "analytics") return "Sales & targets";

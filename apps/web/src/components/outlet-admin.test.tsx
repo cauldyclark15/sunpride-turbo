@@ -29,9 +29,6 @@ vi.mock("./master-data/api", async (original) => ({
   },
   useMutation: () => vi.fn(),
 }));
-vi.mock("./new-store-approvals", () => ({
-  NewStoreApprovals: () => createElement("p", null, "Mounted new stores"),
-}));
 vi.mock("react", async (original) => {
   const actual = await original<typeof import("react")>();
   return {
@@ -117,8 +114,8 @@ describe("Outlet admin (unmounted)", () => {
   it("Setup › Outlets points to the one Stores list instead of a second list", () => {
     state.nullIndex = 0;
     const view = renderToStaticMarkup(createElement(OutletAdmin));
-    expect(view).toContain("Stores are added and edited on the Stores page.");
-    expect(view).toContain('href="/stores"');
+    expect(view).toContain("Customers are added and edited on the Customers page.");
+    expect(view).toContain('href="/customers"');
     expect(view).not.toContain("Create outlet");
     expect(state.queries.map((q) => q.name)).not.toContain(
       "outlets/queries:list",

@@ -177,7 +177,7 @@ describe("phone bottom tabs", () => {
 
   it("titles the top bar with the page name", () => {
     expect(phoneTitleFor("/today")).toBe("Today");
-    expect(phoneTitleFor("/stores/store")).toBe("Stores");
+    expect(phoneTitleFor("/customers/customer")).toBe("Customers");
     expect(phoneTitleFor("/orders")).toBe("Orders");
     expect(phoneTitleFor("/account")).toBe("Account");
   });

@@ -135,16 +135,16 @@ export function OutletAdmin() {
   return (
     <div className="grid gap-4">
       <p className="text-[14px] text-muted">
-        Stores are added and edited on the Stores page.{" "}
+        Customers are added and edited on the Customers page.{" "}
         <Link
           href={
             requestedOutlet
-              ? `/stores?edit=${encodeURIComponent(requestedOutlet)}`
-              : "/stores"
+              ? `/customers?edit=${encodeURIComponent(requestedOutlet)}`
+              : "/customers"
           }
           className="font-medium text-foreground underline"
         >
-          Open Stores
+          Open Customers
         </Link>
       </p>
       {requestedOutlet ? (

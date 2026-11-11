@@ -531,7 +531,7 @@ export function AgentDayView({
                       event.storeId ? (
                         <Link
                           href={link(
-                            `/stores/store?storeId=${encodeURIComponent(event.storeId)}`,
+                            `/customers/customer?storeId=${encodeURIComponent(event.storeId)}`,
                           )}
                           className="text-foreground hover:underline"
                         >

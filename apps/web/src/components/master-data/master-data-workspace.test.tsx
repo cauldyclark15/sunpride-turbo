@@ -118,7 +118,7 @@ describe("master data using the real API hooks", () => {
       <MasterDataWorkspace initialSection="outlets" />,
     );
     expect(html).toContain("South Cebu");
-    expect(html).toContain('href="/stores?edit=store-selection"');
+    expect(html).toContain('href="/customers?edit=store-selection"');
     expect(html).not.toContain("Add store");
     expect(html).not.toContain(">store-selection<");
   });

@@ -5,18 +5,22 @@ import { DormancyPanel } from "../../dormancy-panel";
 import { useWaitingCount } from "../../store-gathering/tab";
 import { StoreGatheringReview } from "../../store-gathering/review";
 import { LocationCoverage } from "../../store-gathering/location-coverage";
-import { AddStore } from "../../store-gathering/add-store";
-import { NewStoreApprovals } from "../../new-store-approvals";
-import { OutletEditor } from "../../outlet-admin";
-import type { Id } from "../../master-data/model";
+import { CustomerEditor, useCustomerReference } from "../../customers/customer-editor";
+import {
+  CustomerListView,
+  FILTER_DEPENDENTS,
+  useCustomerList,
+  type CustomerFilters,
+} from "../../customers/customer-list";
+import {
+  LIST_FILTER_KEYS,
+  type CustomerStatus,
+} from "../../customers/model";
 import { usePermissions } from "../../../lib/auth";
 import { Drawer } from "../kit/drawer";
 import {
-  PAGE_SIZE,
-  StoreListView,
   StoresTabs,
   readPage,
-  readStoreStatus,
   readStoresTab,
   type StoresTab,
 } from "./stores-list";
@@ -192,7 +196,7 @@ export function StoresView({
           rows={data.rows}
           rowKey={(r) => r.storeId}
           rowHref={(r) =>
-            link(`/stores/store?storeId=${encodeURIComponent(r.storeId)}`)
+            link(`/customers/customer?storeId=${encodeURIComponent(r.storeId)}`)
           }
           empty={
             <EmptyState variant="zero" title="No store sales in this period" />
@@ -203,25 +207,49 @@ export function StoresView({
   );
 }
 
+const CUSTOMER_STATUSES: CustomerStatus[] = ["prospect", "active", "inactive"];
+
+/** ?status= as a customer status; anything else means every status. */
+export function readCustomerStatus(
+  params: URLSearchParams,
+): CustomerStatus | null {
+  const s = params.get("status");
+  return CUSTOMER_STATUSES.includes(s as CustomerStatus)
+    ? (s as CustomerStatus)
+    : null;
+}
+
+/** /customers (SP-0170: customer = store). */
 export function StoresPage() {
-  const { query, params, link, set, hrefWith } = usePageQuery(["status", "q"]);
+  const { params, link, set, hrefWith } = usePageQuery([
+    "status",
+    "q",
+    ...LIST_FILTER_KEYS,
+  ]);
   const { can } = usePermissions();
   const hidden: StoresTab[] = can("masterdata.manage") ? [] : ["settings"];
   const tab = readStoresTab(params, hidden);
   const canAdd = can("outlet.manage");
   const [adding, setAdding] = useState<string | null>(null);
-  const editing = tab === "list" ? params.get("edit") : null;
+  const editing = tab === "list" || tab === "new" ? params.get("edit") : null;
   const waiting = useWaitingCount();
   const go = (next: StoresTab) =>
     set(
       next === "list"
         ? { tab: null }
-        : { tab: next, page: null, q: null, status: null, edit: null },
+        : {
+            tab: next,
+            page: null,
+            q: null,
+            status: null,
+            edit: null,
+            ...Object.fromEntries(LIST_FILTER_KEYS.map((k) => [k, null])),
+          },
     );
   return (
     <div className="ck-page grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
       <h1 className="text-[26px] font-semibold tracking-tight text-foreground">
-        Stores
+        Customers
       </h1>
       <StoresTabs
         tab={tab}
@@ -231,8 +259,7 @@ export function StoresPage() {
         hidden={hidden}
       />
       {tab === "list" ? (
-        <StoresListTab
-          query={query}
+        <CustomersListTab
           params={params}
           set={set}
           link={link}
@@ -242,7 +269,20 @@ export function StoresPage() {
         />
       ) : tab === "new" ? (
         <div className="grid gap-8">
-          <NewStoreApprovals />
+          <section className="grid gap-3">
+            <h2 className="text-[17px] font-semibold text-foreground">
+              Prospects to complete and approve
+            </h2>
+            <CustomersListTab
+              params={params}
+              set={set}
+              link={link}
+              canAdd={false}
+              fixedStatus="prospect"
+              onAdd={() => undefined}
+              onEdit={canAdd ? (id) => set({ edit: id }) : undefined}
+            />
+          </section>
           <StoreGatheringReview />
         </div>
       ) : tab === "map" ? (
@@ -256,81 +296,95 @@ export function StoresPage() {
       )}
       <Drawer
         open={adding !== null}
-        title="Add a store"
+        title="Add a customer"
         wide
         onClose={() => setAdding(null)}
       >
         {adding !== null ? (
-          <AddStore key={adding} initialName={adding} bare />
+          <CustomerEditor
+            key={adding}
+            initialName={adding}
+            onDone={(c) => {
+              setAdding(null);
+              set({ edit: c.id });
+            }}
+          />
         ) : null}
       </Drawer>
       <Drawer
         open={!!editing}
-        title="Edit store"
+        title="Customer"
         wide
         onClose={() => set({ edit: null })}
       >
-        {editing ? (
-          <OutletEditor
-            key={editing}
-            outletId={editing as Id<"outlets">}
-            onDone={() => set({ edit: null })}
-          />
-        ) : null}
+        {editing ? <CustomerEditor key={editing} customerId={editing} /> : null}
       </Drawer>
     </div>
   );
 }
 
-function StoresListTab({
-  query,
+function CustomersListTab({
   params,
   set,
   link,
   canAdd,
   onAdd,
   onEdit,
+  fixedStatus,
 }: {
-  query: Record<string, string | undefined>;
   params: URLSearchParams;
   set: ReturnType<typeof usePageQuery>["set"];
   link: (href: string) => string;
   canAdd: boolean;
   onAdd: (name: string) => void;
-  onEdit?: (storeId: string) => void;
+  onEdit?: (customerId: string) => void;
+  fixedStatus?: CustomerStatus;
 }) {
   const page = readPage(params);
-  const status = readStoreStatus(params);
+  const status = fixedStatus ?? readCustomerStatus(params);
   const q = params.get("q") ?? "";
-  const result = useAnalytics("stores", {
-    ...query,
-    status: status ?? undefined,
-    page: String(page),
-    limit: String(PAGE_SIZE),
-  });
+  const filters: CustomerFilters = {};
+  for (const k of LIST_FILTER_KEYS) {
+    const v = params.get(k);
+    if (v) filters[k] = v;
+  }
+  const { index } = useCustomerReference();
+  const result = useCustomerList(q, status, filters, page);
   const onSearch = useCallback(
     (next: string) => set({ q: next || null, page: null }, { replace: true }),
     [set],
   );
   return (
-    <StoreListView
+    <CustomerListView
+      index={index}
       rows={result.data?.rows ?? (result.error ? [] : null)}
       total={
         result.data ? (result.data.total ?? result.data.rows.length) : null
       }
       page={page}
       q={q}
+      status={status}
+      filters={filters}
       loading={result.data === undefined && !result.error}
       canAdd={canAdd}
       onSearch={onSearch}
       onPage={(n) => set({ page: n > 1 ? String(n) : null })}
       onAdd={onAdd}
-      status={status}
-      matches={result.data?.matches}
-      onStatus={(next) => set({ status: next, page: null })}
-      onEdit={onEdit ? (r) => onEdit(r.storeId) : undefined}
-      storeHref={(r) =>
-        link(`/stores/store?storeId=${encodeURIComponent(r.storeId)}`)
+      onStatus={(next) =>
+        fixedStatus ? undefined : set({ status: next, page: null })
+      }
+      onFilter={(key, value) =>
+        set({
+          [key]: value,
+          page: null,
+          ...Object.fromEntries(
+            (FILTER_DEPENDENTS[key] ?? []).map((k) => [k, null]),
+          ),
+        })
+      }
+      onEdit={onEdit ? (r) => onEdit(r.id) : undefined}
+      customerHref={(r) =>
+        link(`/customers/customer?storeId=${encodeURIComponent(r.id)}`)
       }
     />
   );
@@ -515,8 +569,8 @@ export function StoreView({
             </p>
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link href={link("/stores")} className={buttonClass}>
-              All stores
+            <Link href={link("/customers")} className={buttonClass}>
+              All customers
             </Link>
             {/* MOUNT: OrdersWorkspace (@/components/orders) should accept ?store=<storeId> to start an order. */}
             <Link
@@ -717,13 +771,72 @@ export function StoreView({
   );
 }
 
+/** /customers/customer: the customer record (client's sheet) and its performance. */
 export function StorePage() {
+  const { query, params, link, set } = usePageQuery(["storeId"]);
+  const view = params.get("view") === "performance" ? "performance" : "info";
+  const storeId = query.storeId;
+  return (
+    <div className="ck-page grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-[26px] font-semibold tracking-tight text-foreground">
+          Customer
+        </h1>
+        <Link href={link("/customers")} className={buttonClass}>
+          All customers
+        </Link>
+      </div>
+      {storeId ? (
+        <>
+          <div
+            role="tablist"
+            aria-label="Customer sections"
+            className="flex gap-1 border-b border-separator"
+          >
+            {(
+              [
+                ["info", "Customer information"],
+                ["performance", "Performance"],
+              ] as const
+            ).map(([id, label]) => (
+              <button
+                key={id}
+                type="button"
+                role="tab"
+                aria-selected={view === id}
+                onClick={() =>
+                  set({ view: id === "info" ? null : "performance" })
+                }
+                className={`-mb-px inline-flex h-11 items-center border-b-2 px-3 text-[14px] font-medium ${view === id ? "border-foreground text-foreground" : "border-transparent text-muted hover:text-foreground"}`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          {view === "info" ? (
+            <CustomerEditor key={storeId} customerId={storeId} />
+          ) : (
+            <StorePerformance storeId={storeId} />
+          )}
+        </>
+      ) : (
+        <EmptyState
+          variant="zero"
+          title="Pick a customer"
+          action={{ label: "Open Customers", href: link("/customers") }}
+        />
+      )}
+    </div>
+  );
+}
+
+function StorePerformance({ storeId }: { storeId: string }) {
   const { query, link } = usePageQuery(["storeId"]);
-  const result = useAnalytics("store", query.storeId ? query : null);
+  const result = useAnalytics("store", { ...query, storeId });
   return (
     <CockpitPage
-      title={result.data?.store.name ?? "Store"}
-      question="Everything about this store."
+      title={result.data?.store.name ?? "Customer"}
+      question="Sales, visits and orders for this customer."
       header={result.data}
       bar={
         <PeriodScopeBar
@@ -732,17 +845,9 @@ export function StorePage() {
         />
       }
     >
-      {query.storeId ? (
-        <PageData result={result} label="this store">
-          {(data) => <StoreView data={data} link={link} />}
-        </PageData>
-      ) : (
-        <EmptyState
-          variant="zero"
-          title="Pick a store"
-          action={{ label: "Open Stores", href: link("/stores") }}
-        />
-      )}
+      <PageData result={result} label="this customer">
+        {(data) => <StoreView data={data} link={link} />}
+      </PageData>
     </CockpitPage>
   );
 }

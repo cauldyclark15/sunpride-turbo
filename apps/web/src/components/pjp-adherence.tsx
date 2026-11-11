@@ -131,7 +131,7 @@ export function PjpAdherenceView({ data }: { data: PjpAdherence }) {
             <li key={r.key}>
               <Link
                 className="underline"
-                href={`/stores/store?storeId=${encodeURIComponent(r.outletId)}`}
+                href={`/customers/customer?storeId=${encodeURIComponent(r.outletId)}`}
               >
                 {r.outlet}
               </Link>{" "}
