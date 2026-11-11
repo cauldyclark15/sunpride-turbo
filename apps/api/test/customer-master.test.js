@@ -222,6 +222,13 @@ describe("SP-0170 geography", () => {
     const [{ n }] = await h.db`select count(*)::int n from ph_barangays`;
     expect(n).toBe(42010);
     expect((await loadPhGeography(h.db)).loaded).toBe(false);
+    // Missing areas/city classes are NULL, never the text "null" (shown in dropdowns).
+    const [bad] =
+      await h.db`select (select count(*)::int from ph_postal_codes where area='null') as area,
+        (select count(*)::int from ph_municipalities where city_class='null') as cls,
+        (select count(*)::int from ph_postal_codes where area is null) as missing`;
+    expect(bad).toMatchObject({ area: 0, cls: 0 });
+    expect(bad.missing).toBeGreaterThan(0);
   });
   test("SQL and JS one-line address agree", async () => {
     const parts = {
@@ -512,6 +519,38 @@ describe("SP-0170 customer writer", () => {
       ),
     ).toBe(true);
     expect(list.body.nextCursor).toBeTruthy();
+    const paged = await call(
+      "viewer",
+      "GET",
+      "/api/v1/customers?distributionChannelCode=10&limit=2&offset=2",
+    );
+    expect(paged.status).toBe(200);
+    expect(paged.body.rows.map((/** @type {any} */ r) => r.code)).toEqual(
+      list.body.rows.slice(2, 4).map((/** @type {any} */ r) => r.code),
+    );
+    expect(paged.body.total).toBeGreaterThanOrEqual(5);
+    expect(paged.body.rows[0]).toHaveProperty("registeredName");
+    const office = list.body.rows.find(
+      (/** @type {any} */ r) => r.salesOfficeCode,
+    )?.salesOfficeCode;
+    if (office) {
+      const byOffice = await call(
+        "viewer",
+        "GET",
+        `/api/v1/customers?salesOfficeCode=${office}&limit=200`,
+      );
+      expect(
+        byOffice.body.rows.every(
+          (/** @type {any} */ r) => r.salesOfficeCode === office,
+        ),
+      ).toBe(true);
+    }
+    const none = await call(
+      "viewer",
+      "GET",
+      "/api/v1/customers?customerGroup2Code=__none__&offset=0",
+    );
+    expect(none.body).toMatchObject({ rows: [], total: 0 });
     expect(
       (
         await call("viewer", "POST", "/api/v1/customers", {

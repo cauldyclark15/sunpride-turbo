@@ -14,6 +14,7 @@ const guide = readFileSync(
 const sourceRoots = [
   "apps/web/src",
   "packages/ui/src",
+  "packages/customer-master/src",
   "apps/api/src",
 ] as const;
 

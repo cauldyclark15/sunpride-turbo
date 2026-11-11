@@ -120,7 +120,7 @@ export function AvailabilityCoverage({ data }: { data: RetailAvailability }) {
                 >
                   <Link
                     className="underline"
-                    href={`/stores/store?storeId=${encodeURIComponent(g.outletId)}`}
+                    href={`/customers/customer?storeId=${encodeURIComponent(g.outletId)}`}
                   >
                     {g.name}
                   </Link>
@@ -176,7 +176,7 @@ export function AvailabilityCoverage({ data }: { data: RetailAvailability }) {
           rows={data.depths}
           rowKey={(r) => r.outletId}
           rowHref={(r) =>
-            `/stores/store?storeId=${encodeURIComponent(r.outletId)}`
+            `/customers/customer?storeId=${encodeURIComponent(r.outletId)}`
           }
           columns={[
             {

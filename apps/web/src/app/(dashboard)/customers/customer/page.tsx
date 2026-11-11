@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { CockpitRoute } from "@/components/cockpit/cockpit-route";
 import { StorePage } from "@/components/cockpit/pages/stores";
 
-export const metadata: Metadata = { title: "Store" };
+export const metadata: Metadata = { title: "Customer" };
 
 export default function Page() {
   return (

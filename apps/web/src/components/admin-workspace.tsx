@@ -32,7 +32,7 @@ const groups = [
       ["organization", "Organization"],
       ["territories", "Territories"],
       ["routes", "Routes"],
-      ["outlets", "Stores"],
+      ["outlets", "Customers"],
       ["assignments", "Assignments"],
     ],
   ],

@@ -606,6 +606,10 @@ export async function listCustomers(c) {
   const text = (q.get("q") ?? "").trim().slice(0, 100);
   const limit = Math.min(200, Math.max(1, Number(q.get("limit")) || 50));
   const after = q.get("cursor") ?? "";
+  // Page-number lists (office web): `offset` skips rows in code order and the reply carries `total`.
+  const offsetRaw = q.get("offset");
+  const offset =
+    offsetRaw === null ? null : Math.max(0, Math.floor(Number(offsetRaw)) || 0);
   /** @param {string} name */
   const param = (name) => {
     const v = q.get(name);
@@ -617,7 +621,7 @@ export async function listCustomers(c) {
   const completeness = param("completeness");
   const nationwide = unitIds === null;
   const rows =
-    await c.db`select o.id,o.code,o.name,o.address,o.status,o.enrolment_status,p.completeness,
+    await c.db`select o.id,o.code,o.name,o.address,o.status,o.enrolment_status,p.completeness,p.registered_name,count(*) over() as total_count,
       p.sales_org_code,p.distribution_channel_code,p.customer_group1_code,p.customer_group2_code,p.customer_group_code,
       p.sales_office_code,p.municipality_name,p.barangay_name,s.channel as distribution_channel_name,s.subchannel as customer_group1_name,
       s.customer_group2_name,s.customer_group_name,s.territory_id,s.territory_name
@@ -629,14 +633,17 @@ export async function listCustomers(c) {
       and (${param("distributionChannelCode")}::text is null or p.distribution_channel_code=${param("distributionChannelCode")})
       and (${param("customerGroup1Code")}::text is null or p.customer_group1_code=${param("customerGroup1Code")})
       and (${param("customerGroupCode")}::text is null or p.customer_group_code=${param("customerGroupCode")})
+      and (${param("salesOfficeCode")}::text is null or p.sales_office_code=${param("salesOfficeCode")})
+      and (${param("customerGroup2Code")}::text is null or p.customer_group2_code=${param("customerGroup2Code")})
       and (${text === ""} or o.name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"} or o.code ilike ${text.replace(/[%_\\]/g, "\\$&") + "%"} or p.registered_name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"})
-      and o.code > ${after}
-    order by o.code limit ${limit + 1}`;
+      and (${offset !== null} or o.code > ${after})
+    order by o.code limit ${limit + 1} offset ${offset ?? 0}`;
   return {
     rows: rows.slice(0, limit).map((/** @type {any} */ r) => ({
       id: r.id,
       code: r.code,
       customerName: r.name,
+      registeredName: r.registered_name ?? null,
       customerAddress: r.address ?? null,
       status: r.status,
       enrolmentStatus: r.enrolment_status ?? null,
@@ -661,6 +668,9 @@ export async function listCustomers(c) {
       territoryName: r.territory_name ?? null,
     })),
     nextCursor: rows.length > limit ? rows[limit - 1].code : null,
+    ...(offset === null
+      ? {}
+      : { total: rows.length ? Number(rows[0].total_count) : 0 }),
   };
 }
 

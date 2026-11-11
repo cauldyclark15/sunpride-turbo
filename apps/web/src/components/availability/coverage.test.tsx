@@ -92,7 +92,7 @@ describe("F-214 F-215 F-220 availability inside the existing Coverage cockpit", 
     expect(html).toContain("Corned beef");
     expect(html).toContain("1 / 2");
     expect(html).toContain("Calls / plan");
-    expect(html).toContain("/stores/store?storeId=store");
+    expect(html).toContain("/customers/customer?storeId=store");
     expect(html).not.toContain("outletId");
     expect(html).not.toContain("Something went wrong");
   });

@@ -29,7 +29,7 @@ export function LocationCoverageView({
   data,
   missingOnly,
   onMissingOnly,
-  storeHref = (id) => `/stores/store?storeId=${encodeURIComponent(id)}`,
+  storeHref = (id) => `/customers/customer?storeId=${encodeURIComponent(id)}`,
 }: {
   data: Locations;
   missingOnly: boolean;

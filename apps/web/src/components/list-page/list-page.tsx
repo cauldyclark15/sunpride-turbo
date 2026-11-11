@@ -15,7 +15,7 @@
  *     searchPlaceholder="Search by store name or code"
  *     onAdd={canAdd ? (name) => openAddSheet(name) : undefined}   // name = the search text on an empty result
  *     columns={[{ key: "name", label: "Store", primary: true, render: (r) => r.name, text: (r) => r.name }, …]}
- *     rowKey={(r) => r.id} rowHref={(r) => `/stores/store?storeId=${r.id}`}
+ *     rowKey={(r) => r.id} rowHref={(r) => `/customers/customer?storeId=${r.id}`}
  *     bulkActions={[{ label: "Archive", run: (rows) => … }]}        // "Export selected" is built in
  *   />
  *

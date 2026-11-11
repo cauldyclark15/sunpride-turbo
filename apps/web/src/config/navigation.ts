@@ -20,7 +20,7 @@ export const OWNER_PAGES = [
     href: "/coverage-people",
     icon: "field",
   },
-  { id: "stores", label: "Stores", href: "/stores", icon: "commercial" },
+  { id: "stores", label: "Customers", href: "/customers", icon: "commercial" },
   { id: "stock", label: "Products & stock", href: "/stock", icon: "inventory" },
   { id: "vans", label: "Vans & cash", href: "/vans", icon: "order" },
   { id: "money", label: "Money", href: "/money", icon: "document" },
@@ -74,7 +74,9 @@ export const OPERATIONS_SECTIONS = [
     label: "Transfers",
     href: "/operations/transfers",
     access: "ops-transfers",
-    subs: [{ id: "list", label: "All transfers", href: "/operations/transfers" }],
+    subs: [
+      { id: "list", label: "All transfers", href: "/operations/transfers" },
+    ],
   },
   {
     id: "counts",
@@ -191,7 +193,12 @@ export const LEGACY_REDIRECTS = {
 export type PageSlug = OwnerSlug | WebModuleSlug | OperationsSlug;
 
 /** Pages that belong to Operations: the new routes and the older pages that moved under a verb. */
-const OPERATIONS_SEGMENTS = new Set(["operations", "inventory", "van-trips", "workflows"]);
+const OPERATIONS_SEGMENTS = new Set([
+  "operations",
+  "inventory",
+  "van-trips",
+  "workflows",
+]);
 const OWNER_SLUGS = new Set<string>(OWNER_PAGES.map((page) => page.id));
 const WORKSPACES = new Set<string>(WORKSPACE_SLUGS);
 
@@ -277,8 +284,15 @@ const tailItems: WorkspaceNavGroup["items"] = [
 ];
 
 /** Sidebar item for a pathname; sub-pages keep their parent highlighted. */
+/**
+ * SP-0170: the Customers page lives at /customers but keeps the internal page key `stores`
+ * (role maps, phone tabs, saved preferences). /stores redirects to /customers (next.config).
+ */
+const PATH_KEYS: Record<string, string> = { customers: "stores" };
+
 export function primaryIdFor(pathname: string): string {
-  const segment = pathname.split("/")[1] ?? "";
+  const raw = pathname.split("/")[1] ?? "";
+  const segment = PATH_KEYS[raw] ?? raw;
   if (Object.hasOwn(LEGACY_REDIRECTS, segment))
     return segment === "analytics" ? "sales" : "today";
   if (isOwnerSlug(segment)) return segment;
@@ -302,7 +316,9 @@ function visible<T extends { href: string }>(items: T[]) {
  */
 export function slugOf(href: string) {
   const [, first = "", second = ""] = href.split("?")[0]!.split("/");
-  return first === "operations" ? `ops-${second || "stock"}` : first;
+  return first === "operations"
+    ? `ops-${second || "stock"}`
+    : (PATH_KEYS[first] ?? first);
 }
 
 /**
@@ -389,7 +405,9 @@ export function visibleOperationsSubs(
 }
 
 /** The Operations verb a pathname belongs to, or null outside Operations. */
-export function operationsSectionFor(pathname: string): OperationsSection | null {
+export function operationsSectionFor(
+  pathname: string,
+): OperationsSection | null {
   const [, first = "", second = ""] = pathname.split("?")[0]!.split("/");
   const id = first === "operations" ? second || "stock" : MOVED_UNDER[first];
   return OPERATIONS_SECTIONS.find((section) => section.id === id) ?? null;

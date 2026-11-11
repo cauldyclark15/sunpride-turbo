@@ -55,7 +55,7 @@ const view = (over: Partial<Parameters<typeof StoreListView>[0]> = {}) =>
       onSearch={() => {}}
       onPage={() => {}}
       onAdd={() => {}}
-      storeHref={(r) => `/stores/store?storeId=${r.storeId}`}
+      storeHref={(r) => `/customers/customer?storeId=${r.storeId}`}
       {...over}
     />,
   ).replaceAll("&amp;", "&");
@@ -81,13 +81,13 @@ describe("stores tab in the URL", () => {
       <StoresTabs
         tab="new"
         onTab={() => {}}
-        hrefFor={(t) => (t === "list" ? "/stores" : `/stores?tab=${t}`)}
+        hrefFor={(t) => (t === "list" ? "/customers" : `/customers?tab=${t}`)}
         badges={{ new: 3 }}
       />,
     );
-    expect(out).toContain('href="/stores"');
-    expect(out).toContain('href="/stores?tab=performance"');
-    expect(out).toMatch(/aria-selected="true"[^>]*>New stores<span[^>]*>3</);
+    expect(out).toContain('href="/customers"');
+    expect(out).toContain('href="/customers?tab=performance"');
+    expect(out).toMatch(/aria-selected="true"[^>]*>New customers<span[^>]*>3</);
   });
 });
 
@@ -117,7 +117,7 @@ describe("store list", () => {
     expect(out).toContain("SMP-00001");
     expect(out).toContain("Cebu North");
     expect(out).toContain("Dormant");
-    expect(out).toContain('href="/stores/store?storeId=s1"');
+    expect(out).toContain('href="/customers/customer?storeId=s1"');
     expect(out).toContain('data-testid="list-pages"');
     expect(out).toMatch(/aria-current="page"[^>]*>1</);
     // nothing else on the default view

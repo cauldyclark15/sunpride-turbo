@@ -389,7 +389,7 @@ describe("Admin workspace sections", () => {
       "Teams",
       "Territories",
       "Routes",
-      "Stores",
+      "Customers",
       "Assignments",
       "Call flows",
       "Field masters",
