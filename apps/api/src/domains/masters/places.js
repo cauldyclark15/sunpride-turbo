@@ -5,7 +5,23 @@ import { takeOrThrow } from "../../core/rate.js";
 /** SP-0162 Google address search proxy (legacy Place Autocomplete / Details / Geocoding).
  * Phones and the office web call these with their normal session; the key never leaves
  * the server. Responses and logs never contain the Google URL, key or raw Google body. */
-const BASE = "https://maps.googleapis.com/maps/api";
+const GOOGLE_BASE = "https://maps.googleapis.com/maps/api";
+/** GOOGLE_MAPS_BASE_URL lets a local test lane point at a fake Places service. Only loopback
+ * http(s) is accepted, so a misconfigured value can never send the key to another host.
+ * @param {any} env */
+export function placesBase(env) {
+  const raw = (env ?? process.env).GOOGLE_MAPS_BASE_URL?.trim();
+  if (!raw) return GOOGLE_BASE;
+  try {
+    const u = new URL(raw);
+    if (
+      (u.protocol === "http:" || u.protocol === "https:") &&
+      ["127.0.0.1", "localhost", "[::1]"].includes(u.hostname)
+    )
+      return raw.replace(/\/+$/, "");
+  } catch {}
+  return GOOGLE_BASE;
+}
 export const PLACES_TIMEOUT_MS = 5000;
 export const PLACES_POLICY = { limit: 60, windowMs: 60_000 };
 const CACHE_MS = 24 * 60 * 60 * 1000;
@@ -54,7 +70,7 @@ export class PlacesUnavailable extends ApiError {
 async function google(env, path, params) {
   const key = (env ?? process.env).GOOGLE_MAPS_SERVER_KEY?.trim();
   if (!key) throw new PlacesUnavailable(true);
-  const url = `${BASE}/${path}?${new URLSearchParams({ ...params, key })}`;
+  const url = `${placesBase(env)}/${path}?${new URLSearchParams({ ...params, key })}`;
   let body;
   try {
     const res = await placesFetch(url, {

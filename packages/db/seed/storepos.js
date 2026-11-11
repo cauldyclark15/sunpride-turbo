@@ -6,22 +6,30 @@ import { BATCH, Dataset, persist, todayManila } from "./store.js";
  * Never assigns or changes any real handheld, and never overwrites office-edited masters.
  * @param {any} db */
 export async function ensureStorePosSamples(db) {
+  return ensureStorePosShops(db);
+}
+
+/** Same as ensureStorePosSamples, plus optional extra marked sample shops (test-day fixtures).
+ * An extra shop sits in the given unit (e.g. the van seller's) so that seller can be its cashier.
+ * @param {any} db @param {{code:string,name:string,orgUnitId:string}[]} [extra] */
+export async function ensureStorePosShops(db, extra = []) {
   return tx(db, async (t) => {
     await t`select pg_advisory_xact_lock(5600560)`;
     const [owner] =
       await t`select p.org_unit_id from profiles p join sample_data_rows m on m.table_name='profiles' and m.row_id=p.id::text and m.batch=${BATCH} where p.role='sales' and p.status='active' and p.deleted_at is null order by p.name limit 1`;
     if (!owner?.org_unit_id) return { added: 0 };
     const data = new Dataset(todayManila(), 1);
-    for (const [code, name] of [
-      ["SAMPLE-CEBU-COLON", "Sample Cebu Colon store"],
-      ["SAMPLE-CEBU-MANDAUE", "Sample Cebu Mandaue store"],
+    for (const [code, name, unit] of [
+      ["SAMPLE-CEBU-COLON", "Sample Cebu Colon store", owner.org_unit_id],
+      ["SAMPLE-CEBU-MANDAUE", "Sample Cebu Mandaue store", owner.org_unit_id],
+      ...extra.map((e) => [e.code, e.name, e.orgUnitId]),
     ]) {
       const [old] =
         await t`select id from inventory_locations where organization_id='sunpride' and code=${code}`;
       if (old) continue;
       const location = data.add("inventory_locations", `storepos:${code}`, {
         organization_id: "sunpride",
-        org_unit_id: owner.org_unit_id,
+        org_unit_id: unit,
         site_code: "CEBU",
         code,
         name,
@@ -45,7 +53,10 @@ export async function ensureStorePosSamples(db) {
       });
     }
     await persist(t, data);
-    await completeStorePosSamples(t);
+    await completeStorePosSamples(
+      t,
+      extra.map((e) => e.code),
+    );
     return { added: data.markers.length };
   });
 }
