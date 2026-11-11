@@ -29,7 +29,10 @@ async function requireStockBand(db, orgUnitId, role) {
 }
 /** Capability that posts a counted difference: the till path uses the approver's own band.
  * @param {string} counterRole @param {string} [creatorCapability] */
-export function postingCapability(counterRole, creatorCapability = "inventory.count.submit") {
+export function postingCapability(
+  counterRole,
+  creatorCapability = "inventory.count.submit",
+) {
   return roleHas(counterRole, creatorCapability)
     ? "inventory.approve"
     : "inventory.adjustment.approve";

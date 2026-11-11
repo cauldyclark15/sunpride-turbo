@@ -70,7 +70,9 @@ async function saveList(c, b) {
     const [taken] =
       await c.db`select 1 from price_lists where organization_id = ${ORGANIZATION} and code = ${code} limit 1`;
     if (taken)
-      fail(`A price list with code ${code} already exists. Choose another code.`);
+      fail(
+        `A price list with code ${code} already exists. Choose another code.`,
+      );
   }
   if (
     old &&
