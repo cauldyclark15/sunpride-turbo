@@ -231,6 +231,12 @@ describe("Count review", () => {
     expect(html).toContain("Every line is decided. Approve to update the stock.");
     expect(html).not.toMatch(/<button[^>]*\sdisabled=""[^>]*>Approve count/);
   });
+  it("WEB-081: a manager who may decide lines is told an approver posts the count, and Approve count is off", () => {
+    const html = render(seed(review({ summary: { ...review().summary, needsReview: 0 }, approveBlockedReason: "A count that changes the stock is approved by an approver. You can still decide each line." }), []), createElement(CountReviewScreen, { sessionId: "s1" }));
+    expect(html).toContain("A count that changes the stock is approved by an approver. You can still decide each line.");
+    expect(html).not.toContain("Every line is decided. Approve to update the stock.");
+    expect(html).toMatch(/<button[^>]*\sdisabled=""[^>]*>Approve count/);
+  });
   it("tells a counter who opens review that someone else must approve", () => {
     const html = render(seed(review({ canSeeExpected: false, canApprove: false }), []), createElement(CountReviewScreen, { sessionId: "s1" }));
     expect(html).toContain("You counted this one");
