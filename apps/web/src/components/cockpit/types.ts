@@ -448,6 +448,8 @@ export type TargetLevel = "company" | "channel" | "territory" | "agent";
 export type TargetsResponse = {
   month: string;
   level: TargetLevel;
+  /** False when the caller's scope cannot write this level (server-checked on save too). */
+  editable?: boolean;
   rows: Array<{
     key: string;
     label: string;
