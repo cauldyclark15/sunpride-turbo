@@ -755,3 +755,33 @@ describe("pickers for the plan and found-item screens", () => {
     expect((await read(viewer, `counts/preview?locationId=${loc}`)).status).toBe(403);
   });
 });
+
+describe("WEB-078: the web sends the request key as the idempotency-key header", () => {
+  it("Add count saves with the header key alone, and a resend replays the same plan", async () => {
+    const loc = await location(`Header-${crypto.randomUUID()}`);
+    await stockIn(loc, [{ p: await product(), qty: 5 }]);
+    const key = crypto.randomUUID();
+    const send = async () => {
+      const res = await h.fetch("/api/v1/inventory/counts/plan", {
+        method: "POST",
+        headers: {
+          cookie: planner.cookie,
+          "content-type": "application/json",
+          "idempotency-key": key,
+        },
+        body: JSON.stringify({ locationId: loc, blindCount: true }),
+      });
+      return {
+        status: res.status,
+        body: /** @type {any} */ (await res.json()),
+      };
+    };
+    const first = await send();
+    expect(first.body.error?.message ?? null).toBe(null);
+    expect(first.status).toBe(200);
+    expect(first.body.number).toMatch(/^CNT-/);
+    const again = await send();
+    expect(again.status).toBe(200);
+    expect(again.body.id).toBe(first.body.id);
+  });
+});

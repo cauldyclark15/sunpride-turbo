@@ -271,6 +271,32 @@ describe("orders and governed prices on Postgres", () => {
     ).toBe("unknown");
     await h.db`update orders set status='rejected' where id=${r.body.id}`;
   });
+  test("WEB-103: an order stored before price snapshots (no pricing_snapshot) can be approved and posts its stored lines", async () => {
+    const r = await create({ channelKey: "no-price" });
+    expect(r.status).toBe(200);
+    // Legacy/imported shape: no snapshot, decimal lines without base quantity, unit or centavos.
+    await h.db`update orders set pricing_snapshot=null,amount_known=true,total_centavos=coalesce(total_centavos,2500) where id=${r.body.id}`;
+    await h.db`update order_lines set uom=null,quantity_base=null,unit_price_centavos=null,line_total_centavos=null,unit_price=coalesce(unit_price,25) where order_id=${r.body.id}`;
+    const yes = await api(manager, "orders/approve", {
+      id: r.body.id,
+      reason: "Legacy order checked",
+      idempotencyKey: crypto.randomUUID(),
+    });
+    expect(yes.body.error?.message ?? null).toBeNull();
+    expect(yes.status).toBe(200);
+    const d = await api(manager, `orders/detail?id=${r.body.id}`);
+    expect(d.body.status).toBe("approved");
+    const [event] =
+      await h.db`select payload from integration_events where direction='outbound' and source_type='order' and source_id=${r.body.id}`;
+    const lines = event.payload.document.lines;
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) {
+      expect(typeof l.uom).toBe("string");
+      expect(Number.isSafeInteger(l.quantityBase)).toBe(true);
+    }
+    expect(event.payload.document.facts.pricing).toBeNull();
+  });
+
   test("no self approval, separate approver, named history and replay", async () => {
     // HTTP callers cannot forge field lineage, a cheaper channel, credited person or capture time.
     const r = await create({

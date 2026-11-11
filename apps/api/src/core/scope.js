@@ -7,7 +7,8 @@ import {
 
 /**
  * Device-independent sync scope for an actor. `id` is what clients echo as `scopeId`;
- * `fingerprint` changes whenever person, subject, unit, role or authorization epoch changes.
+ * `fingerprint` changes whenever person, subject, unit, role or the reachable units change
+ * (partners: also their grant epoch).
  * @param {import('@sunpride/db/client').Db} db
  * @param {import('./context.js').Actor} actor
  */
@@ -17,13 +18,19 @@ export async function scopeOf(db, actor) {
   const arrangements = partner?.grants.includes("van")
     ? await db`select id,vehicle_id,effective_from,effective_to from distributor_van_arrangements where distributor_id=${partner.distributor_id} and effective_from<=now() and (effective_to is null or effective_to>now()) order by id`
     : [];
+  const orgUnitIds = await hooks.scopeUnitIds(db, actor);
+  // Staff: the fingerprint is the authority itself (person, unit, role, the units it reaches), not
+  // an edit counter. An office edit that leaves those unchanged (a supervisor or phone edit, a unit
+  // created elsewhere, a move that was put back) must not strand the phone's queued work in a held
+  // partition; the server still re-authorizes every operation on delivery. Partners keep their
+  // grant epoch: their grants are not all visible in this hash.
   const fingerprint = sha256Hex(
     [
       actor.profileId,
       actor.subject,
       actor.orgUnitId ?? "",
       actor.role,
-      actor.scopeEpoch ?? "",
+      partner ? (actor.scopeEpoch ?? "") : [...orgUnitIds].sort().join(","),
       ...(partner
         ? [
             canonicalJson({
@@ -42,7 +49,7 @@ export async function scopeOf(db, actor) {
     id: actor.orgUnitId ?? "unscoped",
     fingerprint,
     epoch: actor.scopeEpoch ?? fingerprint.slice(0, 16),
-    orgUnitIds: await hooks.scopeUnitIds(db, actor),
+    orgUnitIds,
   };
 }
 

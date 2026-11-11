@@ -101,6 +101,17 @@ export function createApp(opts) {
       if (!route.options.raw && req.method !== "GET" && req.method !== "HEAD") {
         rawBody = await readCapped(req, MAX_JSON_BYTES);
         body = parseJson(rawBody);
+        // The web client sends the per-intent key as the `idempotency-key` header; many
+        // commands read `body.idempotencyKey`. One contract for both, body wins.
+        const headerKey = req.headers.get("idempotency-key");
+        if (
+          headerKey &&
+          body &&
+          typeof body === "object" &&
+          !Array.isArray(body) &&
+          body.idempotencyKey == null
+        )
+          body.idempotencyKey = headerKey;
       }
       ctx = await buildCtx({
         db,
