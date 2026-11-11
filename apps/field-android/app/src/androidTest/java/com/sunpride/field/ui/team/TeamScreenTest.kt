@@ -73,7 +73,7 @@ class TeamScreenTest {
             .assertTextContains("1 to review", substring = true)
         people[1].assertTextContains("Ben", substring = true).assertTextContains("Not started", substring = true)
         rule.onNodeWithTag("team-exception-open").performScrollTo()
-            .assertTextContains("Outside the store radius", substring = true)
+            .assertTextContains("Outside the customer radius", substring = true)
             .assertTextContains("Needs review on the web", substring = true)
         rule.onNodeWithTag("team-exception").assertTextContains("Nonproductive call", substring = true)
         rule.onNodeWithTag("team-direct").assertIsNotEnabled() // the current filter

@@ -59,7 +59,7 @@ class CallFlowLiveDeviceTest {
         hideKeyboard()
         rule.onNodeWithTag("diagnostic-checkin").performClick()
         rule.waitUntil(60_000) { rule.onAllNodesWithTag("queue-error").fetchSemanticsNodes().isNotEmpty() }
-        rule.onNodeWithTag("queue-error").performScrollTo().assertTextEquals("Outside the store radius. Move closer or request supervisor approval before starting.")
+        rule.onNodeWithTag("queue-error").performScrollTo().assertTextEquals("Outside the customer radius. Move closer or request supervisor approval before starting.")
         shot("field-outside-refused")
         outside = false
         rule.onNodeWithTag("diagnostic-checkin").performClick()

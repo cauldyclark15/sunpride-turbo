@@ -83,7 +83,7 @@ enum class StatusPill(val label: String) {
 
 
 /**
- * Store detail "Edit" (header Edit and the "Edit store" button). The form sends a change request linked to the
+ * Store detail "Edit" (header Edit and the "Edit customer" button). The form sends a change request linked to the
  * existing store (census.capture kind=change); the office approves it on the web New stores tab and Approve updates
  * that store, never a new one.
  */
@@ -750,8 +750,8 @@ private fun headerSpec(ready: Boolean, locked: Boolean, signedIn: Boolean, page:
             java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d", java.util.Locale.ENGLISH)),
             routeCode?.let { "Route $it" }).joinToString(" · "), "today-title")
         "route" -> HeaderSpec("Route", titleTag = "route-title")
-        "customers" -> HeaderSpec("Stores", titleTag = "customers-title")
-        "customer" -> HeaderSpec("Store", titleTag = "customer-title", back = true, backTag = "customer-back")
+        "customers" -> HeaderSpec("Customers", titleTag = "customers-title")
+        "customer" -> HeaderSpec("Customer", titleTag = "customer-title", back = true, backTag = "customer-back")
         "more" -> HeaderSpec("More")
         "messages" -> HeaderSpec("Messages")
         "account" -> HeaderSpec("Account", titleTag = "account-title", back = true, backTag = "account-back")
@@ -759,7 +759,7 @@ private fun headerSpec(ready: Boolean, locked: Boolean, signedIn: Boolean, page:
         "support" -> HeaderSpec("Support info", back = true, backTag = "support-back")
         "change-password" -> HeaderSpec("Change password", back = true, backTag = "account-back")
         "team" -> HeaderSpec("Team", titleTag = "team-title", back = true, backTag = "team-back")
-        "census" -> HeaderSpec(if (editingStore) "Edit store" else "Add store", back = true, backTag = "account-back")
+        "census" -> HeaderSpec(if (editingStore) "Edit customer" else "Add customer", back = true, backTag = "account-back")
         "workforce" -> HeaderSpec("Attendance", back = true, backTag = "workforce-back")
         "jointcall" -> HeaderSpec("Work-With", back = true, backTag = "account-back")
         "collections" -> HeaderSpec("Collector", back = true, backTag = "account-back")

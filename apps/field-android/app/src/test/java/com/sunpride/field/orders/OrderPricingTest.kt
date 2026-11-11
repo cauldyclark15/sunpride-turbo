@@ -121,16 +121,16 @@ class OrderPricingTest {
     @Test fun withinCreditAtBoundaryAndOpenOrdersDefaultZero() = runBlocking {
         val d = draft()
         val c = OrderSubmission.creditCheck(d, summary(10000))
-        assertEquals("Within the store's credit limit", c.label); assertEquals("₱9.50 left after this order", c.note)
+        assertEquals("Within the customer's credit limit", c.label); assertEquals("₱9.50 left after this order", c.note)
         assertTrue(c.ok); assertFalse(c.blocking); assertFalse(c.warning)
         assertEquals("₱0.00 left after this order", OrderSubmission.creditCheck(d, summary(10000, 950)).note)
     }
     @Test fun overCreditNeverBlocksAndNoLimitWithheldOrAbsentAreInformation() = runBlocking {
         val d = draft()
         val c = OrderSubmission.creditCheck(d, summary(10000, 1000))
-        assertEquals("Over the store's credit limit by ₱0.50. You can still send it; the office must approve.", c.note)
+        assertEquals("Over the customer's credit limit by ₱0.50. You can still send it; the office must approve.", c.note)
         assertTrue(c.warning); assertTrue(c.ok); assertFalse(c.blocking)
-        assertEquals("No credit limit set for this store", OrderSubmission.creditCheck(d, summary(null)).note)
+        assertEquals("No credit limit set for this customer", OrderSubmission.creditCheck(d, summary(null)).note)
         for (summary in listOf(null, summary(null, availability = "withheld"), summary(10000).copy(outletId = "foreign"))) {
             val check = OrderSubmission.creditCheck(d, summary)
             assertEquals("Credit is checked by the office when the order arrives.", check.note)
@@ -142,7 +142,7 @@ class OrderPricingTest {
         val c = OrderSubmission.creditCheck(d, summary(14000, 500), listOf(other, other,
             d.copy(submittedRequestId = "self"), draft(quantity = 99), other.copy(outletId = "other"),
             other.copy(serviceDate = "another")))
-        assertEquals("Over the store's credit limit by ₱0.75. You can still send it; the office must approve.", c.note)
+        assertEquals("Over the customer's credit limit by ₱0.75. You can still send it; the office must approve.", c.note)
     }
     @Test fun reviewReadsCachedSummaryAndCountsOtherSubmittedDraftsWithoutBlockingSend() = runBlocking {
         val (s, start) = ready()
@@ -156,7 +156,7 @@ class OrderPricingTest {
         val checks = OrderSubmission.checks(s, current, 500)
         assertTrue(checks.all { it.ok || !it.blocking })
         val credit = checks.single { it.warning }
-        assertEquals("Over the store's credit limit by ₱0.75. You can still send it; the office must approve.", credit.note)
+        assertEquals("Over the customer's credit limit by ₱0.75. You can still send it; the office must approve.", credit.note)
         assertFalse(credit.blocking)
         assertNotNull(submitOrderDraftIn(s, scope, current.draftId, sent.submittedRequestId!!, 500).submittedRequestId)
     }
@@ -168,7 +168,7 @@ class OrderPricingTest {
         val partial = draft().let { it.copy(lines = it.lines + OrderDraftLine("office", "U", "Office line", "CAN", 4)) }
         assertEquals(incompleteNote, OrderSubmission.creditCheck(partial, summary(100000)).note)
         val over = OrderSubmission.creditCheck(partial, summary(10000, 1000))
-        assertEquals("Over the store's credit limit by at least ₱0.50. You can still send it; the office must approve.", over.note)
+        assertEquals("Over the customer's credit limit by at least ₱0.50. You can still send it; the office must approve.", over.note)
         assertTrue(over.warning); assertFalse(over.blocking)
         val otherUnpriced = draft(null).copy(submittedRequestId = "sent")
         assertEquals(incompleteNote, OrderSubmission.creditCheck(draft(), summary(100000), listOf(otherUnpriced)).note)

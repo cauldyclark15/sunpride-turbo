@@ -39,7 +39,7 @@ class SyncStatusTest {
         assertEquals("Late · held for review", pending.copy(offline = true).label(close))
         assertTrue(closeTime(close).contains("10:00 PM · Asia/Manila"))
         assertEquals("Finish the open call first", SyncStatus.plainReason("call_open"))
-        assertEquals("Visit stores in plan order", SyncStatus.plainReason("mcp_order"))
+        assertEquals("Visit customers in plan order", SyncStatus.plainReason("mcp_order"))
     }
     @Test fun dependentWorkUsesCheckInServiceDayEvenIfEndQueuedNextMorning() {
         val scope = com.sunpride.field.storage.StoreScope("account", "device", "scope")

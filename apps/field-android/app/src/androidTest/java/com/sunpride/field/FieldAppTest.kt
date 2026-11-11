@@ -160,7 +160,7 @@ class FieldAppTest {
         rule.setContent { FieldApp(configured, dark = false, debug = false, backend = backend) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("customers-open") }
         rule.onNodeWithTag("customers-open").performClick()
-        rule.onNodeWithTag("customers-title").assertTextContains("Stores")
+        rule.onNodeWithTag("customers-title").assertTextContains("Customers")
         rule.onNodeWithTag("customer-search").performTextInput("mabini")
         rule.onNodeWithTag("customer-result").assertTextContains("Second Store", substring = true).performClick()
         rule.onNodeWithTag("customer-title").assertTextContains("Store")
@@ -180,12 +180,12 @@ class FieldAppTest {
         }
         rule.setContent { FieldApp(configured, dark = false, backend = backend, features = beta) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("today-title") }
-        rule.onNodeWithTag("today-add-store").performScrollTo().assertTextContains("Add store").performClick()
-        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-name") }
+        rule.onNodeWithTag("today-add-store").performScrollTo().assertTextContains("Add customer").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("customer-customerName") }
         rule.onNodeWithTag("account-back").performClick()
         rule.onNodeWithTag("customers-open").performScrollTo().performClick()
-        rule.onNodeWithTag("customer-add-store-fab").assertIsDisplayed().assertContentDescriptionEquals("Add store").performClick()
-        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-name") }
+        rule.onNodeWithTag("customer-add-store-fab").assertIsDisplayed().assertContentDescriptionEquals("Add customer").performClick()
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("customer-customerName") }
     }
 
     // Store detail: Edit top-right in the header and as a button; both open the Edit store form filled from the store.
@@ -201,7 +201,7 @@ class FieldAppTest {
         rule.onNodeWithTag("customer-result").performClick()
         rule.onNodeWithTag("customer-header-edit").assertIsDisplayed().assertTextContains("Edit").performClick()
         rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-edit-note") }
-        rule.onNodeWithText("Edit store").assertIsDisplayed() // header title
+        rule.onNodeWithText("Edit customer").assertIsDisplayed() // header title
         rule.onNodeWithTag("census-name").assertTextContains("First Store")
         rule.onNodeWithTag("account-back").performClick()
         rule.onNodeWithTag("customer-edit").assertIsDisplayed().performClick()
@@ -242,7 +242,7 @@ class FieldAppTest {
         rule.onNodeWithTag("nav-more").performClick()
         shot("android-more")
         rule.onNodeWithTag("census-open").performClick()
-        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("census-name") }
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("customer-customerName") }
         shot("android-add-a-store")
     }
 

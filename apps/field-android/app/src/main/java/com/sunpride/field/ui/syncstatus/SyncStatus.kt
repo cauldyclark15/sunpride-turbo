@@ -68,7 +68,7 @@ data class SyncStatus(
         /** Never render a server-supplied free-form rejection or payload. */
         fun plainReason(code: String?): String = when (code) {
             "call_open" -> "Finish the open call first"
-            "mcp_order" -> "Visit stores in plan order"
+            "mcp_order" -> "Visit customers in plan order"
             "wrong_date" -> "Visit date does not match the phone date"
             "dependency_missing" -> "Check-in was not accepted; dependent visit needs review"
             "rebootstrap_visit_changed" -> "Visit changed since it was queued"

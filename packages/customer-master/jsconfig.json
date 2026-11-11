@@ -11,5 +11,5 @@
     "resolveJsonModule": true,
     "types": ["bun-types"]
   },
-  "include": ["src/**/*.js", "test/**/*.js"]
+  "include": ["src/**/*.js", "test/**/*.js", "scripts/**/*.js"]
 }

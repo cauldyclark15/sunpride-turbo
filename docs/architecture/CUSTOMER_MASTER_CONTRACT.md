@@ -300,8 +300,20 @@ self-approval of one's own field enrolment `self_verify`).
 Phones keep using the existing enrolment paths; add an optional **`customer`** object (the keys
 of §1, no `shipTos` needed) to:
 
-- `POST /api/v1/outlets/enrolment/propose` (body keys unchanged), and
-- the offline prospect op (`payload.customer` beside `kyc`, `geo`, `photo`).
+- `POST /api/v1/outlets/enrolment/propose` (body keys unchanged),
+- the offline prospect op (`payload.customer` beside `kyc`, `geo`, `photo`), and
+- the offline `census.capture` op (field app "Add customer"): `payload.customer` plus the
+  existing `captureId`, `name` (= Customer Name), `address` (= Customer Address), `ownerName`
+  (= Contact Person), `ownerPhone` (= Mobile No.), `deviceTime`, GPS `location`,
+  `photoJpegBase64`; `channelId`/`subchannelId`/`estimatedClass` are not sent. It creates the
+  same field enrolment + draft customer (not a census review row); replay by `captureId`.
+
+Offline setup for the phone: `GET /api/v1/masters/census-config` gains
+`customerMaster: { salesOrgCode, provinceCodes, lists: [{ list, salesOrgCode, channelCode,
+group1Code, code, name }] }`; `GET /api/v1/geography/pack` → `{ release, regions, provinces
+[{code,name,regionCode}], municipalities [{code,name,provinceCode}], postalCodes
+[{municipalityCode,code}] }`; `GET /api/v1/geography/pack/barangays?provinceCode=` →
+`{ provinceCode, barangays [{code,name,municipalityCode}] }` (all `outlet.read`).
 
 The store is created as today (provisional code, pending pin, pending enrolment) and its
 customer profile is saved at `draft` with a "same as customer" ship-to (Contact Person = the

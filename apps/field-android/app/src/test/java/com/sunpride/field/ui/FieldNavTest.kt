@@ -8,7 +8,7 @@ import org.junit.Test
 /** The bottom bar: five tabs, every page belongs to one, and the bar steps aside inside flows. */
 class FieldNavTest {
     @Test fun fiveTabsInDailyOrder() {
-        assertEquals(listOf("Today", "Route", "Stores", "Messages", "More"), FieldTab.entries.map { it.label })
+        assertEquals(listOf("Today", "Route", "Customers", "Messages", "More"), FieldTab.entries.map { it.label })
         assertEquals(listOf("home", "route", "customers", "messages", "more"), FieldTab.entries.map { it.page })
         assertEquals(5, FieldTab.entries.map { it.tag }.toSet().size)
     }

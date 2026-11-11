@@ -164,7 +164,7 @@ private fun StopCard(stop: RouteStop, expanded: Boolean, onToggle: () -> Unit, o
             visit.address?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = if (expanded) 4 else 1,
                 overflow = TextOverflow.Ellipsis, color = MaterialTheme.colorScheme.onSurfaceVariant) }
             if (expanded) Column(Modifier.semantics(mergeDescendants = true) {}.testTag("route-customer"), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-                Fact("Store code", visit.outletCode ?: "Not sent")
+                Fact("Customer Code", visit.outletCode ?: "Not sent")
                 visit.customerCode?.let { Fact("Customer code", it) }
                 if (visit.intents.isNotEmpty()) Fact("Planned", visit.intents.joinToString(", ") {
                     it.replace('_', ' ').replaceFirstChar { c -> c.uppercase() } })
