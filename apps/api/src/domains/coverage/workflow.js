@@ -16,6 +16,7 @@ import {
   ORG,
   outletAt,
   planRows,
+  PLAN_ROW_LIMIT,
   required,
   uuid,
 } from "./model.js";
@@ -59,7 +60,7 @@ async function saveOutlets(ctx, p, outlets) {
   draft(p);
   const db = ctx.db;
   if (!Array.isArray(outlets)) fail("Plan outlets must be an array");
-  bounded(outlets, "Plan outlets");
+  bounded(outlets, "Plan outlets", PLAN_ROW_LIMIT);
   if (outlets.some((o) => !o || typeof o !== "object" || Array.isArray(o)))
     fail("Invalid outlet row");
   if (new Set(outlets.map((o) => o.outletId)).size !== outlets.length)
@@ -121,7 +122,7 @@ async function saveOutlets(ctx, p, outlets) {
 async function saveSlots(ctx, p, slots) {
   draft(p);
   if (!Array.isArray(slots)) fail("Plan slots must be an array");
-  bounded(slots, "Plan slots");
+  bounded(slots, "Plan slots", PLAN_ROW_LIMIT);
   if (slots.some((s) => !s || typeof s !== "object" || Array.isArray(s)))
     fail("Invalid slot row");
   const db = ctx.db;

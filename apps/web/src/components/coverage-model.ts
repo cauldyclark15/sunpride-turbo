@@ -230,6 +230,9 @@ export type Detail = {
   slots: Slot[];
   assignments: Assignment[];
   warnings: string[];
+  /** Plain-words problems with the plan record itself (e.g. a broken approval). */
+  notices?: string[];
+  signatureValid?: boolean;
   review?: Review;
 };
 export type Away = {

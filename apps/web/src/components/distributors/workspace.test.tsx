@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, expect, it, vi } from "vitest";
 import { DistributorWorkspace, filterPartners } from "./workspace";
 import { Ordering, Stock } from "./commercial";
-import { Setup } from "./setup";
+import { Setup, importSummary } from "./setup";
 import type { Health, Workspace } from "./types";
 const nav = vi.hoisted(() => ({ search: "" }));
 vi.mock("next/navigation", () => ({
@@ -64,6 +64,43 @@ it("F-407 office can invite dedicated field representatives without granting por
   expect(html).toContain('value="field"');
   expect(html).toContain("existing Android field app");
   expect(html).toContain("separate financial grants");
+});
+it("WEB-145 SAP import names accepted and rejected rows; audits list who and when", () => {
+  expect(
+    importSummary({
+      applied: { arItems: 1, movements: 0 },
+      unchanged: { arItems: 2, movements: 0 },
+      rejected: 0,
+    }),
+  ).toBe(
+    "Imported. Accepted 1 open item and 0 primary movements; 2 rows were already up to date; 0 rows rejected.",
+  );
+  state.values.setup = {
+    distributor: workspace.distributor,
+    master: null,
+    policy: null,
+    users: [],
+    usersTruncated: false,
+    audits: [
+      {
+        id: "a1",
+        audit_date: "2026-11-11",
+        infrastructure_score: 80,
+        manpower_score: 75,
+        findings: "Cold room checked",
+        created_at: "2026-11-11T02:00:00Z",
+        audited_by_name: "Sample Admin",
+      },
+    ],
+    auditsTruncated: false,
+  };
+  const html = renderToStaticMarkup(
+    createElement(Setup, { id: "sample", command: async () => ({}) }),
+  );
+  expect(html).toContain("Capability audits");
+  expect(html).toContain("Cold room checked");
+  expect(html).toContain("Sample Admin");
+  expect(html).toContain("80 / 100");
 });
 let workspace: Workspace;
 beforeEach(() => {

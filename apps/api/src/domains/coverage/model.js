@@ -53,11 +53,14 @@ export function uuid(id) {
     fail("Invalid identifier");
   return /** @type {string} */ (id);
 }
-/** @param {any[]} rows @param {string} [label] */
-export function bounded(rows, label = "Rows") {
-  if (rows.length > 500) fail(`${label} exceeds 500 rows`, "too_many_rows");
+/** @param {any[]} rows @param {string} [label] @param {number} [max] */
+export function bounded(rows, label = "Rows", max = 500) {
+  if (rows.length > max) fail(`${label} exceeds ${max} rows`, "too_many_rows");
   return rows;
 }
+/** A month of daily calls (26 selling days x 25+ stops, plus activities) is
+ * well past 500 rows; plans are bounded by this per-table ceiling instead. */
+export const PLAN_ROW_LIMIT = 5000;
 /** @param {any} value */
 const dateText = (value) =>
   typeof value === "string"
@@ -125,14 +128,21 @@ export async function loadPlan(db, id, lock = false) {
 }
 /** @param {any} db @param {string} id */
 export async function planRows(db, id) {
+  const n = PLAN_ROW_LIMIT + 1;
   const outlets = bounded(
-    await db`select * from coverage_plan_outlets where plan_id=${id} order by outlet_id limit 501`,
+    await db`select * from coverage_plan_outlets where plan_id=${id} order by outlet_id limit ${n}`,
+    "Plan outlets",
+    PLAN_ROW_LIMIT,
   );
   const slots = bounded(
-    await db`select * from coverage_plan_slots where plan_id=${id} and deleted_at is null order by service_date,sequence,slot_key limit 501`,
+    await db`select * from coverage_plan_slots where plan_id=${id} and deleted_at is null order by service_date,sequence,slot_key limit ${n}`,
+    "Plan slots",
+    PLAN_ROW_LIMIT,
   );
   const assignments = bounded(
-    await db`select * from coverage_assignments where plan_id=${id} order by effective_from limit 501`,
+    await db`select * from coverage_assignments where plan_id=${id} order by effective_from limit ${n}`,
+    "Plan assignments",
+    PLAN_ROW_LIMIT,
   );
   return { outlets, slots, assignments };
 }

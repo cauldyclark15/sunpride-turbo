@@ -1342,4 +1342,53 @@ describe("W4 hardening counterexamples", () => {
       await h.db`select raw from distributor_staging_lines where run_id=${first.body.id}`;
     expect(retained.raw).toEqual(row);
   });
+  test("WEB-145 SAP import reports per-row results; capability audits list who and when", async () => {
+    const item = {
+      sourceKey: "WEB145-AR",
+      invoiceNumber: "WEB145-1",
+      dueDate: today(),
+      balanceCentavos: 4200,
+    };
+    const first = await post(admin, "financial/sync", {
+      source: "sample",
+      version: 7,
+      arItems: [item],
+    });
+    expect(first.status).toBe(200);
+    expect(first.body.applied).toEqual({ arItems: 1, movements: 0 });
+    expect(first.body.unchanged).toEqual({ arItems: 0, movements: 0 });
+    expect(first.body.rejected).toBe(0);
+    const again = await post(admin, "financial/sync", {
+      source: "sample",
+      version: 7,
+      arItems: [item],
+    });
+    expect(again.body.applied.arItems).toBe(0);
+    expect(again.body.unchanged.arItems).toBe(1);
+    const stale = await post(admin, "financial/sync", {
+      source: "sample",
+      version: 6,
+      arItems: [{ ...item, balanceCentavos: 1 }],
+    });
+    expect(stale.status).toBe(409);
+    expect(JSON.stringify(stale.body)).toContain("WEB145-AR");
+    expect(
+      (
+        await post(admin, "audit", {
+          auditDate: today(),
+          infrastructureScore: 61,
+          manpowerScore: 72,
+          findings: "WEB-145 audit history",
+        })
+      ).status,
+    ).toBe(200);
+    const setup = await get(admin, "setup");
+    expect(setup.status).toBe(200);
+    const audit = setup.body.audits.find(
+      (/** @type {any} */ a) => a.findings === "WEB-145 audit history",
+    );
+    expect(audit.audited_by_name).toBeTruthy();
+    expect(audit.created_at).toBeTruthy();
+    expect(audit.infrastructure_score).toBe(61);
+  });
 });

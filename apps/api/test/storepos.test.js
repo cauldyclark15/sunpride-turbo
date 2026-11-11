@@ -145,6 +145,23 @@ afterAll(async () => {
   await h?.close();
 });
 
+test("WEB-156 workspace lists assigned cashiers and each register's and person's unit", async () => {
+  const w = await view();
+  const register = w.registers.find(
+    (/** @type {any} */ r) => r.id === registerId,
+  );
+  expect(register.org_unit_id).toBe(unit);
+  expect(
+    w.cashiers
+      .filter((/** @type {any} */ c) => c.register_id === registerId)
+      .map((/** @type {any} */ c) => c.profile_id),
+  ).toContain(seller.profile.id);
+  const person = w.people.find(
+    (/** @type {any} */ p) => p.id === seller.profile.id,
+  );
+  expect(person.org_unit_id).toBe(unit);
+  expect(person.role).toBeUndefined();
+});
 test("F-R01 mode is opt-in and delivers a store session without a fake van trip", async () => {
   const actor = await actorFor(h.db, seller.userId);
   const ctx = {

@@ -123,17 +123,18 @@ export function ActionForm({
 }) {
   const [pending, setPending] = useState(false),
     [error, setError] = useState<string | null>(null),
-    [success, setSuccess] = useState(false);
+    // A string returned by onSubmit replaces the generic success message.
+    [success, setSuccess] = useState<string | null>(null);
   async function submit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     if (pending) return;
     const data = new FormData(e.currentTarget);
     setPending(true);
     setError(null);
-    setSuccess(false);
+    setSuccess(null);
     try {
-      await onSubmit(data);
-      setSuccess(true);
+      const result = await onSubmit(data);
+      setSuccess(typeof result === "string" ? result : successMessage);
     } catch (e) {
       setError(
         e instanceof Error
@@ -157,7 +158,7 @@ export function ActionForm({
         ) : null}
         {success ? (
           <p role="status" className="text-sm text-muted">
-            {successMessage}
+            {success}
           </p>
         ) : null}
         <div>
