@@ -413,6 +413,10 @@ export function installAuth(router) {
     )
       return nativeMe(ctx);
     const profile = await loadProfile(ctx.db, ctx.user.id);
+    // WEB-016: an invited person whose profile was turned off is told so, not "not invited".
+    const [off] = profile
+      ? []
+      : await ctx.db`select 1 from profiles where user_id=${ctx.user.id} and status='disabled' and deleted_at is null limit 1`;
     const { partnerContext } = await import("../domains/partners/boundary.js");
     const partner = await partnerContext(ctx.db, ctx.actor);
     return {
@@ -427,6 +431,7 @@ export function installAuth(router) {
           }
         : null,
       capabilities: ctx.actor ? [...ctx.actor.capabilities] : [],
+      ...(off ? { access: "turned_off" } : {}),
       ...(partner
         ? {
             partner: {

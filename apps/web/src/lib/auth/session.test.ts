@@ -177,6 +177,13 @@ describe("auth actions", () => {
       ),
     ).rejects.toMatchObject({ status: 403, code: "not_invited" });
   });
+  it("WEB-016: a turned-off profile is refused as turned off, not as not invited", async () => {
+    await expect(
+      fetchMe(undefined, async () =>
+        json(200, { user: { id: "u1", email: "off@sunpride.test" }, profile: null, capabilities: [], access: "turned_off" }),
+      ),
+    ).rejects.toMatchObject({ status: 403, code: "access_turned_off" });
+  });
   it("fetchMe maps 401 to null and other failures to errors", async () => {
     expect(
       await fetchMe(undefined, async () => json(401, undefined)),

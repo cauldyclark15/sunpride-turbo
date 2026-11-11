@@ -49,12 +49,16 @@ export async function fetchMe(
   fetchImpl?: FetchImpl,
 ): Promise<Me | null> {
   try {
-    const me = toMe(
-      await apiFetch<Parameters<typeof toMe>[0]>("/api/me", {
-        signal,
-        fetchImpl,
-      }),
-    );
+    const raw = await apiFetch<
+      Parameters<typeof toMe>[0] & { access?: string }
+    >("/api/me", { signal, fetchImpl });
+    const me = toMe(raw);
+    if (!me && raw?.access === "turned_off")
+      throw new ApiError({
+        code: "access_turned_off",
+        message: "Your access has been turned off.",
+        status: 403,
+      });
     if (!me)
       throw new ApiError({
         code: "not_invited",
