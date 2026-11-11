@@ -311,7 +311,12 @@ export function MasterDataWorkspace({
   }
   const nameCol: ListColumn<Row> = {
     key: "name",
-    label: kind === "products" ? "Product" : kind === "customers" ? "Customer" : "Store",
+    label:
+      kind === "products"
+        ? "Product"
+        : kind === "customers"
+          ? "Customer"
+          : "Store",
     primary: true,
     render: (r) => r.name,
     text: (r) => r.name,
@@ -381,19 +386,23 @@ export function MasterDataWorkspace({
           </Link>
         )
       : canEdit
-        ? (r: Row) => (
-            <button
-              type="button"
-              className={editClass}
-              aria-label={`Edit ${r.name}`}
-              onClick={() => {
-                setEditing({ row: r, kind: kind as Editing["kind"] });
-                setError("");
-              }}
-            >
-              Edit
-            </button>
-          )
+        ? (r: Row) =>
+            // WEB-135: a material loaded from SAP stays SAP's even with SAP off (the database refuses the edit).
+            r.product?.sapKey ? (
+              <span className="text-sm text-muted">From SAP</span>
+            ) : (
+              <button
+                type="button"
+                className={editClass}
+                aria-label={`Edit ${r.name}`}
+                onClick={() => {
+                  setEditing({ row: r, kind: kind as Editing["kind"] });
+                  setError("");
+                }}
+              >
+                Edit
+              </button>
+            )
         : undefined;
   const selected = editing?.row ?? null;
   return (
@@ -503,18 +512,10 @@ export function MasterDataWorkspace({
                   />
                 </FormField>
                 <FormField label="Base unit">
-                  <select
-                    name="baseUomId"
-                    defaultValue={selected?.product?.baseUomId}
-                    required
-                  >
-                    <option value="">Pick a unit</option>
-                    {units?.map((u) => (
-                      <option key={u._id} value={u._id}>
-                        {u.name} · {u.code}
-                      </option>
-                    ))}
-                  </select>
+                  <BaseUnitSelect
+                    units={units}
+                    value={selected?.product?.baseUomId}
+                  />
                 </FormField>
               </>
             ) : (
@@ -579,5 +580,27 @@ export function MasterDataWorkspace({
       ) : null}
       {message ? <p role="status">{message}</p> : null}
     </div>
+  );
+}
+
+/** WEB-135: the units load after the form opens; mount the select only once they are here, so the product's
+ * current base unit is preselected instead of "Pick a unit" (an uncontrolled select ignores a late default). */
+export function BaseUnitSelect({
+  units,
+  value,
+}: {
+  units: { _id: string; name: string; code: string }[] | undefined;
+  value: string | undefined;
+}) {
+  if (!units) return <p className="text-sm text-muted">Loading units…</p>;
+  return (
+    <select name="baseUomId" defaultValue={value ?? ""} required>
+      <option value="">Pick a unit</option>
+      {units.map((u) => (
+        <option key={u._id} value={u._id}>
+          {u.name} · {u.code}
+        </option>
+      ))}
+    </select>
   );
 }
