@@ -56,6 +56,10 @@ export async function performOutletAction(
   const reason = text(data, "reason");
   if (!reason) throw new Error("Reason required");
   if (action === "create" || action === "edit") {
+    // A phone needs a contact name (the API stores contacts by name); dropping the typed phone
+    // silently looked like a successful save (WEB-170).
+    if (optional(data, "contactPhone") && !text(data, "contactName"))
+      throw new Error("Add the contact name for this phone.");
     const profile = {
       name: text(data, "name"),
       status: text(data, "status") as "prospect" | "active",

@@ -321,6 +321,15 @@ export async function invitationCommand(c, action, b) {
     rule("Unknown or inactive position");
   const [person] =
     await c.db`select * from profiles where lower(email)=${email}`;
+  const [existing] =
+    await c.db`select * from access_invitations where lower(email)=${email} order by invited_at desc limit 1`;
+  // Add person never silently rewrites someone: a waiting invitation or a person who already has
+  // access is refused in words (change them with Edit). Revoked invitations and disabled people
+  // may be invited again.
+  if (existing?.status === "pending")
+    rule(`${email} is already invited. Find them under Invited.`);
+  if (person?.status === "active")
+    rule(`${email} already has access. Use Edit on their row to change it.`);
   if (person) {
     await assignPerson(c, {
       ...b,
@@ -332,8 +341,6 @@ export async function invitationCommand(c, action, b) {
       name: b.name?.trim() || person.name,
     });
   }
-  const [existing] =
-    await c.db`select * from access_invitations where lower(email)=${email} order by invited_at desc limit 1`;
   const values = {
     email,
     name: b.name?.trim() || null,

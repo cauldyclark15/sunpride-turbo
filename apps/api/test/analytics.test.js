@@ -740,3 +740,13 @@ test("F-208 productive qualification is separate from linked-order strike rate a
     await db`update profiles set role=${owner.role},org_unit_id=${owner.org_unit_id} where id=${f.boss}`;
   }
 });
+
+test("WEB-170: a store-code search lists the exact code first, not a longer code that contains it", async () => {
+  // "S1" also matches S10–S19 and S100–S199 (compact codes match by substring); the list used to
+  // keep id order, so Edit on the first row could open another store.
+  for (const q of ["S1", "s-1", "S01"]) {
+    const r = await get(url("stores", `q=${encodeURIComponent(q)}&limit=50`));
+    expect(r.total).toBeGreaterThan(1);
+    expect(r.rows[0].code).toBe("S1");
+  }
+});
