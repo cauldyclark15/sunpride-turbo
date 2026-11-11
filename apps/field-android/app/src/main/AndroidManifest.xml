@@ -33,8 +33,11 @@
             android:exported="false" android:grantUriPermissions="true">
             <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/chat_file_paths" />
         </provider>
-        <!-- SP-0126: launches on the logo splash; MainActivity restores Theme.SunprideField. -->
+        <!-- SP-0126: launches on the logo splash; MainActivity restores Theme.SunprideField.
+             FLD-174: rotation, window resizing and a hardware keyboard reconfigure the Compose UI in
+             place; recreating the activity dropped the open visit and its typed note back to Today. -->
         <activity android:name=".MainActivity" android:exported="true"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboard|keyboardHidden|navigation|density"
             android:theme="@style/Theme.SunprideField.Starting">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
