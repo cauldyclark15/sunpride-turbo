@@ -114,8 +114,8 @@ function SearchIcon() {
   );
 }
 
-/** Search box that reports after 250ms of no typing (Enter reports at once). */
-function SearchBox({
+/** Search box that reports after 250ms of no typing (Enter reports at once). Shared by lists outside ListPage. */
+export function SearchBox({
   q,
   placeholder,
   onSearch,
