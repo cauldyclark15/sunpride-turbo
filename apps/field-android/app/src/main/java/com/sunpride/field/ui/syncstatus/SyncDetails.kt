@@ -56,6 +56,9 @@ fun SyncDetails(status: SyncStatus, onDismiss: () -> Unit, onSync: () -> Unit = 
             if (status.reviewReasons.isNotEmpty()) SectionCard("To review · ${status.review}") {
                 status.reviewReasons.forEach { Text(it, Modifier.padding(16.dp)) }
             }
+            if (status.held > 0 || status.heldReasons.isNotEmpty()) SectionCard("Held · ${status.held}", Modifier.testTag("held-card")) {
+                status.heldReasons.ifEmpty { listOf(SyncStatus.HELD_EARLIER) }.forEach { Text(it, Modifier.padding(16.dp)) }
+            }
         }
         androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
         PrimaryBottomButton(if (busy) "Syncing…" else "Sync now", onSync,

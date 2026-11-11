@@ -148,6 +148,19 @@ object CustomerDirectory {
         .replace(Regex("\\p{M}+"), "").lowercase(Locale.ROOT)
         .replace(Regex("[^a-z0-9]+"), " ").trim()
 
+    /**
+     * Compact code form, the same rule as the office store search (`store-search.js`): no spaces,
+     * dashes or punctuation, letter O read as zero inside the number, leading zeros ignored, so
+     * "SMP-O0069", "smp00069" and "SMP-00069" are one code.
+     */
+    fun compactCode(value: String): String {
+        val s = Normalizer.normalize(value, Normalizer.Form.NFKC).lowercase(Locale.ROOT)
+            .replace(Regex("[\\s.\\-/#_\\u2010-\\u2015\\u2212\\uFE58\\uFE63\\uFF0D]"), "")
+        val m = Regex("^([a-z]*?)([0-9o]*[0-9][0-9o]*)$").find(s) ?: return s
+        val number = m.groupValues[2].replace('o', '0').replace(Regex("^0+(?=\\d)"), "")
+        return m.groupValues[1] + number
+    }
+
     private fun fields(record: CustomerRecord) = listOfNotNull(record.name, record.outletCode, record.customerCode,
         record.address, record.account?.accountName, record.contactName, record.routeCode)
 
@@ -158,16 +171,23 @@ object CustomerDirectory {
      */
     fun search(records: List<CustomerRecord>, query: String): List<CustomerRecord> {
         val words = normalize(query).split(' ').filter { it.isNotEmpty() }
+        val whole = compactCode(query)
         val ranked = records.mapNotNull { record ->
             val haystack = fields(record).map { normalize(it) }
             val joined = haystack.joinToString(" ")
-            if (words.any { word -> !joined.contains(word) }) return@mapNotNull null
+            val rawCodes = listOfNotNull(record.outletCode, record.customerCode)
+            val compact = rawCodes.map { compactCode(it) }
+            val wholeCode = words.isNotEmpty() && whole.isNotEmpty() &&
+                compact.any { it == whole || (whole.length >= 3 && it.contains(whole)) }
+            fun wordMatches(word: String): Boolean = joined.contains(word) ||
+                compactCode(word).let { cw -> cw.length >= 2 && compact.any { it.contains(cw) } }
+            if (!wholeCode && words.any { word -> !wordMatches(word) }) return@mapNotNull null
             val phrase = words.joinToString(" ")
-            val codes = listOfNotNull(record.outletCode, record.customerCode).map { normalize(it) }
+            val codes = rawCodes.map { normalize(it) }
             val name = normalize(record.name)
             val score = when {
                 words.isEmpty() -> 3
-                codes.any { it == phrase } -> 0
+                codes.any { it == phrase } || compact.any { it == whole } -> 0
                 codes.any { it.startsWith(phrase) } || name.startsWith(phrase) -> 1
                 name.split(' ').any { it.startsWith(words.first()) } -> 2
                 else -> 3

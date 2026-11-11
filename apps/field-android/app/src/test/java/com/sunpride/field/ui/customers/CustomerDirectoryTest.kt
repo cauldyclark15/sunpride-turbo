@@ -97,6 +97,21 @@ class CustomerDirectoryTest {
         assertEquals(listOf("o2", "o1", "o3"), CustomerDirectory.search(records, "  ").map { it.outletId })
     }
 
+    @Test fun storeCodeSearchMatchesTheOfficeCompactCodeRule() {
+        // FLD-046 / EDGE-006: the phone must find a store under every spelling the web finds.
+        val records = CustomerDirectory.build(
+            outlets = listOf(outlet("t", "Target Store", "SMP-00069"), outlet("x", "Other Store", "SMP-00169"),
+                outlet("y", "Next Store", "SMP-00070")),
+            customers = emptyMap(), visits = emptyList(), routeJson = null, accounts = emptyMap(),
+            history = emptyList(), today = emptyList())
+        for (q in listOf("SMP-00069", "SMP-O0069", "smp00069", "smp o 0069", "SMP-O-0069", "smp\u201100069")) {
+            assertEquals(q, "t", CustomerDirectory.search(records, q).firstOrNull()?.outletId)
+        }
+        assertEquals(listOf("y"), CustomerDirectory.search(records, "SMP-00070").map { it.outletId })
+        assertTrue(CustomerDirectory.search(records, "SMP-690").isEmpty())
+        assertEquals("smp69", CustomerDirectory.compactCode("SMP-O0069"))
+    }
+
     @Test fun dialUriAcceptsPhoneNumbersOnly() {
         assertEquals("tel:09171234567", CustomerDirectory.dialUri("0917 123 4567"))
         assertEquals("tel:+6328123456", CustomerDirectory.dialUri("+63 (2) 812-3456"))
