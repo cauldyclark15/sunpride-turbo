@@ -200,7 +200,9 @@ fun LabeledField(label: String, value: String, onValueChange: (String) -> Unit,
         Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 14.dp))
         OutlinedTextField(value, onValueChange, singleLine = true, enabled = enabled,
             visualTransformation = visualTransformation, keyboardOptions = keyboardOptions, trailingIcon = trailingIcon,
-            modifier = modifier.fillMaxWidth().heightIn(min = 52.dp), shape = RoundedCornerShape(Look.pill),
+            // FLD-086: the visible label is the field's accessible name, so TalkBack and UI Automator can find it.
+            modifier = modifier.fillMaxWidth().heightIn(min = 52.dp)
+                .semantics { contentDescription = label }, shape = RoundedCornerShape(Look.pill),
             textStyle = MaterialTheme.typography.bodyLarge, colors = fieldColors())
     }
 }

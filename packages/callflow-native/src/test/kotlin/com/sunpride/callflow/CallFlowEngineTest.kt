@@ -23,6 +23,12 @@ class CallFlowEngineTest {
         refused { CallFlowEngine.location(config(),fix().put("latitude",11),1_000_000) }
         CallFlowEngine.location(config(),fix().put("latitude",11),1_000_000,true)
     }
+    @Test fun `FLD-084 only the outside-radius refusal offers the supervisor request`() {
+        val outside = try { CallFlowEngine.location(config(),fix().put("latitude",11),1_000_000); null } catch (e: CallFlowRefused) { e.message }
+        org.junit.Assert.assertTrue(CallFlowEngine.outsideRadius(outside))
+        val stale = try { CallFlowEngine.location(config(),fix(1),1_000_000); null } catch (e: CallFlowRefused) { e.message }
+        org.junit.Assert.assertFalse(CallFlowEngine.outsideRadius(stale))
+    }
     @Test fun `F-106 mock and unknown integrity flags never use an outside exception`() {
         refused { CallFlowEngine.location(config(),fix().put("mockSignal",true),1_000_000,true) }
         refused { CallFlowEngine.location(config(),fix().put("integrityBlocked",true),1_000_000,true) }
