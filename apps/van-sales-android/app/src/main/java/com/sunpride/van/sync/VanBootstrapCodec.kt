@@ -25,7 +25,8 @@ object VanBootstrapCodec {
         handheld = o.optJSONObject("handheld")?.let { h -> HandheldInfo(clean(h,"vehicleCode",40),clean(h,"plateNumber",40),clean(h,"supervisorName",80),clean(h,"supervisorPhone",30)) },
         vanDay = com.sunpride.van.vanday.VanDayCodec.decode(o.optJSONObject("vanDay")),splitTender = o.optBoolean("splitTender",false),
         refunds = com.sunpride.van.pos.RefundPolicy.decode(o.optJSONObject("refunds")),
-        privilegeCap = com.sunpride.van.selling.PrivilegeCapInfo.decode(o.optJSONObject("storePos")?.optJSONObject("privilegeCap")))
+        // VAN-034: a van-only handheld (no POS mode) has no storePos; its limit rides policy.privilegeCap.
+        privilegeCap = com.sunpride.van.selling.PrivilegeCapInfo.decode(o.optJSONObject("storePos")?.optJSONObject("privilegeCap") ?: o.optJSONObject("privilegeCap")))
     /** Optional display text: trimmed, bounded, no control characters; anything else is simply not shown. */
     private fun clean(o: JSONObject, key: String, max: Int): String? = if (o.isNull(key)) null else o.optString(key,"").trim().takeIf { it.isNotEmpty() && it.length <= max && it.none(Char::isISOControl) }
 
@@ -138,6 +139,7 @@ object VanBootstrapCodec {
         legacy.getJSONObject("policy").remove("vanDay")
         legacy.getJSONObject("policy").remove("splitTender")
         legacy.getJSONObject("policy").remove("refunds")
+        legacy.getJSONObject("policy").remove("privilegeCap")
         // IP-P0: the trip float and the recount facts are negotiated v2 additions to the frozen trip and load.
         legacy.optJSONObject("trip")?.remove(com.sunpride.van.pos.OpeningFloat.FIELD)
         // NF-5: the trip's office-held cash per sale is a v2 handheld addition too (read by CashReconciliationStore).

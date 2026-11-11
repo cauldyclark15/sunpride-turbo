@@ -136,6 +136,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     /** IP-P0: the receipt whose "Did it print?" question is on screen (null = none), and whether it is a store receipt. */
     var printQuestionSaleId by mutableStateOf<String?>(null)
         private set
+    /** VAN-051: why the last "Print again" did not print (the re-send limit), shown inside the "Did it print?" sheet. */
+    var printQuestionNote by mutableStateOf<String?>(null); private set
     private var printQuestionStore by mutableStateOf(false)
     /** The latest print outcome in this session, for the printer check screen. */
     var lastPrint by mutableStateOf<LastPrint?>(null)
@@ -956,7 +958,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun refreshReceipts() {
         scope?.launch { savedSales = runCatching { repository.savedSales() }.getOrElse { if (it is CancellationException) throw it; savedSales } }
     }
-    private fun startPrint(saleId: String, explicit: Boolean, reason: String?, store: Boolean = false) {
+    private fun startPrint(saleId: String, explicit: Boolean, reason: String?, store: Boolean = false, fromQuestion: Boolean = false) {
         if (printing) return
         val s = scope ?: return
         printing = true; printMessage = "Printing…"
@@ -971,7 +973,9 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
                     is PrintJobResult.Failed -> result.attempt?.let { it.kind != PrintKind.VOID && it.mayHaveReachedPaper } == true
                     is PrintJobResult.Refused -> false
                 }
-                if (sent) { printQuestionSaleId = saleId; printQuestionStore = store }
+                if (sent) { printQuestionSaleId = saleId; printQuestionStore = store; printQuestionNote = null }
+                // VAN-051: a refused "Print again" keeps the question open with the reason; it still needs Yes or Skip.
+                else if (fromQuestion && result is PrintJobResult.Refused) { printQuestionSaleId = saleId; printQuestionStore = store; printQuestionNote = printMessage }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { printMessage = "Could not print. The sale is saved. Try again." }
             finally {
@@ -990,9 +994,9 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         val id = printQuestionSaleId ?: return
         val store = printQuestionStore
         printQuestionSaleId = null
-        startPrint(id,explicit = true,reason = null,store = store)
+        startPrint(id,explicit = true,reason = null,store = store,fromQuestion = true)
     }
-    fun dismissPrintQuestion() { printQuestionSaleId = null }
+    fun dismissPrintQuestion() { printQuestionSaleId = null; printQuestionNote = null }
     /** Ask again for a receipt that was sent but never answered (for example the app was closed first). */
     fun askDidItPrint(saleId: String, store: Boolean) { printQuestionSaleId = saleId; printQuestionStore = store }
     private fun settlePrintQuestion(outcome: PrintOutcome, text: String) {
@@ -1001,7 +1005,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         scope?.launch {
             try {
                 if (store) repository.storeSettlePrint(id,outcome) else repository.settlePrint(id,outcome)
-                printQuestionSaleId = null; printMessage = text
+                printQuestionSaleId = null; printQuestionNote = null; printMessage = text
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { printMessage = "Could not save your answer. Try again." }
             finally {
@@ -1010,10 +1014,20 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             }
         }
     }
+    /** VAN-074: why Count cash has no expected cash; the screen shows it instead of "Loading…" forever. */
+    var cashProblem by mutableStateOf<String?>(null); private set
     fun refreshCash() {
         scope?.launch {
-            cashSummary = try { repository.cashSummary() } catch (e: CancellationException) { throw e }
-                catch (e: CashRefused) { message = VanRules.cashMessage(e.problem); null } catch (_: Exception) { null }
+            cashProblem = null
+            cashSummary = try {
+                kotlinx.coroutines.withTimeoutOrNull(20_000L) { repository.cashSummary() } ?: run {
+                    cashProblem = "The expected cash could not be worked out on this phone. Go back and open Count cash again; if it stays, sync and tell your supervisor."; null }
+            } catch (e: CancellationException) { throw e }
+                catch (e: CashRefused) { message = VanRules.cashMessage(e.problem); cashProblem = message; null }
+                catch (e: Exception) {
+                    if (com.sunpride.van.BuildConfig.DEBUG) android.util.Log.w("SunprideVan","cash summary failed: ${e.javaClass.simpleName} at " +
+                        e.stackTrace.take(8).joinToString(" < ") { "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}" })
+                    cashProblem = "The expected cash could not be worked out on this phone. Sync, then open Count cash again; if it stays, tell your supervisor."; null }
         }
     }
     fun refreshStock() {

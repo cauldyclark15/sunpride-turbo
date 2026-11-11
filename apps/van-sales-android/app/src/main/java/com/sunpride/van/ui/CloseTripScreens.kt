@@ -44,10 +44,18 @@ import java.time.format.DateTimeFormatter
                 // IP-HOLD: carts parked for customers stop the trip closing.
                 LaunchedEffect(Unit) { c.refreshHeld() }
                 val held = c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN)
+                // VAN-055: discarding throws the carts away for good, so it asks first (as the store till close does).
+                var confirmDiscard by remember { mutableStateOf(false) }
                 if (held.isNotEmpty()) SectionCard("Held carts") {
                     Text(com.sunpride.van.pos.HeldCartRules.closeBlock(held.size, "close the trip")!!,modifier = Modifier.testTag("close-held"))
-                    DangerButton("Discard held ${if (held.size == 1) "cart" else "carts"}",{ c.discardAllHeld(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN) },Modifier.testTag("close-discard-held"),!c.busy)
+                    DangerButton("Discard held ${if (held.size == 1) "cart" else "carts"}",{ confirmDiscard = true },Modifier.testTag("close-discard-held"),!c.busy)
                 }
+                if (confirmDiscard && held.isNotEmpty()) AlertDialog(onDismissRequest = { confirmDiscard = false },
+                    title = { Text("Discard ${held.size} held ${if (held.size == 1) "cart" else "carts"}?") },
+                    text = { Text("They are thrown away. They cannot be brought back.") },
+                    confirmButton = { TextButton({ c.discardAllHeld(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN); confirmDiscard = false },Modifier.heightIn(min = 48.dp).testTag("close-discard-confirm")) {
+                        Text("Discard",color = SunprideTokens.emptyRed,fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold) } },
+                    dismissButton = { TextButton({ confirmDiscard = false },Modifier.heightIn(min = 48.dp).testTag("close-discard-cancel")) { Text("Keep them") } })
                 SectionCard("Before you close") {
                     checklist!!.steps.forEach { step ->
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(10.dp)) {

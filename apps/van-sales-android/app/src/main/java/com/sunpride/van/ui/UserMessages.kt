@@ -129,7 +129,9 @@ object UserMessages {
             is VanSyncFailure -> return forCode(e.code) ?: "The office could not take this work yet. Your work is kept here. Try again."
         }
         forText(e.message)?.let { return it }
-        if (passLocal && (e is IllegalStateException || e is IllegalArgumentException || e.javaClass.simpleName == "CallFlowRefused")) {
+        // NF-R4-V2: a call-flow refusal is always this app's own plain sentence ("Check in to this store before selling…"),
+        // so it reaches the seller from every action, Complete sale included, not only the call buttons.
+        if (e is com.sunpride.callflow.CallFlowRefused || (passLocal && (e is IllegalStateException || e is IllegalArgumentException))) {
             e.message?.takeIf { isPlainSentence(it) }?.let { return it }
         }
         return fallback

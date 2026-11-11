@@ -95,6 +95,16 @@ class VanBootstrapCodecTest {
         o.getJSONObject("trip").put("openingFloatCentavos",10_000_001)
         assertTrue("a float over the cap is not a bundle we trust",runCatching { VanBootstrapCodec.decode(o.toString()) }.isFailure)
     }
+    /** VAN-034: a van-only handheld (no POS mode, so no storePos) gets the weekly limit at policy.privilegeCap, outside the frozen validator. */
+    @Test fun vanOnlyWeeklyLimitRidesThePolicyAndStaysOutOfTheFrozenValidator() {
+        assertNull(VanBootstrapCodec.decode(fixture()).policy.privilegeCap)
+        val o = JSONObject(fixture())
+        o.getJSONObject("policy").put("privilegeCap",JSONObject().put("version",1).put("enabled",true).put("capCentavos","250000").put("confirmed",false)
+            .put("weekStart","2026-11-09").put("weekEndsAt",System.currentTimeMillis() + 86_400_000L).put("asOf",System.currentTimeMillis()).put("complete",true)
+            .put("hashKey","A".repeat(43)).put("used",JSONArray()))
+        val cap = VanBootstrapCodec.decode(o.toString()).policy.privilegeCap
+        assertNotNull(cap); assertEquals(250_000L,cap!!.capMinor)
+    }
     /** NF-5: the server's per-sale cash rides the handheld trip; the frozen v1 validator must not see it (VAN-075 r3: every bootstrap failed). */
     @Test fun serverCashRidesTheTripAndStaysOutOfTheFrozenValidator() {
         val o = JSONObject(fixture())

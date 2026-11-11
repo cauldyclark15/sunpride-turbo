@@ -128,14 +128,19 @@ data class PayOption(val label: String, val detail: String?, val tag: String, va
         topBar = { LookTopBar(title, onBack, backEnabled = !saving, subtitle = subtitle) },
         bottomBar = {
             Surface(color = Look.sheet, shadowElevation = 10.dp, shape = RoundedCornerShape(topStart = Look.sheetTop, topEnd = Look.sheetTop)) {
-                Row(Modifier.fillMaxWidth().navigationBarsPadding().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                Column(Modifier.fillMaxWidth().navigationBarsPadding()) {
+                // VAN-042: a refusal after Complete sale (or the first thing still missing) shows next to the button; the
+                // payment list scrolls, so a message only at its top was off screen and the tap looked like it did nothing.
+                (message ?: issues.firstOrNull())?.let { Text(it, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.SemiBold,
+                    color = Look.ink, modifier = Modifier.fillMaxWidth().padding(start = 16.dp, end = 16.dp, top = 10.dp).testTag(if (message != null) "message" else "payment-reason")) }
+                Row(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp), horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                     PillButton("Back", onBack, Modifier.weight(1f).testTag("payment-back"), enabled = !saving, filled = false, height = 60.dp)
                     PillButton(if (saving) "Saving…" else if (cash && change > 0) "Complete · change ${Peso.format(change)}" else "Complete sale", onPay, Modifier.weight(2f).testTag("complete-sale"), enabled = canPay && !saving, height = 60.dp, fontSize = 19.sp)
+                }
                 }
             }
         }) { padding ->
         Column(Modifier.fillMaxSize().padding(padding).consumeWindowInsets(padding).verticalScroll(rememberScrollState()).padding(horizontal = 16.dp, vertical = 8.dp), verticalArrangement = Arrangement.spacedBy(10.dp)) {
-            message?.let { Text(it, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("message")) }
             FigureCard("TOTAL", totalMinor?.let(Peso::format) ?: "Not ready", "checkout-total",
                 Triple("TENDERED", tendered?.let(Peso::format) ?: "₱0.00", "checkout-tendered"),
                 if (short > 0) Triple("SHORT", Peso.format(short), "checkout-change") else Triple("CHANGE", Peso.format(change), "checkout-change"),

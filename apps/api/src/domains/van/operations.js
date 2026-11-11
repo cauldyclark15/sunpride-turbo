@@ -300,6 +300,18 @@ async function dispatchOperation(ctx, env) {
     (trip.started_device_id && trip.started_device_id !== device.id)
   )
     refuse("This trip belongs to another seller or device", "out_of_scope");
+  // NF-R4-V1: a trip can be on the road with no start handheld (started by the office, seeded as already
+  // on route, or after a handover cleared it). The seller's own registered van handheld, already checked
+  // above, takes the trip on its first operation, so invoices, prints and the close manifest have a device.
+  if (
+    !trip.started_device_id &&
+    ["active", "closing", "reconciling", "review_required"].includes(
+      trip.status,
+    )
+  ) {
+    await db`update van_trips set started_device_id=${device.id},updated_at=now() where id=${trip.id} and started_device_id is null`;
+    trip.started_device_id = device.id;
+  }
   // F-123: retain the capture/service day during a bounded delayed upload.
   const delayedDays =
     (Date.parse(today(ctx.now)) - Date.parse(dayString(trip.service_date))) /

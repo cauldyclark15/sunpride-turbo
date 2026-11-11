@@ -91,7 +91,9 @@ interface ReceiptPrintDao {
 }
 
 /** A saved sale on the current trip, for the Receipts list. */
-data class SavedSale(val receipt: SaleReceipt, val prints: List<PrintAttempt>, val void: SaleVoidInfo? = null) {
+data class SavedSale(val receipt: SaleReceipt, val prints: List<PrintAttempt>, val void: SaleVoidInfo? = null,
+    /** VAN-046: the seller, trip and truck frozen at checkout, so the on-screen preview shows what the paper prints. */
+    val header: ReceiptHeader? = null) {
     val isCollection: Boolean get() = receipt.fiscalJson?.let {JSONObject(it).optString("documentType")=="official_receipt"} == true
     val voidSlipPrinted: Boolean get() = prints.any { it.kind == PrintKind.VOID && it.mayHaveReachedPaper }
     val voidSlipsLeft: Int get() = maxOf(0,ReprintRules.MAX_REPRINTS+1 - prints.count { it.kind == PrintKind.VOID && it.mayHaveReachedPaper })
@@ -175,7 +177,7 @@ class RoomReceiptPrintLog(private val db: VanDatabase, private val scope: StoreS
         val history = prints.all(s, d).groupBy { it.saleId }
         val voids = dao.salevoidRows(s,d).associateBy { it.saleId }
         printableRows().filter { it.tripId == tripId }.sortedWith(compareByDescending<SaleRow> { it.createdAt }.thenByDescending { it.receiptNumber })
-            .map { SavedSale(frozen(it, null).first, history[it.saleId].orEmpty().map { row -> row.attempt() },voids[it.saleId]?.info()) }
+            .map { val f = frozen(it, null); SavedSale(f.first, history[it.saleId].orEmpty().map { row -> row.attempt() },voids[it.saleId]?.info(), f.second) }
     }
 
     private suspend fun printableRows(): List<SaleRow> = dao.saleRows(s,d) + CollectionStore(RoomVanStore(db,scope,clock)).printableCollections()

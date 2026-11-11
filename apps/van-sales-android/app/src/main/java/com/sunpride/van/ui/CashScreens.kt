@@ -43,7 +43,7 @@ import com.sunpride.van.pos.*
         footer = if (saved == null && expected != null) "Counted ${declared?.let { PosMoney.format(it,currency) } ?: "—"} · expected ${PosMoney.format(expected,currency)}" else null,
         message = c.message) {
         when {
-            summary == null -> Text("Loading…")
+            summary == null -> Text(c.cashProblem ?: "Loading…",Modifier.testTag("cash-loading"))
             saved != null -> SavedCount(saved,summary.tripNumber)
             !summary.countable -> Text("Start the trip before counting cash.",Modifier.testTag("cash-blocked"))
             else -> {

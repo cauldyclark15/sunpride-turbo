@@ -6,6 +6,7 @@ import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.input.KeyboardType
@@ -35,6 +36,12 @@ import com.sunpride.van.pos.*
         lines.all { it.expectedBase == it.countedBase || it.reasonCode in reasons.map { r -> r.code } } &&
         (!needsApproval || VoidApprovalCodes.normalize(draft.code) != null)
 
+    // VAN-078: Save stays off until every line is counted; say which line is still missing instead of a silent grey button.
+    val missing = if (summary != null && saved == null) stockCountMissing(expectedLines,draft.counts,draft.reasons,reasons.map { it.code }.toSet()) +
+        c.batchCountPositions.filter { b -> val p = c.products.singleOrNull { it.productId == b.productId }
+            p == null || VanRules.parseQuantity(draft.batchCounts["${b.lotId}:${b.status}"] ?: "",p.quantityScale) == null }
+            .map { b -> "${c.products.singleOrNull { it.productId == b.productId }?.name ?: "Item"} · batch ${b.batch} count" } else emptyList()
+    val focus = LocalFocusManager.current
     fun edit(next: StockDraft, clearsCode: Boolean = false) = c.editStock(if (clearsCode) next.copy(code = "") else next)
     fun setCount(line: StockLineSummary, text: String) {
         edit(draft.copy(counts = draft.counts + ((line.productId to line.status) to text)),clearsCode = true)
@@ -48,7 +55,8 @@ import com.sunpride.van.pos.*
         action = if (saved != null) "Done" else if (c.busy) "Saving…" else "Save stock count",actionTag = "save-stock",
         enabled = if (saved != null) true else ready && !c.busy,
         onAction = { if (saved != null) c.back() else c.saveStockCount() },
-        footer = if (saved == null && totals != null) "${totals.varianceLines} lines differ · ${totals.shortBase} short · ${totals.overBase} over" else null,
+        footer = if (saved == null && missing.isNotEmpty()) stockMissingFooter(missing)
+            else if (saved == null && totals != null) "${totals.varianceLines} lines differ · ${totals.shortBase} short · ${totals.overBase} over" else null,
         message = c.message) {
         when {
             summary == null -> Text("Getting this trip's truck stock…")
@@ -87,7 +95,8 @@ import com.sunpride.van.pos.*
                                 }
                             }
                         }
-                        SecondaryButton("Same as expected",{ sameAsExpected(productId) },Modifier.testTag("stock-same-$productId"),!c.busy)
+                        // VAN-078: the button takes the focus out of the count field, so the keyboard closes and the list scrolls again.
+                        SecondaryButton("Same as expected",{ focus.clearFocus(force = true); sameAsExpected(productId) },Modifier.testTag("stock-same-$productId"),!c.busy)
                     }
                 }
                 if (totals != null && totals.anyVariance) {
@@ -149,3 +158,18 @@ private fun stockDifference(delta: Long, uom: String, scale: Long): String = whe
     delta < 0L -> "${VanRules.quantity(Math.negateExact(delta),scale)} $uom short"
     else -> "${VanRules.quantity(delta,scale)} $uom over"
 }
+/** VAN-078: what still stops Save, in list order: a line with no count, then a differing line with no reason. */
+internal fun stockCountMissing(lines: List<StockLineSummary>, counts: Map<Pair<String,String>,String>, reasons: Map<Pair<String,String>,String?>, offered: Set<String>): List<String> =
+    lines.mapNotNull { line ->
+        val key = line.productId to line.status
+        val label = if (line.status == StockCountLine.AVAILABLE) "sellable" else "damaged"
+        val counted = counts[key]?.let { VanRules.parseQuantity(it,line.quantityScale) }
+        when {
+            counted == null -> "${line.productName} · $label count"
+            counted != line.expectedBase && reasons[key] !in offered -> "${line.productName} · $label reason"
+            else -> null
+        }
+    }
+/** "Still to do: Sample Fruit Cocktail · damaged count and 2 more". */
+internal fun stockMissingFooter(missing: List<String>): String =
+    "Still to do: ${missing.first()}" + if (missing.size > 1) " and ${missing.size - 1} more" else ""

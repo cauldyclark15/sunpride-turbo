@@ -959,3 +959,28 @@ test("legacy Z gate: the office can switch the old way off for every phone; the 
   expect(badMode.status).toBeLessThan(500);
   expect(await fails(() => h.db`delete from legacy_z_gate_settings`)).toBe(true);
 });
+
+test("VAN-034: a van handheld with no POS mode row (no storePos) still gets the weekly limit when its build asks", async () => {
+  const { bundle } = await import("../src/domains/van/projection.js");
+  const actor = await actorFor(h.db, seller.userId);
+  const ctx = (/** @type {any} */ extra) => ({
+    db: h.db,
+    actor,
+    device: { id: seller.deviceId },
+    params: { serviceDate: new Date(Date.now() + 8 * 3600000).toISOString().slice(0, 10), posMode: true, handheld: true, vanDay: true, privilegeCap: true, ...extra },
+    now: Date.now(),
+  });
+  const saved = await h.db`select id,effective_from,effective_to from pos_device_modes where device_id=${seller.deviceId}`;
+  await h.db`update pos_device_modes set effective_from=now()+interval '1 day',effective_to=null where device_id=${seller.deviceId}`;
+  try {
+    const old = /** @type {any} */ (await bundle(ctx({}), { SYNC_CURSOR_SECRET: CURSOR_SECRET }));
+    expect(old.policy.storePos).toBeUndefined();
+    expect(old.policy.privilegeCap).toBeUndefined();
+    const asked = /** @type {any} */ (await bundle(ctx({ vanPrivilegeCap: true }), { SYNC_CURSOR_SECRET: CURSOR_SECRET }));
+    expect(asked.policy.privilegeCap).toMatchObject({ version: 1, enabled: true, weekStart: manilaWeekStart(Date.now()) });
+  } finally {
+    for (const r of saved) await h.db`update pos_device_modes set effective_from=${r.effective_from},effective_to=${r.effective_to} where id=${r.id}`;
+  }
+  const { vanProjection: vp } = await import("../src/domains/van/projection.js");
+  expect(vp({}).params?.({ serviceDate: new Date().toISOString().slice(0, 10), vanPrivilegeCap: true })).toMatchObject({ vanPrivilegeCap: true });
+});

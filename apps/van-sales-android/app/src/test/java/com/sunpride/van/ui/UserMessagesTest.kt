@@ -92,4 +92,10 @@ class UserMessagesTest {
         assertEquals(UserMessages.STORE_SALE_DEFAULT, UserMessages.forStoreSale(IllegalStateException("java.lang.IllegalStateException at com.x.Y {id}")))
         assertEquals("Sold out of mangoes", UserMessages.forStoreSale(IllegalStateException("Sold out of mangoes")))
     }
+    @Test fun callFlowRefusalReachesTheSellerFromCompleteSale() {
+        // NF-R4-V2: Complete sale before check-in used the default catch-all and hid the reason.
+        val e = com.sunpride.callflow.CallFlowRefused("Check in to this store before selling or recording returns.")
+        assertEquals("Check in to this store before selling or recording returns.", UserMessages.forFailure(e))
+        assertEquals(UserMessages.DEFAULT, UserMessages.forFailure(IllegalStateException("Check the box")))
+    }
 }

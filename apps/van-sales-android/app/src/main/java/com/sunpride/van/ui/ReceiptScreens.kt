@@ -160,6 +160,7 @@ import java.time.format.DateTimeFormatter
             Column(Modifier.padding(16.dp),verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Did it print?",style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("print-question"))
                 Text("The phone cannot see the paper. Look at the receipt. If nothing came out, print again.",style = MaterialTheme.typography.bodyLarge)
+                c.printQuestionNote?.let { Text(it,style = MaterialTheme.typography.bodyLarge,fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,modifier = Modifier.testTag("print-refused")) }
                 PrimaryBottomButton("Yes, printed",c::answerPrinted,enabled = !c.printing,tag = "print-yes")
                 SecondaryButton("Print again",c::answerPrintAgain,Modifier.testTag("print-again"),enabled = !c.printing)
                 SecondaryButton("Skip, no paper",c::answerSkipped,Modifier.testTag("print-skip"),enabled = !c.printing)
