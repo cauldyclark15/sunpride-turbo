@@ -11,7 +11,8 @@ export const REFERENCE_FILE = new URL(
   "../reference/sunpride-customer-master-2026-11-10.json",
   import.meta.url,
 );
-export const REFERENCE_SOURCE = "sunpride-customer-information-template-2026-11-10";
+export const REFERENCE_SOURCE =
+  "sunpride-customer-information-template-2026-11-10";
 
 /** Every list key, in the client's field order. */
 export const REFERENCE_LISTS = /** @type {const} */ ([
