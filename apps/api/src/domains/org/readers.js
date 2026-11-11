@@ -29,6 +29,36 @@ import {
 /** @typedef {import('./model.js').Row} Row */
 /** @typedef {import('./model.js').Db} Db */
 
+/** Earliest row that starts after `now` and has not ended. @param {Row[]} rows @param {number} now */
+function nextStart(rows, now) {
+  return (
+    rows
+      .filter(
+        (r) =>
+          !r.deleted_at &&
+          new Date(r.effective_from).getTime() > now &&
+          (!r.effective_to || new Date(r.effective_to).getTime() > now),
+      )
+      .sort(
+        (a, b) =>
+          new Date(a.effective_from).getTime() -
+          new Date(b.effective_from).getTime(),
+      )[0] ?? null
+  );
+}
+
+/** Current territory owner, else the owner it starts with (a just-added, future-dated territory
+ * is listed and maintained by its upcoming unit, WEB-154). @param {Ctx} c @param {string} id */
+async function ownerNowOrNext(c, id) {
+  const now = await territoryOwnerUnit(c.db, id, c.now);
+  if (now) return now;
+  const next = nextStart(
+    await history(c.db, "territory_ownerships", "territory_id", id),
+    c.now,
+  );
+  return /** @type {string|null} */ (next?.org_unit_id ?? null);
+}
+
 /** Gate a stored current owner even for an as-of request. @param {Ctx} c @param {string} kind @param {string} id @param {string} capability */
 export async function access(c, kind, id, capability) {
   const actor = await requireCapability(c, capability);
@@ -52,15 +82,15 @@ export async function access(c, kind, id, capability) {
   let unit = row.org_unit_id;
   if (kind === "org") unit = id;
   if (kind === "people") unit = (await personAt(c.db, row)).org_unit_id;
-  if (kind === "territories") unit = await territoryOwnerUnit(c.db, id);
+  if (kind === "territories") unit = await ownerNowOrNext(c, id);
   if (kind === "outlets") unit = await outletOwnerUnit(c.db, id, c.now);
   if (kind === "routes") {
-    const current = (
+    const links = (
       await history(c.db, "route_territories", "route_id", id)
-    ).find((r) => !r.deleted_at && activeAt(r, c.now));
-    unit = current
-      ? await territoryOwnerUnit(c.db, current.territory_id)
-      : null;
+    ).filter((r) => !r.deleted_at);
+    const current =
+      links.find((r) => activeAt(r, c.now)) ?? nextStart(links, c.now);
+    unit = current ? await ownerNowOrNext(c, current.territory_id) : null;
   }
   if (!unit && actor.role !== "super_admin" && actor.role !== "analyst") {
     // An unassigned person may only be maintained by a national administrator.
@@ -127,6 +157,10 @@ export async function access(c, kind, id, capability) {
 
 const effective = (/** @type {string} */ a) =>
   `${a}.deleted_at is null and ${a}.effective_from<=now() and (${a}.effective_to is null or ${a}.effective_to>now())`;
+/** Current or starting later (not ended). Setup lists show a just-added, future-dated territory or
+ * route with its start date instead of hiding it until that day (WEB-154). */
+const notEnded = (/** @type {string} */ a) =>
+  `${a}.deleted_at is null and (${a}.effective_to is null or ${a}.effective_to>now())`;
 
 /** All filters precede the LIMIT. Cursor is a UUID keyset, not an offset. @param {Ctx} c @param {string} kind @param {Row} p */
 export async function list(c, kind, p) {
@@ -185,7 +219,7 @@ export async function list(c, kind, p) {
       break;
     case "territories":
       table = "territories";
-      where = `t.deleted_at is null and exists(select 1 from territory_ownerships own where own.territory_id=t.id and ${effective("own")} and ${scoped("own.org_unit_id")})`;
+      where = `t.deleted_at is null and exists(select 1 from territory_ownerships own where own.territory_id=t.id and ${notEnded("own")} and ${scoped("own.org_unit_id")})`;
       if (actor.role === "super_admin" || actor.role === "analyst")
         where = "t.deleted_at is null";
       if (actor.role === "sales")
@@ -193,7 +227,7 @@ export async function list(c, kind, p) {
       break;
     case "routes":
       table = "routes";
-      where = `t.deleted_at is null and exists(select 1 from route_territories rt join territory_ownerships own on own.territory_id=rt.territory_id where rt.route_id=t.id and ${effective("rt")} and ${effective("own")} and ${scoped("own.org_unit_id")}${p.territoryId ? ` and rt.territory_id=${bind(p.territoryId)}` : ""})`;
+      where = `t.deleted_at is null and exists(select 1 from route_territories rt join territory_ownerships own on own.territory_id=rt.territory_id where rt.route_id=t.id and ${notEnded("rt")} and ${notEnded("own")} and ${scoped("own.org_unit_id")}${p.territoryId ? ` and rt.territory_id=${bind(p.territoryId)}` : ""})`;
       if (!p.territoryId && unitIds === null) where = "t.deleted_at is null";
       if (actor.role === "sales")
         where += ` and exists(select 1 from route_salespeople sp where sp.route_id=t.id and sp.profile_id=${bind(actor.profileId)} and ${effective("sp")})`;

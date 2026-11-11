@@ -102,10 +102,18 @@ export async function outletCommand(c, action, b) {
   if (action === "create") {
     await requireCapability(c, "outlet.manage", uuid(b.custodianOrgUnitId));
     await activeUnit(c, b.custodianOrgUnitId, c.now, c.now + 1);
+    const storeCode = code(b.code);
+    // Refuse a reused code in words instead of letting the unique index fail as a 500.
+    const [taken] =
+      await c.db`select 1 from outlets where organization_id='sunpride' and code=${storeCode}`;
+    if (taken)
+      rule(
+        `Store code ${storeCode} is already used by another store. Use a different code or leave it blank.`,
+      );
     const row = await insert(c.db, "outlets", {
       ...profileFields(b),
       organization_id: "sunpride",
-      code: code(b.code),
+      code: storeCode,
       custodian_org_unit_id: b.custodianOrgUnitId,
       status: b.status ?? "active",
       created_by: actor.subject,

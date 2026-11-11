@@ -41,7 +41,7 @@ export function StoreGatheringTab({
           <p className="mb-3 text-[13px] text-muted">
             A new store / customer. Another person confirms its map pin.
           </p>
-          <AddStore />
+          <AddStore onCancel={() => setAdding(false)} />
         </section>
       ) : null}
       <StoreGatheringReview />
@@ -50,15 +50,33 @@ export function StoreGatheringTab({
   );
 }
 
-/** How many gathered stores wait for review; null when the user may not review or it is loading. */
+/** How many items wait on the New stores tab for this user: gathered stores to review and office
+ * pins to confirm (outlet.verify) plus new-store approvals (outlet.enrol.approve). null when the
+ * user may review none of them or a count is still loading. A "+" page is counted as its size. */
 export function useWaitingCount(): number | null {
   const { can } = usePermissions();
-  const allowed = can("outlet.verify");
+  const verify = can("outlet.verify");
+  const approve = can("outlet.enrol.approve");
   const queue = useApi<Queue>(
-    allowed ? ["masters", "census"] : null,
+    verify ? ["masters", "census"] : null,
     "/api/v1/masters/census-queue",
   );
-  return allowed && queue.data ? queue.data.rows.length : null;
+  const pins = useApi<{ page: unknown[] }>(
+    verify ? ["masters", "pins"] : null,
+    "/api/v1/outlets/pins/queue?limit=50",
+  );
+  const enrolments = useApi<{ page: unknown[] }>(
+    approve ? ["masters", "enrolments", "pending-count"] : null,
+    "/api/v1/outlets/enrolment/pending?limit=50",
+  );
+  if (!verify && !approve) return null;
+  if (verify && (!queue.data || !pins.data)) return null;
+  if (approve && !enrolments.data) return null;
+  return (
+    (queue.data?.rows.length ?? 0) +
+    (pins.data?.page.length ?? 0) +
+    (enrolments.data?.page.length ?? 0)
+  );
 }
 
 /** How many gathered stores wait for review, in words; null when the user may not review. */

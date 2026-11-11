@@ -329,6 +329,43 @@ describe("people, invitations and teams", () => {
       await h.db`select status from access_invitations where id=${result.body}`;
     expect(r.status).toBe("revoked");
   });
+  test("WEB-152: Add person refuses a duplicate waiting invitation and a person who already has access, in words", async () => {
+    const b = {
+      email: "dup-invite@example.com",
+      role: "sales",
+      name: "Dup invite",
+      orgUnitId: regionA.id,
+    };
+    const first = await call("people/invite", boss, b);
+    expect(first.status).toBe(200);
+    const again = await call("people/invite", boss, {
+      ...b,
+      email: "DUP-Invite@example.com",
+      role: "manager",
+    });
+    expect(again.status).toBe(422);
+    expect(JSON.stringify(again.body)).toContain("already invited");
+    const rows =
+      await h.db`select role,status from access_invitations where lower(email)='dup-invite@example.com'`;
+    expect(rows).toEqual([{ role: "sales", status: "pending" }]);
+    const [active] =
+      await h.db`select email,role from profiles where id=${sales.profileId}`;
+    const taken = await call("people/invite", boss, {
+      email: active.email,
+      role: "manager",
+      orgUnitId: regionA.id,
+    });
+    expect(taken.status).toBe(422);
+    expect(JSON.stringify(taken.body)).toContain("already has access");
+    const [still] =
+      await h.db`select role from profiles where id=${sales.profileId}`;
+    expect(still.role).toBe(active.role);
+    // A revoked invitation may be sent again.
+    expect(
+      (await call("people/revoke", boss, { invitationId: first.body })).status,
+    ).toBe(200);
+    expect((await call("people/invite", boss, b)).status).toBe(200);
+  });
   test("team membership is effective dated, nonoverlapping and hierarchy limited", async () => {
     const from = Date.now() + 2000;
     const team = await call("org/teams/create", boss, {
@@ -427,6 +464,52 @@ describe("territories, routes and outlet assignments", () => {
         })
       ).status,
     ).toBe(200);
+  });
+  test("WEB-154: a just-added, future-dated territory and route show in the setup lists with their start date", async () => {
+    const from = Date.now() + 86_400_000;
+    const t = await call("territories/create", admin, {
+      code: "WEB154_T",
+      name: "Tomorrow territory",
+      orgUnitId: regionA.id,
+      effectiveFrom: from,
+      reason: "Starts tomorrow",
+    });
+    expect(t.status).toBe(200);
+    const list = await call("territories/list?q=Tomorrow", admin);
+    expect(list.status).toBe(200);
+    expect(list.body.page.map((/** @type {any} */ r) => r.code)).toContain(
+      "WEB154_T",
+    );
+    // The listed row opens: detail and salespeople read through its upcoming owner.
+    expect(
+      (await call(`territories/detail?territoryId=${t.body}`, admin)).status,
+    ).toBe(200);
+    expect(
+      (
+        await call(
+          `territories/salespeople-at?territoryId=${t.body}&asOf=${Date.now()}`,
+          admin,
+        )
+      ).status,
+    ).toBe(200);
+    const r = await call("territories/routes/create", admin, {
+      code: "WEB154_R",
+      name: "Tomorrow route",
+      territoryId: t.body,
+      effectiveFrom: from + 1000,
+      weekdayTemplate: [1],
+      cycleDays: 7,
+      reason: "Starts tomorrow",
+    });
+    expect(r.status).toBe(200);
+    const routes = await call(
+      `territories/routes/list?territoryId=${t.body}`,
+      admin,
+    );
+    expect(routes.status).toBe(200);
+    expect(routes.body.page.map((/** @type {any} */ x) => x.code)).toContain(
+      "WEB154_R",
+    );
   });
   test("outlet batch assignment rejects sequence collisions and foreign scope atomically", async () => {
     const from = Date.now() + 60000;

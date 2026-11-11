@@ -26,6 +26,27 @@ export function compactCode(v) {
 }
 
 /**
+ * Search relevance: 0 = the query is exactly this store's (or customer's) code, 1 = the name or
+ * code starts with it, 2 = any other match. "SMP-O0001" also matches SMP-O0153 (compact codes
+ * match by substring), so the exact store must sort first or Edit/open lands on the wrong row.
+ * @param {{code?: string|null, customerCode?: string|null, name?: string|null}} row
+ * @param {string} query
+ */
+export function storeRank(row, query) {
+  const q = plain(query);
+  if (!q) return 2;
+  const whole = compactCode(q);
+  const codes = [row.code, row.customerCode].filter(Boolean);
+  if (codes.some((c) => plain(c) === q || compactCode(c) === whole)) return 0;
+  if (
+    plain(row.name).startsWith(q) ||
+    codes.some((c) => compactCode(c).startsWith(whole))
+  )
+    return 1;
+  return 2;
+}
+
+/**
  * @param {{code?: string|null, customerCode?: string|null, name?: string|null, territory?: string|null,
  *   channel?: string|null, address?: string|null, owner?: string|null}} row
  * @param {string} query

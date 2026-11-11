@@ -261,7 +261,12 @@ export function StoresPage() {
         onClose={() => setAdding(null)}
       >
         {adding !== null ? (
-          <AddStore key={adding} initialName={adding} bare />
+          <AddStore
+            key={adding}
+            initialName={adding}
+            bare
+            onCancel={() => setAdding(null)}
+          />
         ) : null}
       </Drawer>
       <Drawer

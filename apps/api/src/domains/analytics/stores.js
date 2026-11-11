@@ -22,7 +22,7 @@ import {
 } from "./data.js";
 import { suggestLine, historyDays } from "./suggested-order.js";
 import { ApiError } from "../../core/errors.js";
-import { storeMatches } from "./store-search.js";
+import { storeMatches, storeRank } from "./store-search.js";
 import { releasesAt } from "../availability/masters.js";
 import { callSnapshot } from "../availability/calls.js";
 import { bounded } from "../fieldsync/model.js";
@@ -156,8 +156,11 @@ export async function storesPage(ctx, p, s) {
         (!search || storeMatches(r, search)) &&
         (!cursor || r.storeId > cursor),
     )
-    .sort((/** @type {any} */ a, /** @type {any} */ b) =>
-      a.storeId.localeCompare(b.storeId),
+    .sort(
+      (/** @type {any} */ a, /** @type {any} */ b) =>
+        // Page-numbered search lists put the exact code first; keyset (cursor) reads keep id order.
+        (search && !cursor ? storeRank(a, search) - storeRank(b, search) : 0) ||
+        a.storeId.localeCompare(b.storeId),
     );
   return {
     kpis: [
