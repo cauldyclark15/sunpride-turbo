@@ -30,6 +30,8 @@ data class SyncStatus(
     val heldReasons: List<String> = emptyList(),
 ) {
     val pending get() = queued + sending + review + held > 0
+    /** FLD-147: the Sync screen counts the same photos the pill does, so they never disagree. */
+    val nothingWaiting get() = queued == 0 && sending == 0 && photosWaiting == 0
     fun leaseExpired(now: Long) = leaseExpiresAt == null || now >= leaseExpiresAt
     fun cacheStale(now: Long) = cacheExpiresAt == null || now >= cacheExpiresAt
     fun label(now: Long): String = when {

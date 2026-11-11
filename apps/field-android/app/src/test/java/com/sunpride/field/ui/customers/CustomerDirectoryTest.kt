@@ -161,4 +161,13 @@ class CustomerDirectoryTest {
         assertEquals(listOf("Account", "Owner", "Contact", "Account in charge", "Distributor", "Delivery schedule"), full.map { it.first })
         assertNull(none)
     }
+
+    /** FLD-207: an open UNPLANNED call has no today row, but the Stores row still says "In progress". */
+    @Test fun openUnplannedCallMarksTheStoreInProgress() {
+        val records = directory().associateBy { it.outletId }
+        assertTrue(records.getValue("o3").callOpen)
+        assertEquals("In progress", records.getValue("o3").visitStatus)
+        assertEquals(false, records.getValue("o2").callOpen)
+        assertNull(records.getValue("o2").visitStatus)
+    }
 }

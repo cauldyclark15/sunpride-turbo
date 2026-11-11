@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -187,6 +188,9 @@ fun FieldApp(
     val minuteNow by remember { androidx.compose.runtime.derivedStateOf { now / 60_000 * 60_000 } }
     val ready = controller.state is EnrollmentState.Ready
     val status = controller.today.syncStatus.copy(offline = offline)
+    // FLD-147: the upload worker runs outside the UI; when it finishes, refresh the pill and the Photos card.
+    val photoRuns by com.sunpride.field.evidence.EvidenceWork.runs.collectAsState()
+    LaunchedEffect(photoRuns) { if (photoRuns > 0 && ready) controller.photosChanged() }
     // F-616 prefetch after a verified snapshot/sync, never on every one-second UI pulse.
     LaunchedEffect(backend,ready,controller.today.lastSynced) {
         if(ready && controller.today.lastSynced!=null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -298,7 +302,9 @@ fun FieldApp(
                 val spec = headerSpec(ready, locked, signedIn = controller.state != EnrollmentState.SignedOut, page = page,
                     visitOpen = visitOpen, controller = controller, routeCode = controller.today.routeCode,
                     editingStore = censusEdit != null).let {
-                    if (STORE_EDIT_ENABLED && ready && !visitOpen && visits && page == "customer" && customer != null)
+                    // FLD-207: no header Edit while ANY call is open, not only while the visit screen shows.
+                    val callOpen = controller.today.customers.any { c -> c.callOpen || c.today?.status == "In progress" }
+                    if (STORE_EDIT_ENABLED && ready && !visitOpen && !callOpen && visits && page == "customer" && customer != null)
                         it.copy(action = HeaderAction("Edit", editStore, "customer-header-edit")) else it
                 }
                 FieldHeader(spec.title, subtitle = spec.subtitle, titleTag = spec.titleTag,

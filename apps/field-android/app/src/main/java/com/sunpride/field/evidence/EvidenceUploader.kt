@@ -36,6 +36,19 @@ class EvidenceUploadFailure : Exception("Upload refused", null)
 class ServerEvidenceApi(private val functions: ServerFunctions,
     private val http: OkHttpClient = defaultHttpClient()) : EvidenceApi {
     private val claims = ConcurrentHashMap<String, JSONObject>()
+    companion object {
+        private val UPLOAD_ID = Regex("^[A-Za-z0-9_-]{1,80}$")
+        /** The upload URL on the phone's own API origin; the claim may only choose the upload ID. */
+        fun trustedUploadUrl(apiOrigin: String, serverUrl: String, uploadId: String): String {
+            require(UPLOAD_ID.matches(uploadId))
+            val server = java.net.URI(serverUrl)
+            require(server.path == "/api/media/uploads/$uploadId")
+            require(server.userInfo == null && server.query == null && server.fragment == null)
+            val origin = java.net.URI(apiOrigin)
+            require(origin.scheme == "https" || (origin.scheme == "http" && origin.host in setOf("localhost", "127.0.0.1", "10.0.2.2")))
+            return "${apiOrigin.trimEnd('/')}/api/media/uploads/$uploadId"
+        }
+    }
     override fun uploadUrl(visitId: String): Pair<String, String> = error("Photo metadata required")
     override fun uploadUrl(visitId: String, row: EvidencePhotoRow): Pair<String, String> {
         val me = functions.api.me(); val device = me.getJSONObject("device").getString("id")
@@ -43,13 +56,10 @@ class ServerEvidenceApi(private val functions: ServerFunctions,
             .put("deviceId", device).put("purpose", com.sunpride.field.storage.WorkforceForms.purpose(row.photoType)).put("ownerId", visitId)
             .put("mime", row.mime).put("size", row.sizeBytes).put("sha256", row.sha256),
             requireNotNull(functions.signer).invoke(), device)
-        val url = value.getString("uploadUrl")
-        val uri = java.net.URI(url)
-        // Upload credentials must never follow a server-provided cross-origin URL.
-        require(uri.path == "/api/media/uploads/${value.getString("uploadId")}")
-        require(uri.scheme == "https" || (uri.scheme == "http" && uri.host in setOf("localhost", "127.0.0.1")))
-        require(uri.userInfo == null && uri.query == null && uri.fragment == null)
-        require(functions.uploadOrigin(url))
+        // FLD-147: credentials only ever go to the phone's own configured API origin. The server's
+        // public origin can differ (a web proxy port, a forwarded host); refusing it left the photo
+        // retrying silently forever, so only the upload path is taken from the claim.
+        val url = trustedUploadUrl(functions.apiOrigin, value.getString("uploadUrl"), value.getString("uploadId"))
         claims[url] = value
         return url to value.getString("uploadId")
     }
@@ -173,6 +183,11 @@ class EvidenceUploader(private val store: FieldStore, private val scope: StoreSc
                         report = report.copy(review = report.review + 1)
                     } else report = retry(photo, report)
                 } catch (_: EvidenceUploadFailure) { report = retry(photo, report) }
+                catch (_: Exception) {
+                    // FLD-147: any other failure (a refused claim URL, a malformed reply) is a counted
+                    // try that ends in office review, never an uncounted retry that waits forever.
+                    report = retry(photo, report)
+                }
             }
             return report.copy(waiting = store.pendingPhotos().size)
         } finally { flight.unlock() }

@@ -33,6 +33,12 @@ object VisitCallRules {
         } }.map { it.first.clientVisitId }.toSet()
         return rows.filter { it.first.clientVisitId in ids }
     }
+    /** FLD-207: outlets with a started call that has not ended (planned or unplanned, any day). */
+    fun openOutlets(rows: List<Pair<IntentRow, String>>): Set<String> = rows
+        .filter { (intent, state) -> intent.kind == "visit.checkIn" && usable(state) }
+        .filter { start -> !closed(rows.filter { it.first.clientVisitId == start.first.clientVisitId }) }
+        .mapNotNull { runCatching { payload(it.first).optString("outletId") }.getOrNull()?.takeIf { id -> id.isNotBlank() } }
+        .toSet()
     fun started(rows: List<Pair<IntentRow, String>>) = rows.any { it.first.kind == "visit.checkIn" && usable(it.second) }
     fun closed(rows: List<Pair<IntentRow, String>>) = rows.any {
         it.first.kind == "visit.checkOut" && usable(it.second) && started(rows.filter { row ->
