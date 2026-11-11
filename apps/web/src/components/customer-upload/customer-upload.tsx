@@ -727,7 +727,9 @@ export function CustomerUpload({ compact = false }: { compact?: boolean }) {
             </p>
             {offline && (
               <p role="alert">
-                Connection lost — retrying. The import continues on the server.
+                Can’t reach the server — retrying. Rows already saved are kept;
+                if the server stopped, this upload will show as interrupted and
+                can be resumed.
               </p>
             )}
           </div>
