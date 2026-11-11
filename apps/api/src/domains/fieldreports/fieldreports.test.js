@@ -361,6 +361,11 @@ test("per-diem counterexample: completed planned merchandise call with note only
       await h.db`select valid_calls from per_diem_validations where id=${decision}`
     )[0].valid_calls,
   ).toBe(1);
+  // WEB-120: the claims list (no person picked) carries the decision, so it sticks after a reload.
+  const list = ok(await get("supervision.per_diem.validation", { from: d, to: d }));
+  const row = list.people.find((/** @type {any} */ x) => x.profileId === rep.id);
+  expect(row.latest).toMatchObject({ decision: "validated" });
+  expect(typeof row.latest.decidedAt).toBe("number");
 });
 test("DSR MTD uses the exact analytics sales source: order lines, not header totals; rejected/draft/voided excluded; returned signed lines count", async () => {
   await h.db`insert into customers(code,name,channel,territory,credit_limit,active) values ('C1','Store account','GT','Area A',0,true)`;
