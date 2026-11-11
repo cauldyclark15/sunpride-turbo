@@ -27,16 +27,16 @@ async function requireStockBand(db, orgUnitId, role) {
     `No stock approval limit is set for ${unit?.name ?? "this branch"}. An administrator adds one in Admin → Fiscal & authority → Price and discount authority (Override: Stock).`,
   );
 }
-/** F-124: the existing independent stock approval is also the one fiscal matrix decision.
- * Values/roles/locations are re-derived, never accepted from an authority form.
- * @param {any} c @param {any} document @param {any[]} rows @param {string} [creatorCapability] @param {{tillCount?:boolean}} [options] */
 /** Capability that posts a counted difference: the till path uses the approver's own band.
- * @param {string} counterRole */
+ * @param {string} counterRole @param {string} [creatorCapability] */
 export function postingCapability(counterRole, creatorCapability = "inventory.count.submit") {
   return roleHas(counterRole, creatorCapability)
     ? "inventory.approve"
     : "inventory.adjustment.approve";
 }
+/** F-124: the existing independent stock approval is also the one fiscal matrix decision.
+ * Values/roles/locations are re-derived, never accepted from an authority form.
+ * @param {any} c @param {any} document @param {any[]} rows @param {string} [creatorCapability] @param {{tillCount?:boolean}} [options] */
 export async function enforceInventoryAuthority(
   c,
   document,
