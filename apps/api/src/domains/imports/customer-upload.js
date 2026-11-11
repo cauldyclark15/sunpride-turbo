@@ -216,7 +216,7 @@ async function resolveRows(db, rows, lookups) {
       else if (existing.status === "inactive")
         fail(
           "customer_inactive",
-          `Customer ${item.code} is inactive. Reactivate it on the Customers page before updating it by upload.`,
+          `Customer ${item.code} is inactive; an inactive customer cannot be updated by upload.`,
         );
     }
     if (!bad.has(row.rowNumber))
@@ -369,7 +369,7 @@ async function writeRow(c, entry, row, lookups, run) {
       throw new ApiError(
         "customer_inactive",
         422,
-        `Customer ${item.code} is inactive. Reactivate it on the Customers page before updating it by upload.`,
+        `Customer ${item.code} is inactive; an inactive customer cannot be updated by upload.`,
       );
     // The writer's own scope rule (as PUT /api/v1/customers/:id), re-checked in the chunk.
     await access(c, "outlets", current.id, "outlet.manage");
