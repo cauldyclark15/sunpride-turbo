@@ -254,6 +254,20 @@ describe("standalone coverage planner", () => {
     expect(denied).not.toContain("Save outlet cadence");
     expect(denied).not.toContain("Submit for approval");
   });
+  it("keeps a save confirmation owned by the parent across the revision remount (WEB-114)", () => {
+    // Saving the assignment bumps contentRevision, which remounts PlanEditor and would
+    // drop editor-local state; the parent-owned message must still render.
+    const html = render(
+      createElement(PlanEditor, {
+        key: "plan-1:2:draft",
+        detail: detail(),
+        canPlan: true,
+        message: { planId: plan._id, notice: "Assignment period saved." },
+        onMessage: vi.fn(),
+      }),
+    );
+    expect(html).toContain("Assignment period saved.");
+  });
   it("renders mutation error inline", () => {
     state.editorError = "Server denied outlet scope";
     expect(

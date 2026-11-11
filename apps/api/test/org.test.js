@@ -296,21 +296,42 @@ describe("people, invitations and teams", () => {
       role: "sales",
       reason: "Phone number",
     };
-    expect((await call("people/assign", admin, { ...b, phone: "0917 123 4567" })).status).toBe(200);
-    const [p] = await h.db`select phone from profiles where id=${sales.profileId}`;
+    expect(
+      (await call("people/assign", admin, { ...b, phone: "0917 123 4567" }))
+        .status,
+    ).toBe(200);
+    const [p] =
+      await h.db`select phone from profiles where id=${sales.profileId}`;
     expect(p.phone).toBe("0917 123 4567");
-    const detail = await call(`people/detail?profileId=${sales.profileId}`, admin);
+    const detail = await call(
+      `people/detail?profileId=${sales.profileId}`,
+      admin,
+    );
     expect(detail.status).toBe(200);
     expect(JSON.stringify(detail.body)).toContain("0917 123 4567");
-    const bad = await call("people/assign", admin, { ...b, phone: "call me maybe" });
+    const bad = await call("people/assign", admin, {
+      ...b,
+      phone: "call me maybe",
+    });
     expect(bad.status).toBe(422);
     expect(JSON.stringify(bad.body)).toContain("digits only");
-    expect((await call("people/assign", manager, { ...b, phone: "0999 111 2222" })).status).toBe(403);
+    expect(
+      (await call("people/assign", manager, { ...b, phone: "0999 111 2222" }))
+        .status,
+    ).toBe(403);
     // an assignment that does not mention the phone leaves it alone; blank clears it
     expect((await call("people/assign", admin, b)).status).toBe(200);
-    expect((await h.db`select phone from profiles where id=${sales.profileId}`)[0].phone).toBe("0917 123 4567");
-    expect((await call("people/assign", admin, { ...b, phone: "" })).status).toBe(200);
-    expect((await h.db`select phone from profiles where id=${sales.profileId}`)[0].phone).toBeNull();
+    expect(
+      (await h.db`select phone from profiles where id=${sales.profileId}`)[0]
+        .phone,
+    ).toBe("0917 123 4567");
+    expect(
+      (await call("people/assign", admin, { ...b, phone: "" })).status,
+    ).toBe(200);
+    expect(
+      (await h.db`select phone from profiles where id=${sales.profileId}`)[0]
+        .phone,
+    ).toBeNull();
   });
   test("national invitation command accepts unit, but scoped admin cannot invite", async () => {
     const b = {
@@ -635,6 +656,9 @@ describe("pin verification, catalog and standards", () => {
     );
     expect(kas.standard.dailyCallsTarget).toBe(5);
     expect(kas.standard.notes).toContain("TO CONFIRM");
+    // int[] read through db.unsafe arrives as a typed array; JSON must still carry a list
+    // (otherwise the Coverage → Standards tab crashes, WEB-113).
+    expect(kas.standard.sellingWeekdays).toEqual([1, 2, 3, 4, 5, 6]);
     expect((await call("catalog/foundation", sales, {})).status).toBe(403);
     await writeAudit(h.db, {
       subject: "system:test",

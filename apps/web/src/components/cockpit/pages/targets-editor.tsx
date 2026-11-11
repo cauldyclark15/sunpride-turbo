@@ -324,6 +324,15 @@ function ImportPanel({ month, canEdit }: { month: string; canEdit: boolean }) {
   );
 }
 
+/** Whether the grid's cells are editable: the caller can set targets and the server says this
+ * level is writable for their scope (a regional manager cannot set company/channel targets). */
+export function levelEditable(
+  canEdit: boolean,
+  data: Pick<TargetsResponse, "editable"> | undefined,
+) {
+  return canEdit && data?.editable !== false;
+}
+
 /** Month × level target grid with inline edit and CSV import (ANALYTICS_V2 §1 targets). */
 export function TargetsEditor({ canEdit }: { canEdit: boolean }) {
   const { params, set } = usePageQuery();
@@ -342,14 +351,17 @@ export function TargetsEditor({ canEdit }: { canEdit: boolean }) {
   const next = useTargets(months[2]!, level);
   const results = [prev, current, next];
   const keys = current.data?.rows ?? prev.data?.rows ?? [];
+  const editable = levelEditable(canEdit, current.data);
   return (
     <div className="grid gap-4">
       <Panel
         title="Sales targets"
         question={
-          canEdit
+          editable
             ? "Click an amount to change it. Every change is dated and kept in the history."
-            : "Targets are set by managers and administrators."
+            : canEdit
+              ? "Company and channel targets are set by a company-wide manager. Choose Territory or Agent to set your team's targets."
+              : "Targets are set by managers and administrators."
         }
         flush
         actions={
@@ -453,7 +465,7 @@ export function TargetsEditor({ canEdit }: { canEdit: boolean }) {
                             row={results[i]!.data!.rows.find(
                               (r) => r.key === row.key,
                             )}
-                            canEdit={canEdit}
+                            canEdit={editable}
                             highlight={m === month && highlight === row.key}
                           />
                         ) : (

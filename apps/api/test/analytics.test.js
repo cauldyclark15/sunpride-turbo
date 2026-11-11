@@ -502,9 +502,24 @@ test("scope: supervisor cannot see another team or widen unit filter; source-loc
     const [last] =
       await h.db`select count(*) as n from sales_targets where level='company'`;
     expect(Number(last.n)).toBe(0);
+    // WEB-035: the read tells the editor which levels this regional scope may write.
+    const m = f.today.slice(0, 7);
+    expect(
+      (await get(`/api/v1/targets?month=${m}&level=company`)).editable,
+    ).toBe(false);
+    expect(
+      (await get(`/api/v1/targets?month=${m}&level=channel`)).editable,
+    ).toBe(false);
+    expect((await get(`/api/v1/targets?month=${m}&level=agent`)).editable).toBe(
+      true,
+    );
   } finally {
     await h.db`update profiles set role='super_admin',org_unit_id=${f.root} where id=${f.boss}`;
   }
+  expect(
+    (await get(`/api/v1/targets?month=${f.today.slice(0, 7)}&level=company`))
+      .editable,
+  ).toBe(true);
 });
 test("rollup retry exactness, planned-only days, cancellation and coalescing/nightly jobs", async () => {
   await rebuildDay(h.db, f.today);

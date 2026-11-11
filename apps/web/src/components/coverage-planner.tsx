@@ -173,6 +173,11 @@ export function CoveragePlanner({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  // The editor remounts when a save bumps contentRevision; keep its last result here so
+  // confirmations such as "Assignment period saved." survive that remount.
+  const [editorMessage, setEditorMessage] = useState<PlanEditorMessage | null>(
+    null,
+  );
   const self = profile?._id;
   const people = useCoverageQuery(
     api.people.queries.list,
@@ -405,6 +410,12 @@ export function CoveragePlanner({
                     key={`${detail.plan._id}:${detail.plan.contentRevision}:${detail.plan.status}`}
                     detail={detail}
                     canPlan={canPlan}
+                    message={
+                      editorMessage?.planId === detail.plan._id
+                        ? editorMessage
+                        : undefined
+                    }
+                    onMessage={setEditorMessage}
                   />
                 </>
               )}
@@ -421,12 +432,23 @@ export function CoveragePlanner({
   );
 }
 
+export type PlanEditorMessage = {
+  planId: Id<"coveragePlans">;
+  error?: string;
+  notice?: string;
+};
+
 export function PlanEditor({
   detail,
   canPlan,
+  message,
+  onMessage,
 }: {
   detail: Detail;
   canPlan: boolean;
+  /** Result owned by the parent so it survives the editor's revision remount. */
+  message?: PlanEditorMessage;
+  onMessage?: (message: PlanEditorMessage | null) => void;
 }) {
   const { plan } = detail;
   const editable = plan.status === "draft" && canPlan;
@@ -543,16 +565,25 @@ export function PlanEditor({
     setOutlets((old) =>
       old.map((o) => (o.outletId === id ? { ...o, ...change } : o)),
     );
+  const report = (result: { error?: string; notice?: string }) => {
+    if (onMessage)
+      onMessage(
+        result.error || result.notice ? { planId: plan._id, ...result } : null,
+      );
+    setError(result.error ?? "");
+    setNotice(result.notice ?? "");
+  };
+  const shownError = onMessage ? (message?.error ?? "") : error;
+  const shownNotice = onMessage ? (message?.notice ?? "") : notice;
   async function run(label: string, mutate: () => Promise<unknown>) {
     if (!editable || busy) return;
     setBusy(true);
-    setError("");
-    setNotice("");
+    report({});
     try {
       await mutate();
-      setNotice(label);
+      report({ notice: label });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      report({ error: cause instanceof Error ? cause.message : String(cause) });
     } finally {
       setBusy(false);
     }
@@ -940,12 +971,12 @@ export function PlanEditor({
                 if (/work[ -]?with/i.test(activityKind) && !truck.trim())
                   throw new Error("Work-With requires a named truck");
               } catch (cause) {
-                setError(
-                  cause instanceof Error ? cause.message : String(cause),
-                );
+                report({
+                  error: cause instanceof Error ? cause.message : String(cause),
+                });
                 return;
               }
-              setError("");
+              report({});
               const key = `activity:${activityDate}:${crypto.randomUUID()}`;
               setSlots((old) => [
                 ...old,
@@ -1070,12 +1101,12 @@ export function PlanEditor({
           </button>
         </div>
       )}
-      {error && (
+      {shownError && (
         <p role="alert" className="text-danger">
-          {error}
+          {shownError}
         </p>
       )}
-      {notice && <p role="status">{notice}</p>}
+      {shownNotice && <p role="status">{shownNotice}</p>}
     </section>
   );
 }

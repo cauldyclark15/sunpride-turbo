@@ -142,6 +142,9 @@ export async function listTargets(ctx) {
   return {
     month,
     level,
+    // Tells the editor whether this level is writable for the caller's scope, so a
+    // regional manager is not offered company/channel cells the server would refuse.
+    editable: await levelWritable(ctx.db, s, level),
     rows,
     total: rows.some((/** @type {any} */ r) => r.amountCentavos != null)
       ? rows.reduce(
@@ -170,14 +173,18 @@ async function validateRow(db, s, row) {
     )
   )
     return "The target is outside your team";
-  if (["company", "channel"].includes(row.level) && !s.cross) {
-    // A root-scoped administrator may manage the full company/channel, a regional one may not.
-    const outside =
-      await db`select count(*) as n from org_units where deleted_at is null and status='active' and id not in ${db(s.ids.length ? s.ids : [null])}`;
-    if (Number(outside[0].n) > 0)
-      return "Only a company-wide manager can set this target";
-  }
+  if (!(await levelWritable(db, s, row.level)))
+    return "Only a company-wide manager can set this target";
   return null;
+}
+/** Whether this scope may write targets at a level (the caller's capability is checked separately).
+ * A root-scoped administrator may manage the full company/channel, a regional one may not.
+ * @param {any} db @param {any} s @param {string} level */
+export async function levelWritable(db, s, level) {
+  if (!["company", "channel"].includes(level) || s.cross) return true;
+  const outside =
+    await db`select count(*) as n from org_units where deleted_at is null and status='active' and id not in ${db(s.ids.length ? s.ids : [null])}`;
+  return Number(outside[0].n) === 0;
 }
 /** @param {any} ctx @param {any} t @param {string} month @param {any} row */
 export async function writeTarget(ctx, t, month, row) {
