@@ -1,10 +1,11 @@
 import type { ReactNode } from "react";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { AuthGate } from "@/components/auth-gate";
 import { FixtureSession } from "@/components/cockpit/fixture-session";
 import { OperationsShell } from "@/components/operations-shell";
 import { isAuthenticated } from "@/lib/auth-server";
+import { REQUEST_PATH_HEADER, signInHref } from "@/lib/auth/routing";
 
 export default async function DashboardLayout({
   children,
@@ -26,7 +27,9 @@ export default async function DashboardLayout({
       );
   }
 
-  if (!(await isAuthenticated())) redirect("/login");
+  // WEB-007: come back to the page that was opened (the proxy passes its address).
+  if (!(await isAuthenticated()))
+    redirect(signInHref((await headers()).get(REQUEST_PATH_HEADER)));
 
   return (
     <AuthGate>

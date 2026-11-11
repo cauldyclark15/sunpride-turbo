@@ -11,6 +11,7 @@ import {
   type FormEvent,
 } from "react";
 import { apiFetch, mutate, useApi, useLive } from "../../lib/api";
+import { formatDate, formatDateRange } from "../cockpit/format";
 import { usePermissions } from "../../lib/auth";
 import { manilaToday } from "../../lib/outside-calls";
 import {
@@ -222,7 +223,8 @@ export function OrdersWorkspace({
               >
                 <div>
                   <p>
-                    {r.storeName} · {r.salespersonName} · {r.serviceDate}
+                    {r.storeName} · {r.salespersonName} ·{" "}
+                    {formatDate(r.serviceDate)}
                   </p>
                   <p className="text-xs text-muted">{r.reason}</p>
                 </div>
@@ -322,7 +324,8 @@ export function OrdersWorkspace({
           {data && (
             <div className="rounded-xl border border-border p-4">
               <h3 className="text-sm font-medium">
-                Booked trend · {data.period.from} to {data.period.to}
+                Booked trend ·{" "}
+                {formatDateRange(data.period.from, data.period.to)}
               </h3>
               {data.trend.length ? (
                 <ol
@@ -337,7 +340,7 @@ export function OrdersWorkspace({
                           height: `${d.totalCentavos == null ? 2 : Math.max(2, (d.totalCentavos / Math.max(1, ...data.trend.map((x) => x.totalCentavos ?? 0))) * 70)}px`,
                         }}
                       />
-                      <p>{d.date.slice(5)}</p>
+                      <p>{formatDate(d.date)}</p>
                       <p>{money(d.totalCentavos)}</p>
                     </li>
                   ))}
@@ -457,7 +460,9 @@ export function OrdersWorkspace({
                       >
                         {r.orderNumber}
                       </button>
-                      <p className="text-xs text-muted">{r.serviceDate}</p>
+                      <p className="text-xs text-muted">
+                        {formatDate(r.serviceDate)}
+                      </p>
                     </td>
                     <td className="p-3">
                       {r.customerName}
@@ -624,7 +629,7 @@ export function OrderDrawer({
                 {d.customerName} · {d.salespersonName}
               </p>
               <p className="text-sm text-muted">
-                {d.serviceDate} · {stage(d.status)} · {d.source}
+                {formatDate(d.serviceDate)} · {stage(d.status)} · {d.source}
               </p>
               <p className="mt-3 text-2xl font-semibold">
                 {money(d.totalCentavos)}

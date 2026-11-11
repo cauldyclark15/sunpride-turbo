@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { Card, Notice } from "@sunpride/ui";
 import { apiFetch, useApi } from "../../lib/api";
+import { SearchBox } from "../list-page/list-page";
 import { coverageLine } from "./model";
 
 export type LocationRow = {
@@ -29,11 +30,14 @@ export function LocationCoverageView({
   data,
   missingOnly,
   onMissingOnly,
+  term = "",
   storeHref = (id) => `/stores/store?storeId=${encodeURIComponent(id)}`,
 }: {
   data: Locations;
   missingOnly: boolean;
   onMissingOnly: (v: boolean) => void;
+  /** The search text, so an empty result names it (L7). */
+  term?: string;
   storeHref?: (id: string) => string;
 }) {
   const pct = data.total ? (100 * data.located) / data.total : 0;
@@ -100,9 +104,11 @@ export function LocationCoverageView({
         </ul>
       ) : (
         <p className="text-sm text-muted">
-          {missingOnly
-            ? "Every store has a verified location."
-            : "No stores yet."}
+          {term
+            ? `No store named “${term}”.`
+            : missingOnly
+              ? "Every store has a verified location."
+              : "No stores yet."}
         </p>
       )}
       {data.truncated ? (
@@ -116,7 +122,6 @@ export function LocationCoverageView({
 
 export function LocationCoverage() {
   const [missingOnly, setMissingOnly] = useState(false);
-  const [q, setQ] = useState("");
   const [term, setTerm] = useState("");
   const result = useApi<Locations>(
     ["masters", "store-locations", missingOnly, term],
@@ -128,23 +133,10 @@ export function LocationCoverage() {
   );
   return (
     <Card label="Store locations">
-      <form
-        role="search"
-        className="mb-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          setTerm(q.trim());
-        }}
-      >
-        <input
-          type="search"
-          aria-label="Find a store"
-          placeholder="Find a store"
-          value={q}
-          onChange={(e) => setQ(e.target.value)}
-          className="w-56 rounded-lg border border-border bg-surface px-3 py-1.5 text-sm"
-        />
-      </form>
+      {/* WEB-160: filters as you type (L2), like every other list. */}
+      <div className="mb-3">
+        <SearchBox q={term} placeholder="Find a store" onSearch={setTerm} />
+      </div>
       {result.error ? (
         <Notice title={result.error.message} tone="danger" />
       ) : null}
@@ -153,6 +145,7 @@ export function LocationCoverage() {
           data={result.data}
           missingOnly={missingOnly}
           onMissingOnly={setMissingOnly}
+          term={term}
         />
       ) : (
         <p className="text-sm text-muted">Loading…</p>
