@@ -28,12 +28,16 @@ export async function loadPhGeography(db, opts = {}) {
     const [done] =
       await t`select 1 from ph_geography_releases where release=${release}`;
     const [{ n }] = await t`select count(*)::int as n from ph_barangays`;
+    // Earlier loads sent missing values as the text "null" (driver array of nulls); repair them.
+    await t`update ph_postal_codes set area=null where area='null'`;
+    await t`update ph_municipalities set city_class=null where city_class='null'`;
     if (done && n === barangays.length)
       return { release, loaded: false, ...g.counts };
     /** @param {any[]} rows @param {number} i */
+    // Missing values travel as "" and become NULL in SQL (a null array element arrives as "null").
     const col = (rows, i) =>
       t.array(
-        rows.map((r) => r[i]),
+        rows.map((r) => r[i] ?? ""),
         "TEXT",
       );
     const regions = g.regions.map((/** @type {any} */ r) => [r.code, r.name]);
@@ -55,7 +59,7 @@ export async function loadPhGeography(db, opts = {}) {
       r.kind,
       r.cityClass ?? null,
     ]);
-    await t`insert into ph_municipalities(code,province_code,region_code,name,kind,city_class) select * from unnest(${col(municipalities, 0)}::text[],${col(municipalities, 1)}::text[],${col(municipalities, 2)}::text[],${col(municipalities, 3)}::text[],${col(municipalities, 4)}::text[],${col(municipalities, 5)}::text[])
+    await t`insert into ph_municipalities(code,province_code,region_code,name,kind,city_class) select code,province_code,region_code,name,kind,nullif(city_class,'') from unnest(${col(municipalities, 0)}::text[],${col(municipalities, 1)}::text[],${col(municipalities, 2)}::text[],${col(municipalities, 3)}::text[],${col(municipalities, 4)}::text[],${col(municipalities, 5)}::text[]) as m(code,province_code,region_code,name,kind,city_class)
       on conflict(code) do update set province_code=excluded.province_code,region_code=excluded.region_code,name=excluded.name,kind=excluded.kind,city_class=excluded.city_class`;
     for (let i = 0; i < barangays.length; i += 10000) {
       const part = barangays.slice(i, i + 10000);
@@ -63,7 +67,7 @@ export async function loadPhGeography(db, opts = {}) {
         on conflict(code) do update set municipality_code=excluded.municipality_code,name=excluded.name`;
     }
     const postal = g.postalCodes;
-    await t`insert into ph_postal_codes(municipality_code,postal_code,area,source) select * from unnest(${col(postal, 0)}::text[],${col(postal, 1)}::text[],${col(postal, 2)}::text[],${col(postal, 3)}::text[])
+    await t`insert into ph_postal_codes(municipality_code,postal_code,area,source) select m,c,nullif(a,''),s from unnest(${col(postal, 0)}::text[],${col(postal, 1)}::text[],${col(postal, 2)}::text[],${col(postal, 3)}::text[]) as x(m,c,a,s)
       on conflict(municipality_code,postal_code) do update set area=excluded.area,source=excluded.source`;
     await t`insert into ph_geography_releases(release,source,counts,loaded_by) values(${release},${g.source},${g.counts},${actor})
       on conflict(release) do update set counts=excluded.counts,loaded_by=excluded.loaded_by`;

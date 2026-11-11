@@ -222,6 +222,13 @@ describe("SP-0170 geography", () => {
     const [{ n }] = await h.db`select count(*)::int n from ph_barangays`;
     expect(n).toBe(42010);
     expect((await loadPhGeography(h.db)).loaded).toBe(false);
+    // Missing areas/city classes are NULL, never the text "null" (shown in dropdowns).
+    const [bad] =
+      await h.db`select (select count(*)::int from ph_postal_codes where area='null') as area,
+        (select count(*)::int from ph_municipalities where city_class='null') as cls,
+        (select count(*)::int from ph_postal_codes where area is null) as missing`;
+    expect(bad).toMatchObject({ area: 0, cls: 0 });
+    expect(bad.missing).toBeGreaterThan(0);
   });
   test("SQL and JS one-line address agree", async () => {
     const parts = {

@@ -226,11 +226,8 @@ export function CustomerForm({
       ).map((o) => ({
         code: o.code,
         label:
-          f.key === "postalCode"
-            ? o.name && o.name !== o.code
-              ? `${o.code} (${o.name})`
-              : o.code
-            : o.name,
+          // Postal codes arrive as "6014" or "6014 <area>": already code-first.
+          f.key === "postalCode" ? o.name || o.code : o.name,
       }));
       const parentLabel =
         FIELDS.find((x) => x.key === parentKey)?.label ?? "the parent";
