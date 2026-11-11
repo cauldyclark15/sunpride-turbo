@@ -27,14 +27,20 @@ const CANCELLABLE: TransferStatus[] = [
 ];
 
 /** Same capabilities the API lifecycle commands require. */
-const STEP_CAPABILITY: Record<NonNullable<ReturnType<typeof nextStep>>["command"], string> = {
+const STEP_CAPABILITY: Record<
+  NonNullable<ReturnType<typeof nextStep>>["command"],
+  string
+> = {
   approve: "inventory.approve",
   pick: "inventory.write",
   dispatch: "inventory.write",
   receive: "inventory.write",
   "resolve-variance": "inventory.approve",
 };
-const WAITING: Record<NonNullable<ReturnType<typeof nextStep>>["command"], string> = {
+const WAITING: Record<
+  NonNullable<ReturnType<typeof nextStep>>["command"],
+  string
+> = {
   approve: "Waiting for an approver to approve it and hold the stock.",
   pick: "Waiting for the depot to start picking.",
   dispatch: "Waiting for the depot to dispatch it.",
