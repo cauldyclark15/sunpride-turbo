@@ -143,6 +143,20 @@ export async function createSeries(db, actor, p) {
     if (!v || v.org_unit_id !== r.org_unit_id)
       refuse("Vehicle must belong to the registered branch");
   }
+  // NF-2: handhelds number from the most specific series (register, van, branch); two live ones at one
+  // level for the same document type leave the phone unable to choose, so the office cannot create that tie.
+  const from = instant(p.effectiveFrom),
+    to = p.effectiveTo ? instant(p.effectiveTo) : null;
+  const [tie] =
+    await db`select s.prefix from fiscal_series s join fiscal_registrations o on o.id=s.registration_id
+      where o.org_unit_id=${r.org_unit_id} and o.document_type=${r.document_type}
+      and o.device_id is not distinct from ${r.device_id} and s.vehicle_id is not distinct from ${p.vehicleId ?? null}
+      and s.next_allocate<=s.last_serial and (s.effective_to is null or s.effective_to>${from})
+      and (${to}::timestamptz is null or s.effective_from<${to}) limit 1`;
+  if (tie)
+    refuse(
+      `Series ${tie.prefix} already numbers these ${String(r.document_type).replace("_", " ")}s at this level; end it first or bind the new series to a van or register`,
+    );
   const [s] =
     await db`insert into fiscal_series(registration_id,vehicle_id,prefix,first_serial,last_serial,next_allocate,effective_from,effective_to)
    values(${r.id},${p.vehicleId ?? null},${prefix},${String(first)},${String(last)},${String(first)},${instant(p.effectiveFrom)},${p.effectiveTo ? instant(p.effectiveTo) : null}) returning id`;

@@ -37,6 +37,9 @@ val prepareNativeSchemes = tasks.register<Exec>("prepareNativeSchemes") {
 }
 tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(prepareNativeSchemes) }
 
+// Opt-in e2e bench build (codex-e2e build-apks.sh): -PSUNPRIDE_E2E_MOCK_LOCATION=true. Honoured by the dev flavor only;
+// staging, prod and beta never accept a mock location, and a plain dev build keeps refusing it (integrity proofs).
+val e2eMockLocation = providers.gradleProperty("SUNPRIDE_E2E_MOCK_LOCATION").orNull == "true"
 android {
     namespace = "com.sunpride.van"
     compileSdk = 36
@@ -63,6 +66,8 @@ android {
                 buildConfigField("String", "API_ORIGIN", quoted(endpoint("SUNPRIDE_${name.uppercase()}_API_ORIGIN").ifEmpty { endpoint("SUNPRIDE_API_ORIGIN") }.ifEmpty { "https://sunpride.cauldnclark.com" }))
                 buildConfigField("String", "WEB_URL", quoted(endpoint("SUNPRIDE_${name.uppercase()}_WEB_URL")))
                 buildConfigField("boolean", "BETA", "false")
+                // e2e bench only: the dev app accepts adb's test location provider.
+                buildConfigField("boolean", "E2E_MOCK_LOCATION", (name == "dev" && e2eMockLocation && !integrityProof).toString())
             }
         }
         // SP-0125: the hand-delivered tester build. Release only (see androidComponents below).
@@ -76,6 +81,7 @@ android {
             // "Report an issue" opens <web>/issues/new; hidden when this is empty.
             buildConfigField("String", "WEB_URL", quoted(endpoint("SUNPRIDE_BETA_WEB_URL").ifEmpty { "https://sunpride.cauldnclark.com" }))
             buildConfigField("boolean", "BETA", "true")
+            buildConfigField("boolean", "E2E_MOCK_LOCATION", "false")
         }
     }
     signingConfigs {

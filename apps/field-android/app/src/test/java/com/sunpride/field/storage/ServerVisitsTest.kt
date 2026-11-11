@@ -35,4 +35,26 @@ class ServerVisitsTest {
         assertEquals(VisitRuleFailure.Code.MCP_ORDER,
             VisitCallRules.startFailure("2","outlet-2","2026-10-20",legacy,emptyList())?.code)
     }
+    /** NF-1: a day-closed agent's projection holds `completed` visits (seed day close, office close). */
+    @Test fun completedVisitsSyncAsDoneInsteadOfFailingTheBootstrap() {
+        val plans=ServerVisits.attach(listOf(plan("1",0),plan("2",1),plan("3",2)),
+            listOf(page(call("1","completed"),call("2","skipped"))))
+        assertTrue(ServerVisits.closed(plans[0]))
+        assertEquals("Done",plannedVisitDisplay(plans[0],emptyMap(),emptyMap()).status)
+        assertEquals("Skipped",plannedVisitDisplay(plans[1],emptyMap(),emptyMap()).status)
+        assertEquals(VisitRuleFailure.Code.ALREADY_ENDED,
+            VisitCallRules.startFailure("1","outlet-1","2026-10-20",plans,emptyList())?.code)
+        // A skipped stop no longer holds up the route; the next stop can start.
+        assertNull(VisitCallRules.startFailure("3","outlet-3","2026-10-20",plans,emptyList()))
+    }
+    @Test fun everyStateTheServerStoresIsAcceptedAndOpenOnesBlockAnotherStart() {
+        for (state in listOf("planned","arrived","checked-in","in-progress","checked-out","completed","skipped","rescheduled","missed"))
+            ServerVisits.attach(listOf(plan("1",0)),listOf(page(call("1",state))))
+        for (state in listOf("arrived","checked-in")) {
+            val plans=ServerVisits.attach(listOf(plan("1",0),plan("2",1)),listOf(page(call("1",state))))
+            assertEquals(VisitRuleFailure.Code.CALL_OPEN,
+                VisitCallRules.startFailure("2","outlet-2","2026-10-20",plans,emptyList())?.code)
+        }
+        assertTrue(runCatching { ServerVisits.attach(listOf(plan("1",0)),listOf(page(call("1","nonsense")))) }.isFailure)
+    }
 }

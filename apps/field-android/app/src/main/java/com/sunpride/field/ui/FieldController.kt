@@ -188,9 +188,12 @@ fun plannedVisitDisplay(row: SnapshotItem, outlets: Map<String, JSONObject>, cus
     val longitude = number("longitude")?.takeIf { it in -180.0..180.0 }
     val pinned = latitude != null && longitude != null
     val server = com.sunpride.field.storage.ServerVisits.execution(row)
-    val status = when (server?.optString("state")) {
-        "checked-out" -> "Done"
-        "in-progress" -> "In progress"
+    val status = when (val state = server?.optString("state")) {
+        in com.sunpride.field.storage.ServerVisits.CLOSED -> "Done"
+        in com.sunpride.field.storage.ServerVisits.OPEN -> "In progress"
+        "skipped" -> "Skipped"
+        "missed" -> "Missed"
+        "rescheduled" -> "Rescheduled"
         else -> "Scheduled"
     }
     return VisitDisplay(outlet?.optString("name", "Outlet") ?: "Outlet unavailable", "Planned", status,
@@ -505,7 +508,7 @@ class LiveFieldBackend(
             jpeg.size.toLong() in 1..com.sunpride.field.storage.EvidencePhotos.MAX_BYTES) { "Invalid photo" }
         val files = com.sunpride.field.evidence.KeystorePhotoFiles(context)
         val at = System.currentTimeMillis()
-        val fix = com.sunpride.integrity.DeviceIntegrity.captureLocation(context, at)
+        val fix = com.sunpride.integrity.DeviceIntegrity.captureLocation(context, at, com.sunpride.field.BuildConfig.E2E_MOCK_LOCATION)
         val snapshot = EncryptedFieldDatabase.store(context, scope)
         val captureFacts = try { runBlocking {
             val me = snapshot.employeeId() ?: error("Missing verified person")

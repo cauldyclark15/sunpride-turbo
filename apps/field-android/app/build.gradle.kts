@@ -35,6 +35,9 @@ val prepareNativeSchemes = tasks.register<Exec>("prepareNativeSchemes") {
 }
 tasks.matching { it.name == "preBuild" }.configureEach { dependsOn(prepareNativeSchemes) }
 
+// Opt-in e2e bench build (codex-e2e build-apks.sh): -PSUNPRIDE_E2E_MOCK_LOCATION=true. Honoured by the dev flavor only;
+// staging, prod and beta never accept a mock location, and a plain dev build keeps refusing it (integrity proofs).
+val e2eMockLocation = providers.gradleProperty("SUNPRIDE_E2E_MOCK_LOCATION").orNull == "true"
 android {
     namespace = "com.sunpride.field"
     compileSdk = 36
@@ -57,6 +60,8 @@ android {
                 resValue("string", "app_name", "Sunpride Field (${name.replaceFirstChar { it.uppercase() }})")
                 buildConfigField("String", "SUNPRIDE_API_ORIGIN", quoted(endpoint("SUNPRIDE_${name.uppercase()}_API_ORIGIN").ifEmpty { "https://sunpride.cauldnclark.com" }))
                 buildConfigField("String", "WEB_URL", quoted(endpoint("SUNPRIDE_${name.uppercase()}_WEB_URL")))
+                // e2e bench only: the dev app accepts adb's test location provider (codex-e2e gps.sh).
+                buildConfigField("boolean", "E2E_MOCK_LOCATION", (name == "dev" && e2eMockLocation).toString())
             }
         }
         create("beta") {
@@ -65,6 +70,7 @@ android {
             versionCode = betaBuild
             versionName = "1.0.0-beta.$betaBuild"
             resValue("string", "app_name", "Sunpride Field (Beta)")
+            buildConfigField("boolean", "E2E_MOCK_LOCATION", "false")
             buildConfigField("String", "SUNPRIDE_API_ORIGIN", quoted(endpoint("SUNPRIDE_BETA_API_ORIGIN").ifEmpty { "https://sunpride.cauldnclark.com" }))
             // "Report an issue" opens <web>/issues/new; hidden when this is empty.
             buildConfigField("String", "WEB_URL", quoted(endpoint("SUNPRIDE_BETA_WEB_URL").ifEmpty { "https://sunpride.cauldnclark.com" }))
