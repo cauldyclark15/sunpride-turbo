@@ -12,6 +12,7 @@ import { required, rule, uuid } from "../org/model.js";
 import {
   approveCustomer,
   deactivateCustomer,
+  rejectCustomer,
   fieldList,
   listCustomers,
   derive,
@@ -176,6 +177,12 @@ export function installCustomers(router, platform) {
     "/api/v1/customers/:id/approve",
     "customers/approve",
     async (c, b) => approveCustomer(c, uuid(c.params.id), b),
+  );
+  command(
+    "post",
+    "/api/v1/customers/:id/reject",
+    "customers/reject",
+    async (c, b) => rejectCustomer(c, uuid(c.params.id), b),
   );
   command(
     "post",

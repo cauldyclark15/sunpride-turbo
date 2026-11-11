@@ -713,4 +713,53 @@ describe("SP-0170 customer writer", () => {
     });
     expect(await queue()).not.toContain(outletId);
   });
+  test("an approver can reject a field capture (old New store approvals' Reject): inactive, no accounting customer", async () => {
+    const [agent] =
+      await h.db`select p.user_id from profiles p where p.email='agent@sunpride.test'`;
+    const [file] =
+      await h.db`insert into files(purpose,sha256,mime,size,status,created_by) values('outlet_photo',${"b".repeat(64)},'image/jpeg',100,'stored',${agent.user_id}) returning id`;
+    const proposed = await call(
+      "agent",
+      "POST",
+      "/api/v1/outlets/enrolment/propose",
+      {
+        name: "Wrong Field Store",
+        address: "Nowhere",
+        contactName: "Someone",
+        contactPhone: "09170000002",
+        latitude: 10.3,
+        longitude: 123.9,
+        photoStorageIds: [file.id],
+        clientRequestId: crypto.randomUUID(),
+        customer: {
+          salesOrgCode: "1000",
+          distributionChannelCode: "41",
+          customerGroup1Code: "RSF",
+          customerGroup2Code: "RSS",
+          mobileNo: "09170000002",
+          typeOfBusiness: "Sole Proprietor",
+        },
+      },
+    );
+    expect(proposed.status).toBe(200);
+    const outletId = proposed.body.outletId;
+    const path = `/api/v1/customers/${outletId}/reject`;
+    expect(
+      (await call("admin", "POST", path, { reason: "Duplicate" })).status,
+    ).toBe(403);
+    expect((await call("manager", "POST", path, {})).status).toBe(422);
+    const rejected = await call("manager", "POST", path, {
+      reason: "Duplicate of an existing store",
+    });
+    expect(rejected.status).toBe(200);
+    expect(rejected.body).toMatchObject({
+      status: "inactive",
+      enrolmentStatus: "rejected",
+    });
+    expect(await accounting(outletId)).toEqual([]);
+    // Only a pending field capture can be rejected.
+    expect(
+      (await call("manager", "POST", path, { reason: "Again" })).status,
+    ).toBe(422);
+  });
 });

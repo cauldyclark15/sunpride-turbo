@@ -595,6 +595,31 @@ export async function approveCustomer(c, outletId, b) {
   return outletId;
 }
 
+/** Reject a field "Add customer" waiting for approval (the old New store approvals' Reject):
+ * the pending enrolment is decided `rejected` through the existing enrolment writer (two-person
+ * rule kept; the store becomes inactive, no accounting customer is created).
+ * @param {any} c @param {string} outletId @param {{reason?:string}} b */
+export async function rejectCustomer(c, outletId, b) {
+  await requireCapability(c, "outlet.enrol.approve");
+  await access(c, "outlets", outletId, "outlet.enrol.approve");
+  const reason =
+    typeof b.reason === "string" && b.reason.trim() ? b.reason.trim() : "";
+  if (!reason) rule("Enter the reason for rejecting this customer.");
+  const [enrolment] =
+    await c.db`select id from outlet_enrolments where outlet_id=${outletId} and status='pending' and deleted_at is null`;
+  if (!enrolment)
+    rule(
+      "Only a new customer from the field app waiting for approval can be rejected. Deactivate other customers.",
+    );
+  await enrolmentCommand(c, "decide", {
+    enrolmentId: enrolment.id,
+    decision: "rejected",
+    reason,
+  });
+  await c.db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${c.actor?.subject ?? "system"},'customer.reject','outlets',${outletId},${JSON.stringify({ reason })})`;
+  return outletId;
+}
+
 /** Deactivate the store and its accounting customer together. @param {any} c @param {string} outletId @param {{reason?:string}} b */
 export async function deactivateCustomer(c, outletId, b) {
   const reason =

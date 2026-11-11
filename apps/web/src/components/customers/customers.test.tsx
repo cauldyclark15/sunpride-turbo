@@ -611,5 +611,42 @@ describe("approval errors land next to the field", () => {
     );
     expect(html).toContain(">Approve<");
     expect(html).toContain("Provisional code · awaiting approval");
+    // Approvers may also reject a field capture (the retired New store approvals' Reject).
+    const withReject = renderToStaticMarkup(
+      <CustomerEditorView
+        customer={field}
+        draft={completeDraft()}
+        onChange={() => undefined}
+        index={index}
+        geo={GEO}
+        errors={{}}
+        message={null}
+        readOnly
+        busy={false}
+        canEdit={false}
+        canApprove
+        onReject={() => undefined}
+      />,
+    );
+    expect(withReject).toContain(">Reject<");
+    const prospect = { ...field, status: "prospect", enrolmentStatus: null };
+    expect(
+      renderToStaticMarkup(
+        <CustomerEditorView
+          customer={prospect as unknown as Customer}
+          draft={completeDraft()}
+          onChange={() => undefined}
+          index={index}
+          geo={GEO}
+          errors={{}}
+          message={null}
+          readOnly
+          busy={false}
+          canEdit={false}
+          canApprove
+          onReject={() => undefined}
+        />,
+      ),
+    ).not.toContain(">Reject<");
   });
 });

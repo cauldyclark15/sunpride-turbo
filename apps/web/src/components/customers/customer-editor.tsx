@@ -435,6 +435,32 @@ function EditorBody({
     }
   }
 
+  async function onReject(why: string) {
+    if (!customer) return;
+    setBusy(true);
+    try {
+      const done = await mutate<Customer>(
+        `/api/v1/customers/${encodeURIComponent(customer.id)}/reject`,
+        { reason: why.trim() },
+        {
+          idempotencyKey: crypto.randomUUID(),
+          invalidate: [["customers"], ["stores"]],
+        },
+      );
+      setCustomer(done);
+      setErrors({});
+      setMessage({ tone: "ok", text: "New customer rejected." });
+      onDone?.(done);
+    } catch (e) {
+      setMessage({
+        tone: "error",
+        text: e instanceof Error ? e.message : "Could not reject.",
+      });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function onDeactivate() {
     if (!customer) return;
     setBusy(true);
@@ -482,6 +508,7 @@ function EditorBody({
       onUnit={setUnitId}
       onSave={onSave}
       onApprove={onApprove}
+      onReject={onReject}
       deactivating={deactivating}
       reason={reason}
       onReason={setReason}
@@ -511,6 +538,7 @@ export function CustomerEditorView({
   onUnit,
   onSave,
   onApprove,
+  onReject,
   deactivating = false,
   reason = "",
   onReason,
@@ -535,6 +563,8 @@ export function CustomerEditorView({
   onUnit?: (id: string) => void;
   onSave?: () => void;
   onApprove?: () => void;
+  /** Field "Add customer" waiting for approval: reject with a reason (approvers). */
+  onReject?: (reason: string) => void;
   deactivating?: boolean;
   reason?: string;
   onReason?: (v: string) => void;
@@ -542,6 +572,12 @@ export function CustomerEditorView({
   onDeactivateCancel?: () => void;
   onDeactivate?: () => void;
 }) {
+  const canReject =
+    !!customer &&
+    canApprove &&
+    !!onReject &&
+    customer.status !== "inactive" &&
+    customer.enrolmentStatus === "provisional";
   const tone =
     message?.tone === "error"
       ? "border-[#f3c1c6] bg-[#fdf2f3] text-[#8a0d18]"
@@ -628,6 +664,9 @@ export function CustomerEditorView({
               Approve
             </button>
           ) : null}
+          {canReject ? (
+            <RejectControl busy={busy} onReject={(r) => onReject?.(r)} />
+          ) : null}
           {customer ? (
             deactivating ? (
               <span className="flex flex-wrap items-center gap-2">
@@ -675,8 +714,60 @@ export function CustomerEditorView({
           >
             Approve
           </button>
+          {canReject ? (
+            <RejectControl busy={busy} onReject={(r) => onReject?.(r)} />
+          ) : null}
         </div>
       ) : null}
     </form>
+  );
+}
+
+/** Reject a field capture: asks for the reason first (it goes to the enrolment record). */
+function RejectControl({
+  busy,
+  onReject,
+}: {
+  busy: boolean;
+  onReject: (reason: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [why, setWhy] = useState("");
+  if (!open)
+    return (
+      <button
+        type="button"
+        className={`${buttonClass} text-[#b4101f]`}
+        disabled={busy}
+        onClick={() => setOpen(true)}
+      >
+        Reject
+      </button>
+    );
+  return (
+    <span className="flex flex-wrap items-center gap-2">
+      <input
+        aria-label="Reason for rejecting"
+        className={`${inputClass} w-56 border-border`}
+        placeholder="Reason (e.g. duplicate store)"
+        value={why}
+        onChange={(e) => setWhy(e.target.value)}
+      />
+      <button
+        type="button"
+        className={buttonClass}
+        disabled={busy || !why.trim()}
+        onClick={() => onReject(why)}
+      >
+        Confirm reject
+      </button>
+      <button
+        type="button"
+        className={buttonClass}
+        onClick={() => setOpen(false)}
+      >
+        Cancel
+      </button>
+    </span>
   );
 }
