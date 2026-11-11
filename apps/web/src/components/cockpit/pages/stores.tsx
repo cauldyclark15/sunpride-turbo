@@ -16,10 +16,12 @@ import {
   type CustomerFilters,
 } from "../../customers/customer-list";
 import { LIST_FILTER_KEYS, type CustomerStatus } from "../../customers/model";
+import { CustomerUpload } from "../../customer-upload/customer-upload";
 import { usePermissions } from "../../../lib/auth";
 import { Drawer } from "../kit/drawer";
 import {
   StoresTabs,
+  editButtonClass,
   readPage,
   readStoresTab,
   type StoresTab,
@@ -150,7 +152,7 @@ export function storeColumns(now: number): DrillColumn<StoreRow>[] {
   ];
 }
 
-/** Performance tab: period figures, the weekly chart and a sales table. Finding and editing stores is the Stores tab. */
+/** Performance tab: period figures, the weekly chart and a sales table. Finding and editing stores is the Customers list. */
 export function StoresView({
   data,
   csv,
@@ -225,6 +227,8 @@ export function StoresPage() {
   const tab = readStoresTab(params, hidden);
   const canAdd = can("outlet.manage");
   const [adding, setAdding] = useState<string | null>(null);
+  const canUpload = can("masterdata.manage");
+  const [uploading, setUploading] = useState(false);
   const editing = tab === "list" || tab === "new" ? params.get("edit") : null;
   const waiting = useWaitingCount();
   const go = (next: StoresTab) =>
@@ -242,9 +246,20 @@ export function StoresPage() {
     );
   return (
     <div className="ck-page grid min-w-0 grid-cols-[minmax(0,1fr)] gap-5">
-      <h1 className="text-[26px] font-semibold tracking-tight text-foreground">
-        Customers
-      </h1>
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <h1 className="text-[26px] font-semibold tracking-tight text-foreground">
+          Customers
+        </h1>
+        {canUpload ? (
+          <button
+            type="button"
+            className={editButtonClass}
+            onClick={() => setUploading(true)}
+          >
+            Upload customers
+          </button>
+        ) : null}
+      </div>
       <StoresTabs
         tab={tab}
         onTab={go}
@@ -304,6 +319,14 @@ export function StoresPage() {
             }}
           />
         ) : null}
+      </Drawer>
+      <Drawer
+        open={uploading}
+        title="Upload customers"
+        wide
+        onClose={() => setUploading(false)}
+      >
+        {uploading ? <CustomerUpload compact /> : null}
       </Drawer>
       <Drawer
         open={!!editing}

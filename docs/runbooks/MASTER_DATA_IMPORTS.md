@@ -91,6 +91,94 @@ same run: the server reports a **duplicate** and adds no stock. Editing the file
 and for opening stock a row whose lot already carries stock at that location is rejected with
 `duplicate_stock` instead of being posted twice.
 
+## Customers upload — SP-0170 (machinery from SP-0169)
+
+Where: **Customers page (/customers) → Upload customers**, or **Imports → Customers**. Same
+component in both places. Needs `masterdata.manage` and `outlet.manage` (super admin, admin,
+operations). A user scoped to an area can only update customers in the areas they manage; new
+customers land in the uploader's own area.
+
+**Template = Sunpride's own "Customer Information template"** (Loren Muñoz, 2026-11-10): one row
+per customer, **Customer Code** + the client's 51 fields in their order with their exact labels
+(General Information, Location, Assignment, Payment, Delivery with the first ship-to inline, ADP
+Specific last). Single source: `packages/import-templates/src/customers.js` (columns, header
+mapping, readers, rules) and `customers-xlsx.js` (the workbook). Tests prove parity with the
+client's workbook (`docs/requirements/client-customer-information-template-2026-11-10.xlsx`:
+field order, labels, required flags, remarks, tab names and list contents).
+
+- **Download template (Excel)** — built in the browser from `GET /api/v1/imports/customer-upload/template`
+  (the DB's `customer_reference_values`): an *Instructions* sheet, the *Customers* sheet (required
+  headings yellow + bold; each heading's comment = the rule + Sunpride's remark; every cell text
+  formatted; in-cell dropdowns on list columns) and one sheet per client list with the client's
+  tab names (Cust. Grp. 1&2, Sales Organization, Customer Groups, Distribution Channel, Type of
+  Business, Sales Office, List of Agents, Delivering Plant, Payment Terms, Tax Class, Pricing
+  Procedure). Dependent lists are plain lists in Excel; the upload enforces the chain. Sales
+  Partner has no dropdown while "List of Agents" is empty. **CSV version**: the header line.
+- Client-ready file: `DATABASE_URL=… bun apps/api/scripts/build-customer-template.js <out.xlsx>`.
+
+| Cells | Rule |
+| --- | --- |
+| Customer Code* | Up to 40 letters, numbers, `-`, `_`; stored upper-case; unique in the file. An existing code **updates** that customer (preview shows *New* / *Update*). |
+| Dropdown columns | `Description (Code)`, the code alone or the description alone; case/accents ignored; numbers that lost leading zeros in Excel still match (`3` → `0003`). Dependent lists checked against the Sales Organization / channel / Grp 1. |
+| Region, Province, Municipality, Barangay | PSGC name (case/accent-insensitive; `City of Cebu` = `Cebu City`; `Region VII (Central Visayas)` = `Central Visayas`) or the 10-digit PSGC code. Postal Code must be one of the municipality's ZIP codes. |
+| Geographical Coordinates | `latitude, longitude`; saved as a **pending** pin (two-person verification). |
+| Mobile No. (both) | `09…` / `+639…` (an Excel number `9171234567` is read as `09171234567`). |
+| Everything else | The `@sunpride/customer-master` rules at the `complete` level: Grp 1/Grp 2 only when the chain has them, ADP block only for channel 40, TIN, email, credit limit. |
+
+Blank optional cells on an **update** keep the customer's current values; the row's ship-to
+replaces the first ship-to (blank cells keep its values), further ship-tos stay. New customers
+are created through the customer writer as `prospect` and, when the uploader may approve
+(`outlet.enrol.approve`), approved to `active` in the same row.
+
+### Steps
+
+1. **Upload file** — download the template, choose an .xlsx (sheet "Customers", else the first
+   sheet with "Customer Code") or .csv. Headers must match by name (order may differ); missing and
+   unknown columns are listed.
+2. **Validate** — instant browser checks with the shared rules and the reference lists, then
+   server checks in batches of 1,000 rows with a progress bar (PSGC geography, existing customers,
+   scope, inactive customers).
+3. **Preview** — bad cells outlined with the message on hover and under the row; *Show only rows
+   with problems* (also narrows to the columns with problems); **Download errors**
+   (`Row,Column,Value,Problem,Code` with the client's labels). Fix the file and choose it again,
+   or import the valid rows (rows with problems are recorded as failed).
+4. **Import** — returns a run id at once; the server processes the file in the background. The
+   page polls live counts. The browser can be closed.
+5. **Result** — totals, **Download report** (template columns + Result, Action, Problem column,
+   Problem), **Resume** and **Retry failed rows**.
+
+**Upload history** lists every run (when, who, file, rows, new, updated, failed, status); *Open*
+drills into the per-row report.
+
+### How the server runs it
+
+- Tables `customer_upload_runs`, `customer_upload_chunks`, `customer_upload_rows` (migration 0825;
+  renumbered from SP-0169's 0816 to run after the customer master migrations 0820–0824).
+- Chunks of 100 rows, at most 4 concurrent workers. Each chunk is **one transaction** (its clock
+  is the transaction's, so effective-dated links agree with readers); each row a savepoint.
+- Every chunk re-validates its rows against the database as it is at that moment, then writes
+  through the customer-master writer (`saveCustomer`: store + profile + ship-to + pending pin +
+  1:1 accounting customer, audit) and `approveCustomer`, with an audit row
+  (`SP-0170.customer.upload_new|update`) and a change-feed entry per customer.
+- **Idempotency**: server-computed file hash + per-chunk hash; the identical file again returns
+  the existing run (`duplicate: true`) and writes nothing.
+- **Interruption**: 30 s lease renewed every 5 s; expired runs are swept to `interrupted`.
+  **Resume** processes only pending rows; **Retry failed rows** re-queues failed rows (e.g. after
+  a reference list is fixed).
+- API: `POST /api/v1/imports/customer-upload/preview`, `POST …/runs`, `GET …/runs`,
+  `GET …/runs/:id[?rows=0]`, `POST …/runs/:id/resume {retryFailed}`, `GET …/template`,
+  `GET …/reference`. Preview and runs accept up to 8 MB of JSON (5,000 rows); other routes 1 MB.
+
+### Error codes (customer upload)
+
+File: `header_mismatch`, `empty_file`, `too_many_rows`, `unreadable_file`. Row: the
+customer-master codes (`required`, `invalid_option`, `not_for_sales_org`, `not_for_channel`,
+`not_for_group1`, `not_applicable`, `choose_parent_first`, `invalid_tin`, `invalid_mobile`,
+`invalid_email`, `invalid_coordinates`, `invalid_credit_limit`, `geography_mismatch`,
+`postal_code_mismatch`, `too_long`) plus `invalid_code`, `duplicate_in_file`, `ambiguous_option`,
+`customer_out_of_scope`, `customer_inactive`, `conflict`, `write_failed`, `forbidden`, and
+`not_processed` in the report for rows an interrupted run never reached.
+
 ## Cutover sequence
 
 1. Provision the inventory foundation (Web → Inventory → **Provision inventory foundation**).

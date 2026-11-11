@@ -5,7 +5,7 @@ export const MAX_JSON_BYTES = 1024 * 1024;
 /**
  * @typedef {import('./context.js').Ctx} Ctx
  * @typedef {(ctx: Ctx) => Promise<any>|any} Handler
- * @typedef {{ raw?: boolean, v2?: boolean }} RouteOptions
+ * @typedef {{ raw?: boolean, v2?: boolean, maxBytes?: number }} RouteOptions
  * @typedef {{ method: string, path: string, parts: string[], handler: Handler, options: RouteOptions }} Route
  */
 
