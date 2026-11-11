@@ -146,6 +146,15 @@ export function PreviewTable({
 }) {
   const index = useMemo(() => errorIndex(errors), [errors]);
   const shown = rows.filter((r) => !errorsOnly || index.has(r.rowNumber));
+  // "Only rows with problems" also narrows to the columns with problems (plus the code and
+  // name), so every bad cell is on screen without scrolling across 52 columns.
+  const columns = useMemo(() => {
+    if (!errorsOnly) return CUSTOMER_COLUMNS;
+    const bad = new Set(errors.map((e) => e.column));
+    return CUSTOMER_COLUMNS.filter(
+      (c) => c.id === "code" || c.id === "customerName" || bad.has(c.id),
+    );
+  }, [errors, errorsOnly]);
   return (
     <div className="grid gap-2">
       <div className="max-h-[60vh] overflow-auto rounded-lg border border-separator">
@@ -154,7 +163,7 @@ export function PreviewTable({
             <tr>
               <th className="p-2">Row</th>
               <th className="p-2">Result</th>
-              {CUSTOMER_COLUMNS.map((c) => (
+              {columns.map((c) => (
                 <th
                   key={c.id}
                   className="whitespace-nowrap p-2"
@@ -185,7 +194,7 @@ export function PreviewTable({
                         ? "Update"
                         : "New"}
                   </td>
-                  {CUSTOMER_COLUMNS.map((c) => {
+                  {columns.map((c) => {
                     const cellErrors = rowErrors?.get(c.id);
                     return (
                       <td
@@ -205,16 +214,19 @@ export function PreviewTable({
                 all.length ? (
                   <tr key={`${r.rowNumber}-msg`} className="bg-danger/5">
                     <td />
-                    <td
-                      colSpan={CUSTOMER_COLUMNS.length + 1}
-                      className="sticky left-0 p-2 pt-0 text-danger"
-                    >
-                      {all
-                        .map(
-                          (e) =>
-                            `${e.column ? `${errorLabel(e)}: ` : ""}${e.message}`,
-                        )
-                        .join(" · ")}
+                    <td colSpan={columns.length + 1} className="p-2 pt-0">
+                      <ul className="sticky left-2 grid max-w-[44rem] gap-0.5 whitespace-normal text-danger">
+                        {all.map((e, i) => (
+                          <li key={i}>
+                            {e.column ? (
+                              <span className="font-medium">
+                                {errorLabel(e)}:{" "}
+                              </span>
+                            ) : null}
+                            {e.message}
+                          </li>
+                        ))}
+                      </ul>
                     </td>
                   </tr>
                 ) : null,

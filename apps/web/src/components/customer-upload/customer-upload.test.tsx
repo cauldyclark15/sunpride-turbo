@@ -262,7 +262,7 @@ describe("customer upload — preview and reports", () => {
       /data-column="customerGroupCode" data-error="invalid_option" title="Customer Group &quot;Nope&quot; is not in the list\."/,
     );
     expect(html).toContain(
-      "Customer Group: Customer Group &quot;Nope&quot; is not in the list.",
+      "Customer Group: </span>Customer Group &quot;Nope&quot; is not in the list.",
     );
     expect(html).toContain(">Terms of payment<");
     expect(html).not.toContain('data-row="2" data-invalid');
@@ -273,6 +273,9 @@ describe("customer upload — preview and reports", () => {
     );
     expect(html).not.toContain('data-row="2"');
     expect(html).toContain('data-row="3"');
+    // Only the code, the name and the columns with problems.
+    expect(html).toContain('data-column="customerGroupCode"');
+    expect(html).not.toContain('data-column="paymentTermsCode"');
   });
   it("lists problems as row · client label (value): message", () => {
     const html = renderToStaticMarkup(<ErrorList errors={errors} />);

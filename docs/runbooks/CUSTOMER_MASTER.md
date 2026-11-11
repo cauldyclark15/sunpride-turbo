@@ -63,6 +63,11 @@ every sample store. `seedDemo` and the daily advance call `customer_master_backf
 Without the geography load, saves that send PSGC codes fail `invalid_option` (the API never
 guesses geography).
 
+## Bulk upload
+
+Office bulk create/update uses Sunpride's own template layout: **Customers → Upload customers**
+(see `MASTER_DATA_IMPORTS.md` → "Customers upload"). Same rules (`complete` level), same writer.
+
 ## Lifecycle
 
 1. **Field capture** (prospect): the phone's enrolment carries an optional `customer` object →
