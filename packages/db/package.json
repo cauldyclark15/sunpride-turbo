@@ -6,7 +6,9 @@
   "exports": {
     "./client": "./src/client.js",
     "./migrate": "./src/migrate.js",
-    "./tables/*": "./src/tables/*.js"
+    "./tables/*": "./src/tables/*.js",
+    "./customer-reference": "./src/customer-reference.js",
+    "./ph-geography": "./src/ph-geography.js"
   },
   "scripts": {
     "migrate": "bun src/migrate.js",
