@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { crossedOn, nextStep, type DormancyCase } from "./dormancy-panel";
+import { caseLine, crossedOn, nextStep, type DormancyCase } from "./dormancy-panel";
 const base: DormancyCase = {
   id: "k",
   storeId: "s",
@@ -52,5 +52,14 @@ describe("F-210 dormancy owner panel", () => {
         recoveryPurchaseOn: "2026-10-24",
       }),
     ).toBe("Recovered: bought again on 2026-10-24.");
+  });
+});
+
+describe("WEB-171: Win-back rows carry no policy text", () => {
+  it("says when the store last bought and since when it is dormant, in short dates, with no rule or version", () => {
+    const open = caseLine(base);
+    expect(open).toBe("Last bought Jul 23 · 12 cycles without an order · dormant since Aug 13.");
+    expect(open).not.toMatch(/rule|version|cycle from|\d{4}-\d{2}-\d{2}/i);
+    expect(caseLine({ ...base, status: "recovered" })).toBe("Was dormant from Aug 13 after 12 cycles without an order.");
   });
 });
