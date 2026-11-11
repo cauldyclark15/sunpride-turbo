@@ -309,6 +309,20 @@ class EncryptedFieldStoreTest {
         assertEquals("{\"a\":1}", store().localCache(entity, "2026-09-28|all")!!.json)
     }
 
+    // FLD-121: the collector / joint-call agenda is saved under the entity the backend uses; the server topic
+    // itself ("field.collections") is refused by the store, which used to deny the grant on every refresh.
+    @Test fun domainFormAgendaCacheUsesALocalEntity() = runBlocking {
+        store().swap(store().stage(ScopedSnapshot("{\"id\":\"employee\",\"role\":\"sales\"}", null,
+            emptyList(), emptyList(), emptyList(), emptyList())), "opaque-cursor", 2000, 2000)
+        assertThrows(IllegalArgumentException::class.java) {
+            runBlocking { store().putLocalCache("field.collections", "2026-09-28", "{}", 10, "2026-09-28") } }
+        for (topic in listOf("field.collections", "field.jointcall")) {
+            val entity = com.sunpride.field.ui.domainFormsCacheEntity(topic)
+            store().putLocalCache(entity, "2026-09-28", "{\"stops\":[]}", 10, "2026-09-28")
+            assertEquals("{\"stops\":[]}", store().localCache(entity, "2026-09-28")!!.json)
+        }
+    }
+
     /** ANA-010: success -> explicit refusal -> offline reopen/relaunch never restores saved suggestions. */
     @Test fun suggestedOrderRefusalDurablyBlocksSavedSuggestionsAcrossRelaunch() = runBlocking {
         val repo = com.sunpride.field.ui.diagnosticvisit.SuggestedOrderRepository

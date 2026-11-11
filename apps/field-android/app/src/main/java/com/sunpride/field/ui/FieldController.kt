@@ -224,6 +224,11 @@ data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynce
 
 private const val TEAM_CACHE = "local.team"
 private const val SALES_CACHE = "local.daysales"
+/**
+ * FLD-121: the phone-only cache row for a downloaded form agenda (`field.collections`, `field.jointcall`).
+ * The encrypted store only keeps `local.` summaries, so the server topic is never the cache entity.
+ */
+internal fun domainFormsCacheEntity(topic: String): String = "local.$topic"
 // Edit store: office decisions on this person's changes, and the rejections already shown (separate entities:
 // putLocalCache keeps only one key prefix per entity).
 private const val STORE_CHANGES = "local.storechanges"
@@ -665,11 +670,11 @@ class LiveFieldBackend(
                 check(expires>response.getLong("serverTime"))
                 if(grant.current()&&storedScope()==partition){
                     val text=JSONObject().put("expiresAt",expires).put("data",data).toString()
-                    grant.wrap(text)?.let{store.putLocalCache(topic,day,it,response.getLong("serverTime"),day)}
+                    grant.wrap(text)?.let{store.putLocalCache(domainFormsCacheEntity(topic),day,it,response.getLong("serverTime"),day)}
                 }
             }catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;if(e !is AuthFailure||e.kind!=AuthFailure.Kind.OFFLINE)refuse()}
             if(!grant.current()||storedScope()!=partition||!store.isLeaseValid(System.currentTimeMillis()))return@runBlocking null
-            val cache=store.localCache(topic,day)?.json?.let{grant.read(it)}?.let(::JSONObject)?:return@runBlocking null
+            val cache=store.localCache(domainFormsCacheEntity(topic),day)?.json?.let{grant.read(it)}?.let(::JSONObject)?:return@runBlocking null
             if(cache.getLong("expiresAt")<=System.currentTimeMillis())return@runBlocking null
             cache.getJSONObject("data").put("authorizationExpiresAt",cache.getLong("expiresAt")).put("localOperations",JSONArray().apply{for((row,out) in store.history().filter{it.first.kind=="$kind.capture"})put(JSONObject().put("requestId",row.requestId).put("aggregateId",row.clientVisitId).put("state",out.state).put("payload",JSONObject(row.serializedOperation).getJSONObject("payload")))})
         }}finally{store.close()}
@@ -775,6 +780,8 @@ class LiveFieldBackend(
                 prefs.edit().putBoolean("$key.failed", failed).apply()
             } catch (e: Exception) {
                 com.sunpride.field.diagnostics.SafeLog.event(context, "sync_retry")
+                // FLD-171: the server ended this session; the controller returns to sign-in with the reason.
+                if (e is AuthFailure && e.kind == AuthFailure.Kind.SESSION_EXPIRED) throw e
                 if(prefs.getBoolean("$key.partner",false))return dsrToday(deviceId,signer,null,e,expectedKey=key)
                 failed = true
                 prefs.edit().putBoolean("$key.failed", true).apply()
@@ -1738,6 +1745,12 @@ class FieldController(
         if (busy || state !is EnrollmentState.Ready || today.updateRequired) return@launch
         busy = true
         try { loadToday(sync = true); if (diagnostic != null) refreshDiagnostic() }
+        catch (e: AuthFailure) {
+            // FLD-171: a session ended elsewhere (password changed, signed out everywhere) returns to sign-in
+            // with the plain reason. Queued work stays in the encrypted store for the same person.
+            if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) { ++sessionGeneration; state = EnrollmentState.SignedOut; error = userMessage(e) }
+            else today = today.copy(stale = true, warning = "Sync unavailable — showing saved visits")
+        }
         catch (_: Exception) { today = today.copy(stale = true, warning = "Sync unavailable — showing saved visits") }
         finally { busy = false }
     }

@@ -120,6 +120,10 @@ fun FieldApp(
     var page by rememberSaveable { mutableStateOf("home") }
     // Where a drill-down page (Account, Sync, a tool) opened from, so Back and the arrow return there.
     var origin by rememberSaveable { mutableStateOf("home") }
+    // FLD-132: each page keeps its own remembered state (Stores search, list scroll) while you move between
+    // tabs. A new session (sign-out, expiry, removal) starts a fresh epoch so nothing typed carries over.
+    val pages = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    var pagesEpoch by rememberSaveable { mutableStateOf(0) }
     fun go(next: String) {
         if (page !in FieldNav.overlayPages) origin = page
         page = next
@@ -165,7 +169,7 @@ fun FieldApp(
     }
     val signOut = { controller.signOut(); biometrics?.signedOut(); page = "home"; Unit }
     // Whatever ends the session (sign-out, expiry, removal), the next person starts on a clean sign-in screen.
-    LaunchedEffect(controller.state) { if (controller.state == EnrollmentState.SignedOut) page = "home" }
+    LaunchedEffect(controller.state) { if (controller.state == EnrollmentState.SignedOut) { page = "home"; pagesEpoch++ } }
     // AND-020: each visit to the Team page asks the server again (saved copy when offline).
     LaunchedEffect(controller, page, controller.state) {
         if (page == "team" && controller.state is EnrollmentState.Ready) controller.loadTeam()
@@ -322,7 +326,7 @@ fun FieldApp(
             })
         }) { padding ->
             val modifier = Modifier.padding(padding).consumeWindowInsets(padding)
-            when {
+            pages.SaveableStateProvider("$pagesEpoch:$page") { when {
                 locked -> UnlockScreen(biometrics!!.busy, onUnlock = biometrics::unlock,
                     onPassword = biometrics::usePassword, modifier = modifier)
                 controller.state == EnrollmentState.SignedOut -> SignInScreen(environment, controller.busy || controller.companySignInPending,
@@ -465,7 +469,7 @@ fun FieldApp(
                     onCheck = { controller.checkAgain() }, onSignOut = signOut, modifier = modifier,
                     unsent = status.queued + status.sending + status.review + status.held,
                     pairingContent = {com.sunpride.integrity.ReplacementPairing(controller::replacementCode)})
-            }
+            } }
         }
         if (biometrics != null && biometrics.offer && controller.state != EnrollmentState.SignedOut) BiometricOffer(
             onAccept = biometrics::enable, onDecline = biometrics::decline)

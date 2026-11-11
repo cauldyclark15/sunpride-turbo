@@ -25,7 +25,9 @@ data class SyncStatus(
     val offline: Boolean = false, val reviewReasons: List<String> = emptyList(),
     val earliestUnsentCloseAt: Long? = null,
     /** AND-016 photos saved on the phone and not yet uploaded. Never blocks visit sync or End. */
-    val photosWaiting: Int = 0
+    val photosWaiting: Int = 0,
+    /** FLD-153: plain words for each kind of held work, so "Held · needs review" always explains itself. */
+    val heldReasons: List<String> = emptyList(),
 ) {
     val pending get() = queued + sending + review + held > 0
     fun leaseExpired(now: Long) = leaseExpiresAt == null || now >= leaseExpiresAt
@@ -47,8 +49,13 @@ data class SyncStatus(
         fun fromRoom(partition: PartitionRow?, rows: List<OutboxRow>, offline: Boolean = false,
             intents: List<IntentRow> = emptyList()): SyncStatus {
             val current = rows.filter { it.scope == partition?.scope }
-            val held = rows.count { it.scope != partition?.scope && it.state != "done" } +
-                if (partition?.held == true) current.count { it.state != "done" } else 0
+            val earlier = rows.count { it.scope != partition?.scope && it.state != "done" }
+            val heldHere = if (partition?.held == true) current.count { it.state != "done" } else 0
+            val held = earlier + heldHere
+            val heldReasons = listOfNotNull(
+                HELD_EARLIER.takeIf { earlier > 0 },
+                HELD_ACCESS.takeIf { heldHere > 0 || (partition?.held == true && held == 0) },
+            )
             val active = if (partition?.held == true) emptyList() else current
             val byRequest = intents.associateBy { it.requestId }
             val starts = intents.filter { it.kind == "visit.checkIn" }.associateBy { it.clientVisitId }
@@ -62,8 +69,12 @@ data class SyncStatus(
             return SyncStatus(active.count { it.state == "pending" }, active.count { it.state == "sending" },
                 active.count { it.state == "review" }, held, partition?.lastSuccessfulSync,
                 partition?.leaseExpiresAt, partition?.cacheExpiresAt, partition?.syncHealth ?: "never_synced",
-                offline, rows.filter { it.state == "review" }.map { plainReason(it.rejectionCode) }, earliestClose)
+                offline, rows.filter { it.state == "review" }.map { plainReason(it.rejectionCode) }, earliestClose,
+                heldReasons = heldReasons)
         }
+
+        const val HELD_EARLIER = "Saved under an earlier sign-in or work area. It stays on this phone and is not sent. Ask your supervisor before clearing this phone."
+        const val HELD_ACCESS = "Your access is being checked. Work stays on this phone and is sent once the office confirms it."
 
         /** Never render a server-supplied free-form rejection or payload. */
         fun plainReason(code: String?): String = when (code) {

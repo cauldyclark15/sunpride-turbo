@@ -11,6 +11,17 @@ class SyncStatusTest {
     private fun row(state: String, scope: String = "scope", code: String? = null) =
         OutboxRow("account", "device", scope, "$state-$scope", 1, state, code)
 
+    // FLD-153: held work always carries a plain reason, never a bare count.
+    @Test fun heldWorkExplainsItselfInPlainWords() {
+        val earlier = SyncStatus.fromRoom(partition, listOf(row("pending", "old-scope")))
+        assertEquals(listOf(SyncStatus.HELD_EARLIER), earlier.heldReasons)
+        val access = SyncStatus.fromRoom(partition.copy(held = true), listOf(row("pending")))
+        assertEquals(1, access.held)
+        assertEquals(listOf(SyncStatus.HELD_ACCESS), access.heldReasons)
+        assertTrue(SyncStatus.fromRoom(partition, listOf(row("pending"))).heldReasons.isEmpty())
+        (earlier.heldReasons + access.heldReasons).forEach { assertFalse(it.contains('_')) }
+    }
+
     @Test fun everyUnresolvedStatePreventsAllSynced() {
         for (state in listOf("pending", "sending", "review")) {
             val status = SyncStatus.fromRoom(partition, listOf(row(state)))
