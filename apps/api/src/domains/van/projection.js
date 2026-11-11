@@ -345,6 +345,7 @@ export async function bundle(ctx, env) {
       taxQuotes = [],
       schemeContexts = [];
     const priceKeys = new Set();
+    const quotedAt = ctx.now ?? Date.now();
     /** @type {Record<string,any>} */ const creditSnapshots = {};
     /** @type {Map<string,Map<string,string|null>>} */ const sourceLists =
       new Map();
@@ -372,10 +373,10 @@ export async function bundle(ctx, env) {
               termsDays: creditSnapshot.termsDays,
               availableMinor: creditSnapshot.availableMinor,
             };
-      let priceListId = null;
       const sourceList = new Map();
       sourceLists.set(o.id, sourceList);
       const nativePrices = [];
+      /** @type {any[]} */ const quoteRows = [];
       for (const p of products) {
         const price = await resolvePrice(db, {
           organizationId: trip.organization_id,
@@ -389,25 +390,17 @@ export async function bundle(ctx, env) {
         if (price.unitPriceCentavos === null || !price.priceListId) continue;
         sourceList.set(p.productId, price.priceListId);
         nativePrices.push({ productId: p.productId, uom: p.uomCode, ...price });
-        // F-016 a customer quote may combine base, channel and customer conditions.
-        // The offline grouping is a quote identity, not a second authoritative price list.
-        priceListId = masterId("van.priceQuote", o.id);
-        const key = `${priceListId}:${p.productId}:${p.uomCode}`;
-        if (!priceKeys.has(key)) {
-          priceKeys.add(key);
-          priceLines.push({
-            priceListId,
+        quoteRows.push({
+          line: {
             productId: p.productId,
             uomCode: p.uomCode,
             unitPriceMinor: String(price.unitPriceCentavos),
             currency: "PHP",
-            effectiveFrom: price.effectiveFrom ?? Date.now(),
+            effectiveFrom: price.effectiveFrom ?? quotedAt,
             effectiveTo: price.effectiveTo ?? null,
             priceListCode: "SAP replicated conditions",
-          });
-          complete(priceLines, 600);
-          taxQuotes.push({
-            priceListId,
+          },
+          tax: {
             productId: p.productId,
             uomCode: p.uomCode,
             sourcePriceListId: price.priceListId,
@@ -422,10 +415,25 @@ export async function bundle(ctx, env) {
             sourceSellingUnitMinor: String(price.unitPriceCentavos),
             sourceKey: price.sapKey ?? null,
             sourceVersion: price.sapVersion ?? null,
-            effectiveFrom: price.effectiveFrom ?? ctx.now,
+            effectiveFrom: price.effectiveFrom ?? quotedAt,
             effectiveTo: price.effectiveTo ?? null,
-          });
+          },
+        });
+      }
+      // F-016 a customer quote may combine base, channel and customer conditions. The offline grouping is a quote
+      // identity, not a second authoritative price list. VAN-006: it is keyed by the quote's CONTENT, so customers
+      // priced identically share one set of lines; keyed per outlet, a route of 30+ stores x 20+ products overflowed
+      // the frozen 600-line bound and the whole bundle was refused (the handheld never saw its dispatched trip).
+      const priceListId = quoteRows.length
+        ? masterId("van.priceQuote", JSON.stringify(quoteRows))
+        : null;
+      if (priceListId && !priceKeys.has(priceListId)) {
+        priceKeys.add(priceListId);
+        for (const q of quoteRows) {
+          priceLines.push({ priceListId, ...q.line });
+          taxQuotes.push({ priceListId, ...q.tax });
         }
+        complete(priceLines, 600);
       }
       if (ctx.params.schemeEngine === 1)
         schemeContexts.push(

@@ -18,7 +18,8 @@ mock.module("../src/domains/org/audit.js", () => ({
   },
 }));
 mock.module("../src/domains/orders/pricing.js", () => ({
-  resolvePrice: async () => ({ unitPriceCentavos: 12500, priceListId: null, source: "test" }),
+  // VAN-006: a governed list, so the handheld bundle carries price lines (every outlet gets the same quote).
+  resolvePrice: async () => ({ unitPriceCentavos: 12500, priceListId: "11111111-1111-4111-8111-111111111111", source: "test" }),
   creditCheck: async () => ({ status: "unknown", limit: null, exposure: null }),
 }));
 mock.module("../src/domains/analytics/refresh.js", () => ({
@@ -325,5 +326,36 @@ describe("the phone's own operations", () => {
     expect(live).toMatchObject({ profile_id: helper.profileId, role: "helper", method: "pin_offline" });
     const acts = await h.db`select profile_id from van_crew_actions where trip_id=${sc.tripId} and op_type='crew.switch'`;
     expect(acts.map((/** @type {any} */ a) => a.profile_id)).toEqual([helper.profileId]);
+  });
+});
+
+describe("VAN-006: the handheld's own pull after the office dispatches", () => {
+  it("a dispatched Loading trip reaches the phone with every param the app sends", async () => {
+    const sc = await scenario();
+    await toDispatched(sc.tripId);
+    // A real route: 26 stores in the unit and 24 products on the truck. Quote lines keyed per outlet were
+    // 26 x 24 = 624 > the frozen 600 bound, so the server refused the whole bundle (422) and the phone sat "paused".
+    for (let i = 0; i < 26; i++)
+      await h.db`insert into outlets(organization_id,code,name,status,custodian_org_unit_id,channel,created_by) values('sunpride',${`V6-${i}`},${`Store ${i}`},'active',${unit},'gt','fixture')`;
+    for (let i = 0; i < 23; i++) await stockIn(await (async () => {
+      const [p] = await h.db`insert into products (code,name,category,uom,unit_price,active,organization_id,base_uom_id,quantity_scale,tracking_mode,allocation_policy) values (${`V6-${i}`},${`Item ${i}`},'Frozen','PC',0,true,'sunpride',${pcId},1,'none','fefo') returning *`;
+      return p;
+    })(), 12, sc.truckId);
+    // Exactly the scope params VanSyncClient.bootstrap() sends.
+    const r = await signedPost(h, who, "/api/sync/pull", {
+      version: 2, app: "van-android", deviceId: who.deviceId, since: null, pageCursor: null, limit: 100,
+      scopes: [{ scopeId: unit, projection: "van.bundle", params: { serviceDate: today(), catalogue: true, schemeEngine: 1,
+        posMode: true, handheld: true, vanDay: true, categories: true, refunds: true, privilegeCap: true } }],
+    });
+    expect(r.res.status, JSON.stringify(r.body)).toBe(200);
+    const data = /** @type {any} */ (r.body).bundles[0].data;
+    expect(data.trip?.tripId).toBe(sc.tripId);
+    expect(data.trip.status).toBe("loading");
+    expect(data.customers.length).toBeGreaterThanOrEqual(26);
+    expect(data.products.length).toBeGreaterThanOrEqual(24);
+    // Identical quotes share one list; every customer still points at lines that exist.
+    expect(data.priceLines.length).toBeLessThanOrEqual(600);
+    const lists = new Set(data.priceLines.map((/** @type {any} */ l) => l.priceListId));
+    for (const c of data.customers) expect(lists.has(c.priceListId)).toBe(true);
   });
 });
