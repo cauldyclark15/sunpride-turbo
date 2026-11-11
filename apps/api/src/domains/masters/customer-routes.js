@@ -237,6 +237,36 @@ export function installCustomers(router, platform) {
       source: r.source,
     })),
   );
+  // SP-0170 offline pack for the field app (docs/runbooks/CUSTOMER_MASTER.md "Field app
+  // offline"): every region, province, municipality and postal code nationally (~1.7k rows,
+  // one request) plus barangays one province at a time (the phone keeps its area's provinces).
+  router.get("/api/v1/geography/pack", async (/** @type {any} */ ctx) => {
+    await requireCapability(ctx, "outlet.read");
+    const [release] =
+      await ctx.db`select release from ph_geography_releases order by created_at desc limit 1`;
+    return {
+      release: release?.release ?? null,
+      regions: await ctx.db`select code,name from ph_regions order by code`,
+      provinces:
+        await ctx.db`select code,name,region_code as "regionCode" from ph_provinces order by name`,
+      municipalities:
+        await ctx.db`select code,name,province_code as "provinceCode" from ph_municipalities order by name`,
+      postalCodes:
+        await ctx.db`select municipality_code as "municipalityCode",postal_code as code from ph_postal_codes order by municipality_code,postal_code`,
+    };
+  });
+  router.get(
+    "/api/v1/geography/pack/barangays",
+    async (/** @type {any} */ ctx) => {
+      await requireCapability(ctx, "outlet.read");
+      const provinceCode = need(ctx.url.searchParams, "provinceCode");
+      return {
+        provinceCode,
+        barangays:
+          await ctx.db`select b.code,b.name,b.municipality_code as "municipalityCode" from ph_barangays b join ph_municipalities m on m.code=b.municipality_code where m.province_code=${provinceCode} order by b.municipality_code,b.name`,
+      };
+    },
+  );
   geo("release", async (ctx) =>
     (
       await ctx.db`select release,counts,created_at from ph_geography_releases order by created_at desc limit 1`

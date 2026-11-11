@@ -18,7 +18,7 @@ import {
   candidatesInScope,
 } from "./duplicates.js";
 import { MAX_ATTEMPTS, enqueue } from "../../core/jobs.js";
-import { allocate } from "../org/outlets.js";
+import { allocate, enrolmentCommand } from "../org/outlets.js";
 
 const FIELD_APPS = ["field-android", "field-ios"];
 const COMPONENT_KEYS = [
@@ -295,6 +295,9 @@ export async function captureCensus(ctx, p) {
   const actor = await requireCapability(ctx, "outlet.enrol.propose");
   if (p.kind === "change") return captureChange(ctx, actor, p);
   if (p.kind !== undefined && p.kind !== "new") rule("Unknown store request.");
+  // SP-0170: a capture carrying the client's customer fields becomes a prospect customer
+  // (field enrolment + draft customer profile) for the office to complete and approve.
+  if (p.customer !== undefined) return captureCustomer(ctx, actor, p);
   let batch;
   if (p.batchId !== undefined && p.batchId !== null) {
     [batch] =
@@ -437,6 +440,56 @@ export async function createBatch(ctx, p) {
   return { id: batch.id };
 }
 /** @param {any} ctx @param {any} p */
+/** SP-0170 "Add customer": the same census.capture op, with the client's `customer` object
+ * (contract §6). It goes through the existing enrolment writer (provisional code, pending pin,
+ * pending enrolment) and saves the customer profile at `draft`; the office completes Payment,
+ * Delivery, Tax, Pricing, Sales Office and Delivering Plant before approval. Old payloads (no
+ * `customer`) keep the census review path unchanged.
+ * @param {any} ctx @param {any} actor @param {any} p */
+async function captureCustomer(ctx, actor, p) {
+  if (
+    !p.customer ||
+    typeof p.customer !== "object" ||
+    Array.isArray(p.customer)
+  )
+    rule("Enter the customer details.");
+  const id = uuid(p.captureId);
+  const at = integer(p.deviceTime, ctx.now - 7 * 86400000, ctx.now + 120000);
+  const name = required(
+    p.customer.customerName ?? p.name,
+    "Customer Name",
+    200,
+  );
+  const [previous] =
+    await ctx.db`select id,outlet_id from outlet_enrolments where proposed_by=${actor.subject} and client_request_id=${id}`;
+  if (previous) return { entityId: previous.outlet_id, eventIds: [] };
+  const address = required(p.address, "Customer Address", 500);
+  const contactName = required(p.ownerName, "Contact Person", 150);
+  const contactPhone =
+    typeof p.ownerPhone === "string" && p.ownerPhone.trim()
+      ? required(p.ownerPhone, "Mobile No.", 40)
+      : null;
+  const { l } = readLocation(p, at);
+  const bytes = readJpeg(p.photoJpegBase64);
+  const file = await storeJpeg(ctx, id, bytes, actor);
+  const result = await enrolmentCommand(ctx, "propose", {
+    name,
+    address,
+    contactName,
+    contactPhone,
+    latitude: l.latitude,
+    longitude: l.longitude,
+    photoStorageIds: [file.id],
+    clientRequestId: id,
+    note: "Captured through Add customer on the field app",
+    customer: { ...p.customer, customerName: name },
+  });
+  if (!result) rule("The customer was not saved.");
+  await ctx.db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${actor.userId},'SP-0170.customer.capture','outlet',${result.outletId},'New customer captured on the field app; office completes it before approval')`;
+  ctx.publish("outlets");
+  ctx.publish("masters");
+  return { entityId: result.outletId, eventIds: [] };
+}
 export async function reviewCensus(ctx, p) {
   const actor = await requireCapability(ctx, "outlet.verify");
   const [capture] =
@@ -557,6 +610,7 @@ export async function censusConfig(ctx) {
   if (batches.length > 100) rule("Too many active census batches.", "overflow");
   return {
     batches,
+    customerMaster: await customerMasterSetup(ctx, unitIds),
     defaultBatch: fallback ? { id: fallback.id, name: fallback.name } : null,
     addressSearch: placesConfigured(ctx.env),
     channels: (await definitionsAt(ctx, "channel"))
@@ -566,6 +620,37 @@ export async function censusConfig(ctx) {
       .filter((/** @type {any} */ r) => r.status === "active")
       .map(masterDto),
   };
+}
+/** SP-0170 offline setup for "Add customer": the client's reference lists (small, ~250 rows),
+ * the default Sales Organization (the one most of the agent's customers use; SFI 1000 when
+ * none) and the provinces of the agent's customers (the phone keeps their barangays offline).
+ * @param {any} ctx @param {string[]|null} unitIds */
+async function customerMasterSetup(ctx, unitIds) {
+  const { referenceRows } = await import("./customers.js");
+  const lists = (await referenceRows(ctx.db)).map((/** @type {any} */ r) => ({
+    list: r.list,
+    salesOrgCode: r.salesOrgCode,
+    channelCode: r.channelCode,
+    group1Code: r.group1Code,
+    code: r.code,
+    name: r.name,
+  }));
+  const area =
+    await ctx.db`select p.sales_org_code,p.province_code,count(*)::int n from customer_profiles p join outlets o on o.id=p.outlet_id where o.deleted_at is null and (${unitIds === null} or o.custodian_org_unit_id::text=any(${ctx.db.array(unitIds ?? [], "TEXT")})) group by 1,2 order by n desc limit 500`;
+  /** @type {Map<string, number>} */ const orgs = new Map();
+  for (const r of area)
+    if (r.sales_org_code)
+      orgs.set(r.sales_org_code, (orgs.get(r.sales_org_code) ?? 0) + r.n);
+  const salesOrgCode =
+    [...orgs.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? "1000";
+  const provinceCodes = [
+    ...new Set(
+      area
+        .map((/** @type {any} */ r) => r.province_code)
+        .filter((/** @type {any} */ c) => typeof c === "string" && c),
+    ),
+  ].slice(0, 12);
+  return { salesOrgCode, provinceCodes, lists };
 }
 /** Field "Edit store": the office's decisions on the caller's OWN store changes (newest 100),
  * so the phone can clear "Change waiting for office" and say plainly when one was not accepted.
