@@ -197,7 +197,8 @@ export async function seedSapDemo(db, env = process.env) {
           `${c.code}:${k}`,
           {
             customerCode: c.code,
-            documentNumber: `SAMPLE-${c.code}-${k}`,
+            // Reads like an invoice number (WEB-062), still marked SAMPLE.
+            documentNumber: `SAMPLE-SI-${c.code}-${String(days).padStart(3, "0")}`,
             dueAt:
               new Date(`${d.asOfDate}T00:00:00+08:00`).getTime() -
               Number(days) * 86400000,

@@ -156,7 +156,7 @@ test("F-613 promise-to-pay is bounded by the sample AR open items, scoped, idemp
   ]);
   expect(one.promisedMinor).toBe(30_000);
   expect(read.body.promises[0].openItemLabel).toBe(
-    "Invoice 2026-09-01, due 2026-10-01",
+    "Invoice of Sep 1, 2026, due Oct 1, 2026",
   );
   // Team B's manager sees none of Team A's collections.
   const other = await call("/api/v1/money/collections", undefined, managerB);
@@ -344,4 +344,10 @@ test("F-613 collector route: ordered, scoped stops for today or the next 14 days
     [1, c2, "overdue_balance"],
     [2, c1, "cheque_pickup"],
   ]);
+});
+
+test("WEB-062 open-item dates read as words, not ISO", async () => {
+  const { dayWords } = await import("../src/domains/coverage/collections.js");
+  expect(dayWords("2026-09-28")).toBe("Sep 28, 2026");
+  expect(dayWords("2027-01-01T00:00:00Z")).toBe("Jan 1, 2027");
 });
