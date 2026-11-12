@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { csvHref, useAnalytics, useValuation, valuationCsvHref } from "../api";
 import {
   formatCases,
@@ -325,12 +326,12 @@ export function StockView({
         title="Where the stock is"
         question="Value and cases by location."
         actions={
-          <a
+          <Link
             href="/inventory"
             className="ck-noprint inline-flex h-8 items-center rounded-lg border border-border bg-surface px-3 text-[13px] font-medium text-foreground hover:bg-default-soft"
           >
             Open Inventory
-          </a>
+          </Link>
         }
       >
         {data.locations.length ? (
