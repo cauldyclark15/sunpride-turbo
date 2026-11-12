@@ -113,6 +113,20 @@ class AuthClientTest {
         assertNull(vault.readSession())
     }
 
+    @Test fun throttleNamesTheRealWaitFromTheServer() {
+        // FLD-004: sign-in allows 10 tries per 5 minutes; the message must not understate the wait.
+        server.enqueue(MockResponse().setResponseCode(429)
+            .setBody("""{"version":2,"serverTime":1,"error":{"code":"rate_limited","retryable":true,"retryAfterMs":241000,"action":"retry"}}"""))
+        val waited = runCatching { auth.signIn("a@example.test", "p") }.exceptionOrNull() as AuthFailure
+        assertEquals(AuthFailure.Kind.RATE_LIMITED, waited.kind)
+        assertEquals("Too many attempts. Try again in 5 minutes.", waited.text)
+        assertEquals("Too many attempts. Try again in 1 minute.", AuthFailure.text(AuthFailure.Kind.RATE_LIMITED, 20_000))
+        server.enqueue(MockResponse().setResponseCode(429))
+        val unknown = runCatching { auth.signIn("a@example.test", "p") }.exceptionOrNull() as AuthFailure
+        assertEquals("Too many attempts. Wait up to 5 minutes and try again.", unknown.text)
+        assertFalse(unknown.text.contains("a minute"))
+    }
+
     @Test fun forbiddenRateLimitServerAndMissingHeaderMapToFixedErrors() {
         server.enqueue(MockResponse().setResponseCode(403).setBody("""{"code":"MISSING_OR_NULL_ORIGIN"}"""))
         expect(AuthFailure.Kind.REFUSED) { auth.signIn("a@example.test", "p") }

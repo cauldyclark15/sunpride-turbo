@@ -125,6 +125,8 @@ fun FieldApp(
     // tabs. A new session (sign-out, expiry, removal) starts a fresh epoch so nothing typed carries over.
     val pages = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
     var pagesEpoch by rememberSaveable { mutableStateOf(0) }
+    // FLD-075: the Sync screen always re-reads the durable outbox, whatever queued work since Today last loaded.
+    LaunchedEffect(page) { if (page == "sync") controller.refreshCache() }
     fun go(next: String) {
         if (page !in FieldNav.overlayPages) origin = page
         page = next
@@ -387,7 +389,8 @@ fun FieldApp(
                         stores = controller.today.customers, onOpenStore = { id -> customerId = id; page = "customer" },
                         initialName = censusName,
                         editing = censusEdit?.let { id -> controller.today.customers.firstOrNull { it.outletId == id } },
-                        onChangeSaved = { censusEdit = null; storeChangesTick++; page = "customer" })
+                        onChangeSaved = { censusEdit = null; storeChangesTick++; page = "customer" },
+                        onQueued = { controller.refreshCache() })
                 }
                 ready && page == "workforce" -> com.sunpride.field.ui.workforce.WorkforceScreen(controller,location,modifier)
                 // SP-0146 v2 messaging: the shared chat module; Back inside it steps back, Back on its list returns here.
