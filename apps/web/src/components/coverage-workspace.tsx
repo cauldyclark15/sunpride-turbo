@@ -16,6 +16,10 @@ import { OutletAdmin } from "./outlet-admin";
 import { OutletAssignments } from "./outlet-assignments";
 import { PanelErrorBoundary } from "./panel-error-boundary";
 import { RouteAdmin } from "./route-admin";
+import {
+  coverageSelectionFromParams,
+  coverageSelectionPatch,
+} from "../lib/coverage-url";
 
 const CoverageCalendarView = dynamic(() =>
   import("./coverage-calendar-view").then((m) => m.CoverageCalendarView),
@@ -183,15 +187,18 @@ export function SalesForcePanels() {
       status: null,
     });
   const [setupSection, setSetupSection] = useState<SetupSection>("routes");
-  const [month, setMonth] = useState(() => {
-    const parts = new Intl.DateTimeFormat("en-US", {
-      timeZone: "Asia/Manila",
-      year: "numeric",
-      month: "2-digit",
-    }).formatToParts(new Date());
-    return `${parts.find((p) => p.type === "year")!.value}-${parts.find((p) => p.type === "month")!.value}`;
-  });
-  const [selected, setSelected] = useState<SelectedPlan | null>(null);
+  // Month, opened plan and its assignee live in the URL so reload and shared
+  // links reopen the same plan (WEB-113/114).
+  const fromUrl = coverageSelectionFromParams(url.params);
+  const month = fromUrl.month;
+  const selected = fromUrl.selected as SelectedPlan | null;
+  const [plannerNonce, setPlannerNonce] = useState(0);
+  const setMonth = (next: string) => {
+    setPlannerNonce((n) => n + 1);
+    url.set({ month: next || null, plan: null, person: null });
+  };
+  const setSelected = (plan: SelectedPlan | null) =>
+    url.set({ plan: plan?.id || null, person: plan?.assigneeId || null });
   if (!permissions || !profile)
     return (
       <span className="text-[13px] text-muted">
@@ -311,10 +318,7 @@ export function SalesForcePanels() {
                     aria-label="Coverage month"
                     className="h-10 w-full"
                     value={month}
-                    onChange={(event) => {
-                      setMonth(event.target.value);
-                      setSelected(null);
-                    }}
+                    onChange={(event) => setMonth(event.target.value)}
                   />
                 </FormField>
               </div>
@@ -370,16 +374,19 @@ export function SalesForcePanels() {
                   onPage={(n) => url.set({ page: n > 1 ? String(n) : null })}
                   onAdd={() => setCoverageTab("plan")}
                   onOpen={(row) => {
-                    setSelected({
-                      id:
+                    setPlannerNonce((n) => n + 1);
+                    url.set({
+                      tab: row.awaitsMyApproval ? "review" : "plan",
+                      q: null,
+                      page: null,
+                      status: null,
+                      plan:
                         row.approvalPlanId ??
                         row.action.planId ??
                         row.planId ??
-                        "",
-                      assigneeId: row.profileId,
-                      assigneeName: row.name,
+                        null,
+                      person: row.profileId,
                     });
-                    setCoverageTab(row.awaitsMyApproval ? "review" : "plan");
                   }}
                 />
               </PanelErrorBoundary>
@@ -393,10 +400,14 @@ export function SalesForcePanels() {
             ) : coverageTab === "plan" ? (
               <PanelErrorBoundary key="plan" label="Coverage plan">
                 <CoveragePlanner
-                  key={`${month}-${selected?.assigneeId ?? ""}-${selected?.id ?? ""}`}
+                  key={plannerNonce}
                   initialMonth={month}
-                  initialPersonId={selected?.assigneeId}
+                  initialPersonId={fromUrl.personId ?? undefined}
                   initialPlanId={selected?.id || undefined}
+                  onSelectionChange={(next) => {
+                    const patch = coverageSelectionPatch(url.params, next);
+                    if (patch) url.set(patch, { replace: true });
+                  }}
                 />
               </PanelErrorBoundary>
             ) : coverageTab === "setup" ? (

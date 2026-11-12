@@ -6,7 +6,7 @@ import { api } from "./coverage-model";
 import type { Doc, Id } from "./coverage-model";
 import { useCoverageMutation, useCoverageQuery } from "./coverage-data";
 import type { FunctionArgs, FunctionReturnType } from "./coverage-model";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CoverageGrid } from "./coverage-grid";
 import {
   currentManilaDate,
@@ -148,10 +148,17 @@ export function CoveragePlanner({
   initialMonth,
   initialPersonId,
   initialPlanId,
+  onSelectionChange,
 }: {
   initialMonth?: string;
   initialPersonId?: string;
   initialPlanId?: string;
+  /** Mirrors month, person and opened plan into the page URL (WEB-113/114). */
+  onSelectionChange?: (selection: {
+    month: string;
+    personId: string | null;
+    planId: string | null;
+  }) => void;
 } = {}) {
   const permissions = useCoverageQuery(
     api.lib.capabilities.currentPermissions,
@@ -216,6 +223,15 @@ export function CoveragePlanner({
     api.coverage.discovery.attribution,
     canRead && selected ? { planId: selected } : "skip",
   );
+  useEffect(() => {
+    onSelectionChange?.({
+      month,
+      personId: assignee ?? null,
+      planId: selected ?? null,
+    });
+    // Report only real changes; the callback identity changes every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month, assignee, selected]);
   const create = useCoverageMutation(api.coverage.plans.create);
   const revise = useCoverageMutation(api.coverage.plans.createRevision);
   async function action(run: () => Promise<Doc<"coveragePlans">>) {
@@ -432,6 +448,18 @@ export function CoveragePlanner({
   );
 }
 
+/** True when the plan's assignee serves the outlet's route (or, routeless, its
+ * territory). Older API payloads without the lists keep every outlet. */
+export function assigneeServes(
+  detail: { servedRouteIds?: string[]; servedTerritoryIds?: string[] },
+  row: { routeId?: string | null; territoryId: string },
+) {
+  if (!detail.servedRouteIds || !detail.servedTerritoryIds) return true;
+  return row.routeId
+    ? detail.servedRouteIds.includes(row.routeId)
+    : detail.servedTerritoryIds.includes(row.territoryId);
+}
+
 export type PlanEditorMessage = {
   planId: Id<"coveragePlans">;
   error?: string;
@@ -564,7 +592,11 @@ export function PlanEditor({
     roster?.filter(
       (row) =>
         !outlets.some((o) => o.outletId === row.outletId) &&
-        (!routeId || row.routeId === routeId),
+        (!routeId || row.routeId === routeId) &&
+        assigneeServes(
+          detail as { servedRouteIds?: string[]; servedTerritoryIds?: string[] },
+          row,
+        ),
     ) ?? [];
   const patchOutlet = (id: Id<"outlets">, change: Partial<Outlet>) =>
     setOutlets((old) =>
@@ -750,7 +782,7 @@ export function PlanEditor({
       )}
       {editable && territoryId && roster && !assigned.length && (
         <p role="status">
-          No more stores are assigned to this territory
+          No more stores on this person&apos;s routes in this territory
           {routeId ? " and route" : ""}. Choose another territory to add stores.
         </p>
       )}

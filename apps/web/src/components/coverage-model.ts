@@ -287,6 +287,10 @@ export type Workload = {
   workingDays: string[];
   durationMinutes: number;
   dailyCallsTarget?: number;
+  /** Routes the assignee serves; outlets elsewhere cannot be planned. */
+  servedRouteIds?: string[];
+  /** Territories the assignee serves directly (routeless outlets). */
+  servedTerritoryIds?: string[];
   variance?: number;
 };
 export type Pin = {
