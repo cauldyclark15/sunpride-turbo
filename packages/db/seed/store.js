@@ -72,6 +72,12 @@ export class Dataset {
     this.start = plusDays(anchorDate, 1 - days);
     this.epoch = new Date(at(this.start)).toISOString();
     this.noon = new Date(at(anchorDate, 12 * 60)).toISOString();
+    // Config that must be in force as soon as the seed lands (call-flow rules, no-order reasons, pins, trade
+    // inputs) is stamped no later than the seed run: a reset before noon would otherwise publish it in the
+    // future, e.g. no-order reasons empty until 12:00 so a no-order call cannot End (SP-0169 r6, like sap.js).
+    this.effectiveNow = new Date(
+      Math.min(at(anchorDate, 12 * 60), Date.now()),
+    ).toISOString();
     this.rng = random();
     /** @type {Map<string, Row[]>} */
     this.tables = new Map();

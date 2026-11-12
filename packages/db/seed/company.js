@@ -592,7 +592,7 @@ export function company(d, hashes) {
       evidence_note:
         "Sample enrolment; office must collect a real CIS/photo before real approval",
       status: "pending",
-      effective_from: d.noon,
+      effective_from: d.effectiveNow,
       proposed_by: people.agent.auth_subject,
       proposed_at: d.noon,
     },

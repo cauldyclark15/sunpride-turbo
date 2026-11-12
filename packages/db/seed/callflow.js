@@ -71,7 +71,7 @@ export function addCallflowSamples(data) {
           ? "has_order"
           : "always",
       })),
-      effective_from: data.noon,
+      effective_from: data.effectiveNow,
       published_by: "system:sample",
       source: "sample",
     });
@@ -83,7 +83,7 @@ export function addCallflowSamples(data) {
       max_accuracy_meters: 50,
       max_fix_age_ms: 60000,
       min_dwell_ms: 180000,
-      effective_from: data.noon,
+      effective_from: data.effectiveNow,
       published_by: "system:sample",
       source: "sample",
     });
@@ -99,7 +99,7 @@ export function addCallflowSamples(data) {
       code,
       label,
       version: 1,
-      effective_from: data.noon,
+      effective_from: data.effectiveNow,
       published_by: "system:sample",
       source: "sample",
     });
