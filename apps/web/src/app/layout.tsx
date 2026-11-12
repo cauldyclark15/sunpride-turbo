@@ -6,7 +6,7 @@ import { APP_SURFACE } from "@/config/app-theme";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: { default: "Sunpride Operations", template: "%s · Sunpride" },
+  title: { default: "Sunpride Sales Automation", template: "%s · Sunpride" },
   description: "Sales, inventory, field and approval operations for Sunpride.",
   applicationName: "Sunpride Operations",
   appleWebApp: {
