@@ -369,7 +369,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     override suspend fun addPhoto(row: EvidencePhotoRow, now: Long) {
         require(row.account == a && row.deviceId == d && row.scope == s)
         db.withTransaction {
-            check(isLeaseValid(now)) { "Offline lease expired or held" }
+            if (!isLeaseValid(now)) throw RecordingClosed(metadata().held)
             EvidencePhotos.validate(row, photoTypes(), history().map { it.first to it.second.state },
                 dao.visitPhotos(a, d, s, row.clientVisitId).size)
             ConfiguredFieldCalls.validatePhoto(this@RoomFieldStore,row.clientVisitId)
@@ -466,7 +466,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut", com.sunpride.field.census.CensusRules.KIND, "availability.record", "availability.proposal", RetailCaptureQueue.KIND, MockAttempts.KIND) &&
             intent.serializedOperation.isNotBlank())
         db.withTransaction {
-            check(isLeaseValid(now)) { "Offline lease expired or held" }
+            if (!isLeaseValid(now)) throw RecordingClosed(metadata().held)
             MockAttempts.validate(intent)
             val prepared = ConfiguredFieldCalls.prepare(this@RoomFieldStore,intent)
             val payload = JSONObject(prepared.serializedOperation).optJSONObject("payload")

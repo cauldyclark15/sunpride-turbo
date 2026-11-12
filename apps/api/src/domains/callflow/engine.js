@@ -259,8 +259,26 @@ export function locationResult(config, fix, at, blocked = false) {
     ? "outside_radius"
     : "within_radius";
 }
+/** FLD-080 owner decision: why a phone sent no fix at all (location off, permission off, no signal). */
+const UNAVAILABLE = /** @type {Record<string,string>} */ ({
+  location_off: "phone location turned off",
+  permission_off: "location permission off",
+  no_signal: "no signal",
+});
+/** The supervisor-review text for a Start/End recorded without any location fix.
+ * @param {any} code */
+export function unavailableReason(code) {
+  return `Location unavailable · supervisor will review: ${UNAVAILABLE[code] ?? "no location fix"}`;
+}
+/** FLD-080: NO fix at all is not a refusal; a mock, weak, stale or outside-radius fix still is (F-106).
+ * @param {any} ctx @param {any} fix */
+export function locationMissing(ctx, fix) {
+  return fix == null && ctx.device?.integrity_blocked !== true;
+}
 /** @param {any} ctx @param {any} config @param {string} outletId @param {string} kind @param {any} fix @param {number} at */
 async function gateLocation(ctx, config, outletId, kind, fix, at) {
+  if (!config?.pin) refuse("evidence_pending_review");
+  if (locationMissing(ctx, fix)) return null;
   const result = locationResult(config, fix, at, integrityBlocked(ctx, fix));
   if (result === "within_radius") return null;
   if (result !== "outside_radius" || !isUuid(ctx.payload.geofenceApprovalId))
@@ -280,6 +298,16 @@ export async function review(ctx, call, kind, reason) {
     refuse();
   await ctx.db`insert into call_flow_reviews (profile_id,device_id,org_unit_id,outlet_id,call_id,kind,policy_id,reason)
     values (${call.profile_id},${call.device_id},${call.org_unit_id},${call.outlet_id},${call.id},${kind},${call.policy_snapshot.policy.id},${reason.trim()})`;
+}
+/** FLD-080: a call with no visit (van) files its own "Location unavailable" review; a field visit's review is its
+ * visit_location_evidence row (result 'unavailable', pending review). It is born consumed, so it can never be
+ * reused as an outside-radius approval.
+ * @param {any} ctx @param {any} call @param {string} kind @param {any} fix */
+async function reviewMissingLocation(ctx, call, kind, fix) {
+  if (call.visit_id || !locationMissing(ctx, fix)) return;
+  await ctx.db`insert into call_flow_reviews (profile_id,device_id,org_unit_id,outlet_id,call_id,kind,policy_id,reason,consumed_by)
+    values (${call.profile_id},${call.device_id},${call.org_unit_id},${call.outlet_id},${call.id},${kind},${call.policy_snapshot.policy.id},
+    ${unavailableReason(ctx.payload.locationUnavailable)},${call.id})`;
 }
 /** @param {any} ctx @param {any} input */
 export async function beginCall(ctx, input) {
@@ -359,6 +387,7 @@ export async function beginCall(ctx, input) {
   if (grant)
     await ctx.db`update call_flow_reviews set consumed_by=${call.id} where id=${grant}`;
   await advance(ctx, call, "check_in", input.visitId ?? call.id);
+  await reviewMissingLocation(ctx, call, "geofence_start", ctx.payload.location);
   if (input.deviated)
     await review(ctx, call, "sequence", ctx.payload.sequenceReason);
   if (!input.planned)
@@ -482,6 +511,7 @@ export async function closeCall(ctx, call) {
   )
     refuse();
   await advance(ctx, call, "check_out", call.id);
+  await reviewMissingLocation(ctx, call, "geofence_end", p.location);
   if (short) await review(ctx, call, "short_call", p.shortCallReason);
   if (grant)
     await ctx.db`update call_flow_reviews set consumed_by=${call.id} where id=${grant}`;

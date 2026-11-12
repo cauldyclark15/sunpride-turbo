@@ -47,6 +47,18 @@ class CallFlowEngineTest {
         refused { CallFlowEngine.location(config(),fix(1),1_000_000) }
         refused { CallFlowEngine.location(config().apply { remove("pin") },fix(),1_000_000) }
     }
+    @Test fun `FLD-080 no fix at all starts the call for supervisor review, a mock still does not`() {
+        assertFalse("No fix uses no radius exception", CallFlowEngine.location(config(),null,1_000_000))
+        assertFalse(CallFlowEngine.location(config(),null,1_000_000,true))
+        refused { CallFlowEngine.location(config(),fix().put("mockSignal",true),1_000_000) }
+        refused { CallFlowEngine.location(config(),fix().put("latitude",11),1_000_000) }
+    }
+    @Test fun `FLD-105 a call without an order needs a listed no-order reason before End`() {
+        assertTrue(CallFlowEngine.missingNoOrderReason(config(),false,""))
+        assertTrue(CallFlowEngine.missingNoOrderReason(config(),false,"made_up"))
+        assertFalse(CallFlowEngine.missingNoOrderReason(config(),false,"no_demand"))
+        assertFalse(CallFlowEngine.missingNoOrderReason(config(),true,null))
+    }
     @Test fun `F-107 required stock check blocks later order adapter`() { refused { CallFlowEngine.advance(config(),setOf("check_in"),"order_build",true) } }
     @Test fun `F-107 optional steps may be skipped while required conditional invoice cannot`() {
         refused { CallFlowEngine.advance(config(),setOf("check_in","stock_check","order_build"),"check_out",true) }

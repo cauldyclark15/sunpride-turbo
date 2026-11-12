@@ -140,7 +140,15 @@ export async function reviewRows(ctx) {
       await requireCapability(ctx, "visit.read", person.org_unit_id);
       items.push({
         id: row.id,
-        kind: row.kind,
+        // FLD-080: a van call Start/End with no fix files a born-consumed geofence review; name it for what it is.
+        kind:
+          row.call_id &&
+          row.consumed_by === row.call_id &&
+          row.reason.startsWith("Location unavailable")
+            ? row.kind === "geofence_end"
+              ? "location_unavailable_end"
+              : "location_unavailable_start"
+            : row.kind,
         person: row.person,
         outlet: row.outlet,
         reason: row.reason,

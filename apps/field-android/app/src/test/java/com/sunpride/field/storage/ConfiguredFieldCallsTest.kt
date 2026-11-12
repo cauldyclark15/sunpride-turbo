@@ -39,6 +39,23 @@ class ConfiguredFieldCallsTest {
         assertEquals("{\"kind\":\"visit.activity\"}",old.serializedOperation)
         Unit
     }
+    @Test fun FLD080_aStartWithLocationOffIsQueuedForSupervisorReviewButAMockIsStillRefused()=runBlocking {
+        val store=object: FieldStore by FakeFieldStore(scope) {
+            override suspend fun outlets()=listOf(SnapshotItem("store",JSONObject().put("callFlow",config()).toString()))
+            override suspend fun history()=emptyList<Pair<IntentRow,OutboxRow>>()
+        }
+        val off=row("visit.checkIn",JSONObject().put("outletId","store").put("deviceTime",1000000).put("location",JSONObject.NULL)
+            .put("locationUnavailable","location_off"))
+        val p=ConfiguredFieldCalls.payload(ConfiguredFieldCalls.prepare(store,off))
+        assertEquals("flow",p.getString("flowDefinitionId")); assertTrue(p.isNull("location")); assertFalse(p.has("geofenceApprovalId"))
+        assertEquals("location_off",p.getString("locationUnavailable"))
+        val mock=row("visit.checkIn",JSONObject().put("outletId","store").put("deviceTime",1000000)
+            .put("location",JSONObject().put("latitude",10.0).put("longitude",123).put("accuracyMeters",5).put("fixTime",1000000).put("mockSignal",true).put("provider","gps")))
+        var refused=false
+        try { ConfiguredFieldCalls.prepare(store,mock) } catch(_:com.sunpride.callflow.CallFlowRefused) { refused=true }
+        assertTrue(refused)
+        Unit
+    }
     @Test fun F310_configuredCanonicalFormsDoNotDependOnLegacyIntentRules() {
         val c=config();c.getJSONObject("definition").put("channelProfile","merchandiser").put("steps",org.json.JSONArray("""[{"key":"in","adapter":"check_in","label":"Start","required":true,"condition":"always"},{"key":"availability","adapter":"availability","label":"Availability","required":true,"condition":"always"},{"key":"price","adapter":"price_check","label":"Price","required":false,"condition":"always"},{"key":"out","adapter":"check_out","label":"End","required":true,"condition":"always"}]"""))
         val rows=ConfiguredFieldCalls.retailActivityChecklist(c,emptyList(),setOf("merchandising")){it!="price_check"}

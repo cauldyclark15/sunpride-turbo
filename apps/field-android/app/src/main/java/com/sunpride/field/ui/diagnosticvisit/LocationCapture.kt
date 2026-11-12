@@ -58,6 +58,13 @@ sealed interface LocationCapture {
     data class Captured(val fix: LocationFix) : LocationCapture
     data class Unavailable(val reason: UnavailableReason) : LocationCapture
     val wire: JSONObject? get() = (this as? Captured)?.fix?.toJson()
+    /** FLD-080: why there is no fix, sent with a location-less Start/End so the supervisor's review says why. */
+    val unavailableWire: String? get() = when ((this as? Unavailable)?.reason) {
+        UnavailableReason.PERMISSION_DENIED -> "permission_off"
+        UnavailableReason.LOCATION_OFF -> "location_off"
+        UnavailableReason.NO_FIX -> "no_signal"
+        null -> null
+    }
 }
 
 /** Picks the fix the server is most likely to accept from a stream of fused/GPS/network updates. */

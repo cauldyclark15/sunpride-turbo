@@ -6,6 +6,7 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -65,6 +66,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
             // Even a precise-permission denial may leave approximate/network location available.
             val capture = location.captureOrUnavailable()
             // F-106: the shared engine refuses weak, mock, stale or outside-radius fixes before outbox insertion.
+            // FLD-080: NO fix at all (location off / no signal) still starts the call, flagged for supervisor review.
             // F-024: the client spec supersedes the legacy mock-fix exception. No check-in is queued.
             if (kind == "visit.checkIn" && (capture as? LocationCapture.Captured)?.fix?.mockSignal == true) {
                 locationNotice = LocationNotice("Check-in refused. Turn off mock location and try again.", true)
@@ -74,7 +76,8 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
             locationNotice = LocationAssessment.notice(capture, System.currentTimeMillis())
             controller.queueDiagnostic(kind, if (kind == "visit.checkIn") reason else reasonCode,
                 null, if (kind == "visit.checkOut") outcome else null, capture.wire,
-                JSONObject().put("sequenceReason",sequenceReason).put("zeroSaleReason",zeroSaleReason).put("shortCallReason",shortCallReason)).join()
+                JSONObject().put("sequenceReason",sequenceReason).put("zeroSaleReason",zeroSaleReason).put("shortCallReason",shortCallReason)
+                    .apply { capture.unavailableWire?.let { put("locationUnavailable", it) } }).join()
         } finally { capturing = false }
     }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
@@ -146,7 +149,14 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                 if (!checkedIn && canDeviate) LabeledField("Why visit out of sequence?",sequenceReason,{sequenceReason=it},
                     Modifier.fillMaxWidth().testTag("sequence-reason"))
                 if (checkedIn && !checkedOut) {
-                    SectionCard("No order this call") {
+                    // FLD-105: a missing no-order reason brings these choices into view with the reason inline.
+                    val noOrderMissing = controller.diagnosticError == com.sunpride.callflow.CallFlowEngine.NO_ORDER_REASON && zeroSaleReason.isBlank()
+                    val noOrderView = remember { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+                    androidx.compose.runtime.LaunchedEffect(noOrderMissing) { if (noOrderMissing) noOrderView.bringIntoView() }
+                    SectionCard("No order this call", Modifier.testTag("no-order-reasons").bringIntoViewRequester(noOrderView)) {
+                        if (noOrderMissing) Text(com.sunpride.callflow.CallFlowEngine.NO_ORDER_REASON,
+                            Modifier.padding(horizontal = 16.dp, vertical = 8.dp).testTag("no-order-reason-error"),
+                            color = MaterialTheme.colorScheme.error)
                         com.sunpride.callflow.CallFlowEngine.objects(configured.getJSONArray("reasons")).forEach { choice ->
                             ChoiceRow(choice.getString("label"),zeroSaleReason == choice.getString("code"),
                                 { zeroSaleReason=choice.getString("code"); if (outcome == "nonproductive") reasonCode=zeroSaleReason; controller.cancelEnd() },
@@ -196,7 +206,8 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                 }
             }
             if (checkedIn && !checkedOut) flow?.optJSONObject("retail")?.let { retail ->
-                RetailAuditPanel(retail,controller.busy,controller.diagnosticPhotos.count { it.state in setOf("pending","uploaded") }) { kind,data,onSaved ->
+                RetailAuditPanel(retail,controller.busy,controller.diagnosticPhotos.count { it.state in setOf("pending","uploaded") },
+                    related.firstOrNull { it.first.kind == "visit.checkIn" }?.first?.clientVisitId ?: visit.outletId) { kind,data,onSaved ->
                     scope.launch {
                         if(kind=="issue_log" && !data.optBoolean("noneObserved")) {
                             val capture=location.captureOrUnavailable()
@@ -409,7 +420,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                     !controller.busy && !capturing)
             }
         }
-        else if (!checkedOut) PrimaryBottomButton("End call", { controller.reviewEnd(outcome, reasonCode) },
+        else if (!checkedOut) PrimaryBottomButton("End call", { controller.reviewEnd(outcome, reasonCode, zeroSaleReason) },
             Modifier.testTag("diagnostic-checkout"), !controller.busy && !capturing && outcome != null &&
                 (outcome != "nonproductive" || reasonCode.isNotBlank()) && (outcome != "completed" || missing.isEmpty()))
     }

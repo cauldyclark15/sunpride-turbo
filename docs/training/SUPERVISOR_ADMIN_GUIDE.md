@@ -522,9 +522,13 @@ Two different people are needed: one proposes, another verifies.
 3. To verify (not the proposer): open **Customers**, then **New customers**, and confirm the
    pin under the pins to confirm.
 
-The pin radius never blocks a check-in (Client rule: no fixed distance). A check-in
-outside the radius is only flagged for the supervisor (section 15). Only verified pins show
-on the coverage map.
+A phone with **no location** (Location off, permission off, no signal) never blocks a
+check-in: the call starts, the seller sees **Location unavailable · supervisor will review**,
+and you get a **No location** item in section 15 (van calls: **No location at start/end** in
+Call exceptions). On stores without a configured call flow, a check-in outside the radius is
+only flagged for the supervisor (section 15). On call-flow stores, a fix **outside the radius**
+needs your approval before Start (the seller taps **Request supervisor approval**), and a
+**mock (fake) location** is always refused. Only verified pins show on the coverage map.
 
 ### 12.3 Assign outlets to a territory and route, and set stop order
 
