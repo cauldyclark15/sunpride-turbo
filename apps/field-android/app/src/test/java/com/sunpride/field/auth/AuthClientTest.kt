@@ -179,6 +179,27 @@ class AuthClientTest {
         assertNull(vault.deviceId)
     }
 
+    // FLD-014: a refresh refused because the office revoked this phone says so plainly; a password change says
+    // "session ended". Only the credential goes; the callback lets the app remember why for the Sign in screen.
+    @Test fun `FLD-014 revoked phone refresh names the removal and FLD-171 plain end stays generic`() {
+        val ends = mutableListOf<Boolean>()
+        auth.onSessionEnded = { ends += it }
+        vault.saveSession("sps_fake-session")
+        server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":{"code":"device_revoked"}}"""))
+        val removed = try { auth.accessToken(); null } catch (e: AuthFailure) { e }!!
+        assertEquals(AuthFailure.Kind.SESSION_EXPIRED, removed.kind)
+        assertTrue(removed.removed)
+        assertEquals(AuthFailure.PHONE_REMOVED, removed.text)
+        assertTrue(removed.text.startsWith("This phone was removed by the office"))
+        vault.saveSession("sps_fake-session-2")
+        server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":{"code":"session_invalid"}}"""))
+        val ended = try { auth.accessToken(); null } catch (e: AuthFailure) { e }!!
+        assertFalse(ended.removed)
+        assertEquals("Your session has ended. Sign in again.", ended.text)
+        assertEquals(listOf(true, false), ends)
+        assertNull(vault.readSession())
+    }
+
     @Test fun tokenExchangeServerErrorKeepsSession() {
         vault.saveSession("sps_fake-session")
         server.enqueue(MockResponse().setResponseCode(502))

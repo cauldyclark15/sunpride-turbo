@@ -372,7 +372,7 @@ export function installDevices(router) {
         if (!updated.length)
           throw conflict("Device already bound", "already_bound");
         await t`insert into audit_logs(subject,action,entity_type,entity_id,details)
-        values (${actor.subject},'device.bound','device',${device.id},${{ app: device.app, verified: false }})`;
+        values (${actor.subject},'device.bound','device',${device.id},${JSON.stringify({ app: device.app, verified: false })})`;
       });
       await refund(ctx.db, subjectKey);
       return { version: 2, bindingStatus: "bound" };

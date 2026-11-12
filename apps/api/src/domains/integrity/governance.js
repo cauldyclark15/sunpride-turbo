@@ -55,7 +55,7 @@ export async function recordDeviceAssessment(t, device, report) {
     values (${device.id},${report.rooted},${report.tampered},'android-self-report',now(),now()+interval '1 day',${{ verified: false }})`;
   if (report.rooted || report.tampered)
     await t`insert into audit_logs(subject,action,entity_type,entity_id,details)
-    values ('device-report','device.integrity_flag','device',${device.id},${{ rooted: report.rooted, tampered: report.tampered, verified: false }})`;
+    values ('device-report','device.integrity_flag','device',${device.id},${JSON.stringify({ rooted: report.rooted, tampered: report.tampered, verified: false })})`;
 }
 
 /** @param {any} db @param {string} profileId @param {string|null} keyId @param {string} app */
@@ -97,7 +97,7 @@ export async function scopedDevice(c, id, cap = "admin.manage") {
 /** @param {any} c @param {string} action @param {string} id @param {any} details */
 export async function audit(c, action, id, details) {
   await c.db`insert into audit_logs(subject,action,entity_type,entity_id,details)
-    values (${c.actor.subject},${action},'integrity',${id},${details})`;
+    values (${c.actor.subject},${action},'integrity',${id},${typeof details === "string" ? details : JSON.stringify(details ?? null)})`;
 }
 /** @param {unknown} s */
 export function reason(s) {

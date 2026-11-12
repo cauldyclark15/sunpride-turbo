@@ -190,6 +190,13 @@ test("F-407 real signed distributor PJP/MSL/stock/order-intent call uses shared 
       },
       [checked.op.clientOpId],
     );
+    // FLD-160: the order job runs before End call on a live server; a partner order request always goes to the
+    // office's review queue. End call must still be accepted (it was refused as invalid_transition).
+    const { drainFieldOrders } = await import("../src/domains/orders/field-queue.js");
+    await drainFieldOrders({ db: h.db, publish: async () => {} });
+    const [queued] =
+      await h.db`select q.status from order_intent_queue q join visit_activities a on a.id=q.activity_id where a.visit_id=${visitId}`;
+    expect(queued.status).toBe("review");
     await push(
       "dsr.visit.checkOut",
       {

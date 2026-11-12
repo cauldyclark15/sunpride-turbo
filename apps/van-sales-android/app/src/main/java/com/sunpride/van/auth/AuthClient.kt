@@ -67,7 +67,11 @@ class AuthClient(
         val request = Request.Builder().url(environment.siteUrl.trimEnd('/')+REFRESH).header("Authorization","Bearer $session")
             .post(body.toString().toRequestBody(JSON_MEDIA)).build()
         val o = call(request) { code, response ->
-            if (code == 401 || code == 403) { vault.wipe(); throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED) }
+            if (code == 401 || code == 403) {
+                // FLD-014/171: only the credential goes; held work stays. Say plainly when the office removed the phone.
+                val reason = runCatching { JSONObject(response.body?.string().orEmpty()).optJSONObject("error")?.optString("code") }.getOrNull()
+                vault.wipe(); throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED, removed = reason in AuthFailure.REMOVED_CODES)
+            }
             if (code !in 200..299) throw AuthFailure(AuthFailure.Kind.SERVER)
             JSONObject(response.body?.string().orEmpty())
         }

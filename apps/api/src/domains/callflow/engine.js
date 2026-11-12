@@ -413,10 +413,14 @@ export async function ownedCall(ctx, key, allowClosed = false) {
 /** @param {any} ctx @param {any} call */
 export async function hasOrder(ctx, call) {
   if (call.visit_id) {
+    // FLD-160: a distributor's order request is never captured as a Sunpride order; it always lands in the
+    // office's review queue by design. That queued request IS the call's order, so End call is not refused
+    // for want of a no-order reason. Employee orders that failed capture still do not count.
+    const partner = !!ctx[DSR_ACCESS];
     const [r] =
       await ctx.db`select exists(select 1 from visit_activities a where a.visit_id=${call.visit_id} and a.activity_kind='order_intent' and a.deleted_at is null
       and jsonb_array_length(a.activity->'lines')>0
-      and not exists(select 1 from order_intent_queue q where q.activity_id=a.id and q.status='review')
+      and (${partner}::boolean or not exists(select 1 from order_intent_queue q where q.activity_id=a.id and q.status='review'))
       and not exists(select 1 from field_order_captures f join orders o on o.id=f.order_id where f.activity_id=a.id and o.status in ('draft','rejected','voided'))) as yes`;
     return r.yes;
   }

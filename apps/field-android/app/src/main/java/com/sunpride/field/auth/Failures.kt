@@ -4,9 +4,13 @@ package com.sunpride.field.auth
  * User-facing failure. Messages are fixed strings: no server text, URL, token, password or proof
  * ever enters them, and no cause is attached (an IOException message could echo request details).
  */
-class AuthFailure(val kind: Kind, val retryAfterMs: Long? = null) : Exception(text(kind, retryAfterMs), null) {
-    /** What the person sees. FLD-004: a throttle names the real wait from the server's `retryAfterMs`. */
-    val text: String get() = text(kind, retryAfterMs)
+class AuthFailure(val kind: Kind, val retryAfterMs: Long? = null, val removed: Boolean = false) :
+    Exception(if (removed) PHONE_REMOVED else text(kind, retryAfterMs), null) {
+    /**
+     * What the person sees. FLD-004: a throttle names the real wait from the server's `retryAfterMs`.
+     * FLD-014: an ended session whose phone the office revoked/paused says so plainly (kind stays SESSION_EXPIRED).
+     */
+    val text: String get() = if (removed) PHONE_REMOVED else text(kind, retryAfterMs)
     enum class Kind(val message: String) {
         INVALID_CREDENTIALS("Incorrect email or password."),
         REFUSED("Sign-in was refused for this account. Ask your administrator."),
@@ -19,6 +23,11 @@ class AuthFailure(val kind: Kind, val retryAfterMs: Long? = null) : Exception(te
     }
     override fun toString(): String = "AuthFailure($kind)"
     companion object {
+        /** FLD-014: unsent work is never deleted; it stays encrypted on the phone for the office's recovery/handover. */
+        const val PHONE_REMOVED = "This phone was removed by the office. Your unsent work is kept on this phone. " +
+            "Give the phone to your supervisor so the office can recover it."
+        /** Server codes on a refused refresh that mean the office removed or paused this phone. */
+        val REMOVED_CODES = setOf("device_revoked", "device_suspended")
         fun text(kind: Kind, retryAfterMs: Long?): String {
             if (kind != Kind.RATE_LIMITED || retryAfterMs == null || retryAfterMs <= 0) return kind.message
             val minutes = (retryAfterMs + 59_999) / 60_000

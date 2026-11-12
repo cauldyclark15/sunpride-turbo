@@ -109,11 +109,42 @@ const historyLabel: Record<string, string> = {
   "people.devices.revoke": "Revoked",
   "people.devices.reinstate": "Reinstated",
   "device.registered": "Registered",
+  "device.sample_registered": "Registered",
   "device.bound": "Signed in on phone",
   "device.suspended": "Suspended",
   "device.reinstated": "Reinstated",
   "device.revoked": "Revoked",
+  "device.replacement_code_requested": "Replacement code requested",
+  "device.handover_requested": "Handover started",
+  "device.handover_candidate_recorded": "Replacement phone recorded",
+  "device.handover_completed": "Handover completed",
+  "device.wipe_requested": "Erase requested",
+  "device.work_held": "Unsent work held for the office",
+  "device.erasure_acknowledged": "Erase confirmed by the phone",
+  "device.recovery_exported": "Recovered work exported",
+  "device.integrity_flag": "Integrity warning",
+  "device.integrity_assessed": "Integrity checked",
+  "device.integrity_exception": "Integrity exception",
 };
+
+/** FLD-013: plain words for every history event; an unknown event key is never shown raw. */
+export function deviceHistoryTitle(action: string): string {
+  const known = historyLabel[action];
+  if (known) return known;
+  const words = action
+    .replace(/^(people\.devices|device)\./, "")
+    .replace(/[._]+/g, " ")
+    .trim();
+  return words ? words[0].toUpperCase() + words.slice(1) : "Phone event";
+}
+
+/** FLD-013: only a short reason code becomes words; objects or "[object Object]" never reach the screen. */
+export function deviceHistoryReason(reason: unknown): string | null {
+  if (typeof reason !== "string" || !/^[a-z][a-z0-9_]{1,79}$/.test(reason))
+    return null;
+  if (["registered", "bound"].includes(reason)) return null;
+  return reason.replaceAll("_", " ");
+}
 
 const operationLabel: Record<string, string> = {
   "visit.checkIn": "Check-in",
@@ -385,15 +416,14 @@ export function DevicesAdmin() {
                   <ListRow
                     key={`${entry.action}:${entry.at}`}
                     icon={<WorkspaceIcon name="queue" />}
-                    title={historyLabel[entry.action] ?? entry.action}
+                    title={deviceHistoryTitle(entry.action)}
                     meta={[
                       formatManilaDateTime(entry.at),
                       entry.actorName ?? "Former user",
-                      ...(entry.reason &&
-                      !["registered", "bound"].includes(entry.reason)
-                        ? [entry.reason.replaceAll("_", " ")]
-                        : []),
-                    ].join(" · ")}
+                      deviceHistoryReason(entry.reason),
+                    ]
+                      .filter(Boolean)
+                      .join(" · ")}
                   />
                 ))}
               </div>

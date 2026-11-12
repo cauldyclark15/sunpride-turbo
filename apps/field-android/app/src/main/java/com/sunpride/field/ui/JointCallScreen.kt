@@ -32,6 +32,40 @@ object JointCallDraft {
   return JSONObject(a.toString())
  }
  fun payload(draft:JSONObject,complete:Boolean):JSONObject=JSONObject(draft.toString()).put("complete",complete)
+ /**
+  * FLD-159: the form-only completion parts the office also checks (apps/api fieldreports/rules.js completionGaps,
+  * same words). "Save and finish" names what is missing instead of queueing a finish the office will refuse.
+  * MCP execution and earlier agreements stay server-checked (shown from the office copy's gaps).
+  */
+ fun gaps(a:JSONObject):List<String> {
+  val gaps=mutableListOf<String>()
+  val obs=a.optJSONArray("observations")?:JSONArray()
+  val areas=(0 until obs.length()).map{obs.getJSONObject(it)}.filter{it.optString("item").isNotBlank()&&it.optString("rating").isNotBlank()}.map{it.optString("area")}
+  fun blank(o:JSONObject?,k:String)=o?.optString(k).isNullOrBlank()
+  if("bcp" !in areas)gaps+="Record at least one Basic Call Procedure (BCP) observation"
+  if("psf" !in areas)gaps+="Record at least one Persuasive Selling Format (PSF) observation"
+  if(a.optString("objective")=="training"){
+   val log=a.optJSONObject("trainingLog")
+   if(blank(log,"topics"))gaps+="Write the training log"
+   if(blank(log,"tradeDevelopment"))gaps+="Write the trade development remark"
+   if(log?.optBoolean("discussedWithTrainee")!=true)gaps+="Review and discuss the training log with the trainee"
+  }else{
+   val pre=a.optJSONObject("preCall")
+   if((pre?.optJSONArray("documents")?.length()?:0)==0)gaps+="Pick the reports reviewed before the call"
+   if(blank(pre,"remarks"))gaps+="Write the pre-call review remarks"
+   val post=a.optJSONObject("postCall")
+   if(listOf("strengths","weaknesses","opportunities","threats").any{blank(post,it)})gaps+="Write all four SWOT remarks after the call"
+   if(a.optString("mode")=="truck"){
+    if(a.optString("truckReference").isBlank())gaps+="Name the truck for a truck work-with"
+    if(!a.optBoolean("rodeWithTruck"))gaps+="Confirm you rode the named truck"
+   }
+  }
+  return gaps
+ }
+ /** FLD-159: the one sentence shown when "Save and finish" is pressed with parts missing. */
+ fun finishBlocked(gaps:List<String>):String?=if(gaps.isEmpty())null else "Not finished yet. "+gaps.joinToString("; ")+"."
+ const val SAVED_DRAFT="Draft saved on this phone. Sync sends it to the office."
+ const val SAVED_FINISH="Finished on this phone. Sync sends it to the office for the final check."
 }
 
 /** "2026-11-09" -> "Nov 9"; anything unparseable is shown as given. */
@@ -42,6 +76,7 @@ internal fun shortDay(iso:String):String=runCatching{java.time.LocalDate.parse(i
  val life=c.sapMasterLifetime();val scope=rememberCoroutineScope()
  var data by remember(life){mutableStateOf<JSONObject?>(null)};var refresh by remember{mutableStateOf(1)}
  var loading by remember{mutableStateOf(false)};var selection by remember(life){mutableStateOf<String?>(null)}
+ var notice by remember{mutableStateOf<String?>(null)}
  var now by remember{mutableStateOf(System.currentTimeMillis())}
  LaunchedEffect(Unit){while(true){kotlinx.coroutines.delay(1000);now=System.currentTimeMillis()}}
  LaunchedEffect(life,refresh,c.today.lastSynced){val before=life;loading=true;val next=try{withContext(Dispatchers.IO){c.domainForms("jointcall",refresh>0)}}catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;null};if(before==c.sapMasterLifetime())data=next;loading=false}
@@ -52,6 +87,7 @@ internal fun shortDay(iso:String):String=runCatching{java.time.LocalDate.parse(i
   NoticeCard("Works offline. Sync sends it to the office.")
   FieldButton({refresh++},Modifier.fillMaxWidth(),enabled=!loading&&!c.busy){Text(if(loading)"Refreshing…"else"Refresh")}
   c.error?.let{NoticeCard(it,tone=Look.Tone.BAD)}
+  notice?.let{NoticeCard(it,tone=if(it.startsWith("Not finished"))Look.Tone.BAD else Look.Tone.GOOD)}
   val d=data?.takeIf{it.optLong("authorizationExpiresAt")>now}
   if(d==null){NoticeCard("Connect to verify today's supervisor assignment before recording. Held or expired forms cannot be edited.",tone=Look.Tone.WARN,glyph=GlyphKind.LOCK);return@Column}
   val sessions=rows(d.optJSONArray("sessions"));val locals=rows(d.optJSONArray("localOperations"))
@@ -115,7 +151,7 @@ internal fun shortDay(iso:String):String=runCatching{java.time.LocalDate.parse(i
   }
   detail?.optJSONArray("gaps")?.let{for(g in rows(it))Text(g.getString("label"),style=MaterialTheme.typography.bodySmall)}
   Text("Completion is checked again by the office, including actual MCP execution and earlier agreements. It is not complete until acknowledged.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
-  for(complete in listOf(false,true))FieldButton({val payload=JointCallDraft.payload(a,complete);val dependencies=retained?.let{listOf(it.getString("requestId"))}.orEmpty();if(retained!=null){payload.put("previousRequestId",retained.getString("requestId")).remove("expectedRevision");if(!payload.has("sessionId")&&!payload.has("localSessionRequestId"))payload.put("localSessionRequestId",retained.getString("requestId"))};scope.launch{c.queueDomain("jointcall.capture",payload,retained?.getString("aggregateId")?:if(chosen=="new")UUID.randomUUID().toString()else chosen,dependencies).join();if(c.error==null){selection=null;text=JointCallDraft.create(d.getString("serviceDate"),null).toString()};data=withContext(Dispatchers.IO){c.domainForms("jointcall",false)}}},modifier=Modifier.fillMaxWidth(),enabled=!c.busy&&a.optString("traineeProfileId").isNotBlank(),primary=complete){Text(if(complete)"Save and finish"else"Save draft")}
+  for(complete in listOf(false,true))FieldButton({notice=null;if(complete)JointCallDraft.finishBlocked(JointCallDraft.gaps(a))?.let{notice=it;return@FieldButton};val payload=JointCallDraft.payload(a,complete);val dependencies=retained?.let{listOf(it.getString("requestId"))}.orEmpty();if(retained!=null){payload.put("previousRequestId",retained.getString("requestId")).remove("expectedRevision");if(!payload.has("sessionId")&&!payload.has("localSessionRequestId"))payload.put("localSessionRequestId",retained.getString("requestId"))};scope.launch{c.queueDomain("jointcall.capture",payload,retained?.getString("aggregateId")?:if(chosen=="new")UUID.randomUUID().toString()else chosen,dependencies).join();if(c.error==null){notice=if(complete)JointCallDraft.SAVED_FINISH else JointCallDraft.SAVED_DRAFT;selection=null;text=JointCallDraft.create(d.getString("serviceDate"),null).toString()};data=withContext(Dispatchers.IO){c.domainForms("jointcall",false)}}},modifier=Modifier.fillMaxWidth(),enabled=!c.busy&&a.optString("traineeProfileId").isNotBlank(),primary=complete){Text(if(complete)"Save and finish"else"Save draft")}
   FieldButton(c::syncNow,enabled=!c.busy){Text("Sync")}
   Spacer(Modifier.height(24.dp))
  }

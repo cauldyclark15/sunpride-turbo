@@ -31,6 +31,8 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
     private val signer: (() -> DeviceSigner)? = null) {
     private var access: String? = null
     private var refreshAt = 0L
+    /** FLD-014/171: told why the server ended the session (true = the office removed/paused this phone). */
+    @Volatile var onSessionEnded: ((removed: Boolean) -> Unit)? = null
     val isSignedIn: Boolean get() = vault.readSession()?.startsWith("sps_") == true
     fun deviceKeyId(): String? = signer?.invoke()?.let {
         RequestSigner.bodyDigest(Base64.getDecoder().decode(it.publicKeyBase64))
@@ -129,7 +131,11 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
                 when {
                     signingIn && r.code in setOf(400, 401) -> throw AuthFailure(AuthFailure.Kind.INVALID_CREDENTIALS)
                     !signingIn && r.code in setOf(401, 403) -> {
-                        vault.wipe(); throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED)
+                        // FLD-014/171: the session is over; only the credential goes. Local work is never touched here.
+                        val code = runCatching { JSONObject(r.body?.string().orEmpty()).optJSONObject("error")?.optString("code") }.getOrNull()
+                        val removed = code in AuthFailure.REMOVED_CODES
+                        vault.wipe(); runCatching { onSessionEnded?.invoke(removed) }
+                        throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED, removed = removed)
                     }
                     r.code == 403 -> throw AuthFailure(AuthFailure.Kind.REFUSED)
                     r.code == 429 -> throw AuthFailure(AuthFailure.Kind.RATE_LIMITED, AuthFailure.retryAfter(r.body?.string()))

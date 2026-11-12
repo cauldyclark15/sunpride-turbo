@@ -68,6 +68,8 @@ export const OP_CODES = Object.freeze([
   "mock_location_refused",
   "place_mismatch",
   "places_unavailable",
+  // FLD-159: Work-With "Save and finish" refused because a required part of the joint call is missing.
+  "work_with_incomplete",
 ]);
 /** Advisory lock making change_log seq order equal commit order. */
 const CHANGE_LOCK = 4310002;

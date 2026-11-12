@@ -362,4 +362,37 @@ describe("an old removed phone row never overrules the current one", () => {
       "This handheld is not set up for you. Ask your supervisor to hand it over.",
     );
   });
+
+  // FLD-014: the office's Revoke also ends the phone's sessions. The refresh must still say the phone was
+  // removed (not just "session ended") so the phone tells the person and keeps unsent work for recovery.
+  test("FLD-014 a session ended by revoking its phone refreshes to device_revoked; a plain end stays session_invalid", async () => {
+    const userId = await createUser(h, "gone2@example.com", "device password");
+    const profile = profiles.set(userId, { role: "sales" });
+    const key = await deviceKey();
+    const deviceId = await registerDevice(h, {
+      profileId: profile.id,
+      orgUnitId: profile.orgUnitId,
+      key,
+    });
+    const signIn = async () =>
+      /** @type {any} */ (
+        await nativeSignIn(h, "gone2@example.com", "device password", "field-android", {
+          keyId: key.keyId,
+          publicKeySpki: key.publicKeySpki,
+        })
+      ).body;
+    const first = await signIn();
+    // Password changed elsewhere: sessions end, the phone stays active.
+    await h.db`update sessions set revoked_at=now() where user_id=${userId} and revoked_at is null`;
+    const ended = await refresh(first.sessionToken, key.keyId);
+    expect(ended.status).toBe(401);
+    expect(/** @type {any} */ (await ended.json()).error.code).toBe("session_invalid");
+    // Office revokes the phone (deviceCommand revokes the bound sessions in the same step).
+    const second = await signIn();
+    await h.db`update registered_devices set status='revoked' where id=${deviceId}`;
+    await h.db`update sessions set revoked_at=now() where user_id=${userId} and revoked_at is null`;
+    const removed = await refresh(second.sessionToken, key.keyId);
+    expect(removed.status).toBe(401);
+    expect(/** @type {any} */ (await removed.json()).error.code).toBe("device_revoked");
+  });
 });

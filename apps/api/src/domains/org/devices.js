@@ -131,7 +131,7 @@ export async function deviceReport(c, p) {
       action: r.action,
       at: ms(r.created_at),
       actorName: r.actor_name ?? "Former user",
-      reason: r.details,
+      reason: historyReason(r.details),
     })),
     acknowledged: operations.map((r) => ({
       kind: r.op_type,
@@ -142,4 +142,23 @@ export async function deviceReport(c, p) {
     warning:
       "Unsynced work may exist only on this phone. Revocation is permanent; reconcile before recapture.",
   };
+}
+
+/**
+ * FLD-013: audit details are a bare reason code (office commands) or a JSON object (phone/handover events; older
+ * rows were stored as the literal "[object Object]"). The history shows only a reason code, never raw details.
+ * @param {unknown} details @returns {string|null}
+ */
+export function historyReason(details) {
+  if (typeof details !== "string") return null;
+  const code = /^[a-z][a-z0-9_]{1,79}$/;
+  if (code.test(details)) return details;
+  try {
+    const parsed = JSON.parse(details);
+    return typeof parsed?.reason === "string" && code.test(parsed.reason)
+      ? parsed.reason
+      : null;
+  } catch {
+    return null;
+  }
 }
