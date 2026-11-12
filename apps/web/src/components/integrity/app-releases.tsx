@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "../../lib/format";
 import { useState } from "react";
 import { usePermissions } from "../../lib/auth";
 import { useApi, mutate } from "../../lib/api";
@@ -137,9 +138,7 @@ export function AppReleases() {
                 · {r.withdrawn ? "Withdrawn" : "Published / scheduled"}
               </p>
               <p>{r.notes}</p>
-              <p>
-                Effective {new Date(r.effectiveFrom).toLocaleString("en-PH")}
-              </p>
+              <p>Effective {formatDateTime(r.effectiveFrom)}</p>
               {!r.withdrawn && (
                 <button
                   className={button}

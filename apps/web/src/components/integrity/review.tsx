@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "../../lib/format";
 
 import { useState } from "react";
 import { apiFetch, mutate, useApi, useLive } from "../../lib/api";
@@ -126,9 +127,7 @@ export function IntegrityReview() {
               <p className="text-sm">
                 {f.person}
                 {f.outlet ? ` · ${f.outlet}` : ""} ·{" "}
-                {new Date(f.occurredAt).toLocaleString("en-PH", {
-                  timeZone: "Asia/Manila",
-                })}
+                {formatDateTime(f.occurredAt)}
               </p>
               <dl className="flex flex-wrap gap-4 text-sm">
                 {Object.entries(f.evidence)

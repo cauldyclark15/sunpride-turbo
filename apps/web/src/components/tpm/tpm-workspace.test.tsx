@@ -198,7 +198,7 @@ it("F-501 F-507 read-only viewers never receive master or claims write controls"
   expect(finance).not.toContain("Submit claim");
 });
 it("F-509 separates SAP write-off from recovery and exposes independent pending-resolution controls", () => {
-  state.tab = "Deductions";
+  state.search = "tab=deductions";
   state.values.deductions = {
     rows: [
       {
@@ -272,4 +272,19 @@ it("F-501 integer centavos distinguish unknown, zero and exact input values", ()
   expect(() => centavos("-1")).toThrow();
   expect(peso(null)).toBe("Unknown");
   expect(peso(0)).not.toBe("Unknown");
+});
+
+it("WEB-142 claims read as words and the Finance tab lives in the URL", () => {
+  state.search = "";
+  const html = renderToStaticMarkup(createElement(FinanceClaimsWorkspace));
+  expect(html).toContain("Needs evidence");
+  expect(html).not.toContain("needs_evidence");
+  expect(html).not.toMatch(/>needs evidence</);
+  expect(html).toContain("Oct 1 – Oct 20, 2026");
+  expect(html).not.toContain("2026-10-01");
+  expect(html).toMatch(/aria-pressed="true"[^>]*>Claims</);
+  state.search = "tab=liability";
+  expect(renderToStaticMarkup(createElement(FinanceClaimsWorkspace))).toMatch(
+    /aria-pressed="true"[^>]*>Liability</,
+  );
 });

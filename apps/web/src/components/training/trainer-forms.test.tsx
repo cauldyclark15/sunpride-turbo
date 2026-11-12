@@ -260,7 +260,7 @@ describe("trainer form screens", () => {
     );
     expect(html).toContain("Waiting for your acknowledgement");
     expect(html).toContain("Training sheet · Annex F");
-    expect(html).toContain("Open Training sheet of 2026-09-30");
+    expect(html).toContain("Open Training sheet of Sep 30, 2026");
     expect(html).toContain("My training program");
     expect(html).toContain("Rushes the close");
     expect(html).not.toContain("Forms I wrote");

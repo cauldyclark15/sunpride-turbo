@@ -113,7 +113,7 @@ describe("work-with screens", () => {
     expect(html).toContain("0/3 · behind");
     expect(html).toContain("12/12");
     expect(html).toContain("Sales and validation · Truck TRK-7");
-    expect(html).toContain("Open Work-With with Ana on 2026-09-30");
+    expect(html).toContain("Open Work-With with Ana on Sep 30, 2026");
     expect(html).toContain("Done");
   });
 

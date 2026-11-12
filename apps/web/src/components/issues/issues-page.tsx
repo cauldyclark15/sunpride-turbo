@@ -1,4 +1,6 @@
 "use client";
+import { useUrlTab } from "../../lib/use-url-tab";
+import { formatDate } from "../../lib/format";
 import { Button } from "@heroui/react";
 import { useIssueQuery, useIssueCommand } from "./data";
 import { useLive } from "../../lib/api";
@@ -31,11 +33,13 @@ const initialFilters = {
   archived: false,
   attention: "",
 };
+const ISSUE_VIEWS = ["board", "list"] as const;
+
 export function IssuesPage() {
   const { access, canRead, loading, error: accessError } = useIssueAccess();
   const router = useRouter();
   const [filters, setFilters] = useState(initialFilters);
-  const [view, setView] = useState<"board" | "list">("board");
+  const [view, setView] = useUrlTab(ISSUE_VIEWS, "board", "view");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const search = useDeferredValue(filters.search.trim());
@@ -183,7 +187,7 @@ export function IssuesPage() {
                     fill="currentColor"
                   >
                     <title>
-                      {day.date}:{" "}
+                      {formatDate(day.date)}:{" "}
                       {day.known === false
                         ? "No historical activity available"
                         : `${day.completed} moves to Done`}

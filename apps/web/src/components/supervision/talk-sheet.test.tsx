@@ -241,6 +241,6 @@ describe("talk sheet screens", () => {
     expect(html).toContain('<option value="Sample Dario Cruz">Sample Dario Cruz · E9</option>');
     expect(html).toContain('<option value="Ace Trading">Ace Trading · earlier partner</option>');
     expect(html).toContain("25 Aug");
-    expect(html).toContain("Open Talk Sheet with Ace Trading on 2026-09-30");
+    expect(html).toContain("Open Talk Sheet with Ace Trading on Sep 30, 2026");
   });
 });

@@ -59,6 +59,9 @@ function setParams(values: Record<string, string | null>) {
   window.dispatchEvent(new Event("popstate"));
 }
 
+/** Rows per master-data page (cursor list). */
+const MASTER_PAGE_SIZE = 25;
+
 export function MasterDataWorkspace({
   initialSection = "products",
 }: { initialSection?: Kind } = {}) {
@@ -82,7 +85,10 @@ export function MasterDataWorkspace({
   const filter = "";
   const pageInput = {
     q,
-    paginationOpts: { numItems: 25, cursor: cursors.at(-1) ?? null },
+    paginationOpts: {
+      numItems: MASTER_PAGE_SIZE,
+      cursor: cursors.at(-1) ?? null,
+    },
     ...(missingPrice && kind === "products" ? { missingPrice: "true" } : {}),
   };
   const products = useOrgQuery(
@@ -458,6 +464,15 @@ export function MasterDataWorkspace({
         rowEnd={rowEnd}
         exportName={NOUN[kind].many}
         loading={page === undefined}
+        range={
+          rows && page
+            ? {
+                from: (cursors.length - 1) * MASTER_PAGE_SIZE + 1,
+                to: (cursors.length - 1) * MASTER_PAGE_SIZE + rows.length,
+                more: !page.isDone,
+              }
+            : null
+        }
       />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Pager

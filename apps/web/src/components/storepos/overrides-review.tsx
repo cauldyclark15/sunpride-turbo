@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "../../lib/format";
 
 import { useState } from "react";
 import { useApi, useLive } from "../../lib/api";
@@ -49,12 +50,7 @@ export function OverridesList({
         {shown.map((o) => (
           <tr key={o.id} className="border-t border-separator">
             <td className="py-2 pr-3">
-              {new Date(o.capturedAt).toLocaleString("en-PH", {
-                month: "short",
-                day: "numeric",
-                hour: "numeric",
-                minute: "2-digit",
-              })}
+              {formatDateTime(o.capturedAt)}
               <span className="block text-xs text-muted">{o.registerName}</span>
             </td>
             <td className="py-2 pr-3">{OVERRIDE_WORDS[o.kind] ?? o.label}</td>

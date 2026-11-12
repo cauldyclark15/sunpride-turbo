@@ -1,3 +1,4 @@
+import { formatDate } from "../../lib/format";
 import { routeMoney } from "./route-format";
 
 export type RouteScorecard = {
@@ -66,7 +67,7 @@ export function RouteScorecardView({ card }: { card: RouteScorecard }) {
       </p>
       <p className="text-sm">
         {card.prior
-          ? `Previous trip ${card.prior.date}: ${routeMoney(card.prior.salesCentavos)}.`
+          ? `Previous trip ${formatDate(card.prior.date)}: ${routeMoney(card.prior.salesCentavos)}.`
           : "No earlier trip for comparison."}
       </p>
       <details>
@@ -74,7 +75,7 @@ export function RouteScorecardView({ card }: { card: RouteScorecard }) {
         <ol className="grid gap-1 text-sm">
           {card.trend.map((p) => (
             <li key={p.date}>
-              {p.date} · {routeMoney(p.salesCentavos)}
+              {formatDate(p.date)} · {routeMoney(p.salesCentavos)}
             </li>
           ))}
         </ol>

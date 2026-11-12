@@ -1,4 +1,5 @@
 "use client";
+import { formatStatus } from "../../lib/format";
 import Link from "next/link";
 import { ActionForm, Field, Panel, fieldClass, value } from "./kit";
 export type PartnerVanData = {
@@ -131,7 +132,7 @@ export function VanArrangement({
               key={t.id}
             >
               {t.trip_number} · {t.service_date.slice(0, 10)} ·{" "}
-              {t.status.replaceAll("_", " ")}
+              {formatStatus(t.status)}
             </article>
           ))
         ) : (

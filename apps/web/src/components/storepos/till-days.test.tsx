@@ -451,7 +451,7 @@ describe("registers and the day queue", () => {
       }),
     );
     expect(view.match(/Till one/g)).toHaveLength(1);
-    expect(view).toContain("2026-11-06");
+    expect(view).toContain("Nov 6, 2026");
     expect(view).toContain("Ready for Z reading");
     expect(view).toContain("₱9,000.00");
   });

@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 
 import { apiFetch, useApi, useApiPages, useLive } from "../../lib/api";
 import {
@@ -364,7 +365,8 @@ function DaySummary({
               {trend.map((p, index) => (
                 <g key={p.date}>
                   <title>
-                    {p.date}: {p.visited} visited, {p.planned} planned
+                    {formatDate(p.date)}: {p.visited} visited, {p.planned}{" "}
+                    planned
                   </title>
                   <rect
                     x={index * 40 + 4}

@@ -1,6 +1,6 @@
 "use client";
+import { formatPeriod } from "../../lib/format";
 
-import { formatDateRange } from "../cockpit/format";
 import type { EndpointResult } from "./report-api";
 
 import type { Id } from "./report-dto";
@@ -283,8 +283,8 @@ export function ProductivityView({
             </select>
           </FormField>
         </div>
-        <span className="flex h-10 items-center text-[13px] text-muted">
-          {formatDateRange(period.from, period.to)}
+        <span className="flex h-10 items-center font-mono text-[13px] text-muted">
+          {formatPeriod(period.from, period.to)}
         </span>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

@@ -46,7 +46,7 @@ describe("F-301 F-303 F-304 dispatch presentation", () => {
     expect(html).toContain("98%");
     expect(html).toContain("7 / 10");
     expect(html).toContain("8 / 10 signed");
-    expect(html).toContain("2026-10-15");
+    expect(html).toContain("Oct 15, 2026");
   });
   it("F-303 empty days are unknown rather than a perfect zero-denominator result", () => {
     expect(deliveryPercent({ ...counts, drops: 0, proofs: 0 })).toBeNull();

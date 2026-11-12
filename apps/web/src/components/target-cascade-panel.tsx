@@ -1,8 +1,8 @@
 "use client";
+import { formatDate, formatMonth, formatPeriod } from "../lib/format";
 import { useRef, useState } from "react";
 import { useApi, useLive, useMutate } from "../lib/api";
-import { formatDate, formatPhp } from "./cockpit/format";
-import { monthLabel } from "../lib/call-sheet";
+import { formatPhp } from "./cockpit/format";
 import { manilaToday } from "./cockpit/period";
 
 type Line = {
@@ -266,7 +266,7 @@ export function TargetCascadePanel() {
               </p>
               <p className="text-xs text-muted">
                 Prepared by {c.preparedBy}; {METHOD[c.method]}
-                {c.basisFrom ? ` from ${c.basisFrom}` : ""}. Source:{" "}
+                {c.basisFrom ? ` from ${formatDate(c.basisFrom)}` : ""}. Source:{" "}
                 {c.sourceRef}
               </p>
               <CascadeTable cascade={c} />
@@ -332,7 +332,7 @@ export function TargetCascadePanel() {
       )}
       <section aria-label="Published targets" className="grid gap-3">
         <h3 className="font-medium">
-          Published for {monthLabel(month)} · applies from{" "}
+          Published for {formatMonth(month)} · applies from{" "}
           {formatDate(`${month}-01`)}
         </h3>
         {published.length === 0 && (
@@ -472,7 +472,7 @@ export function TargetCascadePanel() {
                     : "channels"}
                 , {METHOD[preview.method]}
                 {preview.basisFrom
-                  ? ` (${preview.basisFrom} to ${preview.basisTo})`
+                  ? ` (${formatPeriod(preview.basisFrom, preview.basisTo)})`
                   : ""}
                 . Edit any child; the total must still match.
               </p>

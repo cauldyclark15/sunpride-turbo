@@ -1,4 +1,5 @@
 "use client";
+import { formatStatus } from "../lib/format";
 
 import { Button, Input } from "@heroui/react";
 import { api } from "./master-data/api";
@@ -351,7 +352,7 @@ export function PeopleAdmin() {
       text: (row) => row.status,
       render: (row) => (
         <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
-          {row.status}
+          {formatStatus(row.status)}
         </StatusPill>
       ),
     },
@@ -420,7 +421,7 @@ export function PeopleAdmin() {
                 : "warning"
           }
         >
-          {row.status}
+          {formatStatus(row.status)}
         </StatusPill>
       ),
     },

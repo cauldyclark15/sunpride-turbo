@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 
 import Link from "next/link";
 
@@ -77,7 +78,8 @@ export function MyTeamView({
       <div>
         <h2 className="text-lg font-semibold">My team today and this week</h2>
         <p className="text-sm text-muted">
-          {report.serviceDate} · Week of {report.week.start}. Exceptions first.
+          {formatDate(report.serviceDate)} · Week of{" "}
+          {formatDate(report.week.start)}. Exceptions first.
         </p>
       </div>
       {report.rows.length === 0 ? (

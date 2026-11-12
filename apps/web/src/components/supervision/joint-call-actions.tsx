@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 import { useState } from "react";
 import type { EndpointResult } from "./report-api";
 import { useReportCommand } from "./report-api";
@@ -19,7 +20,7 @@ const OUTCOME = {
 /** F-223: the follow-up line shown for each carried agreement. */
 export function carriedLine(a: JointCallAction, today: string) {
   const late = a.status === "open" && a.dueOn < today;
-  return `${a.agreement} — ${OWNER[a.owner].toLowerCase()} to do by ${a.dueOn}${late ? " (overdue)" : ""}; agreed ${a.agreedOn}`;
+  return `${a.agreement} — ${OWNER[a.owner].toLowerCase()} to do by ${formatDate(a.dueOn)}${late ? " (overdue)" : ""}; agreed ${formatDate(a.agreedOn)}`;
 }
 
 /** F-223: agreed actions at this joint call, and review of the last joint call's agreements. */

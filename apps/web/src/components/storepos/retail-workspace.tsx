@@ -1,4 +1,5 @@
 "use client";
+import { formatDate, formatStatus } from "../../lib/format";
 
 import { useState } from "react";
 import Link from "next/link";
@@ -487,7 +488,7 @@ export function RetailWorkspace() {
                       className="border-l-2 border-foreground pl-3"
                     >
                       <span>
-                        {t.day} · {t.category}
+                        {formatDate(t.day)} · {t.category}
                       </span>
                       <strong className="block">{formatPhp(t.sales)}</strong>
                       <meter
@@ -730,7 +731,7 @@ export function RetailOperations({
               {v.bank} · {v.reference} · {formatPhp(Number(v.amount))} ·{" "}
               {v.status === "matched"
                 ? "Matches Z-read amount · not bank confirmation"
-                : v.status.replaceAll("_", " ")}
+                : formatStatus(v.status)}
             </p>
             {v.canViewPhoto && (
               <a

@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../lib/format";
 
 import { Button } from "@heroui/react";
 import { Card, ListRow, StatusPill, WorkspaceIcon } from "@sunpride/ui";
@@ -99,7 +100,7 @@ export function CoverageExceptions({
                     <ListRow
                       icon={<WorkspaceIcon name="field" />}
                       title={row.message}
-                      meta={`${row.code.replaceAll("_", " ")}${row.serviceDate ? ` · ${row.serviceDate}` : ""}${row.signedHistorical ? " · Historical" : ""} · ${row.remediation}`}
+                      meta={`${row.code.replaceAll("_", " ")}${row.serviceDate ? ` · ${formatDate(row.serviceDate)}` : ""}${row.signedHistorical ? " · Historical" : ""} · ${row.remediation}`}
                       value={
                         <StatusPill
                           tone={severity === "blocking" ? "danger" : "warning"}

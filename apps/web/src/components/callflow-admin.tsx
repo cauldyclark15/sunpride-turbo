@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../lib/format";
 
 import { useState, type FormEvent } from "react";
 import { apiFetch, mutate, useApi, useLive } from "../lib/api";
@@ -636,7 +637,8 @@ export function CallFlowReport() {
                     className="rounded-md border border-border p-3"
                   >
                     <p>
-                      {call.person} · {call.outlet} · {call.serviceDate}
+                      {call.person} · {call.outlet} ·{" "}
+                      {formatDate(call.serviceDate)}
                     </p>
                     <p className="text-sm text-muted">
                       {call.state === "open"

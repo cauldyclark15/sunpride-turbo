@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 import { peso, words } from "./model";
 export type EvidenceSnapshot = {
   occurredAt?: number;
@@ -33,9 +34,7 @@ export function ClaimEvidencePreview({
           <h4 className="font-medium">{words(e.kind)}</h4>
           <p className="text-xs text-muted">
             {e.snapshot?.occurredAt != null
-              ? new Date(e.snapshot.occurredAt).toLocaleDateString("en-PH", {
-                  timeZone: "Asia/Manila",
-                })
+              ? formatDate(e.snapshot.occurredAt)
               : "Source date unavailable"}
           </p>
           <p className="text-sm">

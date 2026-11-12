@@ -1,4 +1,5 @@
 "use client";
+import { formatDay } from "../../lib/format";
 
 import Link from "next/link";
 
@@ -39,17 +40,7 @@ export function PageTabs({
 
 /** "Nov 9" in Manila time; the year only when it is not this year. */
 export function shortDate(ms: number, now = Date.now()) {
-  const year = (n: number) =>
-    new Date(n).toLocaleDateString("en-PH", {
-      timeZone: "Asia/Manila",
-      year: "numeric",
-    });
-  return new Date(ms).toLocaleDateString("en-US", {
-    timeZone: "Asia/Manila",
-    month: "short",
-    day: "numeric",
-    ...(year(ms) === year(now) ? {} : { year: "numeric" }),
-  });
+  return formatDay(ms, now);
 }
 
 export const rowButton =

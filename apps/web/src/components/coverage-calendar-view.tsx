@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../lib/format";
 import { Button } from "@heroui/react";
 import {
   Card,
@@ -117,7 +118,7 @@ export function CoverageCalendarView({
                     <ListRow
                       icon={<WorkspaceIcon name="field" />}
                       title={row.name ?? "Non-visit"}
-                      meta={`${row.serviceDate} · ${row.sequence} · ${row.outletCode ?? ""} · ${row.routeCode ?? "No route"} · ${slotKindLabel(row.kind)}`}
+                      meta={`${formatDate(row.serviceDate)} · ${row.sequence} · ${row.outletCode ?? ""} · ${row.routeCode ?? "No route"} · ${slotKindLabel(row.kind)}`}
                       value={
                         <span className="flex items-center gap-2">
                           <StatusPill

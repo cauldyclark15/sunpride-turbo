@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 
 import { useState } from "react";
 import { DispatchBoard } from "../presell/dispatch-board";
@@ -136,7 +137,7 @@ export function VanTripDetail({ trip }: { trip: TripSettlement }) {
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <p className="text-xs uppercase tracking-widest text-muted">
-            {trip.date} · {trip.unit} · {trip.route}
+            {formatDate(trip.date)} · {trip.unit} · {trip.route}
           </p>
           <h2 className="text-xl font-semibold">
             {trip.truck} · {trip.tripNumber}

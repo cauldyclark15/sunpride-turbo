@@ -377,23 +377,36 @@ export async function saveRoute(ctx) {
   });
 }
 
-/** @param {any[]|undefined} items @param {string|null} ref */
-function itemLabel(items, ref) {
-  if (!ref) return null;
-  const i = items?.find((x) => x.ref === ref);
-  // WEB-062: dates in words; the invoice by its number (or its date), never the snapshot key.
-  return i
-    ? `${i.documentNumber ? "Invoice " + i.documentNumber : i.invoiceDate ? "Invoice of " + dayWords(i.invoiceDate) : "Open item"}, due ${dayWords(i.dueDate)}`
-    : "Open item (since settled in the snapshot)";
+const dayWords = new Intl.DateTimeFormat("en-PH", {
+  timeZone: "Asia/Manila",
+  year: "numeric",
+  month: "short",
+  day: "numeric",
+});
+/** `2026-09-28` → `Sep 28, 2026` (a Manila calendar day; anything else passes through). @param {string|null|undefined} day */
+export function dayInWords(day) {
+  if (!day) return "";
+  const text = String(day).slice(0, 10);
+  return /^\d{4}-\d{2}-\d{2}$/.test(text)
+    ? dayWords.format(Date.parse(`${text}T12:00:00+08:00`))
+    : String(day);
 }
 
-/** "2026-09-28" -> "Sep 28, 2026" (calendar day, no time-zone shift). @param {any} day */
-export function dayWords(day) {
-  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(day ?? ""));
-  if (!m) return String(day ?? "");
-  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-  return `${months[Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`;
+/** The promise's "For" text, in words (WEB-062). @param {any[]|undefined} items @param {string|null} ref */
+export function itemLabel(items, ref) {
+  if (!ref) return null;
+  const i = items?.find((x) => x.ref === ref);
+  if (!i) return "Open item (since settled in the snapshot)";
+  const what = i.documentNumber
+    ? `Invoice ${i.documentNumber}`
+    : i.invoiceDate
+      ? `Invoice of ${dayInWords(i.invoiceDate)}`
+      : "Open item";
+  return i.dueDate ? `${what}, due ${dayInWords(i.dueDate)}` : what;
 }
+
+/** Older name kept for callers/tests (WEB-062). */
+export const dayWords = dayInWords;
 
 /** Money → Collections plan: exceptions first, with comparison to the prior 28 days. @param {any} ctx */
 export async function readCollections(ctx) {

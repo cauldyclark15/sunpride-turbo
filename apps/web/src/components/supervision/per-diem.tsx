@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 
 import type { EndpointResult } from "./report-api";
 
@@ -300,10 +301,7 @@ function SelectedView({
                     {plural(row.validDays, "day")}
                   </span>
                   <span className="text-muted">
-                    {row.deciderName} ·{" "}
-                    {new Date(row.decidedAt).toLocaleDateString("en-PH", {
-                      timeZone: "Asia/Manila",
-                    })}
+                    {row.deciderName} · {formatDate(row.decidedAt)}
                   </span>
                   {row.note && <span>· {row.note}</span>}
                   {row.stale && (

@@ -859,3 +859,34 @@ test("F-611 external customer has no office capabilities; chain sees sibling bra
   ).toBe(403);
   expect((await api(customer, "/api/v1/portal/overview")).status).toBe(403);
 });
+
+test("WEB-143 portal access offers external identities that do not have access yet", async () => {
+  const id = await createUser(
+    h,
+    "first-portal@test.invalid",
+    "fixture password only",
+  );
+  const r = await api(admin, "settings");
+  expect(r.status).toBe(200);
+  const users = /** @type {any[]} */ (r.body.externalUsers);
+  const fresh = users.find((u) => u.id === id);
+  expect(fresh).toBeTruthy();
+  expect(fresh.access).toBeNull();
+  // existing members still appear, with their current access
+  expect(users.find((u) => u.id === otherCustomer.userId)?.access).toEqual({
+    kind: "account",
+    key: "X",
+  });
+  // employees never appear
+  expect(users.some((u) => u.id === admin.userId)).toBe(false);
+  // and the first grant is accepted
+  const saved = await api(admin, "portal/access", {
+    userId: id,
+    name: "First portal customer",
+    scopeKind: "account",
+    scopeKey: "A",
+    effectiveFrom: new Date().toISOString(),
+    idempotencyKey: crypto.randomUUID(),
+  });
+  expect(saved.status).toBe(200);
+});

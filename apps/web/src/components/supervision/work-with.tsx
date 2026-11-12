@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 
 import type { EndpointResult, EndpointArgs } from "./report-api";
 import { JointCallActions } from "./joint-call-actions";
@@ -91,7 +92,7 @@ function sessionColumns(
               size="sm"
               variant="outline"
               className="h-8"
-              aria-label={`Open Work-With with ${row.traineeName} on ${row.serviceDate}`}
+              aria-label={`Open Work-With with ${row.traineeName} on ${formatDate(row.serviceDate)}`}
               onPress={() => onOpen(row.sessionId)}
             >
               Open

@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 import { useState } from "react";
 import type { Command, Partner, Policy } from "./types";
 import {
@@ -489,7 +490,7 @@ export function AuditHistory({
         >
           {audits.map((a) => (
             <tr key={a.id}>
-              <Cell>{a.audit_date}</Cell>
+              <Cell>{formatDate(a.audit_date)}</Cell>
               <Cell>{a.infrastructure_score} / 100</Cell>
               <Cell>{a.manpower_score} / 100</Cell>
               <Cell>{a.findings}</Cell>

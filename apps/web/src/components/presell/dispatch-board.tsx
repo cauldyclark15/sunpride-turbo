@@ -1,4 +1,5 @@
 "use client";
+import { formatDate, formatDateTime, formatTime } from "../../lib/format";
 
 import { useRef, useState } from "react";
 import { apiFetch, mutate, useApi, useLive } from "../../lib/api";
@@ -141,8 +142,8 @@ export function DispatchSummary({ data }: { data: DispatchData }) {
       </div>
       <p className="text-sm text-muted">
         ePOD target {data.targetPercent}% · Same weekday last week (
-        {data.priorDate}): {prior === null ? "No drops" : `${prior}%`} ·{" "}
-        {data.prior.drops} drops.
+        {formatDate(data.priorDate)}):{" "}
+        {prior === null ? "No drops" : `${prior}%`} · {data.prior.drops} drops.
       </p>
       <ol
         className="flex flex-wrap gap-3 text-xs"
@@ -163,7 +164,7 @@ export function DriverManifest({ data }: { data: Manifest }) {
   return (
     <section className="grid gap-4" data-driver-manifest>
       <h3 className="text-xl font-semibold">
-        {data.label} · {data.serviceDate}
+        {data.label} · {formatDate(data.serviceDate)}
       </h3>
       <p>
         {data.tripNumber} ·{" "}
@@ -182,7 +183,7 @@ export function DriverManifest({ data }: { data: Manifest }) {
           <p>{row.address}</p>
           <p>
             {row.windowStart
-              ? `${new Date(row.windowStart).toLocaleString("en-PH", { timeZone: "Asia/Manila" })} – ${new Date(row.windowEnd!).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila" })}`
+              ? `${formatDateTime(row.windowStart)} – ${formatTime(row.windowEnd!)}`
               : "No receiving appointment"}{" "}
             {row.bookingReference}
           </p>
@@ -361,7 +362,7 @@ export function DispatchBoard({ initialDate }: { initialDate?: string }) {
             />
           </label>
           <button disabled={busy} className={button}>
-            Create delivery run
+            Save delivery run
           </button>
         </form>
       )}
@@ -396,9 +397,10 @@ export function DispatchBoard({ initialDate }: { initialDate?: string }) {
                 <div>
                   <strong>{r.outlet_name}</strong>
                   <p className="text-sm">
-                    {r.order_number} · Requested {r.requested_delivery_date} ·{" "}
+                    {r.order_number} · Requested{" "}
+                    {formatDate(r.requested_delivery_date)} ·{" "}
                     {r.confirmed_delivery_date
-                      ? `Confirmed ${r.confirmed_delivery_date}`
+                      ? `Confirmed ${formatDate(r.confirmed_delivery_date)}`
                       : "Not confirmed"}
                   </p>
                   <p className="text-sm text-muted">
@@ -602,10 +604,7 @@ export function DispatchBoard({ initialDate }: { initialDate?: string }) {
                   <p>
                     Received by {detail.data.proof.receiver_name} · Delivered by{" "}
                     {detail.data.proof.driver_name} ·{" "}
-                    {new Date(detail.data.proof.captured_at).toLocaleString(
-                      "en-PH",
-                      { timeZone: "Asia/Manila" },
-                    )}
+                    {formatDateTime(detail.data.proof.captured_at)}
                   </p>
                   <svg
                     viewBox="0 0 300 120"
@@ -730,11 +729,8 @@ export function DispatchBoard({ initialDate }: { initialDate?: string }) {
                       <option value="">Choose receiving slot</option>
                       {detail.data.slots.map((s) => (
                         <option key={s.id} value={s.id}>
-                          {s.label} ·{" "}
-                          {new Date(s.starts_at).toLocaleString("en-PH", {
-                            timeZone: "Asia/Manila",
-                          })}{" "}
-                          · Capacity {s.capacity}
+                          {s.label} · {formatDateTime(s.starts_at)} · Capacity{" "}
+                          {s.capacity}
                         </option>
                       ))}
                     </select>

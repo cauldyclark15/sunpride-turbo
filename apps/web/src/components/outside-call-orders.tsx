@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../lib/format";
 
 import { Button } from "@heroui/react";
 import {
@@ -156,7 +157,7 @@ export function OutsideCallOrders() {
                     <ListRow
                       icon={<WorkspaceIcon name="commercial" />}
                       title={`${row.outletName} · PO ${order.poNumber}`}
-                      meta={`${row.outletCode} · ${order.serviceDate} · ${RECEIVED_VIA_LABELS[order.receivedVia]} · for ${row.salespersonName} · encoded by ${row.encodedByName} on ${formatManilaDate(order.encodedAt)}`}
+                      meta={`${row.outletCode} · ${formatDate(order.serviceDate)} · ${RECEIVED_VIA_LABELS[order.receivedVia]} · for ${row.salespersonName} · encoded by ${row.encodedByName} on ${formatManilaDate(order.encodedAt)}`}
                       value={
                         <StatusPill
                           tone={
