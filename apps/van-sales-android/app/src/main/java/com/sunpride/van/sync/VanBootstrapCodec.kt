@@ -131,6 +131,8 @@ object VanBootstrapCodec {
         // F-019 F-616: validate negotiated extensions without changing frozen v1.
         val legacy = JSONObject(o.toString())
         objects(legacy.getJSONArray("products")).forEach { it.remove("catalogue"); it.remove("category") }
+        // SP-0170: the customer master classification is an additive server key on each customer (SP-0169 r5).
+        objects(legacy.getJSONArray("customers")).forEach { it.remove("channel"); it.remove("customerMaster") }
         legacy.getJSONObject("policy").remove("fiscal")
         legacy.optJSONArray("promotions")?.let(::objects)?.forEach{p->listOf("engineVersion","precedence","stacking","exclusionGroup","excludes","outletIds").forEach(p::remove)}
         legacy.getJSONObject("policy").remove("schemes")

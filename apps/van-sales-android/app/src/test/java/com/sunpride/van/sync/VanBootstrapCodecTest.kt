@@ -64,6 +64,16 @@ class VanBootstrapCodecTest {
         val h = VanBootstrapCodec.decode(o.toString()).policy.handheld!!
         assertNull(h.vehicleCode); assertNull(h.supervisorName); assertNull(h.supervisorPhone); assertEquals("ABC-1234",h.plateNumber)
     }
+    @Test fun customerMasterClassificationRidesCustomersAndStaysOutOfTheFrozenValidator() {
+        // SP-0170 server adds channel + customerMaster to each van customer; a strict frozen copy refused every bootstrap (SP-0169 r5).
+        val o = JSONObject(fixture())
+        VanBootstrapCodec.objects(o.getJSONArray("customers")).forEach {
+            it.put("channel","General Trade").put("customerMaster",JSONObject().put("salesOrgCode","1000").put("distributionChannelCode","10")
+                .put("distributionChannelName","General Trade").put("customerGroup1Code",JSONObject.NULL).put("completeness","complete"))
+        }
+        val b = VanBootstrapCodec.decode(o.toString())
+        assertEquals(3,b.customers.size)
+    }
     @Test fun productCategoryIsOptionalAndStaysOutOfTheFrozenValidator() {
         assertNull(VanBootstrapCodec.decode(fixture()).products.first().category)
         val o = JSONObject(fixture())
