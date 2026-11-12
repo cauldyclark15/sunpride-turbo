@@ -143,6 +143,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     val reason=when{
         context.isFailure->context.exceptionOrNull()?.message
         !shiftOpen->"Open a session before selling."
+        claim!=null&&!com.sunpride.van.selling.PrivilegeSwitch.offered(c.policy)->com.sunpride.van.selling.PrivilegeSwitch.OFF_MESSAGE
         (evaluation.exceptionOrNull() as? CheckoutRefused)?.issues?.any{it.problem==CheckoutProblem.PROMOTION_NEEDS_OFFICE}==true->"This campaign needs office finance authority before selling"
         claim!=null&&(evaluation.exceptionOrNull() as? CheckoutRefused)?.issues?.firstOrNull{it.problem in setOf(CheckoutProblem.DISCOUNT_TAX_UNKNOWN,CheckoutProblem.DISCOUNT_CLAIM_INVALID,CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL)}!=null->
             (evaluation.exceptionOrNull() as CheckoutRefused).issues.first{it.problem in setOf(CheckoutProblem.DISCOUNT_TAX_UNKNOWN,CheckoutProblem.DISCOUNT_CLAIM_INVALID,CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL)}.let{VanRules.checkoutMessage(it.problem,it.productId?.let{id->products.firstOrNull{p->p.productId==id}?.name})}
@@ -161,7 +162,8 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
             message=c.message?:notice?:reason,busy=c.busy,cashierName=c.seller?.name,roleLabel="Cashier",syncBadge={SyncPill(c)},
             held=storeHeld)
         SellStep.PAYMENT->{
-            val possible=StoreCheckout.claimsPossible(config)
+            val switchedOn=com.sunpride.van.selling.PrivilegeSwitch.offered(c.policy)
+            val possible=StoreCheckout.claimsPossible(config)&&(switchedOn||claim!=null)
             val canDiscount=possible&&!c.busy&&cart.isNotEmpty()
             val hasSupervisor=config.details.optJSONObject("supervisor")!=null
             val customerDetail=when{phone.isNotBlank()->phone;employee->"Employee";else->null}
@@ -186,7 +188,8 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
                 PayOption("Customer",customerDetail,"store-more",{more=true},enabled=!c.busy,active=customerDetail!=null)
             )){
             claim?.let{cl->ClaimSummary(cl,quote?.legal,VanController.ClaimPreview.None,{claiming=true})}
-            if(!possible)Text("Discounts are not available yet: this store's tax set-up has not reached the phone. Sync, or ask the office.",style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-claim-unavailable"))
+            if(!switchedOn&&claim==null)Text(com.sunpride.van.selling.PrivilegeSwitch.OFF_MESSAGE,style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-claim-off"))
+            else if(!possible)Text("Discounts are not available yet: this store's tax set-up has not reached the phone. Sync, or ask the office.",style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-claim-unavailable"))
             if(tender=="split"){
                 SectionCard("Split tender"){
                     LabeledField("Cash part (₱)",cashShare,{cashShare=it},"store-split-cash",numeric=true,maxLength=16)

@@ -59,6 +59,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun saveStoreAction(kind:String,payload:org.json.JSONObject) = command("Saved securely on this phone. Sync when connected.") {repository.storeAction(kind,payload);page=Page.HOME}
     /** IP-HH1: the sale screen stays up and shows its Complete step; [onSaved] runs once the sale is durably saved. */
     fun saveStoreSale(id:String,lines:List<CartLine>,tenders:List<com.sunpride.van.storepos.StoreTransactions.Tender>,total:Long,phone:String?,pin:String?,points:Long,onSaved:()->Unit={},claim:com.sunpride.van.selling.DiscountClaim?=null) = command("Store sale saved. Printing the receipt…",failure={UserMessages.forStoreSale(it)}) {
+        // SP-0169: the office refuses a statutory discount it has switched off; never print that receipt.
+        check(claim==null||com.sunpride.van.selling.PrivilegeSwitch.offered(policy)){com.sunpride.van.selling.PrivilegeSwitch.OFF_MESSAGE}
         repository.storeSale(id,lines,tenders,total,phone,pin,points,claim)
         // IP-P0 (SPEC 6.5): the invoice prints by itself; the cashier then answers "Did it print?".
         startPrint(id,explicit=false,reason=null,store=true)

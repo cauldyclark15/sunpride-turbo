@@ -8,6 +8,7 @@ import {
 } from "../callflow/engine.js";
 import { tenderPolicy } from "../fiscal/tenders.js";
 import { capBundle } from "../fiscal/privilege-cap.js";
+import { surfaceEnabled } from "../fiscal/legal-sale.js";
 import { fiscalBundle } from "../fiscal/transactions.js";
 import { routeBundle } from "./route-read.js";
 import { ApiError } from "../../core/errors.js";
@@ -171,6 +172,8 @@ export function vanProjection(env) {
         ...(p.privilegeCap === true ? { privilegeCap: true } : {}),
         // VAN-034: a van handheld with no POS mode row gets no `storePos`, so the limit rides `policy.privilegeCap` for a build that asks.
         ...(p.vanPrivilegeCap === true ? { vanPrivilegeCap: true } : {}),
+        // SP-0169: whether Senior/PWD discounts are switched on for this van route / till; older apps never ask.
+        ...(p.privilegeSwitch === true ? { privilegeSwitch: true } : {}),
       };
     },
     snapshot,
@@ -186,6 +189,25 @@ export function vanProjection(env) {
       );
     },
   };
+}
+/** SP-0169: the office's Senior/PWD switch for this van route (unit) or till (register), as the sale op will check it.
+ * @param {any} db @param {'van'|'store'} surface @param {string|null} ref org unit (van) or register id (store) @param {string|null} routeId */
+async function privilegeSwitch(db, surface, ref, routeId) {
+  if (!ref) return {};
+  let orgUnitId = ref;
+  if (surface === "store") {
+    const [r] =
+      await db`select l.org_unit_id from store_registers r join inventory_locations l on l.id=r.location_id where r.id=${ref}`;
+    if (!r) return {};
+    orgUnitId = r.org_unit_id;
+  }
+  const enabled = await surfaceEnabled(db, {
+    orgUnitId,
+    surface,
+    routeId,
+    at: Date.now(),
+  });
+  return { privilegeDiscount: { surface, enabled } };
 }
 /** Complete seller/trip DTO; never serializes a raw database document. @param {any} ctx @param {any} env */
 export async function bundle(ctx, env) {
@@ -243,6 +265,11 @@ export async function bundle(ctx, env) {
         "More than one trip needs office reconciliation",
       );
     const handheld = ctx.params.handheld === true;
+    // SP-0169: a till tells the phone its own Senior/PWD switch (the van one is set once the trip is known below).
+    const storeSwitch =
+      ctx.params.privilegeSwitch === true && storePos?.mode === "store"
+        ? await privilegeSwitch(db, "store", storePos.registerId, null)
+        : {};
     const empty = {
       serviceDate,
       seller: { profileId: actor.profileId, name: actor.name },
@@ -250,6 +277,7 @@ export async function bundle(ctx, env) {
         ...policy(env, null),
         ...(storePos ? { storePos } : {}),
         ...vanCap,
+        ...storeSwitch,
         ...(handheld
           ? {
               handheld: await handheldInfo(db, actor, device, null),
@@ -564,6 +592,9 @@ export async function bundle(ctx, env) {
         ...tripPolicy,
         ...(storePos ? { storePos } : {}),
         ...vanCap,
+        ...(ctx.params.privilegeSwitch === true
+          ? await privilegeSwitch(db, "van", trip.org_unit_id, trip.route_id)
+          : {}),
         ...(handheld
           ? {
               handheld: await handheldInfo(db, actor, device, trip),

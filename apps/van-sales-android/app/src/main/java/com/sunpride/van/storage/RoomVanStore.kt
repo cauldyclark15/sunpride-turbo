@@ -581,7 +581,8 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             settle(dao.trip(s,d)?.tripId,dao.meta(s,d)?.lastBootstrapTime)
         } else {
             require(result.status in setOf("rejected","conflict"))
-            dao.reject(s,d,row.clientRequestId,result.status,result.code ?: "invalid_request")
+            // SP-0169: a refused receipt whose number the office spoiled is kept with its own code so the seller is told.
+            dao.reject(s,d,row.clientRequestId,result.status,if (result.spoiledNumber != null) com.sunpride.van.selling.RefusedReceipt.CODE else result.code ?: "invalid_request")
         }
     }
     private suspend fun recordPostedLoad(op: OutboxRow, at: Long, settled: Boolean, serverLines: List<LoadLine>? = null) {
