@@ -145,6 +145,85 @@ test("F-113 unlinked evidence survives as custody, not stock or money; independe
     const [event] =
       await h.db`select payload from integration_events where event_id=${`credit_memo:van_return:${p.returnId}`}`;
     expect(event.payload.document.lines[0].productCode).toBe("SAMPLE-ORIGINAL");
+
+    // VAN-061: on an operations-version-0 trip the handheld saves "Thrown away at the store · needs approval" as
+    // "Waiting for office approval" (no signed F-113 evidence, nothing on the truck). Sync must hold it for the
+    // office pickup review, not refuse it, and the office (never the seller) verifies the disposal.
+    const thrown = {
+      returnId: crypto.randomUUID(),
+      returnNumber: "SAMPLE-PICKUP-002",
+      customer: { outletId: outlet.id },
+      customerName: "SAMPLE buyer",
+      status: "awaiting_approval",
+      approval: { required: true, reasons: ["disposed_at_outlet"] },
+      originalSale: { saleId, receiptNumber: "SAMPLE-OLD-SI" },
+      deviceTime: Date.now(),
+      lines: [
+        {
+          lineNumber: 1,
+          productId: sku,
+          product: {
+            name: "SAMPLE item",
+            code: "SAMPLE-PICKUP",
+            quantityScale: "1",
+            uomCode: "EA",
+          },
+          uomCode: "EA",
+          uomBaseQuantity: "1",
+          uomQuantity: "1",
+          quantityBase: "1",
+          reason: "expired",
+          reasonLabel: "Expired",
+          lotNumber: "SAMPLE-LOT",
+          expiryDate: "2026-10-31",
+          disposition: "disposed_at_outlet",
+          stockEffect: "none",
+          approvalRequired: true,
+        },
+      ],
+    };
+    await tx(h.db, (db) => capturePickup(db, trip, seller, thrown));
+    const held = (await pickupQueue(h.db, reviewer, trip.id)).items.find(
+      (/** @type {any} */ x) => x.id === thrown.returnId,
+    );
+    expect(held?.returnNumber).toBe("SAMPLE-PICKUP-002");
+    expect(
+      (
+        await h.db`select count(*)::int as n from inventory_movements`
+      )[0].n,
+    ).toBe(0);
+    // Not presented as a completed disposal: the settlement gate still waits for the office.
+    expect(
+      (
+        await h.db`select count(*)::int as n from van_return_reviews where return_id=${thrown.returnId}`
+      )[0].n,
+    ).toBe(0);
+    await expect(
+      tx(h.db, (db) =>
+        reviewPickup(db, seller, {
+          returnId: thrown.returnId,
+          decision: "disposal_verified",
+          reason: "SAMPLE self",
+        }),
+      ),
+    ).rejects.toThrow();
+    await tx(h.db, (db) =>
+      reviewPickup(db, reviewer, {
+        returnId: thrown.returnId,
+        decision: "disposal_verified",
+        reason: "SAMPLE store disposal checked",
+      }),
+    );
+    // A governed (version 1) handheld must still send the signed custody capture.
+    await expect(
+      tx(h.db, (db) =>
+        capturePickup(db, { ...trip, operations_version: 1 }, seller, {
+          ...thrown,
+          returnId: crypto.randomUUID(),
+          settlementVersion: 1,
+        }),
+      ),
+    ).rejects.toThrow("Update the handheld");
   } finally {
     await h.close();
   }

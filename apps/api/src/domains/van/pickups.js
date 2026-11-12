@@ -7,7 +7,14 @@ import { enqueueVanCreditMemo } from "../integration/posting.js";
 /** F-113: a pickup is custody evidence, not an invented stock asset, refund or financial credit.
  * @param {any} db @param {any} trip @param {any} actor @param {any} p */
 export async function capturePickup(db, trip, actor, p) {
-  if (p.custodyOnly !== true || p.refund)
+  // VAN-061: a pre-F-113 (operations version 0) trip has no signed return evidence. The handheld still saves a return
+  // that needs office approval ("Thrown away at the store") as "Waiting for office approval" and moves no truck stock
+  // for it, so it is held here as custody for the same office pickup review instead of being refused on sync.
+  const legacy = trip.operations_version !== 1 && p.settlementVersion !== 1;
+  if (
+    p.refund ||
+    (p.custodyOnly !== true && !(legacy && p.approval?.required === true))
+  )
     refuse(
       "Update the handheld to record this pickup without inventing stock or a refund",
     );
@@ -24,7 +31,7 @@ export async function capturePickup(db, trip, actor, p) {
       refuse("Return identifier was reused", "idempotency_conflict");
     return { entityId: id };
   }
-  await validateReturnEvidence(db, trip, p);
+  if (!legacy) await validateReturnEvidence(db, trip, p);
   const frozen = [];
   for (const l of input) {
     const product = await productFor(db, uuid(l.productId), p.deviceTime);
@@ -38,7 +45,8 @@ export async function capturePickup(db, trip, actor, p) {
         "Pickup needs distinct governed products and no sellable stock effect",
       );
     seen.add(l.productId);
-    text(l.lotNumber, 80, true);
+    text(l.lotNumber, 80, !legacy);
+    if (legacy) text(l.reason, 80, true);
     if (
       String(l.product?.quantityScale) !== String(product.scale) ||
       l.product?.uomCode !== product.base_code

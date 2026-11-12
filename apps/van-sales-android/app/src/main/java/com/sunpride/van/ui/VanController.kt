@@ -66,6 +66,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         startPrint(id,explicit=false,reason=null,store=true)
         onSaved()
     }
+    /** A new store sale starts clean: the previous sale's "Store sale saved. Printing the receipt…" must not show on its Payment step. */
+    fun startNewStoreSale() { message=null }
     fun switchStoreMode(pin:String) = command("POS mode updated") {repository.switchPosMode(if(storeMode)"van" else "store",pin);page=Page.HOME}
     /** Store receipts and their print history (original, reprints, confirmed or skipped), refreshed after every print. */
     var storePrints by mutableStateOf(emptyMap<String,List<PrintAttempt>>())

@@ -81,7 +81,7 @@ import com.sunpride.van.data.*
         scope.launch {
             try { photo = c.repository.saveDamagePhoto(capture) }
             catch (e: CancellationException) { throw e }
-            catch (_: Exception) { photoMessage = "Could not save photo. Retake and try again." }
+            catch (e: Exception) { photoMessage = VanRules.damagePhotoFailure(e) }
             finally { processing = false }
         }
     }

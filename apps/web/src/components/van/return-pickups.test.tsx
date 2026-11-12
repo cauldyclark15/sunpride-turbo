@@ -44,3 +44,29 @@ it("F-113 shows pickup custody, the captured batch and customer acknowledgement 
   expect(html).toContain("Captured customer signature");
   expect(html).not.toContain("Renamed");
 });
+it("VAN-061 a store disposal held for office approval without a batch never shows 'Batch undefined'", () => {
+  const html = renderToStaticMarkup(
+    <PickupFacts
+      item={{
+        id: "private",
+        returnNumber: "SAMPLE-PICKUP-2",
+        customerName: "SAMPLE buyer",
+        capture: {
+          lines: [
+            {
+              product: { name: "SAMPLE item" },
+              uomQuantity: "1",
+              uomCode: "PC",
+              reasonLabel: "Damaged",
+              disposition: "disposed_at_outlet",
+            },
+          ],
+        },
+        decisions: [],
+      }}
+    />,
+  );
+  expect(html).toContain("disposed at outlet");
+  expect(html).not.toContain("undefined");
+  expect(html).not.toContain("Batch");
+});

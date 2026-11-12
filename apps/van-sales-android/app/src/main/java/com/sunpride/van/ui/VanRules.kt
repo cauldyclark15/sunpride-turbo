@@ -125,6 +125,17 @@ object VanRules {
         "on_account" -> if (dueDate != null) "Charged to account · due $dueDate" else "Charged to account"
         else -> "To be confirmed by the office"
     }
+    /** VAN-070: say WHY a damage photo could not be saved (no fresh location, location off, mock location) instead of a generic retake. */
+    fun damagePhotoFailure(e: Throwable): String {
+        val location = generateSequence(e) { it.cause }.filterIsInstance<com.sunpride.integrity.EvidenceLocationUnavailable>().firstOrNull()
+        return when (location?.message) {
+            null -> "Could not save photo. Retake and try again."
+            com.sunpride.integrity.EvidenceLocationUnavailable.PERMISSION -> "Allow location to take damage photos. Each photo is stamped with where it was taken."
+            else -> location.message!!
+        }
+    }
+    /** A refused void code belongs to the reason it was tried with; choosing another reason clears it. */
+    fun voidError(error: String?, triedReason: String?, reason: String?): String? = error?.takeIf { triedReason != null && triedReason == reason }
     fun voidMessage(problem: com.sunpride.van.pos.VoidProblem): String = when (problem) {
         com.sunpride.van.pos.VoidProblem.VOID_UNAVAILABLE -> "Voiding sales is not set up on this phone. Sync, then try again."
         com.sunpride.van.pos.VoidProblem.SALE_NOT_FOUND -> "This sale is not on this phone."

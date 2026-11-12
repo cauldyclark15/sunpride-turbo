@@ -180,6 +180,9 @@ import java.time.format.DateTimeFormatter
     var reason by remember { mutableStateOf<String?>(null) }
     var note by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
+    // The reason the shown error was tried with: a new reason clears "That code does not match".
+    var triedReason by remember { mutableStateOf<String?>(null) }
+    val shownError = VanRules.voidError(error,triedReason,reason)
     val needsApproval = VoidRules.needsApproval(policy,saved.receipt.totalMinor)
     val unavailable = needsApproval && policy.voidApproval?.key == null
     val validNote = note.length <= 300 && note.none(Char::isISOControl) && (reason != "other" || note.isNotBlank())
@@ -209,8 +212,8 @@ import java.time.format.DateTimeFormatter
                         }
                     }
                 }
-                error?.let { Text(it,style = MaterialTheme.typography.bodyMedium,color = MaterialTheme.colorScheme.error,modifier = Modifier.testTag("void-error")) }
-                PrimaryBottomButton("Void sale",{ reason?.let { onVoid(it,VoidRules.normalizedNote(note),code.takeIf { it.isNotBlank() }) } },
+                shownError?.let { Text(it,style = MaterialTheme.typography.bodyMedium,color = MaterialTheme.colorScheme.error,modifier = Modifier.testTag("void-error")) }
+                PrimaryBottomButton("Void sale",{ reason?.let { triedReason = it; onVoid(it,VoidRules.normalizedNote(note),code.takeIf { it.isNotBlank() }) } },
                     enabled = !busy && !unavailable && reason != null && validNote && (!needsApproval || VoidApprovalCodes.normalize(code) != null),tag = "confirm-void")
                 SecondaryButton("Cancel",onClose,Modifier.testTag("cancel-void"),enabled = !busy)
             }
