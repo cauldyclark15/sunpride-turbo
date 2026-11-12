@@ -431,6 +431,11 @@ describe("People list", () => {
   const admin = () => {
     state.values["domains/profiles:current"] = { role: "admin" };
   };
+  it("WEB-177 shows the 'Showing x–y' count line like every other list", () => {
+    admin();
+    const view = html(createElement(PeopleAdmin));
+    expect(view).toContain("Showing 1–2 people · more on the next page");
+  });
   it("puts search, Add person and the list in the first view, with Edit on each row", () => {
     admin();
     const view = html(createElement(PeopleAdmin));

@@ -12,7 +12,7 @@ import {
   approveExecutionOverride,
   executionExceptionEligible,
 } from "./claim-overrides.js";
-import { claimSourceOptions } from "./claim-source-options.js";
+import { claimSourceOptions, sourceDay } from "./claim-source-options.js";
 import { executionEvidenceAccess } from "./evidence-access.js";
 import { filesDir, MAX_MEDIA_BYTES } from "../../core/media.js";
 import { join } from "node:path";
@@ -567,7 +567,7 @@ export function installClaims(router) {
         visible.push({
           id: e.id,
           kind: e.kind,
-          label: `${e.label} · ${manilaDate(new Date(e.at))}`,
+          label: `${e.label} · ${sourceDay(e.at)}`,
           snapshot: source,
           ...(e.kind === "photo"
             ? {

@@ -1,4 +1,5 @@
 "use client";
+import { formatPeriod } from "../lib/format";
 import { useRef, useState } from "react";
 import { useApi, useLive, useMutate } from "../lib/api";
 import { currentManilaDate } from "../lib/coverage-calendar";
@@ -29,7 +30,6 @@ type Registry = {
   canAuthor: boolean;
   canApprove: boolean;
 };
-const date = (n: number) => new Date(n + 28800000).toISOString().slice(0, 10);
 const label = (c: string) => c.replaceAll("_", " ");
 const futureDay = () =>
   new Date(Date.parse(currentManilaDate() + "T00:00:00Z") + 86400000)
@@ -65,8 +65,7 @@ export function ProductivePolicyList({
               {p.channelKey ?? "All channels"}
             </p>
             <p>
-              {date(p.effectiveFrom)} to{" "}
-              {p.effectiveTo ? date(p.effectiveTo) : "open-ended"} ·{" "}
+              {formatPeriod(p.effectiveFrom, p.effectiveTo ?? null)} ·{" "}
               {p.definition.matchMode === "all" ? "Every" : "Any"} qualifying
               activity: {p.definition.allowedCodes.map(label).join(", ")}.
             </p>

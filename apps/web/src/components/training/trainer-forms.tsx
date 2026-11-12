@@ -15,6 +15,7 @@ import {
   type DataColumn,
 } from "@sunpride/ui";
 import { useReportCommand, useReport } from "../supervision/report-api";
+import { commandErrorText } from "../supervision/command-error";
 import { useState } from "react";
 import { shortDate } from "../supervision/work-with-model";
 import {
@@ -39,10 +40,8 @@ type FormRow = Mine["written"][number] & { id: string };
 type UpdateArgs = EndpointArgs<"supervision.trainer_forms.update">;
 type FormId = Id<"trainerForms">;
 
-function errorText(error: unknown) {
-  const data = (error as { data?: unknown })?.data;
-  return typeof data === "string" ? data : "Not saved. Try again.";
-}
+/** WEB-124: the server's own refusal ("Write the result; …"), never a generic retry line. */
+export const errorText = commandErrorText;
 
 function TextArea({
   label,

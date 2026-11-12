@@ -389,7 +389,11 @@ export async function workflow(ctx, action, b) {
     if (a.org_unit_id !== p.org_unit_id)
       fail("Assignee unit changed; create a new scoped plan");
     await db`update coverage_plans set effective_from=${new Date(from)},effective_to=${new Date(to)} where id=${p.id}`;
-    await db`update coverage_assignments set effective_from=${new Date(from)},effective_to=${new Date(to)},reason=${b.reason},actor_subject=${ctx.actor.subject} where plan_id=${p.id}`;
+    const moved =
+      await db`update coverage_assignments set effective_from=${new Date(from)},effective_to=${new Date(to)},reason=${b.reason},actor_subject=${ctx.actor.subject} where plan_id=${p.id} returning id`;
+    // WEB-118: a plan that lost (or never had) its primary assignment gets one here, never a false "saved".
+    if (!moved.length)
+      await db`insert into coverage_assignments(plan_id,assignee_profile_id,org_unit_id,is_primary,effective_from,effective_to,actor_subject,reason) values (${p.id},${p.assignee_profile_id},${p.org_unit_id},true,${new Date(from)},${new Date(to)},${ctx.actor.subject},${b.reason})`;
   } else if (action === "applyToDraft") {
     draft(p);
     const a = await employeeAt(

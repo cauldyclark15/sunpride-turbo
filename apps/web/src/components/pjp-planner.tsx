@@ -1,5 +1,5 @@
 "use client";
-import { formatMonth, formatStatus } from "../lib/format";
+import { formatDate, formatMonth, formatPeriod, formatStatus } from "../lib/format";
 
 import { useRef, useState } from "react";
 import { apiFetch, useApi, useLive, useMutate } from "../lib/api";
@@ -316,7 +316,7 @@ export function PjpPlanner({ capabilities }: { capabilities: string[] }) {
               .map((p) => (
                 <option key={p._id} value={p._id}>
                   {formatMonth(p.localMonth)} · version {p.version} · from{" "}
-                  {day(p.effectiveFrom)}
+                  {formatDate(p.effectiveFrom)}
                 </option>
               ))}
           </select>
@@ -675,8 +675,7 @@ export function PjpPlanner({ capabilities }: { capabilities: string[] }) {
         {data.policies.map((p) => (
           <p key={p._id} className="text-sm">
             {p.label} · class {p.classKey} · every {p.intervalWeeks} week(s) ·{" "}
-            {p.serviceMinutes} minutes · {day(p.effectiveFrom)} to{" "}
-            {p.effectiveTo ? day(p.effectiveTo) : "open-ended"} · {p.sourceRef}
+            {p.serviceMinutes} minutes · {formatPeriod(p.effectiveFrom, p.effectiveTo ?? null)} · {p.sourceRef}
           </p>
         ))}
         {capabilities.includes("masterdata.manage") && (
@@ -768,7 +767,7 @@ export function PjpPlanner({ capabilities }: { capabilities: string[] }) {
                   .filter((p) => p.orgUnitId === unit)
                   .map((p) => (
                     <option key={p._id} value={p._id}>
-                      {p.label} · {day(p.effectiveFrom)}
+                      {p.label} · {formatDate(p.effectiveFrom)}
                     </option>
                   ))}
               </select>

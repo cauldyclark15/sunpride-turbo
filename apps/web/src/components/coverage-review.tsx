@@ -236,7 +236,7 @@ function PlannedVisits({
   );
   return (
     <section aria-label="Planned visits" className="grid gap-2">
-      <h3 className="font-semibold">Planned visits · {month}</h3>
+      <h3 className="font-semibold">Planned visits · {formatMonth(month)}</h3>
       {visits && !visits.length && (
         <p>No generated visits for this person and month.</p>
       )}
@@ -464,7 +464,7 @@ function SelectedPlan({
     >
       <div className="grid gap-3">
         <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted">
-          {month} · v{plan.version}
+          {formatMonth(month)} · v{plan.version}
           <StatusPill
             tone={
               plan.status === "active" || plan.status === "approved"

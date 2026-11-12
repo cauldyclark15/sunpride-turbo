@@ -1,5 +1,6 @@
 "use client";
 
+import { commandErrorText } from "./command-error";
 import type { EndpointResult } from "./report-api";
 
 import { Button } from "@heroui/react";
@@ -78,8 +79,8 @@ function DecisionControls({ item, decide }: { item: Item; decide: Decide }) {
     setError("");
     try {
       await decide({ evidenceId: item.evidenceId, decision: kind, reason });
-    } catch {
-      setError("Not saved. Try again.");
+    } catch (caught) {
+      setError(commandErrorText(caught));
     } finally {
       setBusy(false);
     }

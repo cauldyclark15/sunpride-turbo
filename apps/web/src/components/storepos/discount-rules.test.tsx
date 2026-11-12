@@ -16,6 +16,9 @@ import {
   refundPesosToCentavos,
   type RefundPolicyData,
   WeeklyLimitCard,
+  PrivilegeSwitchCard,
+  privilegeState,
+  type PrivilegeSettingsData,
   limitStatusWords,
   pesosToCentavos,
   peso,
@@ -210,5 +213,41 @@ describe("refund approval amount", () => {
     expect(refundPesosToCentavos("-5")).toBeNull();
     expect(refundPesosToCentavos("abc")).toBeNull();
     expect(refundPesosToCentavos("2000000")).toBeNull();
+  });
+});
+
+describe("SC/PWD on/off per unit (van and store)", () => {
+  const units = [{ id: "u1", name: "Cebu depot" }];
+  const data = (over: Partial<PrivilegeSettingsData> = {}): PrivilegeSettingsData => ({
+    settings: [],
+    defaults: { store: true, van: false },
+    canManage: true,
+    ...over,
+  });
+  it("shows the spec defaults (stores on, vans off) with a switch for the office", () => {
+    const out = html(<PrivilegeSwitchCard data={data()} units={units} onSave={() => {}} />);
+    expect(out).toContain("Senior citizen / PWD discount on or off");
+    expect(out).toContain("required by law");
+    expect(out).toMatch(/privilege-store"[^>]*>On \(default\)/);
+    expect(out).toMatch(/privilege-van"[^>]*>Off \(default\)/);
+    expect(out).toContain("Switch on for vans");
+    expect(out).toContain("Switch off for stores");
+  });
+  it("the newest unit-wide row in force wins; route rows and future rows do not", () => {
+    const now = Date.parse("2026-11-13T00:00:00Z");
+    const d = data({
+      settings: [
+        { id: "a", org_unit_id: "u1", surface: "van", route_id: null, enabled: true, effective_from: "2026-11-10T00:00:00Z" },
+        { id: "b", org_unit_id: "u1", surface: "van", route_id: "r1", enabled: false, effective_from: "2026-11-12T00:00:00Z" },
+        { id: "c", org_unit_id: "u1", surface: "van", route_id: null, enabled: false, effective_from: "2026-12-01T00:00:00Z" },
+      ],
+    });
+    expect(privilegeState(d, "u1", "van", now)).toEqual({ enabled: true, isDefault: false });
+    expect(privilegeState(d, "u1", "store", now)).toEqual({ enabled: true, isDefault: true });
+  });
+  it("non-admins see the state but no switch", () => {
+    const out = html(<PrivilegeSwitchCard data={data({ canManage: false })} units={units} onSave={() => {}} />);
+    expect(out).not.toContain("Switch on for vans");
+    expect(out).toContain("Only the office can change this.");
   });
 });

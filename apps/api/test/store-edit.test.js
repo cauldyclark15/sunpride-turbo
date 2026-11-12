@@ -206,6 +206,9 @@ test("store edit: approve updates the existing store, adds no store, moves the p
     reason: "x",
   });
   expect(dup.status).toBe(422);
+  // WEB-173: the customer page reads the customer record, so it holds the old contact before approval.
+  await h.db`insert into customer_profiles(outlet_id,mobile_no,updated_by) values(${id},'09000000000','fixture') on conflict (outlet_id) do update set mobile_no='09000000000'`;
+  await h.db`insert into customer_ship_tos(outlet_id,ordinal,ship_to_party,contact_person,mobile_no,updated_by) values(${id},0,'Old party','Old contact','09000000000','fixture') on conflict (outlet_id,ordinal) where deleted_at is null do update set contact_person='Old contact',mobile_no='09000000000'`;
   const ok = await as("manager", "/api/v1/masters/census/review", {
     captureId: p.captureId,
     decision: "accept",
@@ -228,6 +231,10 @@ test("store edit: approve updates the existing store, adds no store, moves the p
   const [contact] =
     await h.db`select name,phone from outlet_contacts where outlet_id=${id} and ordinal=0`;
   expect(contact).toEqual({ name: "New Owner", phone: "0917 555 0199" });
+  const [profileRow] = await h.db`select mobile_no from customer_profiles where outlet_id=${id}`;
+  expect(profileRow.mobile_no).toBe("09175550199");
+  const [shipTo] = await h.db`select contact_person,mobile_no from customer_ship_tos where outlet_id=${id} and deleted_at is null and ordinal=0`;
+  expect(shipTo).toEqual({ contact_person: "New Owner", mobile_no: "09175550199" });
   const pins =
     await h.db`select latitude from outlet_pins where outlet_id=${id} and status='verified' and deleted_at is null and effective_from<=now() and (effective_to is null or effective_to>now())`;
   expect(pins.map((/** @type {any} */ x) => x.latitude)).toEqual([10.3311]);

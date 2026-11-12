@@ -5,6 +5,7 @@ import { toBaseQty, type CasesPieces } from "../qty-cases-pieces";
 
 export type LoadState =
   | "none"
+  | "planned"
   | "suggested"
   | "approved"
   | "picking"
@@ -103,6 +104,7 @@ export const loadText = (cases: number, pieces: number) =>
 /** The pill for a load, in the board's own words. */
 export const LOAD_PILL: Record<LoadState, { state: StatusState; label: string }> = {
   none: { state: "draft", label: "No load yet" },
+  planned: { state: "planned", label: "Load planned" },
   suggested: { state: "planned", label: "Suggested" },
   approved: { state: "approved", label: "Approved" },
   picking: { state: "picking", label: "Picking" },

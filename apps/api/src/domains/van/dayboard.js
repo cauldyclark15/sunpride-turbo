@@ -10,6 +10,7 @@ import { planOf } from "./loadout.js";
 /** Plain words for every stage (SPEC 3.10): "trip", "load-out", "settlement"; never "route session" or "load confirm". */
 export const LOAD_LABELS = /** @type {Record<string,string>} */ ({
   none: "No load yet",
+  planned: "Load planned",
   suggested: "Suggested",
   approved: "Approved",
   picking: "Picking",
@@ -52,7 +53,7 @@ function primaryAction(r) {
   const t = r.tripId;
   if (!r.tripId && r.rostered)
     return { kind: "plan_trip", label: "Plan trip", enabled: true };
-  if (r.load.state === "none" && r.trip.status === "planned")
+  if ((r.load.state === "none" || r.load.state === "planned") && r.trip.status === "planned")
     return { kind: "plan_load", label: "Plan load", enabled: true, tripId: t };
   if (r.load.state === "suggested")
     return r.load.attention.length
@@ -97,9 +98,16 @@ export async function dayBoard(ctx) {
     /** @type {any[]} */ const rows = [];
     for (const t of trips) {
       const plan = await planOf(db, t.id);
+      // WEB-099: a hand-made load (van_trip_loads) with no suggested plan is still the trip's load; never "No load yet".
+      const [handLoad] = plan
+        ? []
+        : await db`select id from van_trip_loads where trip_id=${t.id} and status<>'cancelled' and deleted_at is null order by load_number desc limit 1`;
       const lines = plan
         ? await db`select l.product_id,coalesce(l.approved_base,l.suggested_base)::bigint as q,l.case_base,l.flags from van_planned_load_lines l where l.planned_load_id=${plan.id}`
-        : [];
+        : handLoad
+          ? await db`select l.product_id,l.expected_base::bigint as q,1 as case_base,null as flags from van_trip_load_lines l where l.load_id=${handLoad.id}`
+          : [];
+      const loadKey = plan ? loadStateOf(plan.state) : handLoad ? "planned" : "none";
       const [doc] = plan?.stock_transfer_id
         ? await db`select transfer_number,status,variance_status from stock_transfers where id=${plan.stock_transfer_id}`
         : [];
@@ -133,9 +141,9 @@ export async function dayBoard(ctx) {
         onPhone: on ? { profileId: on.profileId, name: on.name, role: on.role } : null,
         trip: { status: t.status, label: TRIP_LABELS[t.status] ?? t.status, stage: stageOf(t.status, settlement) },
         load: {
-          state: loadStateOf(plan?.state),
-          detail: plan?.state ?? "none",
-          label: LOAD_LABELS[loadStateOf(plan?.state)],
+          state: loadKey,
+          detail: plan?.state ?? (handLoad ? "planned" : "none"),
+          label: LOAD_LABELS[loadKey],
           plannedLoadId: plan?.id ?? null,
           number: doc?.transfer_number ?? null,
           documentStatus: doc?.status ?? null,

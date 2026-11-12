@@ -31,7 +31,7 @@ describe("F-208 published productive-call policy registry", () => {
       "version 2",
       "Cebu",
       "Truck seller",
-      "2026-11-01",
+      "From Nov 1, 2026",
       "Every qualifying activity",
       "Sample approver",
       "not client agreed",

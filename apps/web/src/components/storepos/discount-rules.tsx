@@ -7,6 +7,7 @@ import { mutate, useApi, useLive } from "../../lib/api";
 /**
  * IP-SCPWD-CAP: two office settings that belong to the store tills, on one screen.
  *   1. The weekly purchase limit on the senior citizen / PWD discount (every store and van, per ID).
+ *   1b. SC/PWD discount on or off per unit for its stores and its vans.
  *   2. The old way of closing the day without a supervisor PIN: the switch, and which tills are still on old app builds.
  * Everyone who can open Stores POS can read it; only the office (admin) can change it, and the server refuses anyone else.
  */
@@ -600,9 +601,169 @@ export function RefundPolicyCard({
   );
 }
 
+/** One row of `GET /api/v1/fiscal/privilege/settings` (append-only; the newest row in force wins). */
+export type PrivilegeSettingRow = {
+  id: string;
+  org_unit_id: string;
+  surface: "store" | "van";
+  route_id: string | null;
+  enabled: boolean;
+  effective_from: string | number;
+};
+export type PrivilegeSettingsData = {
+  settings: PrivilegeSettingRow[];
+  defaults: { store: boolean; van: boolean };
+  canManage: boolean;
+};
+export type PrivilegeUnit = { id: string; name: string };
+
+/** Whether SC/PWD is on for one unit's stores or vans now, and whether that is the default (SPEC 6.2: stores on, vans off). */
+export function privilegeState(
+  data: PrivilegeSettingsData,
+  unitId: string,
+  surface: "store" | "van",
+  now = Date.now(),
+): { enabled: boolean; isDefault: boolean } {
+  const row = data.settings
+    .filter(
+      (r) =>
+        r.org_unit_id === unitId &&
+        r.surface === surface &&
+        r.route_id === null &&
+        new Date(r.effective_from).getTime() <= now,
+    )
+    .sort(
+      (a, b) =>
+        new Date(b.effective_from).getTime() -
+        new Date(a.effective_from).getTime(),
+    )[0];
+  return row
+    ? { enabled: row.enabled, isDefault: false }
+    : { enabled: data.defaults[surface], isDefault: true };
+}
+
+const SURFACE_WORDS = { store: "Stores (tills)", van: "Vans (van selling)" } as const;
+
+/**
+ * SC/PWD discount on or off per unit, for its stores and its vans (admin only; the server refuses anyone else).
+ * The weekly limit card only limits the discount; this switch is what turns it on.
+ */
+export function PrivilegeSwitchCard({
+  data,
+  units,
+  onSave,
+  busy = false,
+  notice = "",
+  now,
+}: {
+  data: PrivilegeSettingsData;
+  units: PrivilegeUnit[];
+  onSave?: (v: { orgUnitId: string; surface: "store" | "van"; enabled: boolean }) => void;
+  busy?: boolean;
+  notice?: string;
+  now?: number;
+}) {
+  const [unitId, setUnitId] = useState(units[0]?.id ?? "");
+  const unit = units.find((u) => u.id === unitId);
+  return (
+    <section
+      aria-labelledby="privilege-switch-title"
+      className="grid gap-3 rounded-lg border border-border p-4"
+    >
+      <h2 id="privilege-switch-title" className="text-lg font-bold">
+        Senior citizen / PWD discount on or off
+      </h2>
+      <p className="text-sm text-muted">
+        The senior citizen and PWD discount is required by law wherever a unit
+        sells to consumers. It is on for stores and off for vans unless the
+        office changes it here. The weekly limit above does not switch the
+        discount on; it only limits it.
+      </p>
+      {units.length ? (
+        <label className="grid max-w-md gap-1 text-sm">
+          Unit
+          <select
+            className={control}
+            value={unitId}
+            onChange={(e) => setUnitId(e.target.value)}
+          >
+            {units.map((u) => (
+              <option key={u.id} value={u.id}>
+                {u.name}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : (
+        <p className="text-sm text-muted">No units to show.</p>
+      )}
+      {unit ? (
+        <table className="w-full max-w-xl text-sm">
+          <thead>
+            <tr className="text-left text-muted">
+              <th className="py-2 pr-3">Where</th>
+              <th className="py-2 pr-3">SC/PWD discount</th>
+              <th className="py-2 pr-3">
+                <span className="sr-only">Change</span>
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {(["store", "van"] as const).map((surface) => {
+              const st = privilegeState(data, unit.id, surface, now);
+              return (
+                <tr key={surface} className="border-t border-border">
+                  <td className="py-2 pr-3">{SURFACE_WORDS[surface]}</td>
+                  <td className="py-2 pr-3" data-testid={`privilege-${surface}`}>
+                    {`${st.enabled ? "On" : "Off"}${st.isDefault ? " (default)" : ""}`}
+                  </td>
+                  <td className="py-2 pr-3">
+                    {data.canManage && onSave ? (
+                      <button
+                        type="button"
+                        className={button}
+                        disabled={busy}
+                        onClick={() =>
+                          onSave({
+                            orgUnitId: unit.id,
+                            surface,
+                            enabled: !st.enabled,
+                          })
+                        }
+                      >
+                        {st.enabled
+                          ? `Switch off for ${surface === "store" ? "stores" : "vans"}`
+                          : `Switch on for ${surface === "store" ? "stores" : "vans"}`}
+                      </button>
+                    ) : null}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      ) : null}
+      {data.canManage ? (
+        <p className="text-sm text-muted">
+          Switch it off only where this unit does not sell to consumers.
+        </p>
+      ) : (
+        <p className="text-sm text-muted">Only the office can change this.</p>
+      )}
+      {notice ? (
+        <p role="status" className="text-sm">
+          {notice}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
 const capKey = ["fiscal", "privilege-cap"] as const;
 const zKey = ["storepos", "legacy-z"] as const;
 const refundKey = ["fiscal", "refund-policy"] as const;
+const privilegeKey = ["fiscal", "privilege-settings"] as const;
+const unitsKey = ["fiscal", "privilege-units"] as const;
 
 /** Stores POS ▸ Discount and Z rules. */
 export function DiscountRulesScreen() {
@@ -621,7 +782,13 @@ export function DiscountRulesScreen() {
     refundKey,
     "/api/v1/fiscal/refunds/policy",
   );
-  useLive(["fiscal", "storepos"], [capKey, zKey, refundKey]);
+  const privilege = useApi<PrivilegeSettingsData>(
+    privilegeKey,
+    "/api/v1/fiscal/privilege/settings",
+  );
+  const units = useApi<PrivilegeUnit[]>(unitsKey, "/api/v1/org/tree");
+  useLive(["fiscal", "storepos"], [capKey, zKey, refundKey, privilegeKey]);
+  const [privilegeNotice, setPrivilegeNotice] = useState("");
   const [refundNotice, setRefundNotice] = useState("");
   const [capNotice, setCapNotice] = useState("");
   const [zNotice, setZNotice] = useState("");
@@ -673,6 +840,29 @@ export function DiscountRulesScreen() {
           {cap.error
             ? "Could not load the weekly limit."
             : "Loading the weekly limit…"}
+        </p>
+      )}
+      {privilege.data ? (
+        <PrivilegeSwitchCard
+          data={privilege.data}
+          units={units.data ?? []}
+          busy={busy}
+          notice={privilegeNotice}
+          onSave={(v) =>
+            run(
+              "/api/v1/fiscal/privilege/settings",
+              v,
+              setPrivilegeNotice,
+              `Saved: SC/PWD discount ${v.enabled ? "on" : "off"} for ${v.surface === "store" ? "stores" : "vans"}. Phones get it the next time they sync.`,
+              privilege.refetch,
+            )
+          }
+        />
+      ) : (
+        <p role={privilege.error ? "alert" : undefined} className="text-sm">
+          {privilege.error
+            ? "Could not load the SC/PWD switches."
+            : "Loading the SC/PWD switches…"}
         </p>
       )}
       {refund.data ? (

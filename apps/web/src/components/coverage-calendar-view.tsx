@@ -14,6 +14,7 @@ import { useCoverageQuery } from "./coverage-data";
 import { useState } from "react";
 import {
   groupCalendar,
+  calendarHeading,
   slotKindLabel,
   coverageStatusLabel,
   type CalendarMode,
@@ -110,7 +111,7 @@ export function CoverageCalendarView({
           groupCalendar(rows, mode).map(([key, entries]) => (
             <div key={key}>
               <h4 className="font-medium">
-                {mode === "week" ? `Week of ${key}` : key}
+                {calendarHeading(key, mode)}
               </h4>
               <ul className="overflow-hidden rounded-xl border border-border">
                 {entries.map((row) => (
