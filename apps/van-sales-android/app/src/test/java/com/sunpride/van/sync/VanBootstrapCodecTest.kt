@@ -105,6 +105,20 @@ class VanBootstrapCodecTest {
         o.getJSONObject("trip").put("openingFloatCentavos",10_000_001)
         assertTrue("a float over the cap is not a bundle we trust",runCatching { VanBootstrapCodec.decode(o.toString()) }.isFailure)
     }
+    /** SP-0169: the office's Senior/PWD switch rides policy.privilegeDiscount, outside the frozen validator; the option is hidden when off. */
+    @Test fun privilegeSwitchRidesThePolicyAndHidesTheDiscountWhenOff() {
+        val plain = VanBootstrapCodec.decode(fixture()).policy
+        assertNull(plain.privilegeDiscount); assertTrue("older server: still offered", com.sunpride.van.selling.PrivilegeSwitch.offered(plain))
+        val o = JSONObject(fixture())
+        o.getJSONObject("policy").put("privilegeDiscount",JSONObject().put("surface","van").put("enabled",false))
+        val off = VanBootstrapCodec.decode(o.toString()).policy
+        assertEquals(false,off.privilegeDiscount); assertFalse(com.sunpride.van.selling.PrivilegeSwitch.offered(off))
+        o.getJSONObject("policy").put("privilegeDiscount",JSONObject().put("surface","store").put("enabled",true))
+        assertTrue(com.sunpride.van.selling.PrivilegeSwitch.offered(VanBootstrapCodec.decode(o.toString()).policy))
+        // malformed is "not said", never a silent ON or a failed bootstrap
+        o.getJSONObject("policy").put("privilegeDiscount",JSONObject().put("surface","van").put("enabled","no"))
+        assertNull(VanBootstrapCodec.decode(o.toString()).policy.privilegeDiscount)
+    }
     /** VAN-034: a van-only handheld (no POS mode, so no storePos) gets the weekly limit at policy.privilegeCap, outside the frozen validator. */
     @Test fun vanOnlyWeeklyLimitRidesThePolicyAndStaysOutOfTheFrozenValidator() {
         assertNull(VanBootstrapCodec.decode(fixture()).policy.privilegeCap)

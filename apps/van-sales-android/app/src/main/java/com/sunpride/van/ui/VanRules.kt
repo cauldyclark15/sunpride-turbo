@@ -111,6 +111,7 @@ object VanRules {
             com.sunpride.van.pos.CheckoutProblem.OVERRIDE_APPROVAL_REQUIRED -> "Another authorized person must approve this exact transaction. Request and check the approval."
             com.sunpride.van.pos.CheckoutProblem.OVERRIDE_INVALID -> "The exception or approval no longer matches. Review it and request again."
             com.sunpride.van.pos.CheckoutProblem.DISCOUNT_CLAIM_INVALID -> "The discount needs the ID number exactly as printed on the card and the name of the person on it."
+            com.sunpride.van.pos.CheckoutProblem.DISCOUNT_SWITCHED_OFF -> com.sunpride.van.selling.PrivilegeSwitch.OFF_MESSAGE
             com.sunpride.van.pos.CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL -> "A senior, PWD or other statutory discount cannot be combined with a manual discount or a price exception. Remove one of them."
             com.sunpride.van.pos.CheckoutProblem.DISCOUNT_TAX_UNKNOWN -> "$p has no tax set-up on this phone, so the discount cannot be worked out. Ask the office to finish the price and tax set-up, then sync."
             com.sunpride.van.pos.CheckoutProblem.SPLIT_INVALID -> "Check the split: the other tender must be more than zero and less than the total, and the rest is paid in cash."

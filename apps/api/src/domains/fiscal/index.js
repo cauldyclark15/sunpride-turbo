@@ -1,6 +1,7 @@
 import { tx } from "@sunpride/db/client";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
-import { recordChange } from "../../core/sync.js";
+import { recordChange, registerRejectHook } from "../../core/sync.js";
+import { refusedSaleApplies, spoilRefusedDocument } from "./refused-spoil.js";
 import { currentActor, currentDeviceActor } from "../van/access.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { uuid, refuse, text, date } from "../van/model.js";
@@ -53,6 +54,11 @@ async function auditTripPrint(c, actor, { sourceType, sourceId }, eventId) {
 export function install(router, ctx) {
   installCommercial(router);
   installBirRoutes(router, ctx);
+  // SP-0169: a numbered sale the office refuses for good is recorded as spoiled, so the series stays gapless.
+  registerRejectHook("fiscal.spoil-refused", {
+    applies: refusedSaleApplies,
+    run: spoilRefusedDocument,
+  });
   ctx.registerTopic(
     "fiscal",
     (/** @type {any} */ actor, /** @type {string} */ topic) =>

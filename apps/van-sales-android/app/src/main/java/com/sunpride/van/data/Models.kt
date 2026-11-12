@@ -20,7 +20,9 @@ data class VanPolicy(val allowNegativeStock: Boolean = false,
     /** IP-REFUND: refund reasons, supervisor amount and refunds already made (opt-in `params.refunds`); null on an older server. */
     val refunds: com.sunpride.van.pos.RefundPolicy? = null,
     /** IP-SCPWD-CAP: the senior/PWD weekly limit and each card's use this week (opt-in `params.privilegeCap`); null = no limit known. */
-    val privilegeCap: com.sunpride.van.selling.PrivilegeCapInfo? = null)
+    val privilegeCap: com.sunpride.van.selling.PrivilegeCapInfo? = null,
+    /** SP-0169: the office's Senior/PWD switch for this route or till (opt-in `params.privilegeSwitch`); null = not said (older server). */
+    val privilegeDiscount: Boolean? = null)
 /** IP-P0 (SPEC 5.3): the van this handheld is bound to and the supervisor to call; every part is optional. */
 data class HandheldInfo(val vehicleCode: String? = null, val plateNumber: String? = null, val supervisorName: String? = null, val supervisorPhone: String? = null) {
     /** "ABC-1234" when the plate is known, else the van code. */
@@ -156,4 +158,6 @@ data class SaleReceipt(val saleId: String, val receiptNumber: String, val custom
     val fiscalJson: String? = null)
 data class PushAck(val entityId: String, val movementId: String?, val serverTime: Long)
 data class PushResult(val kind: String, val clientRequestId: String, val status: String,
-    val ack: PushAck? = null, val code: String? = null)
+    val ack: PushAck? = null, val code: String? = null,
+    /** SP-0169: the office recorded this refused document's number as spoiled. */
+    val spoiledNumber: String? = null)

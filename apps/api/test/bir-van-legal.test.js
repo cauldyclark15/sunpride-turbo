@@ -315,6 +315,25 @@ function pwdPayload(sequence, qty, claim) {
   p.payment.tenderedMinor = p.totalMinor;
   return claim ? Object.assign(p, { discountClaim: claim }) : p;
 }
+/** SP-0169: the phone's own bundle, as VanSyncClient asks for it. @param {boolean} [ask] */
+async function vanBundle(ask = true) {
+  const { bundle } = await import("../src/domains/van/projection.js");
+  return /** @type {any} */ (
+    await bundle(
+      {
+        db: h.db,
+        actor: await actorFor(h.db, who.userId),
+        device: { id: who.deviceId },
+        params: {
+          serviceDate: today(),
+          ...(ask ? { privilegeSwitch: true } : {}),
+        },
+        now: Date.now(),
+      },
+      h.env,
+    )
+  );
+}
 const pwd = {
   type: "pwd",
   idNumber: "PWD-CEB-0099",
@@ -356,12 +375,57 @@ test("van setup: trip started with stock on the truck", async () => {
 });
 test("statutory discount is OFF on vans by default: a PWD claim is refused until the office switches it on", async () => {
   const p = pwdPayload(1, 2, pwd);
-  const r = await push([op("sale.record", p)]);
+  const refused = op("sale.record", p);
+  const r = await push([refused]);
   expect(r.body.results[0].status).toBe("rejected");
   expect((await h.db`select count(*)::int as n from van_sales`)[0].n).toBe(0);
   expect(
     (await h.db`select count(*)::int as n from sale_discount_claims`)[0].n,
   ).toBe(0);
+  // SP-0169: the phone already printed TEST-SI-000000001; the office records it as SPOILED instead of leaving a gap.
+  expect(r.body.results[0].spoiled).toEqual({
+    documentNumber: "TEST-SI-000000001",
+    serial: "1",
+  });
+  const [spoiled] =
+    await h.db`select d.*,e.reason from fiscal_documents d join fiscal_document_events e on e.document_id=d.id and e.kind='spoiled' where d.source_type='spoiled' and d.source_id=${refused.clientOpId}`;
+  expect(spoiled.document_number).toBe("TEST-SI-000000001");
+  expect(spoiled.reason).toContain("number recorded as spoiled");
+  // Re-sending the refused op names the same spoiled number and never spoils another one.
+  const again = await push([refused]);
+  expect(again.body.results[0]).toMatchObject({
+    status: "rejected",
+    spoiled: { documentNumber: "TEST-SI-000000001" },
+  });
+  expect(
+    (
+      await h.db`select count(*)::int as n from fiscal_documents where source_type='spoiled'`
+    )[0].n,
+  ).toBe(1);
+  // The next reserved number is valid again: an ordinary sale on the same trip is accepted (was invalid_transition).
+  const plain = pwdPayload(9, 1);
+  const ok = await push([op("sale.record", plain)]);
+  expect(ok.body.results[0].status, JSON.stringify(ok.body.results[0])).toBe(
+    "applied",
+  );
+  const [doc] =
+    await h.db`select document_number from fiscal_documents where source_id=${plain.saleId}`;
+  expect(doc.document_number).toBe("TEST-SI-000000002");
+  // A number ABOVE the next reserved one is still refused and is never spoiled (nothing is skipped silently).
+  const [a] =
+    await h.db`select * from fiscal_allocations where device_id=${who.deviceId} order by created_at limit 1`;
+  const skip = pwdPayload(10, 1);
+  Object.assign(skip, {
+    fiscal: { allocationId: a.id, serial: String(Number(a.next_issue) + 1) },
+  });
+  const gap = await push([op("sale.record", skip)]);
+  expect(gap.body.results[0].status).toBe("rejected");
+  expect(gap.body.results[0].spoiled).toBeUndefined();
+  // SP-0169: the bundle tells a phone that asks that Senior/PWD is OFF for this van route.
+  expect((await vanBundle()).policy.privilegeDiscount).toEqual({
+    surface: "van",
+    enabled: false,
+  });
   const on = await fiscalApi("/api/v1/fiscal/privilege/settings", {
     orgUnitId: unit,
     surface: "van",
@@ -369,6 +433,14 @@ test("statutory discount is OFF on vans by default: a PWD claim is refused until
   });
   expect(on.status).toBe(200);
   await new Promise((r) => setTimeout(r, 15));
+  expect((await vanBundle()).policy.privilegeDiscount).toEqual({
+    surface: "van",
+    enabled: true,
+  });
+  // An older phone that does not ask gets no new policy key.
+  expect((await vanBundle(false)).policy).not.toHaveProperty(
+    "privilegeDiscount",
+  );
 });
 let pwdSale = "";
 test("van sale with a PWD claim: VAT removed, 20% off, tax buckets, claim row, receipt model", async () => {
