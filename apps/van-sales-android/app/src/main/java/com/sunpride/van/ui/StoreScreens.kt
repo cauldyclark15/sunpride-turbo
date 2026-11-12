@@ -122,10 +122,14 @@ import com.sunpride.van.storepos.StoreXPreview
     var amount by remember {mutableStateOf("")}
     val minor=VanRules.parseMoney(amount)?.takeIf {it<=StorePosStore.MAX_MONEY}
     LaunchedEffect(c.countUnlocked) {if(!c.countUnlocked) c.open(Page.HOME)}
+    // SP-0169: undecided void/refund requests stop the count at the office; tell the cashier before they count.
+    val waiting=c.storePos.config?.let {cfg->c.storePos.shift?.let {s->com.sunpride.van.storepos.StoreReversals.pendingInShift(cfg,c.storePos.rows,s.shiftId).size}}?:0
+    val waitingProblem=com.sunpride.van.storepos.StoreReversals.countProblem(waiting)
     ScreenFrame("Blind cash count",c::back,action="Submit blind count",actionTag="save-store-close",
-        enabled=minor!=null && !c.busy && c.storeMode && !c.onHold && c.countUnlocked,
+        enabled=minor!=null && !c.busy && c.storeMode && !c.onHold && c.countUnlocked && waitingProblem==null,
         onAction={c.closeStoreShift(checkNotNull(minor))},message=c.message) {
         Text(c.storePos.config?.storeName ?: "Store",style=MaterialTheme.typography.titleLarge)
+        waitingProblem?.let {Text(it,color=MaterialTheme.colorScheme.error,fontWeight=FontWeight.SemiBold,modifier=Modifier.testTag("store-count-waiting"))}
         Text("Count the cash physically in the drawer. Do not include e-wallet or card receipts. Your declaration is final; any difference is reviewed by a second person.")
         LabeledField("Cash counted (₱)",amount,{amount=it},"store-count-amount",numeric=true,maxLength=16)
         Text("Saved securely on this phone, even without a network. Sync when connected.")

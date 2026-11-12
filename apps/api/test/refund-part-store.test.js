@@ -536,11 +536,14 @@ test("the X reading counts the refunds and their credit memo range", async () =>
   const [{ till_day_id: day }] =
     await h.db`select till_day_id from store_shifts where id=${shift}`;
   const { model } = await readingModel(h.db, day, "x");
+  // SP-0169: a credit memo the office refused is recorded as spoiled (not a refund), so later refunds take higher numbers.
+  const [last] =
+    await h.db`select max(credit_number) as n from sale_refunds where surface='store'`;
   expect(model.refunds).toMatchObject({
     count: 3,
     totalCentavos: "19000",
     beginning: `${cmPrefix}-000000001`,
-    ending: `${cmPrefix}-000000003`,
+    ending: last.n,
   });
   expect(
     model.journal.filter((/** @type {any} */ j) => j.kind === "refund"),
@@ -694,6 +697,32 @@ test("a sale already under a whole-sale refund cannot be refunded by item, and t
   expect(r.status).toBe("approved");
 });
 
+test("SP-0169 POS-026: a refused item refund spoils its credit memo number, so the phone's next credit memo is accepted", async () => {
+  // CM-1 on a receipt with a whole-receipt refund request is refused (right); the phone already printed CM-1 and takes CM-2 next.
+  const first = await bigSale();
+  const whole = op("store.refund", { saleId: first, reason: "SAMPLE whole" });
+  await push(whole);
+  const refused = await refundOp(first, VAT("1"), "RF-CHANGED-MIND", "3900");
+  const r1 = await send(refused);
+  expect(r1.status).toBe("rejected");
+  expect(r1.spoiled?.documentNumber).toBe(refused.payload.creditNumber);
+  const [spoiled] =
+    await h.db`select source_type from fiscal_documents where document_number=${refused.payload.creditNumber}`;
+  expect(spoiled.source_type).toBe("spoiled");
+  // The phone's next number is the one after the refused memo, on another receipt with nothing pending.
+  const second = await bigSale();
+  const serial = String(BigInt(refused.payload.fiscal.serial) + 1n);
+  const next = await refundOp(second, VAT("1"), "RF-CHANGED-MIND", "3900", {
+    fiscal: { allocationId: cmAllocation, serial },
+    creditNumber: `${cmPrefix}-${serial.padStart(9, "0")}`,
+  });
+  expect((await send(next)).status).toBe("applied");
+  expect(
+    (await h.db`select count(*)::int as n from sale_refunds where sale_id=${second}`)[0].n,
+  ).toBe(1);
+  await web("reversals/decide", { id: whole.clientOpId, decision: "rejected", reason: "SAMPLE kept" });
+});
+
 test("splitting a receipt into refunds that are each under the supervisor amount still needs a supervisor once the total is over it", async () => {
   // amount 50.00; one piece is 39.00, two are 78.00
   await h.db`update refund_policies set supervisor_over_centavos=5000 where organization_id='sunpride'`;
@@ -738,6 +767,17 @@ test("the store bundle carries refunds, reasons and the credit-memo range only f
     nu.fiscal.ranges.map((/** @type {any} */ x) => x.documentType).sort(),
   ).toEqual(["credit_memo", "sales_invoice"]);
   expect(nu.refunds.supervisorOverMinor).toBe("50000");
+  // SP-0169: whole-receipt void/refund requests ride along with their decision (the phone blocks item refunds and the
+  // blind count on them before the office would refuse).
+  expect(
+    nu.reversals.some(
+      (/** @type {any} */ v) =>
+        v.kind === "refund" && v.status === "approved" && v.shiftId === shift,
+    ),
+  ).toBe(true);
+  expect(
+    nu.reversals.some((/** @type {any} */ v) => v.status === "rejected"),
+  ).toBe(true);
   expect(nu.refunds.reasons).toHaveLength(5);
   expect(
     nu.refunds.reasons.find((/** @type {any} */ x) => x.code === "RF-QUALITY"),
@@ -760,9 +800,9 @@ test("the Z reading freezes the refund count, total and credit memo range for th
   await web(`days/${day.id}/z`, {});
   const [z] =
     await h.db`select refunds_count,refunds_centavos::text as total,beginning_refund,ending_refund from store_z_readings where till_day_id=${day.id}`;
-  // 3 refunds of the first sale (19,000), 2 of the senior sale (5,571), 2 of the second senior sale (5,571, IP-INT5 weekly-limit test), 1 of the next (3,900), 1 of the split-around receipt (3,900), and one whole-sale refund (19,000)
-  expect(z.refunds_count).toBe(10);
-  expect(z.total).toBe(String(19000 + 5571 + 5571 + 3900 + 3900 + 19000));
+  // 3 refunds of the first sale (19,000), 2 of the senior sale (5,571), 2 of the second senior sale (5,571, IP-INT5 weekly-limit test), 1 of the next (3,900), 1 of the split-around receipt (3,900), 1 after a spoiled credit memo (3,900, SP-0169), and one whole-sale refund (19,000)
+  expect(z.refunds_count).toBe(11);
+  expect(z.total).toBe(String(19000 + 5571 + 5571 + 3900 + 3900 + 3900 + 19000));
   expect(z.beginning_refund).toBe(`${cmPrefix}-000000001`);
   expect(z.ending_refund).toMatch(/^REF-CM-0000000\d\d$/);
 });

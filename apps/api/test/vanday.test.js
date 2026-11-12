@@ -447,6 +447,24 @@ describe("load-out on the movement document", () => {
     expect(line).toEqual({ expected_base: "36", actual_base: "31", discrepancy_reason: "short_loaded" });
   });
 
+  it("SP-0169 VAN-011: a trip on the route-controls configuration accepts the phone's load count only with its settlement version (the lane's refused payload)", async () => {
+    const sc = await scenario();
+    await toDispatched(sc.tripId);
+    // The nightly roster trips (TRIP-...-VAN3-2 in the lane) are on operations version 1.
+    await h.db`update van_trips set operations_version=1 where id=${sc.tripId}`;
+    const loadId = await loadIdOf(sc.tripId);
+    const [sent] =
+      await h.db`select a.dispatched_base::text as b from stock_transfer_allocations a join van_planned_loads p on p.stock_transfer_id=a.transfer_id where p.trip_id=${sc.tripId} and a.dispatched_base>0`;
+    const lines = [{ productId: prodA.id, lotId: null, actualBase: sent.b }];
+    // The phone's payload before the fix: tripId, loadId, lines, deviceTime and no settlementVersion -> invalid_request.
+    const bare = await push([op("load.accept", { tripId: sc.tripId, loadId, lines })]);
+    expect(bare.body.results[0]).toMatchObject({ status: "rejected", code: "invalid_request" });
+    expect((await planOf(sc.tripId)).state).toBe("dispatched");
+    const fixed = await push([op("load.accept", { tripId: sc.tripId, loadId, lines, settlementVersion: 1 })]);
+    expect(fixed.body.results[0].status, JSON.stringify(fixed.body.results[0])).toBe("applied");
+    expect((await planOf(sc.tripId)).state).toBe("accepted");
+  });
+
   it("one case short is above the allowed difference: the clerk recounts on their own device, they agree, no supervisor, and the van leaves", async () => {
     const sc = await scenario();
     await toDispatched(sc.tripId);

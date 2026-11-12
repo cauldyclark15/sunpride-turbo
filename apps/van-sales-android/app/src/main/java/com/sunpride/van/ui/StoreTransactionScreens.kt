@@ -294,6 +294,11 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
                 Text("Credit memo $cm · ${pesos(m.getString("expectedCentavos").toLong())} refunded",Modifier.testTag("store-credit-memo-$rid"))
                 SecondaryButton(if(c.printing)"Printing…" else "Print credit memo",{c.printStoreRefundSlip(rid)},Modifier.testTag("store-print-credit-memo-$rid"),enabled=!c.printing)
             }
+            com.sunpride.van.storepos.StoreRefunds.refused(c.storePos.rows).filter {it.first.getString("saleId")==id}.forEach {(m,why)->
+                val rid=m.getString("refundId")
+                Text("Credit memo ${m.optString("creditNumber")} · ${pesos(m.getString("expectedCentavos").toLong())} · refused by the office",fontWeight=FontWeight.SemiBold,modifier=Modifier.testTag("store-credit-memo-refused-$rid"))
+                Text(why,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)
+            }
             if(r.optString("_status")!="voided"){
                 // IP-REFUND: take back some of the items now, paid out of the open drawer (a supervisor approves above the office's amount).
                 if(com.sunpride.van.storepos.StoreRefunds.policy(config)!=null)SecondaryButton("Refund items",{c.openStoreRefund(r)},Modifier.testTag("store-refund-items-${r.getString("saleId")}"),enabled=c.storePos.shift!=null&&!c.busy)

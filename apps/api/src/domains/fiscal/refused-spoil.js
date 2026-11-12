@@ -1,9 +1,10 @@
 import { isPlainObject, isUuid } from "../../core/util.js";
 import { issueDocument } from "./series.js";
 
-/** Point-of-sale invoices only: the phone prints these before the office sees them. Collections and credit memos keep
- * their own refusal paths (their tests re-issue the same number after an online refusal). */
-const SALE_OPS = new Set(["sale.record", "store.sale"]);
+/** Documents the phone prints before the office sees them: point-of-sale invoices and the till's item-refund credit
+ * memo (SP-0169 POS-026: one refused credit memo used to block every later one with a series gap). Van collections and
+ * van credit memos are issued online and keep their own refusal paths (their tests re-issue the same number). */
+const SALE_OPS = new Set(["sale.record", "store.sale", "store.refund.part"]);
 /** Cheap check before any transaction: a sale op that carries a fiscal number. @param {any} op */
 export const refusedSaleApplies = (op) =>
   SALE_OPS.has(op?.opType) && isPlainObject(op?.payload?.fiscal);
