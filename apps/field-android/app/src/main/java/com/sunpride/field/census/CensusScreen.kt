@@ -26,6 +26,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import com.sunpride.field.ui.ActionBar
 import com.sunpride.field.ui.bottomSafe
+import com.sunpride.field.ui.SafeBottomSheet
 import com.sunpride.field.ui.FieldBackend
 import com.sunpride.field.ui.FieldTextField
 import com.sunpride.field.ui.GlyphKind
@@ -59,9 +60,9 @@ import java.util.Base64
 @Composable
 fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> Unit, modifier: Modifier = Modifier,
     stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null, initialName: String = "",
-    editing: CustomerRecord? = null, onChangeSaved: (() -> Unit)? = null) =
+    editing: CustomerRecord? = null, onChangeSaved: (() -> Unit)? = null, onQueued: (() -> Unit)? = null) =
     CensusScreenForTest(backend, location, onBack, modifier, stores, onOpenStore, photoForTest = null, initialName = initialName,
-        editing = editing, onChangeSaved = onChangeSaved)
+        editing = editing, onChangeSaved = onChangeSaved, onQueued = onQueued)
 
 /** Tests only: [photoForTest] starts with a storefront photo (emulators have no working camera). Release code
  * calls [CensusScreen], which always passes null; lint's VisibleForTests check blocks other production callers. */
@@ -70,7 +71,9 @@ fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> 
 @Composable
 internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation, onBack: () -> Unit, modifier: Modifier = Modifier,
     stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null, photoForTest: ByteArray? = null,
-    initialName: String = "", editing: CustomerRecord? = null, onChangeSaved: (() -> Unit)? = null) {
+    initialName: String = "", editing: CustomerRecord? = null, onChangeSaved: (() -> Unit)? = null,
+    /** FLD-075: a saved customer is waiting work; the app re-reads its outbox status so the pill and Sync count it. */
+    onQueued: (() -> Unit)? = null) {
     // Edit store sends a change request for this store (never a new store); the office approves it first.
     val edit = editing != null && com.sunpride.field.ui.STORE_EDIT_ENABLED
     val current = remember(editing) { editing?.let { CensusRules.Current(it.name, (it.address ?: it.account?.address).orEmpty(),
@@ -235,6 +238,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             try {
                 CensusRules.validate(p)
                 withContext(Dispatchers.IO) { backendNow.queueCensus(p) }
+                onQueued?.invoke()
                 history = withContext(Dispatchers.IO) { backendNow.censusHistory() }
                 if (CensusRules.isChange(p)) {
                     message = "Change saved on phone. The office checks it first."
@@ -449,8 +453,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             PrimaryBottomButton(if (refreshing) "Checking your location…" else if (edit) "Save changes" else "Save customer", ::save, Modifier.fillMaxWidth().testTag("census-save"), !busy && (edit || setup != null) && !camera)
         }
     }
-    moved?.let { m -> ModalBottomSheet(onDismissRequest = { moved = null }) {
-        Column(Modifier.fillMaxWidth().bottomSafe().padding(start = 16.dp, end = 16.dp, bottom = 24.dp).testTag("census-moved"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    moved?.let { m -> SafeBottomSheet(onDismissRequest = { moved = null }, Modifier.testTag("census-moved")) {
             Text("Your location changed", style = MaterialTheme.typography.titleMedium)
             Text("You are ${m.meters.toInt()} m from where you first set the location.", style = MaterialTheme.typography.bodyMedium)
             if (m.address != null) {
@@ -461,10 +464,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 }, Modifier.fillMaxWidth().testTag("census-moved-new"), !busy)
             } else Text("No address found for the new spot. Check the address before you save.", style = MaterialTheme.typography.bodyMedium)
             SecondaryButton("Keep my address and save", { if (!busy) { moved = null; save() } }, Modifier.fillMaxWidth().testTag("census-moved-keep"), !busy)
-        }
     } }
-    if (pending != null && duplicates.isNotEmpty()) ModalBottomSheet(onDismissRequest = { pending = null; duplicates = emptyList() }) {
-        Column(Modifier.fillMaxWidth().bottomSafe().padding(start = 16.dp, end = 16.dp, bottom = 24.dp).testTag("census-duplicates"), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+    if (pending != null && duplicates.isNotEmpty()) SafeBottomSheet(onDismissRequest = { pending = null; duplicates = emptyList() }, Modifier.testTag("census-duplicates")) {
             Text("This might already be in the list", style = MaterialTheme.typography.titleMedium)
             duplicates.take(5).forEach { d ->
                 Column(Modifier.fillMaxWidth().testTag("census-duplicate")) {
@@ -483,7 +484,6 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 val ids = duplicates.map { it.id }; pending?.let { queue(build(ids)) }
                 pending = null; duplicates = emptyList()
             }, Modifier.fillMaxWidth().testTag("census-dup-different"))
-        }
     }
 }
 private const val STALE_FIX = "Couldn't get your location. Move to an open spot and tap Try again."

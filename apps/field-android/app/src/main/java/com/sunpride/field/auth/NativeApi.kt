@@ -46,7 +46,7 @@ class NativeApi(private val environment: AppEnvironment, private val auth: AuthC
                         val o = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrNull()
                             ?: throw AuthFailure(AuthFailure.Kind.SERVER)
                         if (response.code !in 200..299) {
-                            if (response.code == 429) throw AuthFailure(AuthFailure.Kind.RATE_LIMITED)
+                            if (response.code == 429) throw AuthFailure(AuthFailure.Kind.RATE_LIMITED, AuthFailure.retryAfter(response.body?.string()))
                             if (response.code >= 500) throw AuthFailure(AuthFailure.Kind.SERVER)
                             throw ServerError(o.optJSONObject("error")?.optString("code"))
                         }

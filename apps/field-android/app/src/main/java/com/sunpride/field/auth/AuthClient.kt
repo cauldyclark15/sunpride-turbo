@@ -93,7 +93,7 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
                         if (attempt == 0) return@use
                         throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED)
                     }
-                    if (response.code == 429) throw AuthFailure(AuthFailure.Kind.RATE_LIMITED)
+                    if (response.code == 429) throw AuthFailure(AuthFailure.Kind.RATE_LIMITED, AuthFailure.retryAfter(response.body?.string()))
                     val body = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrNull()
                     if (response.code !in 200..299 || body?.optBoolean("ok") != true)
                         throw PasswordChangeFailure(PasswordChange.error(body?.optJSONObject("error")?.optString("code")))
@@ -132,7 +132,7 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
                         vault.wipe(); throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED)
                     }
                     r.code == 403 -> throw AuthFailure(AuthFailure.Kind.REFUSED)
-                    r.code == 429 -> throw AuthFailure(AuthFailure.Kind.RATE_LIMITED)
+                    r.code == 429 -> throw AuthFailure(AuthFailure.Kind.RATE_LIMITED, AuthFailure.retryAfter(r.body?.string()))
                     r.code !in 200..299 -> throw AuthFailure(AuthFailure.Kind.SERVER)
                 }
                 JSONObject(r.body?.string().orEmpty()).also {

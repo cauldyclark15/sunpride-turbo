@@ -15,3 +15,33 @@ export async function activePromotions(db, organizationId, at) {
     fail("More than 500 active schemes; narrow the catalog");
   return rows;
 }
+
+/** FLD-116: a promotion pinned to a governed price list (e.g. SMP-SUPERMARKET) must
+ * also match lines priced from that list's SAP condition mirror ("SAP-<code>", created by
+ * condition ingestion), because SAP is the price authority (F-016) and every quoted line
+ * carries the mirror's id. Re-points only when a line's list is exactly that mirror; other
+ * promotions are returned unchanged, so no list gains or loses a promotion otherwise.
+ * @param {any} db @param {any[]} promotions @param {(string|null|undefined)[]} priceListIds */
+export async function alignPromotionPriceLists(db, promotions, priceListIds) {
+  const lineLists = [...new Set(priceListIds.filter(Boolean))];
+  const pinned = [
+    ...new Set(
+      promotions
+        .map((p) => p.price_list_id)
+        .filter((id) => id && !lineLists.includes(id)),
+    ),
+  ];
+  if (!lineLists.length || !pinned.length) return promotions;
+  const pairs =
+    await db`select g.id as governed_id,m.id as mirror_id from price_lists g
+    join price_lists m on m.organization_id=g.organization_id and m.code='SAP-'||g.code and m.source='sap' and m.deleted_at is null
+    where g.id in ${db(pinned)} and m.id in ${db(lineLists)} and g.deleted_at is null`;
+  const mirror = new Map(
+    pairs.map((/** @type {any} */ r) => [r.governed_id, r.mirror_id]),
+  );
+  return promotions.map((p) =>
+    mirror.has(p.price_list_id)
+      ? { ...p, price_list_id: mirror.get(p.price_list_id) }
+      : p,
+  );
+}

@@ -11,6 +11,7 @@ import { writeAudit } from "../org/audit.js";
 import { enqueueRefresh } from "../analytics/refresh.js";
 import { accessibleOrder, outletContext, scoped } from "./access.js";
 import { eligibilityFacts } from "../tpm/campaigns.js";
+import { alignPromotionPriceLists } from "../tpm/active.js";
 import { seams as tpmSeams } from "../tpm/seams.js";
 import { accrueOrder, reverseOrder } from "../tpm/finance.js";
 import { enforceCompanyDiscount } from "../fiscal/commercial.js";
@@ -187,7 +188,11 @@ export async function quote(ctx, input) {
   }
   const promo = applyPromotions(
     priced,
-    await activePromotions(ctx.db, ORGANIZATION, input.at ?? ctx.now),
+    await alignPromotionPriceLists(
+      ctx.db,
+      await activePromotions(ctx.db, ORGANIZATION, input.at ?? ctx.now),
+      priced.map((l) => l.priceListId),
+    ),
     await eligibilityFacts(ctx, input),
   );
   // Freeze NET line facts too: analytics sum(order_lines) must equal order.total.

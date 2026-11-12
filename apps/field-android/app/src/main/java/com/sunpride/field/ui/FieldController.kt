@@ -1831,7 +1831,7 @@ class FieldController(
             passwordMessage = e.kind.text
             if (e.kind == com.sunpride.field.auth.PasswordChangeFailure.Kind.LOCAL_SESSION) signOut()
         } catch (e: AuthFailure) {
-            passwordMessage = e.kind.message
+            passwordMessage = e.text
             if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) signOut()
         } catch (e: kotlinx.coroutines.CancellationException) { throw e }
         catch (_: Exception) { passwordMessage = com.sunpride.field.auth.PasswordChangeFailure.Kind.SERVER.text }
@@ -1850,7 +1850,7 @@ class FieldController(
     companion object {
         /** Fixed copy only — server text, URLs and credentials never reach the screen. */
         fun userMessage(e: Throwable): String = when (e) {
-            is AuthFailure -> e.kind.message
+            is AuthFailure -> e.text
             is ServerError -> when (e.code) {
                 "device_handover_required" -> "Another phone is active for your account. Ask the office to start a controlled handover."
                 "device_integrity_blocked" -> "This phone needs an integrity review before it can record work."

@@ -208,7 +208,7 @@ object OrderDraftRules {
         if (sheet.revision != draft.catalogRevision || draft.lines.any { line ->
                 catalog[line.productId]?.let { it.code == line.code && it.name == line.name } != true
             }) throw OrderDraftFailure(OrderDraftFailure.Code.CATALOG_CHANGED)
-        if (draft.priceList != terms?.priceList || draft.schemesJson != terms?.schemesJson || staleLines(draft, sheet, terms).isNotEmpty())
+        if (draft.priceList != terms?.priceList || !sameSchemeTerms(draft.schemesJson, terms?.schemesJson) || staleLines(draft, sheet, terms).isNotEmpty())
             throw OrderDraftFailure(if (terms != null || draft.priceList != null || draft.lines.any { it.unitPriceMinor != null })
                 OrderDraftFailure.Code.PRICES_CHANGED else OrderDraftFailure.Code.CATALOG_CHANGED)
         if(draft.schemesJson!=null && OrderSubmission.totals(draft).schemeProblem!=null) throw OrderDraftFailure(OrderDraftFailure.Code.PRICES_CHANGED)
@@ -221,6 +221,20 @@ object OrderDraftRules {
         if (existing != null) require(existing.draftId == draft.draftId && existing.clientVisitId == draft.clientVisitId &&
             existing.checkInRequestId == draft.checkInRequestId && existing.outletId == draft.outletId &&
             existing.createdAt == draft.createdAt && draft.updatedAt >= existing.updatedAt) { "Draft identity is immutable" }
+    }
+
+    /**
+     * FLD-120: every sync re-quotes the scheme context, so its quote window (`quotedAt`/`validUntil`)
+     * moves even when no price, unit, promotion or authority changed. Only the commercial content
+     * counts as a change; an expired window is still caught by the quote itself (schemeProblem).
+     */
+    fun sameSchemeTerms(saved: String?, current: String?): Boolean {
+        if (saved == current) return true
+        if (saved == null || current == null) return false
+        fun content(json: String): String? = runCatching {
+            JSONObject(json).apply { remove("quotedAt"); remove("validUntil") }.toString()
+        }.getOrNull()
+        return content(saved)?.let { it == content(current) } == true
     }
 
     /** Product, unit or price drift since save. Price-list identity is checked separately. */
