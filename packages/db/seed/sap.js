@@ -57,6 +57,7 @@ export async function seedSapDemo(db, env = process.env) {
       r.payload,
     ]),
   );
+  const seededAt = Date.now();
   /** @type {any[]} */ const items = [];
   /** @param {string} kind @param {string} key @param {any} data @param {any} from @param {any} [to] */
   function add(kind, key, data, from, to = null) {
@@ -67,7 +68,9 @@ export async function seedSapDemo(db, env = process.env) {
       kind,
       key,
       source: "sample",
-      effectiveFrom: new Date(from).getTime(),
+      // The demo seed stamps rows at its snapshot (noon Manila of the anchor day). A reset before noon would
+      // publish SAP records effective in the future, so open AR and stock stay invisible until noon (SP-0169 r6).
+      effectiveFrom: Math.min(new Date(from).getTime(), seededAt),
       effectiveTo: to === null ? null : new Date(to).getTime(),
       deleted: false,
       data,
