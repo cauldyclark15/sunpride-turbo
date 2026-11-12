@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   drawerKeys,
+  fieldReviewHeading,
   OrderDrawer,
   OrdersWorkspace,
   savedView,
@@ -222,5 +223,16 @@ describe("commercial control workspace", () => {
   it("mounts no denied content", () => {
     state.can = false;
     expect(renderToStaticMarkup(createElement(OrdersWorkspace))).toBe("");
+  });
+});
+
+describe("field order review heading (WEB-106)", () => {
+  it("is singular for one order", () => {
+    expect(fieldReviewHeading(1)).toBe(
+      "1 captured phone order waiting for commercial review",
+    );
+    expect(fieldReviewHeading(3)).toBe(
+      "3 captured phone orders waiting for commercial review",
+    );
   });
 });

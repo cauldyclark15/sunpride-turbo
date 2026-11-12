@@ -140,6 +140,11 @@ test("create → saveOutlets → routines → saveSlots → submit → approve �
   approved = await run(supervisor, "plans/approve", { planId: p._id });
   expect(approved.contentHash).toMatch(/^[0-9a-f]{64}$/);
   expect(approved.approvalCapacity).toBe("supervisor");
+  // WEB-118: the approve event in history carries the signature reference.
+  const [ev] =
+    await h.db`select approval_signature_ref from coverage_audit_events where plan_id=${p._id} and action='plan.approve'`;
+  expect(ev.approval_signature_ref).toBe(approved.approvalSignature);
+  expect(ev.approval_signature_ref).toMatch(/:[0-9a-f]{64}$/);
   const key = crypto.randomUUID();
   const first = await run(supervisor, "activation/activate", {
     planId: p._id,

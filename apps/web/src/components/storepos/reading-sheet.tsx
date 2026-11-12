@@ -1,5 +1,6 @@
 "use client";
 
+import { formatDate } from "../../lib/format";
 import { DocNumber, Peso } from "../ops";
 import { money, type PrintModel, type ZSummary } from "./store-day-model";
 
@@ -91,7 +92,7 @@ export function ZHistoryList({
       <tbody>
         {readings.map((z) => (
           <tr key={z.id} className="border-t border-separator">
-            <td className="py-2 pr-3">{z.businessDate}</td>
+            <td className="py-2 pr-3">{formatDate(z.businessDate)}</td>
             <td className="py-2 pr-3">
               {z.zCounter}
               {z.legacy && (

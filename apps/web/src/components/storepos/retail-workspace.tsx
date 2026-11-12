@@ -6,6 +6,10 @@ import Link from "next/link";
 import { useApi, useLive, mutate } from "../../lib/api";
 import { Panel } from "../cockpit/kit";
 import { formatPhp as cockpitPhp } from "../cockpit/format";
+
+/** Plain status word for a void/refund request (WEB-043). */
+export const reversalStatus = (status: string) =>
+  status === "pending" ? "Waiting for a decision" : formatStatus(status);
 const formatPhp = (value: number | null | undefined) =>
   cockpitPhp(value, { cents: true });
 
@@ -98,6 +102,8 @@ type Office = {
     status: string;
     number: string;
     canDecide: boolean;
+    /** Who decides, when this viewer cannot (WEB-043). */
+    decideNote?: string | null;
   }[];
   deposits: {
     id: string;
@@ -691,7 +697,7 @@ export function RetailOperations({
             <div key={v.id} className="mt-3 border-t border-separator pt-3">
               <p>
                 {v.kind === "void" ? "Void" : "Refund"} · {v.number} ·{" "}
-                {v.reason}
+                {v.reason} · {reversalStatus(v.status)}
               </p>
               {v.canDecide ? (
                 <div className="mt-2 flex gap-2">
@@ -721,7 +727,10 @@ export function RetailOperations({
                   </button>
                 </div>
               ) : (
-                <p>A second person must decide.</p>
+                <p>
+                  {v.decideNote ??
+                    "A store manager, sales manager or approver decides this."}
+                </p>
               )}
             </div>
           ))}
@@ -798,7 +807,7 @@ export function RetailOperations({
                 className="flex flex-wrap items-center justify-between gap-2 border-b border-separator py-3"
               >
                 <span>
-                  {r.kind.toUpperCase()} read {r.sequence} · {r.snapshot.date} ·{" "}
+                  {r.kind.toUpperCase()} read {r.sequence} · {formatDate(r.snapshot.date)} ·{" "}
                   {formatPhp(Number(r.snapshot.salesCentavos))}
                 </span>
                 <button

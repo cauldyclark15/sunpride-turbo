@@ -873,9 +873,10 @@ test("WEB-143 portal access offers external identities that do not have access y
   expect(fresh).toBeTruthy();
   expect(fresh.access).toBeNull();
   // existing members still appear, with their current access
-  expect(users.find((u) => u.id === otherCustomer.userId)?.access).toEqual({
+  expect(users.find((u) => u.id === otherCustomer.userId)?.access).toMatchObject({
     kind: "account",
     key: "X",
+    current: true,
   });
   // employees never appear
   expect(users.some((u) => u.id === admin.userId)).toBe(false);
@@ -889,4 +890,26 @@ test("WEB-143 portal access offers external identities that do not have access y
     idempotencyKey: crypto.randomUUID(),
   });
   expect(saved.status).toBe(200);
+  // WEB-143: a later version with an end date ends the current one; the label still shows the access in force.
+  const day = 86_400_000;
+  const tomorrow = new Date(Date.now() + day).toISOString();
+  const next = {
+    userId: id,
+    name: "First portal customer",
+    scopeKind: "account",
+    scopeKey: "A",
+    effectiveFrom: tomorrow,
+    effectiveTo: new Date(Date.now() + 2 * day).toISOString(),
+  };
+  expect(
+    (await api(admin, "portal/access", { ...next, idempotencyKey: crypto.randomUUID() })).status,
+  ).toBe(200);
+  const after = (await api(admin, "settings")).body.externalUsers.find(
+    (/** @type {any} */ u) => u.id === id,
+  );
+  expect(after.access).toMatchObject({ kind: "account", key: "A", current: true });
+  // The same start day again is refused in plain words.
+  const dup = await api(admin, "portal/access", { ...next, idempotencyKey: crypto.randomUUID() });
+  expect(dup.status).toBe(409);
+  expect(JSON.stringify(dup.body)).toContain("already has access starting that day");
 });

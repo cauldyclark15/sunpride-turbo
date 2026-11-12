@@ -93,12 +93,37 @@ export function ModernTradeWorkspace() {
     </div>
   );
 }
+/** WEB-143: what the login's portal access is today, in plain words. */
+export function portalAccessLabel(
+  access: {
+    kind: string;
+    key: string;
+    current?: boolean;
+    from?: number;
+    to?: number | null;
+  } | null,
+): string {
+  if (!access) return " · no access yet";
+  const what = `${access.kind} ${access.key}`;
+  if (access.current === false && access.from)
+    return ` · ${what} from ${formatDate(access.from)}`;
+  return ` · has ${what}${access.to ? ` until ${formatDate(access.to)}` : ""}`;
+}
+
 function Settings({ options }: { options: Options }) {
   const cmd = useCommand();
   const [saved, setSaved] = useState<{ section: string; text: string } | null>(
     null,
   );
   const done = (section: string, text: string) => setSaved({ section, text });
+  // WEB-143: show a refusal next to the form that was sent, not only at the top of the page.
+  const [sent, setSent] = useState("");
+  const errorNote = (section: string) =>
+    cmd.error && sent === section ? (
+      <p role="alert" className="mt-3 text-sm font-medium text-danger">
+        {cmd.error}
+      </p>
+    ) : null;
   const savedNote = (section: string) =>
     saved?.section === section ? (
       <p role="status" className="mt-3 text-sm font-medium text-foreground">
@@ -117,7 +142,13 @@ function Settings({ options }: { options: Options }) {
       id: string;
       name: string;
       email: string;
-      access: { kind: string; key: string } | null;
+      access: {
+        kind: string;
+        key: string;
+        current?: boolean;
+        from?: number;
+        to?: number | null;
+      } | null;
     }[];
     profiles: {
       id: string;
@@ -131,7 +162,7 @@ function Settings({ options }: { options: Options }) {
   const { can } = usePermissions();
   return (
     <div className="grid gap-5">
-      {cmd.error ? <Notice>{cmd.error}</Notice> : null}
+      {cmd.error && sent !== "access" ? <Notice>{cmd.error}</Notice> : null}
       {query.error ? <Notice>{query.error.message}</Notice> : null}
       <section className={panel}>
         <h2 className="mb-4 font-semibold">Account export mapping</h2>
@@ -328,6 +359,7 @@ function Settings({ options }: { options: Options }) {
           <Form
             onSubmit={async (f) => {
               setSaved(null);
+              setSent("access");
               const ok = await cmd.run("/api/v1/mt/portal/access", {
                 userId: text(f, "user"),
                 name: text(f, "name"),
@@ -359,9 +391,7 @@ function Settings({ options }: { options: Options }) {
                     {query.data?.externalUsers.map((u) => (
                       <option key={u.id} value={u.id}>
                         {u.name} · {u.email}
-                        {u.access
-                          ? ` · has ${u.access.kind} ${u.access.key}`
-                          : " · no access yet"}
+                        {portalAccessLabel(u.access)}
                       </option>
                     ))}
                   </select>
@@ -397,6 +427,7 @@ function Settings({ options }: { options: Options }) {
             </button>
           </Form>
           {savedNote("access")}
+          {errorNote("access")}
           <p className="mt-3 text-sm text-muted">
             The portal is at /portal/login. Customer identities have no employee
             profile or office permissions. Sample passwords are written only to

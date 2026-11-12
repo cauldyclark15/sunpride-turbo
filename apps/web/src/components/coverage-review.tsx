@@ -85,6 +85,32 @@ export function signatureLabel(signature: string): string {
   return `v${version} · ${hash.slice(0, 12)}`;
 }
 
+/** WEB-118: history actions in plain words, not "plan.approve". */
+const ACTION_LABELS: Record<string, string> = {
+  "plan.created": "Plan created",
+  "plan.create": "Plan created",
+  "plan.createRevision": "Revision started",
+  "plan.applyToDraft": "Routine applied to the draft",
+  "plan.saveOutlets": "Outlets saved",
+  "plan.saveSlots": "Visit days saved",
+  "plan.setAssignment": "Assignment saved",
+  "plan.submit": "Submitted for approval",
+  "plan.returnPlan": "Returned to draft",
+  "plan.returned": "Returned to draft",
+  "plan.approved": "Approved and signed",
+  "plan.submitted": "Submitted for approval",
+  "plan.approve": "Approved and signed",
+  "plan.activated": "Plan in force",
+  "plan.superseded": "Replaced by a newer plan",
+  "routines.applied": "Weekly routine applied",
+};
+export function historyActionLabel(action: string): string {
+  if (ACTION_LABELS[action]) return ACTION_LABELS[action];
+  const tail = action.split(".").pop() ?? action;
+  const words = tail.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
+}
+
 function auditValue(
   value: unknown,
   actorToken: string,
@@ -148,7 +174,7 @@ function PlanHistory({ planId }: { planId: Id<"coveragePlans"> }) {
               className="rounded border border-border p-2 text-sm"
             >
               <strong>
-                {auditValue(event.action, event.actorSubject, actorName)}
+                {historyActionLabel(event.action)}
               </strong>{" "}
               · {actorName} · {stamp(event.createdAt)}
               <p>Version {event.planVersion}</p>

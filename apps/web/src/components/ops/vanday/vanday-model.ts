@@ -168,6 +168,25 @@ export const cleanTripIds = (rows: BoardRow[]) =>
     )
     .map((r) => r.tripId as string);
 
+/** WEB-082/084: approve-plan answers 200 even when a truck is refused ({failed, results[].message}).
+ * Returns the plain refusal to show, or null when every load was approved. */
+export function approvalRefusal(result: unknown): string | null {
+  const r = result as {
+    failed?: number;
+    approved?: number;
+    results?: Array<{ ok?: boolean; message?: string }>;
+  } | null;
+  if (!r || !Array.isArray(r.results)) return null;
+  const failed = r.results.filter((x) => x && x.ok === false);
+  if (!failed.length) return null;
+  const reasons = [...new Set(failed.map((x) => x.message || "Could not approve this load"))];
+  const head =
+    failed.length === 1 && !r.approved
+      ? "The load was not approved."
+      : `${failed.length} load${failed.length === 1 ? "" : "s"} not approved${r.approved ? `; ${r.approved} approved` : ""}.`;
+  return `${head} ${reasons.join(". ")}.`.replace(/\.\.+/g, ".");
+}
+
 export const approveAllRequest = (ids: string[]) => ({
   path: "/api/v1/van/loads/approve-plan",
   body: { tripIds: ids },

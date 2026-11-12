@@ -560,6 +560,8 @@ export async function workflow(ctx, action, b) {
     { status: p.status, revision: p.content_revision },
     { status: updated.status, revision: updated.content_revision },
     b.reason ?? null,
+    // WEB-118: the approve event carries the signature so History can show "Signed version".
+    action === "approve" ? updated.approval_signature : null,
   );
   return dto(updated);
 }

@@ -14,7 +14,12 @@ import {
 } from "../qty-cases-pieces";
 import { StatusPill } from "../status-pill";
 import { useIntent } from "../transfers/use-intent";
-import { editPayload, reasonsFor, type PlanDetail } from "./vanday-model";
+import {
+  approvalRefusal,
+  editPayload,
+  reasonsFor,
+  type PlanDetail,
+} from "./vanday-model";
 
 /** The suggested load of one truck: each line with its reason, editable while it is still a suggestion. */
 export function PlannedLoadView({
@@ -197,11 +202,16 @@ export function PlannedLoad({
   const post = async (path: string, body: Record<string, unknown>) => {
     setError(null);
     try {
-      await write.mutate(path, intent.withKey(path, body), {
+      const result = await write.mutate(path, intent.withKey(path, body), {
         invalidate: [["van"]],
       });
       intent.done(path, body);
       setEdits({});
+      const refused = approvalRefusal(result);
+      if (refused) {
+        setError(refused);
+        return;
+      }
       onDone?.();
     } catch (e) {
       setError(e instanceof Error ? e.message : "Try again");

@@ -162,10 +162,10 @@ export async function outletAt(ctx, outletId, at, cap = "mcp.read") {
   await requireCapability(ctx, cap, unit);
   return { outlet: o, assignment: a, owner, orgUnitId: unit };
 }
-/** @param {any} ctx @param {any} p @param {string} action @param {any} before @param {any} after @param {string|null} [reason] */
-export async function audit(ctx, p, action, before, after, reason = null) {
-  await ctx.db`insert into coverage_audit_events (plan_id,assignee_profile_id,org_unit_id,local_month,actor_subject,action,reason,affected_entity,before,after,plan_version,created_at)
-  values (${p.id},${p.assignee_profile_id},${p.org_unit_id},${p.local_month},${ctx.actor?.subject ?? "scheduler"},${action},${reason},'coveragePlan',${before},${after},${p.version},${new Date(ctx.now)})`;
+/** @param {any} ctx @param {any} p @param {string} action @param {any} before @param {any} after @param {string|null} [reason] @param {string|null} [signatureRef] */
+export async function audit(ctx, p, action, before, after, reason = null, signatureRef = null) {
+  await ctx.db`insert into coverage_audit_events (plan_id,assignee_profile_id,org_unit_id,local_month,actor_subject,action,reason,affected_entity,before,after,plan_version,approval_signature_ref,created_at)
+  values (${p.id},${p.assignee_profile_id},${p.org_unit_id},${p.local_month},${ctx.actor?.subject ?? "scheduler"},${action},${reason},'coveragePlan',${before},${after},${p.version},${signatureRef},${new Date(ctx.now)})`;
 }
 /** @param {any} ctx */
 export async function visiblePeople(ctx) {

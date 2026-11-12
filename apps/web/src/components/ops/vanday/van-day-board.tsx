@@ -15,6 +15,7 @@ import {
   attentionFor,
   byStage,
   cleanTripIds,
+  approvalRefusal,
   LOAD_PILL,
   loadText,
   opens,
@@ -266,10 +267,12 @@ export function VanDayBoard({
   const post = async (path: string, body: Record<string, unknown>) => {
     setError(null);
     try {
-      await write.mutate(path, intent.withKey(path, body), {
+      const result = await write.mutate(path, intent.withKey(path, body), {
         invalidate: [["van"]],
       });
       intent.done(path, body);
+      const refused = approvalRefusal(result);
+      if (refused) setError(refused);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Try again");
     }

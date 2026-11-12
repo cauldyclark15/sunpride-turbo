@@ -12,6 +12,7 @@ import {
   attentionFor,
   byStage,
   cleanTripIds,
+  approvalRefusal,
   editPayload,
   emptyRosterForm,
   reasonsFor,
@@ -559,5 +560,28 @@ describe("WEB-083 roster form while editing", () => {
     );
     expect(html).toContain("Edit roster line · VAN1");
     expect(html).not.toContain("Add roster line");
+  });
+});
+
+describe("approve-plan refusals (WEB-082/084)", () => {
+  it("turns a 200 with a refused truck into a plain message", () => {
+    expect(
+      approvalRefusal({
+        approved: 0,
+        failed: 1,
+        results: [{ tripId: "t", ok: false, message: "Insufficient eligible lot stock" }],
+      }),
+    ).toBe("The load was not approved. Insufficient eligible lot stock.");
+    expect(
+      approvalRefusal({
+        approved: 2,
+        failed: 1,
+        results: [{ ok: true }, { ok: true }, { ok: false, message: "No stock." }],
+      }),
+    ).toBe("1 load not approved; 2 approved. No stock.");
+  });
+  it("is quiet when every load was approved", () => {
+    expect(approvalRefusal({ approved: 1, failed: 0, results: [{ ok: true }] })).toBeNull();
+    expect(approvalRefusal(undefined)).toBeNull();
   });
 });

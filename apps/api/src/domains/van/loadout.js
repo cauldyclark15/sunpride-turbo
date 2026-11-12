@@ -13,6 +13,7 @@ import {
 } from "../inventory/transfers.js";
 import { toleranceFor, withinTolerance } from "../inventory/tolerances.js";
 import { ORGANIZATION } from "../inventory/common.js";
+import { eligibleFreeBase } from "../inventory/eligible.js";
 import { audit, explainStock, productFor } from "./facts.js";
 import { tripFor, locationFor } from "./access.js";
 import { loadedLines, suggestionFromLines } from "./nightly.js";
@@ -90,9 +91,7 @@ async function applyLines(db, plan, trip, input) {
     seen.add(productId);
     const q = qty(l.quantityBase);
     const product = await productFor(db, productId);
-    const [depot] =
-      await db`select available_base::bigint as q from inventory_balances where location_id=${trip.source_location_id} and product_id=${productId} and deleted_at is null`;
-    const free = Number(depot?.q ?? 0);
+    const free = (await eligibleFreeBase(db, trip.source_location_id, [productId], { org: trip.organization_id })).get(productId) ?? 0;
     if (q > free)
       refuse(
         `${product.name}: the depot has ${free} pieces free, not ${q}`,

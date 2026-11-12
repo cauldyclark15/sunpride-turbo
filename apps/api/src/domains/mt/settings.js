@@ -38,8 +38,11 @@ export function installSettings(router) {
     const externalUsers = [];
     if (c.actor?.capabilities.has("admin.manage")) {
       const members =
-        await c.db`select u.id as user_id,u.email,coalesce(m.name,u.email::text) as name,m.scope_kind,m.scope_key
-          from users u left join mt_portal_memberships m on m.user_id=u.id and m.effective_to is null
+        // WEB-143: the label shows the version in force now (else the next one), not the open-ended row.
+        await c.db`select u.id as user_id,u.email,coalesce(m.name,u.email::text) as name,m.scope_kind,m.scope_key,m.effective_from,m.effective_to,m.effective_from<=now() as in_force
+          from users u left join lateral (
+            select * from mt_portal_memberships x where x.user_id=u.id and (x.effective_to is null or x.effective_to>now())
+            order by (x.effective_from<=now()) desc, x.effective_from asc limit 1) m on true
           where u.disabled_at is null
             and not exists(select 1 from profiles p where p.user_id=u.id or lower(p.email)=lower(u.email))
             and not exists(select 1 from access_invitations a where lower(a.email)=lower(u.email) and a.status='pending')
@@ -55,7 +58,13 @@ export function installSettings(router) {
             name: m.name,
             email: m.email,
             access: m.scope_kind
-              ? { kind: m.scope_kind, key: m.scope_key }
+              ? {
+                  kind: m.scope_kind,
+                  key: m.scope_key,
+                  current: Boolean(m.in_force),
+                  from: new Date(m.effective_from).getTime(),
+                  to: m.effective_to ? new Date(m.effective_to).getTime() : null,
+                }
               : null,
           });
         } catch (e) {
@@ -211,6 +220,15 @@ export function installSettings(router) {
         if (old)
           await scopeAccess(cc, old.scope_kind, old.scope_key, "admin.manage");
         const from = instant(b.effectiveFrom);
+        // WEB-143: a second version on the same start day is refused in plain words, not a bare 409.
+        const [same] =
+          await cc.db`select 1 from mt_portal_memberships where user_id=${user.id} and effective_from=${from}`;
+        if (same)
+          throw new ApiError(
+            "access_overlap",
+            409,
+            "This login already has access starting that day. Choose a later start date to change it.",
+          );
         await cc.db`update mt_portal_memberships set effective_to=${from},updated_at=now() where user_id=${user.id} and effective_to is null and effective_from<${from}`;
         const [r] =
           await cc.db`insert into mt_portal_memberships(user_id,name,scope_kind,scope_key,effective_from,effective_to) values(${user.id},${text(b.name, "Customer name", 160)},${kind},${key},${from},${b.effectiveTo ? instant(b.effectiveTo) : null}) returning id`;

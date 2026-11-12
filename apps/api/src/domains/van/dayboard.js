@@ -6,6 +6,7 @@ import { cashExpectation, productFor } from "./facts.js";
 import { date, dayString, refuse, today, uuid } from "./model.js";
 import { personOnDevice, rostersOn, vehicleOfDevice, crewDirectory, weekdayLabel } from "./roster.js";
 import { planOf } from "./loadout.js";
+import { DEPOT_SHORT_TEXT, eligibleFreeBase } from "../inventory/eligible.js";
 
 /** Plain words for every stage (SPEC 3.10): "trip", "load-out", "settlement"; never "route session" or "load confirm". */
 export const LOAD_LABELS = /** @type {Record<string,string>} */ ({
@@ -76,6 +77,20 @@ function primaryAction(r) {
   if (["closing", "reconciling", "review_required"].includes(r.trip.status))
     return { kind: "settle", label: "Settle", enabled: true, tripId: t };
   return { kind: "view_trip", label: "View trip", enabled: Boolean(t), tripId: t };
+}
+
+/** WEB-082/084: a suggested load is only "clean" when the depot can issue every line under the same
+ * eligible-lot rule approval uses. Stale plans (made before a lot was quarantined or neared expiry) get
+ * the shortfall reason added live, so the board never promises an approval that will be refused.
+ * @param {any} db @param {any} trip @param {any} plan @param {Array<{product_id:string, q:any}>} lines @returns {Promise<string[]>} */
+export async function liveAttention(db, trip, plan, lines) {
+  const attention = [...(plan?.attention ?? [])];
+  if (plan?.state !== "suggested" || attention.includes(DEPOT_SHORT_TEXT)) return attention;
+  const wanted = lines.filter((l) => Number(l.q) > 0);
+  if (!wanted.length) return attention;
+  const free = await eligibleFreeBase(db, trip.source_location_id, wanted.map((l) => l.product_id), { org: trip.organization_id });
+  if (wanted.some((l) => Number(l.q) > (free.get(l.product_id) ?? 0))) attention.push(DEPOT_SHORT_TEXT);
+  return attention;
 }
 
 /** GET van/day-board?date=&unitId=: every truck of a depot for one day on one screen. @param {any} ctx */
@@ -152,7 +167,7 @@ export async function dayBoard(ctx) {
           // Whole cases and loose pieces across the products, so the board can say "5 cs 2 pc".
           cases: caseLines.reduce((/** @type {number} */ n, /** @type {any} */ l) => n + (Number(l.case_base) > 1 ? Math.floor(Number(l.q) / Number(l.case_base)) : 0), 0),
           pieces: caseLines.reduce((/** @type {number} */ n, /** @type {any} */ l) => n + (Number(l.case_base) > 1 ? Number(l.q) % Number(l.case_base) : Number(l.q)), 0),
-          attention: plan?.attention ?? [],
+          attention: plan ? await liveAttention(db, t, plan, lines) : [],
           source: plan?.source ?? null,
           agreement: plan?.agreement ?? null,
           differenceCentavos: Number(plan?.difference_value_centavos ?? 0),
@@ -244,7 +259,7 @@ export async function planDetail(ctx) {
         state: plan.state,
         label: LOAD_LABELS[loadStateOf(plan.state)],
         source: plan.source,
-        attention: plan.attention,
+        attention: await liveAttention(db, trip, plan, lines.map((/** @type {any} */ l) => ({ product_id: l.product_id, q: l.approved_base ?? l.suggested_base }))),
         agreement: plan.agreement,
         clerkName: plan.clerk_name,
         sellerSignedAt: plan.seller_signed_at ? new Date(plan.seller_signed_at).getTime() : null,
