@@ -524,11 +524,11 @@ Two different people are needed: one proposes, another verifies.
 
 A phone with **no location** (Location off, permission off, no signal) never blocks a
 check-in: the call starts, the seller sees **Location unavailable · supervisor will review**,
-and you get a **No location** item in section 15 (van calls: **No location at start/end** in
+and you get a **No location** item in section 15 (van calls: **No location at start** or **No location at end** in
 Call exceptions). On stores without a configured call flow, a check-in outside the radius is
-only flagged for the supervisor (section 15). On call-flow stores, a fix **outside the radius**
-needs your approval before Start (the seller taps **Request supervisor approval**), and a
-**mock (fake) location** is always refused. Only verified pins show on the coverage map.
+only flagged for the supervisor (section 15). On call-flow stores, a fix outside the radius
+needs your approval before Start (the seller taps Request supervisor approval on the phone), and a
+mock (fake) location is always refused. Only verified pins show on the coverage map.
 
 ### 12.3 Assign outlets to a territory and route, and set stop order
 
