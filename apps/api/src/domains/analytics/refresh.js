@@ -40,11 +40,12 @@ export async function rebuildDay(db, date) {
         cross: true,
       },
       period = { from: date, to: date, channel: null };
-    const [facts, sales, people] = await Promise.all([
-      readVisits(t, period, scope),
-      readSales(t, period, scope, "agent"),
-      t`select * from analytics_people where status='active'`,
-    ]);
+    // One statement at a time on the transaction (SP-0169: concurrent statements on one
+    // Bun connection stranded this transaction idle while it held profile key-share locks).
+    const facts = await readVisits(t, period, scope);
+    const sales = await readSales(t, period, scope, "agent");
+    const people =
+      await t`select * from analytics_people where status='active'`;
     // Include active planned-only employee days, and keep a zero row after cancellation.
     for (const person of people) {
       const v = {

@@ -6,6 +6,12 @@ if (!url) {
   console.error("DATABASE_URL is required");
   process.exit(2);
 }
+// SP-0169 safeguard: Postgres ends a transaction left idle (and frees its locks) or a
+// runaway statement, so one stuck request/job cannot block profile writes or sign-in.
+// Every pool this process opens (API pool, scheduler lock connection) inherits these.
+// Override with env; 0 turns one off.
+process.env.SP_DB_IDLE_TX_TIMEOUT_MS ??= "60000";
+process.env.SP_DB_STATEMENT_TIMEOUT_MS ??= "300000";
 const port = Number(process.env.PORT ?? 4310);
 const db = createDb(url, { max: Number(process.env.DB_POOL_MAX ?? 20) });
 const app = createApp({ db, dbUrl: url, env: process.env });

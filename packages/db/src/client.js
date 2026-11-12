@@ -12,11 +12,63 @@ const TX_OPTIONS = /^[a-z ]*$/i;
  * @param {any} r */
 const settle = (r) => (Array.isArray(r) ? Promise.all(r) : r);
 
+/** @typedef {{ n: number, tail: Promise<unknown> }} TxSeq */
+
+/** Run `fn` after every earlier wire statement of this transaction has settled.
+ * @template T @param {TxSeq} seq @param {() => T | Promise<T>} fn @returns {Promise<T>} */
+function wire(seq, fn) {
+  const result = seq.tail.then(fn);
+  seq.tail = result.then(
+    () => undefined,
+    () => undefined,
+  );
+  return result;
+}
+
+/**
+ * SP-0169 (analytics hang): Bun 1.3.14 strands queries issued concurrently on ONE
+ * connection when two different prepared statements are each in flight more than once
+ * (A,B,A,B under Promise.all): the client waits forever, the server sits `idle in
+ * transaction / ClientRead`, and every lock the transaction took (advisory locks, FK
+ * key-share locks on profiles) blocks the rest of the API. So a transaction handle
+ * never pipelines: each query starts only when the previous one has settled. The
+ * Query stays lazy, so it still nests as a fragment (`${t`and …`}`) without running.
+ * Like the pool's `lazy`, the statement that runs is made fresh on the connection when
+ * its turn comes (`make`), with any `.values()/.raw()/.simple()` mode applied.
+ * @param {any} query @param {TxSeq} seq @param {(c?: any) => any} make
+ */
+function inOrder(query, seq, make) {
+  /** @type {Promise<any>|undefined} */ let run;
+  /** @type {string[]} */ const modes = [];
+  const start = () =>
+    (run ??= wire(seq, () =>
+      modes.reduce((/** @type {any} */ q, m) => q[m](), make()),
+    ));
+  Object.defineProperties(query, {
+    then: {
+      value: (/** @type {any} */ ok, /** @type {any} */ fail) =>
+        start().then(ok, fail),
+    },
+    catch: { value: (/** @type {any} */ fail) => start().catch(fail) },
+    finally: { value: (/** @type {any} */ f) => start().finally(f) },
+    execute: { value: () => (start(), query) },
+    run: { value: () => (start(), query) },
+    ...Object.fromEntries(
+      ["values", "raw", "simple"].map((m) => [
+        m,
+        { value: () => (modes.push(m), query) },
+      ]),
+    ),
+  });
+  return query;
+}
+
 /**
  * A transaction handle on one reserved connection: queries, `unsafe`, and `savepoint`.
  * Once its scope ends every further query is refused, so a stray (unawaited) query can
  * never run on the connection after it goes back to the pool.
- * @param {any} c @param {{ open: boolean }} scope @param {{ n: number }} seq
+ * Wire queries run strictly one at a time, in issue order (see `inOrder`).
+ * @param {any} c @param {{ open: boolean }} scope @param {TxSeq} seq
  */
 function txHandle(c, scope, seq) {
   const guard = () => {
@@ -26,14 +78,17 @@ function txHandle(c, scope, seq) {
   /** @type {any} */
   const handle = new Proxy(c, {
     apply(target, thisArg, args) {
-      if (isTemplate(args[0])) guard();
-      return Reflect.apply(target, thisArg, args);
+      if (!isTemplate(args[0])) return Reflect.apply(target, thisArg, args);
+      guard();
+      return inOrder(Reflect.apply(target, thisArg, args), seq, () =>
+        Reflect.apply(target, thisArg, args),
+      );
     },
     get(target, key) {
       if (key === "unsafe")
         return (/** @type {string} */ q, /** @type {any[]} */ p) => {
           guard();
-          return target.unsafe(q, p);
+          return inOrder(target.unsafe(q, p), seq, () => target.unsafe(q, p));
         };
       // Nested begin() on a transaction handle is a savepoint, as with Bun's own handles.
       if (key === "savepoint" || key === "begin" || key === "transaction")
@@ -42,15 +97,17 @@ function txHandle(c, scope, seq) {
           const fn = typeof a === "function" ? a : b,
             name = `sp_${++seq.n}`,
             inner = { open: true };
-          await target.unsafe(`savepoint ${name}`);
+          await wire(seq, () => target.unsafe(`savepoint ${name}`));
           try {
             const result = await settle(fn(txHandle(target, inner, seq)));
             inner.open = false;
-            await target.unsafe(`release savepoint ${name}`);
+            await wire(seq, () => target.unsafe(`release savepoint ${name}`));
             return result;
           } catch (error) {
             inner.open = false;
-            await target.unsafe(`rollback to savepoint ${name}`);
+            await wire(seq, () =>
+              target.unsafe(`rollback to savepoint ${name}`),
+            );
             throw error;
           }
         };
@@ -82,15 +139,16 @@ async function runTx(c, options, fn) {
   if (typeof options !== "string" || !TX_OPTIONS.test(options))
     throw new Error("Invalid transaction options");
   const scope = { open: true };
+  /** @type {TxSeq} */ const seq = { n: 0, tail: Promise.resolve() };
   await c.unsafe(options ? `begin ${options}` : "begin");
   try {
-    const result = await settle(fn(txHandle(c, scope, { n: 0 })));
+    const result = await settle(fn(txHandle(c, scope, seq)));
     scope.open = false;
-    await c.unsafe("commit");
+    await wire(seq, () => c.unsafe("commit"));
     return result;
   } catch (error) {
     scope.open = false;
-    await c.unsafe("rollback").catch(() => undefined);
+    await wire(seq, () => c.unsafe("rollback")).catch(() => undefined);
     throw error;
   }
 }
@@ -104,6 +162,23 @@ function txGuardMode(explicit) {
   const mode = explicit ?? process.env.SP_DB_TX_GUARD;
   if (mode === "throw" || mode === "warn" || mode === "off") return mode;
   return process.env.NODE_ENV === "test" ? "throw" : "warn";
+}
+
+/** Startup parameters for every pool connection; only positive whole-ms values are sent.
+ * @param {{ idleInTransactionTimeoutMs?: number, statementTimeoutMs?: number }} options */
+export function sessionSettings(options = {}) {
+  /** @param {number|undefined} explicit @param {string} env */
+  const ms = (explicit, env) => {
+    const v = Number(explicit ?? process.env[env] ?? 0);
+    if (!Number.isFinite(v) || v < 0) throw new Error(`Invalid ${env}: ${v}`);
+    return Math.floor(v);
+  };
+  /** @type {Record<string,string>} */ const out = {};
+  const idle = ms(options.idleInTransactionTimeoutMs, "SP_DB_IDLE_TX_TIMEOUT_MS"),
+    statement = ms(options.statementTimeoutMs, "SP_DB_STATEMENT_TIMEOUT_MS");
+  if (idle) out.idle_in_transaction_session_timeout = String(idle);
+  if (statement) out.statement_timeout = String(statement);
+  return out;
 }
 
 /**
@@ -120,12 +195,19 @@ function txGuardMode(explicit) {
  * `begin` borrows its own reserved connection and releases it once settled.
  * Fragment helpers (`db(list)`, `db.array`) stay synchronous and connection-agnostic.
  * @param {string} url
- * @param {{ max?: number, txGuard?: "throw"|"warn"|"off" }} [options]
+ * Session safeguards (SP-0169): `idleInTransactionTimeoutMs` / `statementTimeoutMs`
+ * (env SP_DB_IDLE_TX_TIMEOUT_MS / SP_DB_STATEMENT_TIMEOUT_MS; unset or 0 = off) make
+ * Postgres end a transaction stuck idle (and its locks) or a runaway statement.
+ * @param {{ max?: number, txGuard?: "throw"|"warn"|"off", idleInTransactionTimeoutMs?: number, statementTimeoutMs?: number }} [options]
  * @returns {Db}
  */
 export function createDb(url, options = {}) {
   if (!url) throw new Error("createDb: database URL is required");
-  const raw = new SQL({ url, max: options.max ?? 10 });
+  const raw = new SQL({
+    url,
+    max: options.max ?? 10,
+    connection: sessionSettings(options),
+  });
   const guardMode = txGuardMode(options.txGuard);
   /** Open pool transactions of THIS pool on the current async path (SP-0169). */
   const inTx = new AsyncLocalStorage();
@@ -160,7 +242,13 @@ export function createDb(url, options = {}) {
     try {
       return await fn(c);
     } finally {
-      c.release();
+      // A connection Postgres already closed (idle-in-transaction timeout, restart)
+      // rejects release(); the pool has dropped it, so there is nothing to return.
+      try {
+        Promise.resolve(c.release()).catch(() => undefined);
+      } catch {
+        /* closed connection */
+      }
     }
   };
   /**
