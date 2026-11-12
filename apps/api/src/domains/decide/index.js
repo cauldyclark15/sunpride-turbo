@@ -1,5 +1,6 @@
 import { tx } from "@sunpride/db/client";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
+import { actorNames } from "../../core/actor-names.js";
 import { ApiError } from "../../core/errors.js";
 import { isUuid } from "../../core/util.js";
 import { scopeFilterForActor } from "../org/scope.js";
@@ -68,13 +69,8 @@ async function toleranceRule(db, event, at, what) {
   }
 }
 
-/** @param {any} db @param {string[]} userIds */
-async function namesByUser(db, userIds) {
-  const ids = [...new Set(userIds.filter(Boolean))];
-  if (!ids.length) return new Map();
-  const rows = await db`select user_id,name from profiles where user_id in ${db(ids)}`;
-  return new Map(rows.map((/** @type {any} */ r) => [r.user_id, r.name]));
-}
+/** @param {any} db @param {Array<string|null|undefined>} actorIds */
+const namesByUser = (db, actorIds) => actorNames(db, actorIds);
 
 /**
  * Where a handler of another domain answers, called the way the router would. Reads and commands both.
