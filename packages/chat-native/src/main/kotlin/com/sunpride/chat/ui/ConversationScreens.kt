@@ -166,7 +166,7 @@ private val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "🎉", "😮", "
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ConversationScreen(
-    conversationId: String, parentId: String?, onBack: () -> Unit, onOpenThread: (String) -> Unit, onDetails: () -> Unit, onViewImage: (Attachment) -> Unit,
+    conversationId: String, parentId: String?, onBack: () -> Unit, onOpenThread: (String) -> Unit, onDetails: () -> Unit, onViewImage: (List<Attachment>, Int) -> Unit,
 ) {
     val rt = LocalChat.current
     val env = LocalChatEnv.current

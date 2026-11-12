@@ -52,7 +52,8 @@ import com.sunpride.chat.Segment
 internal class MessageHandlers(
     val onLongPress: (ChatMessage) -> Unit,
     val onChip: (Segment.ObjectChip) -> Unit,
-    val onImage: (Attachment) -> Unit,
+    /** All the pictures of one message, and the one that was pressed (the viewer swipes between them). */
+    val onImage: (List<Attachment>, Int) -> Unit,
     val onFile: (Attachment) -> Unit,
     val onReact: (ChatMessage, String) -> Unit,
     val onThread: (ChatMessage) -> Unit,
@@ -113,7 +114,7 @@ internal fun MessageRowView(row: ChatRow.Msg, meIds: Set<String>, h: MessageHand
                         Text("This message was deleted", style = MaterialTheme.typography.bodyMedium, fontStyle = FontStyle.Italic, color = fg.copy(alpha = 0.7f))
                     } else {
                         if (m.body.isNotBlank()) MessageText(m.body, m.refs, meIds, fg, h.onChip, onAccent = mine)
-                        m.attachments.forEach { AttachmentView(it, h) }
+                        m.attachments.forEach { AttachmentView(it, h, m.attachments) }
                         ChatTokens.objectChips(m.body, m.refs).forEach { RefCard(it, h.onChip) }
                         m.links.filter { it.ready }.take(3).forEach { LinkCard(it) }
                     }
@@ -173,11 +174,11 @@ internal fun SendingRowView(row: ChatRow.Sending, h: MessageHandlers) {
 }
 
 @Composable
-private fun AttachmentView(a: Attachment, h: MessageHandlers) {
+private fun AttachmentView(a: Attachment, h: MessageHandlers, all: List<Attachment>) {
     if (a.isImage) {
         val ratio = if ((a.width ?: 0) > 0 && (a.height ?: 0) > 0) (a.width!!.toFloat() / a.height!!).coerceIn(0.6f, 1.8f) else 1.33f
         val image = rememberRemoteImage(a.thumbUrl ?: a.url, 640)
-        Box(Modifier.width(232.dp).aspectRatio(ratio).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)).clickable(onClickLabel = "View photo") { h.onImage(a) },
+        Box(Modifier.width(232.dp).aspectRatio(ratio).clip(RoundedCornerShape(12.dp)).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.06f)).clickable(onClickLabel = "View photo") { val pics = all.filter { it.isImage }; h.onImage(pics, pics.indexOf(a).coerceAtLeast(0)) },
             contentAlignment = Alignment.Center) {
             if (image != null) Image(image, contentDescription = "Photo ${a.name}. Tap to view", contentScale = ContentScale.Crop, modifier = Modifier.fillMaxWidth().aspectRatio(ratio))
             else Icon(ChatIcons.Photo, contentDescription = "Photo ${a.name}", tint = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.size(32.dp))
@@ -240,9 +241,13 @@ internal fun LinkCard(p: LinkPreview) {
 
 /** Local chip for a picked file waiting in the composer. */
 @Composable
-internal fun StagedAttachment(a: LocalAttachment, onRemove: () -> Unit) {
-    CardRow(onClick = null, modifier = Modifier.width(220.dp)) {
-        if (a.isImage) Icon(ChatIcons.Photo, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp)) else FileBadge(a.mime, 32.dp)
+internal fun StagedAttachment(a: LocalAttachment, onOpen: (() -> Unit)? = null, onRemove: () -> Unit) {
+    CardRow(onClick = onOpen, modifier = Modifier.width(220.dp)) {
+        if (a.isImage) {
+            val thumb = rememberLocalImage(a.thumbPath ?: a.path, 128)
+            if (thumb != null) Image(thumb, contentDescription = "Photo ${a.name}. Tap to view", contentScale = ContentScale.Crop, modifier = Modifier.size(32.dp).clip(RoundedCornerShape(6.dp)))
+            else Icon(ChatIcons.Photo, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(24.dp))
+        } else FileBadge(a.mime, 32.dp)
         Text(a.name, Modifier.weight(1f), style = MaterialTheme.typography.bodySmall, maxLines = 1, overflow = TextOverflow.Ellipsis)
         ChatIconButton(ChatIcons.Close, "Remove ${a.name}", onRemove, tint = MaterialTheme.colorScheme.onSurfaceVariant)
     }

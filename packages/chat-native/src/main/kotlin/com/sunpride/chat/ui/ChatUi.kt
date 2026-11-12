@@ -73,6 +73,23 @@ internal fun rememberRemoteImage(url: String?, maxDim: Int): ImageBitmap? {
     return state.value
 }
 
+/** A picture from this phone (a file waiting in the composer), decoded at most `maxDim` pixels on its long side. */
+@Composable
+internal fun rememberLocalImage(path: String?, maxDim: Int): ImageBitmap? {
+    val state = produceState<ImageBitmap?>(null, path, maxDim) {
+        if (path != null) value = withContext(Dispatchers.IO) { runCatching { decodeSampled(path, maxDim) }.getOrNull() }?.asImageBitmap()
+    }
+    return state.value
+}
+
+private fun decodeSampled(path: String, maxDim: Int): android.graphics.Bitmap? {
+    val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    android.graphics.BitmapFactory.decodeFile(path, bounds)
+    var sample = 1
+    while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxDim) sample *= 2
+    return android.graphics.BitmapFactory.decodeFile(path, android.graphics.BitmapFactory.Options().apply { inSampleSize = sample })
+}
+
 private val avatarColors = listOf(Color(0xFF8E3B46), Color(0xFF3B6E8E), Color(0xFF4F7942), Color(0xFF7A5C99), Color(0xFFB5651D), Color(0xFF2F7F79), Color(0xFF8A6D3B), Color(0xFF5B6C8F))
 
 @Composable

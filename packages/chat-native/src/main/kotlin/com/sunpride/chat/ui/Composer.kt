@@ -119,6 +119,7 @@ internal fun ChatComposer(
     var attachments by remember(draftKey) { mutableStateOf(emptyList<LocalAttachment>()) }
     var dismissedAt by remember(draftKey) { mutableStateOf(-1) }
     var menu by remember { mutableStateOf(false) }
+    var viewing by remember { mutableStateOf<PhotoSet?>(null) }
     var busy by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
@@ -190,8 +191,11 @@ internal fun ChatComposer(
                     ChatIconButton(ChatIcons.Close, "Cancel editing", onCancelEdit, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
                 if (attachments.isNotEmpty()) LazyRow(horizontalArrangement = Arrangement.spacedBy(6.dp), modifier = Modifier.padding(start = 8.dp, end = 8.dp, bottom = 6.dp)) {
-                    items(attachments, key = { it.path }) { a -> StagedAttachment(a) { attachments = attachments - a; runCatching { File(a.path).delete(); a.thumbPath?.let { File(it).delete() } } } }
+                    items(attachments, key = { it.path }) { a ->
+                        val pics = attachments.filter { it.isImage }
+                        StagedAttachment(a, onOpen = if (a.isImage) ({ viewing = PhotoSet(pics.map { ViewerPhoto(it.name, path = it.path) }, pics.indexOf(a).coerceAtLeast(0)) }) else null) { attachments = attachments - a; runCatching { File(a.path).delete(); a.thumbPath?.let { File(it).delete() } } } }
                 }
+                viewing?.let { ImageViewerDialog(it) { viewing = null } }
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.Bottom) {
                     if (editing == null) ChatIconButton(ChatIcons.Add, "Attach or tag", { menu = true }, enabled = !busy, tint = MaterialTheme.colorScheme.primary)
                     else Spacer(Modifier.width(8.dp))

@@ -377,7 +377,18 @@ describe("every panel closes with a close control and with Escape", () => {
     [
       "lightbox",
       (onClose) =>
-        createElement(Lightbox, { image: IMAGE_ATTACHMENT, onClose }),
+        createElement(Lightbox, {
+          images: [
+            {
+              key: "i1",
+              src: IMAGE_ATTACHMENT.url,
+              name: IMAGE_ATTACHMENT.name,
+              downloadUrl: IMAGE_ATTACHMENT.url,
+              bytes: IMAGE_ATTACHMENT.bytes,
+            },
+          ],
+          onClose,
+        }),
     ],
     [
       "ref card",
@@ -480,5 +491,44 @@ describe("own messages and developers", () => {
     expect(theirs).not.toContain("data-mine");
     expect(theirs).toContain(">Developer<");
     expect(theirs).not.toContain(">AI<");
+  });
+});
+
+describe("image viewer", () => {
+  it("opens one picture plainly and several as a carousel at the picture that was clicked", async () => {
+    const { Lightbox, stepIndex, attachmentImages, AttachmentList } =
+      await import("./message-parts");
+    const pics = ["a.png", "b.png", "c.png"].map((name, at) => ({
+      ...IMAGE_ATTACHMENT,
+      id: `img-${at}`,
+      name,
+      url: `/f/${name}`,
+    }));
+    const single = render(
+      createElement(Lightbox, {
+        images: attachmentImages(pics.slice(0, 1)),
+        onClose: () => {},
+      }),
+    );
+    expect(single).not.toContain("Next image");
+    expect(single).toContain("Download");
+    const many = render(
+      createElement(Lightbox, {
+        images: attachmentImages(pics),
+        start: 1,
+        onClose: () => {},
+      }),
+    );
+    expect(many).toContain('aria-label="Previous image"');
+    expect(many).toContain('aria-label="Next image"');
+    expect(many).toMatch(/2(<!-- -->)? of (<!-- -->)?3/);
+    expect(many).toContain('src="/f/b.png" alt="b.png"');
+    expect([
+      stepIndex(2, 1, 3),
+      stepIndex(0, -1, 3),
+      stepIndex(5, 0, 3),
+    ]).toEqual([0, 2, 2]);
+    const list = render(createElement(AttachmentList, { attachments: pics }));
+    for (const p of pics) expect(list).toContain(`aria-label="Open ${p.name}"`);
   });
 });
