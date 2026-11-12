@@ -30,6 +30,28 @@ const docLocation = (code) =>
 const optional = (v, name, max = 160) =>
   v == null || v === "" ? null : text(v, name, max);
 
+/** WEB-098: one supplier's delivery receipt is received once per location. The same
+ * DR number from the same supplier (case/space-insensitive) is refused with the
+ * receipt it was already posted on. Opening stock and supplier-less receipts are exempt.
+ * @param {any} c @param {any} b @param {string|null} supplierName @param {any} loc */
+export async function refuseRepeatedDeliveryReceipt(c, b, supplierName, loc) {
+  if (c.openingStock || !supplierName || b.deliveryReference == null) return;
+  const norm = (/** @type {any} */ v) =>
+    String(v).trim().replace(/\s+/g, " ").toUpperCase();
+  const dr = norm(b.deliveryReference),
+    supplier = norm(supplierName);
+  if (!dr) return;
+  // Serialize concurrent posts of the same supplier + DR + location.
+  await c.db`select pg_advisory_xact_lock(hashtextextended(${`dr:${loc.id}:${supplier}:${dr}`},0))`;
+  const [dup] =
+    await c.db`select receipt_number from goods_receipts where organization_id=${ORGANIZATION} and receiving_location_id=${loc.id} and status<>'cancelled' and upper(regexp_replace(btrim(supplier_name),'\\s+',' ','g'))=${supplier} and upper(regexp_replace(btrim(delivery_reference),'\\s+',' ','g'))=${dr} limit 1`;
+  if (dup)
+    invalid(
+      `Delivery receipt ${String(b.deliveryReference).trim()} from ${supplierName} was already received here as ${dup.receipt_number}. Check the receipt number.`,
+      "duplicate_delivery_receipt",
+    );
+}
+
 /**
  * Multi-line goods receipt (SPEC 4.2): supplier, delivery receipt no., PO reference, many lines, rejected quantity with
  * a reason, batch and expiry. Products that need quality release, and batches already recalled, land On hold.
@@ -52,6 +74,7 @@ export function installReceivingCommands() {
       const supplierName = optional(b.supplierName, "Supplier"),
         poRef = optional(b.purchaseOrderRef, "PO reference", 100),
         carrier = optional(b.carrierName, "Carrier");
+      await refuseRepeatedDeliveryReceipt(c, b, supplierName, loc);
       const number = await nextDocNumber(c.db, ORGANIZATION, {
         type: "RCV",
         locationCode: docLocation(loc.code),

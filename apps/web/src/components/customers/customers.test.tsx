@@ -18,7 +18,7 @@ vi.mock("next/link", () => ({
 
 import { CustomerForm, type GeoLists } from "./customer-form";
 import { CustomerListView } from "./customer-list";
-import { CustomerEditorView } from "./customer-editor";
+import { CustomerEditorView, duplicateQuery } from "./customer-editor";
 import {
   ADP_KEYS,
   awaitsApproval,
@@ -40,6 +40,7 @@ import {
 } from "./model";
 import { OWNER_PAGES } from "../../config/navigation";
 import { STORE_TABS } from "../cockpit/pages/stores-list";
+import { newTabHeading } from "../cockpit/pages/stores";
 
 /** A small slice of Sunpride's lists (real codes from the client's workbook). */
 const ref = (
@@ -648,5 +649,97 @@ describe("approval errors land next to the field", () => {
         />,
       ),
     ).not.toContain(">Reject<");
+  });
+});
+
+describe("WEB-047 Add customer checks for duplicates", () => {
+  const cand = {
+    kind: "outlet" as const,
+    id: "x1",
+    code: "SMP-C9",
+    name: "Sample Mercado Sari-sari 9",
+    address: "Colon, Cebu",
+    latitude: 10.3,
+    longitude: 123.9,
+    distanceMeters: 40,
+    reasons: ["name"],
+    score: 0.9,
+  } as never;
+  const view = (duplicates: never[], ack = false) =>
+    renderToStaticMarkup(
+      <CustomerEditorView
+        customer={null}
+        draft={emptyDraft()}
+        onChange={() => undefined}
+        index={index}
+        geo={GEO}
+        errors={{}}
+        message={null}
+        readOnly={false}
+        busy={false}
+        canEdit
+        canApprove={false}
+        duplicates={duplicates}
+        duplicatesAcknowledged={ack}
+        onAcknowledgeDuplicates={() => undefined}
+      />,
+    );
+  it("shows the possible matches and holds Create until 'It's a different store'", () => {
+    const html = view([cand]);
+    expect(html).toContain("This might already be in the list");
+    expect(html).toContain("Sample Mercado Sari-sari 9");
+    expect(html).toContain("different store");
+    expect(html).toMatch(/<button type="submit"[^>]*disabled=""[^>]*>Create customer/);
+    expect(view([cand], true)).not.toMatch(
+      /<button type="submit"[^>]*disabled=""[^>]*>Create customer/,
+    );
+    expect(view([])).not.toContain("This might already be in the list");
+  });
+  it("asks the shared duplicate check with name, phone and pin", () => {
+    expect(duplicateQuery("Mercado", "09171234567", 10.3, 123.9)).toEqual({
+      name: "Mercado",
+      phone: "09171234567",
+      latitude: 10.3,
+      longitude: 123.9,
+      placeId: null,
+    });
+  });
+});
+
+describe("WEB-040 status chips show their counts", () => {
+  it("All/Prospect/Active/Inactive carry the count for the current search", () => {
+    const html = renderToStaticMarkup(
+      <CustomerListView
+        index={index}
+        rows={[]}
+        total={4}
+        page={1}
+        q="sample"
+        status="prospect"
+        filters={{}}
+        statusCounts={{ all: 309, prospect: 4, active: 305, inactive: 0 }}
+        canAdd={false}
+        onSearch={() => undefined}
+        onPage={() => undefined}
+        onAdd={() => undefined}
+        onStatus={() => undefined}
+        onFilter={() => undefined}
+        customerHref={(r) => `/c/${r.id}`}
+      />,
+    );
+    const chips = html.slice(html.indexOf('aria-label="Filter"'));
+    const text = chips.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    expect(text).toContain("All 309");
+    expect(text).toContain("Prospect 4");
+    expect(text).toContain("Active 305");
+    expect(text).toContain("Inactive 0");
+  });
+});
+
+describe("WEB-059 New customers heading follows the role", () => {
+  it("only an approver is told to approve", () => {
+    expect(newTabHeading(true, true)).toBe("Prospects to complete and approve");
+    expect(newTabHeading(false, true)).not.toMatch(/and approve/);
+    expect(newTabHeading(false, false)).not.toMatch(/complete and approve/);
   });
 });

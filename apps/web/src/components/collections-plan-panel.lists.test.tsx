@@ -29,6 +29,7 @@ import {
   CollectionsPlanPanel,
   chequeNext,
   pageOf,
+  promiseStatusText,
   readMoneyTab,
   type Collections,
 } from "./collections-plan-panel";
@@ -156,5 +157,16 @@ describe("Money lists", () => {
       "cleared",
       "bounced",
     ]);
+  });
+});
+
+describe("WEB-062 promise row shows the Kept note", () => {
+  it("settled promises carry their outcome note; open ones do not", () => {
+    expect(
+      promiseStatusText({ status: "kept", overdue: false, outcomeNote: "Paid cash" }),
+    ).toBe("Kept · Paid cash");
+    expect(
+      promiseStatusText({ status: "open", overdue: true, outcomeNote: null }),
+    ).toBe("Overdue");
   });
 });

@@ -50,6 +50,39 @@ type Read = {
     }[];
   };
 };
+type SavedPolicy = {
+  id: string;
+  toleranceCentavos: string;
+  loyaltyEnabled: boolean;
+  earnPerCentavos: string;
+  pointValueCentavos: string;
+  employeeDiscountBps: number;
+};
+
+const pesos = (centavos: string | number) => {
+  const n = Number(centavos) / 100;
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+};
+
+/** WEB-044: the configuration form starts from the saved policy and target (sample
+ * defaults only when nothing is saved yet). */
+export function policyFormValues(d: {
+  policy?: SavedPolicy | null;
+  dailyTargetCentavos?: string | null;
+}) {
+  const p = d.policy;
+  return {
+    key: `${p?.id ?? "none"}:${d.dailyTargetCentavos ?? ""}`,
+    dailyTarget:
+      d.dailyTargetCentavos != null ? pesos(d.dailyTargetCentavos) : "",
+    tolerance: p ? pesos(p.toleranceCentavos) : "50",
+    discount: p ? String(p.employeeDiscountBps / 100) : "10",
+    loyalty: p ? p.loyaltyEnabled : false,
+    earn: p ? pesos(p.earnPerCentavos) : "100",
+    pointValue: p ? pesos(p.pointValueCentavos) : "1",
+  };
+}
+
 type Office = {
   register: {
     id: string;
@@ -85,6 +118,8 @@ type Office = {
     canDecide: boolean;
   }[];
   reads: Read[];
+  policy?: SavedPolicy | null;
+  dailyTargetCentavos?: string | null;
   locations: Choice[];
   products: Choice[];
   outlets: Choice[];
@@ -593,6 +628,20 @@ export function RetailOperations({
     [pointValue, setPointValue] = useState("1");
   const [reason, setReason] = useState("");
   const d = result.data;
+  // Seed (and re-seed after a save) from what is stored, during render.
+  const [seeded, setSeeded] = useState("");
+  if (d) {
+    const v = policyFormValues(d);
+    if (v.key !== seeded) {
+      setSeeded(v.key);
+      setDailyTarget(v.dailyTarget);
+      setTolerance(v.tolerance);
+      setDiscount(v.discount);
+      setLoyalty(v.loyalty);
+      setEarn(v.earn);
+      setPointValue(v.pointValue);
+    }
+  }
   async function send(path: string, body: Record<string, unknown>) {
     setBusy(true);
     setNotice("");

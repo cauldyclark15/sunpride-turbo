@@ -89,7 +89,7 @@ export function RosterEditorView({
     <div className="grid gap-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <h2 className="text-xl font-semibold">Weekly roster</h2>
-        {readOnly ? null : (
+        {readOnly || (editing && form.rosterId) ? null : (
           <Button
             variant="primary"
             className="min-h-12 text-base"
@@ -147,6 +147,12 @@ export function RosterEditorView({
       ) : !editing ? null : (
         <Card label={form.rosterId ? "Edit roster line" : "Add roster line"}>
           <div className="grid gap-4">
+            {/* WEB-083: a plain-case title says which line is being changed. */}
+            <h3 className="text-base font-semibold text-foreground">
+              {form.rosterId
+                ? `Edit roster line${editedVehicle(rows, form.rosterId)}`
+                : "Add roster line"}
+            </h3>
             <div className="grid gap-3 sm:grid-cols-2">
               <FormField label="Truck">
                 <select
@@ -362,4 +368,10 @@ export function RosterEditor({
       }
     />
   );
+}
+
+/** " · VAN3" for the line being edited (empty when it is not in the list). */
+function editedVehicle(rows: RosterRow[], rosterId: string): string {
+  const r = rows.find((x) => x.rosterId === rosterId);
+  return r ? ` · ${r.vehicleCode}` : "";
 }

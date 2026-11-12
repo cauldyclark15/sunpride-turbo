@@ -280,7 +280,7 @@ export function StoresPage() {
         <div className="grid gap-8">
           <section className="grid gap-3">
             <h2 className="text-[17px] font-semibold text-foreground">
-              Prospects to complete and approve
+              {newTabHeading(can("outlet.enrol.approve"), canAdd)}
             </h2>
             <CustomersListTab
               params={params}
@@ -376,6 +376,7 @@ function CustomersListTab({
     <CustomerListView
       index={index}
       rows={result.data?.rows ?? (result.error ? [] : null)}
+      statusCounts={result.data?.statusCounts ?? null}
       total={
         result.data ? (result.data.total ?? result.data.rows.length) : null
       }
@@ -868,4 +869,11 @@ function StorePerformance({ storeId }: { storeId: string }) {
       </PageData>
     </CockpitPage>
   );
+}
+
+/** WEB-059: the New customers heading says only what this person can do there. */
+export function newTabHeading(canApprove: boolean, canEdit: boolean): string {
+  if (canApprove) return "Prospects to complete and approve";
+  if (canEdit) return "Prospects to complete (another person approves)";
+  return "Prospects waiting for approval";
 }

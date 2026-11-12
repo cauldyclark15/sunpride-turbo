@@ -4,6 +4,7 @@ import { useRef, useState } from "react";
 import { splitCsv } from "@/lib/csv";
 import {
   importTargets,
+  previewTargets,
   setTarget,
   useTargets,
   type ImportTargetsResult,
@@ -52,13 +53,37 @@ export function parsePesos(text: string): number | null {
 export type ParsedTargets = {
   rows: Array<{ level: TargetLevel; key: string; amountCentavos: number }>;
   errors: Array<{ row: number; message: string }>;
+  /** CSV line of each entry in `rows` (server errors name the row index). */
+  lines?: number[];
 };
+
+/** WEB-036: server findings (row = 1-based index into `rows`) become CSV-line errors and
+ * those rows are no longer counted as ready. */
+export function withServerErrors(
+  parsed: ParsedTargets,
+  server: Array<{ row: number; message: string }> = [],
+): ParsedTargets {
+  if (!server.length) return parsed;
+  const bad = new Map(server.map((e) => [e.row, e.message]));
+  const line = (i: number) => parsed.lines?.[i] ?? i + 2;
+  return {
+    rows: parsed.rows.filter((_, i) => !bad.has(i + 1)),
+    lines: (parsed.lines ?? parsed.rows.map((_, i) => i + 2)).filter(
+      (_, i) => !bad.has(i + 1),
+    ),
+    errors: [
+      ...parsed.errors,
+      ...server.map((e) => ({ row: line(e.row - 1), message: e.message })),
+    ].sort((x, y) => x.row - y.row),
+  };
+}
 
 /** `level,key,amount_php` CSV → import rows. Every row is checked again by the server. */
 export function parseTargetsCsv(text: string): ParsedTargets {
   const lines = splitCsv(text).filter((cells) => cells.some((c) => c.trim()));
   const errors: ParsedTargets["errors"] = [];
   const rows: ParsedTargets["rows"] = [];
+  const rowLines: number[] = [];
   const header = (lines[0] ?? []).map((c) => c.trim().toLowerCase());
   if (header.join(",") !== TARGET_CSV_HEADER.join(",")) {
     errors.push({
@@ -83,12 +108,14 @@ export function parseTargetsCsv(text: string): ParsedTargets {
         row,
         message: "Amount must be pesos, for example 1250000 or 1,250,000.50.",
       });
-    else
+    else {
       rows.push({ level: level as TargetLevel, key, amountCentavos: amount });
+      rowLines.push(row);
+    }
   });
   if (!rows.length && !errors.length)
     errors.push({ row: 2, message: "No target rows found." });
-  return { rows, errors };
+  return { rows, errors, lines: rowLines };
 }
 
 function newKey() {
@@ -241,7 +268,19 @@ function ImportPanel({ month, canEdit }: { month: string; canEdit: boolean }) {
               setResult(null);
               setFailure(null);
               intent.current = newKey();
-              setParsed(file ? parseTargetsCsv(await file.text()) : null);
+              const local = file ? parseTargetsCsv(await file.text()) : null;
+              setParsed(local);
+              if (local && local.rows.length && !local.errors.length) {
+                try {
+                  const check = await previewTargets({
+                    month,
+                    rows: local.rows,
+                  });
+                  setParsed(withServerErrors(local, check.errors));
+                } catch {
+                  // The import itself checks again; the preview stays local.
+                }
+              }
             }}
           />
         </label>
@@ -306,7 +345,10 @@ function ImportPanel({ month, canEdit }: { month: string; canEdit: boolean }) {
           {result ? (
             result.errors?.length ? (
               <ul className="grid gap-1 text-[#b4101f]">
-                {result.errors.map((e) => (
+                {withServerErrors(
+                  { ...parsed, errors: [] },
+                  result.errors,
+                ).errors.map((e) => (
                   <li key={`${e.row}${e.message}`}>
                     Line {e.row}: {e.message}
                   </li>

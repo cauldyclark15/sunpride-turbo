@@ -188,6 +188,12 @@ describe("pages render their contract fixture", () => {
     expect(out).toMatch(/\d+ cs/);
   });
 
+  it("WEB-060 Products & stock links to Inventory", () => {
+    const data = analyticsFixture("stock", MTD, NOW);
+    const out = html(<StockView data={data} csv="/x" />);
+    expect(out).toMatch(/href="\/inventory"[^>]*>Open Inventory</);
+  });
+
   it("Coverage, agent day, stores, store, vans, money and decide render plain labels", () => {
     const coverage = analyticsFixture("coverage", MTD, NOW);
     const coverageOut = html(

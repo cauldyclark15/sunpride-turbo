@@ -191,6 +191,18 @@ export type ImportTargetsResult = {
   errors?: Array<{ row: number; message: string }>;
 };
 
+/** WEB-036: the server checks every row (codes, team, level) without saving. */
+export async function previewTargets(
+  input: ImportTargetsInput,
+): Promise<ImportTargetsResult> {
+  if (isFixtureMode()) return { errors: [] };
+  return mutate<ImportTargetsResult>(
+    "/api/v1/targets/import",
+    { ...input, dryRun: true },
+    { idempotencyKey: crypto.randomUUID() },
+  );
+}
+
 export async function importTargets(
   input: ImportTargetsInput,
   idempotencyKey: string,

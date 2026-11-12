@@ -381,9 +381,18 @@ export async function saveRoute(ctx) {
 function itemLabel(items, ref) {
   if (!ref) return null;
   const i = items?.find((x) => x.ref === ref);
+  // WEB-062: dates in words; the invoice by its number (or its date), never the snapshot key.
   return i
-    ? `${i.documentNumber ? "Invoice " + i.documentNumber : i.invoiceDate ? "Invoice " + i.invoiceDate : "Open item"}, due ${i.dueDate}`
+    ? `${i.documentNumber ? "Invoice " + i.documentNumber : i.invoiceDate ? "Invoice of " + dayWords(i.invoiceDate) : "Open item"}, due ${dayWords(i.dueDate)}`
     : "Open item (since settled in the snapshot)";
+}
+
+/** "2026-09-28" -> "Sep 28, 2026" (calendar day, no time-zone shift). @param {any} day */
+export function dayWords(day) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(day ?? ""));
+  if (!m) return String(day ?? "");
+  const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+  return `${months[Number(m[2]) - 1]} ${Number(m[3])}, ${m[1]}`;
 }
 
 /** Money → Collections plan: exceptions first, with comparison to the prior 28 days. @param {any} ctx */

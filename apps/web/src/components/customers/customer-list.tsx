@@ -246,7 +246,23 @@ type ListResponse = {
   rows: CustomerRow[];
   nextCursor: string | null;
   total?: number;
+  statusCounts?: StatusCounts | null;
 };
+
+export type StatusCounts = {
+  all: number;
+  prospect: number;
+  active: number;
+  inactive: number;
+};
+
+/** WEB-040: each status chip carries its count for the current search and filters. */
+export function statusFilters(counts?: StatusCounts | null): ListFilter[] {
+  return CUSTOMER_STATUS_FILTERS.map((f) => ({
+    ...f,
+    count: counts ? (counts[f.id as keyof StatusCounts] ?? null) : null,
+  }));
+}
 
 /** Reads the list for the URL state; `offset` paging so the shared pager can jump pages. */
 export function useCustomerList(
@@ -280,6 +296,7 @@ export function CustomerListView({
   q,
   status,
   filters,
+  statusCounts = null,
   loading = false,
   canAdd,
   onSearch,
@@ -297,6 +314,7 @@ export function CustomerListView({
   q: string;
   status: CustomerStatus | null;
   filters: CustomerFilters;
+  statusCounts?: StatusCounts | null;
   loading?: boolean;
   canAdd: boolean;
   onSearch: (q: string) => void;
@@ -325,7 +343,8 @@ export function CustomerListView({
         columns={customerColumns(index)}
         rowKey={(r) => r.id}
         rowHref={customerHref}
-        filters={CUSTOMER_STATUS_FILTERS}
+        filters={statusFilters(statusCounts)}
+        allCount={statusCounts?.all ?? null}
         filter={status}
         onFilter={(id) => onStatus((id as CustomerStatus | null) ?? null)}
         exportName="customers"

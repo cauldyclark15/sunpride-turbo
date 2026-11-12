@@ -584,6 +584,28 @@ describe("SP-0170 customer writer", () => {
       "/api/v1/customers?customerGroup2Code=__none__&offset=0",
     );
     expect(none.body).toMatchObject({ rows: [], total: 0 });
+    // WEB-040: chip counts follow search/filters but not the chosen status.
+    const all = await call(
+      "viewer",
+      "GET",
+      "/api/v1/customers?distributionChannelCode=10&limit=200&offset=0",
+    );
+    const sc = all.body.statusCounts;
+    expect(sc.all).toBe(all.body.total);
+    expect(sc.prospect + sc.active + sc.inactive).toBe(sc.all);
+    const active = await call(
+      "viewer",
+      "GET",
+      "/api/v1/customers?distributionChannelCode=10&status=active&limit=200&offset=0",
+    );
+    expect(active.body.statusCounts).toEqual(sc);
+    expect(active.body.total).toBe(sc.active);
+    const inactiveOnly = await call(
+      "viewer",
+      "GET",
+      "/api/v1/customers?distributionChannelCode=10&status=inactive&limit=200&offset=0",
+    );
+    expect(inactiveOnly.body.statusCounts).toEqual(sc);
     expect(
       (
         await call("viewer", "POST", "/api/v1/customers", {
