@@ -704,3 +704,33 @@ describe("WEB-047 Add customer checks for duplicates", () => {
     });
   });
 });
+
+describe("WEB-040 status chips show their counts", () => {
+  it("All/Prospect/Active/Inactive carry the count for the current search", () => {
+    const html = renderToStaticMarkup(
+      <CustomerListView
+        index={index}
+        rows={[]}
+        total={4}
+        page={1}
+        q="sample"
+        status="prospect"
+        filters={{}}
+        statusCounts={{ all: 309, prospect: 4, active: 305, inactive: 0 }}
+        canAdd={false}
+        onSearch={() => undefined}
+        onPage={() => undefined}
+        onAdd={() => undefined}
+        onStatus={() => undefined}
+        onFilter={() => undefined}
+        customerHref={(r) => `/c/${r.id}`}
+      />,
+    );
+    const chips = html.slice(html.indexOf('aria-label="Filter"'));
+    const text = chips.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
+    expect(text).toContain("All 309");
+    expect(text).toContain("Prospect 4");
+    expect(text).toContain("Active 305");
+    expect(text).toContain("Inactive 0");
+  });
+});

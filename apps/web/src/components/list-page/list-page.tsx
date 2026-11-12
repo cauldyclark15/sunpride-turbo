@@ -179,6 +179,7 @@ export function ListPage<T>({
   onAdd,
   addLabel,
   filters,
+  allCount,
   filter = null,
   onFilter,
   columns,
@@ -202,6 +203,8 @@ export function ListPage<T>({
   onAdd?: (name: string) => void;
   addLabel?: string;
   filters?: ListFilter[];
+  /** Count shown on the "All" chip (WEB-040). */
+  allCount?: number | null;
   filter?: string | null;
   onFilter?: (id: string | null) => void;
   columns: ListColumn<T>[];
@@ -279,7 +282,7 @@ export function ListPage<T>({
           role="group"
           aria-label="Filter"
         >
-          {[{ id: "", label: "All" } as ListFilter, ...filters].map((f) => {
+          {[{ id: "", label: "All", count: allCount } as ListFilter, ...filters].map((f) => {
             const on = (filter ?? "") === f.id;
             return (
               <button

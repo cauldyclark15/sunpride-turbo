@@ -658,13 +658,14 @@ export async function listCustomers(c) {
   const awaiting = ["true", "1"].includes(param("awaitingApproval") ?? "");
   const nationwide = unitIds === null;
   const rows =
-    await c.db`select o.id,o.code,o.name,o.address,o.status,o.enrolment_status,p.completeness,p.registered_name,count(*) over() as total_count,
+    await c.db`select x.*,count(*) over() as total_count from (select o.id,o.code,o.name,o.address,o.status,o.enrolment_status,p.completeness,p.registered_name,
+      count(*) over() as n_all,count(*) filter (where o.status='prospect') over() as n_prospect,
+      count(*) filter (where o.status='active') over() as n_active,count(*) filter (where o.status='inactive') over() as n_inactive,
       p.sales_org_code,p.distribution_channel_code,p.customer_group1_code,p.customer_group2_code,p.customer_group_code,
       p.sales_office_code,p.municipality_name,p.barangay_name,s.channel as distribution_channel_name,s.subchannel as customer_group1_name,
       s.customer_group2_name,s.customer_group_name,s.territory_id,s.territory_name
     from analytics_store_scope s join outlets o on o.id=s.id left join customer_profiles p on p.outlet_id=o.id and p.deleted_at is null
     where (${nationwide} or s.owner_unit_id::text=any(${c.db.array(unitIds ?? [], "TEXT")}))
-      and (${status}::text is null or o.status=${status})
       and (${!awaiting} or (o.status='prospect' or (o.status='active' and o.enrolment_status='provisional')))
       and (${completeness}::text is null or coalesce(p.completeness,'draft')=${completeness})
       and (${param("salesOrgCode")}::text is null or p.sales_org_code=${param("salesOrgCode")})
@@ -674,8 +675,37 @@ export async function listCustomers(c) {
       and (${param("salesOfficeCode")}::text is null or p.sales_office_code=${param("salesOfficeCode")})
       and (${param("customerGroup2Code")}::text is null or p.customer_group2_code=${param("customerGroup2Code")})
       and (${text === ""} or o.name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"} or o.code ilike ${text.replace(/[%_\\]/g, "\\$&") + "%"} or p.registered_name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"})
-      and (${offset !== null} or o.code > ${after})
-    order by o.code limit ${limit + 1} offset ${offset ?? 0}`;
+    ) x
+    where (${status}::text is null or x.status=${status})
+      and (${offset !== null} or x.code > ${after})
+    order by x.code limit ${limit + 1} offset ${offset ?? 0}`;
+  // WEB-040: chip counts for the current search/filters, whatever status is chosen.
+  /** @type {Record<string,number>|null} */ let statusCounts = null;
+  if (offset !== null) {
+    const any =
+      rows[0] ??
+      (status
+        ? (
+            await c.db`select count(*) as n_all,count(*) filter (where o.status='prospect') as n_prospect,count(*) filter (where o.status='active') as n_active,count(*) filter (where o.status='inactive') as n_inactive from analytics_store_scope s join outlets o on o.id=s.id left join customer_profiles p on p.outlet_id=o.id and p.deleted_at is null
+              where (${nationwide} or s.owner_unit_id::text=any(${c.db.array(unitIds ?? [], "TEXT")}))
+                and (${!awaiting} or (o.status='prospect' or (o.status='active' and o.enrolment_status='provisional')))
+                and (${completeness}::text is null or coalesce(p.completeness,'draft')=${completeness})
+                and (${param("salesOrgCode")}::text is null or p.sales_org_code=${param("salesOrgCode")})
+                and (${param("distributionChannelCode")}::text is null or p.distribution_channel_code=${param("distributionChannelCode")})
+                and (${param("customerGroup1Code")}::text is null or p.customer_group1_code=${param("customerGroup1Code")})
+                and (${param("customerGroupCode")}::text is null or p.customer_group_code=${param("customerGroupCode")})
+                and (${param("salesOfficeCode")}::text is null or p.sales_office_code=${param("salesOfficeCode")})
+                and (${param("customerGroup2Code")}::text is null or p.customer_group2_code=${param("customerGroup2Code")})
+                and (${text === ""} or o.name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"} or o.code ilike ${text.replace(/[%_\\]/g, "\\$&") + "%"} or p.registered_name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"})`
+          )[0]
+        : null);
+    statusCounts = {
+      all: Number(any?.n_all ?? 0),
+      prospect: Number(any?.n_prospect ?? 0),
+      active: Number(any?.n_active ?? 0),
+      inactive: Number(any?.n_inactive ?? 0),
+    };
+  }
   return {
     rows: rows.slice(0, limit).map((/** @type {any} */ r) => ({
       id: r.id,
@@ -708,7 +738,7 @@ export async function listCustomers(c) {
     nextCursor: rows.length > limit ? rows[limit - 1].code : null,
     ...(offset === null
       ? {}
-      : { total: rows.length ? Number(rows[0].total_count) : 0 }),
+      : { total: rows.length ? Number(rows[0].total_count) : 0, statusCounts }),
   };
 }
 

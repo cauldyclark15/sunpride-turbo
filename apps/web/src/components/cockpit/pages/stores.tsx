@@ -376,6 +376,7 @@ function CustomersListTab({
     <CustomerListView
       index={index}
       rows={result.data?.rows ?? (result.error ? [] : null)}
+      statusCounts={result.data?.statusCounts ?? null}
       total={
         result.data ? (result.data.total ?? result.data.rows.length) : null
       }
