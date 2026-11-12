@@ -377,7 +377,7 @@ export async function saveRoute(ctx) {
   });
 }
 
-const dayWords = new Intl.DateTimeFormat("en-PH", {
+const dayWordsFormat = new Intl.DateTimeFormat("en-PH", {
   timeZone: "Asia/Manila",
   year: "numeric",
   month: "short",
@@ -388,7 +388,7 @@ export function dayInWords(day) {
   if (!day) return "";
   const text = String(day).slice(0, 10);
   return /^\d{4}-\d{2}-\d{2}$/.test(text)
-    ? dayWords.format(Date.parse(`${text}T12:00:00+08:00`))
+    ? dayWordsFormat.format(Date.parse(`${text}T12:00:00+08:00`))
     : String(day);
 }
 
