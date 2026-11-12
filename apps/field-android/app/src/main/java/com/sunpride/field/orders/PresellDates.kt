@@ -12,7 +12,7 @@ object PresellDates {
         val presell = flow?.getJSONObject("definition")?.optString("channelProfile") == "pre_sell"
         if (!presell && requested == null) return
         require(!requested.isNullOrBlank()) { "Choose the requested delivery day." }
-        val date = LocalDate.parse(requested)
+        val date = try { LocalDate.parse(requested.trim()) } catch (_: java.time.DateTimeException) { throw IllegalArgumentException("Use a real YYYY-MM-DD delivery date.") }
         require(date.toString() == requested) { "Use a real YYYY-MM-DD delivery date." }
         val policy = flow?.optJSONObject("deliveryPolicy")
         // A missing policy cannot silently authorize a pre-sell promise offline.

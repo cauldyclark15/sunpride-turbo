@@ -35,7 +35,7 @@ import java.util.UUID
  var mslPage by remember(lifetime,selected){mutableStateOf(0)}
  fun capture(){val before=selected;val life=lifetime;scope.launch{locating=true;try{val value=location.captureOrUnavailable().wire;if(before==selected&&life==controller.sapMasterLifetime())fix=value}finally{locating=false}}}
  val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()){result->if(result.values.any{it})capture()else message="Location is needed to start and end the call; this does not enable tracking."}
- fun attempt(block:()->Unit){try{message=null;block()}catch(e:IllegalArgumentException){message=e.message}catch(e:IllegalStateException){message=e.message}}
+ fun attempt(block:()->Unit){message=null;CollectorDraft.guarded(block).onFailure{message=it.message?:"Check the fields"}}
  Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("distributor-field-mode"),verticalArrangement=Arrangement.spacedBy(12.dp)){
   Text(data?.optString("distributorName")?:"Distributor field work",style=MaterialTheme.typography.headlineSmall)
   NoticeCard("Shared outlet universe · partner-scoped PJP, MSL and calls. No employee office access.")
