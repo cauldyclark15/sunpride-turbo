@@ -17,7 +17,7 @@ type Pickup = {
       uomQuantity: string;
       uomCode: string;
       reasonLabel: string;
-      lotNumber: string;
+      lotNumber?: string;
       disposition: string;
     }>;
     photo?: { base64: string };
@@ -35,7 +35,8 @@ export function PickupFacts({ item }: { item: Pickup }) {
       {item.capture.lines.map((l, i) => (
         <p key={i}>
           {l.product.name} · {l.uomQuantity} {l.uomCode} · {l.reasonLabel} ·
-          Batch {l.lotNumber} · {l.disposition.replaceAll("_", " ")}
+          {l.lotNumber ? ` Batch ${l.lotNumber} ·` : ""}{" "}
+          {l.disposition.replaceAll("_", " ")}
         </p>
       ))}
       {item.capture.photo && (

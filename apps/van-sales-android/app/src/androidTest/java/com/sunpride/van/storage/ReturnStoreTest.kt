@@ -82,21 +82,20 @@ class ReturnStoreTest {
         assertTrue(receipt.returnNumber.endsWith("-0002"))
         assertEquals(listOf(ReturnApprovalReason.DISPOSED_AT_OUTLET),receipt.approvalReasons)
         assertEquals(ReturnRules.STATUS_AWAITING_APPROVAL,receipt.status)
-        // Good stock from this receipt is sellable again; expired goes to damaged; thrown-away goods move nothing.
-        assertEquals(listOf(ReturnStockEffect.AVAILABLE,ReturnStockEffect.DAMAGED,ReturnStockEffect.NONE),receipt.lines.map { it.stockEffect })
+        // VAN-061: a return that needs office approval is held as custody for the office review on every trip
+        // version; no line moves truck stock until the office decides.
+        assertEquals(listOf(ReturnStockEffect.NONE,ReturnStockEffect.NONE,ReturnStockEffect.NONE),receipt.lines.map { it.stockEffect })
         assertEquals(listOf(false,false,true),receipt.lines.map { it.approvalRequired })
-        assertEquals(6L,available()); assertEquals(1L,damaged())
+        assertEquals(4L,available()); assertEquals(0L,damaged())
         val header = db.rows().customerreturnRows(s,d).single()
         assertEquals(outlet,header.customerId); assertEquals(receipt.returnNumber,header.receiptNumber); assertEquals(ReturnRules.STATUS_AWAITING_APPROVAL,header.status)
-        assertEquals(listOf("available","damaged","none"),db.rows().returnlineRows(s,d).sortedBy { it.lineNumber }.map { it.stockStatus })
+        assertEquals(listOf("none","none","none"),db.rows().returnlineRows(s,d).sortedBy { it.lineNumber }.map { it.stockStatus })
         assertEquals(listOf("wrong_item","expired","spoiled"),db.rows().returnlineRows(s,d).sortedBy { it.lineNumber }.map { it.reason })
-        val movements = db.rows().stockmovementRows(s,d).filter { it.type == "RETURN" }
-        assertEquals(setOf("available" to 2L,"damaged" to 1L),movements.map { it.stockStatus to it.quantityBase }.toSet())
-        assertTrue(movements.all { it.clientRequestId == header.idempotencyKey && it.reason == ReturnStore.MOVEMENT_REASON })
+        assertTrue(db.rows().stockmovementRows(s,d).none { it.type == "RETURN" })
         val op = db.rows().outboxRows(s,d).single { it.kind == RETURN_KIND }
         assertEquals(SALE_PARKED,op.status); assertEquals(header.idempotencyKey,op.clientRequestId)
         val p = JSONObject(op.operationJson).getJSONObject("payload")
-        assertEquals(saleId,p.getJSONObject("originalSale").getString("saleId"))
+        assertEquals(saleId,p.getJSONObject("originalSale").getString("saleId")); assertTrue(p.getBoolean("custodyOnly"))
         assertEquals("Picked up at the store",p.getString("note"))
         val l2 = p.getJSONArray("lines").getJSONObject(1)
         assertEquals("LOT-26A",l2.getString("lotNumber")); assertEquals("2026-09-30",l2.getString("expiryDate"))
@@ -106,7 +105,7 @@ class ReturnStoreTest {
         assertTrue(store.pending().isEmpty())
         val status = store.syncStatus.first(); assertEquals(1,status.savedReturns); assertEquals(1,status.savedSales)
         store.replaceBootstrap(fixture(serverTime = at+50))
-        assertEquals(6L,available()); assertEquals(1L,damaged()); Unit
+        assertEquals(4L,available()); assertEquals(0L,damaged()); Unit
     }
     @Test fun goodStockFromAReceiptGoesBackToSellableStockWithoutApproval() = runBlocking {
         ready()
@@ -122,7 +121,7 @@ class ReturnStoreTest {
     @Test fun casesAreRecordedInTheirUnitAndBaseQuantity() = runBlocking {
         ready()
         val receipt = returns.commit(request(line(uom = "CS",qty = 48,reason = "overstock",disposition = ReturnDisposition.BAD_STOCK)))
-        assertEquals("2",receipt.lines.single().unitQuantity); assertEquals(48L,damaged())
+        assertEquals("2",receipt.lines.single().unitQuantity); assertEquals(0L,damaged())
         assertEquals(listOf(ReturnApprovalReason.NOT_LINKED_TO_SALE),receipt.approvalReasons)
         val l = JSONObject(db.rows().outboxRows(s,d).single().operationJson).getJSONObject("payload").getJSONArray("lines").getJSONObject(0)
         assertEquals("CS",l.getString("uomCode")); assertEquals("2",l.getString("uomQuantity")); assertEquals("48",l.getString("quantityBase")); Unit
@@ -134,9 +133,9 @@ class ReturnStoreTest {
         val again = returns.commit(r)
         assertTrue(again.replay); assertEquals(first.returnNumber,again.returnNumber)
         assertEquals(first.lines.map { it.stockEffect },again.lines.map { it.stockEffect }); assertEquals(first.approvalReasons,again.approvalReasons)
-        assertEquals(1,db.rows().customerreturnRows(s,d).size); assertEquals(2L,damaged())
+        assertEquals(1,db.rows().customerreturnRows(s,d).size); assertEquals(0L,damaged())
         assertTrue(runCatching { returns.commit(r.copy(lines = listOf(line(qty = 3)))) }.isFailure)
-        assertEquals(2L,damaged()); Unit
+        assertEquals(0L,damaged()); Unit
     }
     @Test fun replayKeepsTheSavedUnitAndProductAfterTheOfficeChangesThem() = runBlocking {
         ready()

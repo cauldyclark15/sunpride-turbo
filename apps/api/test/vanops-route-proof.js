@@ -285,6 +285,72 @@ export async function exerciseRoute(
       await h.db`select physical_base::text as quantity from inventory_lot_balances where lot_id=${lotA} and location_id=${truck} and stock_status='damaged'`
     )[0].quantity,
   ).toBe("1");
+  // VAN-061: the handheld's own payload for "Thrown away at the store · needs approval" on a linked receipt.
+  // It must reach the office pickup review (custody only, nothing on the truck), not be refused on sync.
+  const thrown = await send("return.record", {
+    returnId: crypto.randomUUID(),
+    returnNumber: "SAMPLE-RETURN-AABBCCDD-0003",
+    status: "awaiting_approval",
+    custodyOnly: true,
+    approval: { required: true, reasons: ["disposed_at_outlet"] },
+    originalSale: { saleId, receiptNumber },
+    customer: { outletId: outlet },
+    customerName: "Sample customer",
+    lines: [
+      {
+        lineNumber: 1,
+        productId: product,
+        product: {
+          code: "SAMPLE-FROZEN",
+          name: "Sample frozen pack",
+          uomCode: "PC",
+          quantityScale: "1",
+        },
+        uomCode: "PC",
+        uomBaseQuantity: "1",
+        uomQuantity: "1",
+        quantityBase: "1",
+        reason: "expired",
+        reasonLabel: "Expired",
+        disposition: "disposed_at_outlet",
+        stockEffect: "none",
+        approvalRequired: true,
+        allocations: [{ ...allocations[0], quantityBase: "1" }],
+        lotNumber: "BATCH-A",
+        expiryDate: "2026-10-31",
+      },
+    ],
+    customerAcknowledgement: {
+      name: "Sample customer",
+      accepted: true,
+      strokes: [
+        [
+          [10, 10],
+          [9000, 9000],
+        ],
+      ],
+    },
+    photo: {
+      base64: Buffer.from(jpeg).toString("base64"),
+      sha256: sha256Hex(jpeg),
+    },
+  });
+  const [held] =
+    await h.db`select custody_only,sale_id,(select stock_status from van_return_lines where return_id=r.id) as status from van_returns r where id=${thrown.payload.returnId}`;
+  expect(held).toEqual({ custody_only: true, sale_id: null, status: "none" });
+  const queue = await h.fetch(`/api/v1/van/return-pickups?tripId=${tripId}`, {
+    headers: { cookie },
+  });
+  expect(queue.status).toBe(200);
+  expect(
+    (await queue.json()).items.map((/** @type {any} */ x) => x.returnNumber),
+  ).toContain("SAMPLE-RETURN-AABBCCDD-0003");
+  // The office (not the seller) verifies the disposal on the trip review; sign-off below needs it.
+  await office("pickups/decide", {
+    returnId: thrown.payload.returnId,
+    decision: "disposal_verified",
+    reason: "Store photo and signature checked",
+  });
   await send("returnable.record", {
     observationId: crypto.randomUUID(),
     action: "count",
@@ -512,7 +578,7 @@ export async function exerciseRoute(
     (
       await h.db`select count(*)::int as n from van_returns where trip_id=${tripId}`
     )[0].n,
-  ).toBe(1);
+  ).toBe(2); // the linked damaged return + the VAN-061 held store disposal
   expect(
     (
       await h.db`select count(*)::int as n from van_settlements where trip_id=${tripId}`
@@ -539,7 +605,7 @@ export async function exerciseRoute(
     plannedCalls: 1,
     productiveCalls: 1,
     strikeRateBasisPoints: 10000,
-    returnDocuments: 1,
+    returnDocuments: 2,
     salesCentavos: total,
     collectedCentavos: total,
   });

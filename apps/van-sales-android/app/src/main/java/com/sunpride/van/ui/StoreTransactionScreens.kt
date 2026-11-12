@@ -127,6 +127,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     DisposableEffect(Unit){onDispose{c.navHidden=false}}
 
     fun newSale(){
+        c.startNewStoreSale()
         cart=emptyList();saleId=UUID.randomUUID().toString();tender="cash";tenderedMinor=null;exact=false;cashShare="";cardShare="";received="";walletRef="";cardRef="";phone="";points="";employee=false;pin="";more=false;claim=null;claiming=false;notice=null;completed=null;savedFlag=false
         send(SellEvent.NewSaleTapped)
     }
