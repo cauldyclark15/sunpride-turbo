@@ -507,7 +507,7 @@ class ChaosSyncTest {
         } }
         engine(store, transport).sync()
         assertEquals(setOf("pending", "sending", "review"), observed)
-        assertEquals("Needs review · not synced", store.status().label(start))
+        assertEquals("Needs review", store.status().label(start)) // FLD-176: refused, nothing waiting
         store.holdForReview()
         assertEquals(6, store.status().held); assertEquals("Held · needs review", store.status().label(start))
         assertFrozen(store, original)

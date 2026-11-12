@@ -26,6 +26,20 @@ object SyncWork {
         .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
         .build()
 
+    private val finished = kotlinx.coroutines.flow.MutableStateFlow(0L)
+    /** FLD-122: bumps after every background run so the UI re-reads the pill and open forms (cf. EvidenceWork.runs). */
+    val runs: kotlinx.coroutines.flow.StateFlow<Long> get() = finished
+    internal fun finishedRun() { finished.value = finished.value + 1 }
+
+    /**
+     * FLD-122: run when there is work to send. A hold on THIS partition (e.g. a routine re-download after the office
+     * changed today's plan) is retried once through the same verified path as "Sync now" (fresh sign-in check +
+     * bootstrap proof), instead of waiting for a manual tap. Work from an earlier sign-in/work area stays held.
+     */
+    fun shouldRun(s: com.sunpride.field.ui.syncstatus.SyncStatus): Boolean = s.pending &&
+        com.sunpride.field.ui.syncstatus.SyncStatus.HELD_EARLIER !in s.heldReasons &&
+        (s.queued + s.sending > 0 || s.held > 0)
+
     fun enqueue(context: Context) {
         // APPEND_OR_REPLACE ensures a wake-up after an already-running flight finishes;
         // KEEP could discard the only wake-up for a row committed during that flight.
@@ -48,8 +62,7 @@ class VisitSyncWorker(context: Context, parameters: WorkerParameters) : Coroutin
             if (!backend.isSignedIn) return Result.success()
             val device = backend.cachedDeviceId ?: return Result.success()
             val before = backend.syncStatus()
-            if (!before.pending || before.held > 0 || before.health == "held_for_review")
-                return Result.success()
+            if (!SyncWork.shouldRun(before)) return Result.success()
             SafeLog.event(app, "sync_started")
             val data = backend.today(device, backend.loadSigner(), sync = true, scheduleRemainder = false)
             outcome(data.syncStatus, app)
@@ -58,7 +71,7 @@ class VisitSyncWorker(context: Context, parameters: WorkerParameters) : Coroutin
             throw e
         } catch (_: Exception) {
             SafeLog.event(app, "sync_retry"); Result.retry()
-        }
+        } finally { SyncWork.finishedRun() }
     }
     private fun outcome(status: com.sunpride.field.ui.syncstatus.SyncStatus, app: Context): Result = when {
         status.held > 0 || status.health == "held_for_review" -> {

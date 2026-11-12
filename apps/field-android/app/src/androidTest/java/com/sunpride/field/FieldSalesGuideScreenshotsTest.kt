@@ -405,7 +405,7 @@ class FieldSalesGuideScreenshotsTest {
 
     @Test fun needsReviewState() = syncState(SyncStatus(review = 1, health = "synced", lastSuccess = now - 600_000,
         leaseExpiresAt = close(), cacheExpiresAt = close() + DAY,
-        reviewReasons = listOf(SyncStatus.plainReason("mcp_order"))), "Needs review · not synced", "15-sync-needs-review")
+        reviewReasons = listOf(SyncStatus.plainReason("mcp_order"))), "Needs review", "15-sync-needs-review")
 
     @Test fun lateState() = syncState(SyncStatus(queued = 3, health = "synced", lastSuccess = previousClose - 4 * 3_600_000L,
         leaseExpiresAt = previousClose, cacheExpiresAt = close() + DAY, earliestUnsentCloseAt = previousClose),

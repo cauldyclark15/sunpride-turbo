@@ -70,6 +70,8 @@ interface FieldBackend {
     fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData = TodayData()
     fun visitHistory(): List<com.sunpride.field.storage.IntentRow> = emptyList()
     fun visitStates(): List<Pair<com.sunpride.field.storage.IntentRow, String>> = emptyList()
+    /** FLD-176: clear one refused item from the phone's To review list. */
+    fun dismissReview(requestId: String): Boolean = false
     fun syncStatus(): com.sunpride.field.ui.syncstatus.SyncStatus = com.sunpride.field.ui.syncstatus.SyncStatus()
     fun schedulePendingWork() {}
     fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
@@ -316,6 +318,11 @@ class LiveFieldBackend(
         finally { store.close() }
     }
     override fun visitHistory() = visitStates().map { it.first }
+    override fun dismissReview(requestId: String): Boolean {
+        val scope = storedScope() ?: return false
+        val store = EncryptedFieldDatabase.store(context, scope)
+        return try { runBlocking { store.dismissReview(requestId) } } finally { store.close() }
+    }
     override fun syncStatus(): com.sunpride.field.ui.syncstatus.SyncStatus {
         val scope = storedScope() ?: return com.sunpride.field.ui.syncstatus.SyncStatus()
         val store = EncryptedFieldDatabase.store(context, scope)
@@ -866,6 +873,7 @@ class LiveFieldBackend(
             val outlets = outletRows.mapValues { it.value.optString("name", "Outlet") }
             val customers = store.customers().associate { it.id to JSONObject(it.json).optString("code") }
             val visits = store.todaysVisits(day).map { row -> plannedVisitDisplay(row, outletRows, customers) }
+            val dismissed = store.dismissedReviews()
             val history = store.history()
             val decorated = visits.map { visit ->
                 val own = history.filter { (intent, _) ->
@@ -877,7 +885,7 @@ class LiveFieldBackend(
                 val related = history.filter { it.first.clientVisitId in own }
                 val call = related.map { it.first to it.second.state }
                 visit.copy(status = when {
-                    related.any { it.second.state == "review" } -> "Needs review"
+                    related.any { it.second.state == "review" && it.second.requestId !in dismissed } -> "Needs review"
                     VisitCallRules.closed(call) -> "Done"
                     VisitCallRules.started(call) -> "In progress"
                     else -> visit.status
@@ -895,12 +903,12 @@ class LiveFieldBackend(
             }
             val held = db.rows().heldCount(subject, deviceId)
             val result = TodayData(decorated, store.status().lastSuccess,
-                failed || held > 0 || !store.isLeaseValid(System.currentTimeMillis()) || history.any { it.second.state != "done" } ||
+                failed || held > 0 || !store.isLeaseValid(System.currentTimeMillis()) || history.any { it.second.state != "done" && !(it.second.state == "review" && it.second.requestId in dismissed) } ||
                     store.syncHealth() != "synced",
                 warning ?: if (held > 0) "Prior assignment has held visit work — administrator review required"
                     else if (terminal) "Update required" else null,
                 terminal || warning == "Update required",
-                history.count { it.second.state == "review" } + held, history.count { it.second.state == "pending" },
+                history.count { it.second.state == "review" && it.second.requestId !in dismissed } + held, history.count { it.second.state == "pending" },
                 outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) },
                 store.status(), directory, tasks,
                 com.sunpride.field.ui.team.TeamRepository.offered(store.employeeRole()),
@@ -1799,6 +1807,16 @@ class FieldController(
         if (state is EnrollmentState.Ready && !busy) {
             runCatching { loadToday(sync = false) }.onFailure { today = today.copy(stale = true) }
         }
+    }
+    /** FLD-176: the person read a refused item and clears it; the pill then reflects only real pending work. */
+    fun dismissReview(requestId: String) = scope.launch(ui) {
+        if (busy || state !is EnrollmentState.Ready) return@launch
+        runCatching { withContext(io) { backend.dismissReview(requestId) } }
+        runCatching { loadToday(sync = false) }
+    }
+    /** FLD-122: the background sync finished; re-read local status so the pill never freezes a mid-sync state. */
+    fun backgroundSyncFinished() = scope.launch(ui) {
+        if (state is EnrollmentState.Ready && !busy) runCatching { loadToday(sync = false) }
     }
     fun syncNow() = scope.launch(ui) {
         if (busy || state !is EnrollmentState.Ready || today.updateRequired) return@launch

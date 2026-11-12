@@ -51,4 +51,14 @@ class CollectorDraftInputTest {
         val e = runCatching { PresellDates.validate(null, "2026-1-5", 0) }.exceptionOrNull()
         assertTrue(e is IllegalArgumentException)
     }
+
+    /** FLD-122: a save keeps today's verified assignment on screen when a mid-sync re-read comes back empty. */
+    @Test fun saveKeepsVerifiedAssignmentWhileGrantCurrent() {
+        val verified = org.json.JSONObject().put("authorizationExpiresAt", 5_000L).put("serviceDate", "2026-11-13")
+        assertTrue(CollectorDraft.afterSave(verified, null, 1_000) === verified)
+        assertEquals(null, CollectorDraft.afterSave(verified, null, 5_000))
+        val fresh = org.json.JSONObject().put("authorizationExpiresAt", 9_000L)
+        assertTrue(CollectorDraft.afterSave(verified, fresh, 1_000) === fresh)
+        assertEquals(null, CollectorDraft.afterSave(null, null, 1_000))
+    }
 }

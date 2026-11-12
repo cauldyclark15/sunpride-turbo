@@ -193,6 +193,9 @@ fun FieldApp(
     // FLD-147: the upload worker runs outside the UI; when it finishes, refresh the pill and the Photos card.
     val photoRuns by com.sunpride.field.evidence.EvidenceWork.runs.collectAsState()
     LaunchedEffect(photoRuns) { if (photoRuns > 0 && ready) controller.photosChanged() }
+    // FLD-122: likewise for the visit/form sync worker, so a mid-sync "Held" never stays frozen on screen.
+    val syncRuns by com.sunpride.field.sync.work.SyncWork.runs.collectAsState()
+    LaunchedEffect(syncRuns) { if (syncRuns > 0 && ready) controller.backgroundSyncFinished() }
     // F-616 prefetch after a verified snapshot/sync, never on every one-second UI pulse.
     LaunchedEffect(backend,ready,controller.today.lastSynced) {
         if(ready && controller.today.lastSynced!=null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -401,7 +404,8 @@ fun FieldApp(
                             ?.let { id -> customerId = id; page = "customer"; true } ?: false
                     })
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = origin },
-                    onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
+                    onSync = controller::syncNow, busy = controller.busy, modifier = modifier,
+                    onClearReview = { controller.dismissReview(it) })
                 ready && page == "more" -> MoreScreen(modifier = modifier, status = status, now = now,
                     onSync = { go("sync") }, onAccount = { go("account") }, onSupport = { go("support") },
                     onCatalogue = { go("catalogue") }, onCensus = if (visits) ({ censusName = ""; censusEdit = null; go("census") }) else null,

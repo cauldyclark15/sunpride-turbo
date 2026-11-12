@@ -35,7 +35,7 @@ fun manilaTime(time: Long?): String = time?.let { stamp.format(Instant.ofEpochMi
 
 @Composable
 fun SyncDetails(status: SyncStatus, onDismiss: () -> Unit, onSync: () -> Unit = {},
-    busy: Boolean = false, modifier: Modifier = Modifier) {
+    busy: Boolean = false, modifier: Modifier = Modifier, onClearReview: (String) -> Unit = {}) {
     Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -56,7 +56,19 @@ fun SyncDetails(status: SyncStatus, onDismiss: () -> Unit, onSync: () -> Unit = 
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("day-close-time"))
                 }
             }
-            if (status.reviewReasons.isNotEmpty()) SectionCard("To review · ${status.review}") {
+            // FLD-176: each refused item shows what it was and why, and can be cleared once read. The office was
+            // never sent anything for it, so clearing only tidies this phone; the visit can be started again.
+            if (status.reviewItems.isNotEmpty()) SectionCard("To review · ${status.review}", Modifier.testTag("review-card")) {
+                status.reviewItems.forEach { item ->
+                    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 10.dp),
+                        verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                        Text("${item.what} · not accepted", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                        Text(item.reason, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("review-reason"))
+                        TextButton({ onClearReview(item.requestId) }, enabled = !busy,
+                            modifier = Modifier.testTag("review-clear")) { Text("Remove from this phone") }
+                    }
+                }
+            } else if (status.reviewReasons.isNotEmpty()) SectionCard("To review · ${status.review}") {
                 status.reviewReasons.forEach { Text(it, Modifier.padding(16.dp)) }
             }
             if (status.held > 0 || status.heldReasons.isNotEmpty()) SectionCard("Held · ${status.held}", Modifier.testTag("held-card")) {
