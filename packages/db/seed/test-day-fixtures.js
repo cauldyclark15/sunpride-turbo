@@ -2265,37 +2265,67 @@ section(
   async () => {
     const t = await cleanLoadTrip();
     if (!t) throw new Error("agent@'s trial-truck trip for today is missing");
-    let plan = await one(db`select id,state,attention from van_planned_loads where trip_id=${t.id} order by created_at desc limit 1`);
-    if (plan?.state === "suggested" && (plan.attention ?? []).length === 0) return "kept";
+    const planOfTrip = () =>
+      one(db`select id,state,attention from van_planned_loads where trip_id=${t.id} order by created_at desc limit 1`);
+    let plan = await planOfTrip();
     if (plan && plan.state !== "suggested") return "kept";
-    // Released lots that stay sellable for 30+ days at the trip's depot (quarantined/near-expiry lots fail approval).
-    const products =
-      await db`select b.product_id as id from inventory_lot_balances b join inventory_lots l on l.id=b.lot_id join products p on p.id=b.product_id
-        where b.location_id=${t.source_location_id} and b.stock_status='available' and l.quality_status='released' and p.active
-          and (l.expires_at is null or l.expires_at>${new Date(Date.parse(`${TODAY}T00:00:00+08:00`) + 30 * 86_400_000)})
-        group by b.product_id,p.code having sum(b.available_base)>=200 order by p.code limit 4`;
-    if (products.length < 2) throw new Error("the depot has fewer than 2 products with released lot stock");
-    if (!plan) {
-      const yesterday = await one(db`select id from van_trips where service_date<${TODAY} and status not in ('cancelled') and deleted_at is null order by service_date desc, trip_number limit 1`);
-      await van("loads/copy", { tripId: t.id, fromTripId: yesterday.id }, `copy-load:${t.id}`);
-      plan = await planRow(t.id);
-    }
-    const keep = new Set(products.map((/** @type {any} */ p) => p.id));
-    const others = await db`select product_id from van_planned_load_lines where planned_load_id=${plan.id}`;
-    await van(
-      "loads/edit",
-      {
-        tripId: t.id,
-        lines: [
-          ...products.map((/** @type {any} */ p) => ({ productId: p.id, quantityBase: "48" })),
-          ...others
-            .filter((/** @type {any} */ o) => !keep.has(o.product_id))
-            .map((/** @type {any} */ o) => ({ productId: o.product_id, quantityBase: "0" })),
-        ],
-        note: `${TAG} clean load for WEB-082/084`,
-      },
-      `edit-clean-load:${t.id}`,
+    const { eligibleFreeBase } = await import(
+      new URL("../../../apps/api/src/domains/inventory/eligible.js", import.meta.url).href
     );
+    /** Lines the depot cannot issue under the approval rule (released, unexpired lots). @param {any} pl */
+    const unissuable = async (pl) => {
+      const lines = await db`select product_id,coalesce(approved_base,suggested_base)::bigint as q from van_planned_load_lines where planned_load_id=${pl.id}`;
+      const wanted = lines.filter((/** @type {any} */ l) => Number(l.q) > 0);
+      const free = await eligibleFreeBase(db, t.source_location_id, wanted.map((/** @type {any} */ l) => l.product_id), { org: "sunpride" });
+      return wanted.filter((/** @type {any} */ l) => Number(l.q) > (free.get(l.product_id) ?? 0));
+    };
+    if (plan && (plan.attention ?? []).length === 0 && !(await unissuable(plan)).length) return "kept";
+    const from = await one(
+      db`select id from van_trips where service_date<${TODAY} and trip_number like 'SMP-TRIP-%' and status<>'cancelled' and deleted_at is null order by service_date desc, trip_number limit 1`,
+    );
+    if (!plan) {
+      await van("loads/copy", { tripId: t.id, fromTripId: from.id }, `copy-load:${t.id}`);
+      plan = await planOfTrip();
+    }
+    if ((plan.attention ?? []).length) {
+      // The depot is short of some copied products: the depot clerk finds stock (adjustment, second-person approval)
+      // on each product's freshest released lot, then the office copies yesterday again.
+      const short =
+        await db`select l.product_id,(select x.id from inventory_lots x where x.product_id=l.product_id and x.closed_at is null and x.quality_status='released' order by x.expires_at desc nulls last limit 1) as lot_id
+          from van_planned_load_lines l where l.planned_load_id=${plan.id} and 'depot_short'=any(l.flags)`;
+      const lines = short
+        .filter((/** @type {any} */ r) => r.lot_id)
+        .map((/** @type {any} */ r) => ({ productId: r.product_id, lotId: r.lot_id, locationId: t.source_location_id, stockStatus: "available", varianceBase: 240 }));
+      if (lines.length) {
+        const adj = await api(
+          ADMIN,
+          "/api/v1/inventory/adjustments/request",
+          { reasonCode: "FOUND", adjustmentType: "manual", note: `${TAG} depot stock for the clean load (WEB-082/084)`, lines },
+          { key: key(`clean-load-adjust:${t.id}`) },
+        );
+        await api(APPROVER, "/api/v1/inventory/adjustments/decide", { adjustmentId: adj.id, decision: "approved" }, { key: key(`clean-load-adjust-ok:${t.id}`) });
+      }
+      await van("loads/copy", { tripId: t.id, fromTripId: from.id }, `recopy-load:${t.id}`);
+      plan = await planOfTrip();
+    }
+    if ((plan.attention ?? []).length) {
+      // Some products have no released lot at all (seeded quarantine): copy an earlier day that did not carry them.
+      const earlier =
+        await db`select id from van_trips where service_date<${TODAY} and status<>'cancelled' and deleted_at is null and id<>${from.id} order by service_date desc, trip_number limit 20`;
+      for (const e of earlier) {
+        await van("loads/copy", { tripId: t.id, fromTripId: e.id }, `recopy-load:${t.id}:${e.id}`);
+        plan = await planOfTrip();
+        if (!(plan.attention ?? []).length) break;
+      }
+    }
+    // Lines whose only lots are quarantined or near expiry cannot be approved: the office sets them to 0.
+    const bad = await unissuable(plan);
+    if (bad.length)
+      await van(
+        "loads/edit",
+        { tripId: t.id, lines: bad.map((/** @type {any} */ l) => ({ productId: l.product_id, quantityBase: "0" })) },
+        `edit-clean-load:${t.id}:${bad.map((/** @type {any} */ l) => l.product_id).sort().join(",")}`,
+      );
     return "created";
   },
   async () => {
@@ -2305,6 +2335,13 @@ section(
       trip: t ? `${t.trip_number}/${t.status}` : null,
       suggestedLoad: plan?.state === "suggested",
       clean: plan ? (plan.attention ?? []).length === 0 : false,
+      issuable: plan
+        ? (
+            await one(
+              db`select count(*)::int n from van_planned_load_lines where planned_load_id=(select id from van_planned_loads where trip_id=${t.id} order by created_at desc limit 1) and coalesce(approved_base,suggested_base)>0`,
+            )
+          ).n
+        : 0,
     };
   },
 );
