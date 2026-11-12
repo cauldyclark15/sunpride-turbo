@@ -89,7 +89,7 @@ object ChatFormat {
 }
 
 enum class ConversationSection(val title: String) {
-    CHANNELS("Channels"), DIRECT("Direct messages"), GROUPS("Groups"), AI("AI users")
+    CHANNELS("Channels"), DIRECT("Direct messages"), GROUPS("Groups"), AI("Developers")
 }
 
 /** One row on screen: day labels, the unread divider, and message bubbles grouped by author. */

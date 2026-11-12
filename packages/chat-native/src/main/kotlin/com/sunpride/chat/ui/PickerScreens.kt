@@ -125,7 +125,7 @@ internal fun NewChatScreen(onBack: () -> Unit, onCreated: (String) -> Unit) {
                         Avatar(u, 40.dp)
                         Column(Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) { Text(u.displayName, style = MaterialTheme.typography.bodyLarge); if (u.isAgent) { Spacer(Modifier.width(6.dp)); AiBadge() } }
-                            (u.roleLabel?.replaceFirstChar { it.uppercase() } ?: if (u.isAgent) "AI user" else null)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            (u.roleLabel?.replaceFirstChar { it.uppercase() } ?: if (u.isAgent) "Developer" else null)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                         if (mode == 1) Text(if (on) "✓" else "", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                     }

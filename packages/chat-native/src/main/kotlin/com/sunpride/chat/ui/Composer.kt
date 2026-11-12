@@ -319,7 +319,7 @@ private fun SuggestionPanel(trigger: ComposerDraft.Trigger, allowChannel: Boolea
                 if (trigger.char == '@' && allowChannel && "channel".startsWith(trigger.query.lowercase()))
                     item { SuggestionRow(onChannel, { ConversationAvatar(null, emptySet(), 36.dp, "@") }, "@channel", "Notify everyone in this conversation") }
                 if (trigger.char == '@') items(people, key = { it.id }) { u ->
-                    SuggestionRow({ onUser(u) }, { Avatar(u, 36.dp) }, u.displayName, u.roleLabel?.replaceFirstChar { it.uppercase() } ?: if (u.isAgent) "AI user" else null, ai = u.isAgent)
+                    SuggestionRow({ onUser(u) }, { Avatar(u, 36.dp) }, u.displayName, u.roleLabel?.replaceFirstChar { it.uppercase() } ?: if (u.isAgent) "Developer" else null, ai = u.isAgent)
                 } else items(refs, key = { it.type + it.id }) { r ->
                     SuggestionRow({ onRef(r) }, { RefThumb(r, r.type, 40.dp) }, r.title, listOfNotNull(ChatTokens.typeLabel(r.type), r.subtitle).joinToString(" · "))
                 }

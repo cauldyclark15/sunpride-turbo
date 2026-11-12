@@ -235,7 +235,7 @@ export async function resolveType(db, actor, ids, type) {
       subtitle:
         type === "user"
           ? r.is_agent
-            ? "AI user"
+            ? "Developer"
             : r.role.replaceAll("_", " ")
           : String(r[c.subtitle] ?? ""),
       thumb_url: blob

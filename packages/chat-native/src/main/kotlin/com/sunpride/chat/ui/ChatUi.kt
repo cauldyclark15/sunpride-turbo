@@ -87,7 +87,7 @@ internal fun Avatar(user: UserLite?, size: Dp = 36.dp, label: String? = null, mo
 
 @Composable
 internal fun AiBadge(modifier: Modifier = Modifier) {
-    Text("AI", modifier = modifier.clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)).padding(horizontal = 5.dp, vertical = 1.dp),
+    Text("Developer", modifier = modifier.clip(RoundedCornerShape(4.dp)).background(MaterialTheme.colorScheme.onSurface.copy(alpha = 0.08f)).padding(horizontal = 5.dp, vertical = 1.dp),
         style = MaterialTheme.typography.labelSmall, color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.Bold)
 }
 

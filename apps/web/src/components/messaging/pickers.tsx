@@ -10,7 +10,12 @@ import {
   type RefEntry,
   type RefType,
 } from "../../lib/messaging/types";
-import { AiBadge, Avatar, REF_TYPE_LABELS, RefTypeIcon } from "./primitives";
+import {
+  DeveloperBadge,
+  Avatar,
+  REF_TYPE_LABELS,
+  RefTypeIcon,
+} from "./primitives";
 
 export function usePeopleSearch(query: string | null) {
   const q = useDeferredValue(query);
@@ -24,7 +29,8 @@ export function useRefSearch(query: string | null) {
   const q = useDeferredValue(query);
   return useApi<RefEntry[]>(
     q === null ? null : ["messaging", "refs", q],
-    ({ signal }) => messagingClient({ signal }).searchRefs(q ?? "", undefined, 20),
+    ({ signal }) =>
+      messagingClient({ signal }).searchRefs(q ?? "", undefined, 20),
   );
 }
 
@@ -66,24 +72,35 @@ export function PeopleList({
   includeChannel?: boolean;
 }) {
   return (
-    <div role="listbox" aria-label="People" data-panel="people-picker" className={listBox}>
+    <div
+      role="listbox"
+      aria-label="People"
+      data-panel="people-picker"
+      className={listBox}
+    >
       {includeChannel ? (
         <PickRow
           active={activeIndex === people.length}
           onPick={() => onPick("channel")}
         >
-          <span className="inline-flex size-6 items-center justify-center rounded-full bg-default-soft text-xs">@</span>
+          <span className="inline-flex size-6 items-center justify-center rounded-full bg-default-soft text-xs">
+            @
+          </span>
           <span className="flex-1 text-sm font-medium">channel</span>
           <span className="text-xs text-muted">Notify everyone here</span>
         </PickRow>
       ) : null}
       {people.map((person, index) => (
-        <PickRow key={person.id} active={index === activeIndex} onPick={() => onPick(person)}>
+        <PickRow
+          key={person.id}
+          active={index === activeIndex}
+          onPick={() => onPick(person)}
+        >
           <Avatar user={person} size="sm" />
           <span className="min-w-0 flex-1 truncate text-sm font-medium">
             {person.display_name}
           </span>
-          {person.is_agent ? <AiBadge /> : null}
+          {person.is_agent ? <DeveloperBadge /> : null}
           <span className="text-xs text-muted">{person.role_label}</span>
         </PickRow>
       ))}
@@ -110,7 +127,12 @@ export function ObjectList({
   const groups = groupRefs(entries);
   const order = groups.flatMap((group) => group.items);
   return (
-    <div role="listbox" aria-label="Tag an item" data-panel="object-picker" className={listBox}>
+    <div
+      role="listbox"
+      aria-label="Tag an item"
+      data-panel="object-picker"
+      className={listBox}
+    >
       {groups.map((group) => (
         <div key={group.type} role="group" aria-label={group.label}>
           <p className="px-2 pb-1 pt-2 text-[11px] font-semibold uppercase tracking-wide text-muted">
@@ -124,9 +146,13 @@ export function ObjectList({
             >
               <PickThumb entry={entry} />
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium">{refTitle(entry)}</span>
+                <span className="block truncate text-sm font-medium">
+                  {refTitle(entry)}
+                </span>
                 {entry.subtitle ? (
-                  <span className="block truncate text-xs text-muted">{entry.subtitle}</span>
+                  <span className="block truncate text-xs text-muted">
+                    {entry.subtitle}
+                  </span>
                 ) : null}
               </span>
             </PickRow>
@@ -135,7 +161,9 @@ export function ObjectList({
       ))}
       {!order.length ? (
         <p className="p-2 text-sm text-muted">
-          {loading ? "Searching…" : "Nothing matches. Try a store, item, order or issue name."}
+          {loading
+            ? "Searching…"
+            : "Nothing matches. Try a store, item, order or issue name."}
         </p>
       ) : null}
     </div>
@@ -155,7 +183,10 @@ function PickThumb({ entry }: { entry: RefEntry }) {
       />
     );
   return (
-    <span aria-hidden className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-default-soft text-muted">
+    <span
+      aria-hidden
+      className="inline-flex size-7 shrink-0 items-center justify-center rounded-md bg-default-soft text-muted"
+    >
       <RefTypeIcon type={entry.type} />
     </span>
   );

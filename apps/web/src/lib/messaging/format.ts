@@ -132,13 +132,18 @@ export function otherMembers(
 
 /** The server derives DM/group titles; fall back to member names. */
 export function conversationTitle(
-  conversation: Pick<Conversation, "title" | "kind" | "members_preview" | "member_count">,
+  conversation: Pick<
+    Conversation,
+    "title" | "kind" | "members_preview" | "member_count"
+  >,
   meId: string | null | undefined,
 ): string {
   if (conversation.title) return conversation.title;
   const names = otherMembers(conversation, meId).map((m) => m.display_name);
   if (!names.length)
-    return conversation.kind === "channel" ? "Untitled channel" : "Conversation";
+    return conversation.kind === "channel"
+      ? "Untitled channel"
+      : "Conversation";
   const extra = conversation.member_count - 1 - names.length;
   return extra > 0 ? `${names.join(", ")} and ${extra} more` : names.join(", ");
 }
@@ -149,10 +154,10 @@ export const SIDEBAR_SECTIONS: { id: SidebarSectionId; label: string }[] = [
   { id: "channels", label: "Channels" },
   { id: "dms", label: "Direct messages" },
   { id: "groups", label: "Groups" },
-  { id: "agents", label: "AI users" },
+  { id: "agents", label: "Developers" },
 ];
 
-/** A DM with an agent goes under AI users; other DMs under Direct messages. */
+/** A DM with an agent goes under Developers; other DMs under Direct messages. */
 export function sectionOf(
   conversation: Conversation,
   meId: string | null | undefined,
@@ -199,7 +204,12 @@ export function badgeCount(count: number): string {
  * fetcher, so it is never loaded; the card shows without a picture instead.
  */
 export function previewImageSrc(url: string | null | undefined): string | null {
-  if (!url || !url.startsWith("/") || url.startsWith("//") || url.includes("\\"))
+  if (
+    !url ||
+    !url.startsWith("/") ||
+    url.startsWith("//") ||
+    url.includes("\\")
+  )
     return null;
   return url;
 }

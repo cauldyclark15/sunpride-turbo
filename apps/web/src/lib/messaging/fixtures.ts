@@ -42,7 +42,7 @@ export const AGENT: UserLite = {
 export const DIRECTORY: DirectoryUser[] = [
   { ...ANA, role_label: "Manager" },
   { ...BEN, role_label: "Sales" },
-  { ...AGENT, role_label: "AI user" },
+  { ...AGENT, role_label: "Developer" },
 ];
 
 export const OUTLET_REF: RefEntry = {
@@ -144,7 +144,11 @@ export function message(overrides: Partial<Message> = {}): Message {
 }
 
 export const MESSAGES: Message[] = [
-  message({ seq: 1, created_at: "2026-11-02T01:00:00.000Z", body: "Yesterday's note" }),
+  message({
+    seq: 1,
+    created_at: "2026-11-02T01:00:00.000Z",
+    body: "Yesterday's note",
+  }),
   message({
     id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2",
     seq: 2,

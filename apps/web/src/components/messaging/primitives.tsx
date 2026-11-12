@@ -67,7 +67,11 @@ export function SidePanel({
             <p className="truncate text-xs text-muted">{subtitle}</p>
           ) : null}
         </div>
-        <IconButton label={`Close ${title.toLowerCase()}`} icon="close" onClick={onClose} />
+        <IconButton
+          label={`Close ${title.toLowerCase()}`}
+          icon="close"
+          onClick={onClose}
+        />
       </header>
       <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
     </aside>
@@ -104,8 +108,14 @@ export function ModalFrame({
         className={`flex max-h-[90dvh] w-full flex-col overflow-hidden rounded-t-2xl bg-surface shadow-xl sm:rounded-2xl ${wide ? "sm:max-w-4xl" : "sm:max-w-md"}`}
       >
         <header className="flex min-h-14 items-center gap-2 border-b border-separator px-4">
-          <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">{title}</h2>
-          <IconButton label={`Close ${title.toLowerCase()}`} icon="close" onClick={onClose} />
+          <h2 className="min-w-0 flex-1 truncate text-sm font-semibold">
+            {title}
+          </h2>
+          <IconButton
+            label={`Close ${title.toLowerCase()}`}
+            icon="close"
+            onClick={onClose}
+          />
         </header>
         <div className="min-h-0 flex-1 overflow-y-auto">{children}</div>
       </div>
@@ -142,10 +152,11 @@ export function Avatar({
   );
 }
 
-export function AiBadge() {
+/** Marks one of C&C's developers (the chat agents). Users only ever see "Developer". */
+export function DeveloperBadge() {
   return (
-    <span className="rounded border border-border px-1 text-[10px] font-medium uppercase tracking-wide text-muted">
-      AI
+    <span className="rounded border border-border px-1 text-[10px] font-medium text-muted">
+      Developer
     </span>
   );
 }
