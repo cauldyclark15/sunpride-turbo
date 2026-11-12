@@ -98,6 +98,16 @@ export function allocate(total, rows) {
   return out;
 }
 
+/** True when the caller's scope covers every active unit (or crosses scope):
+ * only then may they cascade or decide a company or channel target.
+ * @param {any} db @param {any} s */
+export async function companyWide(db, s) {
+  if (s.cross) return true;
+  const [o] =
+    await db`select count(*)::int n from org_units where deleted_at is null and status='active' and id not in ${db(s.ids.length ? s.ids : [null])}`;
+  return o.n === 0;
+}
+
 /** @param {any} db @param {any} s @param {string} level @param {string} key */
 async function requireParent(db, s, level, key) {
   const sub = await subjects(db, s);
@@ -105,12 +115,8 @@ async function requireParent(db, s, level, key) {
     (/** @type {any} */ r) => r.key === key,
   );
   if (!parent) throw forbidden("This target is outside your team");
-  if (["company", "channel"].includes(level) && !s.cross) {
-    const [o] =
-      await db`select count(*)::int n from org_units where deleted_at is null and status='active' and id not in ${db(s.ids.length ? s.ids : [null])}`;
-    if (o.n > 0)
-      throw forbidden("Only a company-wide manager can cascade this target");
-  }
+  if (["company", "channel"].includes(level) && !(await companyWide(db, s)))
+    throw forbidden("Only a company-wide manager can cascade this target");
   return { sub, parent };
 }
 
@@ -518,8 +524,13 @@ export async function readCascades(ctx) {
     ? await ctx.db`select cascade_id,child_key,child_label,basis,amount from target_cascade_lines where cascade_id in ${ctx.db(mine.map((/** @type {any} */ k) => k.id))} order by child_label`
     : [];
   const role = ctx.actor?.role;
+  const wide = await companyWide(ctx.db, s);
+  const approver = !!role && roleHas(role, "target.approve");
+  const me = ctx.actor?.profileId ?? null;
   return {
     month,
+    // WEB-037: levels this caller may cascade; company/channel need company-wide scope.
+    companyWide: wide,
     metrics: Object.entries(METRICS).map(([key, m]) => ({ key, ...m })),
     parents: {
       company: sub.company,
@@ -556,6 +567,11 @@ export async function readCascades(ctx) {
       contentHash: k.content_hash,
       preparedBy: k.prepared_name,
       preparedById: k.prepared_by,
+      // WEB-037: offer Approve/Send back only when the decision would be accepted.
+      canDecide:
+        approver &&
+        k.prepared_by !== me &&
+        (wide || !["company", "channel"].includes(k.parent_level)),
       decidedBy: k.decided_name,
       decisionReason: k.decision_reason,
       lines: lines

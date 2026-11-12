@@ -11,10 +11,11 @@ import {
   type FormEvent,
 } from "react";
 import { apiFetch, mutate, useApi, useLive } from "../../lib/api";
-import { formatDate, formatDateRange } from "../cockpit/format";
+import { formatDate, formatDateRange, formatDayTime } from "../cockpit/format";
 import { usePermissions } from "../../lib/auth";
 import { manilaToday } from "../../lib/outside-calls";
 import {
+  creditExposureLines,
   creditLabel,
   money,
   stage,
@@ -641,8 +642,7 @@ export function OrderDrawer({
             >
               <h3>{creditLabel(d.credit.status)}</h3>
               <p className="text-sm">
-                Limit {money(d.credit.limit)} · Exposure including this order{" "}
-                {money(d.credit.exposure)}
+                {creditExposureLines(d).join(" · ")}
               </p>
               <p className="text-xs text-muted">{d.credit.definition}</p>
             </section>
@@ -740,9 +740,7 @@ export function OrderDrawer({
                       {stage(h.to)} · {h.name}
                     </p>
                     <p className="text-xs text-muted">
-                      {new Date(h.at).toLocaleString("en-PH", {
-                        timeZone: "Asia/Manila",
-                      })}
+                      {formatDayTime(h.at)}
                     </p>
                     {h.reason && <p>{h.reason}</p>}
                   </li>

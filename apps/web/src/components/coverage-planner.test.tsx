@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Doc, Id } from "./coverage-model";
 import { CoverageGrid, toggleVisit } from "./coverage-grid";
 import {
+  assigneeServes,
   CoveragePlanner,
   PlanEditor,
   reviseCoveragePlan,
@@ -430,5 +431,17 @@ describe("planner mutation payloads", () => {
       effectiveFromDate: "2026-10-15",
       reason: "New route",
     });
+  });
+});
+
+describe("WEB-118 outlet picker offers only the assignee's outlets", () => {
+  const served = { servedRouteIds: ["r5"], servedTerritoryIds: ["t1"] };
+  it("keeps outlets on the assignee's routes and drops other routes", () => {
+    expect(assigneeServes(served, { routeId: "r5", territoryId: "t9" })).toBe(true);
+    expect(assigneeServes(served, { routeId: "r4", territoryId: "t1" })).toBe(false);
+  });
+  it("routeless outlets need a territory the assignee serves", () => {
+    expect(assigneeServes(served, { routeId: null, territoryId: "t1" })).toBe(true);
+    expect(assigneeServes(served, { territoryId: "t2" })).toBe(false);
   });
 });

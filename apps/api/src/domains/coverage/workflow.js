@@ -55,6 +55,23 @@ function texts(a = []) {
     fail("Invalid objectives or intents");
   return a;
 }
+/**
+ * The assignee must serve the outlet: on its route, or (routeless) its territory.
+ * Checked on add so the planner learns at once, not at approval (WEB-118).
+ * @param {any} db @param {any} p @param {any} o @param {number} instant
+ */
+export async function assigneeCovers(db, p, o, instant) {
+  const at = new Date(instant);
+  const rows = o.routeId
+    ? await db`select 1 from route_salespeople where route_id=${o.routeId} and profile_id=${p.assignee_profile_id} and deleted_at is null and effective_from<=${at} and (effective_to is null or effective_to>${at}) limit 1`
+    : await db`select 1 from territory_salespeople where territory_id=${o.territoryId} and profile_id=${p.assignee_profile_id} and deleted_at is null and effective_from<=${at} and (effective_to is null or effective_to>${at}) limit 1`;
+  if (!rows.length)
+    fail(
+      o.routeId
+        ? "Outlet is on a route the assignee does not serve"
+        : "Outlet is in a territory the assignee does not serve",
+    );
+}
 /** @param {any} ctx @param {any} p @param {any[]} outlets */
 async function saveOutlets(ctx, p, outlets) {
   draft(p);
@@ -75,6 +92,7 @@ async function saveOutlets(ctx, p, outlets) {
       (live.assignment?.route_id ?? null) !== (o.routeId ?? null)
     )
       fail("Outlet assignment changed; use its effective territory and route");
+    await assigneeCovers(db, p, o, instant);
     if (!["weekly", "biweekly", "monthly", "custom"].includes(o.frequency))
       fail("Invalid frequency");
     integer(o.priority ?? 0, "priority");
@@ -113,6 +131,10 @@ async function saveOutlets(ctx, p, outlets) {
   for (const o of outlets)
     await db`insert into coverage_plan_outlets (plan_id,outlet_id,route_id,territory_id,frequency,anchor_local_date,week_ordinal,preferred_weekdays,custom_local_dates,sequence,priority,expected_duration_minutes,required_objectives,visit_window,content_revision,updated_by)
   values (${p.id},${o.outletId},${o.routeId ?? null},${o.territoryId},${o.frequency},${o.anchorLocalDate ?? null},${o.weekOrdinal ?? null},${db.array(o.preferredWeekdays, "SMALLINT")},${db.array(o.customLocalDates, "DATE")},${o.sequence ?? null},${o.priority ?? 0},${o.expectedDurationMinutes},${db.array(o.requiredObjectives ?? [], "TEXT")},${o.visitWindow ?? null},${p.content_revision + 1},${ctx.actor.subject})`;
+  // A removed outlet takes its dated visits with it; otherwise approval refuses
+  // the plan for slots the planner no longer shows (WEB-118).
+  const kept = outlets.map((o) => o.outletId);
+  await db`delete from coverage_plan_slots where plan_id=${p.id} and kind='outlet_visit' and not (outlet_id = any(${db.array(kept, "UUID")}))`;
   await db`delete from coverage_plan_territories where coverage_plan_id=${p.id}`;
   let ordinal = 0;
   for (const id of new Set(outlets.map((o) => o.territoryId)))
@@ -425,6 +447,7 @@ export async function workflow(ctx, action, b) {
     draft(p);
     const rows = await planRows(db, p.id);
     if (!rows.assignments.length) fail("Primary coverage assignment required");
+    if (!rows.slots.length) fail("Plan needs dated slots before submitting");
     await db`update coverage_plans set status='submitted',submitted_by=${ctx.actor.subject},submitted_at=${new Date(ctx.now)} where id=${p.id}`;
   } else if (action === "returnPlan") {
     if (p.status !== "submitted") fail("Only submitted plans can be returned");

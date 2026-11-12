@@ -1,5 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
+  allowedLevels,
+  canDecide,
   formatAmount,
   parseAmount,
   reconciliation,
@@ -54,5 +56,21 @@ describe("F-615 target cascade panel", () => {
     expect(formatAmount("msl_compliance", 8500)).toBe("85.0%");
     expect(formatAmount("calls", 1200)).toBe("1,200");
     expect(formatAmount("calls", null)).toBe("—");
+  });
+});
+
+describe("WEB-037 cascade actions follow the server's rules", () => {
+  it("hides Approve when the server says this caller cannot decide", () => {
+    const d = { canApprove: true, me: "m" };
+    expect(canDecide(d, { preparedById: "x", canDecide: false })).toBe(false);
+    expect(canDecide(d, { preparedById: "x", canDecide: true })).toBe(true);
+  });
+  it("a regional manager prepares territory cascades only", () => {
+    expect(allowedLevels({ companyWide: false })).toEqual(["territory"]);
+    expect(allowedLevels({ companyWide: true })).toEqual([
+      "company",
+      "channel",
+      "territory",
+    ]);
   });
 });

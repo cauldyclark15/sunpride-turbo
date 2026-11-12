@@ -1,3 +1,4 @@
+import { commandErrorText } from "./command-error";
 import type { StatusTone } from "@sunpride/ui";
 
 /**
@@ -111,7 +112,8 @@ export function shortDay(date: string) {
 /** Server error text worth showing; anything else becomes a generic retry. */
 export function decisionError(error: unknown) {
   const data = (error as { data?: unknown })?.data;
-  if (data === "stale_validation")
+  const code = (error as { code?: unknown })?.code;
+  if (data === "stale_validation" || code === "stale_validation")
     return "The calls changed since you opened this. Check again, then decide.";
-  return typeof data === "string" ? data : "Not saved. Try again.";
+  return commandErrorText(error);
 }

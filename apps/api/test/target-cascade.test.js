@@ -154,6 +154,21 @@ test("F-615 sales value cascade: preview from prior actuals, reconciliation, ide
   const [{ method }] =
     await h.db`select method from target_cascades where id=${submitted.body.id}`;
   expect(method).toBe("manual");
+  // WEB-037: the read says who may decide, so the regional manager is not
+  // offered Approve/Send back the server would refuse.
+  /** @param {string} [cookie] */
+  const decidable = async (cookie) => {
+    const r = await call(`/api/v1/targets/cascade?month=${month}`, undefined, cookie);
+    return {
+      wide: r.body.companyWide,
+      can: r.body.cascades.find(
+        (/** @type {any} */ k) => k.id === submitted.body.id,
+      )?.canDecide,
+    };
+  };
+  expect(await decidable(cookies["manager-a"])).toEqual({ wide: false, can: false });
+  expect(await decidable(cookies["approver-root"])).toEqual({ wide: true, can: true });
+  expect((await decidable()).can).toBe(false);
   // The preparer (super admin) cannot publish their own cascade.
   const decide = {
     cascadeId: submitted.body.id,

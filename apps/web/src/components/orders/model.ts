@@ -149,6 +149,30 @@ export const stage = (value: string) =>
     sent_to_sap: "Sent to SAP",
     review_required: "Needs review",
   })[value] ?? "Needs review";
+/**
+ * WEB-102: the stored credit exposure is the customer's open balance *before*
+ * this order (SAP `exposureCentavos`). An order not yet booked in SAP adds its
+ * own total; once approved/posted it is already in the balance.
+ */
+export function creditExposureLines(order: {
+  status: string;
+  totalCentavos: number | null;
+  credit: { limit: number | null; exposure: number | null };
+}): string[] {
+  const { limit, exposure } = order.credit;
+  const lines = [`Limit ${money(limit)}`];
+  if (exposure === null) return [...lines, "Exposure unknown"];
+  const open = ["draft", "pending_approval", "review_required"].includes(
+    order.status,
+  );
+  if (!open || order.totalCentavos === null)
+    return [...lines, `Exposure ${money(exposure)}`];
+  return [
+    ...lines,
+    `Open balance ${money(exposure)}`,
+    `Exposure including this order ${money(exposure + order.totalCentavos)}`,
+  ];
+}
 export const creditLabel = (value: string) =>
   ({
     within: "Within limit",

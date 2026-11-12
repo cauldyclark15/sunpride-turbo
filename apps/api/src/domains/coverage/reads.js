@@ -500,7 +500,18 @@ export async function read(ctx, action, b) {
     const territories =
       await db`select territory_id from coverage_plan_territories where coverage_plan_id=${p.id} order by ordinal`;
     const problem = signatureProblem(p);
+    // Routes/territories the assignee serves: the planner offers only these
+    // outlets (approval refuses the rest; WEB-118).
+    const servedAt = new Date(Math.max(+new Date(p.effective_from), ctx.now));
+    const servedRoutes =
+      await db`select distinct route_id from route_salespeople where profile_id=${p.assignee_profile_id} and deleted_at is null and effective_from<=${servedAt} and (effective_to is null or effective_to>${servedAt})`;
+    const servedTerritories =
+      await db`select distinct territory_id from territory_salespeople where profile_id=${p.assignee_profile_id} and deleted_at is null and effective_from<=${servedAt} and (effective_to is null or effective_to>${servedAt})`;
     return {
+      servedRouteIds: servedRoutes.map(/** @param {any} r */ (r) => r.route_id),
+      servedTerritoryIds: servedTerritories.map(
+        /** @param {any} r */ (r) => r.territory_id,
+      ),
       notices: problem ? [problem] : [],
       signatureValid: !problem,
       warnings: review.daily

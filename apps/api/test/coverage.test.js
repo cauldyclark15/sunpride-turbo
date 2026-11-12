@@ -174,6 +174,7 @@ test("create → saveOutlets → routines → saveSlots → submit → approve �
 });
 test("same-day hire approval rejects with the dated message and zero plan, slot, audit or command writes", async () => {
   const sales = await person("SameDay", "sales", supervisor.id);
+  await h.db`insert into route_salespeople(route_id,profile_id,is_primary,effective_from,actor_subject,reason) values (${route.id},${sales.id},false,${new Date(now)},${manager.user_id},'Fixture')`;
   const p = await run(sales, "plans/create", {
     assigneeProfileId: sales.id,
     localMonth: "2026-10",
@@ -603,4 +604,39 @@ test("changed idempotency content refuses replay; no duplicate plan", async () =
   await expect(
     run(sales, "plans/create", { ...b, localMonth: "2027-01" }),
   ).rejects.toThrow("already used");
+});
+
+test("WEB-118 removing an outlet prunes its dated visits; outlets off the assignee's routes are refused on add", async () => {
+  const db = h.db;
+  const [otherRoute] =
+    await db`insert into routes(organization_id,code,name,status,effective_from,created_by) values ('sunpride','R118','Other route','active',${new Date(now)},${manager.user_id}) returning *`;
+  await db`insert into route_territories(route_id,territory_id,effective_from,actor_subject,reason) values (${otherRoute.id},${territory.id},${new Date(now)},${manager.user_id},'Fixture')`;
+  const [far] =
+    await db`insert into outlets(organization_id,code,name,status,custodian_org_unit_id,created_by) values ('sunpride','STORE118','Far store','active',${unit.id},${manager.user_id}) returning *`;
+  await db`insert into outlet_assignments(outlet_id,territory_id,route_id,sequence,effective_from,actor_subject,reason) values (${far.id},${territory.id},${otherRoute.id},1,${new Date(now)},${manager.user_id},'Fixture')`;
+  const p = await run(sales, "plans/create", {
+    assigneeProfileId: sales.id,
+    localMonth: "2026-12",
+  });
+  await expect(
+    run(sales, "plans/saveOutlets", {
+      planId: p._id,
+      outlets: [...roster(), { ...roster()[0], outletId: far.id, routeId: otherRoute.id }],
+    }),
+  ).rejects.toThrow("Outlet is on a route the assignee does not serve");
+  // An outlet the assignee serves, with dated visits, then removed.
+  await run(sales, "plans/saveOutlets", { planId: p._id, outlets: roster() });
+  await run(sales, "plans/saveSlots", {
+    planId: p._id,
+    slots: [slot("2026-12-02"), slot("2026-12-09")],
+  });
+  await expect(run(sales, "plans/submit", { planId: p._id })).resolves.toBeTruthy();
+  await run(supervisor, "plans/returnPlan", { planId: p._id, reason: "Redo" });
+  await run(sales, "plans/saveOutlets", { planId: p._id, outlets: [] });
+  const left =
+    await db`select count(*)::int as n from coverage_plan_slots where plan_id=${p._id} and kind='outlet_visit'`;
+  expect(left[0].n).toBe(0);
+  await expect(run(sales, "plans/submit", { planId: p._id })).rejects.toThrow(
+    "Plan needs dated slots before submitting",
+  );
 });

@@ -74,26 +74,9 @@ vi.mock("react", async (original) => {
     useEffect: () => {},
     useState: (initial: unknown) => {
       state.hookCalls++;
-      // The selected-plan state is the 3rd useState (the tab lives in ?tab=): the v2 ModuleWorkspace
-      // holds none of its own (it held two before: setup message and busy).
+      // The selected plan now lives in ?plan=&person= (WEB-113/114).
       return [
-        state.hookCalls === 3 &&
-        [
-          "visits",
-          "history",
-          "review",
-          "calendar",
-          "route",
-          "map",
-          "exceptions",
-          "export",
-        ].includes(state.tab)
-          ? {
-              id: "selected-plan",
-              assigneeId: "manager",
-              assigneeName: "Sales",
-            }
-          : initial === "summary"
+        initial === "summary"
             ? state.tab
             : initial === "routes"
               ? state.setupSection
@@ -110,7 +93,24 @@ const nav = vi.hoisted(() => ({ search: "" }));
 vi.mock("next/navigation", () => ({
   usePathname: () => "/sales-force",
   useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
-  useSearchParams: () => new URLSearchParams(nav.search || `tab=${state.tab}`),
+  useSearchParams: () =>
+    new URLSearchParams(
+      nav.search ||
+        `tab=${state.tab}${
+          [
+            "visits",
+            "history",
+            "review",
+            "calendar",
+            "route",
+            "map",
+            "exceptions",
+            "export",
+          ].includes(state.tab)
+            ? "&plan=selected-plan&person=manager"
+            : ""
+        }`,
+    ),
 }));
 vi.mock("@sunpride/ui", () => ({
   FormField: ({
@@ -195,7 +195,12 @@ vi.mock("../lib/auth/session", () => ({
 }));
 vi.mock("./inventory-workspace", () => ({ InventoryWorkspace: () => null }));
 vi.mock("./coverage-planner", () => ({
-  CoveragePlanner: () => createElement("p", null, "Mounted planner"),
+  CoveragePlanner: (props: Record<string, unknown>) =>
+    createElement(
+      "p",
+      null,
+      `Mounted planner ${props.initialMonth}/${props.initialPersonId}/${props.initialPlanId}`,
+    ),
 }));
 vi.mock("./standards/position-standards-panel", () => ({
   PositionStandardsPanel: () => createElement("p", null, "Mounted standards"),
@@ -232,6 +237,16 @@ beforeEach(() => {
 });
 
 describe("sales force coverage module", () => {
+  it("WEB-113/114 reload reopens the plan, person and month from the URL", () => {
+    nav.search = "tab=plan&month=2026-12&person=seller&plan=plan-7";
+    let html = "";
+    try {
+      html = render();
+    } finally {
+      nav.search = "";
+    }
+    expect(html).toContain("Mounted planner 2026-12/seller/plan-7");
+  });
   it("opens the manager summary before mounting the planner or plan-specific subscriptions", () => {
     state.tab = "summary";
     const html = render();

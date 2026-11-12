@@ -16,6 +16,7 @@ import {
   type DataColumn,
 } from "@sunpride/ui";
 import { useReportCommand, useReport } from "./report-api";
+import { commandErrorText } from "./command-error";
 import { useState } from "react";
 import { SessionTrainerForms } from "../training/trainer-forms";
 import type { SupervisionFilters } from "./supervision-model";
@@ -40,10 +41,7 @@ type UpdateArgs = EndpointArgs<"supervision.work_with.update">;
 type StartArgs = EndpointArgs<"supervision.work_with.start">;
 type Observation = NonNullable<UpdateArgs["observations"]>[number];
 
-function errorText(error: unknown) {
-  const data = (error as { data?: unknown })?.data;
-  return typeof data === "string" ? data : "Not saved. Try again.";
-}
+const errorText = commandErrorText;
 
 function sessionColumns(
   onOpen?: (id: Id<"workWithSessions">) => void,
