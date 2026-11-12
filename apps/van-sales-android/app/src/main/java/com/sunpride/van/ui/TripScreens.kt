@@ -30,7 +30,7 @@ import java.time.format.DateTimeFormatter
     val served = c.savedSales.filter { !it.isCollection && it.void == null }.map { it.receipt.customerName }.toSet()
     val storesLeft = routeStores.filter { it.name !in served }
     val step = VanDaySteps.next(DayFacts(c.trip != null,c.trip?.status,c.trip?.startPending == true,c.load?.status,c.load?.confirmPending == true,c.vanDay,c.tripClosed,c.cashCounted,c.stockCounted,
-        c.policy?.operationsVersion == 1,c.sync.items.any { it.kind == "unload.record" },storesLeft.firstOrNull()?.name,storesLeft.size,c.onHold,c.acceptWaiting,c.policy?.handheld?.supervisorName))
+        c.policy?.operationsVersion == 1,c.sync.items.any { it.kind == "unload.record" },storesLeft.firstOrNull()?.name,storesLeft.size,c.onHold,c.acceptWaiting,c.policy?.handheld?.supervisorName,c.setupProblem))
     val go: () -> Unit = {
         when (step.target) {
             StepTarget.SYNC -> c.syncNow(); StepTarget.ACCEPT_LOAD -> c.open(Page.ACCEPT_LOAD); StepTarget.LOAD -> c.open(Page.LOAD); StepTarget.START -> c.open(Page.START)
@@ -43,7 +43,7 @@ import java.time.format.DateTimeFormatter
         if (!c.onHold || trip != null) NextStepCard(step,!c.busy,go)
         PhoneCrewCard(c)
         if (trip == null && c.onHold) {
-            Text("Your trip is paused until the office confirms this phone. Tap Sync now. Your saved work is kept here.",
+            Text(com.sunpride.van.vanday.VanDaySteps.holdText(c.setupProblem),
                 style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("on-hold"))
             PillButton(if (c.busy) "Syncing…" else "Sync now",c::syncNow,Modifier.testTag("on-hold-sync"),enabled = !c.busy)
         } else if (trip == null) {
@@ -133,7 +133,7 @@ private data class LoadDraft(val quantity: String, val reason: String?)
         if (load?.status == "planned" && load.confirmRequestId != null && !load.confirmPending)
             Text(UserMessages.recountAsked(load.rejectionNote),style = MaterialTheme.typography.bodyLarge,fontWeight = FontWeight.SemiBold,modifier = Modifier.testTag("recount-asked"))
         Text("Count what is on the truck. Give a reason for any difference.",style = MaterialTheme.typography.bodyMedium)
-        if (lines.isEmpty() && c.onHold) Text("Your trip is paused until the office confirms this phone. Tap Sync now. Your saved work is kept here.",modifier = Modifier.testTag("on-hold"))
+        if (lines.isEmpty() && c.onHold) Text(com.sunpride.van.vanday.VanDaySteps.holdText(c.setupProblem),modifier = Modifier.testTag("on-hold"))
         else if (lines.isEmpty()) NoTripPanel(c,"No load sheet","no-load-sheet")
         lines.forEach { line ->
             val draft = drafts[line.lineNumber]!!

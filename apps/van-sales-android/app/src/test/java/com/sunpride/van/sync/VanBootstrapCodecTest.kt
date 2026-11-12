@@ -322,7 +322,7 @@ class VanBootstrapCodecTest {
             // VAN-012: unknown kind, duplicate code, empty list, a reference on cash, bad terms or a float credit amount.
             { it.getJSONObject("policy").getJSONArray("paymentMethods").getJSONObject(1).put("kind","voucher") },
             { it.getJSONObject("policy").getJSONArray("paymentMethods").getJSONObject(1).put("code","cash") },
-            { it.getJSONObject("policy").put("paymentMethods",org.json.JSONArray()) },
+            // NF-R5V-5: an empty list is still refused, but as the named setup gap (see NoPaymentMethodsTest).
             { it.getJSONObject("policy").getJSONArray("paymentMethods").getJSONObject(0).put("referenceRequired",true) },
             { it.getJSONArray("customers").getJSONObject(0).getJSONObject("credit").put("termsDays",0) },
             { it.getJSONArray("customers").getJSONObject(0).getJSONObject("credit").put("termsDays",181) },

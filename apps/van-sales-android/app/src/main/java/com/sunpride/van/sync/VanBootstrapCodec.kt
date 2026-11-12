@@ -119,7 +119,16 @@ object VanBootstrapCodec {
             it.getString("uomCode"),base(it,"quantityScale"),base(it,"quantityBase"),
             it.getString("reason"),it.getString("status"),it.getLong("recordedAt"),nullable(it,"decisionNote"))
     }
-    fun decode(text: String): VanBootstrap = try {
+    /** NF-R5V-5: the machine code for a bundle whose unit has no payment methods turned on. */
+    const val NO_PAYMENT_METHODS = "no_payment_methods"
+    fun decode(text: String): VanBootstrap {
+        // NF-R5V-5: an empty office tender list is a setup gap, not a broken response. Name it so the phone
+        // says "ask the office to set up payments" instead of the generic "paused until the office confirms".
+        val methods = runCatching { JSONObject(text).optJSONObject("policy")?.optJSONArray("paymentMethods") }.getOrNull()
+        if (methods != null && methods.length() == 0) throw VanSyncFailure(NO_PAYMENT_METHODS, false)
+        return decodeChecked(text)
+    }
+    private fun decodeChecked(text: String): VanBootstrap = try {
         val o = JSONObject(text)
         o.remove("_v2")
         // Versioned v2 extension; the frozen v1 validator continues to validate its original fields.

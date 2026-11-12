@@ -160,9 +160,14 @@ import java.time.format.DateTimeFormatter
             Column(Modifier.padding(16.dp),verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Did it print?",style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("print-question"))
                 Text("The phone cannot see the paper. Look at the receipt. If nothing came out, print again.",style = MaterialTheme.typography.bodyLarge)
-                c.printQuestionNote?.let { Text(it,style = MaterialTheme.typography.bodyLarge,fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,modifier = Modifier.testTag("print-refused")) }
+                // VAN-051: the limit is read from the saved history, so it shows even if the last result was missed.
+                val left = c.printAgainLeft()
+                val limitNote = VanRules.printAgainNote(left)
+                val refusal = c.printQuestionNote ?: limitNote?.takeIf { left == 0 }
+                refusal?.let { Text(it,style = MaterialTheme.typography.bodyLarge,fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,modifier = Modifier.testTag("print-refused")) }
+                if (refusal == null && limitNote != null) Text(limitNote,style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("print-again-left"))
                 PrimaryBottomButton("Yes, printed",c::answerPrinted,enabled = !c.printing,tag = "print-yes")
-                SecondaryButton("Print again",c::answerPrintAgain,Modifier.testTag("print-again"),enabled = !c.printing)
+                if (left != 0) SecondaryButton("Print again",c::answerPrintAgain,Modifier.testTag("print-again"),enabled = !c.printing)
                 SecondaryButton("Skip, no paper",c::answerSkipped,Modifier.testTag("print-skip"),enabled = !c.printing)
             }
         }
