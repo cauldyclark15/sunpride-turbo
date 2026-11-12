@@ -516,3 +516,48 @@ describe("van day screens", () => {
     expect(html).not.toContain(">Change<");
   });
 });
+
+describe("WEB-083 roster form while editing", () => {
+  it("is titled Edit roster line (plain case) and hides Add roster line", () => {
+    const save = noop;
+    const html = wrap(
+      createElement(RosterEditorView, {
+        rows: [
+          {
+            rosterId: "r1",
+            vehicleId: "v1",
+            vehicleCode: "VAN1",
+            plateNumber: "ABC 1234",
+            routeName: "Mandaue route",
+            sellerProfileId: "s",
+            sellerName: "Sam Seller",
+            helperProfileId: "h",
+            helperName: "Hana Helper",
+            driverProfileId: null,
+            driverName: null,
+            weekdays: [1, 3, 5],
+            weekdayLabel: "Mon, Wed, Fri",
+            effectiveFrom: "2026-11-01",
+            effectiveTo: null,
+            status: "active",
+          },
+        ],
+        choices: {
+          vehicles: [
+            { vehicleId: "v1", name: "Van 1", plateNumber: "ABC 1234" },
+          ],
+          sellers: [{ profileId: "s", name: "Sam Seller" }],
+          routes: [],
+        },
+        form: { ...emptyRosterForm("2026-11-07"), rosterId: "r1", vehicleId: "v1" },
+        editing: true,
+        onForm: noop,
+        onSave: save,
+        onEdit: noop,
+        onEnd: noop,
+      }),
+    );
+    expect(html).toContain("Edit roster line · VAN1");
+    expect(html).not.toContain("Add roster line");
+  });
+});
