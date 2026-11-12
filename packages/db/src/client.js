@@ -1,3 +1,5 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { appendFileSync } from "node:fs";
 import { SQL } from "bun";
 
 /** @typedef {InstanceType<typeof SQL>} Db */
@@ -94,6 +96,17 @@ async function runTx(c, options, fn) {
 }
 
 /**
+ * SP-0169 guard mode: "throw" under tests (NODE_ENV=test, which `bun test` sets), "warn"
+ * otherwise; SP_DB_TX_GUARD=throw|warn|off overrides.
+ * @param {string} [explicit]
+ */
+function txGuardMode(explicit) {
+  const mode = explicit ?? process.env.SP_DB_TX_GUARD;
+  if (mode === "throw" || mode === "warn" || mode === "off") return mode;
+  return process.env.NODE_ENV === "test" ? "throw" : "warn";
+}
+
+/**
  * Create a pooled Postgres client (`Bun.sql`).
  *
  * Bun 1.3.14 pipelines plain pooled queries onto pool connections that `begin()` /
@@ -107,12 +120,40 @@ async function runTx(c, options, fn) {
  * `begin` borrows its own reserved connection and releases it once settled.
  * Fragment helpers (`db(list)`, `db.array`) stay synchronous and connection-agnostic.
  * @param {string} url
- * @param {{ max?: number }} [options]
+ * @param {{ max?: number, txGuard?: "throw"|"warn"|"off" }} [options]
  * @returns {Db}
  */
 export function createDb(url, options = {}) {
   if (!url) throw new Error("createDb: database URL is required");
   const raw = new SQL({ url, max: options.max ?? 10 });
+  const guardMode = txGuardMode(options.txGuard);
+  /** Open pool transactions of THIS pool on the current async path (SP-0169). */
+  const inTx = new AsyncLocalStorage();
+  /** @type {Set<string>} */ const warned = new Set();
+  /** Refuse (or report) a pooled query/begin issued while this async path holds one of
+   * this pool's transactions: it needs a second connection while the first sits idle in
+   * transaction, possibly holding locks the other pool clients wait on. With every pool
+   * connection taken that is an in-process deadlock (SP-0169: the API hung for all DB
+   * work). Use the transaction handle, or run the query before/after the transaction. */
+  const checkNotInTx = (/** @type {string} */ origin = "") => {
+    if (guardMode === "off") return;
+    const store = inTx.getStore();
+    if (!store || !store.open) return;
+    const error = new Error(
+      "Pool query inside an open transaction: use the transaction handle (SP-0169 pool deadlock)",
+    );
+    if (origin) error.stack = `${error.message}\n${origin}`;
+    if (process.env.SP_DB_TX_GUARD_LOG)
+      appendFileSync(
+        process.env.SP_DB_TX_GUARD_LOG,
+        `${error.stack}\n----\n`,
+      );
+    if (guardMode === "throw") throw error;
+    const site = String(error.stack).split("\n").slice(1, 8).join("\n");
+    if (warned.has(site)) return;
+    warned.add(site);
+    console.warn(`[db] ${error.message}\n${site}`);
+  };
   /** @template T @param {(c:any)=>Promise<T>} fn @returns {Promise<T>} */
   const exclusive = async (fn) => {
     const c = await raw.reserve();
@@ -130,11 +171,18 @@ export function createDb(url, options = {}) {
    */
   const lazy = (query, make) => {
     /** @type {Promise<any>|undefined} */ let run;
+    // The creating call site is the useful one for a guard report (the run is async).
+    const origin =
+      guardMode !== "off" && inTx.getStore()?.open
+        ? String(new Error().stack).split("\n").slice(2).join("\n")
+        : undefined;
     /** @type {string[]} */ const modes = [];
-    const start = () =>
-      (run ??= exclusive((c) =>
+    const start = () => {
+      if (!run) checkNotInTx(origin);
+      return (run ??= exclusive((c) =>
         modes.reduce((/** @type {any} */ q, m) => q[m](), make(c)),
       ));
+    };
     Object.defineProperties(query, {
       then: {
         value: (/** @type {any} */ ok, /** @type {any} */ fail) =>
@@ -167,10 +215,30 @@ export function createDb(url, options = {}) {
               c.unsafe(q, p),
             );
         if (key === "begin" || key === "transaction")
-          return (/** @type {any} */ a, /** @type {any} */ b) =>
-            exclusive((c) =>
-              typeof a === "function" ? runTx(c, "", a) : runTx(c, a, b),
-            );
+          return async (/** @type {any} */ a, /** @type {any} */ b) => {
+            checkNotInTx();
+            /** @type {{ open: boolean, handle?: any }} */
+            const store = { open: true };
+            const fn = typeof a === "function" ? a : b;
+            const bind = (/** @type {any} */ t) => {
+              store.handle = t;
+              return fn(t);
+            };
+            try {
+              return await exclusive((c) =>
+                inTx.run(store, () =>
+                  runTx(c, typeof a === "function" ? "" : a, bind),
+                ),
+              );
+            } finally {
+              store.open = false;
+            }
+          };
+        // The open transaction of this pool on the current async path, if any.
+        if (key === "activeTx") {
+          const store = inTx.getStore();
+          return store?.open ? store.handle : undefined;
+        }
         const value = Reflect.get(target, key);
         return typeof value === "function" ? value.bind(target) : value;
       },
@@ -196,4 +264,15 @@ export async function tx(db, fn) {
       return fn(t);
     })
   );
+}
+
+/**
+ * SP-0169: the handle a pool-bound side effect (publish, enqueue, recordChange) must use:
+ * the transaction this async path holds on `db`, else `db` itself. Using the bare pool
+ * there needs a second connection while the transaction's connection waits (deadlock
+ * under load); on the transaction a NOTIFY/job lands at COMMIT and never on rollback.
+ * @param {any} db
+ */
+export function ambient(db) {
+  return (db && !db.__inTx && db.activeTx) || db;
 }

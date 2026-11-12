@@ -41,7 +41,7 @@ export async function dropTestDatabase(admin, name) {
 
 /**
  * Throwaway database + migrated schema + API on a random free port.
- * @param {{ env?: Record<string,string|undefined>, installers?: any[], listen?: boolean }} [opts]
+ * @param {{ env?: Record<string,string|undefined>, installers?: any[], listen?: boolean, poolMax?: number, schedule?: boolean }} [opts]
  */
 export async function startHarness(opts = {}) {
   resetHooks();
@@ -54,7 +54,7 @@ export async function startHarness(opts = {}) {
   const u = new URL(base);
   u.pathname = `/${name}`;
   const dbUrl = u.toString();
-  const db = createDb(dbUrl, { max: 10 });
+  const db = createDb(dbUrl, { max: opts.poolMax ?? 10 });
   await migrate(db, MIGRATIONS_DIR);
   const filesDir = await mkdtemp(
     join(process.env.TMPDIR ?? "/tmp", "sp-core-files-"),
@@ -77,7 +77,7 @@ export async function startHarness(opts = {}) {
     port: 0,
     hostname: "127.0.0.1",
     listen: opts.listen ?? false,
-    schedule: false,
+    schedule: opts.schedule ?? false,
   });
   if (FORBIDDEN_PORTS.has(server.port))
     throw new Error("harness picked a reserved port");

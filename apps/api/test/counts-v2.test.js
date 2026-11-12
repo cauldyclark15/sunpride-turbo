@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
-import { tx } from "@sunpride/db/client";
+import { createDb, tx } from "@sunpride/db/client";
 import { startHarness, profileStore } from "./harness.js";
 import { sha256Hex } from "../src/core/util.js";
 import { capabilitiesFor } from "../src/core/capabilities.js";
@@ -111,9 +111,9 @@ function stockIn(to, items, at = Date.now() - 6 * 3600000) {
     }),
   );
 }
-/** Stock out (a sale / a van load) at a given time. @param {string} from @param {any} p @param {number} qty @param {number} at */
-function stockOut(from, p, qty, at) {
-  return tx(h.db, (t) =>
+/** Stock out (a sale / a van load) at a given time. @param {string} from @param {any} p @param {number} qty @param {number} at @param {any} [db] */
+function stockOut(from, p, qty, at, db = h.db) {
+  return tx(db, (t) =>
     postMovement(t, {
       kind: "inventory_issue",
       sourceType: "test",
@@ -598,7 +598,13 @@ describe("rules that stay", () => {
       const rows = await db`select * from stock_count_lines where session_id=${s.id}`;
       expect(s.legacy_whole).toBe(true);
       // Stock moves while the till is counting: the old engine would have thrown the count out.
-      await stockOut(loc, a, 1, Date.now());
+      // A separate client: another process's sale, not this request's own pool (SP-0169 guard).
+      const other = createDb(h.dbUrl, { max: 1 });
+      try {
+        await stockOut(loc, a, 1, Date.now(), other);
+      } finally {
+        await other.close();
+      }
       await commands["counts/submit"].run(
         ctxFor(db, counter),
         { lines: rows.map((/** @type {any} */ r) => ({ lineId: r.id, countedBase: 9 })), idempotencyKey: "k2" },

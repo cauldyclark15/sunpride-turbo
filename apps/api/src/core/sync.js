@@ -1,5 +1,5 @@
 import { observePush } from "../domains/integrity/detectors.js";
-import { tx } from "@sunpride/db/client";
+import { ambient, tx } from "@sunpride/db/client";
 import {
   enforcePartnerOp,
   enforcePartnerPull,
@@ -119,11 +119,13 @@ export function clearSyncRegistry() {
 /**
  * Append a change row. Call it LAST in the writing transaction: it takes a transaction-level
  * advisory lock so change_log seq order matches commit order (delta readers never skip rows).
- * @param {any} t transaction handle
+ * @param {any} db transaction handle (a pool handle resolves to the open transaction on this path)
  * @param {{ entity: string, entityId: string, scopeKey: string, op?: 'upsert'|'tombstone' }} change
  * @returns {Promise<number>} seq (the entity revision)
  */
-export async function recordChange(t, change) {
+export async function recordChange(db, change) {
+  // SP-0169: inside a transaction this path holds, record on it.
+  const t = ambient(db);
   await t`select pg_advisory_xact_lock(${CHANGE_LOCK})`;
   const [row] = await t`
     insert into change_log (entity, entity_id, scope_key, op)

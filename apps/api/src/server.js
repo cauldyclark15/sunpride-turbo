@@ -16,12 +16,29 @@ const server = await app.start({
 console.log(`[api] listening on ${server.hostname}:${server.port}`);
 
 let stopping = false;
+const SHUTDOWN_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS ?? 10_000);
+/** @param {Promise<any>} p @param {number} ms */
+const bounded = (p, ms) =>
+  Promise.race([
+    p.then(
+      () => true,
+      () => false,
+    ),
+    Bun.sleep(ms).then(() => false),
+  ]);
+// SP-0169: a wedged pool (connections stuck on locks) made SIGTERM wait forever and
+// needed kill -9. Bound every step; a second signal exits at once.
 async function shutdown() {
-  if (stopping) return;
+  if (stopping) process.exit(1);
   stopping = true;
-  await app.stop();
-  await db.close();
-  process.exit(0);
+  const timer = setTimeout(() => {
+    console.error("[api] shutdown timed out; exiting");
+    process.exit(1);
+  }, SHUTDOWN_MS + 2_000);
+  timer.unref?.();
+  const stopped = await bounded(app.stop(), SHUTDOWN_MS / 2);
+  const closed = await bounded(db.close({ timeout: 2 }), SHUTDOWN_MS / 2);
+  process.exit(stopped && closed ? 0 : 1);
 }
 process.on("SIGINT", shutdown);
 process.on("SIGTERM", shutdown);

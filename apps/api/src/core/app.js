@@ -39,7 +39,11 @@ export function createApp(opts) {
   installMedia(router);
 
   const realtime = createRealtime({ db, url: opts.dbUrl });
-  const scheduler = createScheduler({ db, pollMs: opts.schedulerPollMs });
+  const scheduler = createScheduler({
+    db,
+    dbUrl: opts.dbUrl,
+    pollMs: opts.schedulerPollMs,
+  });
   const installCtx = {
     db,
     env,

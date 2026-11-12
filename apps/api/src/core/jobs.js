@@ -7,6 +7,7 @@
  * - `enqueue(kind, key, runAt, payload)`: durable deferred work with coalescing — at most one
  *   PENDING row per (kind, key); a second enqueue returns the pending row's id.
  */
+import { ambient, createDb } from "@sunpride/db/client";
 
 /** @typedef {(ctx: { db: any, payload: any, job: any }) => Promise<void>|void} JobHandler */
 
@@ -48,14 +49,16 @@ export async function enqueue(db, job) {
     job.payload === undefined || job.payload === null ? {} : job.payload;
   if (typeof payload !== "object" || Array.isArray(payload))
     throw new Error("job payload must be a plain object");
-  const rows = await db`
+  // SP-0169: inside a transaction this path holds, enqueue on it (atomic with it).
+  const q = ambient(db);
+  const rows = await q`
     insert into jobs (kind, coalesce_key, run_at, payload)
     values (${job.kind}, ${key}, coalesce(${runAt}::timestamptz, clock_timestamp()), ${payload})
     on conflict (kind, coalesce_key) where status = 'pending' and coalesce_key is not null do nothing
     returning id`;
   if (rows.length) return rows[0].id;
   const existing =
-    await db`select id from jobs where kind = ${job.kind} and coalesce_key = ${key} and status = 'pending'`;
+    await q`select id from jobs where kind = ${job.kind} and coalesce_key = ${key} and status = 'pending'`;
   return existing[0]?.id ?? null;
 }
 
@@ -157,10 +160,18 @@ export function nextDailyRun(hhmm, timeZone, now) {
 }
 
 /**
- * @param {{ db: any, pollMs?: number, log?: (msg: string) => void }} opts
+ * @param {{ db: any, dbUrl?: string, pollMs?: number, log?: (msg: string) => void }} opts
  */
 export function createScheduler(opts) {
   const db = opts.db;
+  /** SP-0169: task locks live on ONE dedicated session outside the pool. Holding a pool
+   * connection per running task (formerly an open transaction, "idle in transaction"
+   * for the whole run) let a few concurrent tasks take every pool connection and then
+   * wait for one to run their own queries: the API hung for all DB work.
+   * @type {any} */
+  let lockDb = null;
+  const locks = () =>
+    (lockDb ??= opts.dbUrl ? createDb(opts.dbUrl, { max: 1 }) : null);
   const log = opts.log ?? ((m) => console.log(m));
   /** @type {Array<{ name: string, fn: (ctx: { db: any }) => any, next: () => number }>} */
   const tasks = [];
@@ -176,13 +187,27 @@ export function createScheduler(opts) {
     if (running.has(name)) return false;
     running.add(name);
     try {
-      return await db.begin(async (/** @type {any} */ t) => {
+      // SP-0169: never run the task (which uses the pool) while holding a pool
+      // connection: no open transaction, and the lock sits on its own session (or, with
+      // no URL, a reserved connection that holds no row locks).
+      const lock = `sched:${name}`;
+      const owned = locks();
+      const c = owned ?? (await db.reserve());
+      let locked = false;
+      try {
         const [row] =
-          await t`select pg_try_advisory_xact_lock(hashtext(${`sched:${name}`})) as ok`;
+          await c`select pg_try_advisory_lock(hashtext(${lock})) as ok`;
         if (!row.ok) return false;
+        locked = true;
         await fn({ db });
         return true;
-      });
+      } finally {
+        if (locked)
+          await c`select pg_advisory_unlock(hashtext(${lock}))`.catch(
+            () => undefined,
+          );
+        if (!owned) c.release();
+      }
     } catch (error) {
       log(
         `[scheduler] ${name} failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -275,6 +300,9 @@ export function createScheduler(opts) {
       for (const t of timers) clearTimeout(t);
       timers.clear();
       while (workerBusy || running.size) await Bun.sleep(10);
+      const l = lockDb;
+      lockDb = null;
+      await l?.close({ timeout: 1 });
     },
     tasks,
   };
