@@ -401,6 +401,25 @@ describe("single transactional posting authority", () => {
 });
 
 describe("receipts, transfers, reservations and quality", () => {
+  it("WEB-098 refuses a supplier's delivery receipt number received twice at the same place", async () => {
+    const p = await product();
+    /** @param {string} dr */
+    const post = (dr, supplier = "R5A Supplier") =>
+      command(admin, "receipts/post", {
+        receivingLocationId: depot,
+        supplierName: supplier,
+        deliveryReference: dr,
+        lines: [{ productId: p.id, quantityBase: 48 }],
+      });
+    const first = await post("R5A-DR-0001");
+    expect(first.status).toBe(200);
+    const again = await post(" r5a-dr-0001 ", "r5a  supplier");
+    expect(again.status).toBe(422);
+    expect(JSON.stringify(again.body)).toContain("was already received here as RCV-");
+    // Another supplier's paper may carry the same number; a new number posts.
+    expect((await post("R5A-DR-0001", "Other Supplier")).status).toBe(200);
+    expect((await post("R5A-DR-0002")).status).toBe(200);
+  });
   it("posts receipt once with the same document IDs and values 1920 pieces as 40 cases", async () => {
     const p = await product(),
       key = crypto.randomUUID(),
