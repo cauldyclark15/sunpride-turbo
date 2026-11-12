@@ -1,6 +1,7 @@
 // Fixture sections for test-day.js. Each `section(name, cases, ensure, check)`:
 //  ensure(): create what is missing (idempotent), return "created" | "kept" | "partial".
 //  check(): read-only facts; any false/0/null value marks the section MISS.
+import { tx } from "../src/client.js";
 import { api, db, key, one, section, TAG, TODAY, uid } from "./test-day.js";
 import {
   accentedNamesMissing,
@@ -104,59 +105,69 @@ section(
 // ---------------------------------------------------------------- collections
 section(
   "collections",
-  ["FLD-122", "FLD-123", "FLD-124", "FLD-125"],
+  ["FLD-121", "FLD-122", "FLD-123", "FLD-124", "FLD-125"],
   async () => {
-    const a = await profile(AGENT);
-    const have = await one(
-      db`select count(*)::int n from collection_route_stops where route_date=${TODAY} and collector_profile_id=${a.id}`,
-    );
-    const codes =
-      await db`select distinct r.details->>'customerCode' as code from admin_pack_records r join analytics_store_scope s on s.customer_code=r.details->>'customerCode'
-      where r.kind='ar_balance' and r.source='sample' and s.owner_unit_id=${a.org_unit_id} and s.status='active' order by 1 limit 4`;
-    if (codes.length < 3)
-      throw new Error("not enough AR customers in the agent's unit");
     let did = "kept";
-    if (have.n < 3) {
-      await api(ADMIN, "/api/v1/money/collections/route", {
-        routeDate: TODAY,
-        collectorProfileId: a.id,
-        stops: codes.map((/** @type {any} */ c, /** @type {number} */ i) => ({
-          customerCode: c.code,
-          reason: [
-            "overdue_balance",
-            "cheque_pickup",
-            "promise_due",
-            "overdue_balance",
-          ][i],
-        })),
-      });
-      did = "created";
-    }
-    const cheque = await one(
-      db`select id from cheque_instruments where cheque_number=${`${TAG}-CHQ1`}`,
-    );
-    if (!cheque) {
-      await api(ADMIN, "/api/v1/money/collections/cheque", {
-        idempotencyKey: key("cheque1"),
-        customerCode: codes[1].code,
-        chequeNumber: `${TAG}-CHQ1`,
-        bank: "Sample Bank of Cebu",
-        amountMinor: 250000,
-        chequeDate: plusDays(TODAY, 7),
-      });
-      did = "created";
+    // r6: agent@ (web/ROLES packs) and agent1@trial (the Xiaomi login) each get today's collection stops.
+    for (const [n, who] of [AGENT, FIELD].entries()) {
+      const a = await profile(who);
+      const have = await one(
+        db`select count(*)::int n from collection_route_stops where route_date=${TODAY} and collector_profile_id=${a.id}`,
+      );
+      const codes =
+        await db`select distinct r.details->>'customerCode' as code from admin_pack_records r join analytics_store_scope s on s.customer_code=r.details->>'customerCode'
+        where r.kind='ar_balance' and r.source='sample' and s.owner_unit_id=${a.org_unit_id} and s.status='active' order by 1 limit 4`;
+      if (codes.length < 3)
+        throw new Error(`not enough AR customers in ${who}'s unit`);
+      if (have.n < 3) {
+        await api(ADMIN, "/api/v1/money/collections/route", {
+          routeDate: TODAY,
+          collectorProfileId: a.id,
+          stops: codes.map((/** @type {any} */ c, /** @type {number} */ i) => ({
+            customerCode: c.code,
+            reason: [
+              "overdue_balance",
+              "cheque_pickup",
+              "promise_due",
+              "overdue_balance",
+            ][i],
+          })),
+        });
+        did = "created";
+      }
+      const number = `${TAG}-CHQ${n + 1}`;
+      const cheque = await one(
+        db`select id from cheque_instruments where cheque_number=${number}`,
+      );
+      if (!cheque) {
+        await api(ADMIN, "/api/v1/money/collections/cheque", {
+          idempotencyKey: key(n ? `cheque${n + 1}` : "cheque1"),
+          customerCode: codes[1].code,
+          chequeNumber: number,
+          bank: "Sample Bank of Cebu",
+          amountMinor: 250000,
+          chequeDate: plusDays(TODAY, 7),
+        });
+        did = "created";
+      }
     }
     return did;
   },
   async () => {
-    const a = await profile(AGENT);
-    const s = await one(
-      db`select count(*)::int n from collection_route_stops where route_date=${TODAY} and collector_profile_id=${a.id}`,
-    );
-    const c = await one(
-      db`select count(*)::int n from cheque_instruments where cheque_number=${`${TAG}-CHQ1`} and status='received'`,
-    );
-    return { collectorStopsToday: s.n, postDatedCheque: c.n };
+    /** @type {Record<string,any>} */ const out = {};
+    for (const [n, who] of [AGENT, FIELD].entries()) {
+      const a = await profile(who);
+      const s = await one(
+        db`select count(*)::int n from collection_route_stops where route_date=${TODAY} and collector_profile_id=${a.id}`,
+      );
+      const c = await one(
+        db`select count(*)::int n from cheque_instruments where cheque_number=${`${TAG}-CHQ${n + 1}`} and status='received'`,
+      );
+      const who2 = n ? "agent1Trial" : "agent";
+      out[`${who2}CollectorStopsToday`] = s.n;
+      out[`${who2}PostDatedCheque`] = c.n;
+    }
+    return out;
   },
 );
 
@@ -841,7 +852,8 @@ section(
   "accent-names",
   ["FLD-047", "EDGE-003", "EDGE-004"],
   async () => {
-    const agent = await profile(AGENT);
+    // r6 (FLD-047): the Xiaomi signs in as agent1@trial, so the stores go to HIS territory (r5 put them in agent@'s).
+    const agent = await profile(FIELD);
     // Next to one of today's stops (not ones the packs name by code): same unit and territory.
     const used = new Set(["SMP-O0069", "SMP-O0061", "SMP-O0060", "SMP-O0016", "SMP-O0017", "SMP-O0018"]);
     const stop = (
@@ -903,7 +915,7 @@ section(
     return did;
   },
   async () => {
-    const agent = await profile(AGENT);
+    const agent = await profile(FIELD);
     const missing = await accentedNamesMissing(db, ACCENTED);
     const placed =
       await db`select distinct o.name from outlets o join outlet_assignments a on a.outlet_id=o.id and a.deleted_at is null and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now())
@@ -1587,5 +1599,346 @@ section(
       officeAddedOnAgentArea: placed.length ? placed.map((/** @type {any} */ r) => r.code).join(",") : 0,
       unplacedOfficeAdded: (await officeAddedUnplaced(db)).length === 0,
     };
+  },
+);
+
+// ---------------------------------------------------------------- r6: van1@trial's unit can bootstrap and sell (NF-R5V-5)
+// The trial unit had no tender rules (bundle paymentMethods=[] -> the phone refused the bootstrap) and no fiscal
+// registration/series for its truck. Tender rules: the office can only schedule them from a FUTURE midnight, so the kit
+// writes today's rows the same way the sample fiscal seed does (marked sample rows). Registrations/series go through the API.
+const TENDERS = [
+  { code: "cash", label: "Cash", ref: null },
+  { code: "gcash", label: "GCash", ref: "GCash reference" },
+  { code: "card", label: "Card", ref: "Terminal approval (never card number)" },
+];
+const VAN_DOCS = /** @type {const} */ ([
+  ["sales_invoice", "SI"],
+  ["official_receipt", "OR"],
+  ["credit_memo", "CM"],
+  ["delivery_receipt", "DR"],
+]);
+/** Vehicle-level series for every van document type; registrations are made in the unit when missing.
+ * @param {any} unitId @param {any} vehicle @param {string} tag @returns {Promise<boolean>} */
+async function vanSeries(unitId, vehicle, tag) {
+  let made = false;
+  for (const [type, short] of VAN_DOCS) {
+    const have = await one(
+      db`select 1 as x from fiscal_series s join fiscal_registrations r on r.id=s.registration_id where r.org_unit_id=${unitId} and r.document_type=${type} and s.vehicle_id=${vehicle.id} and s.next_allocate<=s.last_serial and (s.effective_to is null or s.effective_to>now())`,
+    );
+    if (have) continue;
+    let reg = await one(
+      db`select id from fiscal_registrations where org_unit_id=${unitId} and document_type=${type} and device_id is null and (effective_to is null or effective_to>now()) order by created_at limit 1`,
+    );
+    if (!reg) {
+      const unit = await one(db`select name from org_units where id=${unitId}`);
+      reg = await api(ADMIN, "/api/v1/fiscal/registrations/save", {
+        id: uid(`fiscal-reg:${unitId}:${type}`),
+        orgUnitId: unitId,
+        status: "sample_not_filed",
+        effectiveFrom: new Date(Date.now() - 120_000).toISOString(),
+        entityName: "SAMPLE SUNPRIDE COMPANY - NOT REGISTERED",
+        branchName: unit?.name ?? "Sample branch",
+        tin: "SAMPLE 000-000-000-000",
+        address: "Sample Cebu address - replace with registered address",
+        documentType: type,
+      });
+    }
+    await api(ADMIN, "/api/v1/fiscal/series/create", {
+      registrationId: reg.id,
+      vehicleId: vehicle.id,
+      prefix: `TD-${tag}-${short}`,
+      firstSerial: "1",
+      lastSerial: "999999",
+      effectiveFrom: new Date(Date.now() - 60_000).toISOString(),
+    });
+    made = true;
+  }
+  return made;
+}
+section(
+  "van-trial-units",
+  ["NF-R5V-5", "VAN-005", "VAN-011..VAN-017", "VAN-020", "VAN-057..VAN-067 (van1 fallback)"],
+  async () => {
+    let did = "kept";
+    const s1 = await profile(VAN1);
+    const admin = await profile(ADMIN);
+    for (const m of TENDERS) {
+      const have = await one(
+        db`select 1 as x from fiscal_tender_rules where org_unit_id=${s1.org_unit_id} and method=${m.code} and effective_from<=now() and (effective_to is null or effective_to>now())`,
+      );
+      if (have) continue;
+      const id = uid(`tender:${s1.org_unit_id}:${m.code}`);
+      await tx(db, async (/** @type {any} */ t) => {
+        await t`insert into fiscal_tender_rules(id,org_unit_id,method,label,reference_label,enabled,effective_from,sample,entered_by) values(${id},${s1.org_unit_id},${m.code},${m.label},${m.ref},true,${new Date(Date.now() - 60_000)},true,${admin.id}) on conflict(id) do nothing`;
+        await t`insert into sample_data_rows(batch,table_name,row_id,key) values('sunpride-fiscal-sample','fiscal_tender_rules',${id},${"fiscal_tender_rules:" + id}) on conflict(batch,key) do nothing`;
+      });
+      did = "created";
+    }
+    const v1 = await one(
+      db`select id from vehicles where vehicle_code='SMP-TRIAL-VAN1' and status='active'`,
+    );
+    if (await vanSeries(s1.org_unit_id, v1, "VAN1")) did = "created";
+    const s3 = await profile(VAN3);
+    const v3 = await one(
+      db`select id from vehicles where vehicle_code='SMP-TRIAL-VAN3' and status='active'`,
+    );
+    if (await vanSeries(s3.org_unit_id, v3, "VAN3")) did = "created";
+    return did;
+  },
+  async () => {
+    const s1 = await profile(VAN1);
+    const t = await one(
+      db`select count(*)::int n from fiscal_tender_rules where org_unit_id=${s1.org_unit_id} and enabled and effective_from<=now() and (effective_to is null or effective_to>now())`,
+    );
+    /** @param {string} code */
+    const series = (code) =>
+      one(
+        db`select count(distinct r.document_type)::int n from fiscal_series s join fiscal_registrations r on r.id=s.registration_id join vehicles v on v.id=s.vehicle_id where v.vehicle_code=${code} and s.effective_from<=now() and (s.effective_to is null or s.effective_to>now())`,
+      );
+    return {
+      van1UnitPaymentMethods: t.n,
+      van1TruckSeries: (await series("SMP-TRIAL-VAN1")).n === 4,
+      van3TruckSeries: (await series("SMP-TRIAL-VAN3")).n === 4,
+    };
+  },
+);
+
+// ---------------------------------------------------------------- r6: van3@trial gets a van-day load dispatched (Accept the load)
+// VAN-011/012 need vanDay state canAccept (office plan -> approve -> clerk pick -> dispatch). van1@trial keeps the classic
+// Loading trip (VAN-013..017) and van@ keeps the on-route trip, so the VAN operator signs in as van3@trial for these two.
+const VAN3 = "van3@trial.sunpride.test";
+const planRow = (/** @type {string} */ tripId) =>
+  one(
+    db`select id,state from van_planned_loads where trip_id=${tripId} order by created_at desc limit 1`,
+  );
+/** @param {string} path @param {any} body @param {string} k */
+async function clerk(path, body, k) {
+  try {
+    return await van(path, body, k, OPS);
+  } catch (e) {
+    if (/** @type {any} */ (e).status !== 403) throw e;
+    return van(path, body, k, ADMIN);
+  }
+}
+section(
+  "van3-accept-load",
+  ["VAN-011", "VAN-012"],
+  async () => {
+    let did = "kept";
+    const s3 = await profile(VAN3);
+    let [t] = await tripOf(s3.id);
+    const seeded = t;
+    if (t && t.status === "planned" && t.created_by.startsWith("system:")) {
+      await van(
+        "trips/cancel",
+        { tripId: t.id, reason: "Replaced by the test-day van-day load trip" },
+        `cancel:${t.id}`,
+      );
+      [t] = await tripOf(s3.id);
+      did = "created";
+    }
+    if (!t) {
+      const vehicle = await one(
+        db`select id from vehicles where vehicle_code='SMP-TRIAL-VAN3' and status='active'`,
+      );
+      const route =
+        seeded?.route_id ??
+        (
+          await one(
+            db`select route_id from van_trips where vehicle_id=${vehicle.id} and route_id is not null order by created_at desc limit 1`,
+          )
+        )?.route_id;
+      const have = await one(
+        db`select id from van_rosters where vehicle_id=${vehicle.id} and seller_profile_id=${s3.id} and status<>'ended' and deleted_at is null and effective_from<=${TODAY} and (effective_to is null or effective_to>=${TODAY})`,
+      );
+      if (!have)
+        await van(
+          "rosters/save",
+          {
+            vehicleId: vehicle.id,
+            sellerProfileId: s3.id,
+            weekdays: [1, 2, 3, 4, 5, 6, 7],
+            effectiveFrom: TODAY,
+            routeId: route ?? undefined,
+          },
+          `roster:${vehicle.id}:${s3.id}`,
+        );
+      await van(
+        "trips/generate",
+        { date: TODAY, unitId: s3.org_unit_id },
+        `generate:${s3.org_unit_id}`,
+      );
+      [t] = await tripOf(s3.id);
+      if (!t) throw new Error("trips/generate made no trip for van3@trial");
+      did = "created";
+    }
+    let plan = await planRow(t.id);
+    if (!plan) throw new Error(`van3's trip ${t.trip_number} has no planned load`);
+    if (plan.state === "suggested") {
+      // A small clean load the depot can free (the route suggestion can be short at the depot): 3 stocked
+      // products x 48 pieces, every other suggested line set to 0.
+      // Lot-tracked depot stock must be released and unexpired on the service day (openDocument reserves lots).
+      const products =
+        await db`select b.product_id as id from inventory_lot_balances b join inventory_lots l on l.id=b.lot_id join products p on p.id=b.product_id
+          where b.location_id=${t.source_location_id} and b.stock_status='available' and l.quality_status='released' and p.active
+            and (l.expires_at is null or l.expires_at>${new Date(`${TODAY}T23:59:59+08:00`)})
+          group by b.product_id,p.code having sum(b.available_base)>=96 order by sum(b.available_base) desc,p.code limit 3`;
+      if (products.length < 3)
+        throw new Error("the depot has fewer than 3 products with eligible lot stock");
+      const keep = new Set(products.map((/** @type {any} */ p) => p.id));
+      const others =
+        await db`select product_id from van_planned_load_lines where planned_load_id=${plan.id}`;
+      await van(
+        "loads/edit",
+        {
+          tripId: t.id,
+          lines: [
+            ...products.map((/** @type {any} */ p) => ({
+              productId: p.id,
+              quantityBase: "48",
+            })),
+            ...others
+              .filter((/** @type {any} */ o) => !keep.has(o.product_id))
+              .map((/** @type {any} */ o) => ({
+                productId: o.product_id,
+                quantityBase: "0",
+              })),
+          ],
+        },
+        `edit-load:${t.id}`,
+      );
+      const ok = await van(
+        "loads/approve-plan",
+        { tripIds: [t.id] },
+        `approve-load:${t.id}`,
+      );
+      if (!ok.approved)
+        throw new Error(
+          `approve-plan refused: ${ok.results?.[0]?.message ?? JSON.stringify(ok).slice(0, 200)}`,
+        );
+      plan = await planRow(t.id);
+      did = "created";
+    }
+    if (["approved", "picking"].includes(plan.state)) {
+      if (plan.state === "approved")
+        await clerk("loads/pick", { tripId: t.id }, `pick:${t.id}`);
+      await clerk(
+        "loads/dispatch",
+        {
+          tripId: t.id,
+          driverName: "Sample Driver Ramon",
+          vehiclePlate: "SMP TRIAL 3",
+        },
+        `dispatch:${t.id}`,
+      );
+      did = "created";
+    }
+    return did;
+  },
+  async () => {
+    const s3 = await profile(VAN3);
+    const [t] = await tripOf(s3.id);
+    const plan = t && (await planRow(t.id));
+    return {
+      van3Trip: t ? `${t.trip_number}/${t.status}` : null,
+      van3LoadCanAccept: plan?.state === "dispatched",
+    };
+  },
+);
+
+// ---------------------------------------------------------------- r6: agent1@trial targets: On track + a % target (FLD-213)
+// Sales value already has a seeded Behind target. Publish (territory -> agent cascade, office submit + second-person
+// approve) a Calls target he is ahead of pace on and an MSL compliance rate target ("of 90%").
+const FIELD_TARGETS = /** @type {const} */ ([
+  ["calls", 250],
+  ["msl_compliance", 9000],
+]);
+section(
+  "agent1-targets",
+  ["FLD-213", "FLD-214", "FLD-216"],
+  async () => {
+    let did = "kept";
+    const me = await profile(FIELD);
+    const area = await one(
+      db`select territory_id from territory_salespeople where profile_id=${me.id} and deleted_at is null and effective_from<=now() and (effective_to is null or effective_to>now()) order by effective_from desc limit 1`,
+    );
+    if (!area) throw new Error("agent1@trial has no territory today");
+    const month = TODAY.slice(0, 7);
+    for (const [metric, amount] of FIELD_TARGETS) {
+      const have = await one(
+        db`select 1 as x from target_cascades c join target_cascade_lines l on l.cascade_id=c.id where c.month=${month} and c.metric=${metric} and c.status='published' and c.child_level='agent' and l.child_key=${me.id}`,
+      );
+      if (have) continue;
+      const base = {
+        month,
+        metric,
+        parentLevel: "territory",
+        parentKey: area.territory_id,
+      };
+      const look = await api(ADMIN, "/api/v1/targets/cascade/preview", {
+        ...base,
+        parentAmount: amount,
+      });
+      const kids = look.lines.map((/** @type {any} */ l) => l.key);
+      if (!kids.includes(me.id))
+        throw new Error(`agent1@trial is not a child of territory ${area.territory_id}`);
+      const additive = metric !== "msl_compliance";
+      const sent = await api(ADMIN, "/api/v1/targets/cascade/submit", {
+        ...base,
+        parentAmount: additive ? amount * kids.length : amount,
+        lines: kids.map((/** @type {string} */ k) => ({ key: k, amount })),
+        idempotencyKey: key(`target:${metric}:${area.territory_id}`),
+        sourceRef: `${TAG} test-day fixture (FLD-213)`,
+      });
+      if (sent.status === "submitted") {
+        const body = {
+          cascadeId: sent.id,
+          decision: "approve",
+          contentHash: sent.contentHash,
+        };
+        try {
+          await api(APPROVER, "/api/v1/targets/cascade/decide", body);
+        } catch (e) {
+          if (![403, 404].includes(/** @type {any} */ (e).status)) throw e;
+          await api(MANAGER, "/api/v1/targets/cascade/decide", body);
+        }
+      }
+      did = "created";
+    }
+    return did;
+  },
+  async () => {
+    const me = await profile(FIELD);
+    const rows =
+      await db`select c.metric,l.amount::bigint as amount from target_cascades c join target_cascade_lines l on l.cascade_id=c.id where c.month=${TODAY.slice(0, 7)} and c.status='published' and c.child_level='agent' and l.child_key=${me.id}`;
+    const has = (/** @type {string} */ m) =>
+      rows.some((/** @type {any} */ r) => r.metric === m);
+    const sales = await one(
+      db`select count(*)::int n from sales_targets where profile_id=${me.id} and month=${TODAY.slice(0, 7)} and metric='sales_value' and deleted_at is null`,
+    );
+    return {
+      salesValueTarget: sales.n,
+      callsTarget: has("calls"),
+      mslRateTarget: has("msl_compliance"),
+    };
+  },
+);
+
+// ---------------------------------------------------------------- r6: programme feature list (WEB-148)
+section(
+  "programme",
+  ["WEB-148"],
+  async () => {
+    const n = await one(db`select count(*)::int n from spec_features`);
+    if (n.n > 0) return "kept";
+    // The documented admin load (packages/db/seed/programme-run.js); safe to repeat.
+    const { seedProgramme } = await import("./programme.js");
+    await seedProgramme(db);
+    return "created";
+  },
+  async () => {
+    const f = await one(db`select count(*)::int n from spec_features`);
+    const w = await one(db`select count(*)::int n from spec_waves`);
+    return { features: f.n, waves: w.n };
   },
 );
