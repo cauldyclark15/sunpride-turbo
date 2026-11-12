@@ -40,6 +40,7 @@ import {
 } from "./model";
 import { OWNER_PAGES } from "../../config/navigation";
 import { STORE_TABS } from "../cockpit/pages/stores-list";
+import { newTabHeading } from "../cockpit/pages/stores";
 
 /** A small slice of Sunpride's lists (real codes from the client's workbook). */
 const ref = (
@@ -732,5 +733,13 @@ describe("WEB-040 status chips show their counts", () => {
     expect(text).toContain("Prospect 4");
     expect(text).toContain("Active 305");
     expect(text).toContain("Inactive 0");
+  });
+});
+
+describe("WEB-059 New customers heading follows the role", () => {
+  it("only an approver is told to approve", () => {
+    expect(newTabHeading(true, true)).toBe("Prospects to complete and approve");
+    expect(newTabHeading(false, true)).not.toMatch(/and approve/);
+    expect(newTabHeading(false, false)).not.toMatch(/complete and approve/);
   });
 });
