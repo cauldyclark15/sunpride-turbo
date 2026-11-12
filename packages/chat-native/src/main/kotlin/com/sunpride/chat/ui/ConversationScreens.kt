@@ -166,7 +166,7 @@ private val QUICK_REACTIONS = listOf("👍", "❤️", "😂", "🎉", "😮", "
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun ConversationScreen(
-    conversationId: String, parentId: String?, onBack: () -> Unit, onOpenThread: (String) -> Unit, onDetails: () -> Unit, onViewImage: (Attachment) -> Unit,
+    conversationId: String, parentId: String?, onBack: () -> Unit, onOpenThread: (String) -> Unit, onDetails: () -> Unit, onViewImage: (List<Attachment>, Int) -> Unit,
 ) {
     val rt = LocalChat.current
     val env = LocalChatEnv.current
@@ -221,7 +221,7 @@ internal fun ConversationScreen(
         conv == null -> null
         conv.isChannel -> conv.topic?.takeIf { it.isNotBlank() } ?: ("Channel · " + if (conv.memberCount == 1) "1 member" else "${conv.memberCount} members")
         !conv.isDm -> "Group · ${conv.memberCount} people"
-        conv.membersPreview.any { it.isAgent && it.id !in me } -> "AI user"
+        conv.membersPreview.any { it.isAgent && it.id !in me } -> "Developer"
         else -> "Direct message"
     }
     // "Say hello to Ana": the other person's first name in a DM.

@@ -6,7 +6,7 @@ import { browseItems, messagingClient } from "../../lib/messaging/client";
 import type { Conversation, DirectoryUser } from "../../lib/messaging/types";
 import type { MessagingActions } from "./actions";
 import { usePeopleSearch } from "./pickers";
-import { AiBadge, Avatar, ModalFrame } from "./primitives";
+import { DeveloperBadge, Avatar, ModalFrame } from "./primitives";
 
 const input =
   "w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-foreground/40";
@@ -53,8 +53,8 @@ export function PeopleSearch({
         autoFocus
         value={query}
         onChange={(event) => setQuery(event.target.value)}
-        placeholder="Search people and AI users"
-        aria-label="Search people and AI users"
+        placeholder="Search people and developers"
+        aria-label="Search people and developers"
         className={input}
       />
       <ul className="flex max-h-72 flex-col gap-px overflow-y-auto">
@@ -69,10 +69,16 @@ export function PeopleSearch({
                 className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${isSelected ? "bg-default-soft" : "hover:bg-default-soft"}`}
               >
                 <Avatar user={person} size="sm" />
-                <span className="min-w-0 flex-1 truncate text-sm">{person.display_name}</span>
-                {person.is_agent ? <AiBadge /> : null}
+                <span className="min-w-0 flex-1 truncate text-sm">
+                  {person.display_name}
+                </span>
+                {person.is_agent ? <DeveloperBadge /> : null}
                 <span className="text-xs text-muted">{person.role_label}</span>
-                {multiple ? <span aria-hidden className="w-4 text-center">{isSelected ? "✓" : ""}</span> : null}
+                {multiple ? (
+                  <span aria-hidden className="w-4 text-center">
+                    {isSelected ? "✓" : ""}
+                  </span>
+                ) : null}
               </button>
             </li>
           );
@@ -113,13 +119,21 @@ export function NewConversationDialog({
     try {
       onCreated(await actions.create(input));
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not start the conversation.");
+      setError(
+        reason instanceof Error
+          ? reason.message
+          : "Could not start the conversation.",
+      );
       setBusy(false);
     }
   }
 
   const heading =
-    mode === "dm" ? "New direct message" : mode === "group" ? "New group" : "New channel";
+    mode === "dm"
+      ? "New direct message"
+      : mode === "group"
+        ? "New group"
+        : "New channel";
 
   return (
     <ModalFrame title={heading} onClose={onClose} testId={`new-${mode}`}>
@@ -128,7 +142,9 @@ export function NewConversationDialog({
           <PeopleSearch
             meId={meId}
             selected={selected}
-            onToggle={(person) => void create({ kind: "dm", user_ids: [person.id] })}
+            onToggle={(person) =>
+              void create({ kind: "dm", user_ids: [person.id] })
+            }
           />
         ) : null}
         {mode === "group" ? (
@@ -154,7 +170,9 @@ export function NewConversationDialog({
               aria-label="Group name"
               className={input}
             />
-            <p className="text-xs text-muted">Pick at least two people. Groups hold up to 50.</p>
+            <p className="text-xs text-muted">
+              Pick at least two people. Groups hold up to 50.
+            </p>
             <button
               type="button"
               className={primary}
@@ -185,10 +203,18 @@ export function NewConversationDialog({
             </label>
             <label className="flex flex-col gap-1 text-sm">
               Topic (optional)
-              <input value={topic} onChange={(event) => setTopic(event.target.value)} className={input} />
+              <input
+                value={topic}
+                onChange={(event) => setTopic(event.target.value)}
+                className={input}
+              />
             </label>
             <label className="flex items-center gap-2 text-sm">
-              <input type="checkbox" checked={isPrivate} onChange={(event) => setPrivate(event.target.checked)} />
+              <input
+                type="checkbox"
+                checked={isPrivate}
+                onChange={(event) => setPrivate(event.target.checked)}
+              />
               Private: only people you add can find and join it
             </label>
             <button
@@ -208,7 +234,11 @@ export function NewConversationDialog({
             </button>
           </>
         ) : null}
-        {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
       </div>
     </ModalFrame>
   );
@@ -227,8 +257,7 @@ export function BrowseChannelsDialog({
   const [error, setError] = useState("");
   const result = useApi<Conversation[]>(
     ["messaging", "browse", query],
-    ({ signal }) =>
-    messagingClient({ signal }).browseChannels(query),
+    ({ signal }) => messagingClient({ signal }).browseChannels(query),
   );
   const channels = browseItems(result.data);
   return (
@@ -244,12 +273,18 @@ export function BrowseChannelsDialog({
         />
         <ul className="flex flex-col gap-1">
           {channels.map((channel) => (
-            <li key={channel.id} className="flex items-center gap-3 rounded-lg border border-border p-2">
+            <li
+              key={channel.id}
+              className="flex items-center gap-3 rounded-lg border border-border p-2"
+            >
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-sm font-medium"># {channel.title}</span>
+                <span className="block truncate text-sm font-medium">
+                  # {channel.title}
+                </span>
                 <span className="block truncate text-xs text-muted">
                   {channel.topic ? `${channel.topic} · ` : ""}
-                  {channel.member_count} {channel.member_count === 1 ? "member" : "members"}
+                  {channel.member_count}{" "}
+                  {channel.member_count === 1 ? "member" : "members"}
                 </span>
               </span>
               <button
@@ -272,7 +307,11 @@ export function BrowseChannelsDialog({
             </li>
           ) : null}
         </ul>
-        {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
       </div>
     </ModalFrame>
   );

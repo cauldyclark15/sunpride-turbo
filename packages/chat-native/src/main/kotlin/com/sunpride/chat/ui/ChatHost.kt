@@ -115,7 +115,7 @@ fun ChatHost(env: ChatEnvironment, onClose: () -> Unit, modifier: Modifier = Mod
     LaunchedEffect(top) { latestAtRoot?.invoke(top == "list") }
     fun push(r: String) { stackText = "$stackText|$r" }
     fun pop() { stackText = if (stack.size > 1) stack.dropLast(1).joinToString("|") else "list" }
-    var viewer by remember { mutableStateOf<Attachment?>(null) }
+    var viewer by remember { mutableStateOf<PhotoSet?>(null) }
     var detailsFor by remember { mutableStateOf<String?>(null) }
 
     BackHandler(enabled = true) { if (stack.size > 1) pop() else onClose() }
@@ -171,8 +171,8 @@ fun ChatHost(env: ChatEnvironment, onClose: () -> Unit, modifier: Modifier = Mod
                 val parts = top.split(":")
                 when (parts[0]) {
                     "conv" -> ConversationScreen(parts[1], null, onBack = ::pop, onOpenThread = { push("thread:${parts[1]}:$it") },
-                        onDetails = { detailsFor = parts[1] }, onViewImage = { viewer = it })
-                    "thread" -> ConversationScreen(parts[1], parts[2], onBack = ::pop, onOpenThread = {}, onDetails = {}, onViewImage = { viewer = it })
+                        onDetails = { detailsFor = parts[1] }, onViewImage = { pics, at -> viewer = photoSet(pics, at) })
+                    "thread" -> ConversationScreen(parts[1], parts[2], onBack = ::pop, onOpenThread = {}, onDetails = {}, onViewImage = { pics, at -> viewer = photoSet(pics, at) })
                     "new" -> NewChatScreen(onBack = ::pop, onCreated = { id -> stackText = (stack.dropLast(1) + "conv:$id").joinToString("|") })
                     "search" -> SearchScreen(onBack = ::pop, onOpen = { id -> push("conv:$id") })
                     else -> ConversationListScreen(showBar = showRootBar, onClose = onClose, onOpen = { push("conv:$it") }, onNew = { push("new") }, onSearch = { push("search") })

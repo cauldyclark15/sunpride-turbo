@@ -17,7 +17,7 @@ import {
   LinkPreviewCard,
   ReactionsRow,
 } from "./message-parts";
-import { AiBadge, Avatar, IconButton } from "./primitives";
+import { DeveloperBadge, Avatar, IconButton } from "./primitives";
 
 export type MessageHandlers = {
   onReply?: (message: Message) => void;
@@ -53,7 +53,9 @@ function InlineEditor({
       await onSave(body);
       onCancel();
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : "Could not save the edit.");
+      setError(
+        reason instanceof Error ? reason.message : "Could not save the edit.",
+      );
       setSaving(false);
     }
   }
@@ -66,7 +68,11 @@ function InlineEditor({
         rows={Math.min(8, Math.max(2, text.split("\n").length))}
         onChange={(event) => setText(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+          if (
+            event.key === "Enter" &&
+            !event.shiftKey &&
+            !event.nativeEvent.isComposing
+          ) {
             event.preventDefault();
             void save();
           }
@@ -89,7 +95,11 @@ function InlineEditor({
         >
           Save
         </button>
-        {error ? <span role="alert" className="text-xs text-danger">{error}</span> : null}
+        {error ? (
+          <span role="alert" className="text-xs text-danger">
+            {error}
+          </span>
+        ) : null}
       </div>
     </div>
   );
@@ -125,7 +135,8 @@ export function MessageItem({
     <article
       id={`message-${message.id}`}
       aria-label={`${message.author.display_name}, ${timeLabel(message.created_at)}`}
-      className={`group relative flex gap-3 px-4 hover:bg-surface-secondary ${grouped ? "py-0.5" : "pt-2 pb-0.5"} ${message.mentions_me ? "border-l-2 border-foreground/60" : ""} ${highlighted ? "bg-default-soft" : ""}`}
+      className={`group relative flex gap-3 px-4 hover:bg-surface-secondary ${grouped ? "py-0.5" : "pt-2 pb-0.5"} ${mine ? "border-l-2 border-accent bg-accent-soft/40" : message.mentions_me ? "border-l-2 border-foreground/60" : ""} ${highlighted ? "bg-default-soft" : ""}`}
+      data-mine={mine ? "true" : undefined}
     >
       <div className="w-9 shrink-0">
         {grouped ? (
@@ -139,8 +150,10 @@ export function MessageItem({
       <div className="min-w-0 flex-1">
         {!grouped ? (
           <header className="flex items-baseline gap-2">
-            <span className="text-sm font-semibold">{message.author.display_name}</span>
-            {message.author.is_agent ? <AiBadge /> : null}
+            <span className="text-sm font-semibold">
+              {mine ? "You" : message.author.display_name}
+            </span>
+            {message.author.is_agent ? <DeveloperBadge /> : null}
             <time dateTime={message.created_at} className="text-xs text-muted">
               {timeLabel(message.created_at)}
             </time>
@@ -156,11 +169,20 @@ export function MessageItem({
             onSave={(body) => handlers.onEdit(message, body)}
           />
         ) : (
-          <div className={`text-sm leading-relaxed ${pending?.status === "sending" ? "text-muted" : ""}`}>
+          <div
+            className={`text-sm leading-relaxed ${pending?.status === "sending" ? "text-muted" : ""}`}
+          >
             {message.body ? (
-              <MessageBody body={message.body} refs={message.refs} lookup={lookup} meId={meId} />
+              <MessageBody
+                body={message.body}
+                refs={message.refs}
+                lookup={lookup}
+                meId={meId}
+              />
             ) : null}
-            {message.edited ? <span className="ml-1 text-xs text-muted">(edited)</span> : null}
+            {message.edited ? (
+              <span className="ml-1 text-xs text-muted">(edited)</span>
+            ) : null}
           </div>
         )}
         {!message.deleted ? (
@@ -171,21 +193,34 @@ export function MessageItem({
             ))}
             <ReactionsRow
               reactions={message.reactions}
-              onToggle={(emoji, wasMine) => handlers.onReact(message, emoji, wasMine)}
+              onToggle={(emoji, wasMine) =>
+                handlers.onReact(message, emoji, wasMine)
+              }
             />
           </>
         ) : null}
         {pending ? (
-          <p className="mt-0.5 text-xs" role={pending.status === "failed" ? "alert" : "status"}>
+          <p
+            className="mt-0.5 text-xs"
+            role={pending.status === "failed" ? "alert" : "status"}
+          >
             {pending.status === "sending" ? (
               <span className="text-muted">Sending…</span>
             ) : (
               <span className="flex flex-wrap items-center gap-2 text-danger">
                 Not sent{pending.error ? `: ${pending.error}` : "."}
-                <button type="button" className="font-medium underline" onClick={() => handlers.onRetry(pending.client_msg_id)}>
+                <button
+                  type="button"
+                  className="font-medium underline"
+                  onClick={() => handlers.onRetry(pending.client_msg_id)}
+                >
                   Retry
                 </button>
-                <button type="button" className="text-muted underline" onClick={() => handlers.onDiscard(pending.client_msg_id)}>
+                <button
+                  type="button"
+                  className="text-muted underline"
+                  onClick={() => handlers.onDiscard(pending.client_msg_id)}
+                >
                   Discard
                 </button>
               </span>
@@ -198,7 +233,9 @@ export function MessageItem({
             onClick={() => handlers.onReply?.(message)}
             className="mt-1 text-xs font-semibold text-foreground underline-offset-2 hover:underline"
           >
-            {message.reply_count === 1 ? "1 reply" : `${message.reply_count} replies`}
+            {message.reply_count === 1
+              ? "1 reply"
+              : `${message.reply_count} replies`}
           </button>
         ) : null}
         {confirmDelete ? (
@@ -218,10 +255,17 @@ export function MessageItem({
           className={`absolute -top-3 right-4 z-10 items-center gap-0.5 rounded-lg border border-border bg-surface p-0.5 shadow-sm group-hover:flex group-focus-within:flex ${picking ? "flex" : "hidden"}`}
         >
           {!inThread && handlers.onReply ? (
-            <IconButton label="Reply in thread" icon="comment" onClick={() => handlers.onReply?.(message)} />
+            <IconButton
+              label="Reply in thread"
+              icon="comment"
+              onClick={() => handlers.onReply?.(message)}
+            />
           ) : null}
           <span className="relative">
-            <IconButton label="Add reaction" onClick={() => setPicking((value) => !value)}>
+            <IconButton
+              label="Add reaction"
+              onClick={() => setPicking((value) => !value)}
+            >
               <span aria-hidden>☺</span>
             </IconButton>
             {picking ? (
@@ -229,32 +273,67 @@ export function MessageItem({
                 onClose={() => setPicking(false)}
                 onPick={(emoji) => {
                   setPicking(false);
-                  const existing = message.reactions.find((item) => item.emoji === emoji);
+                  const existing = message.reactions.find(
+                    (item) => item.emoji === emoji,
+                  );
                   handlers.onReact(message, emoji, existing?.mine ?? false);
                 }}
               />
             ) : null}
           </span>
-          {mine ? <IconButton label="Edit message" icon="edit" onClick={() => setEditing(true)} /> : null}
-          {mine || canModerate ? (
-            <IconButton label="Delete message" icon="trash" onClick={() => setConfirmDelete(true)} />
+          {mine ? (
+            <IconButton
+              label="Edit message"
+              icon="edit"
+              onClick={() => setEditing(true)}
+            />
           ) : null}
-          <IconButton label="Copy link" icon="attachment" onClick={() => handlers.onCopyLink(message)} />
+          {mine || canModerate ? (
+            <IconButton
+              label="Delete message"
+              icon="trash"
+              onClick={() => setConfirmDelete(true)}
+            />
+          ) : null}
+          <IconButton
+            label="Copy link"
+            icon="attachment"
+            onClick={() => handlers.onCopyLink(message)}
+          />
         </div>
       ) : null}
     </article>
   );
 }
 
-function DeleteConfirm({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+function DeleteConfirm({
+  onCancel,
+  onConfirm,
+}: {
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
   useEscape(onCancel);
   return (
-    <div role="alertdialog" aria-label="Delete message" data-panel="delete-confirm" className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface p-2 text-xs">
+    <div
+      role="alertdialog"
+      aria-label="Delete message"
+      data-panel="delete-confirm"
+      className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-border bg-surface p-2 text-xs"
+    >
       <span className="flex-1">Delete this message for everyone?</span>
-      <button type="button" onClick={onCancel} className="rounded-md border border-border px-2 py-1 font-medium">
+      <button
+        type="button"
+        onClick={onCancel}
+        className="rounded-md border border-border px-2 py-1 font-medium"
+      >
         Cancel
       </button>
-      <button type="button" onClick={onConfirm} className="rounded-md bg-danger px-2 py-1 font-medium text-white">
+      <button
+        type="button"
+        onClick={onConfirm}
+        className="rounded-md bg-danger px-2 py-1 font-medium text-white"
+      >
         Delete
       </button>
     </div>

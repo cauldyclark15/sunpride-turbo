@@ -191,4 +191,30 @@ class ChatLaunchTest {
         ChatLaunch.clear(Fx.CONV)
         assertNull(ChatLaunch.pending.value)
     }
+
+    @Test fun `unsent messages survive leaving the screen and restarting the app`() {
+        val dir = java.nio.file.Files.createTempDirectory("drafts").toFile()
+        val file = java.io.File(dir, "drafts.json")
+        var clock = 1_000L
+        val store = DraftStore(file) { clock }
+        val trigger = ComposerDraft().withText("Hi @Lo").triggerAt(6)!!
+        val (mention, _) = ComposerDraft().withText("Hi @Lo").insert(trigger, "@Loren", ChatTokens.userToken("u1"))
+        val withText = mention.withText(mention.text + " please check the price list")
+        store["conv:1"] = withText
+        store["conv:1:thread:9"] = ComposerDraft().withText("reply in thread")
+        store["conv:2"] = ComposerDraft().withText("gone").withText("  ")
+        store.flush()
+        val reopened = DraftStore(file) { clock }
+        assertEquals(withText.text, reopened["conv:1"]?.text)
+        assertEquals(withText.toBody(), reopened["conv:1"]?.toBody())
+        assertEquals("reply in thread", reopened["conv:1:thread:9"]?.text)
+        assertNull(reopened["conv:2"])
+        reopened.remove("conv:1"); reopened.flush()
+        assertNull(DraftStore(file) { clock }["conv:1"])
+        clock += DraftStore.MAX_AGE_MS + 1
+        assertNull(DraftStore(file) { clock }["conv:1:thread:9"])
+        dir.deleteRecursively()
+        store["conv:3"] = ComposerDraft().withText("after sign-out"); store.flush()
+        assertFalse(dir.exists())
+    }
 }

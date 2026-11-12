@@ -87,7 +87,7 @@ class FakeChatServer : AutoCloseable {
             path == "/api/v1/messaging/conversations" && r.method == "POST" -> return json(201, Fx.conversation())
             path.startsWith("/api/v1/messaging/messages/") && r.method == "PATCH" -> return json(200, Fx.message("m-edited", 9, JSONObject(r.body.readUtf8()).getString("body")).put("edited", true))
             path.endsWith("/read") && r.method == "POST" -> return json(200, JSONObject().put("ok", true))
-            path == "/api/v1/messaging/users/search" -> return json(200, JSONArray().put(Fx.user(Fx.MARIA, "Maria Santos").put("role_label", "Sales supervisor")).put(Fx.user(Fx.BOT, "Phantasm", true).put("role_label", "AI user")))
+            path == "/api/v1/messaging/users/search" -> return json(200, JSONArray().put(Fx.user(Fx.MARIA, "Maria Santos").put("role_label", "Sales supervisor")).put(Fx.user(Fx.BOT, "Phantasm", true).put("role_label", "Developer")))
             path == "/api/v1/messaging/refs/search" -> return json(200, JSONArray().put(JSONObject().put("type", "outlet").put("id", "o-1").put("title", "Main Street Store")
                 .put("subtitle", "Cebu City").put("thumb_url", JSONObject.NULL).put("href", "/stores/o-1").put("access", "ok")))
             path == "/api/v1/messaging/refs/resolve" -> return json(200, JSONArray())

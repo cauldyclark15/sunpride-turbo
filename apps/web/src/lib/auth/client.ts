@@ -2,6 +2,7 @@ import { ApiError, normalizeError } from "../api/errors";
 import { apiFetch, type ApiFetchOptions } from "../api/fetch";
 import type { LiveClient } from "../api/live";
 import { defaultApiStore, type ApiStore } from "../api/store";
+import { forgetDrafts } from "../messaging/drafts";
 import { clearUserCaches } from "../pwa/caches";
 import { resetDataSource } from "../pwa/data-source";
 import {
@@ -84,6 +85,7 @@ export async function fetchMe(
 /** Removes everything this device kept for the signed-in person. */
 export async function forgetLocalData() {
   forgetSession();
+  forgetDrafts();
   resetDataSource();
   await clearUserCaches();
 }

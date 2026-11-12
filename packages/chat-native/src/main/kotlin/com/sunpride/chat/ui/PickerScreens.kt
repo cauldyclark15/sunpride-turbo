@@ -1,9 +1,15 @@
 package com.sunpride.chat.ui
 
 import androidx.compose.foundation.Image
+import androidx.compose.ui.input.pointer.positionChanged
+import androidx.compose.foundation.gestures.calculateZoom
+import androidx.compose.foundation.gestures.calculatePan
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -125,7 +131,7 @@ internal fun NewChatScreen(onBack: () -> Unit, onCreated: (String) -> Unit) {
                         Avatar(u, 40.dp)
                         Column(Modifier.weight(1f)) {
                             Row(verticalAlignment = Alignment.CenterVertically) { Text(u.displayName, style = MaterialTheme.typography.bodyLarge); if (u.isAgent) { Spacer(Modifier.width(6.dp)); AiBadge() } }
-                            (u.roleLabel?.replaceFirstChar { it.uppercase() } ?: if (u.isAgent) "AI user" else null)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            (u.roleLabel?.replaceFirstChar { it.uppercase() } ?: if (u.isAgent) "Developer" else null)?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
                         }
                         if (mode == 1) Text(if (on) "✓" else "", style = MaterialTheme.typography.titleLarge, color = MaterialTheme.colorScheme.primary)
                     }
@@ -264,21 +270,58 @@ internal fun DetailsSheet(conversationId: String, onDismiss: () -> Unit, onLeft:
         dismissButton = { TextButton(onClick = { confirm = false }) { Text("Cancel") } })
 }
 
+/** A picture the viewer can show: a sent attachment (url) or a file still waiting in the composer (path). */
+internal data class ViewerPhoto(val name: String, val url: String? = null, val path: String? = null)
+
+/** The pictures of one message (or one draft) and the one to open first. */
+internal data class PhotoSet(val photos: List<ViewerPhoto>, val start: Int)
+
+internal fun photoSet(images: List<Attachment>, start: Int) =
+    PhotoSet(images.map { ViewerPhoto(it.name, url = it.url) }, start.coerceIn(0, (images.size - 1).coerceAtLeast(0)))
+
+/** Full-screen pictures. Several become a carousel: swipe left/right, with "2 of 5" at the top. Pinch to zoom one picture. */
 @Composable
-internal fun ImageViewerDialog(a: Attachment, onDismiss: () -> Unit) {
-    val image = rememberRemoteImage(a.url, 2048)
-    var scale by remember { mutableStateOf(1f) }
-    var offset by remember { mutableStateOf(Offset.Zero) }
+internal fun ImageViewerDialog(set: PhotoSet, onDismiss: () -> Unit) {
+    val count = set.photos.size
+    if (count == 0) return
+    val pager = rememberPagerState(initialPage = set.start.coerceIn(0, count - 1)) { count }
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().background(Color.Black)) {
-            if (image != null) Image(image, contentDescription = a.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()
-                .pointerInput(Unit) { detectTransformGestures { _, pan, zoom, _ -> scale = (scale * zoom).coerceIn(1f, 5f); offset = if (scale <= 1f) Offset.Zero else offset + pan } }
-                .graphicsLayer(scaleX = scale, scaleY = scale, translationX = offset.x, translationY = offset.y))
-            else Text("Loading photo…", Modifier.align(Alignment.Center), color = Color.White)
-            Row(Modifier.fillMaxWidth().statusBarsPadding().padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
-                Text(a.name, Modifier.weight(1f).padding(start = 8.dp), color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+            HorizontalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1, key = { it }) { page -> ZoomablePhoto(set.photos[page]) }
+            val current = set.photos[pager.currentPage.coerceIn(0, count - 1)]
+            Row(Modifier.fillMaxWidth().statusBarsPadding().background(Color.Black.copy(alpha = 0.4f)).padding(8.dp), verticalAlignment = Alignment.CenterVertically) {
+                Column(Modifier.weight(1f).padding(start = 8.dp)) {
+                    Text(current.name, color = Color.White, maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
+                    if (count > 1) Text("${pager.currentPage + 1} of $count", color = Color.White.copy(alpha = 0.75f), style = MaterialTheme.typography.labelSmall)
+                }
                 TextButton(onClick = onDismiss) { Text("Close ✕", color = Color.White) }
             }
         }
+    }
+}
+
+/** One page of the viewer. One finger swipes to the next picture; two fingers zoom, and a zoomed picture pans instead. */
+@Composable
+private fun ZoomablePhoto(p: ViewerPhoto) {
+    val image = if (p.url != null) rememberRemoteImage(p.url, 2048) else rememberLocalImage(p.path, 2048)
+    var scale by remember(p) { mutableStateOf(1f) }
+    var offset by remember(p) { mutableStateOf(Offset.Zero) }
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        if (image != null) Image(image, contentDescription = p.name, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize()
+            .pointerInput(p) {
+                awaitEachGesture {
+                    awaitFirstDown(requireUnconsumed = false)
+                    do {
+                        val event = awaitPointerEvent()
+                        if (event.changes.size > 1 || scale > 1f) {
+                            scale = (scale * event.calculateZoom()).coerceIn(1f, 5f)
+                            offset = if (scale <= 1f) Offset.Zero else offset + event.calculatePan()
+                            event.changes.forEach { if (it.positionChanged()) it.consume() }
+                        }
+                    } while (event.changes.any { it.pressed })
+                }
+            }
+            .graphicsLayer(scaleX = scale, scaleY = scale, translationX = offset.x, translationY = offset.y))
+        else Text("Loading photo…", color = Color.White)
     }
 }

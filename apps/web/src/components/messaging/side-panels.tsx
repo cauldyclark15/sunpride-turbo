@@ -3,7 +3,11 @@
 import { useState } from "react";
 import { useApi } from "../../lib/api";
 import { messagingClient } from "../../lib/messaging/client";
-import { conversationTitle, dayLabel, timeLabel } from "../../lib/messaging/format";
+import {
+  conversationTitle,
+  dayLabel,
+  timeLabel,
+} from "../../lib/messaging/format";
 import { useConversation } from "../../lib/messaging/hooks";
 import type {
   Conversation,
@@ -16,7 +20,7 @@ import type { MessagingActions } from "./actions";
 import { buildLookup } from "./conversation-view";
 import { MessageBody } from "./message-body";
 import { PeopleSearch } from "./new-conversation";
-import { AiBadge, Avatar, SidePanel, Spinner } from "./primitives";
+import { DeveloperBadge, Avatar, SidePanel, Spinner } from "./primitives";
 
 export function DetailsPanel({
   conversation,
@@ -36,7 +40,8 @@ export function DetailsPanel({
   const detail = useConversation(conversation.id);
   const members = detail.data?.members ?? [];
   const myRole = members.find((member) => member.id === me.id)?.role;
-  const canEdit = conversation.kind === "group" || myRole === "owner" || isAdmin;
+  const canEdit =
+    conversation.kind === "group" || myRole === "owner" || isAdmin;
   const canRemove = myRole === "owner" || isAdmin;
   const [adding, setAdding] = useState(false);
   const [toAdd, setToAdd] = useState<DirectoryUser[]>([]);
@@ -46,10 +51,17 @@ export function DetailsPanel({
   const title = conversationTitle(conversation, me.id);
 
   return (
-    <SidePanel title="Details" subtitle={title} onClose={onClose} testId="details">
+    <SidePanel
+      title="Details"
+      subtitle={title}
+      onClose={onClose}
+      testId="details"
+    >
       <div className="flex flex-col gap-5 p-4">
         <section className="flex flex-col gap-1">
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">About</h3>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-muted">
+            About
+          </h3>
           <p className="text-sm font-medium">
             {conversation.kind === "channel" ? `# ${title}` : title}
           </p>
@@ -65,9 +77,17 @@ export function DetailsPanel({
           {conversation.kind !== "dm" ? (
             topic === null ? (
               <div className="flex items-start gap-2">
-                <p className="flex-1 text-sm">{conversation.topic || <span className="text-muted">No topic</span>}</p>
+                <p className="flex-1 text-sm">
+                  {conversation.topic || (
+                    <span className="text-muted">No topic</span>
+                  )}
+                </p>
                 {canEdit ? (
-                  <button type="button" className="text-xs underline" onClick={() => setTopic(conversation.topic ?? "")}>
+                  <button
+                    type="button"
+                    className="text-xs underline"
+                    onClick={() => setTopic(conversation.topic ?? "")}
+                  >
                     Edit topic
                   </button>
                 ) : null}
@@ -77,7 +97,12 @@ export function DetailsPanel({
                 className="flex gap-2"
                 onSubmit={(event) => {
                   event.preventDefault();
-                  actions.update(conversation.id, { topic: topic.trim() }).then(() => setTopic(null), fail("Could not save the topic."));
+                  actions
+                    .update(conversation.id, { topic: topic.trim() })
+                    .then(
+                      () => setTopic(null),
+                      fail("Could not save the topic."),
+                    );
                 }}
               >
                 <input
@@ -87,8 +112,19 @@ export function DetailsPanel({
                   onChange={(event) => setTopic(event.target.value)}
                   className="min-w-0 flex-1 rounded-lg border border-border bg-background px-2 py-1 text-sm"
                 />
-                <button type="submit" className="rounded-md bg-foreground px-2 text-xs font-medium text-background">Save</button>
-                <button type="button" className="text-xs underline" onClick={() => setTopic(null)}>Cancel</button>
+                <button
+                  type="submit"
+                  className="rounded-md bg-foreground px-2 text-xs font-medium text-background"
+                >
+                  Save
+                </button>
+                <button
+                  type="button"
+                  className="text-xs underline"
+                  onClick={() => setTopic(null)}
+                >
+                  Cancel
+                </button>
               </form>
             )
           ) : null}
@@ -99,7 +135,9 @@ export function DetailsPanel({
               type="checkbox"
               checked={conversation.muted}
               onChange={(event) =>
-                actions.update(conversation.id, { muted: event.target.checked }).catch(fail("Could not change notifications."))
+                actions
+                  .update(conversation.id, { muted: event.target.checked })
+                  .catch(fail("Could not change notifications."))
               }
             />
             Mute this conversation
@@ -111,7 +149,11 @@ export function DetailsPanel({
               Members · {conversation.member_count}
             </h3>
             {conversation.kind !== "dm" ? (
-              <button type="button" className="text-xs underline" onClick={() => setAdding((value) => !value)}>
+              <button
+                type="button"
+                className="text-xs underline"
+                onClick={() => setAdding((value) => !value)}
+              >
                 {adding ? "Cancel" : "Add people"}
               </button>
             ) : null}
@@ -135,10 +177,15 @@ export function DetailsPanel({
                 disabled={!toAdd.length}
                 className="rounded-lg bg-foreground px-3 py-1.5 text-sm font-medium text-background disabled:opacity-50"
                 onClick={() =>
-                  actions.addMembers(conversation.id, toAdd.map((person) => person.id)).then(() => {
-                    setToAdd([]);
-                    setAdding(false);
-                  }, fail("Could not add those people."))
+                  actions
+                    .addMembers(
+                      conversation.id,
+                      toAdd.map((person) => person.id),
+                    )
+                    .then(() => {
+                      setToAdd([]);
+                      setAdding(false);
+                    }, fail("Could not add those people."))
                 }
               >
                 Add {toAdd.length || ""}
@@ -152,15 +199,25 @@ export function DetailsPanel({
                 <Avatar user={member} size="sm" />
                 <span className="min-w-0 flex-1 truncate text-sm">
                   {member.display_name}
-                  {member.id === me.id ? <span className="text-muted"> (you)</span> : null}
+                  {member.id === me.id ? (
+                    <span className="text-muted"> (you)</span>
+                  ) : null}
                 </span>
-                {member.is_agent ? <AiBadge /> : null}
-                {member.role === "owner" ? <span className="text-xs text-muted">Owner</span> : null}
-                {canRemove && member.id !== me.id && conversation.kind !== "dm" ? (
+                {member.is_agent ? <DeveloperBadge /> : null}
+                {member.role === "owner" ? (
+                  <span className="text-xs text-muted">Owner</span>
+                ) : null}
+                {canRemove &&
+                member.id !== me.id &&
+                conversation.kind !== "dm" ? (
                   <button
                     type="button"
                     className="text-xs text-muted underline"
-                    onClick={() => actions.removeMember(conversation.id, member.id).catch(fail("Could not remove that person."))}
+                    onClick={() =>
+                      actions
+                        .removeMember(conversation.id, member.id)
+                        .catch(fail("Could not remove that person."))
+                    }
                   >
                     Remove
                   </button>
@@ -173,12 +230,20 @@ export function DetailsPanel({
           <button
             type="button"
             className="self-start rounded-md border border-border px-3 py-1.5 text-sm text-danger hover:bg-default-soft"
-            onClick={() => actions.removeMember(conversation.id, me.id).then(onLeft, fail("Could not leave."))}
+            onClick={() =>
+              actions
+                .removeMember(conversation.id, me.id)
+                .then(onLeft, fail("Could not leave."))
+            }
           >
             Leave {conversation.kind === "channel" ? "channel" : "group"}
           </button>
         ) : null}
-        {error ? <p role="alert" className="text-sm text-danger">{error}</p> : null}
+        {error ? (
+          <p role="alert" className="text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
       </div>
     </SidePanel>
   );
@@ -195,8 +260,9 @@ export function SearchPanel({
 }) {
   const [draft, setDraft] = useState("");
   const [query, setQuery] = useState("");
-  const result = useApi<SearchPage>(query ? ["messaging", "search", query] : null, ({ signal }) =>
-    messagingClient({ signal }).search(query),
+  const result = useApi<SearchPage>(
+    query ? ["messaging", "search", query] : null,
+    ({ signal }) => messagingClient({ signal }).search(query),
   );
   const hits = result.data?.items ?? [];
   return (
@@ -220,7 +286,11 @@ export function SearchPanel({
       </form>
       <div className="flex flex-col">
         {result.isLoading ? <Spinner label="Searching…" /> : null}
-        {result.error ? <p role="alert" className="p-4 text-sm text-danger">Search failed. {result.error.message}</p> : null}
+        {result.error ? (
+          <p role="alert" className="p-4 text-sm text-danger">
+            Search failed. {result.error.message}
+          </p>
+        ) : null}
         {query && !result.isLoading && !hits.length && !result.error ? (
           <p className="p-4 text-sm text-muted">No messages match “{query}”.</p>
         ) : null}
@@ -242,10 +312,17 @@ export function SearchPanel({
             </span>
             <span className="flex items-center gap-2">
               <Avatar user={hit.author} size="sm" />
-              <span className="text-sm font-medium">{hit.author.display_name}</span>
+              <span className="text-sm font-medium">
+                {hit.author.display_name}
+              </span>
             </span>
             <span className="line-clamp-3 text-sm">
-              <MessageBody body={hit.body} refs={hit.refs} lookup={buildLookup(undefined, [hit])} meId={me.id} />
+              <MessageBody
+                body={hit.body}
+                refs={hit.refs}
+                lookup={buildLookup(undefined, [hit])}
+                meId={me.id}
+              />
             </span>
           </button>
         ))}

@@ -13,7 +13,7 @@ import {
 } from "../../lib/messaging/format";
 import { plainText } from "../../lib/messaging/tokens";
 import type { Conversation, UserLite } from "../../lib/messaging/types";
-import { AiBadge, Avatar, CountBadge, IconButton } from "./primitives";
+import { DeveloperBadge, Avatar, CountBadge, IconButton } from "./primitives";
 
 export type StartMode = "dm" | "group" | "channel" | "browse";
 
@@ -48,7 +48,12 @@ function StartMenu({
     >
       <div className="flex items-center justify-between px-2 py-1">
         <span className="text-xs font-medium text-muted">Start</span>
-        <IconButton label="Close start menu" icon="close" className="size-6" onClick={onClose} />
+        <IconButton
+          label="Close start menu"
+          icon="close"
+          className="size-6"
+          onClick={onClose}
+        />
       </div>
       {START_LABELS.map((item) => (
         <button
@@ -87,9 +92,10 @@ function ConversationRow({
   const preview = conversation.last_message
     ? plainText(conversation.last_message.body, {
         user: (id) =>
-          [...conversation.members_preview, conversation.last_message!.author].find(
-            (member) => member.id === id,
-          )?.display_name,
+          [
+            ...conversation.members_preview,
+            conversation.last_message!.author,
+          ].find((member) => member.id === id)?.display_name,
         ref: () => undefined,
       }).trim() || "Sent an attachment"
     : "";
@@ -108,7 +114,10 @@ function ConversationRow({
         className={`flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left ${active ? "bg-default-soft" : "hover:bg-surface-secondary"}`}
       >
         {conversation.kind === "channel" ? (
-          <span aria-hidden className="inline-flex size-6 shrink-0 items-center justify-center text-muted">
+          <span
+            aria-hidden
+            className="inline-flex size-6 shrink-0 items-center justify-center text-muted"
+          >
             {conversation.is_private ? "🔒" : "#"}
           </span>
         ) : others[0] ? (
@@ -116,13 +125,23 @@ function ConversationRow({
         ) : null}
         <span className="min-w-0 flex-1">
           <span className="flex items-center gap-1">
-            <span className={`truncate text-sm ${unread ? "font-semibold" : ""}`}>{title}</span>
-            {conversation.kind === "dm" && others.some((m) => m.is_agent) ? <AiBadge /> : null}
-            {conversation.muted ? <span className="text-[10px] text-muted">Muted</span> : null}
+            <span
+              className={`truncate text-sm ${unread ? "font-semibold" : ""}`}
+            >
+              {title}
+            </span>
+            {conversation.kind === "dm" && others.some((m) => m.is_agent) ? (
+              <DeveloperBadge />
+            ) : null}
+            {conversation.muted ? (
+              <span className="text-[10px] text-muted">Muted</span>
+            ) : null}
           </span>
           {conversation.last_message ? (
             <span className="block truncate text-xs text-muted">
-              {conversation.last_message.deleted ? "Message deleted" : `${lead}${preview}`}
+              {conversation.last_message.deleted
+                ? "Message deleted"
+                : `${lead}${preview}`}
             </span>
           ) : null}
         </span>
@@ -195,9 +214,16 @@ export function ConversationSidebar({
       <header className="flex min-h-14 items-center gap-1 border-b border-separator px-3">
         <h1 className="flex-1 text-base font-semibold">Messages</h1>
         <IconButton label="Search messages" icon="search" onClick={onSearch} />
-        <IconButton label="Start a conversation" icon="plus" onClick={() => setMenu((value) => !value)} pressed={menu} />
+        <IconButton
+          label="Start a conversation"
+          icon="plus"
+          onClick={() => setMenu((value) => !value)}
+          pressed={menu}
+        />
       </header>
-      {menu ? <StartMenu onStart={onStart} onClose={() => setMenu(false)} /> : null}
+      {menu ? (
+        <StartMenu onStart={onStart} onClose={() => setMenu(false)} />
+      ) : null}
       <div className="px-3 pt-2">
         <label className="flex items-center gap-2 rounded-lg border border-border bg-background px-2 py-1">
           <WorkspaceIcon name="search" className="size-3.5 text-muted" />
@@ -211,16 +237,32 @@ export function ConversationSidebar({
         </label>
       </div>
       <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-4">
-        {loading ? <p className="p-3 text-sm text-muted">Loading conversations…</p> : null}
-        {error ? <p role="alert" className="p-3 text-sm text-danger">{error}</p> : null}
+        {loading ? (
+          <p className="p-3 text-sm text-muted">Loading conversations…</p>
+        ) : null}
+        {error ? (
+          <p role="alert" className="p-3 text-sm text-danger">
+            {error}
+          </p>
+        ) : null}
         {SIDEBAR_SECTIONS.map((section) => {
           const items = groups[section.id];
           const isCollapsed = collapsed.has(section.id);
-          const unread = items.reduce((sum, item) => sum + (item.muted ? 0 : item.unread_count), 0);
-          const mentions = items.reduce((sum, item) => sum + item.mention_count, 0);
+          const unread = items.reduce(
+            (sum, item) => sum + (item.muted ? 0 : item.unread_count),
+            0,
+          );
+          const mentions = items.reduce(
+            (sum, item) => sum + item.mention_count,
+            0,
+          );
           if (section.id === "agents" && !items.length) return null;
           return (
-            <section key={section.id} aria-label={section.label} className="mt-3">
+            <section
+              key={section.id}
+              aria-label={section.label}
+              className="mt-3"
+            >
               <div className="flex items-center gap-1 px-1.5">
                 <button
                   type="button"
@@ -240,13 +282,24 @@ export function ConversationSidebar({
                 </button>
                 {isCollapsed ? (
                   <>
-                    <CountBadge count={mentions} mention label={`${mentions} mentions in ${section.label}`} />
-                    <CountBadge count={unread} label={`${unread} unread in ${section.label}`} />
+                    <CountBadge
+                      count={mentions}
+                      mention
+                      label={`${mentions} mentions in ${section.label}`}
+                    />
+                    <CountBadge
+                      count={unread}
+                      label={`${unread} unread in ${section.label}`}
+                    />
                   </>
                 ) : null}
                 {section.id !== "agents" ? (
                   <IconButton
-                    label={START_LABELS.find((item) => item.mode === SECTION_START[section.id])!.label}
+                    label={
+                      START_LABELS.find(
+                        (item) => item.mode === SECTION_START[section.id],
+                      )!.label
+                    }
                     icon="plus"
                     className="size-6"
                     onClick={() => onStart(SECTION_START[section.id])}
@@ -267,7 +320,11 @@ export function ConversationSidebar({
                   {!items.length && !loading ? (
                     <li className="px-2 py-1 text-xs text-muted">
                       {section.id === "channels" ? (
-                        <button type="button" className="underline" onClick={() => onStart("browse")}>
+                        <button
+                          type="button"
+                          className="underline"
+                          onClick={() => onStart("browse")}
+                        >
                           Browse channels
                         </button>
                       ) : needle ? (
@@ -283,7 +340,11 @@ export function ConversationSidebar({
           );
         })}
         {canLoadMore ? (
-          <button type="button" onClick={onLoadMore} className="mt-3 w-full rounded-md py-1 text-xs text-muted hover:bg-default-soft">
+          <button
+            type="button"
+            onClick={onLoadMore}
+            className="mt-3 w-full rounded-md py-1 text-xs text-muted hover:bg-default-soft"
+          >
             Show more conversations
           </button>
         ) : null}

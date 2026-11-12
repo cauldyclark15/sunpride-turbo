@@ -1,4 +1,9 @@
-import { createElement, isValidElement, type ReactElement, type ReactNode } from "react";
+import {
+  createElement,
+  isValidElement,
+  type ReactElement,
+  type ReactNode,
+} from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -45,9 +50,25 @@ vi.mock("../../lib/api", async (original) => {
       case "users":
         return fixtures.DIRECTORY;
       case "refs":
-        return [fixtures.OUTLET_REF, fixtures.PRODUCT_REF, fixtures.RESTRICTED_REF];
+        return [
+          fixtures.OUTLET_REF,
+          fixtures.PRODUCT_REF,
+          fixtures.RESTRICTED_REF,
+        ];
       case "search":
-        return { items: [{ ...fixtures.MESSAGES[1], conversation: { id: fixtures.CHANNEL_ID, title: "general", kind: "channel" } }], next_cursor: null };
+        return {
+          items: [
+            {
+              ...fixtures.MESSAGES[1],
+              conversation: {
+                id: fixtures.CHANNEL_ID,
+                title: "general",
+                kind: "channel",
+              },
+            },
+          ],
+          next_cursor: null,
+        };
       case "browse":
         return [fixtures.CONVERSATIONS[0]];
       default:
@@ -79,16 +100,26 @@ vi.mock("../../lib/api", async (original) => {
 
 vi.mock("../../lib/auth/session", () => ({
   useSession: () => ({
-    profile: { id: "profile-1", subject: ME.id, name: ME.display_name, role: state.role },
+    profile: {
+      id: "profile-1",
+      subject: ME.id,
+      name: ME.display_name,
+      role: state.role,
+    },
     me: null,
   }),
-  usePermissions: () => ({ role: state.role, permissions: new Set(), can: () => false }),
+  usePermissions: () => ({
+    role: state.role,
+    permissions: new Set(),
+    can: () => false,
+  }),
 }));
 
 const { MessagesPage, chatSelf, phonePane } = await import("./messages-page");
 const { ThreadPanel } = await import("./conversation-view");
 const { DetailsPanel, SearchPanel } = await import("./side-panels");
-const { NewConversationDialog, BrowseChannelsDialog } = await import("./new-conversation");
+const { NewConversationDialog, BrowseChannelsDialog } =
+  await import("./new-conversation");
 const { Lightbox, EmojiPicker } = await import("./message-parts");
 const { RefCard, MessageBody } = await import("./message-body");
 const { SidePanel, ModalFrame } = await import("./primitives");
@@ -115,18 +146,20 @@ const render = (node: ReactElement) => renderToStaticMarkup(node);
 describe("messages page", () => {
   it("shows the four sidebar sections with unread and mention badges", () => {
     const html = render(createElement(MessagesPage));
-    for (const label of ["Channels", "Direct messages", "Groups", "AI users"])
+    for (const label of ["Channels", "Direct messages", "Groups", "Developers"])
       expect(html).toContain(`aria-label="${label}"`);
     expect(html).toContain('aria-label="2 unread"');
     expect(html).toContain('aria-label="1 mention"');
     expect(html).toContain("Phantasm Scout");
-    expect(html).toContain(">AI<");
+    expect(html).toContain(">Developer<");
     expect(html).toContain("Start a conversation");
     expect(html).toContain("Pick a conversation");
   });
 
   it("renders a conversation: chips, restricted refs, files, previews, edits, deletes, New divider", () => {
-    const html = render(createElement(MessagesPage, { initialConversationId: CHANNEL_ID }));
+    const html = render(
+      createElement(MessagesPage, { initialConversationId: CHANNEL_ID }),
+    );
     expect(html).toContain("Puregold Cubao");
     expect(html).toContain(`src="${OUTLET_REF.thumb_url}"`);
     expect(html).toContain("Restricted item");
@@ -146,24 +179,39 @@ describe("messages page", () => {
     expect(html).not.toMatch(/&lt;[@#!]/);
     expect(html).not.toContain(RESTRICTED_REF.id);
     expect(state.live).toEqual(
-      expect.arrayContaining([`messaging.user:${ME.id}`, `messaging.conv:${CHANNEL_ID}`]),
+      expect.arrayContaining([
+        `messaging.user:${ME.id}`,
+        `messaging.conv:${CHANNEL_ID}`,
+      ]),
     );
   });
 
   it("hover actions offer thread, react, edit and delete on your own message, copy link everywhere", () => {
     state.messages = [{ ...MESSAGES[1]!, author: ME }];
-    const html = render(createElement(MessagesPage, { initialConversationId: CHANNEL_ID }));
-    for (const label of ["Reply in thread", "Add reaction", "Edit message", "Delete message", "Copy link"])
+    const html = render(
+      createElement(MessagesPage, { initialConversationId: CHANNEL_ID }),
+    );
+    for (const label of [
+      "Reply in thread",
+      "Add reaction",
+      "Edit message",
+      "Delete message",
+      "Copy link",
+    ])
       expect(html).toContain(`aria-label="${label}"`);
     state.messages = [MESSAGES[1]!];
-    const other = render(createElement(MessagesPage, { initialConversationId: CHANNEL_ID }));
+    const other = render(
+      createElement(MessagesPage, { initialConversationId: CHANNEL_ID }),
+    );
     expect(other).not.toContain('aria-label="Edit message"');
     expect(other).not.toContain('aria-label="Delete message"');
   });
 
   it("hides messaging from partners", () => {
     state.role = "distributor";
-    expect(render(createElement(MessagesPage))).toContain("Messages are for Sunpride staff");
+    expect(render(createElement(MessagesPage))).toContain(
+      "Messages are for Sunpride staff",
+    );
   });
 
   it("stacks list, conversation and panel on a phone", () => {
@@ -175,7 +223,10 @@ describe("messages page", () => {
   });
 
   it("takes the caller's identity from GET /unread `me`, falling back to the profile", () => {
-    const canonical = { id: "c0ffee00-0000-4000-8000-000000000001", display_name: "Maria Santos" };
+    const canonical = {
+      id: "c0ffee00-0000-4000-8000-000000000001",
+      display_name: "Maria Santos",
+    };
     expect(chatSelf({ subject: ME.id, name: "Maria" }, canonical)).toEqual({
       id: canonical.id,
       display_name: "Maria Santos",
@@ -191,13 +242,19 @@ describe("composer", () => {
   it("sends on Enter, adds a line on Shift+Enter and ignores IME composition", () => {
     expect(keyIntent({ key: "Enter", shiftKey: false })).toBe("send");
     expect(keyIntent({ key: "Enter", shiftKey: true })).toBe("newline");
-    expect(keyIntent({ key: "Enter", shiftKey: false, isComposing: true })).toBeNull();
+    expect(
+      keyIntent({ key: "Enter", shiftKey: false, isComposing: true }),
+    ).toBeNull();
     expect(keyIntent({ key: "a", shiftKey: false })).toBeNull();
   });
 
   it("has attach, emoji and send controls", () => {
     const html = render(
-      createElement(Composer, { placeholder: "Message #general", client: actions.client, onSend: () => {} }),
+      createElement(Composer, {
+        placeholder: "Message #general",
+        client: actions.client,
+        onSend: () => {},
+      }),
     );
     expect(html).toContain('aria-label="Attach files"');
     expect(html).toContain('aria-label="Add emoji"');
@@ -221,11 +278,24 @@ describe("composer", () => {
 /** Finds the close button in a rendered element tree (no DOM needed). */
 function findClose(node: ReactNode): (() => void) | undefined {
   if (!isValidElement(node)) {
-    if (Array.isArray(node)) for (const child of node) { const hit = findClose(child); if (hit) return hit; }
+    if (Array.isArray(node))
+      for (const child of node) {
+        const hit = findClose(child);
+        if (hit) return hit;
+      }
     return undefined;
   }
-  const props = node.props as { label?: string; onClick?: () => void; children?: ReactNode };
-  if (typeof props.label === "string" && props.label.startsWith("Close") && props.onClick) return props.onClick;
+  const props = node.props as {
+    label?: string;
+    onClick?: () => void;
+    children?: ReactNode;
+  };
+  if (
+    typeof props.label === "string" &&
+    props.label.startsWith("Close") &&
+    props.onClick
+  )
+    return props.onClick;
   return findClose(props.children);
 }
 
@@ -233,16 +303,102 @@ describe("every panel closes with a close control and with Escape", () => {
   const parent = MESSAGES[1]!;
   const conversation = CHANNEL_DETAIL;
   const panels: [string, (onClose: () => void) => ReactElement][] = [
-    ["thread", (onClose) => createElement(ThreadPanel, { conversation, parent, me: ME, canModerate: false, actions, onClose })],
-    ["details", (onClose) => createElement(DetailsPanel, { conversation, me: ME, isAdmin: false, actions, onClose, onLeft: () => {} })],
-    ["search", (onClose) => createElement(SearchPanel, { me: ME, onClose, onOpenHit: () => {} })],
-    ["new direct message", (onClose) => createElement(NewConversationDialog, { mode: "dm", meId: ME.id, actions, onClose, onCreated: () => {} })],
-    ["new group", (onClose) => createElement(NewConversationDialog, { mode: "group", meId: ME.id, actions, onClose, onCreated: () => {} })],
-    ["new channel", (onClose) => createElement(NewConversationDialog, { mode: "channel", meId: ME.id, actions, onClose, onCreated: () => {} })],
-    ["browse channels", (onClose) => createElement(BrowseChannelsDialog, { actions, onClose, onJoined: () => {} })],
-    ["lightbox", (onClose) => createElement(Lightbox, { image: IMAGE_ATTACHMENT, onClose })],
-    ["ref card", (onClose) => createElement(RefCard, { entry: OUTLET_REF, type: "outlet", onClose })],
-    ["emoji picker", (onClose) => createElement(EmojiPicker, { onPick: () => {}, onClose })],
+    [
+      "thread",
+      (onClose) =>
+        createElement(ThreadPanel, {
+          conversation,
+          parent,
+          me: ME,
+          canModerate: false,
+          actions,
+          onClose,
+        }),
+    ],
+    [
+      "details",
+      (onClose) =>
+        createElement(DetailsPanel, {
+          conversation,
+          me: ME,
+          isAdmin: false,
+          actions,
+          onClose,
+          onLeft: () => {},
+        }),
+    ],
+    [
+      "search",
+      (onClose) =>
+        createElement(SearchPanel, { me: ME, onClose, onOpenHit: () => {} }),
+    ],
+    [
+      "new direct message",
+      (onClose) =>
+        createElement(NewConversationDialog, {
+          mode: "dm",
+          meId: ME.id,
+          actions,
+          onClose,
+          onCreated: () => {},
+        }),
+    ],
+    [
+      "new group",
+      (onClose) =>
+        createElement(NewConversationDialog, {
+          mode: "group",
+          meId: ME.id,
+          actions,
+          onClose,
+          onCreated: () => {},
+        }),
+    ],
+    [
+      "new channel",
+      (onClose) =>
+        createElement(NewConversationDialog, {
+          mode: "channel",
+          meId: ME.id,
+          actions,
+          onClose,
+          onCreated: () => {},
+        }),
+    ],
+    [
+      "browse channels",
+      (onClose) =>
+        createElement(BrowseChannelsDialog, {
+          actions,
+          onClose,
+          onJoined: () => {},
+        }),
+    ],
+    [
+      "lightbox",
+      (onClose) =>
+        createElement(Lightbox, {
+          images: [
+            {
+              key: "i1",
+              src: IMAGE_ATTACHMENT.url,
+              name: IMAGE_ATTACHMENT.name,
+              downloadUrl: IMAGE_ATTACHMENT.url,
+              bytes: IMAGE_ATTACHMENT.bytes,
+            },
+          ],
+          onClose,
+        }),
+    ],
+    [
+      "ref card",
+      (onClose) =>
+        createElement(RefCard, { entry: OUTLET_REF, type: "outlet", onClose }),
+    ],
+    [
+      "emoji picker",
+      (onClose) => createElement(EmojiPicker, { onPick: () => {}, onClose }),
+    ],
   ];
 
   it.each(panels)("%s", (_name, make) => {
@@ -256,17 +412,29 @@ describe("every panel closes with a close control and with Escape", () => {
 
   it("the panel frames wire their close button to onClose", () => {
     const side = vi.fn();
-    findClose(SidePanel({ title: "Thread", onClose: side, children: null }))?.();
+    findClose(
+      SidePanel({ title: "Thread", onClose: side, children: null }),
+    )?.();
     expect(side).toHaveBeenCalledTimes(1);
     const modal = vi.fn();
-    findClose(ModalFrame({ title: "New group", onClose: modal, children: null }))?.();
+    findClose(
+      ModalFrame({ title: "New group", onClose: modal, children: null }),
+    )?.();
     expect(modal).toHaveBeenCalledTimes(1);
   });
 
-  it("people search marks AI users", () => {
-    const html = render(createElement(NewConversationDialog, { mode: "dm", meId: ME.id, actions, onClose: () => {}, onCreated: () => {} }));
+  it("people search marks developers", () => {
+    const html = render(
+      createElement(NewConversationDialog, {
+        mode: "dm",
+        meId: ME.id,
+        actions,
+        onClose: () => {},
+        onCreated: () => {},
+      }),
+    );
     for (const person of DIRECTORY) expect(html).toContain(person.display_name);
-    expect(html).toContain(">AI<");
+    expect(html).toContain(">Developer<");
   });
 });
 
@@ -292,5 +460,75 @@ describe("SP-0148 link preview images", () => {
       }),
     );
     expect(own).toContain('src="/api/v1/messaging/previews/abc/image"');
+  });
+});
+
+describe("own messages and developers", () => {
+  it("marks the reader's own messages and labels developers, never AI", async () => {
+    const { MessageItem } = await import("./message-item");
+    const { AGENT } = await import("../../lib/messaging/fixtures");
+    const props = {
+      grouped: false,
+      meId: ME.id,
+      canModerate: false,
+      lookup: { user: () => undefined, ref: () => undefined },
+      handlers: {} as never,
+    };
+    const mine = render(
+      createElement(MessageItem, {
+        ...props,
+        message: { ...MESSAGES[0], author: ME } as never,
+      }),
+    );
+    const theirs = render(
+      createElement(MessageItem, {
+        ...props,
+        message: { ...MESSAGES[0], author: AGENT } as never,
+      }),
+    );
+    expect(mine).toContain('data-mine="true"');
+    expect(mine).toContain(">You<");
+    expect(theirs).not.toContain("data-mine");
+    expect(theirs).toContain(">Developer<");
+    expect(theirs).not.toContain(">AI<");
+  });
+});
+
+describe("image viewer", () => {
+  it("opens one picture plainly and several as a carousel at the picture that was clicked", async () => {
+    const { Lightbox, stepIndex, attachmentImages, AttachmentList } =
+      await import("./message-parts");
+    const pics = ["a.png", "b.png", "c.png"].map((name, at) => ({
+      ...IMAGE_ATTACHMENT,
+      id: `img-${at}`,
+      name,
+      url: `/f/${name}`,
+    }));
+    const single = render(
+      createElement(Lightbox, {
+        images: attachmentImages(pics.slice(0, 1)),
+        onClose: () => {},
+      }),
+    );
+    expect(single).not.toContain("Next image");
+    expect(single).toContain("Download");
+    const many = render(
+      createElement(Lightbox, {
+        images: attachmentImages(pics),
+        start: 1,
+        onClose: () => {},
+      }),
+    );
+    expect(many).toContain('aria-label="Previous image"');
+    expect(many).toContain('aria-label="Next image"');
+    expect(many).toMatch(/2(<!-- -->)? of (<!-- -->)?3/);
+    expect(many).toContain('src="/f/b.png" alt="b.png"');
+    expect([
+      stepIndex(2, 1, 3),
+      stepIndex(0, -1, 3),
+      stepIndex(5, 0, 3),
+    ]).toEqual([0, 2, 2]);
+    const list = render(createElement(AttachmentList, { attachments: pics }));
+    for (const p of pics) expect(list).toContain(`aria-label="Open ${p.name}"`);
   });
 });

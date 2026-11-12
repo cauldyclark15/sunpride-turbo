@@ -16,11 +16,19 @@ import {
   useMessagingLive,
   useMessagingUnread,
 } from "../../lib/messaging/hooks";
-import type { Conversation, Message, SearchHit, UserLite } from "../../lib/messaging/types";
+import type {
+  Conversation,
+  Message,
+  SearchHit,
+  UserLite,
+} from "../../lib/messaging/types";
 import { useMessagingActions } from "./actions";
 import { ConversationSidebar, type StartMode } from "./conversation-sidebar";
 import { ConversationView, ThreadPanel } from "./conversation-view";
-import { BrowseChannelsDialog, NewConversationDialog } from "./new-conversation";
+import {
+  BrowseChannelsDialog,
+  NewConversationDialog,
+} from "./new-conversation";
 import { DetailsPanel, SearchPanel } from "./side-panels";
 
 export type RightPanel =
@@ -83,7 +91,9 @@ function useFillHeight(ready: boolean): RefObject<HTMLDivElement | null> {
     fit();
     window.addEventListener("resize", fit);
     const observer =
-      typeof ResizeObserver === "undefined" ? undefined : new ResizeObserver(fit);
+      typeof ResizeObserver === "undefined"
+        ? undefined
+        : new ResizeObserver(fit);
     if (node.parentElement) observer?.observe(node.parentElement);
     return () => {
       window.removeEventListener("resize", fit);
@@ -110,7 +120,9 @@ export function MessagesPage({
     permissions.can("messaging.admin") ||
     MODERATOR_ROLES.has(session.profile?.role ?? "");
 
-  const [activeId, setActiveId] = useState<string | null>(initialConversationId);
+  const [activeId, setActiveId] = useState<string | null>(
+    initialConversationId,
+  );
   const [focusId, setFocusId] = useState<string | null>(initialMessageId);
   const [panel, setPanel] = useState<RightPanel>(null);
   const [dialog, setDialog] = useState<StartMode | null>(null);
@@ -125,7 +137,9 @@ export function MessagesPage({
     [list.items, activeId],
   );
   // A linked conversation beyond the first page still opens from its detail.
-  const fetched = useConversation(allowed && activeId && !listed ? activeId : null).data;
+  const fetched = useConversation(
+    allowed && activeId && !listed ? activeId : null,
+  ).data;
   const active: Conversation | undefined = listed ?? fetched;
 
   useEffect(() => {
@@ -137,11 +151,13 @@ export function MessagesPage({
       window.history.replaceState(null, "", url);
   }, [activeId, focusId]);
 
-  if (!session.profile) return <p className="p-6 text-sm text-muted">Loading…</p>;
+  if (!session.profile)
+    return <p className="p-6 text-sm text-muted">Loading…</p>;
   if (!allowed || !me)
     return (
       <p className="p-6 text-sm text-muted">
-        Messages are for Sunpride staff. Ask an administrator if you need access.
+        Messages are for Sunpride staff. Ask an administrator if you need
+        access.
       </p>
     );
 
@@ -158,21 +174,26 @@ export function MessagesPage({
   }
 
   const pane = phonePane(activeId, panel);
-  const threadParent =
-    panel?.kind === "thread" ? panel.parent : null;
+  const threadParent = panel?.kind === "thread" ? panel.parent : null;
 
   return (
     <div
       ref={root}
       className="relative -mx-6 -mb-5 -mt-5 flex h-[calc(100svh-8rem)] min-h-[420px] overflow-hidden border-t border-separator bg-background max-sm:-mx-4 max-sm:-mt-4"
     >
-      <div className={`${pane === "list" ? "flex" : "hidden"} min-h-0 w-full md:flex md:w-auto`}>
+      <div
+        className={`${pane === "list" ? "flex" : "hidden"} min-h-0 w-full md:flex md:w-auto`}
+      >
         <ConversationSidebar
           conversations={list.items ?? []}
           me={me}
           activeId={activeId}
           loading={list.status === "loading"}
-          error={list.error ? `Conversations could not be loaded. ${list.error.message}` : undefined}
+          error={
+            list.error
+              ? `Conversations could not be loaded. ${list.error.message}`
+              : undefined
+          }
           canLoadMore={list.status === "canLoadMore"}
           onLoadMore={() => void list.loadMore()}
           onOpen={(conversation) => open(conversation)}
@@ -180,7 +201,9 @@ export function MessagesPage({
           onSearch={() => setPanel({ kind: "search" })}
         />
       </div>
-      <div className={`${pane === "conversation" ? "flex" : "hidden"} relative min-h-0 min-w-0 flex-1 md:flex`}>
+      <div
+        className={`${pane === "conversation" ? "flex" : "hidden"} relative min-h-0 min-w-0 flex-1 md:flex`}
+      >
         {active ? (
           <ConversationView
             key={active.id}
@@ -193,7 +216,9 @@ export function MessagesPage({
               setActiveId(null);
               setPanel(null);
             }}
-            onOpenThread={(message) => setPanel({ kind: "thread", parent: message })}
+            onOpenThread={(message) =>
+              setPanel({ kind: "thread", parent: message })
+            }
             onOpenDetails={() => setPanel({ kind: "details" })}
             onOpenSearch={() => setPanel({ kind: "search" })}
           />
@@ -203,7 +228,8 @@ export function MessagesPage({
               {activeId ? "Opening conversation…" : "Pick a conversation"}
             </p>
             <p className="max-w-xs text-xs text-muted">
-              Message a colleague or an AI user, start a group, or join a channel.
+              Message a colleague or a developer, start a group, or join a
+              channel.
             </p>
             <button
               type="button"
@@ -216,7 +242,9 @@ export function MessagesPage({
         )}
       </div>
       {panel ? (
-        <div className={`${pane === "panel" ? "flex" : "hidden"} min-h-0 w-full md:absolute md:inset-y-0 md:right-0 md:z-20 md:flex md:w-[380px] md:shadow-xl lg:static lg:shadow-none`}>
+        <div
+          className={`${pane === "panel" ? "flex" : "hidden"} min-h-0 w-full md:absolute md:inset-y-0 md:right-0 md:z-20 md:flex md:w-[380px] md:shadow-xl lg:static lg:shadow-none`}
+        >
           {panel.kind === "thread" && active && threadParent ? (
             <ThreadPanel
               key={threadParent.id}
@@ -240,7 +268,11 @@ export function MessagesPage({
               }}
             />
           ) : panel.kind === "search" ? (
-            <SearchPanel me={me} onClose={() => setPanel(null)} onOpenHit={openHit} />
+            <SearchPanel
+              me={me}
+              onClose={() => setPanel(null)}
+              onOpenHit={openHit}
+            />
           ) : null}
         </div>
       ) : null}

@@ -10,7 +10,11 @@ import {
   type KeyboardEvent,
   type Ref,
 } from "react";
-import { newClientMessageId, type MessagingClient } from "../../lib/messaging/client";
+import {
+  newClientMessageId,
+  type MessagingClient,
+} from "../../lib/messaging/client";
+import { clearDraft, loadDraft, saveDraft } from "../../lib/messaging/drafts";
 import { formatBytes } from "../../lib/messaging/format";
 import {
   activeTrigger,
@@ -30,7 +34,7 @@ import {
   attachmentMime,
   uploadAttachment,
 } from "../../lib/messaging/upload";
-import { EmojiPicker } from "./message-parts";
+import { EmojiPicker, Lightbox, type LightboxImage } from "./message-parts";
 import {
   ObjectList,
   PeopleList,
@@ -52,7 +56,10 @@ type UploadItem = {
   preview?: string;
 };
 
-export type ComposerHandle = { addFiles: (files: File[]) => void; focus: () => void };
+export type ComposerHandle = {
+  addFiles: (files: File[]) => void;
+  focus: () => void;
+};
 
 export type ComposerSend = {
   clientMsgId: string;
@@ -77,6 +84,7 @@ export function Composer({
   allowChannel,
   ref,
   autoFocus,
+  draftKey,
 }: {
   placeholder: string;
   client: Pick<MessagingClient, "claimAttachment">;
@@ -84,16 +92,26 @@ export function Composer({
   allowChannel?: boolean;
   ref?: Ref<ComposerHandle>;
   autoFocus?: boolean;
+  /** Where an unsent message is kept on this device (see lib/messaging/drafts). */
+  draftKey?: string;
 }) {
-  const [text, setText] = useState("");
-  const [inserts, setInserts] = useState<DraftInsert[]>([]);
-  const [caret, setCaret] = useState(0);
+  // What was typed here last time. The composer only mounts in the browser (after the
+  // conversation loads), and is keyed per conversation/thread, so reading storage here is safe.
+  const [saved] = useState(() => (draftKey ? loadDraft(draftKey) : null));
+  const [text, setText] = useState(saved?.text ?? "");
+  const [inserts, setInserts] = useState<DraftInsert[]>(saved?.inserts ?? []);
+  const [caret, setCaret] = useState(saved?.text.length ?? 0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
+  const [viewing, setViewing] = useState<number | null>(null);
   const [emoji, setEmoji] = useState(false);
   const [error, setError] = useState("");
   const textarea = useRef<HTMLTextAreaElement>(null);
+  // Keep saving what they type, so leaving and coming back loses nothing.
+  useEffect(() => {
+    if (draftKey) saveDraft(draftKey, text, inserts);
+  }, [draftKey, text, inserts]);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const trigger = activeTrigger(text, caret);
@@ -137,13 +155,18 @@ export function Composer({
   }
 
   function startUpload(item: UploadItem) {
-    patchUpload(item.key, { status: "uploading", progress: 0, error: undefined });
+    patchUpload(item.key, {
+      status: "uploading",
+      progress: 0,
+      error: undefined,
+    });
     uploadAttachment(
       item.file,
       (progress) => patchUpload(item.key, { progress }),
       { client },
     ).then(
-      (attachmentId) => patchUpload(item.key, { status: "done", attachmentId, progress: 1 }),
+      (attachmentId) =>
+        patchUpload(item.key, { status: "done", attachmentId, progress: 1 }),
       (reason: unknown) =>
         patchUpload(item.key, {
           status: "failed",
@@ -155,7 +178,8 @@ export function Composer({
   function addFiles(files: File[]) {
     setError("");
     const room = MAX_ATTACHMENTS - uploadsRef.current.length;
-    if (files.length > room) setError("You can attach up to 10 files to one message.");
+    if (files.length > room)
+      setError("You can attach up to 10 files to one message.");
     const accepted: UploadItem[] = [];
     for (const file of files.slice(0, Math.max(0, room))) {
       const problem = attachmentError(file);
@@ -169,7 +193,8 @@ export function Composer({
         progress: 0,
         status: "uploading",
         preview:
-          isImageMime(attachmentMime(file)) && typeof URL.createObjectURL === "function"
+          isImageMime(attachmentMime(file)) &&
+          typeof URL.createObjectURL === "function"
             ? URL.createObjectURL(file)
             : undefined,
       });
@@ -250,7 +275,9 @@ export function Composer({
       return;
     }
     onSend({ clientMsgId: newClientMessageId(), body, attachmentIds });
-    for (const item of uploads) if (item.preview) URL.revokeObjectURL(item.preview);
+    for (const item of uploads)
+      if (item.preview) URL.revokeObjectURL(item.preview);
+    if (draftKey) clearDraft(draftKey);
     setText("");
     setInserts([]);
     setUploads([]);
@@ -299,6 +326,19 @@ export function Composer({
     }
   }
 
+  const gallery: LightboxImage[] = uploads.flatMap((item) =>
+    item.preview
+      ? [
+          {
+            key: item.key,
+            src: item.preview,
+            name: item.file.name,
+            bytes: item.file.size,
+          },
+        ]
+      : [],
+  );
+
   return (
     <div className="relative border-t border-separator bg-surface px-3 pb-3 pt-2 sm:px-4">
       {open?.trigger === "@" ? (
@@ -326,15 +366,35 @@ export function Composer({
               className="relative flex w-56 items-center gap-2 rounded-xl border border-border p-2"
             >
               {item.preview ? (
-                // eslint-disable-next-line @next/next/no-img-element -- local object URL preview.
-                <img src={item.preview} alt="" className="size-9 rounded-md object-cover" />
+                <button
+                  type="button"
+                  aria-label={`Preview ${item.file.name}`}
+                  onClick={() =>
+                    setViewing(
+                      gallery.findIndex((entry) => entry.key === item.key),
+                    )
+                  }
+                  className="shrink-0 overflow-hidden rounded-md focus-visible:outline-2 focus-visible:outline-accent"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element -- local object URL preview. */}
+                  <img
+                    src={item.preview}
+                    alt=""
+                    className="size-9 object-cover"
+                  />
+                </button>
               ) : (
-                <span aria-hidden className="inline-flex size-9 items-center justify-center rounded-md bg-default-soft text-muted">
+                <span
+                  aria-hidden
+                  className="inline-flex size-9 items-center justify-center rounded-md bg-default-soft text-muted"
+                >
                   <WorkspaceIcon name="document" />
                 </span>
               )}
               <span className="min-w-0 flex-1">
-                <span className="block truncate text-xs font-medium">{item.file.name}</span>
+                <span className="block truncate text-xs font-medium">
+                  {item.file.name}
+                </span>
                 {item.status === "failed" ? (
                   <button
                     type="button"
@@ -358,7 +418,9 @@ export function Composer({
                     />
                   </span>
                 ) : (
-                  <span className="block text-xs text-muted">{formatBytes(item.file.size)}</span>
+                  <span className="block text-xs text-muted">
+                    {formatBytes(item.file.size)}
+                  </span>
                 )}
               </span>
               <IconButton
@@ -409,8 +471,13 @@ export function Composer({
           className="max-h-56 min-h-8 flex-1 resize-none border-0 bg-transparent px-1 py-1 text-sm shadow-none outline-none ring-0 placeholder:text-muted focus:ring-0"
         />
         <span className="relative">
-          <IconButton label="Add emoji" onClick={() => setEmoji((value) => !value)}>
-            <span aria-hidden className="text-base">☺</span>
+          <IconButton
+            label="Add emoji"
+            onClick={() => setEmoji((value) => !value)}
+          >
+            <span aria-hidden className="text-base">
+              ☺
+            </span>
           </IconButton>
           {emoji ? (
             <EmojiPicker
@@ -438,9 +505,17 @@ export function Composer({
         </p>
       ) : (
         <p className="mt-1 hidden text-[11px] text-muted sm:block">
-          Enter to send · Shift+Enter for a new line · @ to mention · # to tag an item
+          Enter to send · Shift+Enter for a new line · @ to mention · # to tag
+          an item
         </p>
       )}
+      {viewing !== null && viewing >= 0 && gallery.length ? (
+        <Lightbox
+          images={gallery}
+          start={viewing}
+          onClose={() => setViewing(null)}
+        />
+      ) : null}
     </div>
   );
 }

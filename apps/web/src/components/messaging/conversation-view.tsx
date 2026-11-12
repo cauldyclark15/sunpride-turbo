@@ -2,7 +2,12 @@
 
 import { WorkspaceIcon } from "@sunpride/ui";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
-import { buildTimeline, conversationTitle, otherMembers } from "../../lib/messaging/format";
+import { draftKey } from "../../lib/messaging/drafts";
+import {
+  buildTimeline,
+  conversationTitle,
+  otherMembers,
+} from "../../lib/messaging/format";
 import { useConversation } from "../../lib/messaging/hooks";
 import type { NameLookup } from "../../lib/messaging/tokens";
 import type {
@@ -15,7 +20,7 @@ import type { MessagingActions } from "./actions";
 import { Composer, type ComposerHandle } from "./composer";
 import { MessageItem, type MessageHandlers } from "./message-item";
 import { MessageList } from "./message-list";
-import { AiBadge, IconButton, SidePanel, Spinner } from "./primitives";
+import { DeveloperBadge, IconButton, SidePanel, Spinner } from "./primitives";
 import { useMessageStream } from "./use-message-stream";
 
 /** Names for mention chips: resolved user refs, then members, then authors. */
@@ -24,12 +29,15 @@ export function buildLookup(
   messages: readonly Message[],
 ): NameLookup {
   const names = new Map<string, string>();
-  for (const member of detail?.members ?? []) names.set(member.id, member.display_name);
-  for (const member of detail?.members_preview ?? []) names.set(member.id, member.display_name);
+  for (const member of detail?.members ?? [])
+    names.set(member.id, member.display_name);
+  for (const member of detail?.members_preview ?? [])
+    names.set(member.id, member.display_name);
   for (const message of messages) {
     names.set(message.author.id, message.author.display_name);
     for (const ref of message.refs)
-      if (ref.type === "user" && ref.access === "ok") names.set(ref.id, ref.title);
+      if (ref.type === "user" && ref.access === "ok")
+        names.set(ref.id, ref.title);
   }
   const refs = messages.flatMap((message) => message.refs);
   return {
@@ -38,7 +46,10 @@ export function buildLookup(
   };
 }
 
-export function messageLink(origin: string, message: Pick<Message, "id" | "conversation_id">) {
+export function messageLink(
+  origin: string,
+  message: Pick<Message, "id" | "conversation_id">,
+) {
   return `${origin}/messages?c=${encodeURIComponent(message.conversation_id)}&m=${encodeURIComponent(message.id)}`;
 }
 
@@ -50,11 +61,15 @@ function useHandlers(
   return {
     onReply,
     onReact: (message, emoji, mine) => {
-      actions.react(message, emoji, mine).catch(() => notify("Could not update the reaction."));
+      actions
+        .react(message, emoji, mine)
+        .catch(() => notify("Could not update the reaction."));
     },
     onEdit: (message, body) => actions.edit(message, body),
     onDelete: (message) => {
-      actions.remove(message).catch(() => notify("Could not delete the message."));
+      actions
+        .remove(message)
+        .catch(() => notify("Could not delete the message."));
     },
     onCopyLink: (message) => {
       const url = messageLink(window.location.origin, message);
@@ -110,16 +125,23 @@ export function ConversationView({
   const [notice, setNotice] = useNotice();
   const handlers = useHandlers(actions, setNotice, onOpenThread);
 
-  const serverMessages = stream.messages.filter((message) => !("pending" in message && message.pending));
+  const serverMessages = stream.messages.filter(
+    (message) => !("pending" in message && message.pending),
+  );
   const latestSeq = serverMessages.at(-1)?.seq ?? 0;
-  const myLastRead = detail?.members.find((member) => member.id === me.id)?.last_read_seq;
+  const myLastRead = detail?.members.find(
+    (member) => member.id === me.id,
+  )?.last_read_seq;
 
   // Freeze where the reader stopped when the conversation opened, so the
   // "New" divider stays put after the read marker moves.
-  const [frozen, setFrozen] = useState<{ id: string; seq: number } | null>(null);
+  const [frozen, setFrozen] = useState<{ id: string; seq: number } | null>(
+    null,
+  );
   const opening =
     frozen?.id !== conversation.id &&
-    (myLastRead !== undefined || (stream.messages.length > 0 && conversation.unread_count === 0));
+    (myLastRead !== undefined ||
+      (stream.messages.length > 0 && conversation.unread_count === 0));
   if (opening)
     setFrozen({
       id: conversation.id,
@@ -130,19 +152,40 @@ export function ConversationView({
   const read = useRef<{ id: string; seq: number }>({ id: "", seq: 0 });
   useEffect(() => {
     if (!latestSeq) return;
-    if (read.current.id === conversation.id && read.current.seq >= latestSeq) return;
-    if (myLastRead !== undefined && myLastRead >= latestSeq && conversation.unread_count === 0) return;
-    if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+    if (read.current.id === conversation.id && read.current.seq >= latestSeq)
+      return;
+    if (
+      myLastRead !== undefined &&
+      myLastRead >= latestSeq &&
+      conversation.unread_count === 0
+    )
+      return;
+    if (
+      typeof document !== "undefined" &&
+      document.visibilityState === "hidden"
+    )
+      return;
     read.current = { id: conversation.id, seq: latestSeq };
     actions.markRead(conversation.id, latestSeq).catch(() => {
       read.current = { id: "", seq: 0 };
     });
-  }, [actions, conversation.id, conversation.unread_count, latestSeq, myLastRead]);
+  }, [
+    actions,
+    conversation.id,
+    conversation.unread_count,
+    latestSeq,
+    myLastRead,
+  ]);
 
-  const lookup = useMemo(() => buildLookup(detail, serverMessages), [detail, serverMessages]);
+  const lookup = useMemo(
+    () => buildLookup(detail, serverMessages),
+    [detail, serverMessages],
+  );
   const timeline = buildTimeline(stream.messages, { lastReadSeq, meId: me.id });
   const title = conversationTitle(conversation, me.id);
-  const agent = conversation.kind === "dm" && otherMembers(conversation, me.id).some((m) => m.is_agent);
+  const agent =
+    conversation.kind === "dm" &&
+    otherMembers(conversation, me.id).some((m) => m.is_agent);
 
   return (
     <section
@@ -154,7 +197,8 @@ export function ConversationView({
         setDragging(true);
       }}
       onDragLeave={(event) => {
-        if (event.currentTarget.contains(event.relatedTarget as Node | null)) return;
+        if (event.currentTarget.contains(event.relatedTarget as Node | null))
+          return;
         setDragging(false);
       }}
       onDrop={(event) => {
@@ -165,17 +209,30 @@ export function ConversationView({
       }}
     >
       <header className="flex min-h-14 items-center gap-2 border-b border-separator bg-surface px-2 sm:px-4">
-        <IconButton label="Back to conversations" icon="back" className="md:hidden" onClick={onBack} />
-        <button type="button" onClick={onOpenDetails} className="min-w-0 flex-1 text-left">
+        <IconButton
+          label="Back to conversations"
+          icon="back"
+          className="md:hidden"
+          onClick={onBack}
+        />
+        <button
+          type="button"
+          onClick={onOpenDetails}
+          className="min-w-0 flex-1 text-left"
+        >
           <span className="flex items-center gap-1.5">
             {conversation.kind === "channel" ? (
-              <span aria-hidden className="text-muted">{conversation.is_private ? "🔒" : "#"}</span>
+              <span aria-hidden className="text-muted">
+                {conversation.is_private ? "🔒" : "#"}
+              </span>
             ) : null}
             <span className="truncate text-sm font-semibold">{title}</span>
-            {agent ? <AiBadge /> : null}
+            {agent ? <DeveloperBadge /> : null}
           </span>
           {conversation.topic ? (
-            <span className="block truncate text-xs text-muted">{conversation.topic}</span>
+            <span className="block truncate text-xs text-muted">
+              {conversation.topic}
+            </span>
           ) : null}
         </button>
         <button
@@ -187,8 +244,16 @@ export function ConversationView({
           {conversation.member_count}
           <span className="sr-only"> members</span>
         </button>
-        <IconButton label="Search messages" icon="search" onClick={onOpenSearch} />
-        <IconButton label="Conversation details" icon="more" onClick={onOpenDetails} />
+        <IconButton
+          label="Search messages"
+          icon="search"
+          onClick={onOpenSearch}
+        />
+        <IconButton
+          label="Conversation details"
+          icon="more"
+          onClick={onOpenDetails}
+        />
       </header>
       {stream.isLoading ? (
         <Spinner label="Loading messages…" />
@@ -223,9 +288,12 @@ export function ConversationView({
       )}
       <Composer
         key={conversation.id}
+        draftKey={draftKey(me.id, conversation.id)}
         ref={composer}
         placeholder={
-          conversation.kind === "channel" ? `Message #${title}` : `Message ${title}`
+          conversation.kind === "channel"
+            ? `Message #${title}`
+            : `Message ${title}`
         }
         client={actions.client}
         allowChannel={conversation.kind !== "dm"}
@@ -245,7 +313,10 @@ export function ConversationView({
         </div>
       ) : null}
       {notice ? (
-        <p role="status" className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-foreground px-3 py-1 text-xs text-background">
+        <p
+          role="status"
+          className="absolute bottom-24 left-1/2 z-30 -translate-x-1/2 rounded-full bg-foreground px-3 py-1 text-xs text-background"
+        >
           {notice}
         </p>
       ) : null}
@@ -269,11 +340,19 @@ export function ThreadPanel({
   onClose: () => void;
 }) {
   const detail = useConversation(conversation.id).data;
-  const stream = useMessageStream(conversation.id, parent.id, actions.outbox, me);
+  const stream = useMessageStream(
+    conversation.id,
+    parent.id,
+    actions.outbox,
+    me,
+  );
   const replies = stream.messages.filter((message) => message.id !== parent.id);
   const [notice, setNotice] = useNotice();
   const handlers = useHandlers(actions, setNotice);
-  const lookup = useMemo(() => buildLookup(detail, [parent, ...replies]), [detail, parent, replies]);
+  const lookup = useMemo(
+    () => buildLookup(detail, [parent, ...replies]),
+    [detail, parent, replies],
+  );
   const timeline = buildTimeline(replies, { meId: me.id });
   return (
     <SidePanel
@@ -319,6 +398,7 @@ export function ThreadPanel({
         )}
         <Composer
           key={parent.id}
+          draftKey={draftKey(me.id, conversation.id, parent.id)}
           placeholder="Reply in thread"
           client={actions.client}
           allowChannel={false}
@@ -332,7 +412,11 @@ export function ThreadPanel({
             })
           }
         />
-        {notice ? <p role="status" className="px-4 pb-2 text-xs text-muted">{notice}</p> : null}
+        {notice ? (
+          <p role="status" className="px-4 pb-2 text-xs text-muted">
+            {notice}
+          </p>
+        ) : null}
       </div>
     </SidePanel>
   );
