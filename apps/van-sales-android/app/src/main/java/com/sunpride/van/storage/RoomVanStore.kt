@@ -91,17 +91,27 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         trips.singleOrNull()?.let { t -> rows.any { it.tripId == t.tripId } } ?: false
     }
     /** VAN-024: the current trip is closed on this phone (nothing more is recorded on it). */
+    /** r6van4: truck stock the office will not let leave for a sale (quarantined, held, expired batches). */
+    val heldStock: Flow<Map<String,Long>> = dao.observeTrip(s,d).map { com.sunpride.van.pos.HeldStock.decode(it.singleOrNull()?.json) }
     val tripClosed: Flow<Boolean> = combine(dao.observeTrip(s,d),dao.observeTripClose(s,d)) { trips, rows ->
         trips.singleOrNull()?.let { t -> rows.any { it.tripId == t.tripId } } ?: false
     }
-    val truckStock: Flow<List<TruckStock>> = combine(dao.observeBaseline(s,d),dao.observeMovement(s,d),dao.observeSettlement(s,d),dao.observeTrip(s,d)) { b,m,settled,t ->
+    val truckStock: Flow<List<TruckStock>> = combine(dao.observeBaseline(s,d),dao.observeMovement(s,d),dao.observeSettlement(s,d),dao.observeTrip(s,d),dao.observeOutbox(s,d)) { b,m,settled,t,ops ->
         val trip = t.singleOrNull()?.tripId
-        if (trip == null) emptyList() else StockProjection.project(b.filter { it.tripId == trip },m.filter { it.tripId == trip },settled.map { it.movementId }.toSet())
+        val refused = refusedOps(ops)
+        if (trip == null) emptyList() else StockProjection.project(b.filter { it.tripId == trip },StockProjection.withoutRefused(m.filter { it.tripId == trip },refused),settled.map { it.movementId }.toSet())
     }
     suspend fun stock(): List<TruckStock> {
         val tripId = dao.trip(s,d)?.tripId ?: return emptyList()
-        return StockProjection.project(dao.truckstockbaselineRows(s,d).filter { it.tripId == tripId },dao.stockmovementRows(s,d).filter { it.tripId == tripId },dao.movementsettlementRows(s,d).map { it.movementId }.toSet())
+        val refused = refusedOps(dao.outboxRows(s,d))
+        return StockProjection.project(dao.truckstockbaselineRows(s,d).filter { it.tripId == tripId },StockProjection.withoutRefused(dao.stockmovementRows(s,d).filter { it.tripId == tripId },refused),dao.movementsettlementRows(s,d).map { it.movementId }.toSet())
     }
+    /**
+     * r6van4: operations the office refused for good. Their stock movements never happened at the office, so they are
+     * left out of the truck stock here too (a refused sale's goods are back on the truck the moment the refusal arrives).
+     * Same rule as the stock count (`StockReconciliationStore`): v2 scopes, whose refusals are final.
+     */
+    internal fun refusedOps(rows: Collection<OutboxRow>): Set<String> = OutboxRules.refused(s,rows)
     suspend fun canRemove(productId: String, qty: Long): Boolean = db.withTransaction {
         if (!canSync()) return@withTransaction false
         val p = dao.meta(s,d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) } ?: return@withTransaction false
@@ -263,7 +273,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         val stockCounted = t != null && dao.stockReconciliation(s,d,t.tripId) != null
         return CheckoutContext(t != null && canSync() && selling(t),
             dao.customerRows(s,d).map { it.toCustomer() },
-            dao.productRows(s,d).map { VanBootstrapCodec.product(JSONObject(it.json)) }, stock(),
+            dao.productRows(s,d).map { VanBootstrapCodec.product(JSONObject(it.json)) }, com.sunpride.van.pos.HeldStock.sellable(stock(),com.sunpride.van.pos.HeldStock.decode(t?.json)),
             dao.pricelistlineRows(s,d).map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo,it.priceListCode) },
             meta?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) }, clock(), t?.serviceDate,
             facts.creditUsedMinor, facts.usedReferences, counted,
@@ -442,7 +452,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     private suspend fun deductSale(tripId: String, key: String, productId: String, quantityBase: Long, at: Long, allowNegative: Boolean) {
         val movementId = saleMovementId(key,productId)
         check(dao.stockmovementRows(s,d).none { it.movementId == movementId }) { "Sale already deducted" }
-        val available = stock().firstOrNull { it.productId == productId }?.availableBase ?: 0L
+        val available = com.sunpride.van.pos.HeldStock.sellable(stock(),com.sunpride.van.pos.HeldStock.decode(dao.trip(s,d)?.json)).firstOrNull { it.productId == productId }?.availableBase ?: 0L
         if (!com.sunpride.van.ledger.StockProjection.canRemove(available,quantityBase,allowNegative))
             throw CheckoutRefused(listOf(CheckoutIssue(CheckoutProblem.INSUFFICIENT_STOCK,productId)))
         dao.insertMovement(MovementRow(s,d,movementId,tripId,productId,com.sunpride.van.ledger.MovementType.SALE.name,

@@ -67,6 +67,8 @@ class AuthClient(
         val request = Request.Builder().url(environment.siteUrl.trimEnd('/')+REFRESH).header("Authorization","Bearer $session")
             .post(body.toString().toRequestBody(JSON_MEDIA)).build()
         val o = call(request) { code, response ->
+            // VAN-086: a paused phone keeps its session (the office may reinstate it); only an ended session signs out.
+            if (code == 403 && AuthFailure.paused(response.body?.string())) throw AuthFailure(AuthFailure.Kind.PAUSED)
             if (code == 401 || code == 403) { vault.wipe(); throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED) }
             if (code !in 200..299) throw AuthFailure(AuthFailure.Kind.SERVER)
             JSONObject(response.body?.string().orEmpty())

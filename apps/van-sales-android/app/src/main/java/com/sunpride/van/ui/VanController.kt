@@ -13,6 +13,9 @@ import kotlinx.coroutines.flow.*
 import org.json.JSONObject
 import java.util.UUID
 
+/** VAN-085: shown when the app starts without reaching the office and opens the day saved on this phone. */
+internal const val OFFLINE_START = "No signal. Working from the day saved on this phone. Tap Sync now when you have signal."
+
 /** One UI lifetime; no Activity, password persistence, identity selection, or raw error text. */
 class VanController(val repository: VanRepository, val environment: AppEnvironment,
     val fixtureMode: Boolean = false,
@@ -99,6 +102,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     var promotions by mutableStateOf(emptyList<Promotion>())
         private set
     var stock by mutableStateOf(emptyList<TruckStock>())
+    /** r6van4: per product, truck stock the office will not let leave for a sale. */
+    var heldStock by mutableStateOf(emptyMap<String,Long>())
         private set
     var damageRecords by mutableStateOf(emptyList<DamageRecord>())
         private set
@@ -120,6 +125,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         private set
     var message by mutableStateOf<String?>(null)
         private set
+    /** Show plain words on the current screen (no work done). */
+    fun say(text: String) { message = text }
     var fingerprint by mutableStateOf("Loading…")
     /** Public key (never secret) an administrator pastes into phone registration. */
     var publicKey by mutableStateOf<String?>(null)
@@ -219,6 +226,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.priceLines.collect { prices = it } }
         launch { repository.promotions.collect { promotions = it } }
         launch { repository.truckStock.collect { stock = it } }
+        launch { repository.heldStock.collect { heldStock = it } }
         launch { repository.policy.collect { policy = it } }
         launch { repository.storePos.collect { value ->
             val changed=storePos.config?.mode != value.config?.mode
@@ -238,16 +246,20 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { publicKey = try { publicKeyLoader() } catch (_: Exception) { null } }
         if (restore) {
             busy = true
+            // VAN-085: the day saved on this phone opens as soon as it is read, without waiting for the office
+            // (offline, every request first runs into its timeout). The start-up check and sync carry on behind it.
+            val cachedDay = launch { repository.currentTrip.first { it != null }; if (!initialized) { initialized = true; busy = false; refreshSharing() } }
             try {
                 repository.restoreSession()
-                if (repository.enrollmentState.value is EnrollmentState.Ready) { repository.syncNow(); setupProblem = null }
+                if (repository.enrollmentState.value is EnrollmentState.Ready && !repository.restoredOffline) { repository.syncNow(); setupProblem = null }
+                else if (repository.restoredOffline) message = OFFLINE_START
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 // A sync refusal is not a connection problem; say what actually happened.
                 message = rememberSyncFailure(if (e is com.sunpride.van.sync.VanSyncFailure) syncMessage(e)
                     else AuthMessages.forFailure(e,"Could not connect. Saved work stays on this phone. Try again."))
             }
-            finally { busy = false; initialized = true; refreshSharing() }
+            finally { cachedDay.cancel(); busy = false; initialized = true; refreshSharing() }
         } else { initialized = true; refreshSharing() }
         awaitCancellation()
     }
@@ -645,7 +657,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         private set
     suspend fun refreshPaymentFacts() { paymentFacts = runCatching { repository.paymentFacts() }.getOrDefault(com.sunpride.van.storage.PaymentFacts()) }
     fun saleContext(now: Long = System.currentTimeMillis()): CheckoutContext =
-        CheckoutContext(VanRules.canSell(trip) && session.signedIn,customers,products,stock,prices,policy,now,trip?.serviceDate,
+        CheckoutContext(VanRules.canSell(trip) && session.signedIn,customers,products,com.sunpride.van.pos.HeldStock.sellable(stock,heldStock),prices,policy,now,trip?.serviceDate,
             paymentFacts.creditUsedMinor,paymentFacts.usedReferences,cashCounted,promotions,stockCounted,
             taxFacts = policy?.fiscalJson?.let { com.sunpride.van.fiscal.FiscalTax.facts(JSONObject(it),now) },
             capRemaining = com.sunpride.van.selling.PrivilegeCap.remainingFn(policy?.privilegeCap,paymentFacts.capUsedMinor,now))

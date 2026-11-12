@@ -56,10 +56,15 @@ export async function deviceCommand(c, action, b) {
           ? "revoked"
           : "active",
   });
-  if (action !== "reinstate") {
+  if (action === "revoke")
     await c.db`update sessions set revoked_at=now() where user_id=(select user_id from profiles where id=${device.profile_id}) and device_key_id=${device.key_id} and revoked_at is null`;
+  if (action === "suspend")
+    // VAN-086: a pause is not a sign-out. The phone's short-lived access ends now, and every refresh answers
+    // 403 device_suspended ("This phone is paused") until the phone is reinstated; the session and the work kept
+    // on the phone stay, so a reinstated phone carries on without a new sign-in.
+    await c.db`delete from access_tokens where session_id in (select id from sessions where user_id=(select user_id from profiles where id=${device.profile_id}) and device_key_id=${device.key_id} and revoked_at is null)`;
+  if (action !== "reinstate")
     await c.db`update device_challenges set consumed_at=now() where device_id=${device.id} and consumed_at is null`;
-  }
   return null;
 }
 /** Admin-only registration; does not bind, reassign or revive any existing key. @param {Ctx} c @param {Row} b */

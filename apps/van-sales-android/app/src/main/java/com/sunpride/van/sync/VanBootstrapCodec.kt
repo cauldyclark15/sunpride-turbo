@@ -161,6 +161,8 @@ object VanBootstrapCodec {
         legacy.optJSONObject("trip")?.remove(com.sunpride.van.pos.OpeningFloat.FIELD)
         // NF-5: the trip's office-held cash per sale is a v2 handheld addition too (read by CashReconciliationStore).
         legacy.optJSONObject("trip")?.remove(com.sunpride.van.pos.ServerTripCash.FIELD)
+        // r6van4: truck stock the office will not let leave for a sale is a v2 handheld addition (read by HeldStock).
+        legacy.optJSONObject("trip")?.remove(com.sunpride.van.pos.HeldStock.FIELD)
         legacy.optJSONObject("load")?.let { it.remove("confirmRequestId"); it.remove("rejectionNote") }
         o.getJSONObject("policy").optJSONObject("storePos")?.let(com.sunpride.van.storepos.StorePosConfig::decode)
         VanWireSchema.validate(legacy)

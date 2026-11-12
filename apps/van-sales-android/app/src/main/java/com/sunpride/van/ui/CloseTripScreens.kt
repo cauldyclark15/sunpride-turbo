@@ -28,12 +28,15 @@ import java.time.format.DateTimeFormatter
     val odometerValid = (!operational && draft.odometer.isBlank()) || TripCloseRules.validOdometer(km ?: Double.NaN,summary?.startOdometerKm)
     val noteValid = TripCloseRules.validNote(draft.note)
     val needsReview = checklist != null && TripCloseRules.needsReview(checklist,policy)
-    val ready = summary != null && saved == null && checklist!!.ready && odometerValid && noteValid && (!needsReview || draft.reviewed)
+    val otherwiseReady = summary != null && saved == null && checklist!!.ready && odometerValid && noteValid
+    val ready = otherwiseReady && (!needsReview || draft.reviewed)
+    // VAN-082: without the tick the button stays tappable and says what to do, instead of doing nothing.
+    val tickMessage = VanRules.closeTapMessage(otherwiseReady,needsReview,draft.reviewed)
 
     ScreenFrame("Close trip",c::back,
         action = if (saved != null) "Done" else if (c.busy) "Closing…" else "Close trip",actionTag = "close-trip",
-        enabled = if (saved != null) true else ready && !c.busy && c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN).isEmpty(),
-        onAction = { if (saved != null) c.back() else c.closeTrip() },
+        enabled = if (saved != null) true else (ready || tickMessage != null) && !c.busy && c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN).isEmpty(),
+        onAction = { if (saved != null) c.back() else if (tickMessage != null) c.say(tickMessage) else c.closeTrip() },
         footer = if (saved == null && checklist != null) "${checklist.blockers.size} to do · ${checklist.exceptions.size} to check" else null,
         message = c.message) {
         when {

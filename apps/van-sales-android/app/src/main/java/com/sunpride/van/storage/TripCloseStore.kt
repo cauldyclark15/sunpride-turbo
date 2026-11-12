@@ -44,7 +44,9 @@ class TripCloseStore(private val store: RoomVanStore) {
         val tripMovements = dao.stockmovementRows(s, d).filter { it.tripId == t.tripId }.map { it.movementId }.toSet()
         val issues = store.saleStockIssues().count { it.saleId in tripSales || it.saleId == null && it.movementId in tripMovements }
         val unprinted = RoomReceiptPrintLog(db, store.scope).savedSales().count { it.void == null && !it.printed }
-        return TripCloseFacts(onRoad(t), !store.canSync(), cash != null, stock != null,
+        // r6van4: a count the office refused is not a count: closing on the phone would leave the trip open at the office.
+        val refused = store.refusedOps(ops)
+        return TripCloseFacts(onRoad(t), !store.canSync(), cash != null && cash.idempotencyKey !in refused, stock != null && stock.idempotencyKey !in refused,
             ops.count { it.status in setOf("pending", "sending") }, issues, unprinted,
             ops.count { it.status in OutboxRules.reviewStatuses }, cash?.varianceMinor, stock?.varianceLines)
     }

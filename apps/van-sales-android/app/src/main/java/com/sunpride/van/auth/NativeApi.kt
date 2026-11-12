@@ -35,6 +35,7 @@ class NativeApi(private val environment: AppEnvironment, private val auth: AuthC
                     } else {
                         val o = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrNull()
                             ?: throw AuthFailure(AuthFailure.Kind.SERVER)
+                        if (response.code == 403 && AuthFailure.paused(o.toString())) throw AuthFailure(AuthFailure.Kind.PAUSED)
                         if (response.code == 403) throw AuthFailure(AuthFailure.Kind.REFUSED)
                         if (!response.isSuccessful) {
                             val code = o.optJSONObject("error")?.optString("code")?.takeIf { Regex("[a-z_]{1,64}").matches(it) }

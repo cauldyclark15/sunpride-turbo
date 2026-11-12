@@ -45,6 +45,7 @@ class CashReconciliationStore(private val store: RoomVanStore) {
             val r=FrozenReceipts.decode(checkNotNull(db.receiptPrints().saleReceipt(s,d,p.getString("paymentId"))).documentJson).first
             TripPayment(r.saleId,r.receiptNumber,r.paymentMethod,r.paymentLabel,r.paymentKind,r.totalMinor,r.currency,false)
         }
+        val refused = store.refusedOps(ops.values)
         return collections + dao.saleRows(s, d).filter { it.tripId == tripId }.sortedBy { it.createdAt }.map { sale ->
             val payload = JSONObject(checkNotNull(ops[sale.idempotencyKey]) { "Sale without its operation" }.operationJson).getJSONObject("payload")
             val payment = payload.getJSONObject("payment")
@@ -53,7 +54,7 @@ class CashReconciliationStore(private val store: RoomVanStore) {
             val kind = PaymentKind.of(payment.optString("kind", if (code == "cash") "cash" else "other"))
             val amount = payment.optString("amountMinor").ifEmpty { null }?.toLong() ?: checkNotNull(sale.totalMinor)
             TripPayment(sale.saleId, sale.receiptNumber, code, methods.firstOrNull { it.code == code }?.label ?: code, kind, amount,
-                payload.getString("currency"), sale.saleId in voided)
+                payload.getString("currency"), sale.saleId in voided, sale.idempotencyKey in refused)
         }
     }
 

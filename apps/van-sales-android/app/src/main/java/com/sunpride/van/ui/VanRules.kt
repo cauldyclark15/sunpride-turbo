@@ -81,7 +81,7 @@ object VanRules {
             com.sunpride.van.pos.CheckoutProblem.DUPLICATE_PRODUCT -> "$p is in the sale twice."
             com.sunpride.van.pos.CheckoutProblem.UNKNOWN_PRODUCT -> "A product is no longer on this phone. Remove it."
             com.sunpride.van.pos.CheckoutProblem.BAD_QUANTITY -> "$p: enter a quantity above zero."
-            com.sunpride.van.pos.CheckoutProblem.INSUFFICIENT_STOCK -> "$p: not enough on the truck."
+            com.sunpride.van.pos.CheckoutProblem.INSUFFICIENT_STOCK -> "$p: not enough on the truck to sell. Batches the office has on hold or that are too close to expiry cannot be sold."
             com.sunpride.van.pos.CheckoutProblem.UNPRICED -> "$p is priced by the office. There is no price for this customer on this phone, so it can't be sold yet. Remove it, or sync and try again."
             com.sunpride.van.pos.CheckoutProblem.PRICE_NOT_EXACT -> "$p: this quantity doesn't give an exact price. Change the quantity."
             com.sunpride.van.pos.CheckoutProblem.PROMOTION_CONFLICT -> "Two promotions apply to $p. Ask the office, or remove it."
@@ -185,6 +185,9 @@ object VanRules {
         com.sunpride.van.pos.StockProblem.STOCK_COUNTED -> "Truck stock is already counted. No more stock changes on this trip."
         com.sunpride.van.pos.StockProblem.TRIP_CLOSED -> "This trip is closed. No more stock changes on this trip."
     }
+    /** VAN-082: Close trip tapped with everything else ready but the exceptions not ticked: say so (null = close normally). */
+    fun closeTapMessage(otherwiseReady: Boolean, needsReview: Boolean, reviewed: Boolean): String? =
+        if (otherwiseReady && needsReview && !reviewed) closeMessage(com.sunpride.van.pos.CloseProblem.REVIEW_REQUIRED) else null
     /** VAN-024: plain words for each trip close refusal. */
     fun closeMessage(problem: com.sunpride.van.pos.CloseProblem): String = when (problem) {
         com.sunpride.van.pos.CloseProblem.NOT_ON_ROUTE -> "Start the trip before closing it."

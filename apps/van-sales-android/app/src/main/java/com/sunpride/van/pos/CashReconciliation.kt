@@ -44,7 +44,9 @@ object CashDenominations {
 
 /** One sale's payment as frozen in the sale when it was saved. */
 data class TripPayment(val saleId: String, val receiptNumber: String, val methodCode: String, val methodLabel: String,
-    val kind: PaymentKind, val amountMinor: Long, val currency: String, val voided: Boolean)
+    val kind: PaymentKind, val amountMinor: Long, val currency: String, val voided: Boolean,
+    /** r6van4: the office refused this sale for good (its number is spoiled): it never happened at the office. */
+    val refused: Boolean = false)
 /** Sales paid by one method that does not go in the cash bag (check, e-wallet, bank, credit). */
 data class MethodTotal(val code: String, val label: String, val kind: PaymentKind, val count: Int, val amountMinor: Long)
 /** [expectedMinor] is the cash the seller should hand in; [voidedSales] were left out. */
@@ -53,7 +55,9 @@ data class CashExpectation(val currency: String, val expectedMinor: Long, val ca
     /** IP-P0 (SPEC 6.7): the opening float and cash refunds that are part of [expectedMinor]. */
     val openingFloatMinor: Long = 0L, val cashRefundsMinor: Long = 0L,
     /** NF-5: cash sales of this trip made on another phone (the office's rows), already in [expectedMinor]. */
-    val otherPhoneSales: Int = 0, val otherPhoneMinor: Long = 0L)
+    val otherPhoneSales: Int = 0, val otherPhoneMinor: Long = 0L,
+    /** r6van4: sales the office refused, left out of [expectedMinor] exactly like the office leaves them out. */
+    val refusedSales: Int = 0, val refusedMinor: Long = 0L)
 
 enum class CashProblem { NOT_ON_ROUTE, HELD, ALREADY_COUNTED, EXPECTED_CHANGED, COUNT_INVALID, MIXED_CURRENCY,
     REASON_REQUIRED, NOTE_REQUIRED, NOTE_INVALID, APPROVAL_UNAVAILABLE, CODE_REQUIRED, CODE_WRONG }
@@ -79,7 +83,8 @@ object CashReconciliationRules {
         require(openingFloatMinor in 0..OpeningFloat.MAX_CENTAVOS && cashRefundsMinor >= 0)
         val currencies = payments.map { it.currency }.toSet()
         if (currencies.size > 1) throw CashRefused(CashProblem.MIXED_CURRENCY)
-        val live = payments.filterNot { it.voided }
+        // r6van4: a sale the office refused is not in the office's expected cash either (it has no such sale).
+        val live = payments.filterNot { it.voided || it.refused }
         val cash = live.filter { it.kind == PaymentKind.CASH }
         val others = live.filter { it.kind != PaymentKind.CASH }.groupBy { it.methodCode }.map { (code, rows) ->
             MethodTotal(code, rows.first().methodLabel, rows.first().kind, rows.size, rows.fold(0L) { a, r -> Math.addExact(a, r.amountMinor) })
@@ -88,7 +93,8 @@ object CashReconciliationRules {
         val inBag = Math.addExact(Math.subtractExact(Math.addExact(openingFloatMinor, cash.fold(0L) { a, r -> Math.addExact(a, r.amountMinor) }), cashRefundsMinor),
             otherPhones.netMinor)
         return CashExpectation(currencies.singleOrNull() ?: "PHP", inBag,
-            cash.size, payments.count { it.voided }, others, openingFloatMinor, cashRefundsMinor, otherPhones.sales, otherPhones.netMinor)
+            cash.size, payments.count { it.voided && !it.refused }, others, openingFloatMinor, cashRefundsMinor, otherPhones.sales, otherPhones.netMinor,
+            payments.count { it.refused }, payments.filter { it.refused && !it.voided }.fold(0L) { a, r -> Math.addExact(a, r.amountMinor) })
     }
 
     /** Total counted in centavos, or null when a value is not a known denomination or a count is out of range. */

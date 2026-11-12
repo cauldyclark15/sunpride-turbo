@@ -100,7 +100,10 @@ import java.time.format.DateTimeFormatter
                 if (!saved.isCollection && saved.void == null && r.paymentKind == com.sunpride.van.data.PaymentKind.CREDIT && !c.tripClosed)
                     SecondaryButton("Collect payment & issue OR",{collecting=saved},Modifier.testTag("receipt-$index-collect"),enabled=!c.busy)
                 c.refundsBySale[r.saleId]?.let { Text("Refunded ${PosMoney.format(it,r.currency)} · void is closed, refund the items that are left",style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("receipt-$index-refunded")) }
-                if (!saved.isCollection && saved.void == null && !c.refundsBySale.containsKey(r.saleId) && c.policy?.let { VoidRules.offered(it).isNotEmpty() } == true)
+                // VAN-083: a closed trip voids nothing; say so instead of offering a button that can only be refused.
+                if (!saved.isCollection && saved.void == null && c.tripClosed && c.policy?.let { VoidRules.offered(it).isNotEmpty() } == true)
+                    Text(VanRules.voidMessage(com.sunpride.van.pos.VoidProblem.TRIP_CLOSED),style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("receipt-$index-void-closed"))
+                if (!saved.isCollection && saved.void == null && !c.tripClosed && !c.refundsBySale.containsKey(r.saleId) && c.policy?.let { VoidRules.offered(it).isNotEmpty() } == true)
                     DangerButton("Void sale",{ voiding = saved },Modifier.testTag("receipt-$index-void-sale"),enabled = !c.busy && !c.printing)
                 // IP-REFUND: take back some of the items (opt-in from the office; older servers never send the reasons)
                 if (!saved.isCollection && saved.void == null && r.paymentKind != com.sunpride.van.data.PaymentKind.CREDIT && c.policy?.refunds != null && !c.tripClosed)

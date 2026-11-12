@@ -215,6 +215,7 @@ class VanRepository private constructor(private val context: Context, private va
     val seller: Flow<Seller?> = visible.flatMapLatest { it?.seller ?: flowOf(null) }.offMain()
     val policy: Flow<VanPolicy?> = visible.flatMapLatest { it?.policy ?: flowOf(null) }.offMain()
     val truckStock: Flow<List<TruckStock>> = visible.flatMapLatest { it?.truckStock ?: flowOf(emptyList()) }.offMain()
+    val heldStock: Flow<Map<String,Long>> = visible.flatMapLatest { it?.heldStock ?: flowOf(emptyMap()) }.offMain()
     val damageRecords: Flow<List<DamageRecord>> = visible.flatMapLatest { it?.damageRecords ?: flowOf(emptyList()) }.offMain()
     val products: Flow<List<Product>> = visible.flatMapLatest { it?.products ?: flowOf(emptyList()) }.offMain()
     fun catalogueImage(image:com.sunpride.catalogue.CatalogueImage):ByteArray? = if(stubMode!=null)null else api.image(image)
@@ -347,6 +348,9 @@ class VanRepository private constructor(private val context: Context, private va
             check(index.edit().putInt("transportGeneration",2).commit())
         }
     }
+    /** VAN-085: the last [restoreSession] could not reach the office and opened the day saved on this phone. */
+    @Volatile var restoredOffline: Boolean = false
+        private set
     suspend fun restoreSession(): Unit = authLock.withLock {
         withContext(Dispatchers.IO) {
             cutover()
@@ -364,10 +368,16 @@ class VanRepository private constructor(private val context: Context, private va
                     gateway = VanSyncClient(LiveVanTransport(environment,auth,api),loadSigner(),device,identity)
                 }
             }
+            restoredOffline = false
             try { enroll() } catch (e: AuthFailure) {
-                if (e.kind != AuthFailure.Kind.OFFLINE) { current.value?.hold(); current.value = null; if (!auth.isSignedIn) session.value = SessionState(); throw e }
+                // VAN-086: a paused phone keeps its saved day on screen (read-only until the office reinstates it).
+                if (e.kind !in setOf(AuthFailure.Kind.OFFLINE,AuthFailure.Kind.PAUSED)) { current.value?.hold(); current.value = null; if (!auth.isSignedIn) session.value = SessionState(); throw e }
                 // Previously verified finite lease, not a new grant. Never unhold retained evidence offline.
                 if (current.value?.canSync() == true && gateway != null && device != null) enrollment.value = EnrollmentState.Ready(device)
+                if (e.kind == AuthFailure.Kind.PAUSED) throw e
+                // VAN-085: no signal at start. The day saved on this phone is shown at once; Sync now (or the
+                // scheduled sync) tries the office again instead of a second full timeout before Today opens.
+                restoredOffline = true
             }
             current.value?.resetSending()
             if (current.value?.pending()?.isNotEmpty() == true) schedule()

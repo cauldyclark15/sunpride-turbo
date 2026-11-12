@@ -20,6 +20,7 @@ import { nativeSchemeContext } from "../tpm/native-context.js";
 import { masterId } from "../integration/replicas.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
 import { productFor, stockBearing } from "./facts.js";
+import { eligibleFreeBase } from "../inventory/eligible.js";
 import { catalogueMetadata } from "../masters/catalogue.js";
 import { approvalKey } from "./approvals.js";
 import { refundBundle } from "../fiscal/refunds.js";
@@ -86,6 +87,31 @@ export function splitTenderFlag(ctx) {
     : {};
 }
 
+/**
+ * r6van4: truck stock the office will not let leave for a sale (quarantined, recall-held, expired or too close to
+ * expiry lots), per product. The phone subtracts it from what it may sell, so it never prints an invoice the office
+ * then refuses ("Insufficient eligible lot stock" refused SI-000000005 on a quarantined Sardines lot). The truck stock
+ * itself is unchanged: those goods are still physically on the truck and are counted at the stock count.
+ * @param {any} db @param {any} trip @param {any[]} balances @param {number} [at] */
+export async function heldStock(db, trip, balances, at = Date.now()) {
+  const withStock = balances.filter(
+    (/** @type {any} */ b) => Number(b.available_base ?? 0) > 0,
+  );
+  if (!withStock.length) return [];
+  const free = await eligibleFreeBase(
+    db,
+    trip.truck_location_id,
+    withStock.map((/** @type {any} */ b) => b.product_id),
+    { org: trip.organization_id, at },
+  );
+  /** @type {{productId:string,quantityBase:string}[]} */ const out = [];
+  for (const b of withStock) {
+    const held = Number(b.available_base) - (free.get(b.product_id) ?? 0);
+    if (held > 0)
+      out.push({ productId: b.product_id, quantityBase: String(held) });
+  }
+  return out;
+}
 /**
  * NF-5: the cash payments the office holds for a trip (`sale`, `void_refund`, `refund`; method cash), per sale. The
  * handheld adds the ones for sales it does not have (made on the seller's previous phone), so its expected cash equals
@@ -666,6 +692,7 @@ export async function bundle(ctx, env) {
               // NF-5: the trip's cash the office already holds, per sale, so a seller who signs in on another
               // phone mid-trip counts against the same expected cash as the office (`cashExpectation`).
               serverCash: await serverCash(db, trip.id),
+              heldStock: await heldStock(db, trip, balances),
             }
           : {}),
       },

@@ -131,6 +131,8 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
             val code = o?.optString("code")
             if (com.sunpride.van.BuildConfig.DEBUG) android.util.Log.w("SunprideVan","server refused: $status ${code ?: ""}")
             val mapped = when {
+                // VAN-086: the office paused this phone: say so and keep the work; reinstating the phone resumes sync.
+                status == 403 && code == "device_suspended" -> "device_suspended"
                 status == 401 || status == 403 || code in setOf("scope_changed","scope_withdrawn","profile_unavailable","device_unavailable") -> "unauthorized"
                 status == 426 || code == "version_unsupported" -> "version_unsupported"
                 status == 429 || status >= 500 -> "temporarily_unavailable"
