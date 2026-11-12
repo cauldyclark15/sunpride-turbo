@@ -15,11 +15,14 @@ object UserMessages {
     const val STALE_COUNT = "Stock moved on this line while you counted. It will be rechecked automatically."
     const val TOO_MANY_LOTS = "Too many batches on one line. Split this line in two."
     const val CASE_SIZE_MISSING = "Case size not set for this product. Enter pieces."
+    /** NF-R5V-5: the trip's unit has no payment method turned on; selling cannot start until the office adds one. */
+    const val NO_PAYMENT_METHODS = "No payment methods are set up for this unit. Ask the office to turn on Cash for your unit, then tap Sync now."
     const val SETTINGS_CHANGED = "Settings changed in the office. Tap Sync."
     const val LOAD_DIFFERENCE_SENT = "Load difference sent to your supervisor. You will be told here when it is decided."
 
     /** Server `code` values (machine codes stay in the body; the screen shows the sentence). */
     private val byCode: Map<String,String> = mapOf(
+        com.sunpride.van.sync.VanBootstrapCodec.NO_PAYMENT_METHODS to NO_PAYMENT_METHODS,
         "stale_snapshot" to STALE_COUNT,
         "too_many_lots" to TOO_MANY_LOTS,
         "lot_limit" to TOO_MANY_LOTS,

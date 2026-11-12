@@ -103,7 +103,7 @@ class VanRepository private constructor(private val context: Context, private va
     private val enrollment = MutableStateFlow<EnrollmentState>(EnrollmentState.SignedOut)
     val sessionState: StateFlow<SessionState> = session.asStateFlow()
     val enrollmentState: StateFlow<EnrollmentState> = enrollment.asStateFlow()
-    val storePos: Flow<com.sunpride.van.storepos.StorePosState> = visible.flatMapLatest { it?.let { st -> com.sunpride.van.storepos.StorePosStore(st).state } ?: flowOf(com.sunpride.van.storepos.StorePosState(null,null,0,0)) }
+    val storePos: Flow<com.sunpride.van.storepos.StorePosState> = visible.flatMapLatest { it?.let { st -> com.sunpride.van.storepos.StorePosStore(st).state } ?: flowOf(com.sunpride.van.storepos.StorePosState(null,null,0,0)) }.offMain()
     suspend fun openStoreShift(floatCentavos: Long) = withContext(Dispatchers.IO) { com.sunpride.van.storepos.StorePosStore(store()).open(floatCentavos).also { schedule() } }
     suspend fun closeStoreShift(countCentavos: Long) = withContext(Dispatchers.IO) { com.sunpride.van.storepos.StorePosStore(store()).close(countCentavos).also { schedule() } }
     suspend fun storeAction(kind:String,payload:JSONObject):String = withContext(Dispatchers.IO) { com.sunpride.van.storepos.StoreTransactions(store()).action(kind,payload).also {schedule()} }
@@ -209,35 +209,35 @@ class VanRepository private constructor(private val context: Context, private va
             photoFiles(st.scope).save(bytes,90000).sha256
         }
     }
-    val currentTrip: Flow<Trip?> = visible.flatMapLatest { it?.trip ?: flowOf(null) }
-    val load: Flow<Load?> = visible.flatMapLatest { it?.load ?: flowOf(null) }
-    val loadLines: Flow<List<LoadLine>> = load.map { it?.lines ?: emptyList() }
-    val seller: Flow<Seller?> = visible.flatMapLatest { it?.seller ?: flowOf(null) }
-    val policy: Flow<VanPolicy?> = visible.flatMapLatest { it?.policy ?: flowOf(null) }
-    val truckStock: Flow<List<TruckStock>> = visible.flatMapLatest { it?.truckStock ?: flowOf(emptyList()) }
-    val damageRecords: Flow<List<DamageRecord>> = visible.flatMapLatest { it?.damageRecords ?: flowOf(emptyList()) }
-    val products: Flow<List<Product>> = visible.flatMapLatest { it?.products ?: flowOf(emptyList()) }
+    val currentTrip: Flow<Trip?> = visible.flatMapLatest { it?.trip ?: flowOf(null) }.offMain()
+    val load: Flow<Load?> = visible.flatMapLatest { it?.load ?: flowOf(null) }.offMain()
+    val loadLines: Flow<List<LoadLine>> = load.map { it?.lines ?: emptyList() }.offMain()
+    val seller: Flow<Seller?> = visible.flatMapLatest { it?.seller ?: flowOf(null) }.offMain()
+    val policy: Flow<VanPolicy?> = visible.flatMapLatest { it?.policy ?: flowOf(null) }.offMain()
+    val truckStock: Flow<List<TruckStock>> = visible.flatMapLatest { it?.truckStock ?: flowOf(emptyList()) }.offMain()
+    val damageRecords: Flow<List<DamageRecord>> = visible.flatMapLatest { it?.damageRecords ?: flowOf(emptyList()) }.offMain()
+    val products: Flow<List<Product>> = visible.flatMapLatest { it?.products ?: flowOf(emptyList()) }.offMain()
     fun catalogueImage(image:com.sunpride.catalogue.CatalogueImage):ByteArray? = if(stubMode!=null)null else api.image(image)
     init { if(stubMode==null) lifetime.launch { products.collectLatest { rows ->
         val job=currentCoroutineContext()[Job]
         runCatching { com.sunpride.catalogue.warmCatalogueImages(context,rows.mapNotNull{it.catalogue},::catalogueImage){job?.isActive!=false} }
     } } }
-    val customers: Flow<List<Customer>> = visible.flatMapLatest { it?.customers ?: flowOf(emptyList()) }
-    val priceLines: Flow<List<PriceLine>> = visible.flatMapLatest { it?.priceLines ?: flowOf(emptyList()) }
-    val promotions: Flow<List<Promotion>> = visible.flatMapLatest { it?.promotions ?: flowOf(emptyList()) }
+    val customers: Flow<List<Customer>> = visible.flatMapLatest { it?.customers ?: flowOf(emptyList()) }.offMain()
+    val priceLines: Flow<List<PriceLine>> = visible.flatMapLatest { it?.priceLines ?: flowOf(emptyList()) }.offMain()
+    val promotions: Flow<List<Promotion>> = visible.flatMapLatest { it?.promotions ?: flowOf(emptyList()) }.offMain()
     /** Signed in with a store whose office grant is held or expired: reference data is hidden, saved work is kept. */
-    val onHold: Flow<Boolean> = combine(current,visible) { all,shown -> all != null && shown == null }
-    val syncStatus: Flow<SyncStatus> = current.flatMapLatest { it?.syncStatus ?: flowOf(SyncStatus()) }
+    val onHold: Flow<Boolean> = combine(current,visible) { all,shown -> all != null && shown == null }.offMain()
+    val syncStatus: Flow<SyncStatus> = current.flatMapLatest { it?.syncStatus ?: flowOf(SyncStatus()) }.offMain()
     /** VAN-022: the current trip's cash is counted on this phone. */
-    val cashCounted: Flow<Boolean> = current.flatMapLatest { it?.cashCounted ?: flowOf(false) }
+    val cashCounted: Flow<Boolean> = current.flatMapLatest { it?.cashCounted ?: flowOf(false) }.offMain()
     /** VAN-023: the current trip's physical stock is counted on this phone. */
-    val stockCounted: Flow<Boolean> = current.flatMapLatest { it?.stockCounted ?: flowOf(false) }
+    val stockCounted: Flow<Boolean> = current.flatMapLatest { it?.stockCounted ?: flowOf(false) }.offMain()
     /** VAN-024: the current trip is closed on this phone. */
-    val tripClosed: Flow<Boolean> = current.flatMapLatest { it?.tripClosed ?: flowOf(false) }
+    val tripClosed: Flow<Boolean> = current.flatMapLatest { it?.tripClosed ?: flowOf(false) }.offMain()
     /** SP-0137: the signed-in scope (person + registered phone) location sharing is recorded under. */
-    val storeScope: Flow<StoreScope?> = current.map { it?.scope }
+    val storeScope: Flow<StoreScope?> = current.map { it?.scope }.offMain()
     /** SP-0137: live-location pings waiting on this phone for upload. */
-    val pendingPings: Flow<Int> = current.flatMapLatest { it?.locations?.pendingCount ?: flowOf(0) }
+    val pendingPings: Flow<Int> = current.flatMapLatest { it?.locations?.pendingCount ?: flowOf(0) }.offMain()
     private var database: VanDatabase? = null
     private var signer: DeviceSigner? = null
     private var gateway: VanGateway? = null

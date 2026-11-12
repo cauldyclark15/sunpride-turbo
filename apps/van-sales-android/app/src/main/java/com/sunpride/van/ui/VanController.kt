@@ -109,6 +109,9 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     /** The office has not (re)confirmed this phone's access: trip data hidden, saved work kept. */
     var onHold by mutableStateOf(false)
         private set
+    /** NF-R5V-5: the office setup gap the last sync named (e.g. no payment methods); null once a sync succeeds. */
+    var setupProblem by mutableStateOf<String?>(null)
+        private set
     var busy by mutableStateOf(false)
         private set
     var initialized by mutableStateOf(false)
@@ -190,6 +193,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     private var pendingStart: (suspend () -> Unit)? = null
     private var syncFailureNotice: SyncFailureNotice? = null
     private fun rememberSyncFailure(text: String): String {
+        if (text == UserMessages.NO_PAYMENT_METHODS) setupProblem = text
         syncFailureNotice=SyncFailureNotice(text,System.currentTimeMillis())
         return text
     }
@@ -234,7 +238,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             busy = true
             try {
                 repository.restoreSession()
-                if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
+                if (repository.enrollmentState.value is EnrollmentState.Ready) { repository.syncNow(); setupProblem = null }
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 // A sync refusal is not a connection problem; say what actually happened.
@@ -383,7 +387,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         if (repository.enrollmentState.value !is EnrollmentState.Ready) return
         quietSyncing = true; quietSyncAt = now
         scope?.launch {
-            try { repository.syncNow() }
+            try { repository.syncNow(); setupProblem = null }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { /* offline is normal on a route; the grid keeps the last download */ }
             finally { quietSyncing = false }
@@ -810,7 +814,12 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun holdCart(surface: String, name: String?, note: String?, customer: Customer?, lines: List<HeldLine>, totalLabel: String, done: (String?) -> Unit) {
         val s = scope ?: return done("Try again in a moment.")
         s.launch {
-            try { repository.holdCart(surface, name, note, customer?.outletId, customer?.name, lines, totalLabel); refreshHeld(); done(null) }
+            try {
+                repository.holdCart(surface, name, note, customer?.outletId, customer?.name, lines, totalLabel)
+                // NF-R5V-3: a discount claim, manual discount or override belongs to the held cart's customer, not the next cart.
+                if (surface == com.sunpride.van.pos.HeldCartRules.SURFACE_VAN) sale?.let { sale = it.afterHold(CheckoutRules.newSaleId()); discountEpoch++; discountMessage = null; claimPreview = ClaimPreview.None }
+                refreshHeld(); done(null)
+            }
             catch (e: CancellationException) { throw e } catch (e: IllegalStateException) { done(e.message ?: "Could not hold this cart.") } catch (e: Exception) { done(UserMessages.forFailure(e)) }
         }
     }
@@ -998,6 +1007,12 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         printQuestionSaleId = null
         startPrint(id,explicit = true,reason = null,store = store,fromQuestion = true)
     }
+    /** VAN-051: re-sends left for the receipt on the "Did it print?" sheet, from its saved print history. */
+    fun printAgainLeft(): Int? {
+        val id = printQuestionSaleId ?: return null
+        val history = if (printQuestionStore) storePrints[id] else savedSales.firstOrNull { it.receipt.saleId == id }?.prints
+        return history?.let(com.sunpride.van.printing.ReprintRules::printAgainLeft)
+    }
     fun dismissPrintQuestion() { printQuestionSaleId = null; printQuestionNote = null }
     /** Ask again for a receipt that was sent but never answered (for example the app was closed first). */
     fun askDidItPrint(saleId: String, store: Boolean) { printQuestionSaleId = saleId; printQuestionStore = store }
@@ -1123,7 +1138,10 @@ const val REFUND_FAILED = "The refund could not be saved. Nothing was taken. Try
 /** A sale being built for one customer (VAN-011). */
 data class SaleDraft(val saleId: String, val customer: Customer, val lines: List<CartLine>,val manualDiscount:ManualDiscountInput? = null,val priceOverride:SalePriceOverride?=null,val creditOverride:FinancialOverride?=null,
     /** IP-HH2: the statutory discount the cashier entered (type, ID, name); worked out by [com.sunpride.van.selling.Privilege]. */
-    val claim: com.sunpride.van.selling.DiscountClaim? = null)
+    val claim: com.sunpride.van.selling.DiscountClaim? = null) {
+    /** NF-R5V-3: after Hold the screen is clear for the next customer: same outlet, new sale id, no lines, no discount or override. */
+    fun afterHold(newSaleId: String): SaleDraft = SaleDraft(newSaleId, customer, emptyList())
+}
 
 /**
  * The refund slip goes through the same connect-then-print steps as a receipt (a printer that was never connected in this session

@@ -274,5 +274,12 @@ object VanRules {
             com.sunpride.van.printing.PrintRefusal.PAPER_OUT -> "The printer is out of paper. Load paper, then print again."
         }
     }
+    /** VAN-051: the line on "Did it print?" about re-sends; at zero it is the refusal itself. */
+    fun printAgainNote(left: Int?): String? = when {
+        left == null -> null
+        left <= 0 -> printMessage(com.sunpride.van.printing.PrintJobResult.Refused(com.sunpride.van.printing.PrintRefusal.CONFIRM_FIRST))
+        left == 1 -> "You can print it again 1 more time before you answer."
+        else -> "You can print it again $left more times before you answer."
+    }
     fun sourceLabel(source: String): String = when (source) { "route" -> "Route"; "unplanned" -> "Not on route"; else -> "Walk-in" }
 }

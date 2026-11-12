@@ -102,7 +102,9 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     // IP-HOLD: park this cart for the next customer; recall it later (prices and stock are checked again).
     LaunchedEffect(Unit){c.refreshHeld()}
     val storeHeld=HeldCartsUi(c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE).size,c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE),
-        onHold={name,note,lines,totalLabel,done->c.holdCart(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE,name,note,null,lines,totalLabel,done)},onRecalled=c::heldRecalled,onDiscard=c::discardHeld)
+        onHold={name,note,lines,totalLabel,done->c.holdCart(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE,name,note,null,lines,totalLabel){err->
+            // NF-R5V-3: the claim and the customer's extras stay with the held cart's customer, never the next cart.
+            if(err==null){claim=null;claiming=false;employee=false;pin="";points="";phone="";saleId=UUID.randomUUID().toString()};done(err)}},onRecalled=c::heldRecalled,onDiscard=c::discardHeld)
     val setupProblem=remember(config){StoreCheckout.setupProblem(config)}
     val enabledTenders=remember(config){StoreCheckout.enabledTenders(config)}
     val canPay=setupProblem==null&&total!=null&&tenders!=null&&cashReady&&c.storePos.shift!=null&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)

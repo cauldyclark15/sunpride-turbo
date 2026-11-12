@@ -106,6 +106,16 @@ object ReprintRules {
         val used = live.count { it.confirmed && it.kind == PrintKind.REPRINT } + if (pendingReprint(live) != null) 1 else 0
         return maxOf(0, MAX_REPRINTS - used)
     }
+    /**
+     * VAN-051: what "Did it print?" offers, read from the saved history (not from the last print's result), so the
+     * re-send limit shows on the sheet itself every time it is open. Null = Print again is offered with no limit note.
+     * Before "Yes, printed" the original may be sent [MAX_REPRINTS] more times; after that only Yes or Skip remain.
+     */
+    fun printAgainLeft(history: List<PrintAttempt>): Int? {
+        val live = history.filter { it.kind != PrintKind.VOID }
+        if (live.isEmpty() || live.any { it.confirmed }) return null
+        return maxOf(0, MAX_REPRINTS - unconfirmedResends(live))
+    }
     /** Sent to the printer but the seller has not said whether it printed. */
     fun needsConfirmation(history: List<PrintAttempt>): Boolean {
         val live = history.filter { it.kind != PrintKind.VOID }
