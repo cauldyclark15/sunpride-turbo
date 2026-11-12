@@ -674,8 +674,11 @@ test("F-212 offline capture uses device Start, not later server check-in receipt
   const snapshot = await tx(h.db, (/** @type {any} */ db) =>
     callSnapshot({ ...context(field), db }, outlet, day),
   );
-  const started = Date.now() - 3_600_000,
-    captured = Date.now() - 1_800_000;
+  // Keep both instants inside the snapshot's Manila business day: just after
+  // Manila midnight, "now - 1h" is still the previous Manila day.
+  const dayStart = Date.parse(`${day}T00:00:00+08:00`),
+    started = Math.max(dayStart, Date.now() - 3_600_000),
+    captured = Math.max(started + 1, Date.now() - 1_800_000);
   await h.db`update visit_executions set started_at=${new Date(started)},checked_in_at=now() where id=${visitId}`;
   const payload = {
     checkId: id(),

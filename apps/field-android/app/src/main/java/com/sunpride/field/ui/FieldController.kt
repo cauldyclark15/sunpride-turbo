@@ -1423,7 +1423,7 @@ class FieldController(
         try {
             refreshDiagnostic()
             val checkin = openCheckIn(visit) ?: throw VisitRuleFailure(VisitRuleFailure.Code.CALL_NOT_OPEN)
-            check(retailCall == null || retailSaved) {"Check every MSL line before ending the call"}
+            if (retailCall != null && !retailSaved) throw com.sunpride.field.storage.RetailChecklistUnsaved()
             // FLD-105: say so up front (the screen scrolls to the choices), not after Confirm end silently stalls.
             if (com.sunpride.field.storage.ConfiguredFieldCalls.needsNoOrderReason(diagnosticFlow, diagnosticRows, checkin.clientVisitId, zeroSaleReason))
                 throw com.sunpride.callflow.CallFlowRefused(com.sunpride.callflow.CallFlowEngine.NO_ORDER_REASON)
@@ -1432,7 +1432,9 @@ class FieldController(
         } catch (e: VisitRuleFailure) { diagnosticFailure = e.code; diagnosticError = e.code.text }
         catch (e: kotlinx.coroutines.CancellationException) { throw e }
         catch (e: com.sunpride.callflow.CallFlowRefused) { diagnosticError = e.message }
-        catch (_: Exception) { diagnosticError = "Could not check this call. Try again." }
+        catch (e: com.sunpride.field.storage.RetailChecklistUnsaved) { diagnosticError = e.message }
+        // Only a truly unexpected failure (storage, decode) keeps the generic text.
+        catch (_: Exception) { diagnosticError = END_CHECK_GENERIC }
         finally { busy = false }
     }
     fun cancelEnd() = scope.launch(ui) { endReview = null
@@ -1853,6 +1855,8 @@ class FieldController(
     }
 
     companion object {
+        /** End review failed for a reason the phone did not expect (not a rule refusal). */
+        const val END_CHECK_GENERIC = "Could not check this call. Try again."
         /** Fixed copy only — server text, URLs and credentials never reach the screen. */
         fun userMessage(e: Throwable): String = when (e) {
             is AuthFailure -> e.text

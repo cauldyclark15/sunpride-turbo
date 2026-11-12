@@ -15,8 +15,13 @@ class RecordingClosed(val held: Boolean) : IllegalStateException(if (held) HELD 
 /** The visit screen's message for a Start/End/activity the phone could not queue. */
 object QueueFailureText {
     const val GENERIC = "Could not queue visit. Sync for access and check required fields."
-    fun of(e: Throwable): String = generateSequence(e) { it.cause }.filterIsInstance<RecordingClosed>().firstOrNull()?.message
-        ?: GENERIC
+    fun of(e: Throwable): String = generateSequence(e) { it.cause }.firstNotNullOfOrNull {
+        when (it) {
+            is RecordingClosed -> it.message
+            is RetailChecklistUnsaved -> it.message
+            else -> null
+        }
+    } ?: GENERIC
 }
 
 /** The camera screen's message for a photo the phone could not keep. */

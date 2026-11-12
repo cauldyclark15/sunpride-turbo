@@ -5,6 +5,11 @@ import com.sunpride.retail.RetailCall
 import com.sunpride.retail.ShelfAnswer
 import org.json.JSONObject
 
+/** Ending a call whose must-stock (MSL) checklist is not saved yet: a plain refusal the screen shows as-is. */
+class RetailChecklistUnsaved : IllegalStateException(TEXT) {
+    companion object { const val TEXT = "Save the must-stock checklist before ending the call." }
+}
+
 /** F-212 CALLFLOW seam: the existing store transaction enforces the configured availability step. */
 object RetailQueueRules {
     suspend fun call(store: FieldStore,outletId: String): RetailCall? = store.outlets().firstOrNull { it.id==outletId }
@@ -20,7 +25,7 @@ object RetailQueueRules {
         val outlet=JSONObject(start.first.serializedOperation).getJSONObject("payload").getString("outletId")
         val call=call(store,outlet)
         if(intent.kind=="visit.checkOut") {
-            check(call==null||saved(intent.clientVisitId,rows)) {"Check every MSL line before ending the call"};return
+            if(call!=null&&!saved(intent.clientVisitId,rows)) throw RetailChecklistUnsaved();return
         }
         check(!VisitCallRules.closed(rows.filter {it.first.clientVisitId==intent.clientVisitId})) {"This call has ended"}
         val p=JSONObject(intent.serializedOperation).getJSONObject("payload")

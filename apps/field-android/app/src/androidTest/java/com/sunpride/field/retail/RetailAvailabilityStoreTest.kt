@@ -24,7 +24,7 @@ class RetailAvailabilityStoreTest {
             listOf(ShelfAnswer("p-absent","absent",shelfBase=0)),mapOf("p-absent" to 3L)) }.exceptionOrNull()
         assertTrue(incomplete is IllegalArgumentException)
         val end=runCatching { f.store.enqueue(f.checkout(),f.at+100) }.exceptionOrNull()
-        assertEquals("Check every MSL line before ending the call",end?.message)
+        assertEquals("Save the must-stock checklist before ending the call.",end?.message)
         assertEquals(before,f.store.history()); assertTrue(f.store.orderDrafts().isEmpty())
         Unit
     }
@@ -102,7 +102,7 @@ class RetailAvailabilityStoreTest {
         val check=f.store.history().single { it.first.kind=="availability.record" }.first
         f.store.recordRejection(check.requestId,"invalid_request")
         assertFalse(RetailQueueRules.saved(f.start.clientVisitId,f.backend.visitStates()))
-        assertEquals("Check every MSL line before ending the call",runCatching {
+        assertEquals("Save the must-stock checklist before ending the call.",runCatching {
             f.store.enqueue(f.checkout(),f.at+100) }.exceptionOrNull()?.message)
         Unit
     }
