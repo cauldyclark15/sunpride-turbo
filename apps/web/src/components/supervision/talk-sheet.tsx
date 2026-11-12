@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 
 import type { EndpointResult, EndpointArgs } from "./report-api";
 
@@ -695,7 +696,7 @@ export function MyTalkSheetsView({
             size="sm"
             variant="outline"
             className="h-8"
-            aria-label={`Open Talk Sheet with ${row.partnerName} on ${row.meetingDate}`}
+            aria-label={`Open Talk Sheet with ${row.partnerName} on ${formatDate(row.meetingDate)}`}
             onPress={() => onOpen(row.sheetId)}
           >
             Open

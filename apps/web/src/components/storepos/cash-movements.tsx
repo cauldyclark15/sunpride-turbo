@@ -1,4 +1,5 @@
 "use client";
+import { formatTime } from "../../lib/format";
 
 import { useState, type FormEvent } from "react";
 import { DocNumber, Peso } from "../ops";
@@ -86,11 +87,7 @@ export function MovementsList({ movements }: { movements: Movement[] }) {
             <td className="py-2 pr-3">
               {m.label}
               <span className="block text-xs text-muted">
-                {new Date(m.capturedAt).toLocaleTimeString("en-PH", {
-                  hour: "numeric",
-                  minute: "2-digit",
-                })}{" "}
-                · {m.recordedBy}
+                {formatTime(m.capturedAt)} · {m.recordedBy}
               </span>
             </td>
             <td className="py-2 pr-3">

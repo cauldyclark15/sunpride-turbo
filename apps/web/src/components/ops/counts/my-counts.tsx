@@ -1,16 +1,21 @@
 "use client";
+import { formatDay } from "../../../lib/format";
 
 import { apiFetch, useApi, useLive } from "@/lib/api";
 import { DocNumber } from "../doc-number";
 import { StatusPill } from "../status-pill";
 import { Chip, MicroLabel, Panel, PrimaryButton, ProgressBar } from "./ui";
-import { COUNTS_KEY, COUNTS_PATH, type CountCard, type MyCounts } from "./model";
+import {
+  COUNTS_KEY,
+  COUNTS_PATH,
+  type CountCard,
+  type MyCounts,
+} from "./model";
 
 /** "Planned for 6 Nov" / "Waiting since …" in plain words. */
 function when(card: CountCard): string | null {
   if (card.scheduledFor) {
-    const d = new Date(`${card.scheduledFor}T00:00:00+08:00`);
-    return `For ${d.toLocaleDateString("en-PH", { day: "numeric", month: "short" })}`;
+    return `For ${formatDay(card.scheduledFor)}`;
   }
   return null;
 }
@@ -42,9 +47,7 @@ function CountRow({
         <div className="flex flex-wrap items-center gap-2">
           {card.blindCount ? <Chip tone="info">Blind count</Chip> : null}
           {progress.recount > 0 ? (
-            <Chip tone="warn">
-              {progress.recount} to recount
-            </Chip>
+            <Chip tone="warn">{progress.recount} to recount</Chip>
           ) : null}
           <StatusPill state={card.status} />
         </div>
@@ -124,7 +127,9 @@ export function MyCounts({
           </section>
           {data.toReview.length ? (
             <section className="grid gap-3" aria-label="Counts to review">
-              <MicroLabel>Waiting for your review · {data.toReview.length}</MicroLabel>
+              <MicroLabel>
+                Waiting for your review · {data.toReview.length}
+              </MicroLabel>
               {data.toReview.map((c) => (
                 <CountRow
                   key={c.id}

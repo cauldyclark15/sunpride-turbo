@@ -1,4 +1,5 @@
 "use client";
+import { formatStatus } from "../../../lib/format";
 import { useState, type FormEvent } from "react";
 import { mutate, useApi, useLive } from "../../../lib/api";
 import { usePermissions } from "../../../lib/auth";
@@ -149,7 +150,7 @@ export function ModelWorkbench() {
           <article key={m.id} className="border-b border-border py-2">
             <p>
               {m.purpose === "shelf" ? "Shelf recognition" : "Suggested order"}{" "}
-              · version {m.version} · {m.status}
+              · version {m.version} · {formatStatus(m.status)}
               {m.sample ? " · Sample" : ""}
             </p>
             <p className="text-sm text-muted">
@@ -336,7 +337,7 @@ export function ModelWorkbench() {
               <input name="adapterVersion" className={field} />
             </label>
             <button disabled={busy} className={field}>
-              Create candidate version
+              Save candidate version
             </button>
           </form>
         </details>
@@ -389,7 +390,7 @@ export function ModelWorkbench() {
         <article key={r.id} className="grid gap-2 border-t border-border pt-3">
           <h3>
             {r.purpose === "shelf" ? "Shelf photo" : "Order suggestion"} ·{" "}
-            {r.status}
+            {formatStatus(r.status)}
             {r.input.sample ? " · Sample" : ""}
           </h3>
           <p>

@@ -7,6 +7,7 @@ import { CustomerPortal, PortalLogin } from "./portal";
 import { getWebNavigation } from "../../config/navigation";
 import { canAccessWebModule } from "../../lib/module-access";
 import { safeCsv } from "./export";
+import { savedVersionText } from "./index";
 import type { Options, Intake, Term, Deduction, PortalOverview } from "./model";
 
 const state = vi.hoisted(() => ({
@@ -305,5 +306,15 @@ describe("F-306 F-307 F-309 F-611 modern trade web", () => {
     ).toBe(true);
     expect(canAccessWebModule("modern-trade", "admin")).toBe(true);
     expect(canAccessWebModule("modern-trade", "external_customer")).toBe(false);
+  });
+});
+
+describe("WEB-143 account setup saves say what changed", () => {
+  it("names the new version and its effective date in words", () => {
+    expect(
+      savedVersionText("SAMPLE-CHAIN-B export mapping", "2026-11-20"),
+    ).toBe(
+      "Saved. The new SAMPLE-CHAIN-B export mapping applies from Nov 20, 2026; the previous version ends then.",
+    );
   });
 });

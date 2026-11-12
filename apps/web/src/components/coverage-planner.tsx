@@ -1,4 +1,5 @@
 "use client";
+import { formatStatus } from "../lib/format";
 
 import { Button } from "@heroui/react";
 import { Card, FormField, StatusPill, WorkspaceIcon } from "@sunpride/ui";
@@ -334,7 +335,7 @@ export function CoveragePlanner({
                           : "neutral"
                     }
                   >
-                    {plan.status}
+                    {formatStatus(plan.status)}
                   </StatusPill>
                 </button>
               ))}
@@ -345,8 +346,8 @@ export function CoveragePlanner({
               detail.plan.localMonth === month && (
                 <>
                   <p>
-                    v{detail.plan.version} · {detail.plan.status} ·{" "}
-                    {formatManilaDate(detail.plan.effectiveFrom)} to{" "}
+                    v{detail.plan.version} · {formatStatus(detail.plan.status)}{" "}
+                    · {formatManilaDate(detail.plan.effectiveFrom)} to{" "}
                     {formatManilaDate(detail.plan.effectiveTo - 1)} · prepared
                     by {attribution?.preparedByName ?? "—"}
                   </p>
@@ -1096,9 +1097,9 @@ export function PlanEditor({
       </ul>
       {plan.status !== "draft" && (
         <p className="text-sm">
-          Read-only {plan.status} version. Approved outlet cells use frozen
-          code/name/route snapshots where available; revisions create a separate
-          draft.
+          Read-only {formatStatus(plan.status).toLowerCase()} version. Approved
+          outlet cells use frozen code/name/route snapshots where available;
+          revisions create a separate draft.
         </p>
       )}
       {editable && (

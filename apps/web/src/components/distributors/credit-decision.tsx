@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "../../lib/format";
 import { money, words } from "./kit";
 export type CreditException = {
   id: string;
@@ -57,12 +58,7 @@ export function CreditDecision({ request }: { request: CreditException }) {
       )}
       {request.reference && <p>Provider reference {request.reference}</p>}
       {request.expiresAt && (
-        <p>
-          Valid until{" "}
-          {new Date(request.expiresAt).toLocaleString("en-PH", {
-            timeZone: "Asia/Manila",
-          })}
-        </p>
+        <p>Valid until {formatDateTime(request.expiresAt)}</p>
       )}
       {request.providerReason && <p>{request.providerReason}</p>}
       <p>

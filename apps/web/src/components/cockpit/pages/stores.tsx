@@ -1,4 +1,5 @@
 "use client";
+import { useUrlTab } from "../../../lib/use-url-tab";
 
 import { RetailWorkspace } from "../../storepos/retail-workspace";
 import { DormancyPanel } from "../../dormancy-panel";
@@ -286,9 +287,9 @@ export function StoresPage() {
               params={params}
               set={set}
               link={link}
-              canAdd={false}
+              canAdd={canAdd}
               awaitingApproval
-              onAdd={() => undefined}
+              onAdd={(name) => setAdding(name)}
               onEdit={canAdd ? (id) => set({ edit: id }) : undefined}
             />
           </section>
@@ -408,9 +409,11 @@ function CustomersListTab({
   );
 }
 
+const PERFORMANCE_VIEWS = ["distribution", "retail"] as const;
+
 /** Figures for the period: the only tab with the period filter. */
 function PerformanceTab() {
-  const [view, setView] = useState<"distribution" | "retail">("distribution");
+  const [view, setView] = useUrlTab(PERFORMANCE_VIEWS, "distribution", "view");
   const { query, link } = usePageQuery([]);
   // The top 200 stores (API limit) are enough for a ranked sales table.
   const result = useAnalytics("stores", { ...query, limit: "200" });

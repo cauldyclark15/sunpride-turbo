@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "../../lib/format";
 
 import { useState, useEffect, type FormEvent } from "react";
 import { mutate, useApi, useLive } from "../../lib/api";
@@ -641,9 +642,9 @@ export function FiscalWorkspace({
               <p key={r.id} className="border-b border-border py-2 text-sm">
                 {r.branch_name} · {r.label} ·{" "}
                 {r.enabled ? "Enabled" : "Disabled"} ·{" "}
-                {new Date(r.effective_from).toLocaleString()}
+                {formatDateTime(r.effective_from)}
                 {r.effective_to
-                  ? ` until ${new Date(r.effective_to).toLocaleString()}`
+                  ? ` until ${formatDateTime(r.effective_to)}`
                   : ""}
               </p>
             ))}

@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 
 import { useState } from "react";
 import { useApi } from "@/lib/api";
@@ -126,7 +127,7 @@ export function TaxPeriodSummary({ data }: { data: TaxSummaryData }) {
           <tbody>
             {data.days.map((d) => (
               <tr key={d.date} className="border-t border-field-border">
-                <td className="py-1 text-left">{d.date}</td>
+                <td className="py-1 text-left">{formatDate(d.date)}</td>
                 <td>{d.documents}</td>
                 <td>
                   <Peso centavos={c(d.total_due)} />

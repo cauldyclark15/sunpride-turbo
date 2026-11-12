@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 import { useState } from "react";
 import { Button } from "@heroui/react";
 import { routeBase, routeQuantity } from "./route-format";
@@ -86,10 +87,8 @@ export function WarehouseUnloadReceipt({
                   l.product.uomCode,
                 )
               : "Original unit details unavailable"}
-            {l.expiresAt
-              ? ` · expires ${new Date(l.expiresAt).toLocaleDateString("en-PH")}`
-              : ""}{" "}
-            · {l.qualityStatus ?? "Untracked"}
+            {l.expiresAt ? ` · expires ${formatDate(l.expiresAt)}` : ""} ·{" "}
+            {l.qualityStatus ?? "Untracked"}
           </span>
           <input
             aria-label={`Warehouse received ${l.product?.name ?? "stock"} ${l.batch ?? ""} ${l.status}`}

@@ -680,8 +680,9 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
         <Notice title={queue.error.message} tone="danger" />
       ) : null}
       <p className="text-sm text-muted">
-        New customers and changes to customers your agents sent from the field. Check
-        them, then approve or reject. The person who sent one cannot review it.
+        New customers and changes to customers your agents sent from the field.
+        Check them, then approve or reject. The person who sent one cannot
+        review it.
       </p>
       {queue.data?.batches.length ? (
         <div className="my-3 flex flex-wrap gap-2 text-xs">
@@ -997,7 +998,7 @@ function BatchForm({
         </label>
         <div>
           <button type="submit" className={button}>
-            Create round
+            Save round
           </button>
         </div>
       </form>

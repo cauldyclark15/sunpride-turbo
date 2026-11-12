@@ -1,4 +1,5 @@
 "use client";
+import { formatPeriod, formatStatus } from "../lib/format";
 import { useState, type FormEvent } from "react";
 import { apiFetch, mutate, useApi } from "../lib/api";
 import { manilaToday } from "../lib/outside-calls";
@@ -89,8 +90,8 @@ export function ClaimantClaimList({
               {r.reference} · {money(r.amountCentavos)}
             </p>
             <p className="text-sm">
-              {r.type} · {r.status.replaceAll("_", " ")} · {r.periodFrom} –{" "}
-              {r.periodTo}
+              {formatStatus(r.type)} · {formatStatus(r.status)} ·{" "}
+              {formatPeriod(r.periodFrom, r.periodTo)}
             </p>
             <p className="text-xs text-muted">
               Settlement is final only after SAP acknowledgement.

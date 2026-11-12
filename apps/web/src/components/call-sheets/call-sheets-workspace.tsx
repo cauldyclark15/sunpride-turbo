@@ -1,4 +1,5 @@
 "use client";
+import { useUrlTab } from "../../lib/use-url-tab";
 
 import type { EndpointResult } from "../supervision/report-api";
 
@@ -156,9 +157,11 @@ function AccountPicker({
   );
 }
 
+const SHEET_TABS = ["month", "setup"] as const;
+
 function CallSheetAccount({ outletId }: { outletId: Id<"outlets"> }) {
   const detail = useReport("callSheets.accounts.detail", { outletId });
-  const [tab, setTab] = useState<"month" | "setup">("month");
+  const [tab, setTab] = useUrlTab(SHEET_TABS, "month", "sheet");
   if (detail === undefined)
     return (
       <Card label="Call sheet">

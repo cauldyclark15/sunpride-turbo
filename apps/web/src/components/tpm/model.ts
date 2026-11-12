@@ -144,6 +144,7 @@ export const peso = (n: number | null | undefined) =>
         currency: "PHP",
         maximumFractionDigits: 2,
       }).format(n / 100);
+/** Lower-case words for use inside a sentence; statuses use formatStatus (lib/format). */
 export const words = (s: string) =>
   s.replaceAll("_", " ").replace(/([a-z])([A-Z])/g, "$1 $2");
 export const day = (n: number) =>

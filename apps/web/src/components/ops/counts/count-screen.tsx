@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../../lib/format";
 
 import { useEffect, useRef, useState } from "react";
 import {
@@ -44,11 +45,7 @@ const SAVE_DELAY_MS = 700;
 export function expiryText(expiresAt: number | null, now = Date.now()) {
   if (expiresAt == null) return null;
   const days = Math.ceil((expiresAt - now) / 86400000);
-  const date = new Date(expiresAt).toLocaleDateString("en-PH", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
+  const date = formatDate(expiresAt);
   return days < 0
     ? `expired ${date}`
     : `expires ${date} (${days} ${days === 1 ? "day" : "days"})`;
@@ -89,7 +86,9 @@ export function CountLineCard({
       <div className="flex flex-wrap items-start justify-between gap-2">
         <div className="grid min-w-0 gap-1">
           <span className="text-sm tabular-nums text-muted">{line.code}</span>
-          <span className="line-clamp-2 text-lg font-semibold">{line.name}</span>
+          <span className="line-clamp-2 text-lg font-semibold">
+            {line.name}
+          </span>
           <div className="flex flex-wrap items-center gap-2">
             {line.lotNumber ? (
               <Chip>
@@ -100,7 +99,9 @@ export function CountLineCard({
             {line.stockStatus !== "available" ? (
               <Chip tone="warn">{line.stockStatus.replaceAll("_", " ")}</Chip>
             ) : null}
-            {line.source === "found" ? <Chip tone="info">Found item</Chip> : null}
+            {line.source === "found" ? (
+              <Chip tone="info">Found item</Chip>
+            ) : null}
           </div>
         </div>
         <div className="grid justify-items-end gap-1 text-right">
@@ -155,7 +156,11 @@ export function CountLineCard({
             : "Something wrong with it?"}
         </summary>
         <div className="grid gap-3 pt-2">
-          <div className="flex flex-wrap gap-2" role="group" aria-label="What is wrong">
+          <div
+            className="flex flex-wrap gap-2"
+            role="group"
+            aria-label="What is wrong"
+          >
             {FINDING_CHOICES.map((f) => (
               <button
                 key={f.value}
@@ -165,7 +170,8 @@ export function CountLineCard({
                 onClick={() =>
                   onChange({
                     ...draft,
-                    finding: draft.finding === f.value ? null : (f.value as Finding),
+                    finding:
+                      draft.finding === f.value ? null : (f.value as Finding),
                     state: "editing",
                   })
                 }
@@ -240,7 +246,10 @@ export function FoundItemPanel({
   async function add() {
     if (!picked) return;
     const base =
-      qty.cases * (picked.basePerCase && picked.basePerCase > 1 ? picked.basePerCase : 0) +
+      qty.cases *
+        (picked.basePerCase && picked.basePerCase > 1
+          ? picked.basePerCase
+          : 0) +
       qty.pieces;
     await mutate(
       `${COUNTS_PATH}/add-line`,
@@ -329,7 +338,9 @@ export function FoundItemPanel({
           </label>
           <ErrorLine message={error?.message} />
           <div className="flex justify-between gap-2">
-            <SecondaryButton onClick={() => setPicked(null)}>Back</SecondaryButton>
+            <SecondaryButton onClick={() => setPicked(null)}>
+              Back
+            </SecondaryButton>
             <PrimaryButton
               disabled={pending || (qty.cases === 0 && qty.pieces === 0)}
               onClick={() => void add().catch(() => undefined)}
@@ -366,7 +377,10 @@ export function CountScreen({
   const [foundOpen, setFoundOpen] = useState(false);
   const [drafts, setDrafts] = useState<Record<string, Draft>>({});
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
-  const latest = useRef<{ drafts: Record<string, Draft>; lines: Map<string, CountLine> }>({
+  const latest = useRef<{
+    drafts: Record<string, Draft>;
+    lines: Map<string, CountLine>;
+  }>({
     drafts: {},
     lines: new Map(),
   });
@@ -425,7 +439,9 @@ export function CountScreen({
     const entries = ids.flatMap((id) => {
       const line = latest.current.lines.get(id);
       const draft = latest.current.drafts[id];
-      return line && draft ? [entryFromDraft(line, draft, crypto.randomUUID())] : [];
+      return line && draft
+        ? [entryFromDraft(line, draft, crypto.randomUUID())]
+        : [];
     });
     if (!entries.length) return;
     patchDrafts(ids, "saving");
@@ -445,7 +461,10 @@ export function CountScreen({
   function change(lineId: string, next: Draft) {
     setDraft(lineId, next);
     clearTimeout(timers.current[lineId]);
-    timers.current[lineId] = setTimeout(() => void saveLines([lineId]), SAVE_DELAY_MS);
+    timers.current[lineId] = setTimeout(
+      () => void saveLines([lineId]),
+      SAVE_DELAY_MS,
+    );
   }
   function runScan() {
     const r = applyScan(lines, latest.current.drafts, scan);
@@ -493,7 +512,9 @@ export function CountScreen({
             ) : null}
           </div>
           {info?.session.blindCount ? (
-            <Chip tone="info">Blind count: you count, the books stay hidden</Chip>
+            <Chip tone="info">
+              Blind count: you count, the books stay hidden
+            </Chip>
           ) : null}
         </div>
         {progress ? (
@@ -528,7 +549,10 @@ export function CountScreen({
         </SecondaryButton>
       </div>
       {notice ? (
-        <p role="status" className="rounded-xl bg-warning-soft px-3 py-2 text-sm text-warning-soft-foreground">
+        <p
+          role="status"
+          className="rounded-xl bg-warning-soft px-3 py-2 text-sm text-warning-soft-foreground"
+        >
           {notice}
         </p>
       ) : null}
@@ -542,7 +566,11 @@ export function CountScreen({
         />
       ) : null}
 
-      <div className="flex flex-wrap items-center gap-2" role="tablist" aria-label="Show">
+      <div
+        className="flex flex-wrap items-center gap-2"
+        role="tablist"
+        aria-label="Show"
+      >
         {COUNT_TABS.map((t) => (
           <button
             key={t.value}
@@ -629,7 +657,8 @@ export function CountScreen({
             {progress ? (
               todo > 0 ? (
                 <>
-                  <strong className="tabular-nums">{todo}</strong> still to count
+                  <strong className="tabular-nums">{todo}</strong> still to
+                  count
                 </>
               ) : (
                 "All counted"

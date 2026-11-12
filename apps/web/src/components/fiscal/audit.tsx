@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "../../lib/format";
 import { useState } from "react";
 import { apiFetch } from "../../lib/api";
 import { readAuditArchive, type AuditPage } from "./audit-archive";
@@ -156,7 +157,7 @@ export function FiscalAudit({ allowed }: { allowed: boolean }) {
         <details key={row.id} className="border-t border-border py-2 text-sm">
           <summary>
             {row.table_name.replaceAll("_", " ")} · {row.action.toLowerCase()} ·{" "}
-            {new Date(row.created_at).toLocaleString()}
+            {formatDateTime(row.created_at)}
           </summary>
           <pre className="overflow-auto whitespace-pre-wrap">
             {JSON.stringify(

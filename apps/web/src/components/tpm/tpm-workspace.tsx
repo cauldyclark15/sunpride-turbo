@@ -6,6 +6,8 @@ import Link from "next/link";
 import { Drawer } from "../cockpit/kit/drawer";
 import { TrendChart } from "../cockpit/kit/trend-chart";
 import { useUrlState } from "../cockpit/use-url-state";
+import { formatDate, formatPeriod, formatStatus } from "../../lib/format";
+import { useUrlTab } from "../../lib/use-url-tab";
 import { ListPage, PAGE_SIZE, readPage } from "../list-page/list-page";
 import { PageTabs, rowButton, shortDate } from "../pricing/page-tabs";
 import {
@@ -1054,12 +1056,23 @@ function ProductPicker({
   );
 }
 
+const FINANCE_TABS = [
+  { id: "claims", label: "Claims" },
+  { id: "liability", label: "Liability" },
+  { id: "deductions", label: "Deductions" },
+  { id: "incentives", label: "Incentives" },
+] as const;
+const FINANCE_TAB_IDS = FINANCE_TABS.map((t) => t.id);
+
 export function FinanceClaimsWorkspace() {
   const { can } = usePermissions(),
     canIntake = can("order.encode"),
     canApprove = can("order.approve");
   const [selected, setSelected] = useState<Claim | null>(null),
-    [tab, setTab] = useState("Claims");
+    [tabId, setTabId] = useUrlTab(FINANCE_TAB_IDS, "claims"),
+    tab = FINANCE_TABS.find((t) => t.id === tabId)!.label,
+    setTab = (label: string) =>
+      setTabId(FINANCE_TABS.find((t) => t.label === label)?.id ?? "claims");
   const summary = useApi<Summary>(["tpm", "summary"], "/api/v1/tpm/summary");
   const claims = useApi<{ rows: Claim[] }>(
     ["tpm", "claims"],
@@ -1163,10 +1176,10 @@ export function FinanceClaimsWorkspace() {
                         </p>
                       </td>
                       <td className="p-2">
-                        {r.periodFrom} → {r.periodTo}
+                        {formatPeriod(r.periodFrom, r.periodTo)}
                       </td>
                       <td className="p-2">{peso(r.amountCentavos)}</td>
-                      <td className="p-2">{words(r.status)}</td>
+                      <td className="p-2">{formatStatus(r.status)}</td>
                       <td className="p-2">
                         <button
                           className={button}
@@ -1391,7 +1404,7 @@ export function FinanceClaimsWorkspace() {
                   {r.accountKey} · {words(r.classification)}
                 </h3>
                 <p className="text-sm">
-                  {r.ownerName} · {r.ageDays} days · {words(r.status)} ·
+                  {r.ownerName} · {r.ageDays} days · {formatStatus(r.status)} ·
                   outstanding{" "}
                   {peso(
                     r.amountCentavos -
@@ -1510,8 +1523,8 @@ export function FinanceClaimsWorkspace() {
                 {s.personName} · {s.planName}
               </h3>
               <p className="text-sm">
-                {s.periodFrom} → {s.periodTo} · {peso(s.amountCentavos)} ·{" "}
-                {words(s.status)}
+                {formatPeriod(s.periodFrom, s.periodTo)} ·{" "}
+                {peso(s.amountCentavos)} · {formatStatus(s.status)}
               </p>
               <ul className="text-xs text-muted">
                 {s.result.lines.map((l) => (
@@ -1542,7 +1555,7 @@ export function FinanceClaimsWorkspace() {
                   >
                     <p>
                       {peso(Number(a.amount_centavos))} adjustment · {a.reason}{" "}
-                      · {words(a.status)}
+                      · {formatStatus(a.status)}
                     </p>
                     {canApprove && a.status === "pending" ? (
                       <CommandForm
@@ -1973,7 +1986,7 @@ export function ClaimReview({
         </p>
       ) : null}
       <p className="text-sm">
-        Current status: {words(claim.status)}. Evidence:{" "}
+        Current status: {formatStatus(claim.status)}. Evidence:{" "}
         {detail.data?.evidence.map((e) => words(e.kind)).join(", ") ||
           "None linked"}
       </p>
@@ -2219,10 +2232,7 @@ export function ClaimReview({
       <ul className="text-sm text-muted">
         {detail.data?.events.map((e, i) => (
           <li key={i}>
-            {words(e.action)} ·{" "}
-            {new Date(e.created_at).toLocaleDateString("en-PH", {
-              timeZone: "Asia/Manila",
-            })}
+            {words(e.action)} · {formatDate(e.created_at)}
           </li>
         ))}
       </ul>

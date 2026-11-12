@@ -1,4 +1,10 @@
 "use client";
+import {
+  formatDate,
+  formatDateTime,
+  formatMonth,
+  formatStatus,
+} from "../lib/format";
 
 import {
   Card,
@@ -30,14 +36,7 @@ type Permissions = {
 };
 const secondaryAction =
   "h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground";
-const stamp = (ms?: number) =>
-  ms
-    ? new Date(ms).toLocaleString("en-PH", {
-        timeZone: "Asia/Manila",
-        dateStyle: "medium",
-        timeStyle: "short",
-      })
-    : "—";
+const stamp = (ms?: number) => (ms ? formatDateTime(ms) : "—");
 export const coverageStatus = (
   plan: Pick<Doc<"coveragePlans">, "status" | "effectiveFrom">,
 ) =>
@@ -247,12 +246,12 @@ function PlannedVisits({
             <ListRow
               icon={<WorkspaceIcon name="field" />}
               title={visit.approvedSnapshot.outletName}
-              meta={`${visit.serviceDate} · ${visit.approvedSnapshot.outletCode} · ${visit.approvedSnapshot.routeCode ?? "No route"} · stop ${visit.approvedSnapshot.sequence ?? "—"}`}
+              meta={`${formatDate(visit.serviceDate)} · ${visit.approvedSnapshot.outletCode} · ${visit.approvedSnapshot.routeCode ?? "No route"} · stop ${visit.approvedSnapshot.sequence ?? "—"}`}
               value={
                 <StatusPill
                   tone={visit.status === "planned" ? "success" : "neutral"}
                 >
-                  {visit.status}
+                  {formatStatus(visit.status)}
                 </StatusPill>
               }
             />
@@ -299,7 +298,7 @@ function SlotRow({
   return (
     <li className="rounded border border-border p-2 text-sm">
       <strong>
-        {slot.serviceDate} ·{" "}
+        {formatDate(slot.serviceDate)} ·{" "}
         {slot.kind === "non_visit"
           ? slot.activityKind
           : `${frozen?.outletCode ?? current?.outlet.code ?? "Store unavailable"} ${frozen?.outletName ?? current?.outlet.name ?? ""}`}
@@ -756,7 +755,8 @@ export function CoverageReview({
                   setPersonId(p.assigneeProfileId);
                 }}
               >
-                {p.assigneeName} · {p.localMonth} · v{p.version} · {p.status}
+                {p.assigneeName} · {formatMonth(p.localMonth)} · v{p.version} ·{" "}
+                {formatStatus(p.status)}
               </button>
             ))}
           </div>

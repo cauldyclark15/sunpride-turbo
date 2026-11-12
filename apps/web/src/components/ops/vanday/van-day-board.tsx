@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../../lib/format";
 
 import { Button } from "@heroui/react";
 import { Card, Notice } from "@sunpride/ui";
@@ -159,7 +160,7 @@ export function VanDayBoardView({
             onChange={(e) => onDate(e.target.value)}
           />
         ) : (
-          <span className="text-base">{board.date}</span>
+          <span className="text-base">{formatDate(board.date)}</span>
         )}
         <span className="text-base font-medium" role="status">
           {board.summary.text}

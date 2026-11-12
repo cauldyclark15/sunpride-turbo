@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "../../lib/format";
 
 import { useState, type FormEvent } from "react";
 import { mutate, useApi, useLive } from "../../lib/api";
@@ -113,14 +114,7 @@ export function refundPesosToCentavos(text: string): number | null {
 }
 
 const when = (ms: number | null) =>
-  ms === null
-    ? "never"
-    : new Date(ms).toLocaleString("en-PH", {
-        month: "short",
-        day: "numeric",
-        hour: "numeric",
-        minute: "2-digit",
-      });
+  ms === null ? "never" : formatDateTime(ms);
 const control =
   "min-w-0 max-w-full rounded-lg border border-border bg-surface px-3 py-2 text-sm";
 const button =
@@ -153,18 +147,26 @@ export function WeeklyLimitCard({
   const submit = (e: FormEvent) => {
     e.preventDefault();
     if (centavos !== null && onSave)
-      onSave({ enabled, capCentavos: centavos, accountantConfirmed: confirmed, note });
+      onSave({
+        enabled,
+        capCentavos: centavos,
+        accountantConfirmed: confirmed,
+        note,
+      });
   };
   return (
-    <section aria-labelledby="cap-title" className="grid gap-3 rounded-lg border border-border p-4">
+    <section
+      aria-labelledby="cap-title"
+      className="grid gap-3 rounded-lg border border-border p-4"
+    >
       <h2 id="cap-title" className="text-lg font-bold">
         Senior and PWD weekly limit
       </h2>
       <p className="text-sm text-muted">
-        A senior citizen or PWD gets the discount on purchases up to this amount each week,
-        added up across every store and van by ID number. The week runs Monday to Sunday
-        (Manila time). When a sale goes past what is left, the discount is only worked out on
-        the part that fits.
+        A senior citizen or PWD gets the discount on purchases up to this amount
+        each week, added up across every store and van by ID number. The week
+        runs Monday to Sunday (Manila time). When a sale goes past what is left,
+        the discount is only worked out on the part that fits.
       </p>
       <p className="text-2xl font-bold" data-testid="cap-amount">
         {s.enabled ? `${peso(s.capCentavos)} a week` : "No weekly limit"}
@@ -176,10 +178,15 @@ export function WeeklyLimitCard({
         {limitStatusWords(s)}
       </p>
       <p className="text-xs text-muted">
-        Applies to: senior citizen and PWD IDs. Current week starts {data.week.start}.
+        Applies to: senior citizen and PWD IDs. Current week starts{" "}
+        {data.week.start}.
       </p>
       {data.canManage ? (
-        <form onSubmit={submit} className="grid gap-3" aria-label="Edit the weekly limit">
+        <form
+          onSubmit={submit}
+          className="grid gap-3"
+          aria-label="Edit the weekly limit"
+        >
           <label className="flex items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -223,7 +230,11 @@ export function WeeklyLimitCard({
             />
           </label>
           <div>
-            <button type="submit" className={button} disabled={busy || centavos === null}>
+            <button
+              type="submit"
+              className={button}
+              disabled={busy || centavos === null}
+            >
               Save the limit
             </button>
           </div>
@@ -240,11 +251,14 @@ export function WeeklyLimitCard({
       ) : null}
       {data.history.length ? (
         <details>
-          <summary className="cursor-pointer text-sm font-semibold">History of changes</summary>
+          <summary className="cursor-pointer text-sm font-semibold">
+            History of changes
+          </summary>
           <ul className="mt-2 grid gap-1 text-sm">
             {data.history.map((h) => (
               <li key={`${h.effectiveFrom}-${h.capCentavos}`}>
-                {when(h.effectiveFrom)}: {h.enabled ? peso(h.capCentavos) : "limit off"} by {h.setBy}
+                {when(h.effectiveFrom)}:{" "}
+                {h.enabled ? peso(h.capCentavos) : "limit off"} by {h.setBy}
                 {h.accountantConfirmed ? " (accountant confirmed)" : ""}
                 {h.note ? ` — ${h.note}` : ""}
               </li>
@@ -267,7 +281,10 @@ export function CardLookup({
   const [type, setType] = useState("senior");
   const [id, setId] = useState("");
   return (
-    <section aria-labelledby="lookup-title" className="grid gap-3 rounded-lg border border-border p-4">
+    <section
+      aria-labelledby="lookup-title"
+      className="grid gap-3 rounded-lg border border-border p-4"
+    >
       <h2 id="lookup-title" className="text-lg font-bold">
         How much has an ID used this week?
       </h2>
@@ -280,22 +297,35 @@ export function CardLookup({
       >
         <label className="grid gap-1 text-sm">
           Type
-          <select className={control} value={type} onChange={(e) => setType(e.target.value)}>
+          <select
+            className={control}
+            value={type}
+            onChange={(e) => setType(e.target.value)}
+          >
             <option value="senior">Senior citizen</option>
             <option value="pwd">PWD</option>
           </select>
         </label>
         <label className="grid gap-1 text-sm">
           ID number
-          <input className={control} value={id} onChange={(e) => setId(e.target.value)} />
+          <input
+            className={control}
+            value={id}
+            onChange={(e) => setId(e.target.value)}
+          />
         </label>
-        <button type="submit" className={button} disabled={id.trim().length < 3}>
+        <button
+          type="submit"
+          className={button}
+          disabled={id.trim().length < 3}
+        >
           Look up
         </button>
       </form>
       {card ? (
         <p data-testid="card-result" className="text-sm">
-          Used {peso(card.usedCentavos)} this week. {card.message ?? "No weekly limit is set."}
+          Used {peso(card.usedCentavos)} this week.{" "}
+          {card.message ?? "No weekly limit is set."}
         </p>
       ) : null}
     </section>
@@ -310,22 +340,31 @@ export function LegacyZCard({
   notice = "",
 }: {
   data: LegacyZData;
-  onSave?: (v: { mode: "older_builds_only" | "off"; minVersionCode: number }) => void;
+  onSave?: (v: {
+    mode: "older_builds_only" | "off";
+    minVersionCode: number;
+  }) => void;
   busy?: boolean;
   notice?: string;
 }) {
   const [mode, setMode] = useState(data.gate.mode);
   const [min, setMin] = useState(String(data.gate.minVersionCode));
-  const minNumber = /^\d{1,6}$/.test(min) && Number(min) > 0 ? Number(min) : null;
+  const minNumber =
+    /^\d{1,6}$/.test(min) && Number(min) > 0 ? Number(min) : null;
   return (
-    <section aria-labelledby="z-title" className="grid gap-3 rounded-lg border border-border p-4">
+    <section
+      aria-labelledby="z-title"
+      className="grid gap-3 rounded-lg border border-border p-4"
+    >
       <h2 id="z-title" className="text-lg font-bold">
         Closing the day without a supervisor PIN
       </h2>
       <p className="text-sm text-muted">
-        Older app builds close the day with no PIN. They still work. Builds from beta.
-        {data.gate.minVersionCode} can ask a supervisor for a PIN, so the old way is refused for
-        them. When no till is left on an old build, switch the old way off for everyone.
+        Older app builds close the day with no PIN. They still work. Builds from
+        beta.
+        {data.gate.minVersionCode} can ask a supervisor for a PIN, so the old
+        way is refused for them. When no till is left on an old build, switch
+        the old way off for everyone.
       </p>
       <p className="text-sm font-semibold" data-testid="z-mode">
         Now: {data.gate.modeWords}
@@ -340,7 +379,9 @@ export function LegacyZCard({
       {data.devices.length ? (
         <div className="overflow-x-auto">
           <table className="w-full text-sm">
-            <caption className="sr-only">Tills and the app build each is on</caption>
+            <caption className="sr-only">
+              Tills and the app build each is on
+            </caption>
             <thead className="text-left text-xs uppercase text-muted">
               <tr>
                 <th className="py-2 pr-3">Till</th>
@@ -355,22 +396,34 @@ export function LegacyZCard({
                 <tr key={d.deviceId} className="border-t border-separator">
                   <td className="py-2 pr-3">
                     {d.store ?? "No store"}
-                    <span className="block text-xs text-muted">{d.register ?? d.tag}</span>
+                    <span className="block text-xs text-muted">
+                      {d.register ?? d.tag}
+                    </span>
                   </td>
                   <td className="py-2 pr-3">{d.person}</td>
                   <td
                     className={`py-2 pr-3 ${d.needsUpdate ? "font-semibold text-[#B45309]" : ""}`}
                   >
                     {d.stateWords}
-                    {d.needsUpdate ? <span className="block text-xs">Needs an update</span> : null}
+                    {d.needsUpdate ? (
+                      <span className="block text-xs">Needs an update</span>
+                    ) : null}
                   </td>
                   <td className="py-2 pr-3">
                     {when(d.lastSeenAt)}
-                    {d.quiet ? <span className="block text-xs text-muted">Quiet for {data.quietDays}+ days</span> : null}
+                    {d.quiet ? (
+                      <span className="block text-xs text-muted">
+                        Quiet for {data.quietDays}+ days
+                      </span>
+                    ) : null}
                   </td>
                   <td className="py-2 pr-3">
                     {d.legacyZ30d}
-                    {d.lastLegacyZ ? <span className="block text-xs text-muted">last {when(d.lastLegacyZ)}</span> : null}
+                    {d.lastLegacyZ ? (
+                      <span className="block text-xs text-muted">
+                        last {when(d.lastLegacyZ)}
+                      </span>
+                    ) : null}
                   </td>
                 </tr>
               ))}
@@ -386,11 +439,14 @@ export function LegacyZCard({
           aria-label="Edit the old Z way"
           onSubmit={(e) => {
             e.preventDefault();
-            if (minNumber !== null && onSave) onSave({ mode, minVersionCode: minNumber });
+            if (minNumber !== null && onSave)
+              onSave({ mode, minVersionCode: minNumber });
           }}
         >
           <fieldset className="grid gap-2">
-            <legend className="text-sm font-semibold">Old way of closing the day</legend>
+            <legend className="text-sm font-semibold">
+              Old way of closing the day
+            </legend>
             <label className="flex items-center gap-2 text-sm">
               <input
                 type="radio"
@@ -424,12 +480,17 @@ export function LegacyZCard({
           </label>
           {mode === "off" && !data.summary.safeToSwitchOff ? (
             <p role="alert" className="text-sm text-red-700">
-              Not everything is ready: tills that are still on an old build will not be able to
-              close the day on the phone. A supervisor can still run the Z reading on the web.
+              Not everything is ready: tills that are still on an old build will
+              not be able to close the day on the phone. A supervisor can still
+              run the Z reading on the web.
             </p>
           ) : null}
           <div>
-            <button type="submit" className={button} disabled={busy || minNumber === null}>
+            <button
+              type="submit"
+              className={button}
+              disabled={busy || minNumber === null}
+            >
               Save
             </button>
           </div>
@@ -458,21 +519,27 @@ export function RefundPolicyCard({
   busy?: boolean;
   notice?: string;
 }) {
-  const [amount, setAmount] = useState(String(data.supervisorOverCentavos / 100));
+  const [amount, setAmount] = useState(
+    String(data.supervisorOverCentavos / 100),
+  );
   const centavos = refundPesosToCentavos(amount);
   const submit = (e: FormEvent) => {
     e.preventDefault();
-    if (centavos !== null && onSave) onSave({ supervisorOverCentavos: centavos });
+    if (centavos !== null && onSave)
+      onSave({ supervisorOverCentavos: centavos });
   };
   return (
-    <section aria-labelledby="refund-policy-title" className="grid gap-3 rounded-lg border border-border p-4">
+    <section
+      aria-labelledby="refund-policy-title"
+      className="grid gap-3 rounded-lg border border-border p-4"
+    >
       <h2 id="refund-policy-title" className="text-lg font-bold">
         Refund approval amount
       </h2>
       <p className="text-sm text-muted">
-        A refund by item needs a supervisor once it goes above this amount. The amount counts
-        what the same receipt has already had refunded, so a receipt cannot be refunded in
-        small pieces to get around it.
+        A refund by item needs a supervisor once it goes above this amount. The
+        amount counts what the same receipt has already had refunded, so a
+        receipt cannot be refunded in small pieces to get around it.
       </p>
       <p className="text-2xl font-bold" data-testid="refund-amount">
         {data.supervisorOverCentavos === 0
@@ -488,7 +555,11 @@ export function RefundPolicyCard({
           : `Set by ${data.updatedBy ?? "the office"}${data.updatedAt ? `, ${when(data.updatedAt)}` : ""}`}
       </p>
       {data.canManage ? (
-        <form onSubmit={submit} className="grid gap-3" aria-label="Edit the refund approval amount">
+        <form
+          onSubmit={submit}
+          className="grid gap-3"
+          aria-label="Edit the refund approval amount"
+        >
           <label className="grid max-w-xs gap-1 text-sm">
             Amount in pesos
             <input
@@ -501,17 +572,24 @@ export function RefundPolicyCard({
           </label>
           {centavos === null ? (
             <p role="alert" className="text-sm text-red-700">
-              Enter the amount in pesos, for example 500. Use 0 for every refund.
+              Enter the amount in pesos, for example 500. Use 0 for every
+              refund.
             </p>
           ) : null}
           <div>
-            <button type="submit" className={button} disabled={busy || centavos === null}>
+            <button
+              type="submit"
+              className={button}
+              disabled={busy || centavos === null}
+            >
               Save the refund amount
             </button>
           </div>
         </form>
       ) : (
-        <p className="text-sm text-muted">Only the office can change the refund amount.</p>
+        <p className="text-sm text-muted">
+          Only the office can change the refund amount.
+        </p>
       )}
       {notice ? (
         <p role="status" className="text-sm">
@@ -528,13 +606,21 @@ const refundKey = ["fiscal", "refund-policy"] as const;
 
 /** Stores POS ▸ Discount and Z rules. */
 export function DiscountRulesScreen() {
-  const [lookup, setLookup] = useState<{ type: string; id: string } | null>(null);
+  const [lookup, setLookup] = useState<{ type: string; id: string } | null>(
+    null,
+  );
   const capPath = lookup
     ? `/api/v1/fiscal/privilege/cap?type=${encodeURIComponent(lookup.type)}&idNumber=${encodeURIComponent(lookup.id)}`
     : "/api/v1/fiscal/privilege/cap";
-  const cap = useApi<CapData>([...capKey, lookup?.type ?? "", lookup?.id ?? ""], capPath);
+  const cap = useApi<CapData>(
+    [...capKey, lookup?.type ?? "", lookup?.id ?? ""],
+    capPath,
+  );
   const z = useApi<LegacyZData>(zKey, "/api/v1/storepos/legacy-z");
-  const refund = useApi<RefundPolicyData>(refundKey, "/api/v1/fiscal/refunds/policy");
+  const refund = useApi<RefundPolicyData>(
+    refundKey,
+    "/api/v1/fiscal/refunds/policy",
+  );
   useLive(["fiscal", "storepos"], [capKey, zKey, refundKey]);
   const [refundNotice, setRefundNotice] = useState("");
   const [capNotice, setCapNotice] = useState("");
@@ -577,11 +663,16 @@ export function DiscountRulesScreen() {
               )
             }
           />
-          <CardLookup card={cap.data.card} onLookup={(type, id) => setLookup({ type, id })} />
+          <CardLookup
+            card={cap.data.card}
+            onLookup={(type, id) => setLookup({ type, id })}
+          />
         </>
       ) : (
         <p role={cap.error ? "alert" : undefined} className="text-sm">
-          {cap.error ? "Could not load the weekly limit." : "Loading the weekly limit…"}
+          {cap.error
+            ? "Could not load the weekly limit."
+            : "Loading the weekly limit…"}
         </p>
       )}
       {refund.data ? (
@@ -601,7 +692,9 @@ export function DiscountRulesScreen() {
         />
       ) : (
         <p role={refund.error ? "alert" : undefined} className="text-sm">
-          {refund.error ? "Could not load the refund amount." : "Loading the refund amount…"}
+          {refund.error
+            ? "Could not load the refund amount."
+            : "Loading the refund amount…"}
         </p>
       )}
       {z.data ? (
@@ -621,7 +714,9 @@ export function DiscountRulesScreen() {
         />
       ) : (
         <p role={z.error ? "alert" : undefined} className="text-sm">
-          {z.error ? "Could not load the tills report." : "Loading the tills report…"}
+          {z.error
+            ? "Could not load the tills report."
+            : "Loading the tills report…"}
         </p>
       )}
     </div>

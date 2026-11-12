@@ -1,4 +1,5 @@
 "use client";
+import { useUrlTab } from "../../lib/use-url-tab";
 import { Button } from "@heroui/react";
 import { useIssueQuery, useIssueCommand } from "./data";
 import { useLive } from "../../lib/api";
@@ -53,6 +54,8 @@ type EditFields = {
   externalRef: string;
   milestone: string;
 };
+const ISSUE_DETAIL_TABS = ["discussion", "activity"] as const;
+
 export function IssueDetailPage({ number }: { number: string }) {
   const { access, canRead, loading, error: accessError } = useIssueAccess();
   const query = useIssueQuery<IssueDetail | null>(
@@ -357,7 +360,7 @@ function IssueDetailContent({
   const deleteComment = useIssueCommand("deleteComment");
   const removeAttachment = useIssueCommand("removeAttachment");
 
-  const [tab, setTab] = useState<"discussion" | "activity">("discussion");
+  const [tab, setTab] = useUrlTab(ISSUE_DETAIL_TABS, "discussion");
   const [editing, setEditing] = useState(false);
   const [body, setBody] = useState("");
   const [files, setFiles] = useState<File[]>([]);

@@ -1,4 +1,5 @@
 "use client";
+import { formatDate, formatDay } from "../lib/format";
 import { useRef, useState } from "react";
 import { useApi, useLive, useMutate } from "../lib/api";
 import { currentManilaDate } from "../lib/coverage-calendar";
@@ -89,7 +90,7 @@ export function caseLine(c: DormancyCase) {
 /** F-210: the owner's next step for one case, exceptions first. */
 export function nextStep(c: DormancyCase) {
   if (c.status === "recovered")
-    return `Recovered: bought again on ${c.recoveryPurchaseOn}.`;
+    return `Recovered: bought again on ${formatDate(c.recoveryPurchaseOn)}.`;
   if (c.status === "closed") return `Closed: ${c.closedReason}`;
   if (!c.actions.length)
     return c.nextVisit
@@ -97,7 +98,7 @@ export function nextStep(c: DormancyCase) {
       : "No visit is planned: plan a recovery visit.";
   const last = c.actions[c.actions.length - 1]!;
   return last.dueOn
-    ? `${ACTION[last.kind]} due ${last.dueOn}; close the case with a reason if it will not recover.`
+    ? `${ACTION[last.kind]} due ${formatDate(last.dueOn)}; close the case with a reason if it will not recover.`
     : `${ACTION[last.kind]} recorded; follow it through.`;
 }
 
@@ -238,7 +239,7 @@ export function DormancyPanel({
                   {c.actions.map((a, i) => (
                     <li key={i}>
                       {ACTION[a.kind]} by {a.actor}
-                      {a.dueOn ? `, due ${a.dueOn}` : ""}: {a.note}
+                      {a.dueOn ? `, due ${formatDate(a.dueOn)}` : ""}: {a.note}
                     </li>
                   ))}
                 </ul>
@@ -428,12 +429,5 @@ export function DormancyPanel({
 
 /** "2026-09-15" → "Sep 15". */
 export function shortDate(iso: string) {
-  const d = new Date(`${iso}T00:00:00Z`);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        timeZone: "UTC",
-      });
+  return formatDay(iso);
 }

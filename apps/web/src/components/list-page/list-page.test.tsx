@@ -16,7 +16,7 @@ vi.mock("next/link", () => ({
   ),
 }));
 
-import { ListPage, toCsv, type ListColumn } from "./list-page";
+import { countLine, ListPage, toCsv, type ListColumn } from "./list-page";
 
 type Thing = { id: string; name: string; note: string };
 const columns: ListColumn<Thing>[] = [
@@ -83,5 +83,51 @@ describe("ListPage", () => {
         { id: "b", name: "Beta", note: "" },
       ]),
     ).toBe('Name,Note\nAlpha,"says ""hi"", ok"\nBeta,');
+  });
+});
+
+describe("ListPage conventions (WEB-177)", () => {
+  const one = [{ id: "a", name: "Alpha", note: "x" }];
+  it("a single page still shows the Pages bar with Prev and Next disabled (L6)", () => {
+    const out = html(<ListPage {...base} rows={one} total={1} />);
+    expect(out).toContain('data-testid="list-pages"');
+    expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Prev<\/button>/);
+    expect(out).toMatch(/<button[^>]*disabled=""[^>]*>Next<\/button>/);
+  });
+  it("cursor lists without a total still get the count line (L1)", () => {
+    const noun = { one: "product", many: "products" };
+    expect(countLine(noun, null, 1, 25, { from: 26, to: 50, more: true })).toBe(
+      "Showing 26–50 products · more on the next page",
+    );
+    expect(countLine(noun, null, 1, 25, { from: 1, to: 12, more: false })).toBe(
+      "Showing 1–12 of 12 products",
+    );
+    expect(countLine(noun, 312, 2, 50)).toBe("Showing 51–100 of 312 products");
+    const out = html(
+      <ListPage
+        {...base}
+        rows={one}
+        total={null}
+        range={{ from: 1, to: 1, more: false }}
+      />,
+    );
+    expect(out).toContain("Showing 1–1 of 1 thing");
+  });
+  it("folds extra filter dropdowns behind a Filters toggle on a phone", () => {
+    const out = html(
+      <ListPage
+        {...base}
+        rows={one}
+        total={1}
+        filterPanel={{ node: <select aria-label="Region" />, active: 2 }}
+      />,
+    );
+    expect(out).toMatch(/aria-expanded="false"[^>]*>Filters/);
+    // hidden below the sm breakpoint until opened, shown from sm up
+    expect(out).toContain('class="hidden sm:block"');
+    // the search box comes before the filter panel
+    expect(out.indexOf('data-testid="list-search"')).toBeLessThan(
+      out.indexOf('data-testid="list-filter-panel"'),
+    );
   });
 });

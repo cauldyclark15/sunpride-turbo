@@ -310,9 +310,19 @@ export function CustomerListView({
 }) {
   return (
     <div className="grid gap-4">
-      <CustomerFilterBar index={index} filters={filters} onFilter={onFilter} />
       <ListPage
         noun={{ one: "customer", many: "customers" }}
+        filterPanel={{
+          // WEB-177: at phone width the seven dropdowns fold behind "Filters".
+          node: (
+            <CustomerFilterBar
+              index={index}
+              filters={filters}
+              onFilter={onFilter}
+            />
+          ),
+          active: Object.values(filters).filter(Boolean).length,
+        }}
         rows={rows}
         total={total}
         page={page}

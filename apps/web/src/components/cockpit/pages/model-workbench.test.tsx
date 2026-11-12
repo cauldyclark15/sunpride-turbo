@@ -54,7 +54,7 @@ describe("F-609 F-610 reviewed model controls", () => {
       "Sample",
       "No shelf model is configured",
       "Save reviewed example",
-      "Create candidate version",
+      "Save candidate version",
       "Save independent review",
     ])
       expect(html).toContain(text);
@@ -62,7 +62,7 @@ describe("F-609 F-610 reviewed model controls", () => {
   it("hides edit controls from readers and cached source data after an error", () => {
     state.edit = false;
     expect(renderToStaticMarkup(createElement(ModelWorkbench))).not.toContain(
-      "Create candidate version",
+      "Save candidate version",
     );
     state.error = true;
     const html = renderToStaticMarkup(createElement(ModelWorkbench));

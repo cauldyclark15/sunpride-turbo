@@ -1,4 +1,6 @@
 "use client";
+import { useUrlTab } from "../lib/use-url-tab";
+import { formatDate, formatDateTime } from "../lib/format";
 
 import { Button, Input } from "@heroui/react";
 import {
@@ -165,6 +167,7 @@ const tabs = [
   ["ledger", "Movements"],
 ] as const;
 type Tab = (typeof tabs)[number][0];
+const TAB_IDS: readonly Tab[] = tabs.map((t) => t[0]);
 const fieldClass =
   "h-10 w-full rounded-[10px] border border-field-border bg-field-background px-3 text-sm";
 const tableClass =
@@ -240,7 +243,7 @@ function Amount({ q }: { q: StockQuantity }) {
 
 export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
   void setupMessage;
-  const [tab, setTab] = useState<Tab>("stock"),
+  const [tab, setTab] = useUrlTab(TAB_IDS, "stock"),
     [locationId, setLocationId] = useState(""),
     [productId, setProductId] = useState(""),
     [traceId, setTraceId] = useState(""),
@@ -571,10 +574,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                     {r.name} · {r.locationName}
                   </button>
                   <p className="text-xs text-muted">
-                    Lot {r.lotNumber} ·{" "}
-                    {new Date(r.expiresAt).toLocaleDateString("en-PH", {
-                      timeZone: "Asia/Manila",
-                    })}
+                    Lot {r.lotNumber} · {formatDate(r.expiresAt)}
                   </p>
                   <Amount q={r.quantity} />
                 </div>
@@ -646,7 +646,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
                           : Math.max(2, (d.valueCentavos / maximum) * 100) +
                             "%",
                     }}
-                    title={`${d.date}: ${stockMoney(d.valueCentavos)}`}
+                    title={`${formatDate(d.date)}: ${stockMoney(d.valueCentavos)}`}
                   />
                 );
               })}
@@ -732,11 +732,7 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
             </div>
             <p className="mt-3 text-xs text-muted">
               Cover uses the last 28 days of issues and POS sales, not
-              transfers. Updated{" "}
-              {new Date(data.asOf).toLocaleString("en-PH", {
-                timeZone: "Asia/Manila",
-              })}
-              .
+              transfers. Updated {formatDateTime(data.asOf)}.
             </p>
           </Card>
         </>
@@ -809,7 +805,10 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
         <Card label="Transfers">
           <p className="text-sm">
             Transfers now live on their own list.{" "}
-            <Link className="font-medium underline" href="/operations/transfers">
+            <Link
+              className="font-medium underline"
+              href="/operations/transfers"
+            >
               Open transfers
             </Link>
           </p>

@@ -13,7 +13,7 @@ describe("F-223 joint call follow-up", () => {
   };
   it("F-223 marks an unreviewed agreement overdue after its due day", () => {
     expect(carriedLine(a, "2026-10-21")).toBe(
-      "Face the top 5 SKUs — trainee to do by 2026-10-20 (overdue); agreed 2026-10-19",
+      "Face the top 5 SKUs — trainee to do by Oct 20, 2026 (overdue); agreed Oct 19, 2026",
     );
     expect(carriedLine(a, "2026-10-20")).not.toContain("overdue");
   });

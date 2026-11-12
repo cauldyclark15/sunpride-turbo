@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "../../lib/format";
 import { useState } from "react";
 const object = (v: unknown): Record<string, unknown> =>
   v !== null && typeof v === "object" && !Array.isArray(v)
@@ -78,9 +79,7 @@ export function OverrideFacts({ value }: { value: unknown }) {
         <p>
           Source {f.source === "sample" ? "SAMPLE mock SAP" : "SAP"} ·{" "}
           {Number.isFinite(Number(f.checkedAt))
-            ? new Date(Number(f.checkedAt)).toLocaleString("en-PH", {
-                timeZone: "Asia/Manila",
-              })
+            ? formatDateTime(Number(f.checkedAt))
             : "Check time unavailable"}
         </p>
         <p>Reason: {String(f.reason)}</p>

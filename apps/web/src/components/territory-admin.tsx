@@ -1,4 +1,5 @@
 "use client";
+import { formatStatus } from "../lib/format";
 import {
   Card,
   FormField,
@@ -133,7 +134,7 @@ function TerritoryListRow({
         meta={`${row.code} · ${formatManilaDate(row.effectiveFrom)} · ${salesperson}`}
         value={
           <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
-            {row.status}
+            {formatStatus(row.status)}
           </StatusPill>
         }
         action={

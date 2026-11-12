@@ -43,7 +43,7 @@ describe("print schedule", () => {
     expect(html).not.toContain('planId="p"');
     expect(html).toContain("1970-01-01 08:00");
     for (const text of [
-      "2026-09",
+      "September 2026",
       "Version 3",
       "Preparer",
       "Submitter",

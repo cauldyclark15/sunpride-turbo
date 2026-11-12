@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime, formatMonth, formatStatus } from "../lib/format";
 
 import { Button } from "@heroui/react";
 import { Card } from "@sunpride/ui";
@@ -446,7 +447,8 @@ function Loader({ kind }: { kind: Kind }) {
                   <option value="">Choose a draft plan</option>
                   {plans.data?.rows.map((p) => (
                     <option key={p.id} value={p.id}>
-                      {p.assignee} · {p.month} · version {p.version}
+                      {p.assignee} · {formatMonth(p.month)} · version{" "}
+                      {p.version}
                     </option>
                   ))}
                 </select>
@@ -633,10 +635,8 @@ function Loader({ kind }: { kind: Kind }) {
                 {history.data.rows.map((run) => (
                   <div key={run.id} className="border-b border-separator py-3">
                     <p>
-                      {new Date(run.createdAt).toLocaleString("en-PH", {
-                        timeZone: "Asia/Manila",
-                      })}{" "}
-                      · {run.status.replaceAll("_", " ")}
+                      {formatDateTime(run.createdAt)} ·{" "}
+                      {formatStatus(run.status)}
                     </p>
                     <p>
                       {run.accepted} loaded · {run.failed} not loaded

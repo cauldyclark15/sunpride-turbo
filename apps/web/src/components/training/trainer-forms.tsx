@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 
 import type { EndpointResult, EndpointArgs } from "../supervision/report-api";
 
@@ -135,7 +136,7 @@ export function formColumns(
             size="sm"
             variant="outline"
             className="h-8"
-            aria-label={`Open ${FORM_KIND_LABELS[row.kind]} of ${row.serviceDate}`}
+            aria-label={`Open ${FORM_KIND_LABELS[row.kind]} of ${formatDate(row.serviceDate)}`}
             onPress={() => onOpen(row.formId)}
           >
             Open
@@ -524,10 +525,7 @@ export function TrainerFormView({
         {form.status !== "draft" && (
           <p className="text-[13px] text-muted">
             Signed by trainer {detail.trainerName}
-            {form.signedAt
-              ? ` on ${new Date(form.signedAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}`
-              : ""}
-            .{" "}
+            {form.signedAt ? ` on ${formatDate(form.signedAt)}` : ""}.{" "}
             {form.status === "acknowledged"
               ? `Acknowledged by ${detail.traineeName}${form.traineeComment ? `: “${form.traineeComment}”` : "."}`
               : `Waiting for ${detail.traineeName} to acknowledge.`}

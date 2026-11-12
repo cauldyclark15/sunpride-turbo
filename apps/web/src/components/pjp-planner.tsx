@@ -1,4 +1,5 @@
 "use client";
+import { formatMonth, formatStatus } from "../lib/format";
 
 import { useRef, useState } from "react";
 import { apiFetch, useApi, useLive, useMutate } from "../lib/api";
@@ -314,7 +315,7 @@ export function PjpPlanner({ capabilities }: { capabilities: string[] }) {
               )
               .map((p) => (
                 <option key={p._id} value={p._id}>
-                  {p.localMonth} · version {p.version} · from{" "}
+                  {formatMonth(p.localMonth)} · version {p.version} · from{" "}
                   {day(p.effectiveFrom)}
                 </option>
               ))}
@@ -412,7 +413,8 @@ export function PjpPlanner({ capabilities }: { capabilities: string[] }) {
               <span>
                 {data.templates.find((t) => t._id === p.templateId)?.name ??
                   "Journey plan"}{" "}
-                · {p.localMonth} · version {p.version} · {p.status}
+                · {formatMonth(p.localMonth)} · version {p.version} ·{" "}
+                {formatStatus(p.status)}
               </span>
               {p.status === "submitted" && canApprove && (
                 <button

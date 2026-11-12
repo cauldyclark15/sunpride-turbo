@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "../lib/format";
 import Image from "next/image";
 import { useState } from "react";
 import { useApi } from "../lib/api";
@@ -38,8 +39,8 @@ export function CollectionEvidenceView({
               {i.collector} · {i.note}
             </p>
             <p className="text-xs text-muted">
-              Captured {new Date(i.capturedAt).toLocaleString("en-PH")} ·
-              received {new Date(i.receivedAt).toLocaleString("en-PH")}
+              Captured {formatDateTime(i.capturedAt)} · received{" "}
+              {formatDateTime(i.receivedAt)}
             </p>
             {i.photo && (
               <Image

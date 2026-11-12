@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 
 import { useState, type FormEvent } from "react";
 import { apiFetch, mutate, useApi, useLive } from "../../lib/api";
@@ -66,7 +67,7 @@ export function RegistersBoard({
             </StatusPill>
           </div>
           <p className="text-sm">
-            {d.businessDate} · {d.sessions} cashier session
+            {formatDate(d.businessDate)} · {d.sessions} cashier session
             {d.sessions === 1 ? "" : "s"}
             {d.openSessions > 0 ? `, ${d.openSessions} open` : ""}
           </p>
@@ -118,7 +119,7 @@ export function TillDaysList({
         {sorted.map((d) => (
           <tr key={d.id} className="border-t border-separator">
             <td className="py-2 pr-3">
-              {d.businessDate}
+              {formatDate(d.businessDate)}
               <span className="block text-xs">
                 <DocNumber value={d.number} />
               </span>
@@ -341,11 +342,11 @@ export function TillDayDetailView({
   return (
     <article
       className="grid gap-5"
-      aria-label={`Till day ${detail.day.businessDate}`}
+      aria-label={`Till day ${formatDate(detail.day.businessDate)}`}
     >
       <header className="grid gap-1">
         <h2 className="text-xl font-semibold">
-          {detail.reading.register} · {detail.day.businessDate}
+          {detail.reading.register} · {formatDate(detail.day.businessDate)}
         </h2>
         <p className="text-sm text-muted">
           {detail.reading.store} · <DocNumber value={detail.day.number} /> ·{" "}

@@ -14,8 +14,16 @@ import {
 } from "../kit";
 import { formatCount, formatPct, formatPhp, formatMinutes } from "../format";
 import type { Kpi, ResponseHeader } from "../types";
+import { formatDate, formatDateTime } from "@/lib/format";
 import type { AnalyticsQuery } from "../api";
 import { buttonClass, useCockpitAccess } from "./shared";
+
+/** Date-only / ISO instants in a cell read as words, never raw ISO (WEB-166). */
+function readableText(v: string): string {
+  if (/^\d{4}-\d{2}-\d{2}$/.test(v)) return formatDate(v);
+  if (/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/.test(v)) return formatDateTime(v);
+  return v;
+}
 
 type Scalar = string | number | boolean | null;
 type TableRow = Record<string, Scalar>;
@@ -78,7 +86,7 @@ export function TowerTable({
                       ? v
                         ? "Yes"
                         : "No"
-                      : v;
+                      : readableText(v);
         },
       }))}
       empty={

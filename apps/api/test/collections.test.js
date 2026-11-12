@@ -156,7 +156,7 @@ test("F-613 promise-to-pay is bounded by the sample AR open items, scoped, idemp
   ]);
   expect(one.promisedMinor).toBe(30_000);
   expect(read.body.promises[0].openItemLabel).toBe(
-    "Invoice 2026-09-01, due 2026-10-01",
+    "Invoice of Sep 1, 2026, due Oct 1, 2026",
   );
   // Team B's manager sees none of Team A's collections.
   const other = await call("/api/v1/money/collections", undefined, managerB);

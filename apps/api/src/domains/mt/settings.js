@@ -32,16 +32,32 @@ export function installSettings(router) {
       } catch (e) {
         if (!(e instanceof ApiError) || e.status !== 403) throw e;
       }
+    // WEB-143: offer every external identity the access endpoint accepts (no
+    // employee profile, no pending invitation), not only people who already
+    // have portal access — otherwise a first grant is impossible.
     const externalUsers = [];
     if (c.actor?.capabilities.has("admin.manage")) {
       const members =
-        await c.db`select m.*,u.email from mt_portal_memberships m join users u on u.id=m.user_id where m.effective_to is null and u.disabled_at is null order by m.name limit 501`;
+        await c.db`select u.id as user_id,u.email,coalesce(m.name,u.email::text) as name,m.scope_kind,m.scope_key
+          from users u left join mt_portal_memberships m on m.user_id=u.id and m.effective_to is null
+          where u.disabled_at is null
+            and not exists(select 1 from profiles p where p.user_id=u.id or lower(p.email)=lower(u.email))
+            and not exists(select 1 from access_invitations a where lower(a.email)=lower(u.email) and a.status='pending')
+          order by coalesce(m.name,u.email::text) limit 501`;
       if (members.length > 500)
         throw new ApiError("capacity", 422, "Narrow the portal access roster");
       for (const m of members)
         try {
-          await scopeAccess(c, m.scope_kind, m.scope_key, "admin.manage");
-          externalUsers.push({ id: m.user_id, name: m.name, email: m.email });
+          if (m.scope_kind)
+            await scopeAccess(c, m.scope_kind, m.scope_key, "admin.manage");
+          externalUsers.push({
+            id: m.user_id,
+            name: m.name,
+            email: m.email,
+            access: m.scope_kind
+              ? { kind: m.scope_kind, key: m.scope_key }
+              : null,
+          });
         } catch (e) {
           if (!(e instanceof ApiError) || e.status !== 403) throw e;
         }

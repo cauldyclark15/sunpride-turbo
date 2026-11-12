@@ -1,4 +1,6 @@
 "use client";
+import { useUrlTab } from "../lib/use-url-tab";
+import { formatDate, formatDateTime } from "../lib/format";
 
 import { useState, type FormEvent, type ReactNode } from "react";
 import { apiFetch, mutate, useApi, useLive } from "../lib/api";
@@ -222,6 +224,20 @@ function Select({
 }
 
 /** F-311–F-321/F-614: which stores need action, and what evidence supports this week's score? */
+const RETAIL_TABS = [
+  "Weekly scores",
+  "Equipment",
+  "Shelf actions",
+  "Planograms",
+  "POSM",
+  "Policies",
+  "Batch recall",
+  "Observations",
+] as const;
+const slug = (label: string) => label.toLowerCase().replace(/\s+/g, "-");
+const RETAIL_TAB_IDS = RETAIL_TABS.map(slug);
+type RetailTabId = string;
+
 export function RetailWorkspace() {
   const { profile } = useSession();
   const allowed = profile?.active;
@@ -231,7 +247,9 @@ export function RetailWorkspace() {
     `/api/v1/retail/workspace?outletId=${outletFilter}`,
   );
   useLive(["retail", "visits"], [["retail"]]);
-  const [tab, setTab] = useState("Weekly scores"),
+  const [tabId, setTabId] = useUrlTab(RETAIL_TAB_IDS, "weekly-scores"),
+    tab = RETAIL_TABS.find((t) => slug(t) === tabId) ?? "Weekly scores",
+    setTab = (label: string) => setTabId(slug(label) as RetailTabId),
     [account, setAccount] = useState(""),
     [week, setWeek] = useState(monday),
     [lot, setLot] = useState(""),
@@ -514,10 +532,7 @@ export function RetailWorkspace() {
                   {c.outlet_name} · {label(c.kind)}
                 </h4>
                 <p>
-                  {label(c.status)} · due{" "}
-                  {new Date(c.due_at).toLocaleString("en-PH", {
-                    timeZone: "Asia/Manila",
-                  })}
+                  {label(c.status)} · due {formatDateTime(c.due_at)}
                 </p>
                 <p>
                   {[
@@ -741,7 +756,7 @@ export function RetailWorkspace() {
                   {p.unit_code} · {p.label} · {p.custodian_name} ·{" "}
                   {label(p.kind)}
                   {p.nextAuditAt
-                    ? ` · next audit ${new Date(p.nextAuditAt).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}`
+                    ? ` · next audit ${formatDate(p.nextAuditAt)}`
                     : ""}
                 </p>
               ))}
@@ -822,9 +837,7 @@ export function RetailWorkspace() {
                   : `${Number(a.component_score).toFixed(1)}%`}
               </p>
               <p className="text-sm text-muted">
-                {new Date(a.captured_at).toLocaleString("en-PH", {
-                  timeZone: "Asia/Manila",
-                })}
+                {formatDateTime(a.captured_at)}
               </p>
             </article>
           ))}
@@ -1075,11 +1088,7 @@ function MasterEditor({
   );
   return (
     <form className={panel} onSubmit={(e) => void save(e)}>
-      <h3>
-        {selected
-          ? `Edit ${selected.label}`
-          : "Add record"}
-      </h3>
+      <h3>{selected ? `Edit ${selected.label}` : "Add record"}</h3>
       {!selected && (
         <Field title="Record type">
           <select

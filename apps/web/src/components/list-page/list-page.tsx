@@ -51,6 +51,31 @@ export function readPage(params: URLSearchParams): number {
   return Number.isInteger(n) && n >= 1 ? n : 1;
 }
 
+/**
+ * The L1 count line. With a known total: "Showing 1–50 of 312 stores". Cursor
+ * lists that do not know the total pass `range` instead: "Showing 26–50
+ * products · more on the next page" (or "of 50" once the last page is reached).
+ */
+export function countLine(
+  noun: { one: string; many: string },
+  total: number | null,
+  page: number,
+  pageSize: number,
+  range?: { from: number; to: number; more: boolean } | null,
+): string | null {
+  if (range) {
+    if (range.to < range.from) return null;
+    const word = !range.more && range.to === 1 ? noun.one : noun.many;
+    return range.more
+      ? `Showing ${range.from}–${range.to} ${word} · more on the next page`
+      : `Showing ${range.from}–${range.to} of ${range.to.toLocaleString("en-PH")} ${word}`;
+  }
+  if (!total) return null;
+  const from = (page - 1) * pageSize + 1;
+  const to = Math.min(total, page * pageSize);
+  return `Showing ${from}–${to} of ${total.toLocaleString("en-PH")} ${total === 1 ? noun.one : noun.many}`;
+}
+
 /** Page numbers to show: first, last, and one either side of the current page. */
 export function pageNumbers(page: number, pages: number): Array<number | "…"> {
   const out: Array<number | "…"> = [];
@@ -188,6 +213,8 @@ export function ListPage<T>({
   bulkActions = [],
   exportName,
   loading = false,
+  range,
+  filterPanel,
 }: {
   noun: { one: string; many: string };
   rows: T[] | null;
@@ -212,7 +239,15 @@ export function ListPage<T>({
   bulkActions?: BulkAction<T>[];
   exportName?: string;
   loading?: boolean;
+  /** Cursor lists without a total: the rows shown and whether more follow (L1). */
+  range?: { from: number; to: number; more: boolean } | null;
+  /**
+   * Extra filter controls (dropdowns). On a phone they fold behind a
+   * "Filters" toggle so the search and the rows stay on the first screen.
+   */
+  filterPanel?: { node: ReactNode; active: number };
 }) {
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const keys = (rows ?? []).map(rowKey);
   // a new page or search starts with nothing picked
   const pageKey = keys.join("|");
@@ -230,8 +265,6 @@ export function ListPage<T>({
   const add = addLabel ?? `Add ${noun.one}`;
   const query = q.trim();
   const pages = total ? Math.max(1, Math.ceil(total / pageSize)) : 1;
-  const from = total ? (page - 1) * pageSize + 1 : 0;
-  const to = total ? Math.min(total, page * pageSize) : 0;
   const allPicked = keys.length > 0 && keys.every((k) => picked.has(k));
   const actions: BulkAction<T>[] = [
     ...(columns.some((c) => c.text)
@@ -272,6 +305,27 @@ export function ListPage<T>({
           </button>
         ) : null}
       </div>
+
+      {filterPanel ? (
+        <div className="grid gap-2" data-testid="list-filter-panel">
+          <button
+            type="button"
+            aria-expanded={filtersOpen}
+            onClick={() => setFiltersOpen((o) => !o)}
+            className="inline-flex h-10 w-fit items-center gap-2 rounded-xl border border-border px-4 text-[14px] font-medium text-foreground hover:bg-default-soft sm:hidden"
+          >
+            Filters
+            {filterPanel.active ? (
+              <span className="rounded-full bg-foreground px-2 text-[12px] text-background tabular-nums">
+                {filterPanel.active}
+              </span>
+            ) : null}
+          </button>
+          <div className={filtersOpen ? "block" : "hidden sm:block"}>
+            {filterPanel.node}
+          </div>
+        </div>
+      ) : null}
 
       {filters?.length ? (
         <div
@@ -332,9 +386,7 @@ export function ListPage<T>({
           <p data-testid="list-count" aria-live="polite">
             {loading && rows === null
               ? `Loading ${noun.many}…`
-              : total
-                ? `Showing ${from}–${to} of ${total.toLocaleString("en-PH")} ${total === 1 ? noun.one : noun.many}`
-                : null}
+              : countLine(noun, total, page, pageSize, range)}
           </p>
         )}
       </div>
@@ -456,7 +508,7 @@ export function ListPage<T>({
         </div>
       ) : null}
 
-      {pages > 1 ? (
+      {total && rows?.length ? (
         <nav
           aria-label="Pages"
           className="flex flex-wrap items-center justify-center gap-1"

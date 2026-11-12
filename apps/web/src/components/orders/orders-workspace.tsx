@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "../../lib/format";
 
 import { Button } from "@heroui/react";
 import Link from "next/link";
@@ -268,93 +269,7 @@ export function OrdersWorkspace({
             Try again
           </Button>
         </p>
-      ) : (
-        <>
-          <div
-            className="grid gap-3 sm:grid-cols-4"
-            aria-label="Order control summary"
-          >
-            <div className="rounded-xl border border-border p-4">
-              <p className="text-sm text-muted">Booked value</p>
-              <strong>
-                {summary ? money(summary.totalCentavos) : "Loading…"}
-              </strong>
-              <p className="text-xs text-muted">
-                Prior period:{" "}
-                {summary ? money(summary.priorCentavos) : "Loading…"}
-              </p>
-              <p className="text-xs text-muted">
-                {!wholeSalesView
-                  ? "Targets apply to the unfiltered sales view."
-                  : `Target: ${money(target)}`}
-              </p>
-              {wholeSalesView &&
-                target !== null &&
-                target > 0 &&
-                summary?.totalCentavos != null && (
-                  <p className="text-xs text-muted">
-                    {((summary.totalCentavos / target) * 100).toFixed(1)}% of
-                    period target
-                  </p>
-                )}
-              <Link href="/sales-targets" className="text-xs underline">
-                {target === null ? "Set target" : "Review target"}
-              </Link>
-            </div>
-            <div className="rounded-xl border border-border p-4">
-              <p className="text-sm text-muted">Waiting for approval</p>
-              <strong>{summary?.waiting ?? "—"}</strong>
-              <p className="text-xs text-muted">Open an order to decide</p>
-            </div>
-            <div className="rounded-xl border border-border p-4">
-              <p className="text-sm text-muted">Over credit</p>
-              <strong>{summary?.overCredit ?? "—"}</strong>
-              <p className="text-xs text-muted">
-                Review exposure and explain the decision
-              </p>
-            </div>
-            <div className="rounded-xl border border-border p-4">
-              <p className="text-sm text-muted">Missing prices</p>
-              <strong>{summary?.unpriced ?? "—"}</strong>
-              <Link href="/pricing" className="ml-2 text-xs underline">
-                Fix channel prices
-              </Link>
-            </div>
-          </div>
-          {data && (
-            <div className="rounded-xl border border-border p-4">
-              <h3 className="text-sm font-medium">
-                Booked trend ·{" "}
-                {formatDateRange(data.period.from, data.period.to)}
-              </h3>
-              {data.trend.length ? (
-                <ol
-                  aria-label="Daily booked value"
-                  className="mt-3 flex items-end gap-2 overflow-x-auto"
-                >
-                  {data.trend.map((d) => (
-                    <li key={d.date} className="min-w-20 flex-1 text-xs">
-                      <div
-                        className="bg-foreground/15"
-                        style={{
-                          height: `${d.totalCentavos == null ? 2 : Math.max(2, (d.totalCentavos / Math.max(1, ...data.trend.map((x) => x.totalCentavos ?? 0))) * 70)}px`,
-                        }}
-                      />
-                      <p>{formatDate(d.date)}</p>
-                      <p>{money(d.totalCentavos)}</p>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="text-sm text-muted">
-                  No booked orders in this period. This is zero activity, not a
-                  target result.
-                </p>
-              )}
-            </div>
-          )}
-        </>
-      )}
+      ) : null}
       <Card label="Orders" icon={<WorkspaceIcon name="commercial" />}>
         <form
           onSubmit={submit}
@@ -504,6 +419,94 @@ export function OrdersWorkspace({
           />
         </div>
       </Card>
+      {/* L1: a list page leads with the list; the summary follows it. */}
+      {!list.error ? (
+        <section aria-label="Order summary" className="grid gap-3">
+          <div
+            className="grid gap-3 sm:grid-cols-4"
+            aria-label="Order control summary"
+          >
+            <div className="rounded-xl border border-border p-4">
+              <p className="text-sm text-muted">Booked value</p>
+              <strong>
+                {summary ? money(summary.totalCentavos) : "Loading…"}
+              </strong>
+              <p className="text-xs text-muted">
+                Prior period:{" "}
+                {summary ? money(summary.priorCentavos) : "Loading…"}
+              </p>
+              <p className="text-xs text-muted">
+                {!wholeSalesView
+                  ? "Targets apply to the unfiltered sales view."
+                  : `Target: ${money(target)}`}
+              </p>
+              {wholeSalesView &&
+                target !== null &&
+                target > 0 &&
+                summary?.totalCentavos != null && (
+                  <p className="text-xs text-muted">
+                    {((summary.totalCentavos / target) * 100).toFixed(1)}% of
+                    period target
+                  </p>
+                )}
+              <Link href="/sales-targets" className="text-xs underline">
+                {target === null ? "Set target" : "Review target"}
+              </Link>
+            </div>
+            <div className="rounded-xl border border-border p-4">
+              <p className="text-sm text-muted">Waiting for approval</p>
+              <strong>{summary?.waiting ?? "—"}</strong>
+              <p className="text-xs text-muted">Open an order to decide</p>
+            </div>
+            <div className="rounded-xl border border-border p-4">
+              <p className="text-sm text-muted">Over credit</p>
+              <strong>{summary?.overCredit ?? "—"}</strong>
+              <p className="text-xs text-muted">
+                Review exposure and explain the decision
+              </p>
+            </div>
+            <div className="rounded-xl border border-border p-4">
+              <p className="text-sm text-muted">Missing prices</p>
+              <strong>{summary?.unpriced ?? "—"}</strong>
+              <Link href="/pricing" className="ml-2 text-xs underline">
+                Fix channel prices
+              </Link>
+            </div>
+          </div>
+          {data && (
+            <div className="rounded-xl border border-border p-4">
+              <h3 className="text-sm font-medium">
+                Booked trend ·{" "}
+                {formatDateRange(data.period.from, data.period.to)}
+              </h3>
+              {data.trend.length ? (
+                <ol
+                  aria-label="Daily booked value"
+                  className="mt-3 flex items-end gap-2 overflow-x-auto"
+                >
+                  {data.trend.map((d) => (
+                    <li key={d.date} className="min-w-20 flex-1 text-xs">
+                      <div
+                        className="bg-foreground/15"
+                        style={{
+                          height: `${d.totalCentavos == null ? 2 : Math.max(2, (d.totalCentavos / Math.max(1, ...data.trend.map((x) => x.totalCentavos ?? 0))) * 70)}px`,
+                        }}
+                      />
+                      <p>{formatDate(d.date)}</p>
+                      <p>{money(d.totalCentavos)}</p>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-sm text-muted">
+                  No booked orders in this period. This is zero activity, not a
+                  target result.
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+      ) : null}
       {selected && <OrderDrawer id={selected} onClose={closeDrawer} />}
     </div>
   );
@@ -739,11 +742,7 @@ export function OrderDrawer({
                     <p>
                       {stage(h.to)} · {h.name}
                     </p>
-                    <p className="text-xs text-muted">
-                      {new Date(h.at).toLocaleString("en-PH", {
-                        timeZone: "Asia/Manila",
-                      })}
-                    </p>
+                    <p className="text-xs text-muted">{formatDateTime(h.at)}</p>
                     {h.reason && <p>{h.reason}</p>}
                   </li>
                 ))}

@@ -1,4 +1,5 @@
 "use client";
+import { formatDate, formatPeriod } from "../lib/format";
 import Link from "next/link";
 import { apiFetch, useApi, useLive } from "../lib/api";
 import { currentManilaDate } from "../lib/coverage-calendar";
@@ -39,8 +40,8 @@ export function PjpAdherenceView({ data }: { data: PjpAdherence }) {
       <header>
         <h2 className="font-semibold">PJP adherence: four complete weeks</h2>
         <p className="text-sm text-muted">
-          {data.window.from} to {data.window.to}. Closed planned calls only;
-          unplanned calls never improve this result. Frequency is achieved
+          {formatPeriod(data.window.from, data.window.to)}. Closed planned calls
+          only; unplanned calls never improve this result. Frequency is achieved
           signed scheduled calls per outlet, not purchase frequency.
         </p>
       </header>
@@ -64,7 +65,7 @@ export function PjpAdherenceView({ data }: { data: PjpAdherence }) {
             key={w.from}
             className="rounded-lg border border-border p-2 text-sm"
           >
-            Week of {w.from}
+            Week of {formatDate(w.from)}
             <br />
             {pct(w.adherencePct)} · {w.actual}/{w.planned}
             <br />
@@ -111,7 +112,7 @@ export function PjpAdherenceView({ data }: { data: PjpAdherence }) {
                   </td>
                   <td>{r.territory}</td>
                   <td>{r.beat}</td>
-                  <td>{r.date}</td>
+                  <td>{formatDate(r.date)}</td>
                   <td>
                     {r.actual} / {r.planned}
                   </td>
