@@ -785,6 +785,9 @@ describe("orders and governed prices on Postgres", () => {
     expect(list.status).toBe(200);
     expect(list.body.total).toBe(1);
     expect(list.body.rows[0].storeName).toBe("Market Store");
+    // WEB-106: the specific reason, not the general sentence.
+    expect(list.body.rows[0].reviewCode).toBe("wrong_time");
+    expect(list.body.rows[0].reason).toBe("Order time is outside the visit");
     expect(
       (
         await api(admin, "orders/field-review/retry", {
@@ -1098,4 +1101,15 @@ test("when SAP owns prices, office price import and delete are refused like save
   expect(dup.body.error.message).toBe(
     "A price list with code SAPGUARD already exists. Choose another code.",
   );
+});
+
+test("WEB-106 review codes name the specific cause in plain words", async () => {
+  const { reviewCodeOf, reviewReason } = await import("../src/domains/orders/field-queue.js");
+  const { ApiError } = await import("../src/core/errors.js");
+  const e = (/** @type {string} */ m, code = "invalid_request") => new ApiError(code, 422, m);
+  expect(reviewReason(reviewCodeOf(e("This store needs an accounting customer before a commercial order can be booked")))).toBe("Unknown store (no accounting customer linked)");
+  expect(reviewReason(reviewCodeOf(e("A free product needs a governed reference price before approval")))).toBe("Missing price");
+  expect(reviewReason(reviewCodeOf(e("The store's selling catalog needs setup")))).toBe("Store's selling list is not set up");
+  expect(reviewReason(reviewCodeOf(e("Product was not authorized on the visit day")))).toBe("Product was not on the store's list that day");
+  expect(reviewReason("invalid_request")).toMatch(/^Captured order needs selling setup/);
 });

@@ -11,6 +11,7 @@ export {
   actionRequest,
   approveAllRequest,
   cleanTripIds,
+  approvalRefusal,
   attentionFor,
   reasonsFor,
   editPayload,

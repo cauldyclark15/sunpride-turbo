@@ -65,6 +65,10 @@ const initial = (): Filters => ({
   q: "",
   view: "",
 });
+/** WEB-106: "1 captured phone order …" / "2 captured phone orders …". */
+export const fieldReviewHeading = (n: number) =>
+  `${n} captured phone order${n === 1 ? "" : "s"} waiting for commercial review`;
+
 export const SAVED_VIEWS = [
   "Waiting for my approval",
   "Today",
@@ -214,8 +218,7 @@ export function OrdersWorkspace({
           className="rounded-xl border border-border p-4"
         >
           <h3 className="font-medium">
-            {review.data.total} captured phone orders waiting for commercial
-            review
+            {fieldReviewHeading(review.data.total)}
           </h3>
           <ul className="mt-2 grid gap-2">
             {review.data.rows.map((r) => (

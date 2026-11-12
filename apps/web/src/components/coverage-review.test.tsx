@@ -10,6 +10,7 @@ import {
   approveCoveragePlan,
   activateCoveragePlan,
   signatureLabel,
+  historyActionLabel,
 } from "./coverage-review";
 
 const state = vi.hoisted(() => ({
@@ -427,7 +428,7 @@ describe("coverage review", () => {
       planId: plan._id,
       paginationOpts: { numItems: 20, cursor: null },
     });
-    expect(html).toContain("plan.returned");
+    expect(html).toContain("Returned to draft");
     expect(html).toContain("Missing objective");
     expect(html).toContain("Manager");
     expect(html).not.toContain("manager-subject");
@@ -455,7 +456,7 @@ describe("coverage review", () => {
     };
     state.hooks[1] = id<"coveragePlans">("plan-2");
     const oldVersion = render("history");
-    expect(oldVersion).toContain("plan.approved");
+    expect(oldVersion).toContain("Approved and signed");
     expect(oldVersion).toContain("Second version");
     expect(oldVersion).not.toContain("Missing objective");
     expect(
@@ -564,6 +565,9 @@ describe("coverage review", () => {
     expect(html).toContain("Manager");
     expect(html).toContain("Version 2");
     expect(html).toContain("Signed version: v1 · feedface0123");
+    // WEB-118: actions in plain words.
+    expect(html).toContain("Returned to draft");
+    expect(html).not.toContain("plan.returned");
     expect(html).not.toContain("issuer.example");
     expect(html).toContain("Before → After");
     expect(html).toContain("status: submitted → draft");
@@ -589,7 +593,7 @@ describe("coverage review", () => {
       eventsActorNames: {},
     };
     const html = render("history");
-    expect(html).toContain("plan.returned</strong> · Former user");
+    expect(html).toContain("Returned to draft</strong> · Former user");
     expect(html).toContain("reviewer: Former user → Former user");
     expect(html).not.toContain("issuer|manager-subject");
   });
@@ -679,6 +683,9 @@ describe("approval signature label", () => {
 
   it("falls back for an unexpected shape", () => {
     expect(signatureLabel("opaque")).toBe("signed");
+    expect(historyActionLabel("plan.approve")).toBe("Approved and signed");
+    expect(historyActionLabel("plan.setAssignment")).toBe("Assignment saved");
+    expect(historyActionLabel("plan.somethingNew")).toBe("Something new");
   });
 });
 

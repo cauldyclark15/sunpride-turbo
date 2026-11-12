@@ -392,12 +392,21 @@ async function office(c) {
       store: r.store_name,
       outletId: r.outlet_id,
     },
-    reversals: reversals.map((/** @type {any} */ v) => ({
-      ...v,
-      canDecide:
-        roleHas(actor.role, "van.cash.approve") &&
-        v.cashier_id !== actor.profileId,
-    })),
+    reversals: reversals.map((/** @type {any} */ v) => {
+      const approver = roleHas(actor.role, "van.cash.approve");
+      const own = v.cashier_id === actor.profileId;
+      return {
+        ...v,
+        canDecide: approver && !own,
+        // WEB-043: say who can decide instead of a vague "a second person".
+        decideNote:
+          approver && !own
+            ? null
+            : own
+              ? "You rang this up, so another manager or approver decides."
+              : "A store manager, sales manager or approver decides this.",
+      };
+    }),
     deposits: deposits.map((/** @type {any} */ d) => ({
       ...d,
       canViewPhoto:

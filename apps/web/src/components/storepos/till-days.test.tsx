@@ -410,6 +410,9 @@ describe("X and Z sheets", () => {
     );
     expect(view).toContain("₱13,500.00");
     expect(view).toContain("Older record");
+    // WEB-087: the day in words, never ISO.
+    expect(view).toContain("Nov 7, 2026");
+    expect(view).not.toContain("2026-11-07");
     expect(view.match(/View and print/g)).toHaveLength(1);
     expect(html(createElement(ZHistoryList, { readings: [] }))).toContain(
       "No Z readings",

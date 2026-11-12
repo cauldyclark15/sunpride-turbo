@@ -8,6 +8,7 @@ import { routePolicy } from "./route-policy.js";
 import { addCrew, rostersOn, isoWeekday } from "./roster.js";
 import { audit, productFor } from "./facts.js";
 import { date, dayString, refuse, today, uuid } from "./model.js";
+import { eligibleFreeBase } from "../inventory/eligible.js";
 
 /**
  * IP-VANDAY (SPEC 5.2 step 1): 20:00 Manila creates tomorrow's trips from the roster and a SUGGESTED load for each.
@@ -98,10 +99,9 @@ export async function computeSuggestion(db, trip) {
     ? await db`select product_id,available_stock_base::bigint as q from inventory_balances where location_id=${trip.truck_location_id} and product_id in ${db(ids)} and deleted_at is null`
     : [];
   for (const r of truck) slot(r.product_id).onTruckBase = Number(r.q);
-  const depot = ids.length
-    ? await db`select product_id,available_base::bigint as q from inventory_balances where location_id=${trip.source_location_id} and product_id in ${db(ids)} and deleted_at is null`
-    : [];
-  for (const r of depot) slot(r.product_id).depotFreeBase = Number(r.q);
+  // Only stock that approval can actually issue (released, not held, far enough from expiry): same rule as posting.
+  const depot = await eligibleFreeBase(db, trip.source_location_id, ids, { org: trip.organization_id });
+  for (const [productId, q] of depot) slot(productId).depotFreeBase = q;
   const lines = [];
   for (const s of byProduct.values()) {
     let product;
@@ -421,9 +421,7 @@ export async function suggestionFromLines(db, trip, want) {
     if (!product) continue;
     const [truck] =
       await db`select available_stock_base::bigint as q from inventory_balances where location_id=${trip.truck_location_id} and product_id=${w.productId} and deleted_at is null`;
-    const [depot] =
-      await db`select available_base::bigint as q from inventory_balances where location_id=${trip.source_location_id} and product_id=${w.productId} and deleted_at is null`;
-    const free = Number(depot?.q ?? 0);
+    const free = (await eligibleFreeBase(db, trip.source_location_id, [w.productId], { org: trip.organization_id })).get(w.productId) ?? 0;
     const flags = ["copied"];
     let qty = w.quantityBase;
     if (qty > free) {

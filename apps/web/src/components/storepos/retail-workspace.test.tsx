@@ -139,7 +139,12 @@ describe("F-R08 retail owner reporting", () => {
     expect(view).toContain("X read 12");
     expect(view).toContain("SAMPLE-SI-01");
     expect(view).toContain("Export journal for Excel");
-    expect(view).toContain("A second person must decide");
+    // WEB-043: dates in words, a status word, and who can decide (not "a second person").
+    expect(view).toContain("X read 12 · Oct 21, 2026");
+    expect(view).not.toContain("2026-10-21");
+    expect(view).toContain("Waiting for a decision");
+    expect(view).toContain("A store manager, sales manager or approver decides this.");
+    expect(view).not.toContain("A second person must decide");
     expect(view).not.toContain("Approve refund");
     expect(view).not.toContain("Expected");
     for (const id of [

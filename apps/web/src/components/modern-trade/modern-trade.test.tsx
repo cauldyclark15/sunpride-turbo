@@ -7,7 +7,7 @@ import { CustomerPortal, PortalLogin } from "./portal";
 import { getWebNavigation } from "../../config/navigation";
 import { canAccessWebModule } from "../../lib/module-access";
 import { safeCsv } from "./export";
-import { savedVersionText } from "./index";
+import { portalAccessLabel, savedVersionText } from "./index";
 import type { Options, Intake, Term, Deduction, PortalOverview } from "./model";
 
 const state = vi.hoisted(() => ({
@@ -316,5 +316,30 @@ describe("WEB-143 account setup saves say what changed", () => {
     ).toBe(
       "Saved. The new SAMPLE-CHAIN-B export mapping applies from Nov 20, 2026; the previous version ends then.",
     );
+  });
+});
+
+describe("portal access label (WEB-143)", () => {
+  it("names the access in force, a future one, or none", () => {
+    expect(portalAccessLabel(null)).toBe(" · no access yet");
+    expect(
+      portalAccessLabel({ kind: "account", key: "SAMPLE-CHAIN-A", current: true, to: null }),
+    ).toBe(" · has account SAMPLE-CHAIN-A");
+    expect(
+      portalAccessLabel({
+        kind: "account",
+        key: "SAMPLE-CHAIN-A",
+        current: true,
+        to: Date.parse("2026-11-14T12:00:00+08:00"),
+      }),
+    ).toBe(" · has account SAMPLE-CHAIN-A until Nov 14, 2026");
+    expect(
+      portalAccessLabel({
+        kind: "account",
+        key: "B",
+        current: false,
+        from: Date.parse("2026-12-01T12:00:00+08:00"),
+      }),
+    ).toBe(" · account B from Dec 1, 2026");
   });
 });
