@@ -89,4 +89,53 @@ class SyncStatusTest {
         assertFalse(status.nothingWaiting)
         assertTrue(status.copy(photosWaiting = 0).nothingWaiting)
     }
+
+    /** FLD-153: every refusal code the API can return (read from its source) and every phone code has plain words. */
+    @Test fun everyRefusalCodeHasPlainWording() {
+        var dir: java.io.File? = java.io.File("").absoluteFile
+        while (dir != null && !java.io.File(dir, "apps/api/src/core/sync.js").exists()) dir = dir.parentFile
+        val source = java.io.File(checkNotNull(dir) { "repo root not found" }, "apps/api/src/core/sync.js").readText()
+        val block = Regex("""OP_CODES\s*=\s*Object\.freeze\(\[(.*?)\]\)""", RegexOption.DOT_MATCHES_ALL).find(source)!!.groupValues[1]
+        val server = Regex("\"([a-z_]+)\"").findAll(block).map { it.groupValues[1] }.toList()
+        assertTrue("OP_CODES parsed", server.size >= 16 && "invalid_plan" in server)
+        val phone = listOf("dependency_missing", "rebootstrap_visit_changed", "photo_needs_review", "unknown_status",
+            "review_required", "conflict", "rejected", "unsupported", "scope_changed", "device_revoked", "unauthorized") +
+            com.sunpride.field.sync.VisitCodec.reasons
+        val missing = (server + phone).filter { it !in SyncStatus.REASONS }
+        assertTrue("codes without plain wording: $missing", missing.isEmpty())
+        SyncStatus.REASONS.values.forEach { assertFalse(it, it.contains('_')) ; assertNotEquals("Visit needs administrator review", it) }
+        // FLD-153 case: Start on a visit the office already marked missed is refused with invalid_plan.
+        assertEquals("This visit was changed or closed by the office (for example marked missed)", SyncStatus.plainReason("invalid_plan"))
+    }
+
+    /** FLD-176: a refused item is viewable with its reason, clearable, and the pill reflects only real pending work. */
+    @Test fun refusedItemsAreListedClearableAndNotUnsentWork() {
+        val scope = com.sunpride.field.storage.StoreScope("account", "device", "scope")
+        val start = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.checkIn", null, null, null,
+            "p", "o", emptyList(), null, null, null, null, null, 1000)
+        val refused = OutboxRow("account", "device", "scope", start.requestId, 1000, "review", "invalid_plan")
+        val status = SyncStatus.fromRoom(partition, listOf(refused), intents = listOf(start))
+        assertEquals(1, status.review)
+        assertEquals(listOf(SyncStatus.ReviewItem(start.requestId, "Start visit", SyncStatus.plainReason("invalid_plan"))), status.reviewItems)
+        assertTrue(status.nothingWaiting)
+        assertEquals("Needs review", status.label(1100))
+        assertEquals("Needs review · not synced", status.copy(queued = 1).label(1100))
+        val cleared = SyncStatus.fromRoom(partition, listOf(refused), intents = listOf(start), dismissed = setOf(start.requestId))
+        assertEquals(0, cleared.review)
+        assertTrue(cleared.reviewItems.isEmpty())
+        assertFalse(cleared.pending)
+        assertEquals("All synced", cleared.label(1100))
+    }
+
+    /** FLD-122: a hold on this partition is retried by the background sync; earlier-sign-in work is not. */
+    @Test fun backgroundSyncRetriesThisPartitionsHoldButNotEarlierWork() {
+        val work = com.sunpride.field.sync.work.SyncWork
+        val heldHere = SyncStatus.fromRoom(partition.copy(held = true, syncHealth = "held_for_review"), listOf(row("pending")))
+        assertEquals("Held · needs review", heldHere.label(1100))
+        assertTrue(work.shouldRun(heldHere))
+        assertFalse(work.shouldRun(SyncStatus.fromRoom(partition, listOf(row("pending", "old-scope")))))
+        assertTrue(work.shouldRun(SyncStatus.fromRoom(partition, listOf(row("pending")))))
+        assertFalse(work.shouldRun(SyncStatus.fromRoom(partition, listOf(row("review", code = "invalid_plan")))))
+        assertFalse(work.shouldRun(SyncStatus.fromRoom(partition, emptyList())))
+    }
 }

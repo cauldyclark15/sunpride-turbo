@@ -22,6 +22,14 @@ import java.util.UUID
 
 /** F-613 canonical minor units; neither a bank clearance nor a local AR posting. */
 object CollectorDraft {
+    /**
+     * FLD-122: after a save, the form re-reads its local copy. A background sync may be mid-rebootstrap at that
+     * moment (the partition is briefly held), so the re-read can come back empty. Keep the assignment verified
+     * online earlier today while its own grant is still current, so the success text stays next to the button;
+     * the next recording still re-checks the grant (queueDomain) and the next verified refresh replaces it.
+     */
+    fun afterSave(previous: org.json.JSONObject?, reloaded: org.json.JSONObject?, now: Long): org.json.JSONObject? =
+        reloaded ?: previous?.takeIf { it.optLong("authorizationExpiresAt") > now }
  fun minor(text:String):Long {
   val n=try{BigDecimal(text.trim()).movePointRight(2).longValueExact()}catch(_:Exception){throw IllegalArgumentException("Enter a positive peso amount with at most two decimal places")}
   require(n in 1..99_999_999_999L){"Enter an amount within the supported range"};return n
@@ -76,7 +84,7 @@ object CollectorDraft {
   }
  }
  fun rows(a:JSONArray?)=a?.let{(0 until it.length()).map(it::getJSONObject)}.orEmpty()
- fun send(payload:JSONObject,at:String){scope.launch{messageAt=at;c.queueDomain("collections.capture",payload,UUID.randomUUID().toString()).join();message=if(c.error==null)"Saved on this phone, awaiting office acknowledgement."else c.error;data=withContext(Dispatchers.IO){c.domainForms("collections",false)}}}
+ fun send(payload:JSONObject,at:String){scope.launch{messageAt=at;c.queueDomain("collections.capture",payload,UUID.randomUUID().toString()).join();message=if(c.error==null)"Saved on this phone, awaiting office acknowledgement."else c.error;val before=data;data=CollectorDraft.afterSave(before,withContext(Dispatchers.IO){c.domainForms("collections",false)},System.currentTimeMillis())}}
  // FLD-122: errors/success render next to the button that produced them (see [note]), not at the top out of view.
  fun attempt(at:String,block:()->Unit){message=null;messageAt=at;CollectorDraft.guarded(block).onFailure{message=it.message?:"Check the fields"}}
  Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("collector-agenda"),verticalArrangement=Arrangement.spacedBy(10.dp)){
