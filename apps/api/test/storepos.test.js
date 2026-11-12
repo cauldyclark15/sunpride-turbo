@@ -162,6 +162,19 @@ test("WEB-156 workspace lists assigned cashiers and each register's and person's
   expect(person.org_unit_id).toBe(unit);
   expect(person.role).toBeUndefined();
 });
+test("WEB-044 office operations return the saved policy and today's target", async () => {
+  const day = new Date().toISOString().slice(0, 10);
+  const res = await h.fetch(
+    `/api/v1/storepos/operations?registerId=${registerId}&from=${day}&to=${day}`,
+    { headers: { cookie } },
+  );
+  expect(res.status).toBe(200);
+  const o = /** @type {any} */ (await res.json());
+  expect(o.policy.toleranceCentavos).toBe("5000");
+  expect(o.policy.id).toBe(policyId);
+  expect(o.dailyTargetCentavos).toBeNull();
+});
+
 test("F-R01 mode is opt-in and delivers a store session without a fake van trip", async () => {
   const actor = await actorFor(h.db, seller.userId);
   const ctx = {

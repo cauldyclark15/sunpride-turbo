@@ -18,7 +18,7 @@ vi.mock("next/link", () => ({
 
 import { CustomerForm, type GeoLists } from "./customer-form";
 import { CustomerListView } from "./customer-list";
-import { CustomerEditorView } from "./customer-editor";
+import { CustomerEditorView, duplicateQuery } from "./customer-editor";
 import {
   ADP_KEYS,
   awaitsApproval,
@@ -648,5 +648,59 @@ describe("approval errors land next to the field", () => {
         />,
       ),
     ).not.toContain(">Reject<");
+  });
+});
+
+describe("WEB-047 Add customer checks for duplicates", () => {
+  const cand = {
+    kind: "outlet" as const,
+    id: "x1",
+    code: "SMP-C9",
+    name: "Sample Mercado Sari-sari 9",
+    address: "Colon, Cebu",
+    latitude: 10.3,
+    longitude: 123.9,
+    distanceMeters: 40,
+    reasons: ["name"],
+    score: 0.9,
+  } as never;
+  const view = (duplicates: never[], ack = false) =>
+    renderToStaticMarkup(
+      <CustomerEditorView
+        customer={null}
+        draft={emptyDraft()}
+        onChange={() => undefined}
+        index={index}
+        geo={GEO}
+        errors={{}}
+        message={null}
+        readOnly={false}
+        busy={false}
+        canEdit
+        canApprove={false}
+        duplicates={duplicates}
+        duplicatesAcknowledged={ack}
+        onAcknowledgeDuplicates={() => undefined}
+      />,
+    );
+  it("shows the possible matches and holds Create until 'It's a different store'", () => {
+    const html = view([cand]);
+    expect(html).toContain("This might already be in the list");
+    expect(html).toContain("Sample Mercado Sari-sari 9");
+    expect(html).toContain("different store");
+    expect(html).toMatch(/<button type="submit"[^>]*disabled=""[^>]*>Create customer/);
+    expect(view([cand], true)).not.toMatch(
+      /<button type="submit"[^>]*disabled=""[^>]*>Create customer/,
+    );
+    expect(view([])).not.toContain("This might already be in the list");
+  });
+  it("asks the shared duplicate check with name, phone and pin", () => {
+    expect(duplicateQuery("Mercado", "09171234567", 10.3, 123.9)).toEqual({
+      name: "Mercado",
+      phone: "09171234567",
+      latitude: 10.3,
+      longitude: 123.9,
+      placeId: null,
+    });
   });
 });

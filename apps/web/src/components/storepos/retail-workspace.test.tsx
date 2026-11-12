@@ -287,3 +287,42 @@ describe("F-R08 retail owner reporting", () => {
     expect(workbook).not.toContain("ss:Formula");
   });
 });
+
+describe("WEB-044 store configuration opens on the saved values", () => {
+  it("shows the saved daily target and cash tolerance, not the ₱50 sample", () => {
+    state.data = {
+      register: { id: "r", name: "Register one", store: "Colon", outletId: null },
+      reversals: [],
+      deposits: [],
+      replenishments: [],
+      reads: [],
+      policy: {
+        id: "p2",
+        toleranceCentavos: "5500",
+        loyaltyEnabled: true,
+        earnPerCentavos: "20000",
+        pointValueCentavos: "150",
+        employeeDiscountBps: 1500,
+      },
+      dailyTargetCentavos: "550000",
+      locations: [],
+      products: [],
+      outlets: [],
+      canManage: true,
+      canPrepare: false,
+      canApprove: false,
+    };
+    const view = html(
+      createElement(RetailOperations, {
+        registerId: "r",
+        from: "2026-11-12",
+        to: "2026-11-12",
+      }),
+    );
+    expect(view).toMatch(/aria-label="Daily target \(₱\)"[^>]*value="5500"/);
+    expect(view).toMatch(/aria-label="Cash tolerance \(₱\)"[^>]*value="55"/);
+    expect(view).toMatch(/aria-label="Employee discount \(%\)"[^>]*value="15"/);
+    expect(view).toMatch(/aria-label="Spend per point earned \(₱\)"[^>]*value="200"/);
+    expect(view).toMatch(/aria-label="Redemption value per point \(₱\)"[^>]*value="1.50"/);
+  });
+});

@@ -6,8 +6,10 @@
  * approves a prospect (server `complete` check, errors shown next to each field) or deactivates.
  */
 import dynamic from "next/dynamic";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, mutate, useApi } from "../../lib/api";
+import { DuplicatePanel, useDebounced } from "../store-gathering/add-store";
+import type { Candidate } from "../store-gathering/model";
 import { usePermissions } from "../../lib/auth";
 import {
   CustomerForm,
@@ -322,6 +324,30 @@ function EditorBody({
     </div>
   );
 
+  // WEB-047: a new customer is checked against existing customers and waiting field
+  // captures (same name / phone / nearby pin) with the field app's duplicate logic.
+  const [candidates, setCandidates] = useState<Candidate[]>([]);
+  const [acknowledged, setAcknowledged] = useState(false);
+  const dupName = useDebounced((v.customerName ?? "").trim(), 400);
+  const dupPhone = useDebounced((v.mobileNo ?? "").trim(), 400);
+  const dupLat = validPin?.latitude ?? null;
+  const dupLng = validPin?.longitude ?? null;
+  useEffect(() => {
+    if (customer || !canEdit || dupName.length < 2) return;
+    const controller = new AbortController();
+    apiFetch<{ candidates: Candidate[] }>(
+      "/api/v1/masters/census/duplicate-check",
+      {
+        body: duplicateQuery(dupName, dupPhone, dupLat, dupLng),
+        signal: controller.signal,
+      },
+    )
+      .then((r) => setCandidates(r.candidates ?? []))
+      .catch(() => undefined);
+    return () => controller.abort();
+  }, [customer, canEdit, dupName, dupPhone, dupLat, dupLng]);
+  const matches = !customer && dupName.length >= 2 ? candidates : [];
+
   async function save(): Promise<Customer | null> {
     const local = checkDraft(index, draft, "draft");
     if (Object.keys(local).length) {
@@ -501,6 +527,9 @@ function EditorBody({
       canEdit={canEdit}
       canApprove={canApprove}
       pinSlot={pinSlot}
+      duplicates={matches}
+      duplicatesAcknowledged={acknowledged}
+      onAcknowledgeDuplicates={setAcknowledged}
       units={
         !customer && (setup?.units.length ?? 0) > 1 ? (setup?.units ?? []) : []
       }
@@ -533,6 +562,9 @@ export function CustomerEditorView({
   canEdit,
   canApprove,
   pinSlot,
+  duplicates = [],
+  duplicatesAcknowledged = false,
+  onAcknowledgeDuplicates,
   units = [],
   unitId = "",
   onUnit,
@@ -558,6 +590,10 @@ export function CustomerEditorView({
   canEdit: boolean;
   canApprove: boolean;
   pinSlot?: React.ReactNode;
+  /** WEB-047: possible existing matches for a NEW customer; Create waits for "It's a different store". */
+  duplicates?: Candidate[];
+  duplicatesAcknowledged?: boolean;
+  onAcknowledgeDuplicates?: (v: boolean) => void;
   units?: { id: string; name: string }[];
   unitId?: string;
   onUnit?: (id: string) => void;
@@ -578,6 +614,8 @@ export function CustomerEditorView({
     !!onReject &&
     customer.status !== "inactive" &&
     customer.enrolmentStatus === "provisional";
+  const dupBlocked =
+    !customer && duplicates.length > 0 && !duplicatesAcknowledged;
   const tone =
     message?.tone === "error"
       ? "border-[#f3c1c6] bg-[#fdf2f3] text-[#8a0d18]"
@@ -649,11 +687,27 @@ export function CustomerEditorView({
         readOnly={readOnly}
         pinSlot={pinSlot}
       />
+      {!customer && canEdit && duplicates.length ? (
+        <DuplicatePanel
+          candidates={duplicates}
+          acknowledged={duplicatesAcknowledged}
+          onAcknowledge={(v) => onAcknowledgeDuplicates?.(v)}
+        />
+      ) : null}
       {canEdit && customer?.status !== "inactive" ? (
         <div className="sticky bottom-0 flex flex-wrap items-center gap-2 border-t border-border bg-surface py-3">
-          <button type="submit" className={primaryClass} disabled={busy}>
+          <button
+            type="submit"
+            className={primaryClass}
+            disabled={busy || dupBlocked}
+          >
             {customer ? "Save" : "Create customer"}
           </button>
+          {dupBlocked ? (
+            <span className="text-xs text-muted">
+              Check the possible matches first.
+            </span>
+          ) : null}
           {(customer ? awaitsApproval(customer) : false) && canApprove ? (
             <button
               type="button"
@@ -770,4 +824,20 @@ function RejectControl({
       </button>
     </span>
   );
+}
+
+/** Body of the shared duplicate check (same endpoint and fields as the field app). */
+export function duplicateQuery(
+  name: string,
+  phone: string,
+  latitude: number | null,
+  longitude: number | null,
+) {
+  return {
+    name,
+    phone: phone || null,
+    latitude,
+    longitude,
+    placeId: null,
+  };
 }
