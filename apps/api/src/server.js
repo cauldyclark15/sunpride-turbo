@@ -20,6 +20,9 @@ const server = await app.start({
   hostname: process.env.HOST ?? "127.0.0.1",
 });
 console.log(`[api] listening on ${server.hostname}:${server.port}`);
+console.log(
+  `[api] db safeguards: idle_in_transaction_session_timeout=${process.env.SP_DB_IDLE_TX_TIMEOUT_MS}ms statement_timeout=${process.env.SP_DB_STATEMENT_TIMEOUT_MS}ms`,
+);
 
 let stopping = false;
 const SHUTDOWN_MS = Number(process.env.SHUTDOWN_TIMEOUT_MS ?? 10_000);
