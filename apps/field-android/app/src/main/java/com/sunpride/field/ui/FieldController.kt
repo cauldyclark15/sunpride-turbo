@@ -343,7 +343,7 @@ class LiveFieldBackend(
                     checkInRequestId, previousRequestId, plannedVisitId, outletId, intents, unplannedReason,
                     note, outcome, reasonCode, location)
                 val json = JSONObject(original.serializedOperation)
-                options?.let { opts -> listOf("sequenceReason","shortCallReason","zeroSaleReason","geofenceApprovalId").forEach { key ->
+                options?.let { opts -> listOf("sequenceReason","shortCallReason","zeroSaleReason","geofenceApprovalId","locationUnavailable").forEach { key ->
                     if (opts.has(key)) json.getJSONObject("payload").put(key,opts.get(key))
                 } }
                 val intent = original.copy(serializedOperation = json.toString())
@@ -1337,7 +1337,7 @@ class FieldController(
         catch (e: kotlinx.coroutines.CancellationException) { throw e }
         catch (e: Exception) {
             com.sunpride.field.diagnostics.SafeLog.failure(null, "photo_save_failed", e)
-            diagnosticError = "Could not save this photo. Try again."
+            diagnosticError = com.sunpride.field.storage.PhotoFailureText.of(e)
         }
         finally { busy = false }
     }
@@ -1416,7 +1416,7 @@ class FieldController(
     /** AND-017: the End confirmation (what will be recorded) while the person decides; null otherwise. */
     var endReview by mutableStateOf<com.sunpride.field.storage.EndReview?>(null); private set
     /** Re-read the call and show what End will record; the same rules End enforces refuse it here first. */
-    fun reviewEnd(outcome: String?, reasonCode: String?) = scope.launch(ui) {
+    fun reviewEnd(outcome: String?, reasonCode: String?, zeroSaleReason: String? = null) = scope.launch(ui) {
         val visit = diagnostic ?: return@launch
         if (busy) return@launch
         busy = true; diagnosticError = null; diagnosticFailure = null; endReview = null
@@ -1424,14 +1424,19 @@ class FieldController(
             refreshDiagnostic()
             val checkin = openCheckIn(visit) ?: throw VisitRuleFailure(VisitRuleFailure.Code.CALL_NOT_OPEN)
             check(retailCall == null || retailSaved) {"Check every MSL line before ending the call"}
+            // FLD-105: say so up front (the screen scrolls to the choices), not after Confirm end silently stalls.
+            if (com.sunpride.field.storage.ConfiguredFieldCalls.needsNoOrderReason(diagnosticFlow, diagnosticRows, checkin.clientVisitId, zeroSaleReason))
+                throw com.sunpride.callflow.CallFlowRefused(com.sunpride.callflow.CallFlowEngine.NO_ORDER_REASON)
             endReview = com.sunpride.field.storage.VisitCompletion.review(checkin.clientVisitId, outcome,
                 reasonCode?.trim(), diagnosticRules, diagnosticRows, diagnosticCallSheet, now())
         } catch (e: VisitRuleFailure) { diagnosticFailure = e.code; diagnosticError = e.code.text }
         catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: com.sunpride.callflow.CallFlowRefused) { diagnosticError = e.message }
         catch (_: Exception) { diagnosticError = "Could not check this call. Try again." }
         finally { busy = false }
     }
-    fun cancelEnd() = scope.launch(ui) { endReview = null }
+    fun cancelEnd() = scope.launch(ui) { endReview = null
+        if (diagnosticError == com.sunpride.callflow.CallFlowEngine.NO_ORDER_REASON) diagnosticError = null }
     /** The call's final, immutable result once its End is queued. */
     fun visitResult(visit: VisitDisplay): com.sunpride.field.storage.VisitResult? = openCheckIn(visit)?.let {
         com.sunpride.field.storage.VisitCompletion.result(it.clientVisitId, diagnosticRules, diagnosticRows,
@@ -1648,7 +1653,7 @@ class FieldController(
             // FLD-084: the approval request appears only once the phone has refused an outside-radius fix.
             if (com.sunpride.callflow.CallFlowEngine.outsideRadius(e.message)) outsideRadius = true
         }
-        catch (_: Exception) { diagnosticError = "Could not queue visit. Sync for access and check required fields." }
+        catch (e: Exception) { diagnosticError = com.sunpride.field.storage.QueueFailureText.of(e) }
         finally { busy = false }
     }
     /** AND-020 Team page: the summary, its direct-reports filter and an in-flight flag. */

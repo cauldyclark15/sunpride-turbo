@@ -116,12 +116,15 @@ fun PhotoCaptureScreen(controller: FieldController, modifier: Modifier = Modifie
             }
             Text("Photos stay on this phone, locked, until they upload. You can end the call before they do.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            (cameraError ?: controller.diagnosticError)?.let {
-                Text(it, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("photo-error"))
-            }
             androidx.compose.foundation.layout.Spacer(Modifier.height(16.dp))
         }
         androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
+        // FLD-147: why Take photo kept nothing (no fresh location, day closed…) sits by the button, never below the
+        // 3:4 preview where a 360 dp phone cannot see it.
+        (cameraError ?: controller.diagnosticError)?.let {
+            Text(it, color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodyMedium,
+                modifier = Modifier.padding(bottom = 8.dp).testTag("photo-error"))
+        }
         if (!granted && fake == null) Text(if (asked) "Camera access is off. Allow it in Settings to take visit photos."
             else "Allow camera access to take visit photos.", style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(bottom = 8.dp).testTag("camera-permission"))

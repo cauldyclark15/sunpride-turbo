@@ -10,6 +10,10 @@ object CallFlowEngine {
     /** The outside-radius refusal: the shells show the supervisor-approval request only after this one. */
     const val OUTSIDE_RADIUS = "Outside the store radius. Move closer or request supervisor approval before starting."
     fun outsideRadius(message: String?) = message == OUTSIDE_RADIUS
+    /** The no-order refusal: the visit screen scrolls to the "No order this call" choices after this one. */
+    const val NO_ORDER_REASON = "Choose a no-order reason from the list."
+    fun missingNoOrderReason(config: JSONObject, hasOrder: Boolean, zeroSaleReason: String?) =
+        !hasOrder && objects(config.getJSONArray("reasons")).none { it.getString("code") == zeroSaleReason }
     private fun refuse(message: String): Nothing = throw CallFlowRefused(message)
     fun objects(a: JSONArray): List<JSONObject> = (0 until a.length()).map(a::getJSONObject)
     fun validate(config: JSONObject): JSONObject {
@@ -25,12 +29,18 @@ object CallFlowEngine {
         require(objects(config.getJSONArray("reasons")).map { it.getString("code") }.distinct().size == config.getJSONArray("reasons").length())
         return config
     }
-    /** F-106: no mock, approximate, old or missing fix may masquerade as a radius exception. */
+    /**
+     * F-106: no mock, approximate or old fix may masquerade as a radius exception.
+     * FLD-080 (owner decision 2026-11): a phone with NO fix at all (location off, permission off, no signal)
+     * still starts/ends the call. Nothing is claimed about distance: the payload carries no location, and the
+     * server files a "Location unavailable" review for the supervisor. Returns false (no radius exception used).
+     */
     fun location(config: JSONObject, fix: JSONObject?, at: Long, approvedOutside: Boolean = false): Boolean {
         validate(config)
         val pin = config.optJSONObject("pin") ?: refuse("This store needs a verified location pin. Sync after office setup.")
         val policy = config.getJSONObject("policy")
-        if (fix == null || fix.opt("mockSignal") != false || fix.optBoolean("integrityBlocked") ||
+        if (fix == null) return false
+        if (fix.opt("mockSignal") != false || fix.optBoolean("integrityBlocked") ||
             fix.optString("provider") !in setOf("gps","network","fused")) refuse("A genuine location fix is required. Try again outside.")
         val lat = fix.optDouble("latitude",Double.NaN); val lon = fix.optDouble("longitude",Double.NaN)
         val accuracy = fix.optDouble("accuracyMeters",Double.NaN)
@@ -73,8 +83,8 @@ object CallFlowEngine {
     fun close(config: JSONObject, done: Set<String>, hasOrder: Boolean, startedAt: Long, payload: JSONObject) {
         val at = payload.getLong("deviceTime")
         if (at < startedAt) refuse("Call end cannot be before check-in.")
-        if (!hasOrder && objects(config.getJSONArray("reasons")).none { it.getString("code") == payload.optString("zeroSaleReason") })
-            refuse("Choose a no-order reason from the list.")
+        if (missingNoOrderReason(config,hasOrder,payload.optString("zeroSaleReason")))
+            refuse(NO_ORDER_REASON)
         if (at-startedAt < config.getJSONObject("policy").getLong("minDwellMs") && payload.optString("shortCallReason").isBlank())
             refuse("This call is shorter than the store minimum. Give a reason for supervisor review.")
         advance(config,done,"check_out",hasOrder)

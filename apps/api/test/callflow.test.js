@@ -15,6 +15,8 @@ import {
   configurationsForApp,
   profileAt,
   locationResult,
+  locationMissing,
+  unavailableReason,
   PROFILE_FIELD,
   validateSteps,
 } from "../src/domains/callflow/engine.js";
@@ -208,6 +210,45 @@ test("F-106 outside radius, mock flag, stale fix, bad accuracy and missing pin r
   const f = await fixture();
   await h.db`update outlet_pins set effective_to=now()-interval '1 second' where outlet_id=${f.outlet}`;
   expect((await start(f)).result.status).toBe("rejected");
+});
+test("FLD-080 a Start and End with NO location fix are recorded for supervisor review, not refused", async () => {
+  const f = await fixture();
+  const s = await start(f, {
+    location: null,
+    locationUnavailable: "location_off",
+  });
+  expect(s.result.status).toBe("applied");
+  const id = s.result.ack.entityId;
+  const e = await end(f, id, { location: null });
+  expect((await push(f, e))[0].status).toBe("applied");
+  const evidence =
+    await h.db`select event,result,review_status from visit_location_evidence where visit_id=${id} order by event`;
+  expect(
+    evidence.map((/** @type {any} */ r) => [r.event, r.result, r.review_status]),
+  ).toEqual([
+    ["check_in", "unavailable", "pending_review"],
+    ["check_out", "unavailable", "pending_review"],
+  ]);
+  const [c] =
+    await h.db`select state from call_executions where visit_id=${id}`;
+  expect(c.state).toBe("closed");
+  // A mock fix is still refused, and a no-fix start on an integrity-blocked phone is too.
+  const g = await fixture();
+  expect(
+    (await start(g, { location: { ...g.fix, mockSignal: true } })).result
+      .status,
+  ).toBe("rejected");
+  expect(locationMissing({ device: { integrity_blocked: true } }, null)).toBe(
+    false,
+  );
+  expect(locationMissing({ device: {} }, undefined)).toBe(true);
+  expect(locationMissing({ device: {} }, g.fix)).toBe(false);
+  expect(unavailableReason("location_off")).toBe(
+    "Location unavailable · supervisor will review: phone location turned off",
+  );
+  expect(unavailableReason("<script>")).toBe(
+    "Location unavailable · supervisor will review: no location fix",
+  );
 });
 test("F-106 server refuses a configured flow with omitted or wrong definition, not a legacy bypass", async () => {
   const f = await fixture();
@@ -548,6 +589,27 @@ test("F-107 F-120 F-205 van calls run the same engine through signed API operati
   expect(call.definition_snapshot.channelProfile).toBe("van_selling");
   expect(call.state).toBe("closed");
   expect(call.zero_sale_reason.code).toBe("buyer_unavailable");
+  // FLD-080: a van call with NO fix starts and is filed for supervisor review; the review can never be an approval.
+  const noFixId = crypto.randomUUID();
+  const noFix = operation("call.start", {
+    ...s.payload,
+    clientCallId: noFixId,
+    deviceTime: f.now + 3,
+    location: null,
+    locationUnavailable: "no_signal",
+  });
+  expect((await push(f, noFix))[0].status).toBe("applied");
+  const [open] =
+    await h.db`select id from call_executions where client_call_id=${noFixId}`;
+  const filed =
+    await h.db`select kind,reason,consumed_by from call_flow_reviews where call_id=${open.id}`;
+  expect(
+    filed.map((/** @type {any} */ r) => [r.kind, r.reason, r.consumed_by]),
+  ).toContainEqual([
+    "geofence_start",
+    "Location unavailable · supervisor will review: no signal",
+    open.id,
+  ]);
 });
 
 test("F-107 definition grammar supports later channel adapters without executable conditions", () => {
