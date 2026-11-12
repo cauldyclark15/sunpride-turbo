@@ -321,7 +321,18 @@ export function StockView({
   return (
     <div className="grid gap-4">
       <KpiGrid kpis={data.kpis} />
-      <Panel title="Where the stock is" question="Value and cases by location.">
+      <Panel
+        title="Where the stock is"
+        question="Value and cases by location."
+        actions={
+          <a
+            href="/inventory"
+            className="ck-noprint inline-flex h-8 items-center rounded-lg border border-border bg-surface px-3 text-[13px] font-medium text-foreground hover:bg-default-soft"
+          >
+            Open Inventory
+          </a>
+        }
+      >
         {data.locations.length ? (
           <ul className="grid grid-cols-2 gap-2 md:grid-cols-4">
             {data.locations.map((loc) => (

@@ -765,3 +765,41 @@ test("WEB-170: a store-code search lists the exact code first, not a longer code
     expect(r.rows[0].code).toBe("S1");
   }
 });
+test("WEB-036 target import accepts territory codes, names unknown keys and previews without saving", async () => {
+  const month = "2031-01";
+  const [t1] = await h.db`select id::text as id from territories where code='T1'`;
+  const preview = await f.post("/api/v1/targets/import", {
+    month,
+    dryRun: true,
+    rows: [
+      { level: "territory", key: "t1", amountCentavos: 210000000 },
+      { level: "territory", key: "NOPE-XX", amountCentavos: 1 },
+    ],
+  });
+  const p = await preview.json();
+  expect(p.applied).toBe(0);
+  expect(p.errors).toEqual([
+    { row: 2, message: expect.stringContaining('Unknown territory "NOPE-XX"') },
+  ]);
+  expect(JSON.stringify(p.errors)).not.toContain("outside your team");
+  const ok = await f.post("/api/v1/targets/import", {
+    month,
+    rows: [{ level: "territory", key: "T1", amountCentavos: 210000000 }],
+  });
+  expect((await ok.json()).applied).toBe(1);
+  const list = await get(`/api/v1/targets?month=${month}&level=territory`);
+  expect(
+    list.rows.find((/** @type {any} */ r) => r.key === t1.id).amountCentavos,
+  ).toBe(210000000);
+  // The id and the code are one target, so both in one file is a duplicate.
+  const dup = await f.post("/api/v1/targets/import", {
+    month,
+    rows: [
+      { level: "territory", key: "T1", amountCentavos: 1 },
+      { level: "territory", key: t1.id, amountCentavos: 2 },
+    ],
+  });
+  expect((await dup.json()).errors[0].message).toBe(
+    "Duplicate target in this import",
+  );
+});
