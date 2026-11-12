@@ -100,6 +100,15 @@ export function identityHooks(env) {
           if (!person.user_id) {
             await t`update profiles set user_id=${userId},auth_subject=${userId} where id=${person.id}`;
             person = { ...person, user_id: userId, auth_subject: userId };
+            // SP-0168: a person loaded before first sign-in (pre-provisioned profile) takes up
+            // their pending invitation now, and their reports' supervisor link gets this subject.
+            if (invitation?.status === "pending")
+              await t`update access_invitations set status='accepted',accepted_at=now(),profile_id=${person.id} where id=${invitation.id}`;
+            await t`update profiles p set supervisor_subject=${userId}
+              from employee_assignments a
+              where a.profile_id=p.id and a.supervisor_id=${person.id} and a.deleted_at is null
+                and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now())
+                and p.supervisor_subject is distinct from ${userId}`;
           }
           if (
             bootstrap.has(email) &&

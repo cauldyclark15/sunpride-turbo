@@ -102,7 +102,7 @@ export async function fraudPage(ctx, p, s) {
         for (const item of queue.items) {
           const [source] =
             await ctx.db`select f.*,v.effective_from as policy_effective_from,exists(select 1 from sample_data_rows m where m.table_name='integrity_findings' and m.row_id=f.id::text) sample
-            from integrity_findings f join integrity_policy_versions v on v.id=f.policy_id left join outlets o on o.id=f.outlet_id
+            from integrity_findings f join integrity_policy_versions v on v.id=f.policy_id left join analytics_store_scope o on o.id=f.outlet_id
             where f.id=${item.id} and f.org_unit_id in ${ctx.db(s.ids.length ? s.ids : [null])}
             and (${s.ownProfileId ?? null}::uuid is null or f.profile_id=${s.ownProfileId ?? null}) and (${p.channel}::text is null or o.channel=${p.channel})`;
           if (source)

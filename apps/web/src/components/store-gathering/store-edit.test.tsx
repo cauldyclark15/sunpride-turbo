@@ -103,8 +103,8 @@ describe("store edit on the New stores tab", () => {
     const out = html(createElement(ChangeDetail, props));
     expect(out).toContain("Approve change");
     expect(out).toContain("Reject");
-    expect(out).not.toContain("Approve as new store");
-    expect(out).not.toContain("Same as existing store");
+    expect(out).not.toContain("Approve as new customer");
+    expect(out).not.toContain("Same as existing customer");
     expect(out).not.toContain('name="code"');
     const rejecting = html(
       createElement(ChangeDetail, { ...props, decision: "reject" }),

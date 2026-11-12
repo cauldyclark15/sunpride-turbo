@@ -491,7 +491,8 @@ export function company(d, hashes) {
     });
     const outlet = d.add("outlets", String(i), {
       organization_id: org,
-      code: `SMP-O${String(i + 1).padStart(4, "0")}`,
+      // SP-0170: Customer = store, one Customer Code for the store and its accounting row.
+      code: customer.code,
       name,
       status: "active",
       custodian_org_unit_id: units[ti].id,

@@ -357,9 +357,8 @@ Common suggested fixes:
 
 The fixes below are suggested actions, not literal button labels. The current review message is **Review the outlet setup before approval** or **Revise this dated slot before approval**.
 
-
-| Suggested fix shown                                       | What to do                                                          |
-| --------------------------------------------------------- | ------------------------------------------------------------------- |
+| Suggested fix shown                                   | What to do                                                          |
+| ----------------------------------------------------- | ------------------------------------------------------------------- |
 | Reactivate or remove the draft visit                  | Store is inactive or missing: reactivate it or remove it from plan. |
 | Repair the local customer link or reactivate customer | Fix the store's customer link (section 12).                         |
 | Correct overlapping or missing territory assignment   | Assign the store to exactly one territory for that date.            |
@@ -372,27 +371,27 @@ The fixes below are suggested actions, not literal button labels. The current re
 
 An approved or active plan is not re-checked against today's data; it stays as signed.
 
-## 9. New-store approvals
+## 9. New-customer approvals
 
-Client rule: the salesperson pre-enrols a new store on the phone with a customer
-information sheet (CIS) or a store photo. The store stays provisional until a supervisor or
-manager approves it. The system issues the customer code; nobody types it. Existing stores
-keep their current codes.
+Client rule: a customer is one store. The salesperson captures a new customer on the phone
+(general information, location, contact, type of business and the channel chain). It stays a
+**Prospect** until the office completes the rest of Sunpride's customer information sheet
+(payment, delivery, tax, pricing procedure, sales office, delivering plant) and an approver
+approves it. Existing customers keep their codes.
 
-1. Open **Stores**, then the **New stores** tab.
-2. Find **New stores to approve**. Search by name or code; click **Open** on a row.
-3. Check the store name, channel, who added it, the address, contact and GPS position.
-4. Open the store photo or the **Customer information sheet**.
-5. To approve: click **Approve**, enter the **Approval reason**, click
-   **Approve and give code**. You see **Store approved. Customer code** followed by the new
-   code. The store's GPS pin is verified at the same time.
-6. To reject: click **Reject**, enter the **Rejection reason**, click **Reject store**. You
-   see **Store rejected.**
-7. **Cancel** closes the form without a decision.
+1. Open **Customers**, then the **New customers** tab. **Prospects to complete and approve**
+   lists every prospect. Search by Customer Code, Customer Name or Registered Name.
+2. Click **Complete** on a row. The form follows the sheet: **Customer General Information**,
+   **Customer Location**, **Customer Assignment**, **Payment Arrangement**, **Delivery
+   Arrangement** and (Distributive Trade only) **ADP Specific**. Fields still needed before
+   approval are highlighted with the sheet's label.
+3. Fill them in and click **Save**.
+4. Click **Approve**. If anything required is still missing, each field shows what is
+   needed; fix it and approve again. Approval sets the customer **Active**.
 
-If you proposed the store, the buttons are disabled:
-**Another approver must decide your own proposal.** Recent decisions are listed under
-**Recent updates**.
+You cannot approve a customer you captured yourself; another approver must do it.
+To stop serving a customer, open it and click **Deactivate**, give a reason and click
+**Confirm deactivate**.
 
 ## 10. Organization units, people and teams
 
@@ -494,41 +493,34 @@ store. Revise that plan (section 6.2) before the change.
 
 ## 12. Outlets, GPS pins and route order
 
-### 12.1 Add or edit a store
+### 12.1 Add or edit a customer
 
-Stores live in one list: **Stores**. Admin › **Outlets** only links there.
+A customer is one store. Customers live in one list: **Customers**. Admin › **Outlets** only
+links there.
 
-1. Open **Stores** and click **Add store** (top right; on a phone, the button above the tab
-   bar).
-2. Fill in the name, address and channel, then save.
+1. Open **Customers** and click **Add customer** (top right; on a phone, the button above
+   the tab bar).
+2. Fill in the form in the order of Sunpride's customer information sheet. Required fields
+   carry a red asterisk. Dropdowns show "Description (Code)" and depend on the field above
+   them: Sales Organization narrows Sales Office, Distribution Channel and Delivering Plant;
+   Distribution Channel narrows Customer Grp 1, which narrows Customer Grp 2 (greyed out when
+   the chain has none); Region → Province → Municipality → Barangay → Postal Code.
+3. Customer Address is built from the location parts; type over it if needed.
+4. Click **Create customer**. A new customer starts as a **Prospect** (section 9).
 
-To edit: click **Edit** at the end of the store's row, then **Edit store**, change and
-**Save**. To link it to a customer account: **Edit customer link**, choose the **Customer**
-(or **Not linked**), set the date and reason, **Save**. **Customer history** keeps the
-changes.
-
-New stores found in the field should come through the phone and new-store approval
-(section 9).
+To edit: click **Edit** at the end of the customer's row (or open it), change and **Save**.
+People without the right to edit see the same form read only.
 
 ### 12.2 GPS pins
 
 Two different people are needed: one proposes, another verifies.
 
-To propose:
-
-1. Open **Stores**, click **Edit** on the store, then **Add GPS pin**.
-2. Enter **Latitude** and **Longitude**.
-3. Optionally change **Radius in meters (default 75)**. Use a larger radius for a mall or
-   warehouse.
-4. Enter the **Source** and, if useful, a **Note**.
-5. Optionally set **Starts on (optional)**.
-6. Enter a **Reason** and **Save**.
-
-To verify (Sales manager, Administrator, Super admin — not the proposer):
-
-1. Open the store's **Edit** sheet and look under **GPS pins** for the **Pending** pin.
-2. Click **Approve** or **Reject**, enter a **Reason** and save.
-3. The pin shows **Verified** or **Rejected**.
+1. In the customer form, under **Geographical Coordinates**, click **Suggest from address**
+   (when address search is on) or **Place a pin to drag**, then drag the pin onto the store.
+   You can also type the latitude and longitude.
+2. **Save**. A new or moved pin waits for a second person.
+3. To verify (not the proposer): open **Customers**, then **New customers**, and confirm the
+   pin under the pins to confirm.
 
 The pin radius never blocks a check-in (Client rule: no fixed distance). A check-in
 outside the radius is only flagged for the supervisor (section 15). Only verified pins show
@@ -751,8 +743,8 @@ PO under Commercial › **Outside-call POs**, and the salesperson records the ac
 | A new person sees nothing after signing in            | Assign their unit in Admin › **People** (section 10.2).                      |
 | **Review** tab is missing                             | Only Sales managers and Super admins approve plans.                          |
 | Approve is disabled on a plan                         | You prepared or submitted it, it is your own, or it has blocking exceptions. |
-| Revise the approved coverage plan first           | Revise the MCP that uses that store/route, then make the change.             |
-| Move requires outlet reassignment first           | Reassign the route's stores first, then move the route.                      |
+| Revise the approved coverage plan first               | Revise the MCP that uses that store/route, then make the change.             |
+| Move requires outlet reassignment first               | Reassign the route's stores first, then move the route.                      |
 | A store is missing from the coverage map              | It has no verified pin. Propose and verify one (section 12.2).               |
 | Imported visits do not show as ticks in the plan grid | Check them in **Calendar** or **Dated slots**; see section 20.               |
 | A phone cannot sync after being found                 | It may be revoked (permanent). Enrol it again as a new phone.                |

@@ -99,7 +99,11 @@ export function createApp(opts) {
       /** @type {any} */
       let body = null;
       if (!route.options.raw && req.method !== "GET" && req.method !== "HEAD") {
-        rawBody = await readCapped(req, MAX_JSON_BYTES);
+        // A route may raise the JSON cap (e.g. a 5,000-row upload); never above the server limit.
+        rawBody = await readCapped(
+          req,
+          route.options.maxBytes ?? MAX_JSON_BYTES,
+        );
         body = parseJson(rawBody);
         // The web client sends the per-intent key as the `idempotency-key` header; many
         // commands read `body.idempotencyKey`. One contract for both, body wins.

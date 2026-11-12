@@ -347,6 +347,45 @@ describe("FIELDSYNC projections through real core proof/cursor harness", () => {
       await h.db`delete from outlet_contacts where outlet_id=${f.outlet}`;
     }
   });
+  test("SP-0170 outlets keep every v1 key and add the client's customer classification", async () => {
+    const v1 = [
+      "id",
+      "name",
+      "routeId",
+      "code",
+      "customerId",
+      "address",
+      "latitude",
+      "longitude",
+      "territoryId",
+      "territoryCode",
+    ];
+    const before = (await pull()).body.bundles[0].data.outlets[0];
+    for (const k of v1) expect(k in before).toBe(true);
+    expect(before.channel).toBeNull();
+    await h.db`insert into customer_profiles(outlet_id,sales_org_code,distribution_channel_code,customer_group1_code,customer_group2_code,customer_group_code,completeness,updated_by,
+      distribution_channel_name,customer_group1_name,customer_group2_name,customer_group_name)
+      values(${f.outlet},'1000','41','RSF','RSS','74','draft','sp0170-test','Route Sales','RS Frozen','Sari-Sari Store','NO GROUP')`;
+    try {
+      const o = (await pull()).body.bundles[0].data.outlets[0];
+      for (const k of v1) expect(o[k]).toEqual(before[k]);
+      expect(o.channel).toBe("Route Sales");
+      expect(o.customerMaster).toEqual({
+        salesOrgCode: "1000",
+        distributionChannelCode: "41",
+        distributionChannelName: "Route Sales",
+        customerGroup1Code: "RSF",
+        customerGroup1Name: "RS Frozen",
+        customerGroup2Code: "RSS",
+        customerGroup2Name: "Sari-Sari Store",
+        customerGroupCode: "74",
+        customerGroupName: "NO GROUP",
+        completeness: "draft",
+      });
+    } finally {
+      await h.db`delete from customer_profiles where outlet_id=${f.outlet}`;
+    }
+  });
   test("snapshot carries this person's own recorded calls so a mid-day bootstrap knows done stops", async () => {
     await h.db`update visit_executions set state='checked-out',checked_out_at=now(),productivity='verified' where id=${f.visit}`;
     const { body } = await pull();

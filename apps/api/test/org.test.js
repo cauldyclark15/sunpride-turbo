@@ -147,6 +147,30 @@ describe("ORG identity hooks", () => {
     expect(row.profile_id).toBe(profile?.id);
     expect(await hooks.isEmailInvited(h.db, email)).toBe(false);
   });
+  test("SP-0168: a pre-provisioned profile links on first sign-in, accepts its invitation and fills reports' supervisor subject", async () => {
+    const tag = crypto.randomUUID();
+    const bossEmail = `lead-${tag}@example.com`;
+    const repEmail = `rep-${tag}@example.com`;
+    const [lead] =
+      await h.db`insert into profiles(name,email,role,status,org_unit_id,effective_from) values('Lead',${bossEmail},'manager','active',${regionA.id},now()-interval '1 day') returning *`;
+    const [rep] =
+      await h.db`insert into profiles(name,email,role,status,org_unit_id,effective_from) values('Rep',${repEmail},'sales','active',${regionA.id},now()-interval '1 day') returning *`;
+    await h.db`insert into employee_assignments(profile_id,org_unit_id,role,effective_from,actor_subject,reason) values(${lead.id},${regionA.id},'manager',now()-interval '1 day','system:test','fixture')`;
+    await h.db`insert into employee_assignments(profile_id,org_unit_id,role,supervisor_id,effective_from,actor_subject,reason) values(${rep.id},${regionA.id},'sales',${lead.id},now()-interval '1 day','system:test','fixture')`;
+    await h.db`insert into access_invitations(email,name,role,status,invited_by,invited_at,org_unit_id) values(${bossEmail},'Lead','manager','pending','system:test',now(),${regionA.id})`;
+    const [u] =
+      await h.db`insert into users(email,password_hash) values(${bossEmail},'not-a-login-hash') returning id`;
+    const hooks = identityHooks(h.env);
+    expect(await hooks.isEmailInvited(h.db, bossEmail)).toBe(true);
+    const profile = await hooks.loadProfile(h.db, u.id);
+    expect(profile?.id).toBe(lead.id);
+    const [inv] =
+      await h.db`select status,profile_id from access_invitations where email=${bossEmail}`;
+    expect(inv).toMatchObject({ status: "accepted", profile_id: lead.id });
+    const [after] =
+      await h.db`select supervisor_subject from profiles where id=${rep.id}`;
+    expect(after.supervisor_subject).toBe(u.id);
+  });
   test("uninvited identity returns null; revoked and disabled profiles never reactivate on read", async () => {
     const [u] =
       await h.db`insert into users(email,password_hash) values(${`unknown-${crypto.randomUUID()}@example.com`},'not-a-login-hash') returning id`;

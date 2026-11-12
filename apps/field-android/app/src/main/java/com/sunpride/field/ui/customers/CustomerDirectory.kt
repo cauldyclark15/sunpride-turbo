@@ -123,7 +123,7 @@ object CustomerDirectory {
             val longitude = o.number("longitude")?.takeIf { it in -180.0..180.0 }
             val pinned = latitude != null && longitude != null
             val outletRoute = o.text("routeId")
-            CustomerRecord(row.id, o.text("name") ?: "Store", o.text("code"),
+            CustomerRecord(row.id, o.text("name") ?: "Customer", o.text("code"),
                 o.text("customerId")?.let { customers[it] }?.trim()?.takeIf { it.isNotEmpty() },
                 o.text("address"), latitude.takeIf { pinned }, longitude.takeIf { pinned }, outletRoute,
                 routeCode.takeIf { outletRoute != null && outletRoute == routeId }, accounts[row.id],

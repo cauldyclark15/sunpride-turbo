@@ -45,7 +45,7 @@ import java.util.UUID
   Text(data.optString("pjpSource"),style=MaterialTheme.typography.bodySmall)
   val outlets=objects(data.optJSONArray("outlets"));val agenda=objects(data.optJSONArray("agenda")).filter{it.getString("serviceDate")==data.getString("serviceDate")}
   val ordered=outlets.sortedWith(compareBy<JSONObject>({agenda.firstOrNull{a->a.getString("outletId")==it.getString("id")}?.optInt("sequence")?:Int.MAX_VALUE},{it.getString("name")}))
-  Text("${agenda.size} planned calls today · ${outlets.size} granted stores")
+  Text("${agenda.size} planned calls today · ${outlets.size} granted customers")
   val shown=page.coerceIn(0,maxOf(0,(ordered.size-1)/6))
   for(o in ordered.drop(shown*6).take(6))FieldButton({selected=o.getString("id")},enabled=!controller.busy){Text(o.getString("name")+if(agenda.any{it.getString("outletId")==o.getString("id")})" · planned beat"else" · reasoned extra call")}
   if(ordered.size>6)Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){FieldButton({page=shown-1},enabled=shown>0){Text("Previous")};Text("${shown+1}");FieldButton({page=shown+1},enabled=(shown+1)*6<ordered.size){Text("Next")}}
@@ -76,7 +76,7 @@ import java.util.UUID
   if(!open){
    FieldTextField(reason,{reason=it},label={Text("Extra-call reason, if outside today's beat")},modifier=Modifier.fillMaxWidth())
    FieldButton({attempt{
-    require(accepted.none{it.getString("kind")=="dsr.visit.checkIn"&&it.getString("aggregateId") !in closed}&&objects(data.optJSONArray("visits")).none{it.getString("state") in setOf("checked-in","in-progress","arrived")&&it.getString("client_visit_id") !in closed}){"Finish the open call before starting another store."}
+    require(accepted.none{it.getString("kind")=="dsr.visit.checkIn"&&it.getString("aggregateId") !in closed}&&objects(data.optJSONArray("visits")).none{it.getString("state") in setOf("checked-in","in-progress","arrived")&&it.getString("client_visit_id") !in closed}){"Finish the open call before starting another customer."}
     CallFlowEngine.location(config,fix,now);CallFlowEngine.advance(config,emptySet(),"check_in",false);val client=UUID.randomUUID().toString();val planned=agenda.any{it.getString("outletId")==id};require(planned||reason.isNotBlank()){ "Give a reason for an extra call." };controller.queueDomain("dsr.visit.checkIn",JSONObject().put("distributorId",data.getString("distributorId")).put("clientVisitId",client).put("outletId",id).put("serviceDate",data.getString("serviceDate")).put("intents",JSONArray()).put("flowDefinitionId",config.getJSONObject("definition").getString("id")).put("callFlowSnapshot",config).put("unplannedReason",if(planned)"Configured partner beat call (not employee MCP)"else reason.trim()).put("location",fix),client)}},enabled=!controller.busy){Text("Start call")}
   }else{
    Text("Call in progress · immutable work is saved on this phone before upload.")

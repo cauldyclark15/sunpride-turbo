@@ -26,7 +26,7 @@ it("F-601 header export preserves the exact current filters and removes only pag
 });
 
 it.each([
-  ["/stores/store", "store"],
+  ["/customers/customer", "store"],
   ["/coverage-people/agent", "agent-day"],
 ])(
   "F-601 detail export maps %s without losing the selected source identity",

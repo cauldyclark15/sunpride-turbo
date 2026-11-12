@@ -126,10 +126,10 @@ describe("store gathering review views", () => {
     expect(m).toContain("Very close by · Same name nearby");
     expect(m).toContain("18 m away");
     expect(m).toContain("also waiting for review");
-    expect(m.match(/Same store/g)?.length).toBe(1);
+    expect(m.match(/Same customer/g)?.length).toBe(1);
     noIds(m);
     expect(html(createElement(CandidateList, { candidates: [] }))).toContain(
-      "No similar stores found",
+      "No similar customers found",
     );
   });
   it("detail shows address parts, landmark, owner and the three decisions", () => {
@@ -146,8 +146,8 @@ describe("store gathering review views", () => {
       }),
     );
     for (const words of [
-      "Approve as new store",
-      "Same as existing store",
+      "Approve as new customer",
+      "Same as existing customer",
       "Reject",
       "Lahug, Cebu City",
       "Landmark: beside the chapel",
@@ -174,7 +174,7 @@ describe("store gathering review views", () => {
         onClose: () => {},
       }),
     );
-    expect(dup).toContain("Link to existing store");
+    expect(dup).toContain("Link to existing customer");
     expect(dup).toContain("Pin from the address the agent searched");
     expect(dup).not.toContain('name="code"');
   });

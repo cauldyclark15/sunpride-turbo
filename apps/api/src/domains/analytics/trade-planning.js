@@ -20,7 +20,7 @@ export async function readTradeInputs(db, p, s) {
   if (s.ownProfileId) return [];
   const facts =
     await db`select f.*,pr.code product_code,pr.name product_name,pr.quantity_scale canonical_quantity_scale,coalesce(f.quantity_scale,pr.quantity_scale) source_quantity_scale,
-    u.code base_uom,o.name outlet_name,o.territory_id,o.territory_name,
+    u.code base_uom,o.name outlet_name,o.territory_id,o.territory_name,coalesce(o.channel,f.channel) as channel,
     coalesce(pack.numerator/pack.denominator,1) case_units,
     pack.numerator is not null case_known
     from analytics_trade_sources f join products pr on pr.id=f.product_id and pr.deleted_at is null
@@ -30,7 +30,7 @@ export async function readTradeInputs(db, p, s) {
     where f.org_unit_id in ${db(s.ids.length ? s.ids : [null])}
     and (f.outlet_id is null or o.owner_unit_id in ${db(s.ids.length ? s.ids : [null])})
     and f.service_date between ${p.from} and ${p.to}
-    and (${p.channel}::text is null or coalesce(f.channel,o.channel)=${p.channel})`;
+    and (${p.channel}::text is null or coalesce(o.channel,f.channel)=${p.channel})`;
   const coverage = new Map();
   for (const f of facts) {
     if (

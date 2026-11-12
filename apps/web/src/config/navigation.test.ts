@@ -27,7 +27,7 @@ describe("v2 navigation", () => {
       "Today",
       "Sales & targets",
       "Coverage & people",
-      "Stores",
+      "Customers",
       "Products & stock",
       "Vans & cash",
       "Money",
@@ -71,7 +71,7 @@ describe("v2 navigation", () => {
   it("marks the owner page active, including its detail pages", () => {
     expect(primaryIdFor("/today")).toBe("today");
     expect(primaryIdFor("/coverage-people/agent")).toBe("coverage-people");
-    expect(primaryIdFor("/stores/store")).toBe("stores");
+    expect(primaryIdFor("/customers/customer")).toBe("stores");
   });
 
   it("every internal role sees Messages (messaging.use); partners never do", () => {
@@ -119,8 +119,9 @@ describe("v2 navigation", () => {
 
 describe("Operations: verbs first (IP-NAV)", () => {
   const opsTabs = (role: string, pathname = "/operations/stock") =>
-    getWebNavigation(pathname, (slug) => canAccessWebModule(slug, role))
-      .moduleTabs.map((tab) => tab.label);
+    getWebNavigation(pathname, (slug) =>
+      canAccessWebModule(slug, role),
+    ).moduleTabs.map((tab) => tab.label);
 
   it("lists the verbs in the order people do them", () => {
     expect(OPERATIONS_SECTIONS.map((s) => s.label)).toEqual([
@@ -141,7 +142,12 @@ describe("Operations: verbs first (IP-NAV)", () => {
     const subs = (id: string) =>
       OPERATIONS_SECTIONS.find((s) => s.id === id)!.subs.map((s) => s.label);
     expect(subs("stock")).toEqual(
-      expect.arrayContaining(["Stock on hand", "Stock card", "Bad orders", "Expiry"]),
+      expect.arrayContaining([
+        "Stock on hand",
+        "Stock card",
+        "Bad orders",
+        "Expiry",
+      ]),
     );
     expect(subs("counts")).toEqual(["My counts", "Add count", "Review"]);
     expect(subs("van-day")).toEqual(
@@ -214,13 +220,17 @@ describe("Operations: verbs first (IP-NAV)", () => {
   });
 
   it("finds the verb and the lit screen for a path, including detail pages and moved pages", () => {
-    expect(operationsSectionFor("/operations/counts/review")?.id).toBe("counts");
+    expect(operationsSectionFor("/operations/counts/review")?.id).toBe(
+      "counts",
+    );
     expect(operationsSectionFor("/inventory")?.id).toBe("stock");
     expect(operationsSectionFor("/van-trips?tripId=x")?.id).toBe("van-day");
     expect(operationsSectionFor("/workflows")?.id).toBe("decide");
     expect(operationsSectionFor("/today")).toBeNull();
     expect(operationsSubFor("/operations/transfers/abc")?.id).toBe("list");
-    expect(operationsSubFor("/operations/stock/bad-orders")?.id).toBe("bad-orders");
+    expect(operationsSubFor("/operations/stock/bad-orders")?.id).toBe(
+      "bad-orders",
+    );
     expect(operationsSubFor("/operations/stock")?.id).toBe("on-hand");
     expect(operationsSubFor("/van-trips")?.id).toBe("trips");
   });
@@ -228,11 +238,12 @@ describe("Operations: verbs first (IP-NAV)", () => {
   it("IP-INT3FIX: every role that may read trips has a link to /van-trips in Operations, and nobody sees it twice", () => {
     for (const role of APP_ROLES) {
       const canOpen = (slug: string) => canAccessWebModule(slug, role);
-      const links = OPERATIONS_SECTIONS.filter((s) => canOpen(s.access)).flatMap(
-        (s) =>
-          visibleOperationsSubs(s, canOpen)
-            .filter((sub) => sub.href === "/van-trips")
-            .map(() => s.id),
+      const links = OPERATIONS_SECTIONS.filter((s) =>
+        canOpen(s.access),
+      ).flatMap((s) =>
+        visibleOperationsSubs(s, canOpen)
+          .filter((sub) => sub.href === "/van-trips")
+          .map(() => s.id),
       );
       expect(links, role).toHaveLength(1);
     }

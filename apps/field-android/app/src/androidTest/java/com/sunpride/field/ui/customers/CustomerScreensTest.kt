@@ -166,11 +166,11 @@ class CustomerScreensTest {
             .firstOrNull { it.text.startsWith("Store") }?.text)
         org.junit.Assert.assertTrue("FAB overlaps last row: fab=$fab row=${last.boundsInRoot}",
             fab.top >= last.boundsInRoot.bottom)
-        rule.onNodeWithTag("customer-add-store-fab").assertContentDescriptionEquals("Add store")
+        rule.onNodeWithTag("customer-add-store-fab").assertContentDescriptionEquals("Add customer")
         rule.onNodeWithTag("customer-add-store-fab").performClick()
         rule.onNodeWithTag("customer-list").performScrollToIndex(0)
         rule.onNodeWithTag("customer-search").performTextInput("Aling Nena")
-        rule.onNodeWithTag("customer-add-store").assertTextContains("Add store").performClick()
+        rule.onNodeWithTag("customer-add-store").assertTextContains("Add customer").performClick()
         assertEquals(listOf("", "Aling Nena"), added)
     }
 
@@ -199,7 +199,7 @@ class CustomerScreensTest {
     @Test fun detailHasAVisibleEditStoreButton() {
         var edits = 0
         content { CustomerDetailScreen(pena, data, onNavigate = { true }, onDial = { true }, now = now, onEdit = { edits++ }) }
-        rule.onNodeWithTag("customer-edit").assertIsDisplayed().assertTextContains("Edit store").performClick()
+        rule.onNodeWithTag("customer-edit").assertIsDisplayed().assertTextContains("Edit customer").performClick()
         assertEquals(1, edits)
     }
 

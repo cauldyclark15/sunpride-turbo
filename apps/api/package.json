@@ -11,7 +11,9 @@
     "lint": "tsc -p jsconfig.json"
   },
   "dependencies": {
+    "@sunpride/customer-master": "workspace:*",
     "@sunpride/db": "workspace:*",
+    "@sunpride/import-templates": "workspace:*",
     "jpeg-js": "0.4.4"
   },
   "devDependencies": {

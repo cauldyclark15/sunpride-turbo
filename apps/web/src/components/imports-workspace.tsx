@@ -28,6 +28,8 @@ import {
   type MigrationKind,
 } from "./spec-masters/migration-model";
 import { MigrationReview } from "./spec-masters/migration-review";
+import { CustomerUpload } from "./customer-upload/customer-upload";
+import { CUSTOMER_HEADERS } from "../lib/customer-upload";
 
 type Kind =
   | "products"
@@ -37,8 +39,15 @@ type Kind =
   | "stock_adjustment"
   | "mcp"
   | "targets"
+  | "store_upload"
   | MigrationKind;
 const TASKS: { kind: Kind; label: string; description: string }[] = [
+  {
+    kind: "store_upload",
+    label: "Customers",
+    description:
+      "Add or update customers from Sunpride's customer template (Excel or CSV), with a row-by-row report.",
+  },
   {
     kind: "customers",
     label: "Customer cutover",
@@ -131,7 +140,9 @@ const headersFor = (kind: Kind, format: McpFormat): string[] =>
             ? MCP_HEADERS[format].split(",")
             : isMigration(kind)
               ? MIGRATION_HEADERS[kind].split(",")
-              : OPERATIONAL_HEADERS[kind].split(",");
+              : kind === "store_upload"
+                ? [...CUSTOMER_HEADERS]
+                : OPERATIONAL_HEADERS[kind].split(",");
 
 function Errors({ errors, kind }: { errors: ImportError[]; kind: Kind }) {
   if (!errors.length) return null;
@@ -679,7 +690,7 @@ export function ImportsWorkspace(_props: { setupMessage: string }) {
   const available = TASKS.filter((t) =>
     t.kind === "targets"
       ? can("target.manage")
-      : t.kind === "prices"
+      : t.kind === "prices" || t.kind === "store_upload"
         ? can("masterdata.manage")
         : options.data?.kinds.includes(t.kind),
   );
@@ -716,7 +727,8 @@ export function ImportsWorkspace(_props: { setupMessage: string }) {
           </button>
         ))}
       </div>
-      {active && (
+      {active === "store_upload" && <CustomerUpload />}
+      {active && active !== "store_upload" && (
         <Loader
           key={`${profile?.id}:${me?.scope?.fingerprint}:${active}`}
           kind={active}

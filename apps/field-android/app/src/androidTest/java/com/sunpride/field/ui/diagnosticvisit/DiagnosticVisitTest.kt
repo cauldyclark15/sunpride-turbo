@@ -461,7 +461,7 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("order-amount").assertTextContains("₱1,053.25")
         rule.onNodeWithTag("order-sample-prices").assertTextContains("Sample prices")
         rule.onNodeWithTag("order-credit").performScrollTo().assertTextContains(
-            "Over the store's credit limit by ₱963.25. You can still send it; the office must approve.", substring = true)
+            "Over the customer's credit limit by ₱963.25. You can still send it; the office must approve.", substring = true)
         rule.onNodeWithTag("order-submit").assertIsEnabled()
         // Physical Galaxy three-button navigation: the pinned button must clear the safe drawing inset.
         val bounds = rule.onNodeWithTag("order-submit").fetchSemanticsNode().boundsInWindow
@@ -697,7 +697,7 @@ class DiagnosticVisitTest {
         rule.onAllNodesWithTag("diagnostic-open")[0].assertTextContains("First", substring = true)
         rule.onAllNodesWithTag("diagnostic-open")[1].performScrollTo().performClick()
         rule.onNodeWithTag("diagnostic-checkin").assertIsNotEnabled()
-        rule.onNodeWithTag("start-blocked").assertTextContains("Visit stores in plan order")
+        rule.onNodeWithTag("start-blocked").assertTextContains("Visit customers in plan order")
         rule.onNodeWithTag("visit-back").performClick()
         rule.onAllNodesWithTag("diagnostic-open")[0].performScrollTo().performClick()
         // Start stays disabled while the launch sync is still running; a tap on a disabled button is dropped.

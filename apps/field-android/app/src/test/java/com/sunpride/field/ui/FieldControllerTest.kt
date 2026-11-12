@@ -126,7 +126,7 @@ class FieldControllerTest {
     @Test fun serverRecordedEarlierStopPassesThroughControllerStartValidation() = run { c, b, _ ->
         val prior = VisitDisplay("Earlier store", "Planned", "Done", "one", "plan-one", sequence = 0,
             serverExecution = org.json.JSONObject().put("state", "checked-out").toString())
-        val next = VisitDisplay("Next store", "Planned", "Scheduled", "two", "plan-two", sequence = 1)
+        val next = VisitDisplay("Next customer", "Planned", "Scheduled", "two", "plan-two", sequence = 1)
         b.todayResult = TodayData(visits = listOf(prior, next))
         b.results += { EnrollmentState.Ready("dev1") }
         c.signIn("a@example.test", "fake").join()

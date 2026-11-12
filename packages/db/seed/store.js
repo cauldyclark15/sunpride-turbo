@@ -261,6 +261,10 @@ export async function resetDemo(db) {
     await t`create temporary table seed_owned_reset (table_name text not null, row_id uuid not null, primary key(table_name,row_id)) on commit drop`;
     await t`insert into seed_owned_reset select table_name,row_id::uuid from sample_data_rows where batch=${BATCH} and table_name<>'change_log'`;
     await t`analyze seed_owned_reset`;
+    // SP-0170: a sample store's customer profile and ship-to entries are 1:1 extensions of the
+    // store row (on delete cascade), not outside dependents; they go with it.
+    await t`delete from customer_ship_tos s using seed_owned_reset m where m.table_name='outlets' and s.outlet_id=m.row_id`;
+    await t`delete from customer_profiles p using seed_owned_reset m where m.table_name='outlets' and p.outlet_id=m.row_id`;
     const fks = await foreignKeys(t);
     const uuidChildren = new Set(
       (

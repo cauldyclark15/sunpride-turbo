@@ -55,7 +55,7 @@ fun CallProgressCard(summary: TodaySummary, modifier: Modifier = Modifier) {
             Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text("${summary.done} of ${summary.planned}", style = MaterialTheme.typography.headlineMedium,
                     modifier = Modifier.testTag("today-calls"))
-                Text("stores done", style = MaterialTheme.typography.bodyMedium,
+                Text("customers done", style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.padding(bottom = 4.dp))
             }
             ProgressBar(summary.progress)
@@ -85,7 +85,7 @@ fun NextStoreCard(summary: TodaySummary, onOpen: ((VisitDisplay) -> Unit)?, modi
         if (next == null) Row(Modifier.fillMaxWidth().heightIn(min = 64.dp).padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Glyph(GlyphKind.CHECK, Color.White, 22.dp)
-            Text(if (summary.allDone) "All planned stores visited" else "No store to visit", color = Color.White,
+            Text(if (summary.allDone) "All planned customers visited" else "No customer to visit", color = Color.White,
                 style = MaterialTheme.typography.titleSmall, modifier = Modifier.testTag("today-all-done"))
         } else Row(Modifier.fillMaxWidth().heightIn(min = 72.dp)
             .then(if (onOpen != null) Modifier.clickable(role = Role.Button) { onOpen(next.visit) } else Modifier)
@@ -95,7 +95,7 @@ fun NextStoreCard(summary: TodaySummary, onOpen: ((VisitDisplay) -> Unit)?, modi
                 Text(next.stop.toString(), color = Color.White, style = MaterialTheme.typography.titleSmall)
             }
             Column(Modifier.weight(1f)) {
-                Text(if (next.inProgress) "Current call" else "Next store", color = Color.White.copy(alpha = 0.78f),
+                Text(if (next.inProgress) "Current call" else "Next customer", color = Color.White.copy(alpha = 0.78f),
                     style = MaterialTheme.typography.labelMedium)
                 Text(next.visit.outlet, color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1,
                     overflow = TextOverflow.Ellipsis)

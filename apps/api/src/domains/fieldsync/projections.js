@@ -36,6 +36,7 @@ import {
   serviceDate,
   uuid,
 } from "./model.js";
+import { customerMasterSummaries } from "../masters/customers.js";
 
 /** @typedef {import('../../core/sync.js').ProjectionCtx} ProjectionCtx */
 
@@ -343,6 +344,13 @@ async function bundleData(ctx) {
       if (typeof c.phone === "string" && c.phone.trim())
         value.ownerPhone = c.phone.trim();
     }
+  }
+  // SP-0170: the client's customer classification rides each outlet (additive keys only).
+  for (const [id, summary] of await customerMasterSummaries(db, [
+    ...outlets.keys(),
+  ])) {
+    const value = outlets.get(id);
+    if (value) Object.assign(value, summary);
   }
   const agenda = await agendaForPlans(ctx, planned);
   const outletIds = [...outlets.keys()];

@@ -37,14 +37,14 @@ const money = (v: number | null) =>
       }).format(v / 100);
 const tabs = [
   ["products", "Products"],
-  ["customers", "Customers"],
-  ["outlets", "Stores"],
+  ["customers", "Accounting customers"],
+  ["outlets", "Customers"],
 ] as const;
 const KINDS = tabs.map(([id]) => id) as readonly Kind[];
 const NOUN: Record<Kind, { one: string; many: string }> = {
   products: { one: "product", many: "products" },
   customers: { one: "customer", many: "customers" },
-  outlets: { one: "store", many: "stores" },
+  outlets: { one: "customer", many: "customers" },
 };
 const editClass =
   "inline-flex h-9 items-center rounded-lg border border-border px-3 text-[13px] font-medium text-foreground hover:bg-default-soft";
@@ -315,8 +315,8 @@ export function MasterDataWorkspace({
       kind === "products"
         ? "Product"
         : kind === "customers"
-          ? "Customer"
-          : "Store",
+          ? "Accounting customer"
+          : "Customer Name",
     primary: true,
     render: (r) => r.name,
     text: (r) => r.name,
@@ -379,7 +379,7 @@ export function MasterDataWorkspace({
       ? (r: Row) => (
           <Link
             className={editClass}
-            href={`/stores?edit=${encodeURIComponent(r.id)}`}
+            href={`/customers?edit=${encodeURIComponent(r.id)}`}
             aria-label={`Edit ${r.name}`}
           >
             Edit

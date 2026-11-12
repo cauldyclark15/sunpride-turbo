@@ -95,9 +95,9 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
         item(key = "count") {
             Text(listOfNotNull(
                 when {
-                    data.customers.isEmpty() -> "No stores on this phone"
-                    query.isBlank() -> "${data.customers.size} stores"
-                    else -> "${found.size} of ${data.customers.size} stores"
+                    data.customers.isEmpty() -> "No customers on this phone"
+                    query.isBlank() -> "${data.customers.size} customers"
+                    else -> "${found.size} of ${data.customers.size} customers"
                 },
                 "Saved on this phone".takeIf { offline || data.stale },
             ).joinToString(" · "), style = MaterialTheme.typography.bodySmall,
@@ -105,17 +105,17 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
         }
         when {
             data.customers.isEmpty() -> item(key = "empty") {
-                EmptyState(if (data.lastSynced != null) "No stores on your plan for the next three days"
-                    else "Sync to download the stores on your plan",
+                EmptyState(if (data.lastSynced != null) "No customers on your plan for the next three days"
+                    else "Sync to download the customers on your plan",
                     "They stay searchable with no signal.", GlyphKind.STORE,
                     Modifier.testTag("customer-empty"))
             }
             results.isEmpty() -> item(key = "no-match") {
-                Text(if (query.isBlank()) "No stores on today's route. Choose All."
-                    else "No store matches \"${query.trim()}\".",
+                Text(if (query.isBlank()) "No customers on today's route. Choose All."
+                    else "No customer matches \"${query.trim()}\".",
                     style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(4.dp).testTag("customer-no-match"))
                 // SP-0163: a search that finds nothing offers to add the store.
-                if (onAddStore != null && query.isNotBlank()) com.sunpride.field.ui.TonalButton("Add store", { onAddStore(query.trim()) },
+                if (onAddStore != null && query.isNotBlank()) com.sunpride.field.ui.TonalButton("Add customer", { onAddStore(query.trim()) },
                     Modifier.fillMaxWidth().padding(top = 8.dp).testTag("customer-add-store"), glyph = GlyphKind.STORE)
             }
             else -> items(results, key = { it.outletId }) { record ->
@@ -124,7 +124,7 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
             }
         }
     }
-    if (onAddStore != null) AddFab("Add store", { onAddStore("") }, tag = "customer-add-store-fab")
+    if (onAddStore != null) AddFab("Add customer", { onAddStore("") }, tag = "customer-add-store-fab")
     }
 }
 
@@ -211,13 +211,13 @@ fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (S
             }, Modifier.weight(1f).testTag("customer-call"), enabled = dial != null, glyph = GlyphKind.PHONE)
         }
         changeLabel?.let { com.sunpride.field.ui.StatusChip(it, Look.Tone.WARN, textTag = "customer-change-pending") }
-        if (onEdit != null && com.sunpride.field.ui.STORE_EDIT_ENABLED) SecondaryButton("Edit store", onEdit, Modifier.fillMaxWidth().testTag("customer-edit"))
+        if (onEdit != null && com.sunpride.field.ui.STORE_EDIT_ENABLED) SecondaryButton("Edit customer", onEdit, Modifier.fillMaxWidth().testTag("customer-edit"))
         actionError?.let { Text(it, color = MaterialTheme.colorScheme.error,
             style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("customer-action-error")) }
 
         SectionCard("Summary", Modifier.semantics(mergeDescendants = true) {}.testTag("customer-summary")) {
             val account = record.account
-            Fact("Store code", record.outletCode ?: "Not sent")
+            Fact("Customer Code", record.outletCode ?: "Not sent")
             record.customerCode?.let { Fact("Customer code", it) }
             Fact("Address", record.address ?: account?.address ?: "No address yet")
             Fact("Location", when {
@@ -248,11 +248,11 @@ fun CustomerDetailScreen(record: CustomerRecord, data: TodayData, onNavigate: (S
 
         SectionCard("Tasks", Modifier.semantics(mergeDescendants = true) {}.testTag("customer-tasks")) {
             val todays = record.today?.intents.orEmpty()
-            todays.forEach { Fact(CustomerDirectory.kindLabel(it), "This store today") }
+            todays.forEach { Fact(CustomerDirectory.kindLabel(it), "This customer today") }
             data.tasks.forEach { task ->
                 Fact(CustomerDirectory.kindLabel(task.kind), if (task.required) "Required · your day" else "Your day")
             }
-            if (todays.isEmpty() && data.tasks.isEmpty()) Note("No tasks for this store today")
+            if (todays.isEmpty() && data.tasks.isEmpty()) Note("No tasks for this customer today")
         }
 
         SectionCard("Recent history", Modifier.semantics(mergeDescendants = true) {}.testTag("customer-history")) {

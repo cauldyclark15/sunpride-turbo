@@ -186,7 +186,7 @@ export function AvailabilityView({
       <TowerTable
         label="Outlet coverage and availability"
         rows={data.rows.map((r) => ({ key: r.storeId, ...r }))}
-        rowHref={(r) => `/stores/store?storeId=${r.storeId}`}
+        rowHref={(r) => `/customers/customer?storeId=${r.storeId}`}
         columns={[
           { key: "label", label: "Outlet" },
           { key: "territory", label: "Territory" },
@@ -998,7 +998,7 @@ export function PolicyPanel({ unitId }: { unitId: string | null }) {
       <p role="status" className="text-sm">
         {message}
       </p>
-      <Link href="/stores" className="text-sm underline">
+      <Link href="/customers" className="text-sm underline">
         Open outlet universe
       </Link>
     </Panel>

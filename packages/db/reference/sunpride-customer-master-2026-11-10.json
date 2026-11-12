@@ -1,0 +1,1756 @@
+{
+ "fields": [
+  {
+   "section": "Customer General Information",
+   "field": "Registered Name",
+   "required": true,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Customer General Information",
+   "field": "Trade Name",
+   "required": false,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Customer General Information",
+   "field": "Customer Name",
+   "required": true,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Customer General Information",
+   "field": "Customer Address",
+   "required": true,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Customer General Information",
+   "field": "Email Address",
+   "required": false,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Customer General Information",
+   "field": "Mobile No.",
+   "required": true,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Customer General Information",
+   "field": "Tel. No.",
+   "required": false,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Customer General Information",
+   "field": "TIN number",
+   "required": false,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Customer General Information",
+   "field": "Tax Classification",
+   "required": true,
+   "remarks": "dropdown (refer to Tax Class tab)"
+  },
+  {
+   "section": "Customer Location",
+   "field": "Country",
+   "required": true,
+   "remarks": "dropdown"
+  },
+  {
+   "section": "Customer Location",
+   "field": "Region",
+   "required": true,
+   "remarks": "dropdown"
+  },
+  {
+   "section": "Customer Location",
+   "field": "Province",
+   "required": true,
+   "remarks": "dropdown"
+  },
+  {
+   "section": "Customer Location",
+   "field": "Municipality",
+   "required": true,
+   "remarks": "dropdown"
+  },
+  {
+   "section": "Customer Location",
+   "field": "Barangay",
+   "required": true,
+   "remarks": "dropdown"
+  },
+  {
+   "section": "Customer Location",
+   "field": "House No.",
+   "required": false,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Customer Location",
+   "field": "Street 1",
+   "required": false,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Customer Location",
+   "field": "Street 2",
+   "required": false,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Customer Location",
+   "field": "Floor",
+   "required": false,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Customer Location",
+   "field": "Room No. / Stall No.",
+   "required": false,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Customer Location",
+   "field": "Postal Code",
+   "required": true,
+   "remarks": "dropdown"
+  },
+  {
+   "section": "Customer Location",
+   "field": "Geographical Coordinates",
+   "required": true,
+   "remarks": "System-suggested"
+  },
+  {
+   "section": "Customer Assignment",
+   "field": "Sales Organization",
+   "required": true,
+   "remarks": "dropdown (Refer to Sales Organization tab) Pre-requisite Dist. Channel"
+  },
+  {
+   "section": "Customer Assignment",
+   "field": "Sales Office",
+   "required": true,
+   "remarks": "dropdown (Refer to Sales Office tab)"
+  },
+  {
+   "section": "Customer Assignment",
+   "field": "Distribution Channel",
+   "required": true,
+   "remarks": "dropdown (Refer to Distribution Channel) Pre-requisite Grp1"
+  },
+  {
+   "section": "Customer Assignment",
+   "field": "Customer Grp 1",
+   "required": true,
+   "remarks": "dropdown (Refer to Cust. Grp 1 & 2 tab) Pre-requisite Grp2"
+  },
+  {
+   "section": "Customer Assignment",
+   "field": "Customer Grp 2",
+   "required": true,
+   "remarks": "dropdown (Refer to Cust. Grp 1 & 2 tab)"
+  },
+  {
+   "section": "Customer Assignment",
+   "field": "Customer Group",
+   "required": true,
+   "remarks": "dropdown (Refer to Customer Group)"
+  },
+  {
+   "section": "Customer Assignment",
+   "field": "Type of Business",
+   "required": true,
+   "remarks": "dropdown (Refer to Type of Business tab)"
+  },
+  {
+   "section": "Customer Assignment",
+   "field": "Sales Partner",
+   "required": false,
+   "remarks": "dropdown (List of Agents)"
+  },
+  {
+   "section": "Payment Arrangement",
+   "field": "Terms of payment",
+   "required": true,
+   "remarks": "dropdown (Refer to Payment Terms tab)"
+  },
+  {
+   "section": "Payment Arrangement",
+   "field": "Credit Limit",
+   "required": false,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Payment Arrangement",
+   "field": "Customer Pricing Procedure",
+   "required": true,
+   "remarks": "dropdown (Refer to Pricing Procedure)"
+  },
+  {
+   "section": "Delivery Arrangement",
+   "field": "Delivering Plant",
+   "required": true,
+   "remarks": "dropdown (Refer to Delivering Plant)"
+  },
+  {
+   "section": "Delivery Arrangement",
+   "field": "Ship-to Party",
+   "required": true,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Delivery Arrangement",
+   "field": "Ship-to Address",
+   "required": true,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Delivery Arrangement",
+   "field": "Contact Person",
+   "required": true,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Delivery Arrangement",
+   "field": "Mobile No.",
+   "required": true,
+   "remarks": "manual input"
+  },
+  {
+   "section": "Delivery Arrangement",
+   "field": "Email Address",
+   "required": false,
+   "remarks": "manual input"
+  },
+  {
+   "section": "ADP Specific",
+   "field": "Distributor Code",
+   "required": true,
+   "remarks": "ERP-based, customer code)"
+  },
+  {
+   "section": "ADP Specific",
+   "field": "Distributor Name",
+   "required": true,
+   "remarks": "ERP-based, customer name)"
+  },
+  {
+   "section": "ADP Specific",
+   "field": "Distributor Customer Code",
+   "required": true,
+   "remarks": "Distributor-specific)"
+  },
+  {
+   "section": "ADP Specific",
+   "field": "Distribution Mode",
+   "required": true,
+   "remarks": "Dropdown, Universal)"
+  },
+  {
+   "section": "ADP Specific",
+   "field": "Sub-Distributor Code",
+   "required": true,
+   "remarks": "Distributor-specific)"
+  },
+  {
+   "section": "ADP Specific",
+   "field": "Sub-Distributor Name",
+   "required": true,
+   "remarks": "Distributor-specific)"
+  },
+  {
+   "section": "ADP Specific",
+   "field": "Distributor Salesman",
+   "required": true,
+   "remarks": "Drop-Down, Distributor-specific)"
+  },
+  {
+   "section": "ADP Specific",
+   "field": "Distributor Salesman Code",
+   "required": true,
+   "remarks": "Drop-Down, Distributor-specific)"
+  },
+  {
+   "section": "ADP Specific",
+   "field": "Truck Serving",
+   "required": true,
+   "remarks": "Drop-Down, Distributor-specific)"
+  },
+  {
+   "section": "ADP Specific",
+   "field": "Truck Code",
+   "required": true,
+   "remarks": "Drop-Down, Distributor-specific)"
+  },
+  {
+   "section": "ADP Specific",
+   "field": "Distributor Hub",
+   "required": true,
+   "remarks": "Warehouse of Distributor serving the account)"
+  },
+  {
+   "section": "ADP Specific",
+   "field": "Cluster #",
+   "required": true,
+   "remarks": "Drop-Down, Universal but distributors have their own clustering independent of SFI in-house) This is what we term as route in distribution, We just use cluster to generalize."
+  },
+  {
+   "section": "ADP Specific",
+   "field": "Cluster Name",
+   "required": true,
+   "remarks": "Drop-Down, Universal but distributors have their own clustering independent of SFI in-house) This is what we term as route in distribution, We just use cluster to generalize."
+  }
+ ],
+ "sales_organizations": [
+  {
+   "code": "1000",
+   "name": "SFI"
+  },
+  {
+   "code": "2000",
+   "name": "ARI"
+  }
+ ],
+ "distribution_channels": [
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "10",
+   "name": "Key Accounts"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "20",
+   "name": "Food Service"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "30",
+   "name": "General Trade"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "40",
+   "name": "Distributive Trade"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "41",
+   "name": "Route Sales"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "50",
+   "name": "Services"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "70",
+   "name": "Office Sales"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "80",
+   "name": "Corporate"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "20",
+   "name": "Food Service"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "70",
+   "name": "Office Sales"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "80",
+   "name": "Corporate"
+  }
+ ],
+ "sales_offices": [
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "100",
+   "name": "SFI Cebu"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "200",
+   "name": "SFI Bacolod"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "300",
+   "name": "SFI Butuan"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "400",
+   "name": "SFI Cagayan"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "500",
+   "name": "SFI Davao"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "600",
+   "name": "SFI Dumaguete"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "700",
+   "name": "SFI General Santos"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "800",
+   "name": "SFI Iloilo"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "900",
+   "name": "SFI Manila"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1100",
+   "name": "SFI Ormoc"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1000",
+   "name": "SFI Ozamis"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1200",
+   "name": "SFI Zamboanga"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "130",
+   "name": "ARI Cebu"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "131",
+   "name": "ARI Tacloban"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "132",
+   "name": "ARI Butuan"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "133",
+   "name": "ARI Dumaguete"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "134",
+   "name": "ARI Davao"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "135",
+   "name": "ARI Bacolod"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "136",
+   "name": "ARI Iloilo"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "137",
+   "name": "ARI CDO"
+  }
+ ],
+ "delivering_plants": [
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1000",
+   "name": "Cebu Production"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1010",
+   "name": "Cebu Dry House"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1040",
+   "name": "Cebu BBL 4"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1050",
+   "name": "Cebu BBL 5"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1060",
+   "name": "Bacolod"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1070",
+   "name": "Butuan"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1080",
+   "name": "Cagayan"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1090",
+   "name": "Davao"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1100",
+   "name": "Dumaguete"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1110",
+   "name": "Gensan"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1130",
+   "name": "Iloilo"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1140",
+   "name": "Manila"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1150",
+   "name": "Tacloban"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1160",
+   "name": "Ozamis"
+  },
+  {
+   "sales_org": "SFI",
+   "sales_org_code": "1000",
+   "code": "1170",
+   "name": "Zamboanga"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "2000",
+   "name": "Head Office"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "2001",
+   "name": "BBL 5 Plant ARI"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "2002",
+   "name": "BBL 4 Plant ARI"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "2003",
+   "name": "ARI Gensan"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "2200",
+   "name": "ARI Tacloban"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "2201",
+   "name": "ARI Butuan"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "2202",
+   "name": "ARI Dumaguete"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "2203",
+   "name": "ARI Davao"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "2204",
+   "name": "ARI Bacolod"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "2205",
+   "name": "ARI Iloilo"
+  },
+  {
+   "sales_org": "ARI",
+   "sales_org_code": "2000",
+   "code": "2206",
+   "name": "ARI CDO"
+  }
+ ],
+ "payment_terms": [
+  {
+   "code": "ZC03",
+   "name": "Cash upon delivery"
+  },
+  {
+   "code": "0002",
+   "name": "Due in 3 days"
+  },
+  {
+   "code": "0003",
+   "name": "Due in 7 days"
+  },
+  {
+   "code": "0004",
+   "name": "Due in 15 days"
+  },
+  {
+   "code": "0005",
+   "name": "Due in 30 days"
+  }
+ ],
+ "tax_classes": [
+  {
+   "code": "0",
+   "name": "Tax Exempt"
+  },
+  {
+   "code": "1",
+   "name": "Liable for Taxes"
+  },
+  {
+   "code": "2",
+   "name": "Zero Rated"
+  },
+  {
+   "code": "3",
+   "name": "Government Taxes"
+  },
+  {
+   "code": "4",
+   "name": "Services"
+  }
+ ],
+ "pricing_procedures": [
+  {
+   "code": "1",
+   "name": "Standard Exclusive Tax"
+  },
+  {
+   "code": "2",
+   "name": "Standard Inclusive Tax"
+  }
+ ],
+ "customer_groups": [
+  {
+   "code": "1",
+   "name": "ABOHAN"
+  },
+  {
+   "code": "2",
+   "name": "ALBERTOS"
+  },
+  {
+   "code": "3",
+   "name": "ALTURAS"
+  },
+  {
+   "code": "4",
+   "name": "ANGELS"
+  },
+  {
+   "code": "5",
+   "name": "COLONNADE"
+  },
+  {
+   "code": "6",
+   "name": "DAVAO CENTRAL WHSE"
+  },
+  {
+   "code": "7",
+   "name": "FELCRIS"
+  },
+  {
+   "code": "8",
+   "name": "FOODA"
+  },
+  {
+   "code": "9",
+   "name": "GAISANO-BROS"
+  },
+  {
+   "code": "10",
+   "name": "GAISANO-CAPITAL GRP"
+  },
+  {
+   "code": "11",
+   "name": "GAISANO-GRAND"
+  },
+  {
+   "code": "12",
+   "name": "GAISANO-METRO"
+  },
+  {
+   "code": "13",
+   "name": "GAISANO-DSG SONS"
+  },
+  {
+   "code": "14",
+   "name": "GAISANO-INTERPACE"
+  },
+  {
+   "code": "15",
+   "name": "GAISANO-JHG TRADING"
+  },
+  {
+   "code": "16",
+   "name": "GAISANO-UNIPACE"
+  },
+  {
+   "code": "17",
+   "name": "KCC"
+  },
+  {
+   "code": "18",
+   "name": "LA NUEVA"
+  },
+  {
+   "code": "19",
+   "name": "LOPUE'S"
+  },
+  {
+   "code": "20",
+   "name": "LTS GROUP"
+  },
+  {
+   "code": "21",
+   "name": "MACTAN GRILL"
+  },
+  {
+   "code": "22",
+   "name": "PIONEER TRADING"
+  },
+  {
+   "code": "23",
+   "name": "PRINCE MANDAUE GROUP"
+  },
+  {
+   "code": "24",
+   "name": "PRINCE NRA GROUP"
+  },
+  {
+   "code": "25",
+   "name": "PUREGOLD"
+  },
+  {
+   "code": "26",
+   "name": "ROBINSONS"
+  },
+  {
+   "code": "27",
+   "name": "ROSE PHARMACY"
+  },
+  {
+   "code": "28",
+   "name": "RUSTANS"
+  },
+  {
+   "code": "29",
+   "name": "SM GROUP"
+  },
+  {
+   "code": "30",
+   "name": "TUDINGS"
+  },
+  {
+   "code": "31",
+   "name": "KJ GROUP"
+  },
+  {
+   "code": "32",
+   "name": "OGASSIR"
+  },
+  {
+   "code": "33",
+   "name": "MARKETING ONE"
+  },
+  {
+   "code": "34",
+   "name": "NEGROS GOLDEN HERITA"
+  },
+  {
+   "code": "35",
+   "name": "FOODMAN SUPERMART"
+  },
+  {
+   "code": "36",
+   "name": "LOPUE'S MANDALAGAN"
+  },
+  {
+   "code": "37",
+   "name": "LOPUE'S SAN SEBASTIA"
+  },
+  {
+   "code": "38",
+   "name": "CHAMS CONVENIENT STO"
+  },
+  {
+   "code": "39",
+   "name": "DIAL ME PHARMACY"
+  },
+  {
+   "code": "40",
+   "name": "SBG MDSE"
+  },
+  {
+   "code": "41",
+   "name": "ORORAMA"
+  },
+  {
+   "code": "42",
+   "name": "MA.DEL CARMEN"
+  },
+  {
+   "code": "43",
+   "name": "UNITOP"
+  },
+  {
+   "code": "44",
+   "name": "CITY SQUARE"
+  },
+  {
+   "code": "45",
+   "name": "ILOILO SOCIETY"
+  },
+  {
+   "code": "46",
+   "name": "CPT MART"
+  },
+  {
+   "code": "47",
+   "name": "ILOILO SUPERMART"
+  },
+  {
+   "code": "48",
+   "name": "LEDI SUPERMART"
+  },
+  {
+   "code": "49",
+   "name": "INJAP SUPERMART"
+  },
+  {
+   "code": "50",
+   "name": "NULADAS"
+  },
+  {
+   "code": "51",
+   "name": "LICANDAS"
+  },
+  {
+   "code": "52",
+   "name": "AFP COMMISSARY"
+  },
+  {
+   "code": "53",
+   "name": "ARI"
+  },
+  {
+   "code": "54",
+   "name": "DYNAMIC DEV."
+  },
+  {
+   "code": "55",
+   "name": "ER SUPERSTORE"
+  },
+  {
+   "code": "56",
+   "name": "IPI"
+  },
+  {
+   "code": "57",
+   "name": "JCO FOODSPOT"
+  },
+  {
+   "code": "58",
+   "name": "PRINCE RETAIL"
+  },
+  {
+   "code": "59",
+   "name": "SAVE-ON DRUGSTORE"
+  },
+  {
+   "code": "60",
+   "name": "TERIYAKI BOY"
+  },
+  {
+   "code": "61",
+   "name": "TRAVELBEE MGT."
+  },
+  {
+   "code": "62",
+   "name": "SFI EMPLOYEES"
+  },
+  {
+   "code": "63",
+   "name": "SHAKEY'S PIZZA"
+  },
+  {
+   "code": "64",
+   "name": "RDS"
+  },
+  {
+   "code": "65",
+   "name": "DISTRIBUTOR"
+  },
+  {
+   "code": "66",
+   "name": "EXECUTIVES"
+  },
+  {
+   "code": "67",
+   "name": "VAT EXEMPT"
+  },
+  {
+   "code": "68",
+   "name": "MAX'S GROUP"
+  },
+  {
+   "code": "69",
+   "name": "CHIKA-AN"
+  },
+  {
+   "code": "70",
+   "name": "GAISANO-MARY"
+  },
+  {
+   "code": "71",
+   "name": "MERRYMART"
+  },
+  {
+   "code": "72",
+   "name": "MARKIM"
+  },
+  {
+   "code": "73",
+   "name": "MABUHAY"
+  },
+  {
+   "code": "74",
+   "name": "NO GROUP"
+  },
+  {
+   "code": "75",
+   "name": "YUBENCO"
+  },
+  {
+   "code": "76",
+   "name": "SANVIC"
+  },
+  {
+   "code": "77",
+   "name": "SUY SING"
+  },
+  {
+   "code": "78",
+   "name": "FITMART"
+  },
+  {
+   "code": "79",
+   "name": "JENTEC"
+  },
+  {
+   "code": "80",
+   "name": "PAGES HOLDINGS"
+  },
+  {
+   "code": "81",
+   "name": "BOHOL QUALITY"
+  },
+  {
+   "code": "82",
+   "name": "MARKET"
+  },
+  {
+   "code": "83",
+   "name": "MEATSHOP"
+  },
+  {
+   "code": "84",
+   "name": "VALLECER"
+  },
+  {
+   "code": "85",
+   "name": "LTS COMMUNITY"
+  },
+  {
+   "code": "86",
+   "name": "LTS RETAIL"
+  },
+  {
+   "code": "87",
+   "name": "LTS SUPERMARKET"
+  },
+  {
+   "code": "88",
+   "name": "OSAVE"
+  },
+  {
+   "code": "89",
+   "name": "NATASHA"
+  },
+  {
+   "code": "90",
+   "name": "DALI"
+  },
+  {
+   "code": "91",
+   "name": "MC JADE"
+  }
+ ],
+ "types_of_business": [
+  {
+   "name": "Sole Proprietor"
+  },
+  {
+   "name": "Partnership"
+  },
+  {
+   "name": "Corporation"
+  },
+  {
+   "name": "Cooperative"
+  },
+  {
+   "name": "Government"
+  },
+  {
+   "name": "Individual"
+  },
+  {
+   "name": "OPC"
+  }
+ ],
+ "sales_partners": [],
+ "customer_group_chain": [
+  {
+   "sales_org": "1000",
+   "channel": "10",
+   "group1": {
+    "name": "Key Accounts 1",
+    "code": "KAS1"
+   },
+   "group2": {
+    "name": "Key Accts. National",
+    "code": "KAN"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "10",
+   "group1": {
+    "name": "Key Accounts 1",
+    "code": "KAS1"
+   },
+   "group2": {
+    "name": "Key Accts. Regional",
+    "code": "KAR"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "10",
+   "group1": {
+    "name": "Key Accounts 2",
+    "code": "KAS2"
+   },
+   "group2": {
+    "name": "Key Accts. Local",
+    "code": "KAL"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "20",
+   "group1": {
+    "name": "Canteen",
+    "code": "FCA"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "1000",
+   "channel": "20",
+   "group1": {
+    "name": "Coffee shop",
+    "code": "FCO"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "1000",
+   "channel": "20",
+   "group1": {
+    "name": "Carinderia",
+    "code": "FCR"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "1000",
+   "channel": "20",
+   "group1": {
+    "name": "Catering",
+    "code": "FCT"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "1000",
+   "channel": "20",
+   "group1": {
+    "name": "Food Cart",
+    "code": "FFO"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "1000",
+   "channel": "20",
+   "group1": {
+    "name": "FS-Key Accounts",
+    "code": "FKA"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "1000",
+   "channel": "20",
+   "group1": {
+    "name": "Grill House",
+    "code": "FGT"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "1000",
+   "channel": "20",
+   "group1": {
+    "name": "Hospital",
+    "code": "FHS"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "1000",
+   "channel": "20",
+   "group1": {
+    "name": "Hotel",
+    "code": "FHT"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "1000",
+   "channel": "20",
+   "group1": {
+    "name": "Resort",
+    "code": "FRO"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "1000",
+   "channel": "20",
+   "group1": {
+    "name": "Resellers",
+    "code": "FRS"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "1000",
+   "channel": "20",
+   "group1": {
+    "name": "Restaurant",
+    "code": "FRT"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "1000",
+   "channel": "20",
+   "group1": {
+    "name": "NGO/LGU",
+    "code": "FNL"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "1000",
+   "channel": "30",
+   "group1": {
+    "name": "Key Accounts 3",
+    "code": "KAS3"
+   },
+   "group2": {
+    "name": "GT-Convenience Store",
+    "code": "GCS"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "30",
+   "group1": {
+    "name": "Key Accounts 3",
+    "code": "KAS3"
+   },
+   "group2": {
+    "name": "GT-Grocery Stores",
+    "code": "GGS"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "30",
+   "group1": {
+    "name": "Key Accounts 3",
+    "code": "KAS3"
+   },
+   "group2": {
+    "name": "GT-NGO/LGU",
+    "code": "GNL"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "30",
+   "group1": {
+    "name": "Key Accounts 3",
+    "code": "KAS3"
+   },
+   "group2": {
+    "name": "GT-Retailers",
+    "code": "GRT"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "30",
+   "group1": {
+    "name": "Key Accounts 3",
+    "code": "KAS3"
+   },
+   "group2": {
+    "name": "GT-Sub-Distributors",
+    "code": "GSD"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "30",
+   "group1": {
+    "name": "Key Accounts 3",
+    "code": "KAS3"
+   },
+   "group2": {
+    "name": "GT-Supermarket Store",
+    "code": "GSS"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "30",
+   "group1": {
+    "name": "Key Accounts 3",
+    "code": "KAS3"
+   },
+   "group2": {
+    "name": "GT-Wholesalers",
+    "code": "GWS"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "40",
+   "group1": {
+    "name": "Area Distr. Partner",
+    "code": "ADP"
+   },
+   "group2": {
+    "name": "DT-ADP Wholesalers",
+    "code": "DAW"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "40",
+   "group1": {
+    "name": "Area Distr. Partner",
+    "code": "ADP"
+   },
+   "group2": {
+    "name": "DT-Convenience Store",
+    "code": "DCS"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "40",
+   "group1": {
+    "name": "Area Distr. Partner",
+    "code": "ADP"
+   },
+   "group2": {
+    "name": "DT-Grocery Stores",
+    "code": "DGS"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "40",
+   "group1": {
+    "name": "Area Distr. Partner",
+    "code": "ADP"
+   },
+   "group2": {
+    "name": "DT-Meat/Frozen Ret.",
+    "code": "DMF"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "40",
+   "group1": {
+    "name": "Area Distr. Partner",
+    "code": "ADP"
+   },
+   "group2": {
+    "name": "DT-Public Mkt. Stall",
+    "code": "DPM"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "40",
+   "group1": {
+    "name": "Area Distr. Partner",
+    "code": "ADP"
+   },
+   "group2": {
+    "name": "DT-Retailers",
+    "code": "DRT"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "40",
+   "group1": {
+    "name": "Area Distr. Partner",
+    "code": "ADP"
+   },
+   "group2": {
+    "name": "DT- RS Wholesalers",
+    "code": "DRW"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "40",
+   "group1": {
+    "name": "Area Distr. Partner",
+    "code": "ADP"
+   },
+   "group2": {
+    "name": "DT-Sub-Distributors",
+    "code": "DSD"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "40",
+   "group1": {
+    "name": "Area Distr. Partner",
+    "code": "ADP"
+   },
+   "group2": {
+    "name": "DT-Supermarket Store",
+    "code": "DSS"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "40",
+   "group1": {
+    "name": "Area Distr. Partner",
+    "code": "ADP"
+   },
+   "group2": {
+    "name": "DT-Wet Market Stalls",
+    "code": "DWM"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "41",
+   "group1": {
+    "name": "RS Frozen",
+    "code": "RSF"
+   },
+   "group2": {
+    "name": "Wet Market",
+    "code": "RWM"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "41",
+   "group1": {
+    "name": "RS Frozen",
+    "code": "RSF"
+   },
+   "group2": {
+    "name": "Meatshop",
+    "code": "RMS"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "41",
+   "group1": {
+    "name": "RS Frozen",
+    "code": "RSF"
+   },
+   "group2": {
+    "name": "Grocery Stores",
+    "code": "RGS"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "41",
+   "group1": {
+    "name": "RS Frozen",
+    "code": "RSF"
+   },
+   "group2": {
+    "name": "Sari-Sari Store",
+    "code": "RSS"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "50",
+   "group1": null,
+   "group2": null
+  },
+  {
+   "sales_org": "1000",
+   "channel": "70",
+   "group1": {
+    "name": "OS-Direct",
+    "code": "OSD"
+   },
+   "group2": {
+    "name": "Office Executive Ref",
+    "code": "OER"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "70",
+   "group1": {
+    "name": "OS-Direct",
+    "code": "OSD"
+   },
+   "group2": {
+    "name": "Office NGO/LGU",
+    "code": "ONL"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "70",
+   "group1": {
+    "name": "OS-Direct",
+    "code": "OSD"
+   },
+   "group2": {
+    "name": "Office Served Cust.",
+    "code": "OSC"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "70",
+   "group1": {
+    "name": "OS-Direct",
+    "code": "OSD"
+   },
+   "group2": {
+    "name": "Office Served Emp.",
+    "code": "OSE"
+   }
+  },
+  {
+   "sales_org": "1000",
+   "channel": "80",
+   "group1": {
+    "name": "Subsidiary",
+    "code": "SUB"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "2000",
+   "channel": "20",
+   "group1": {
+    "name": "Canteen",
+    "code": "FCA"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "2000",
+   "channel": "20",
+   "group1": {
+    "name": "Coffee shop",
+    "code": "FCO"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "2000",
+   "channel": "20",
+   "group1": {
+    "name": "Carinderia",
+    "code": "FCR"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "2000",
+   "channel": "20",
+   "group1": {
+    "name": "Catering",
+    "code": "FCT"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "2000",
+   "channel": "20",
+   "group1": {
+    "name": "Food Cart",
+    "code": "FFO"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "2000",
+   "channel": "20",
+   "group1": {
+    "name": "FS-Key Accounts",
+    "code": "FKA"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "2000",
+   "channel": "20",
+   "group1": {
+    "name": "Grill House",
+    "code": "FGT"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "2000",
+   "channel": "20",
+   "group1": {
+    "name": "Hospital",
+    "code": "FHS"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "2000",
+   "channel": "20",
+   "group1": {
+    "name": "Hotel",
+    "code": "FHT"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "2000",
+   "channel": "20",
+   "group1": {
+    "name": "Resort",
+    "code": "FRO"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "2000",
+   "channel": "20",
+   "group1": {
+    "name": "Resellers",
+    "code": "FRS"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "2000",
+   "channel": "20",
+   "group1": {
+    "name": "Restaurant",
+    "code": "FRT"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "2000",
+   "channel": "20",
+   "group1": {
+    "name": "NGO/LGU",
+    "code": "FNL"
+   },
+   "group2": null
+  },
+  {
+   "sales_org": "2000",
+   "channel": "70",
+   "group1": {
+    "name": "OS-Direct",
+    "code": "OSD"
+   },
+   "group2": {
+    "name": "Office Executive Ref",
+    "code": "OER"
+   }
+  },
+  {
+   "sales_org": "2000",
+   "channel": "70",
+   "group1": {
+    "name": "OS-Direct",
+    "code": "OSD"
+   },
+   "group2": {
+    "name": "Office NGO/LGU",
+    "code": "ONL"
+   }
+  },
+  {
+   "sales_org": "2000",
+   "channel": "70",
+   "group1": {
+    "name": "OS-Direct",
+    "code": "OSD"
+   },
+   "group2": {
+    "name": "Office Served Cust.",
+    "code": "OSC"
+   }
+  },
+  {
+   "sales_org": "2000",
+   "channel": "70",
+   "group1": {
+    "name": "OS-Direct",
+    "code": "OSD"
+   },
+   "group2": {
+    "name": "Office Served Emp.",
+    "code": "OSE"
+   }
+  },
+  {
+   "sales_org": "2000",
+   "channel": "80",
+   "group1": {
+    "name": "Subsidiary",
+    "code": "SUB"
+   },
+   "group2": null
+  }
+ ]
+}

@@ -2656,7 +2656,7 @@ function allExceptions(clock: Clock, date = clock.today): ExceptionItem[] {
       evidence: {},
       action: {
         label: "Open store",
-        href: `/stores/store?storeId=${robinsons.id}`,
+        href: `/customers/customer?storeId=${robinsons.id}`,
       },
     },
   ];

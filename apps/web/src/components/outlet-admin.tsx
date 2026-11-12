@@ -139,16 +139,16 @@ export function OutletAdmin() {
   return (
     <div className="grid gap-4">
       <p className="text-[14px] text-muted">
-        Stores are added and edited on the Stores page.{" "}
+        Customers are added and edited on the Customers page.{" "}
         <Link
           href={
             requestedOutlet
-              ? `/stores?edit=${encodeURIComponent(requestedOutlet)}`
-              : "/stores"
+              ? `/customers?edit=${encodeURIComponent(requestedOutlet)}`
+              : "/customers"
           }
           className="font-medium text-foreground underline"
         >
-          Open Stores
+          Open Customers
         </Link>
       </p>
       {requestedOutlet ? (
@@ -228,7 +228,8 @@ export function OutletEditor({
   if (!canRead) return null;
   if (detail === undefined)
     return <p className="text-[14px] text-muted">Loading store…</p>;
-  if (!detail) return <p className="text-[14px] text-muted">Store not found.</p>;
+  if (!detail)
+    return <p className="text-[14px] text-muted">Store not found.</p>;
   return (
     <div className="grid gap-4">
       <section aria-label="Outlet profile" className="grid gap-2">
@@ -305,11 +306,7 @@ export function OutletEditor({
           {action === "edit" && (
             <>
               <FormField label="Name">
-                <input
-                  name="name"
-                  defaultValue={detail.outlet.name}
-                  required
-                />
+                <input name="name" defaultValue={detail.outlet.name} required />
               </FormField>
               <FormField label="Status">
                 <select

@@ -224,7 +224,7 @@ export function DormancyPanel({
             <article key={c.id} className={card}>
               <h3 className="font-medium">
                 <a
-                  href={`/stores/store?storeId=${c.storeId}`}
+                  href={`/customers/customer?storeId=${c.storeId}`}
                   className="underline"
                 >
                   {c.name}

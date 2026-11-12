@@ -192,7 +192,7 @@ object OrderDraftRules {
         require(UUID.fromString(draft.draftId).toString() == draft.draftId)
         // A sent order is frozen; saves never set or clear the submission marker themselves.
         if (existing?.submittedRequestId != null) throw OrderDraftFailure(OrderDraftFailure.Code.SUBMITTED)
-        require(draft.submittedRequestId == null && draft.submittedAt == null) { "Submission is set by the store" }
+        require(draft.submittedRequestId == null && draft.submittedAt == null) { "Submission is set by the customer" }
         // The v1 config marker stays literal; prices are additive snapshots, checked against current terms below.
         require(draft.priceAvailability == PRICE_UNAVAILABLE)
         if (draft.lines.isEmpty()) throw OrderDraftFailure(OrderDraftFailure.Code.EMPTY)

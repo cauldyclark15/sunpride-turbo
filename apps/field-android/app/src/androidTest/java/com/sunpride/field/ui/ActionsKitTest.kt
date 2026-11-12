@@ -45,7 +45,7 @@ private fun KitHost(onAdd: () -> Unit = {}) {
         val selection = rememberSelection<String>()
         Scaffold(bottomBar = {
             NavigationBar(Modifier.testTag("fake-nav")) {
-                listOf("Today", "Stores", "More").forEach { NavigationBarItem(selected = it == "Stores", onClick = {}, icon = {}, label = { Text(it) }) }
+                listOf("Today", "Customers", "More").forEach { NavigationBarItem(selected = it == "Customers", onClick = {}, icon = {}, label = { Text(it) }) }
             }
         }) { padding ->
             Box(Modifier.fillMaxSize().padding(padding)) {
@@ -61,7 +61,7 @@ private fun KitHost(onAdd: () -> Unit = {}) {
                         }
                     }
                 }
-                AddFab("Add store", onAdd)
+                AddFab("Add customer", onAdd)
             }
         }
     }
@@ -84,7 +84,7 @@ class ActionsKitTest {
         var added = 0
         rule.setContent { KitHost(onAdd = { added++ }) }
         val fab = rule.onNodeWithTag("add-fab").assertIsDisplayed()
-        rule.onNodeWithTag("add-fab").assertContentDescriptionEquals("Add store")
+        rule.onNodeWithTag("add-fab").assertContentDescriptionEquals("Add customer")
         val fabBox = fab.getUnclippedBoundsInRoot()
         val navBox = rule.onNodeWithTag("fake-nav").getUnclippedBoundsInRoot()
         assertTrue("FAB ${fabBox.bottom} overlaps nav ${navBox.top}", fabBox.bottom <= navBox.top)

@@ -5,7 +5,7 @@ import org.json.JSONObject
 /** Shared by the controller and the transactional store; the UI cannot bypass call order. */
 class VisitRuleFailure(val code: Code) : IllegalStateException(code.text) {
     enum class Code(val text: String) {
-        CALL_OPEN("Finish the open call first"), MCP_ORDER("Visit stores in plan order"),
+        CALL_OPEN("Finish the open call first"), MCP_ORDER("Visit customers in plan order"),
         ALREADY_STARTED("This call has already started"), CALL_NOT_OPEN("Start the call first"),
         ALREADY_ENDED("This call has already ended"), OUTCOME_REQUIRED("Record the call outcome"),
         REASON_REQUIRED("Choose a nonproductive reason"),

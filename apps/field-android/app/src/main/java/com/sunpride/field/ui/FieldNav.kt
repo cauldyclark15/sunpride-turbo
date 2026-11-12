@@ -27,7 +27,7 @@ import androidx.compose.ui.unit.dp
 enum class FieldTab(val page: String, val label: String, val glyph: GlyphKind, val tag: String) {
     TODAY("home", "Today", GlyphKind.TODAY, "nav-today"),
     ROUTE("route", "Route", GlyphKind.ROUTE, "nav-route"),
-    STORES("customers", "Stores", GlyphKind.STORE, "nav-stores"),
+    STORES("customers", "Customers", GlyphKind.STORE, "nav-stores"),
     MESSAGES("messages", "Messages", GlyphKind.CHAT, "nav-messages"),
     MORE("more", "More", GlyphKind.MORE, "nav-more"),
 }

@@ -22,6 +22,7 @@ import {
 import { autocomplete, details, reverse } from "./places.js";
 import { duplicateCheck } from "./duplicates.js";
 import { officeAddStore, storeSetup, storeLocations } from "./office-store.js";
+import { installCustomers } from "./customer-routes.js";
 import {
   requireCapability,
   requireNationalScope,
@@ -101,6 +102,7 @@ export function install(router, platform) {
   router.post("/api/v1/masters/census/duplicate-check", duplicateCheck);
   router.get("/api/v1/masters/store-setup", storeSetup);
   router.get("/api/v1/masters/store-locations", storeLocations);
+  installCustomers(router, platform); // SP-0170 customer master
   platform.registerTopic("masters", (/** @type {any} */ actor) =>
     roleHas(actor.role, "outlet.read"),
   );

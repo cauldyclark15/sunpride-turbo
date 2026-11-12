@@ -115,7 +115,7 @@ export function CandidateList({
   if (!candidates.length)
     return (
       <p className="text-sm text-muted">
-        No similar stores found nearby or with the same phone number.
+        No similar customers found nearby or with the same phone number.
       </p>
     );
   return (
@@ -140,13 +140,13 @@ export function CandidateList({
             <span className="block text-xs">{reasonWords(c.reasons)}</span>
             {acknowledged.includes(c.id) ? (
               <span className="block text-xs text-muted">
-                The agent said this is a different store.
+                The agent said this is a different customer.
               </span>
             ) : null}
           </span>
           {onSame && c.kind === "outlet" ? (
             <button type="button" className={button} onClick={() => onSame(c)}>
-              Same store
+              Same customer
             </button>
           ) : null}
         </li>
@@ -247,7 +247,7 @@ export function CaptureDetail({
           </dd>
         </div>
         <div>
-          <dt className="text-xs text-muted">Type of store</dt>
+          <dt className="text-xs text-muted">Channel</dt>
           <dd>
             {[capture.channel, capture.subchannel]
               .filter(Boolean)
@@ -327,8 +327,8 @@ export function CaptureDetail({
         <div role="radiogroup" className="flex flex-wrap gap-2">
           {(
             [
-              ["accept", "Approve as new store"],
-              ["duplicate", "Same as existing store"],
+              ["accept", "Approve as new customer"],
+              ["duplicate", "Same as existing customer"],
               ["reject", "Reject"],
             ] as const
           ).map(([value, label]) => (
@@ -346,13 +346,13 @@ export function CaptureDetail({
         </div>
         {decision === "accept" ? (
           <label className="grid gap-1 text-xs">
-            Store code (leave blank to number it automatically)
+            Customer Code (leave blank to number it automatically)
             <input className={field} name="code" autoComplete="off" />
           </label>
         ) : null}
         {decision === "duplicate" ? (
           <label className="grid gap-1 text-xs">
-            Existing store
+            Existing customer
             <select
               className={field}
               value={survivor?.id ?? ""}
@@ -361,7 +361,7 @@ export function CaptureDetail({
               }
               required
             >
-              <option value="">Choose the store it matches…</option>
+              <option value="">Choose the customer it matches…</option>
               {outlets.map((c) => (
                 <option key={c.id} value={c.id}>
                   {c.name} — {formatDistance(c.distanceMeters)}
@@ -370,7 +370,7 @@ export function CaptureDetail({
             </select>
             {!outlets.length ? (
               <span className="text-muted">
-                No existing store matched. Approve or reject instead.
+                No existing customer matched. Approve or reject instead.
               </span>
             ) : null}
           </label>
@@ -385,7 +385,7 @@ export function CaptureDetail({
               decision === "accept"
                 ? "Checked photo, owner and location"
                 : decision === "duplicate"
-                  ? "Same store as the existing one"
+                  ? "Same customer as the existing one"
                   : ""
             }
             key={decision}
@@ -402,9 +402,9 @@ export function CaptureDetail({
             }
           >
             {decision === "accept"
-              ? "Approve as new store"
+              ? "Approve as new customer"
               : decision === "duplicate"
-                ? "Link to existing store"
+                ? "Link to existing customer"
                 : "Reject"}
           </button>
           {blocked ? (
@@ -491,7 +491,7 @@ export function ChangeDetail({
           {!capture.changes?.length ? (
             <tr>
               <td colSpan={3} className="py-2 text-muted">
-                The store already matches this change.
+                The customer already matches this change.
               </td>
             </tr>
           ) : null}
@@ -655,12 +655,12 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
       setMessage(
         isChange(selected)
           ? decision === "accept"
-            ? `${selected.target?.name ?? selected.name}: change saved to the store.`
+            ? `${selected.target?.name ?? selected.name}: change saved to the customer.`
             : `Change to ${selected.target?.name ?? selected.name} was rejected.`
           : decision === "accept"
-            ? `${selected.name} is now a store${result.code ? ` (code ${result.code})` : ""}.`
+            ? `${selected.name} is now a customer${result.code ? ` (code ${result.code})` : ""}.`
             : decision === "duplicate"
-              ? `${selected.name} was linked to ${survivor?.name ?? "the existing store"}.`
+              ? `${selected.name} was linked to ${survivor?.name ?? "the existing customer"}.`
               : `${selected.name} was rejected.`,
       );
       setSelectedId(null);
@@ -675,12 +675,12 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
   }
   if (!allowed) return null;
   return (
-    <Card label="Store gathering review">
+    <Card label="Field customer review">
       {queue.error ? (
         <Notice title={queue.error.message} tone="danger" />
       ) : null}
       <p className="text-sm text-muted">
-        New stores and changes to stores your agents sent from the field. Check
+        New customers and changes to customers your agents sent from the field. Check
         them, then approve or reject. The person who sent one cannot review it.
       </p>
       {queue.data?.batches.length ? (
@@ -796,7 +796,7 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
           />
         ) : (
           <p className="hidden text-sm text-muted lg:block">
-            Choose a store on the left to review it.
+            Choose a customer on the left to review it.
           </p>
         )}
       </div>

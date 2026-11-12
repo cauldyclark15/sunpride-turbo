@@ -7,10 +7,10 @@ import {
 } from "../../list-page/list-page";
 import type { StoreRow, StoreStatus } from "../types";
 
-/** /stores tabs, persisted as ?tab=. The default list carries no tab param. */
+/** /customers tabs, persisted as ?tab=. The default list carries no tab param. */
 export const STORE_TABS = [
-  { id: "list", label: "Stores" },
-  { id: "new", label: "New stores" },
+  { id: "list", label: "Customers" },
+  { id: "new", label: "New customers" },
   { id: "map", label: "Locations" },
   { id: "performance", label: "Performance" },
   { id: "winback", label: "Win-back" },
@@ -192,7 +192,7 @@ export function StoresTabs({
   return (
     <div
       role="tablist"
-      aria-label="Stores sections"
+      aria-label="Customers sections"
       className="-mx-4 flex gap-1 overflow-x-auto border-b border-separator px-4 sm:mx-0 sm:px-0"
     >
       {STORE_TABS.filter((t) => !hidden.includes(t.id)).map((t) => {

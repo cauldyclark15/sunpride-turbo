@@ -62,7 +62,7 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
             }
             if (onCustomers != null) FindStoreRow(data, onCustomers)
             workDay?.invoke()
-            if (onAddStore != null) TonalButton("Add store", onAddStore,
+            if (onAddStore != null) TonalButton("Add customer", onAddStore,
                 Modifier.fillMaxWidth().testTag("today-add-store"), glyph = GlyphKind.STORE)
             if (summary.planned > 0) CallProgressCard(summary)
             Column(Modifier.testTag("today-route"), verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -73,7 +73,7 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
                         }
                     }) else null)
                 if (data.visits.isEmpty()) EmptyState("No visits today",
-                    if (data.lastSynced == null) "Sync to download today's plan." else "Nothing is planned for you today. Stores you are assigned to are under Stores.",
+                    if (data.lastSynced == null) "Sync to download today's plan." else "Nothing is planned for you today. Customers you are assigned to are under Customers.",
                     GlyphKind.TODAY, Modifier.testTag("today-empty"))
                 summary.stops.forEach { stop -> StopRow(summary, stop, diagnosticEnabled, onVisit) }
             }
@@ -84,7 +84,7 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
             SalesCard(data.sales)
             com.sunpride.catalogue.TargetProgressCard(data.targets,
                 Modifier.border(1.dp, Look.hairline, MaterialTheme.shapes.medium))
-            if (diagnosticEnabled && unplannedEnabled && data.unplannedOutlets.isNotEmpty()) SectionCard("Visit a store that is not on today's plan") {
+            if (diagnosticEnabled && unplannedEnabled && data.unplannedOutlets.isNotEmpty()) SectionCard("Visit a customer that is not on today's plan") {
                 data.unplannedOutlets.forEach { outlet -> ListRow(outlet.outlet, "Unplanned visit", "store",
                     Modifier.testTag("unplanned-open"), onClick = { onVisit(outlet) }) }
             }
@@ -109,7 +109,7 @@ private fun FindStoreRow(data: TodayData, onOpen: () -> Unit) {
             horizontalArrangement = Arrangement.spacedBy(12.dp)) {
             Glyph(GlyphKind.SEARCH, MaterialTheme.colorScheme.onSurfaceVariant, 22.dp)
             Column(Modifier.weight(1f)) {
-                Text("Find a store", style = MaterialTheme.typography.bodyLarge)
+                Text("Find a customer", style = MaterialTheme.typography.bodyLarge)
                 Text(if (data.customers.isEmpty() && data.lastSynced != null) "No outlets on your plan today"
                     else if (data.customers.isEmpty()) "Sync to download your outlets"
                     else "${data.customers.size} outlets saved on this phone",
