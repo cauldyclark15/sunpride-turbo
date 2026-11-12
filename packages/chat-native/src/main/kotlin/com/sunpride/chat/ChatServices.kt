@@ -20,13 +20,58 @@ class ChatEnvironment(
 
 /** Per-signed-in-person pieces: network, saved messages, unsent messages and the picture cache. */
 class ChatRuntime(val api: ChatApi, val repository: ChatRepository, val images: ChatImages, val filesDir: File,
-    private val session: ChatSession? = null, private val account: String? = null) {
-    /** Half-written messages, kept while you move between screens (in memory only). */
-    val drafts = HashMap<String, ComposerDraft>()
+    private val session: ChatSession? = null, private val account: String? = null, draftsFile: File? = null) {
+    /** Half-written messages, one per conversation or thread; kept on this phone until sent or emptied. */
+    val drafts = DraftStore(draftsFile)
     @Volatile internal var closed = false
 
     /** False once this person's chat is retired (signed out, or another account signed in): stop polling and sending. */
     val active: Boolean get() = !closed && (session == null || session.account() == account)
+}
+
+/**
+ * Unsent messages for one account, saved to [file] (under the account's chat folder, so sign-out or another
+ * account signing in deletes them). Saving happens off the calling thread; a draft untouched for 30 days is dropped.
+ */
+class DraftStore(private val file: File?, private val now: () -> Long = System::currentTimeMillis) {
+    private val drafts = LinkedHashMap<String, Pair<ComposerDraft, Long>>()
+    private val writer by lazy { java.util.concurrent.Executors.newSingleThreadExecutor { r -> Thread(r, "chat-drafts").apply { isDaemon = true } } }
+
+    init {
+        runCatching {
+            val saved = JSONObject(file!!.readText())
+            for (key in saved.keys()) {
+                val entry = saved.getJSONObject(key)
+                val at = entry.optLong("at")
+                val draft = ComposerDraft.fromJson(entry.getJSONObject("draft"))
+                if (draft.hasContent() && now() - at <= MAX_AGE_MS) drafts[key] = draft to at
+            }
+        }
+    }
+
+    @Synchronized operator fun get(key: String): ComposerDraft? = drafts[key]?.first
+
+    @Synchronized operator fun set(key: String, draft: ComposerDraft) {
+        if (draft.hasContent()) drafts[key] = draft to now() else drafts.remove(key)
+        persist()
+    }
+
+    @Synchronized fun remove(key: String) { if (drafts.remove(key) != null) persist() }
+
+    /** Blocks until pending saves are on disk (tests, and nothing else needs it). */
+    fun flush() { if (file != null) writer.submit {}.get() }
+
+    private fun persist() {
+        val target = file ?: return
+        val json = JSONObject().apply { for ((k, v) in drafts) put(k, JSONObject().put("at", v.second).put("draft", v.first.toJson())) }.toString()
+        writer.execute {
+            // Never recreate a folder that sign-out deleted.
+            if (target.parentFile?.isDirectory != true) return@execute
+            runCatching { val tmp = File(target.path + ".tmp"); tmp.writeText(json); if (!tmp.renameTo(target)) { target.writeText(json); tmp.delete() } }
+        }
+    }
+
+    companion object { const val MAX_AGE_MS = 30L * 24 * 60 * 60 * 1000 }
 }
 
 /**
@@ -87,7 +132,8 @@ class ChatAccounts(
         var made: ChatRuntime? = null
         val repo = ChatRepository(api, FileChatCache(File(user, "cache")), outbox, initialMeIds = ids, persistMeIds = ::save,
             isActive = { made?.active == true })
-        val runtime = ChatRuntime(api, repo, images(api, File(cacheRoot, "$IMAGES/$dir")), File(user, "files").apply { mkdirs() }, session, account)
+        val runtime = ChatRuntime(api, repo, images(api, File(cacheRoot, "$IMAGES/$dir")), File(user, "files").apply { mkdirs() }, session, account,
+            draftsFile = File(user, "drafts.json"))
         made = runtime
         current = key to runtime
         return runtime

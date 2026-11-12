@@ -2,6 +2,7 @@
 
 import { WorkspaceIcon } from "@sunpride/ui";
 import { useEffect, useMemo, useRef, useState, type DragEvent } from "react";
+import { draftKey } from "../../lib/messaging/drafts";
 import {
   buildTimeline,
   conversationTitle,
@@ -287,6 +288,7 @@ export function ConversationView({
       )}
       <Composer
         key={conversation.id}
+        draftKey={draftKey(me.id, conversation.id)}
         ref={composer}
         placeholder={
           conversation.kind === "channel"
@@ -396,6 +398,7 @@ export function ThreadPanel({
         )}
         <Composer
           key={parent.id}
+          draftKey={draftKey(me.id, conversation.id, parent.id)}
           placeholder="Reply in thread"
           client={actions.client}
           allowChannel={false}

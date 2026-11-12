@@ -86,6 +86,10 @@ class ComposerDraft private constructor(val text: String, private val tokens: Li
 
     fun withText(newText: String): ComposerDraft = ComposerDraft(newText, tokens.filter { newText.contains(it.first) })
 
+    /** Saved form for [DraftStore]: the text plus each chip's label and token. */
+    fun toJson(): org.json.JSONObject = org.json.JSONObject().put("text", text)
+        .put("tokens", org.json.JSONArray(tokens.map { org.json.JSONArray().put(it.first).put(it.second) }))
+
     /** An active `@query` or `#query` right before the cursor, if any. */
     data class Trigger(val char: Char, val query: String, val start: Int, val end: Int)
     fun triggerAt(cursor: Int): Trigger? {
@@ -135,6 +139,15 @@ class ComposerDraft private constructor(val text: String, private val tokens: Li
     fun labels(): List<String> = tokens.map { it.first }
 
     companion object {
+        fun fromJson(o: org.json.JSONObject): ComposerDraft {
+            val text = o.optString("text")
+            val list = o.optJSONArray("tokens") ?: org.json.JSONArray()
+            val tokens = (0 until list.length()).mapNotNull { at ->
+                list.optJSONArray(at)?.takeIf { it.length() == 2 }?.let { it.optString(0) to it.optString(1) }
+            }.filter { it.first.isNotEmpty() && text.contains(it.first) }
+            return ComposerDraft(text, tokens)
+        }
+
         /** Start editing an existing message: tokens become readable labels again. */
         fun fromBody(body: String, refs: List<RefEntry>): ComposerDraft {
             var draft = ComposerDraft()

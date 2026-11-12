@@ -14,6 +14,7 @@ import {
   newClientMessageId,
   type MessagingClient,
 } from "../../lib/messaging/client";
+import { clearDraft, loadDraft, saveDraft } from "../../lib/messaging/drafts";
 import { formatBytes } from "../../lib/messaging/format";
 import {
   activeTrigger,
@@ -83,6 +84,7 @@ export function Composer({
   allowChannel,
   ref,
   autoFocus,
+  draftKey,
 }: {
   placeholder: string;
   client: Pick<MessagingClient, "claimAttachment">;
@@ -90,10 +92,15 @@ export function Composer({
   allowChannel?: boolean;
   ref?: Ref<ComposerHandle>;
   autoFocus?: boolean;
+  /** Where an unsent message is kept on this device (see lib/messaging/drafts). */
+  draftKey?: string;
 }) {
-  const [text, setText] = useState("");
-  const [inserts, setInserts] = useState<DraftInsert[]>([]);
-  const [caret, setCaret] = useState(0);
+  // What was typed here last time. The composer only mounts in the browser (after the
+  // conversation loads), and is keyed per conversation/thread, so reading storage here is safe.
+  const [saved] = useState(() => (draftKey ? loadDraft(draftKey) : null));
+  const [text, setText] = useState(saved?.text ?? "");
+  const [inserts, setInserts] = useState<DraftInsert[]>(saved?.inserts ?? []);
+  const [caret, setCaret] = useState(saved?.text.length ?? 0);
   const [dismissedAt, setDismissedAt] = useState<number | null>(null);
   const [activeIndex, setActiveIndex] = useState(0);
   const [uploads, setUploads] = useState<UploadItem[]>([]);
@@ -101,6 +108,10 @@ export function Composer({
   const [emoji, setEmoji] = useState(false);
   const [error, setError] = useState("");
   const textarea = useRef<HTMLTextAreaElement>(null);
+  // Keep saving what they type, so leaving and coming back loses nothing.
+  useEffect(() => {
+    if (draftKey) saveDraft(draftKey, text, inserts);
+  }, [draftKey, text, inserts]);
   const fileInput = useRef<HTMLInputElement>(null);
 
   const trigger = activeTrigger(text, caret);
@@ -266,6 +277,7 @@ export function Composer({
     onSend({ clientMsgId: newClientMessageId(), body, attachmentIds });
     for (const item of uploads)
       if (item.preview) URL.revokeObjectURL(item.preview);
+    if (draftKey) clearDraft(draftKey);
     setText("");
     setInserts([]);
     setUploads([]);
