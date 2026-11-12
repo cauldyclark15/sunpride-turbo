@@ -96,6 +96,14 @@ object LoadAccept {
         .apply { note?.trim()?.takeIf { it.isNotEmpty() }?.let { put("note", it.take(300)) } }.put("deviceTime", deviceTime)
 }
 
+/**
+ * SP-0169 VAN-011: a trip on the route-controls configuration (`policy.operationsVersion == 1`) refuses every van operation that does not
+ * carry `settlementVersion: 1` ("Download the trip's current operations configuration"). The van-day ops must carry it like the rest.
+ */
+object OperationsVersion {
+    fun stamp(payload: JSONObject, operationsVersion: Int): JSONObject = payload.apply { if (operationsVersion == 1) put("settlementVersion", 1) }
+}
+
 /** Who may take over the phone, and the `crew.switch` payload (the proof is made by [com.sunpride.van.security.PinProofs]). */
 object CrewSwitch {
     /** Members who have a PIN and are not already the person on the phone. */

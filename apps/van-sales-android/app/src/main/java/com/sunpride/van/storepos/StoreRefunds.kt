@@ -44,6 +44,14 @@ object StoreRefunds {
     /** Refunds this phone saved (not refused by the office). */
     fun local(rows: List<OutboxRow>): List<JSONObject> = rows.filter { it.kind == KIND && it.status !in setOf("rejected", "conflict") }.map(::payload)
 
+    /** SP-0169 POS-026: refunds the office refused. They stay on the receipt card with what the cashier must do, never vanish. */
+    fun refused(rows: List<OutboxRow>): List<Pair<JSONObject, String>> = rows.filter { it.kind == KIND && it.status in setOf("rejected", "conflict") }.map { row ->
+        val p = payload(row); val cm = p.optString("creditNumber")
+        p to (if (row.rejectionCode == com.sunpride.van.selling.RefusedReceipt.CODE)
+            "The office refused credit memo $cm. Its number is recorded as spoiled. Take the cash back from the customer if you can, otherwise tell your supervisor: the drawer will be short by this amount."
+        else "The office refused credit memo $cm. Tell your supervisor before you refund anything else on this receipt: the drawer will be short by this amount.")
+    }
+
     fun context(config: StorePosConfig, rows: List<OutboxRow>, receipt: JSONObject, shiftOpen: Boolean, voided: Boolean): StoreRefundContext {
         val policy = policy(config)
         val saleId = receipt.getString("saleId")
@@ -62,7 +70,7 @@ object StoreRefunds {
             policy == null -> "Refunds by item are not turned on for this register yet. Sync, then try again."
             !shiftOpen -> "Open the till first. A refund pays out of the open drawer."
             voided -> "This sale was voided, so there is nothing to refund."
-            else -> null
+            else -> StoreReversals.blocking(config, rows, saleId)?.let(StoreReversals::itemRefundProblem)
         }
         return StoreRefundContext(receipt, lines, prior, byMethod, policy ?: RefundPolicy(0L, emptyList(), null, emptyList()), tenders, mine.size + remote.size + 1, problem)
     }

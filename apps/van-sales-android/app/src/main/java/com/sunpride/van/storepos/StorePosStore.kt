@@ -55,7 +55,10 @@ class StorePosStore(private val store: RoomVanStore) {
     suspend fun close(declaredCentavos: Long): String = store.db.withTransaction {
         require(declaredCentavos in 0..MAX_MONEY)
         val config=writable()
-        val shift=checkNotNull(project(config,dao.outboxRows(s,d)).shift) {"Open a cashier session first"}
+        val rows=dao.outboxRows(s,d)
+        val shift=checkNotNull(project(config,rows).shift) {"Open a cashier session first"}
+        // SP-0169: the office refuses a blind count while a void/refund request of the session is undecided; say so before saving.
+        StoreReversals.countProblem(StoreReversals.pendingInShift(config,rows,shift.shiftId).size)?.let {throw IllegalStateException(it)}
         queue("store.shift.close",shift.shiftId,config,JSONObject().put("declaredCentavos",declaredCentavos.toString()),UUID.randomUUID().toString(),shift.openingRequestId)
     }
     internal suspend fun queue(kind: String,shiftId: String,config: StorePosConfig,payload: JSONObject,id: String,dependency: String?,metadata: String? = null): String {

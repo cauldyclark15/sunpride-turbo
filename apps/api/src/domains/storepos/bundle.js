@@ -122,6 +122,17 @@ export async function sellingBundle(db, actor, device, r, opts = {}) {
     await db`select s.id,s.shift_id,s.receipt,s.receipt_number,o.status from store_sales s join store_shifts h on h.id=s.shift_id join orders o on o.id=s.order_id where h.register_id=${r.id} and s.sold_at>=now()-interval '7 days' order by s.sold_at desc limit 501`;
   if (sales.length > 500)
     refuse("Receipt cache exceeds 500 receipts; reconcile the terminal");
+  // SP-0169: whole-receipt void/refund requests and their decision, so the phone can stop an item refund on such a receipt
+  // and a blind count while one is undecided (both refused by the office otherwise).
+  const reversals = (
+    await db`select v.id,v.sale_id,v.shift_id,v.kind,v.status from store_reversals v join store_shifts h on h.id=v.shift_id where h.register_id=${r.id} and (v.status='pending' or v.created_at>=now()-interval '7 days') order by v.created_at desc limit 500`
+  ).map((/** @type {any} */ v) => ({
+    id: v.id,
+    saleId: v.sale_id,
+    shiftId: v.shift_id,
+    kind: v.kind,
+    status: v.status,
+  }));
   const reads =
     await db`select id,shift_id,kind,sequence::text,snapshot from store_reads where register_id=${r.id} and captured_at>=now()-interval '7 days' order by captured_at desc limit 501`;
   if (reads.length > 500) refuse("Too many recent register reads");
@@ -177,6 +188,7 @@ export async function sellingBundle(db, actor, device, r, opts = {}) {
       { creditMemo: opts.refunds === true },
     ),
     sales,
+    reversals,
     ...(opts.refunds === true
       ? {
           refunds: await refundBundle(db, await recentRefunds(db, r.id)),

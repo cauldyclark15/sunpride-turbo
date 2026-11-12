@@ -26,6 +26,7 @@ object RefusedReceipt {
     /** The spoiled number from a push result, or null. */
     fun spoiledNumber(result: org.json.JSONObject): String? =
         result.optJSONObject("spoiled")?.optString("documentNumber")?.takeIf { NUMBER.matches(it) }
-    fun message(reference: String?): String =
-        "The office refused ${reference ?: "this receipt"}. Its number is recorded as spoiled, so the next sale can go ahead. Collect the receipt from the customer if you can and ring the sale again; tell your supervisor."
+    fun message(reference: String?, kind: String? = null): String = if (kind == "store.refund.part")
+        "The office refused credit memo ${reference ?: ""}. Its number is recorded as spoiled, so the next refund can go ahead. Take the refund cash back from the customer if you can; tell your supervisor."
+    else "The office refused ${reference ?: "this receipt"}. Its number is recorded as spoiled, so the next sale can go ahead. Collect the receipt from the customer if you can and ring the sale again; tell your supervisor."
 }

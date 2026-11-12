@@ -72,6 +72,7 @@ object SyncHealth {
     private fun reference(json: String): String? = try {
         val p = JSONObject(json).optJSONObject("payload")
         p?.optString("receiptNumber")?.takeIf { it.isNotBlank() } ?: p?.optString("returnNumber")?.takeIf { it.isNotBlank() }
+            ?: p?.optString("creditNumber")?.takeIf { it.isNotBlank() }
     } catch (_: Exception) { null }
 
     /** Newest first; ties broken by request id so the list never reorders between refreshes. */
