@@ -101,7 +101,7 @@ data class SyncStatus(
             "jointcall.capture" -> "Work-With"
             "workforce.clockIn" -> "Clock in"
             "workforce.clockOut" -> "Clock out"
-            "workforce.prospect" -> "New prospect"
+            "workforce.prospect" -> "Prospect"
             "outlet.census", "outlet.change" -> "Store change"
             "order_intent", "order.intent" -> "Order"
             else -> "Saved work"

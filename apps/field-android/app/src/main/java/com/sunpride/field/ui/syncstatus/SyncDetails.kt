@@ -65,7 +65,7 @@ fun SyncDetails(status: SyncStatus, onDismiss: () -> Unit, onSync: () -> Unit = 
                         Text("${item.what} · not accepted", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
                         Text(item.reason, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("review-reason"))
                         TextButton({ onClearReview(item.requestId) }, enabled = !busy,
-                            modifier = Modifier.testTag("review-clear")) { Text("Clear from this phone") }
+                            modifier = Modifier.testTag("review-clear")) { Text("Remove from this phone") }
                     }
                 }
             } else if (status.reviewReasons.isNotEmpty()) SectionCard("To review · ${status.review}") {
