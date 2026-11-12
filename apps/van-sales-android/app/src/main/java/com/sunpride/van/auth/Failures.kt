@@ -4,7 +4,16 @@ package com.sunpride.van.auth
  * User-facing failure. Messages are fixed strings: no server text, URL, token, password or proof
  * ever enters them, and no cause is attached (an IOException message could echo request details).
  */
-class AuthFailure(val kind: Kind) : Exception(kind.message, null) {
+class AuthFailure(val kind: Kind, val removed: Boolean = false) :
+    Exception(if (removed) PHONE_REMOVED else kind.message, null) {
+    /** What the person sees. FLD-014 (van): an ended session whose phone the office removed says so plainly. */
+    val text: String get() = if (removed) PHONE_REMOVED else kind.message
+    companion object {
+        /** Unsent work is never deleted: it stays held, encrypted, on the phone for the office's recovery/handover. */
+        const val PHONE_REMOVED = "This phone was removed by the office. Your unsent work is kept on this phone. " +
+            "Give the phone to your supervisor so the office can recover it."
+        val REMOVED_CODES = setOf("device_revoked", "device_suspended")
+    }
     enum class Kind(val message: String) {
         INVALID_CREDENTIALS("Incorrect email or password."),
         REFUSED("Sign-in was refused for this account. Ask your administrator."),

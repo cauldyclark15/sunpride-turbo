@@ -132,6 +132,7 @@ data class SyncStatus(
             "mock_location_refused" to "Location looked faked, so this was not accepted",
             "place_mismatch" to "You were not at this store's location",
             "places_unavailable" to "The store's location could not be checked. Ask your supervisor",
+            "work_with_incomplete" to "The joint call is missing a required part. Open it, fill in what it lists and Save and finish again",
             // v1 result statuses used when no code came back.
             "conflict" to "Server reported a conflict",
             "rejected" to "Server rejected this visit",

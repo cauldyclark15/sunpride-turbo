@@ -13,7 +13,7 @@ object AuthMessages {
     const val CHECK_FALLBACK = "Couldn't check this phone. Try again."
 
     fun forFailure(e: Throwable, fallback: String): String = when (e) {
-        is AuthFailure -> e.kind.message
+        is AuthFailure -> e.text
         is NativeApiFailure -> UserMessages.forCode(e.code) ?: "Couldn't verify this phone. Try again."
         else -> fallback
     }

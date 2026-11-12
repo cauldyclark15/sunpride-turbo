@@ -65,6 +65,8 @@ interface FieldBackend {
     fun appUpdates(): com.sunpride.integrity.AppUpdateClient? = null
     fun queueMockRefusal(outletId: String) { error("Integrity attempt storage unavailable") }
     fun signOut()
+    /** FLD-014/171: the plain reason the server last ended this phone's session, until the next sign-in. */
+    fun endedSessionReason(): String? = null
     fun changePassword(current: String, next: String, confirm: String) { error("Password change unavailable") }
     fun refreshEnrollment(signer: DeviceSigner): EnrollmentState
     fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData = TodayData()
@@ -248,6 +250,9 @@ private const val STORE_SEEN = "local.storeseen"
  * clear that throws must never skip [authSignOut], which wipes the unlocked session, the ordinary and
  * sealed copies and the biometric key. The first failure is rethrown once everything has run.
  */
+/** FLD-014/171: the one failure for an ended session; [removed] = the office revoked or paused this phone. */
+internal fun sessionEndedFailure(removed: Boolean) = AuthFailure(AuthFailure.Kind.SESSION_EXPIRED, removed = removed)
+
 internal fun signOutTeardown(purgeCache: () -> Unit, clearIndex: () -> Unit, authSignOut: () -> Unit) {
     val failures = listOf(purgeCache, clearIndex, authSignOut).mapNotNull { step -> runCatching { step() }.exceptionOrNull() }
     failures.firstOrNull()?.let { throw it }
@@ -265,7 +270,12 @@ class LiveFieldBackend(
     private val syncTransport = LiveBootstrapTransport(environment, auth, functions)
     private val visitTransport = com.sunpride.field.sync.LiveVisitTransport(environment, auth, functions)
     private val prefs = context.getSharedPreferences("field_v2_cache_index", Context.MODE_PRIVATE)
+    /** FLD-014/171: why the last session ended; survives sign-out's index clear and the worker's process. */
+    private val sessionEnd = context.getSharedPreferences("field_session_end", Context.MODE_PRIVATE)
+    /** The session is gone: say why and keep every local row (unsent work stays held for the same person/office). */
+    private fun sessionEnded(): AuthFailure = sessionEndedFailure(sessionEnd.getBoolean("removed", false))
     init {
+        auth.onSessionEnded = { removed -> sessionEnd.edit().putBoolean("removed", removed).commit() }
         functions.api.onDeviceControl = { me ->
             retireSuggestions()
             runBlocking { com.sunpride.integrity.RemoteErasure.recordingLock.withLock {
@@ -755,7 +765,8 @@ class LiveFieldBackend(
         today(deviceId, signer, sync, scheduleRemainder = true)
 
     fun today(deviceId: String, signer: DeviceSigner, sync: Boolean, scheduleRemainder: Boolean): TodayData {
-        val key = sessionKey() ?: return TodayData()
+        // FLD-014/171: a session ended by another path (background sync, refresh) must not read as an empty phone.
+        val key = sessionKey() ?: throw sessionEnded()
         var subject = prefs.getString("$key.subject", null)
         var fingerprint = prefs.getString("$key.scope", null)
         var warning: String? = null
@@ -831,6 +842,8 @@ class LiveFieldBackend(
                 com.sunpride.field.diagnostics.SafeLog.event(context, "sync_retry")
                 // FLD-171: the server ended this session; the controller returns to sign-in with the reason.
                 if (e is AuthFailure && e.kind == AuthFailure.Kind.SESSION_EXPIRED) throw e
+                // FLD-014: a 401 inside sync (mapped to UNAUTHORIZED) that ended the session is the same event.
+                if (!auth.isSignedIn) throw sessionEnded()
                 if(prefs.getBoolean("$key.partner",false))return dsrToday(deviceId,signer,null,e,expectedKey=key)
                 failed = true
                 prefs.edit().putBoolean("$key.failed", true).apply()
@@ -1126,8 +1139,14 @@ class LiveFieldBackend(
     }
     override fun sapMasterLifetime(): String? = if(auth.isSignedIn) "${sessionKey()}|${storedScope()}|$authorizationEpoch" else null
     override fun appUpdates() = com.sunpride.integrity.AppUpdateClient(context,environmentOrigin,token={refresh->auth.accessToken(refresh)})
-    override fun signIn(email: String, password: String) = auth.signIn(email, password)
-    override fun companySignIn(tokens: JSONObject) = auth.acceptCompanySession(tokens)
+    override fun signIn(email: String, password: String) {
+        auth.signIn(email, password)
+        sessionEnd.edit().remove("removed").commit()
+    }
+    override fun companySignIn(tokens: JSONObject) {
+        auth.acceptCompanySession(tokens)
+        sessionEnd.edit().remove("removed").commit()
+    }
     override fun replacementCode(): JSONObject = functions.api.post("/api/v1/integrity/devices/pairing/start",
         signerLoader().let { signer -> com.sunpride.integrity.replacementPairingBody("field-android",
             JSONObject().put("keyId",com.sunpride.field.device.RequestSigner.bodyDigest(signer.publicKeySpki)).put("publicKeySpki",signer.publicKeyBase64),signer::sign) })
@@ -1156,7 +1175,10 @@ class LiveFieldBackend(
         },
         authSignOut = { auth.signOut() },
     )
+        sessionEnd.edit().clear().commit() // a chosen sign-out is not an ended session
     }
+    override fun endedSessionReason(): String? =
+        if (sessionEnd.contains("removed") && !auth.isSignedIn) sessionEnded().text else null
     override fun refreshEnrollment(signer: DeviceSigner): EnrollmentState {
         val state = try {
             Enrollment(ServerDeviceApi(functions), signer, vault).refresh()
@@ -1706,6 +1728,9 @@ class FieldController(
                     launchSettled = true
                 }
                 refresh()
+            } else {
+                // FLD-171: after a relaunch the Sign in screen still says why the session ended.
+                runCatching { withContext(io) { backend.endedSessionReason() } }.getOrNull()?.let { error = it }
             }
         } finally { launchSettled = true }
     }
@@ -1794,6 +1819,11 @@ class FieldController(
         try {
             val value = withContext(io) { backend.today(ready.deviceId, loaded, sync) }
             if (generation == sessionGeneration && state == ready) today = value
+        } catch (e: AuthFailure) {
+            // FLD-014/171: every path that finds the session ended (Sync now, background sync, a reload) returns to
+            // Sign in with the plain reason. Nothing local is cleared: unsent work stays for the same person/office.
+            if (e.kind == AuthFailure.Kind.SESSION_EXPIRED && generation == sessionGeneration) sessionEnded(e)
+            throw e
         } finally { checkSuggestedOrderLifetime() }
     }
     /** FLD-147: a background photo upload finished; re-read the local status and the open visit's photos. */
@@ -1825,11 +1855,16 @@ class FieldController(
         catch (e: AuthFailure) {
             // FLD-171: a session ended elsewhere (password changed, signed out everywhere) returns to sign-in
             // with the plain reason. Queued work stays in the encrypted store for the same person.
-            if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) { ++sessionGeneration; state = EnrollmentState.SignedOut; error = userMessage(e) }
+            if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) sessionEnded(e)
             else today = today.copy(stale = true, warning = "Sync unavailable — showing saved visits")
         }
         catch (_: Exception) { today = today.copy(stale = true, warning = "Sync unavailable — showing saved visits") }
         finally { busy = false }
+    }
+    /** FLD-014/171: Sign in with the reason; [today] is reset only in memory (the encrypted store is untouched). */
+    private fun sessionEnded(e: AuthFailure) {
+        ++sessionGeneration; state = EnrollmentState.SignedOut; today = TodayData(); error = userMessage(e)
+        retireSuggestedOrder()
     }
     fun checkAgain(quiet: Boolean = false) = scope.launch(ui) { refresh(quiet) }
     fun queueDomain(kind:String,payload:JSONObject,aggregate:String,dependencies:List<String> = emptyList())=scope.launch(ui){

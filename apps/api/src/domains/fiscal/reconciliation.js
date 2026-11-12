@@ -32,6 +32,6 @@ export async function retireAllocation(db, actor, p) {
     refuse("Every number in this range is already accounted for");
   const [r] =
     await db`insert into fiscal_allocation_closures(allocation_id,first_unissued,last_serial,outcome,reason,evidence_reference,actor_profile_id) values(${a.id},${a.next_issue},${a.last_serial},${outcome},${reason},${evidence},${actor.profileId}) returning id`;
-  await db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${actor.subject},'fiscal.range_retired','fiscal_allocation',${a.id},${{ outcome, reason, firstUnissued: String(a.next_issue), lastSerial: String(a.last_serial), evidenceReference: evidence }})`;
+  await db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${actor.subject},'fiscal.range_retired','fiscal_allocation',${a.id},${JSON.stringify({ outcome, reason, firstUnissued: String(a.next_issue), lastSerial: String(a.last_serial), evidenceReference: evidence })})`;
   return { id: r.id, duplicate: false };
 }

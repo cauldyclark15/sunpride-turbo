@@ -127,7 +127,7 @@ object UserMessages {
      */
     fun forFailure(e: Throwable, fallback: String = DEFAULT, passLocal: Boolean = false): String {
         when (e) {
-            is AuthFailure -> return e.kind.message
+            is AuthFailure -> return e.text
             is NativeApiFailure -> return forCode(e.code) ?: "Couldn't verify this phone. Try again."
             is VanSyncFailure -> return forCode(e.code) ?: "The office could not take this work yet. Your work is kept here. Try again."
         }

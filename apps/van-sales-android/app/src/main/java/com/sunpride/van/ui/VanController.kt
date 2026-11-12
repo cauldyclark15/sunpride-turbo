@@ -284,7 +284,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     /** Plain words for a failed sync; saved work is never lost by a failed sync. */
     internal fun syncMessage(e: Exception): String = when (e) {
         is com.sunpride.van.sync.VanSyncFailure -> UserMessages.forCode(e.code) ?: "The office could not take this work yet. Your work is kept here. Try again."
-        is com.sunpride.van.auth.AuthFailure -> e.kind.message
+        is com.sunpride.van.auth.AuthFailure -> e.text
         is com.sunpride.van.auth.NativeApiFailure -> UserMessages.forFailure(e)
         else -> "Could not sync. Your work is kept here. Try again."
     }

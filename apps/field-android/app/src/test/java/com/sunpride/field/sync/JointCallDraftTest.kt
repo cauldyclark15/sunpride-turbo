@@ -28,4 +28,22 @@ class JointCallDraftTest {
   val empty=JointCallDraft.create(day,null)
   assertEquals(0,empty.getJSONArray("observations").length());assertFalse(empty.getJSONObject("trainingLog").getBoolean("discussedWithTrainee"))
  }
+ // FLD-159: "Save and finish" on a training joint call with only a BCP observation, topics and trade development
+ // queued a finish the office refused with no words. The phone now names the same missing parts first.
+ @Test fun `FLD-159 finish names the missing parts and a complete form is not blocked`(){
+  val a=JointCallDraft.create("2026-11-13",null).put("traineeProfileId","t")
+  a.getJSONArray("observations").put(JSONObject().put("area","bcp").put("item","Greet").put("rating","met").put("remark","ok"))
+  a.getJSONObject("trainingLog").put("topics","Call steps").put("tradeDevelopment","Shelf order")
+  val gaps=JointCallDraft.gaps(a)
+  assertEquals(listOf("Record at least one Persuasive Selling Format (PSF) observation",
+   "Review and discuss the training log with the trainee"),gaps)
+  assertTrue(JointCallDraft.finishBlocked(gaps)!!.startsWith("Not finished yet. Record at least one Persuasive"))
+  a.getJSONArray("observations").put(JSONObject().put("area","psf").put("item","Benefit").put("rating","partial"))
+  a.getJSONObject("trainingLog").put("discussedWithTrainee",true)
+  assertTrue(JointCallDraft.gaps(a).isEmpty());assertNull(JointCallDraft.finishBlocked(JointCallDraft.gaps(a)))
+  val sales=JointCallDraft.create("2026-11-13",null).put("objective","sales_validation").put("mode","truck")
+  assertTrue(JointCallDraft.gaps(sales).containsAll(listOf("Write all four SWOT remarks after the call","Confirm you rode the named truck")))
+  assertEquals("The joint call is missing a required part. Open it, fill in what it lists and Save and finish again",
+   com.sunpride.field.ui.syncstatus.SyncStatus.plainReason("work_with_incomplete"))
+ }
 }
