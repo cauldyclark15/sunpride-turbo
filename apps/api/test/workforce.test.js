@@ -299,13 +299,16 @@ test("F-222 geo/photo clock-in, clock-out and reports retain raw facts beside in
       },
     };
   expect((await push(f, [out]))[0].status).toBe("applied");
+  // The correction must sit inside one Manila business day; just after Manila
+  // midnight "at - 1h" falls on the previous day, so anchor it to the day start.
   const day = manilaDate(at),
+    corrStart = Math.max(Date.parse(`${day}T00:00:00+08:00`), at - 3600000),
     draft = {
       profileId: f.d.profile.id,
       day,
       kind: "correction",
-      start: at - 3600000,
-      end: at,
+      start: corrStart,
+      end: corrStart + 3600000,
       sourceRef: "TEST requested adjustment",
       reason: "TEST original retained",
       idempotencyKey: crypto.randomUUID(),
@@ -348,7 +351,7 @@ test("F-222 geo/photo clock-in, clock-out and reports retain raw facts beside in
   );
   expect(row.hours).toBe(1);
   expect(row.clockIn).toBe(op.payload.capturedAt);
-  expect(row.start).toBe(at - 3600000);
+  expect(row.start).toBe(corrStart);
   expect(row.firstCall).toBeNull();
   const [raw] =
     await h.db`select * from attendance_sessions where id=${start.ack.entityId}`;
