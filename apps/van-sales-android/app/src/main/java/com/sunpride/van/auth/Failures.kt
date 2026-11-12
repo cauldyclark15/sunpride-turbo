@@ -13,6 +13,10 @@ class AuthFailure(val kind: Kind, val removed: Boolean = false) :
         const val PHONE_REMOVED = "This phone was removed by the office. Your unsent work is kept on this phone. " +
             "Give the phone to your supervisor so the office can recover it."
         val REMOVED_CODES = setOf("device_revoked", "device_suspended")
+        /** True when a refusal body says the office paused this phone (`device_suspended`). */
+        fun paused(body: String?): Boolean = runCatching {
+            org.json.JSONObject(body.orEmpty()).optJSONObject("error")?.optString("code") == "device_suspended"
+        }.getOrDefault(false)
     }
     enum class Kind(val message: String) {
         INVALID_CREDENTIALS("Incorrect email or password."),
@@ -26,10 +30,4 @@ class AuthFailure(val kind: Kind, val removed: Boolean = false) :
         NOT_CONFIGURED("This build has no server configured.")
     }
     override fun toString(): String = "AuthFailure($kind)"
-    companion object {
-        /** True when a refusal body says the office paused this phone (`device_suspended`). */
-        fun paused(body: String?): Boolean = runCatching {
-            org.json.JSONObject(body.orEmpty()).optJSONObject("error")?.optString("code") == "device_suspended"
-        }.getOrDefault(false)
-    }
 }
