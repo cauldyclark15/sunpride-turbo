@@ -195,10 +195,14 @@ import kotlinx.coroutines.launch
             Text(receipt.customerName,style = MaterialTheme.typography.titleMedium)
             receipt.saleReceiptNumber?.let { Text("Bought on receipt $it",style = MaterialTheme.typography.bodyMedium) }
         }
-        SectionCard(if (receipt.approvalReasons.isEmpty()) "No approval needed" else "Waiting for office approval") {
+        // r6van3: after a sync the office's pickup decision replaces "Waiting for office approval".
+        val decision = c.policy?.pickupDecisions?.get(receipt.returnId)?.takeIf { receipt.approvalReasons.isNotEmpty() }
+        SectionCard(if (receipt.approvalReasons.isEmpty()) "No approval needed" else com.sunpride.van.pos.PickupDecision.title(decision)) {
             Column(Modifier.semantics(mergeDescendants = true) {}.testTag("return-status"),verticalArrangement = Arrangement.spacedBy(2.dp)) {
                 if (receipt.approvalReasons.isEmpty()) Text("Recorded",style = MaterialTheme.typography.titleMedium)
                 receipt.approvalReasons.forEach { Text(VanRules.approvalLabel(it),style = MaterialTheme.typography.bodyLarge) }
+                decision?.let { Text(com.sunpride.van.pos.PickupDecision.detail(it),style = MaterialTheme.typography.bodyLarge,
+                    fontWeight = FontWeight.SemiBold,modifier = Modifier.testTag("return-office-decision")) }
             }
         }
         SectionCard("Items") {

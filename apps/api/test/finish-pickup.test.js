@@ -9,7 +9,9 @@ import {
   pickupManifest,
   pickupQueue,
   reviewPickup,
+  pickupDecisions,
 } from "../src/domains/van/pickups.js";
+import { vanProjection } from "../src/domains/van/projection.js";
 test("F-113 unlinked evidence survives as custody, not stock or money; independent review links a historical SAP credit request", async () => {
   const h = await startHarness();
   try {
@@ -214,6 +216,28 @@ test("F-113 unlinked evidence survives as custody, not stock or money; independe
         reason: "SAMPLE store disposal checked",
       }),
     );
+    // r6van3: the van phone learns the office's decision from its bundle (policy.pickupDecisions, opt-in).
+    const decided = await pickupDecisions(h.db, trip.id);
+    expect(decided.find((/** @type {any} */ d) => d.returnId === thrown.returnId)).toMatchObject({
+      decision: "disposal_verified",
+      reason: "SAMPLE store disposal checked",
+    });
+    // The first pickup's latest decision is the credit request, not the earlier warehouse receipt.
+    expect(decided.find((/** @type {any} */ d) => d.returnId === p.returnId)?.decision).toBe("credit_requested");
+    // A rejected disposal (goods back with the customer) carries the office's reason to the phone.
+    const rejected = { ...thrown, returnId: crypto.randomUUID(), returnNumber: "SAMPLE-PICKUP-003" };
+    await tx(h.db, (db) => capturePickup(db, trip, seller, rejected));
+    expect((await pickupDecisions(h.db, trip.id)).some((/** @type {any} */ d) => d.returnId === rejected.returnId)).toBe(false);
+    await tx(h.db, (db) =>
+      reviewPickup(db, reviewer, { returnId: rejected.returnId, decision: "returned_to_outlet", reason: "SAMPLE no disposal proof" }),
+    );
+    expect((await pickupDecisions(h.db, trip.id)).find((/** @type {any} */ d) => d.returnId === rejected.returnId)).toMatchObject({
+      decision: "returned_to_outlet",
+      reason: "SAMPLE no disposal proof",
+    });
+    const today = new Date().toISOString().slice(0, 10);
+    expect(vanProjection({}).params?.({ serviceDate: today, pickupDecisions: true })).toMatchObject({ pickupDecisions: true });
+    expect(vanProjection({}).params?.({ serviceDate: today })).not.toHaveProperty("pickupDecisions");
     // A governed (version 1) handheld must still send the signed custody capture.
     await expect(
       tx(h.db, (db) =>

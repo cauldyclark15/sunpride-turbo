@@ -27,7 +27,8 @@ object VanBootstrapCodec {
         refunds = com.sunpride.van.pos.RefundPolicy.decode(o.optJSONObject("refunds")),
         // VAN-034: a van-only handheld (no POS mode) has no storePos; its limit rides policy.privilegeCap.
         privilegeCap = com.sunpride.van.selling.PrivilegeCapInfo.decode(o.optJSONObject("storePos")?.optJSONObject("privilegeCap") ?: o.optJSONObject("privilegeCap")),
-        privilegeDiscount = com.sunpride.van.selling.PrivilegeSwitch.decode(o.optJSONObject("privilegeDiscount")))
+        privilegeDiscount = com.sunpride.van.selling.PrivilegeSwitch.decode(o.optJSONObject("privilegeDiscount")),
+        pickupDecisions = com.sunpride.van.pos.PickupDecision.decode(o.optJSONArray("pickupDecisions")))
     /** Optional display text: trimmed, bounded, no control characters; anything else is simply not shown. */
     private fun clean(o: JSONObject, key: String, max: Int): String? = if (o.isNull(key)) null else o.optString(key,"").trim().takeIf { it.isNotEmpty() && it.length <= max && it.none(Char::isISOControl) }
 
@@ -154,6 +155,8 @@ object VanBootstrapCodec {
         legacy.getJSONObject("policy").remove("privilegeCap")
         // SP-0169: the office's Senior/PWD switch is a negotiated v2 addition (params.privilegeSwitch).
         legacy.getJSONObject("policy").remove("privilegeDiscount")
+        // r6van3: the office's pickup decisions on held returns are a negotiated v2 addition (params.pickupDecisions).
+        legacy.getJSONObject("policy").remove("pickupDecisions")
         // IP-P0: the trip float and the recount facts are negotiated v2 additions to the frozen trip and load.
         legacy.optJSONObject("trip")?.remove(com.sunpride.van.pos.OpeningFloat.FIELD)
         // NF-5: the trip's office-held cash per sale is a v2 handheld addition too (read by CashReconciliationStore).
