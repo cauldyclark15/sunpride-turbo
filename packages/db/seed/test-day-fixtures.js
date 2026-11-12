@@ -1942,3 +1942,514 @@ section(
     return { features: f.n, waves: w.n };
   },
 );
+
+
+// ================================================================ r6 A5: last-retest fixtures (SP-0169)
+// Ported from the round-6 lane-helper fixtures (COORD.md LANE-HELPER lines) so a fresh reset reports them OK.
+// Business writes go through the lane API or the SAP mock's control feed; phone-originated rows (field order,
+// field change capture, evidence photo, checklist) are marked sample rows, like the new-stores section.
+const VAN3_R6 = "van3@trial.sunpride.test";
+const { addTrialRow: addTrialRowR6 } = await import("./trial-wiring.js");
+const { BATCH: BATCH_R6, rowId: rowIdR6 } = await import("./store.js");
+/** Marked sample row, created once per day key. @param {string} table @param {string} k @param {any} values */
+async function markedRow(table, k, values) {
+  const m = await one(
+    db`select row_id from sample_data_rows where batch=${BATCH_R6} and table_name=${table} and key=${`${table}:trial-td-${k}`}`,
+  );
+  if (m) return { row: { ...values, id: m.row_id }, made: false };
+  return { row: await addTrialRowR6(db, table, `td-${k}`, values), made: true };
+}
+const SAP_PORT = process.env.SAP_PORT ?? "4712";
+/** Two customer price conditions with the same precedence (different prices) => no single price => "Office price".
+ * Sent through the SAP mock's control feed; the API's master pull (about a minute) brings them in.
+ * @param {string} product @param {string} customer @returns {Promise<boolean>} made */
+async function officePrice(product, customer) {
+  const keys = [`TD-OFFICE-${customer}-${product}-A`, `TD-OFFICE-${customer}-${product}-B`];
+  const have = await one(
+    db`select count(*)::int n from sap_replicas where kind='condition' and sap_key in ${db(keys)}`,
+  );
+  if (have.n === 2) return false;
+  const file = process.env.SAP_TOKEN_FILE;
+  if (!file) throw new Error("SAP_TOKEN_FILE is required (test-day.sh passes it)");
+  const { readFileSync } = await import("node:fs");
+  const token = readFileSync(file, "utf8").trim();
+  const from = Date.now() - 60_000;
+  const items = keys.map((k, i) => ({
+    schemaVersion: 1,
+    organizationId: "sunpride",
+    kind: "condition",
+    key: k,
+    source: "sample",
+    effectiveFrom: from,
+    effectiveTo: null,
+    deleted: false,
+    version: 1,
+    data: {
+      productCode: product,
+      uom: "PC",
+      customerCode: customer,
+      channelKey: null,
+      currency: "PHP",
+      unitPriceCentavos: 11000 + i * 200,
+      taxCode: "SAMPLE-VAT12",
+      taxBasisPoints: 1200,
+      taxInclusive: true,
+      precedence: 50,
+      priceListCode: `TD-OFFICE-${customer}`,
+    },
+  }));
+  const res = await fetch(`http://127.0.0.1:${SAP_PORT}/control/masters`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    body: JSON.stringify({ items }),
+  });
+  if (!res.ok) throw new Error(`SAP mock masters -> ${res.status}`);
+  for (let i = 0; i < 36; i++) {
+    const n = await one(
+      db`select count(*)::int n from sap_replicas where kind='condition' and sap_key in ${db(keys)}`,
+    );
+    if (n.n === 2) return true;
+    await new Promise((r) => setTimeout(r, 5000));
+  }
+  throw new Error(`office price ${product}@${customer} not pulled from SAP within 3 min`);
+}
+const officePriced = async (/** @type {string} */ product, /** @type {string} */ customer) =>
+  (
+    await one(
+      db`select count(*)::int n from sap_replicas where kind='condition' and sap_key like ${`TD-OFFICE-${customer}-${product}-%`}`,
+    )
+  ).n === 2;
+
+// ---------------------------------------------------------------- VAN-028/029: an office-priced product on van@'s route
+const VAN_OFFICE = { product: "SMP-LYC-565", customer: "SMP-C0077" };
+section(
+  "r6-van-office-price",
+  ["VAN-028", "VAN-029"],
+  async () => ((await officePrice(VAN_OFFICE.product, VAN_OFFICE.customer)) ? "created" : "kept"),
+  async () => {
+    const s = await profile(VAN);
+    const [t] = await tripOf(s.id);
+    const onTruck =
+      t &&
+      (await one(
+        db`select count(*)::int n from inventory_balances b join products p on p.id=b.product_id join van_trips t on t.truck_location_id=b.location_id where t.id=${t.id} and p.code=${VAN_OFFICE.product} and b.available_base>0`,
+      ));
+    return {
+      officePriced: (await officePriced(VAN_OFFICE.product, VAN_OFFICE.customer))
+        ? `${VAN_OFFICE.product}@${VAN_OFFICE.customer}`
+        : false,
+      productOnVanTruck: onTruck?.n ?? 0,
+    };
+  },
+);
+
+// ---------------------------------------------------------------- WEB-142: a claim with linkable evidence (checklist + photo)
+const claimRef = () => `SAMPLE-CLAIM-tpm-${TODAY.slice(0, 7)}-0`;
+section(
+  "r6-claim-evidence",
+  ["WEB-142"],
+  async () => {
+    let did = "kept";
+    const c = await one(
+      db`select c.*,m.code as campaign_code from claims c join campaign_versions v on v.id=c.campaign_version_id join campaigns m on m.id=v.campaign_id where c.reference=${claimRef()}`,
+    );
+    if (!c) throw new Error(`claim ${claimRef()} is not seeded`);
+    const from = String(c.period_from instanceof Date ? c.period_from.toISOString() : c.period_from).slice(0, 10);
+    // 1) Checklist: a compliant promotion check for the claim's campaign on an existing (seeded) audit in the period.
+    const audit = await one(
+      db`select a.* from merchandising_audits a join campaign_versions v on v.id=${c.campaign_version_id} and v.effective_from<=a.device_time and v.effective_to>a.device_time
+        where a.deleted_at is null and a.service_date between ${from} and ${TODAY} and a.device_time<=now() ${c.outlet_id ? db`and a.outlet_id=${c.outlet_id}` : db``}
+        order by a.device_time desc limit 1`,
+    );
+    if (!audit) throw new Error("no merchandising audit in the claim period");
+    const chk = await markedRow("merchandising_compliance_checks", "r6-claim-checklist", {
+      organization_id: "sunpride",
+      org_unit_id: audit.org_unit_id,
+      audit_id: audit.id,
+      outlet_id: audit.outlet_id,
+      service_date: audit.service_date,
+      kind: "promotion",
+      finding: "compliant",
+      program_ref: c.campaign_code,
+      action_taken: `${TAG} promotion display verified (WEB-142)`,
+    });
+    if (chk.made) did = "created";
+    // 2) Photo: a stored evidence photo on a completed visit in the period (claim outlet if the claim has one).
+    const visit = await one(
+      db`select v.* from visit_executions v where v.deleted_at is null and v.state='completed' and v.service_date between ${from} and ${TODAY}
+        and v.checked_in_at<=now() ${c.outlet_id ? db`and v.outlet_id=${c.outlet_id}` : db``} order by v.checked_in_at desc limit 1`,
+    );
+    if (!visit) throw new Error("no completed visit in the claim period");
+    const have = await one(
+      db`select row_id from sample_data_rows where batch=${BATCH_R6} and key=${"field_evidence_files:trial-td-r6-claim-photo"}`,
+    );
+    if (!have) {
+      /** @param {string} t @param {string} k @param {any} v */
+      const ensure = async (t, k, v) => (await markedRow(t, k, v)).row;
+      const file = await samplePhoto(visit.assignee_profile_id, "r6-claim-photo-file", ensure);
+      const at = new Date(Math.min(Date.now() - 60_000, +new Date(visit.checked_in_at) + 120_000));
+      await markedRow("field_evidence_files", "r6-claim-photo", {
+        organization_id: "sunpride",
+        org_unit_id: visit.org_unit_id,
+        storage_id: file.id,
+        visit_id: visit.id,
+        owner_profile_id: visit.assignee_profile_id,
+        outlet_id: visit.outlet_id,
+        mime: "image/jpeg",
+        size_bytes: file.size,
+        checksum: file.sha256,
+        captured_at: at.toISOString(),
+        photo_type: "display",
+        uploaded_at: at.toISOString(),
+        status: "verified",
+      });
+      did = "created";
+    }
+    return did;
+  },
+  async () => {
+    const c = await one(db`select id,status from claims where reference=${claimRef()}`);
+    const opts = c ? await api(APPROVER, `/api/v1/tpm/claims/evidence-options?id=${c.id}`) : { rows: [] };
+    const kinds = new Set(opts.rows.map((/** @type {any} */ r) => r.kind));
+    return {
+      claim: c ? `${claimRef()}/${c.status}` : null,
+      checklistOption: kinds.has("checklist"),
+      photoOption: kinds.has("photo"),
+    };
+  },
+);
+
+// ---------------------------------------------------------------- WEB-143: a customer portal login (sign-in, no employee profile)
+const PORTAL_EMAIL = "td-portal@customer.sunpride.test";
+const portalFile = () =>
+  `${process.env.HOME}/.sunpride-keys/${LANE_SHORT()}-portal-login.txt`;
+const LANE_SHORT = () => (String(process.env.LANE_DB).endsWith("_fixture") ? "fixture" : "codex");
+section(
+  "r6-portal-login",
+  ["WEB-143"],
+  async () => {
+    const u = await one(db`select id from users where lower(email)=${PORTAL_EMAIL}`);
+    if (u) return "kept";
+    // A customer login has no invitation (sign-up would make an employee profile), so the kit writes the
+    // users row the way the API's sign-up does (argon2id), as a marked sample row. Password: 0600 key file only.
+    const { existsSync, readFileSync, writeFileSync } = await import("node:fs");
+    const { randomBytes } = await import("node:crypto");
+    const f = portalFile();
+    const pw = existsSync(f)
+      ? readFileSync(f, "utf8").split(" · ").at(-1)?.trim()
+      : `TD-${randomBytes(9).toString("base64url")}`;
+    if (!existsSync(f)) writeFileSync(f, `${PORTAL_EMAIL} · ${pw}\n`, { mode: 0o600 });
+    const hash = await Bun.password.hash(String(pw), { algorithm: "argon2id" });
+    await markedRow("users", "r6-portal-login", { email: PORTAL_EMAIL, password_hash: hash });
+    return "created";
+  },
+  async () => {
+    const s = await api(ADMIN, "/api/v1/mt/settings");
+    const ext = (s.externalUsers ?? []).find((/** @type {any} */ u) => u.email === PORTAL_EMAIL);
+    return { portalLoginListed: ext ? PORTAL_EMAIL : false, passwordFile: portalFile().split("/").at(-1) ?? null };
+  },
+);
+
+// ---------------------------------------------------------------- WEB-175: a field change request with a moved pin (Pin to keep)
+section(
+  "r6-change-moved-pin",
+  ["WEB-175", "WEB-173"],
+  async () => {
+    const agent = await profile(AGENT);
+    const agent1 = await profile(FIELD);
+    const batch = await one(
+      db`select id from census_batches where org_unit_id=${agent.org_unit_id} order by created_at limit 1`,
+    );
+    if (!batch) throw new Error("no census batch in agent@'s unit");
+    const store = await one(db`select o.id,o.name,o.address,p.latitude,p.longitude from planned_visits v join outlets o on o.id=v.outlet_id
+      join outlet_pins p on p.outlet_id=o.id and p.status='verified' and p.effective_to is null and p.deleted_at is null
+      where v.assignee_profile_id=${agent.id} and v.service_date=${TODAY} order by o.code offset 3 limit 1`);
+    const now = new Date().toISOString();
+    const { row, made } = await markedRow("census_captures", "r6-change-moved-pin", {
+      batch_id: batch.id,
+      actor_profile_id: agent1.id,
+      app: "field-android",
+      kind: "change",
+      target_outlet_id: store.id,
+      name: store.name,
+      address: `${store.address ?? "Sample address"} (moved)`,
+      latitude: Number(store.latitude) + 0.0134,
+      longitude: Number(store.longitude) + 0.0082,
+      accuracy_meters: 9,
+      location_source: "places",
+      location_provider: "places",
+      location_recorded_at: now,
+      place_id: `td-searched-${TODAY}`,
+      formatted_address: store.address ?? "Sample address",
+      owner_name: "Sample Owner Lima",
+      owner_phone: "0917 555 0650",
+      captured_at: now,
+      payload_hash: `td-cap-moved-${TODAY}`,
+      duplicate_flag: false,
+      duplicate_candidates: [],
+      acknowledged_duplicate_ids: [],
+      previous_values: { address: store.address ?? "Sample address" },
+    });
+    if (!(await one(db`select 1 as x from census_place_checks where capture_id=${row.id}`)))
+      await db`insert into census_place_checks(capture_id,status,place_latitude,place_longitude,distance_meters,checked_at) values(${row.id},'mismatch',${Number(store.latitude)},${Number(store.longitude)},1730,now())`;
+    return made ? "created" : "kept";
+  },
+  async () => {
+    const r = await one(db`select c.kind,pc.status,(select count(*)::int from census_reviews r where r.capture_id=c.id) reviewed from census_captures c
+      join sample_data_rows m on m.row_id=c.id::text and m.key=${"census_captures:trial-td-r6-change-moved-pin"} left join census_place_checks pc on pc.capture_id=c.id`);
+    return { changeWithMovedPin: r?.kind === "change" && r.status === "mismatch", undecided: r ? r.reviewed === 0 : false };
+  },
+);
+
+// ---------------------------------------------------------------- WEB-106: a captured phone order in Field order review (needs price setup)
+const ORDER_PRODUCT = "SMP-PCH-227";
+section(
+  "r6-field-order-review",
+  ["WEB-106"],
+  async () => {
+    let did = "kept";
+    const agent = await profile(AGENT);
+    const have = await one(
+      db`select row_id from sample_data_rows where batch=${BATCH_R6} and key=${"visit_activities:trial-td-r6-field-order"}`,
+    );
+    if (have) return did;
+    // A visit checked in before now (seeded day history runs 06:00-11:55), on a store with a customer account.
+    const v = await one(db`select v.*,c.code as customer_code from visit_executions v join outlet_customer_links l on l.outlet_id=v.outlet_id and l.deleted_at is null
+      join customers c on c.id=l.customer_id where v.assignee_profile_id=${agent.id} and v.service_date=${TODAY} and v.state='completed' and v.checked_in_at<=now()-interval '3 minutes'
+      order by v.checked_in_at desc limit 1`);
+    if (!v) throw new Error("agent@ has no completed visit before now; rerun --only r6-field-order-review later in the day");
+    if (await officePrice(ORDER_PRODUCT, v.customer_code)) did = "created";
+    const p = await one(db`select id from products where code=${ORDER_PRODUCT}`);
+    const at = new Date(Math.max(+new Date(v.checked_in_at) + 60_000, Date.now() - 120_000));
+    await markedRow("visit_activities", "r6-field-order", {
+      organization_id: v.organization_id,
+      org_unit_id: v.org_unit_id,
+      visit_id: v.id,
+      assignee_profile_id: v.assignee_profile_id,
+      outlet_id: v.outlet_id,
+      activity_kind: "order_intent",
+      activity: {
+        kind: "order_intent",
+        lines: [{ uom: "PC", quantity: 4, productId: p.id }],
+        source: "sample",
+        clientOrderId: `${TAG}-FIELD-ORDER-1`,
+      },
+      device_time: at.toISOString(),
+      server_time: new Date().toISOString(),
+    });
+    // The insert trigger queues it; the API's drain (about a minute) moves it to review.
+    for (let i = 0; i < 24; i++) {
+      const q = await one(db`select q.status from order_intent_queue q join visit_activities a on a.id=q.activity_id where a.activity->>'clientOrderId'=${`${TAG}-FIELD-ORDER-1`}`);
+      if (q && q.status !== "pending") break;
+      await new Promise((r) => setTimeout(r, 5000));
+    }
+    return "created";
+  },
+  async () => {
+    const q = await one(db`select q.status,q.review_code from order_intent_queue q join visit_activities a on a.id=q.activity_id where a.activity->>'clientOrderId'=${`${TAG}-FIELD-ORDER-1`}`);
+    const rows = (await api(ADMIN, "/api/v1/orders/field-review")).rows ?? [];
+    return {
+      fieldOrderInReview: q?.status === "review" ? q.review_code ?? "review" : false,
+      listedInFieldOrderReview: rows.length,
+    };
+  },
+);
+
+// ---------------------------------------------------------------- WEB-082/084: one clean suggested load (released, unexpired lots) on a non-VAN truck
+const cleanLoadTrip = () =>
+  one(db`select t.id,t.trip_number,t.status,t.source_location_id from van_trips t join profiles p on p.id=t.salesperson_profile_id
+    where t.service_date=${TODAY} and t.trip_number like 'SMP-TRIAL-area-%' and lower(p.email)=${AGENT} and t.status not in ('cancelled','closed') and t.deleted_at is null order by t.created_at limit 1`);
+section(
+  "r6-clean-load",
+  ["WEB-082", "WEB-084"],
+  async () => {
+    const t = await cleanLoadTrip();
+    if (!t) throw new Error("agent@'s trial-truck trip for today is missing");
+    let plan = await one(db`select id,state,attention from van_planned_loads where trip_id=${t.id} order by created_at desc limit 1`);
+    if (plan?.state === "suggested" && (plan.attention ?? []).length === 0) return "kept";
+    if (plan && plan.state !== "suggested") return "kept";
+    // Released lots that stay sellable for 30+ days at the trip's depot (quarantined/near-expiry lots fail approval).
+    const products =
+      await db`select b.product_id as id from inventory_lot_balances b join inventory_lots l on l.id=b.lot_id join products p on p.id=b.product_id
+        where b.location_id=${t.source_location_id} and b.stock_status='available' and l.quality_status='released' and p.active
+          and (l.expires_at is null or l.expires_at>${new Date(Date.parse(`${TODAY}T00:00:00+08:00`) + 30 * 86_400_000)})
+        group by b.product_id,p.code having sum(b.available_base)>=200 order by p.code limit 4`;
+    if (products.length < 2) throw new Error("the depot has fewer than 2 products with released lot stock");
+    if (!plan) {
+      const yesterday = await one(db`select id from van_trips where service_date<${TODAY} and status not in ('cancelled') and deleted_at is null order by service_date desc, trip_number limit 1`);
+      await van("loads/copy", { tripId: t.id, fromTripId: yesterday.id }, `copy-load:${t.id}`);
+      plan = await planRow(t.id);
+    }
+    const keep = new Set(products.map((/** @type {any} */ p) => p.id));
+    const others = await db`select product_id from van_planned_load_lines where planned_load_id=${plan.id}`;
+    await van(
+      "loads/edit",
+      {
+        tripId: t.id,
+        lines: [
+          ...products.map((/** @type {any} */ p) => ({ productId: p.id, quantityBase: "48" })),
+          ...others
+            .filter((/** @type {any} */ o) => !keep.has(o.product_id))
+            .map((/** @type {any} */ o) => ({ productId: o.product_id, quantityBase: "0" })),
+        ],
+        note: `${TAG} clean load for WEB-082/084`,
+      },
+      `edit-clean-load:${t.id}`,
+    );
+    return "created";
+  },
+  async () => {
+    const t = await cleanLoadTrip();
+    const plan = t && (await one(db`select state,attention from van_planned_loads where trip_id=${t.id} order by created_at desc limit 1`));
+    return {
+      trip: t ? `${t.trip_number}/${t.status}` : null,
+      suggestedLoad: plan?.state === "suggested",
+      clean: plan ? (plan.attention ?? []).length === 0 : false,
+    };
+  },
+);
+
+// ---------------------------------------------------------------- FLD-163: supervisor@'s own plan today (copy of agent@'s stops)
+section(
+  "r6-supervisor-plan",
+  ["FLD-163"],
+  async () => {
+    const sup = await one(db`select * from profiles where lower(email)=${SUPERVISOR} and deleted_at is null`);
+    const have = await one(db`select 1 as x from planned_visits where assignee_profile_id=${sup.id} and service_date=${TODAY} and status='planned' and deleted_at is null`);
+    if (have) return "kept";
+    const tpl = await one(db`select * from profiles where lower(email)=${AGENT} and deleted_at is null`);
+    const { ensureTodayPlan } = await import("./trial-wiring.js");
+    await ensureTodayPlan(db, sup, tpl, "supervisor");
+    return "created";
+  },
+  async () => {
+    const sup = await profile(SUPERVISOR);
+    const n = await one(db`select count(*)::int n from planned_visits where assignee_profile_id=${sup.id} and service_date=${TODAY} and status='planned' and deleted_at is null`);
+    return { supervisorPlannedStops: n.n };
+  },
+);
+
+// ---------------------------------------------------------------- FLD-095 / FLD-082 (B): one agent1 store with no call flow and no call sheet
+// The office cannot bind a store type to "no call flow" (binding/publish requires a published profile), so the kit
+// classifies one agent1 stop as class D (unique channel/class pair) through the office command and adds a marked
+// binding of that pair to a profile with no definition. The stop's call sheet account is retired (soft delete).
+const NO_FLOW = "td_no_call_flow";
+const POTENTIAL_D = { transactionsPerDay: 10, averageBasketCentavos: 1000, tradingDaysPerMonth: 26, captureRatePct: 100 };
+const noFlowStop = async () => {
+  const stops = await fieldStops();
+  return stops.at(-1);
+};
+section(
+  "r6-store-no-call-flow",
+  ["FLD-095", "FLD-082"],
+  async () => {
+    let did = "kept";
+    const stop = await noFlowStop();
+    if (!stop) throw new Error("agent1@trial has no planned stops today");
+    if (stop.classification !== "D") {
+      const policy = await one(
+        db`select v.id from master_definitions d join master_versions v on v.master_id=d.id where d.kind='class_policy' and v.status='active' and v.effective_from<=now() and (v.effective_to is null or v.effective_to>now()) limit 1`,
+      );
+      await api(
+        ADMIN,
+        "/api/v1/masters/outlets/classify",
+        { outletId: stop.id, policyVersionId: policy.id, inputs: POTENTIAL_D, reason: `${TAG} store without a call flow (FLD-095/082)` },
+        { key: key(`classify:${stop.code}:D`) },
+      );
+      did = "created";
+    }
+    const bound = await one(
+      db`select 1 as x from call_flow_channel_bindings where app='field-android' and channel_code=${stop.channel} and outlet_class='D' and (effective_to is null or effective_to>now())`,
+    );
+    if (!bound) {
+      await markedRow("call_flow_channel_bindings", "r6-no-call-flow", {
+        app: "field-android",
+        channel_code: stop.channel,
+        outlet_class: "D",
+        channel_profile: NO_FLOW,
+        version: 1,
+        effective_from: new Date(Date.now() - 60_000).toISOString(),
+        published_by: "system:test-day",
+        source: "sample",
+      });
+      did = "created";
+    }
+    const sheets = await db`update call_sheet_accounts set deleted_at=now(),updated_at=now() where outlet_id=${stop.id} and deleted_at is null returning id`;
+    if (sheets.length) did = "created";
+    return did;
+  },
+  async () => {
+    const stop = await noFlowStop();
+    const same = await one(db`select count(*)::int n from outlets where channel=${stop.channel} and classification='D' and deleted_at is null`);
+    const sheet = await one(db`select count(*)::int n from call_sheet_accounts where outlet_id=${stop.id} and deleted_at is null`);
+    const pin = await one(db`select count(*)::int n from outlet_pins where outlet_id=${stop.id} and status='verified' and effective_to is null and deleted_at is null`);
+    const b = await one(db`select channel_profile from call_flow_channel_bindings where app='field-android' and channel_code=${stop.channel} and outlet_class='D' and (effective_to is null or effective_to>now())`);
+    return {
+      store: `${stop.code} ${stop.name}`,
+      noCallFlow: b?.channel_profile === NO_FLOW,
+      onlyStoreOfItsType: same.n === 1,
+      noCallSheet: sheet.n === 0,
+      verifiedPin: pin.n,
+    };
+  },
+);
+
+// ---------------------------------------------------------------- POS stock-tab cases: a second openable till for the Senraise cashier
+section(
+  "r6-second-register",
+  ["POS-042", "POS-043", "POS-044", "POS-053", "POS-054", "POS-202"],
+  async () => {
+    let did = "kept";
+    for (const code of ["SAMPLE-CEBU-COLON", NORTH.code]) {
+      const r = await registerFor(code);
+      if (r && (await cashier(r.id, VAN3_R6))) did = "created";
+    }
+    return did;
+  },
+  async () => {
+    const regs = await db`select r.terminal_code from store_registers r join inventory_locations l on l.id=r.location_id join store_cashier_assignments a on a.register_id=r.id and a.effective_to is null
+      join profiles p on p.id=a.profile_id where lower(p.email)=${VAN3_R6} and r.effective_to is null
+      and not exists(select 1 from store_till_days d where d.register_id=r.id and d.business_date=${TODAY} and d.status<>'open')
+      and exists(select 1 from inventory_balances b where b.location_id=l.id and b.available_stock_base>0) order by 1`;
+    return { van3OpenableRegisters: regs.length >= 2 ? regs.map((/** @type {any} */ r) => r.terminal_code).join(",") : 0 };
+  },
+);
+
+// ---------------------------------------------------------------- VAN-070/081 + VAN-074..083: van@'s trip started before now, with a start odometer; fresh counts
+section(
+  "r6-van-trip-start",
+  ["VAN-070", "VAN-074", "VAN-075", "VAN-078", "VAN-079", "VAN-081", "VAN-083"],
+  async () => {
+    const s = await profile(VAN);
+    const [t] = await tripOf(s.id);
+    if (!t || t.status !== "active") throw new Error("van@ has no active trip today");
+    // Seeded day history stamps the trip at 06:00; a damage photo must be newer than the trip (van/media.js),
+    // and VAN-081 compares the end odometer with the start one.
+    const back = new Date(Date.now() - 60 * 60_000);
+    const r = await db`update van_trips set created_at=least(created_at,${back}),started_at=least(coalesce(started_at,${back}),${back}),
+      start_odometer_km=coalesce(start_odometer_km,48210),updated_at=now() where id=${t.id} and (created_at>${back} or started_at is null or started_at>${back} or start_odometer_km is null) returning id`;
+    return r.length ? "created" : "kept";
+  },
+  async () => {
+    const s = await profile(VAN);
+    const [t] = await tripOf(s.id);
+    const row = t && (await one(db`select * from van_trips where id=${t.id}`));
+    const counts = t && (await one(db`select (select count(*)::int from van_cash_counts where trip_id=${t.id}) + (select count(*)::int from van_stock_counts where trip_id=${t.id}) n`));
+    const { expectedStock, assertTruckStock } = await import(
+      new URL("../../../apps/api/src/domains/van/facts.js", import.meta.url).href
+    );
+    let ledger = true;
+    try {
+      if (row) await assertTruckStock(db, row, await expectedStock(db, row.id));
+    } catch {
+      ledger = false;
+    }
+    return {
+      trip: row ? `${row.trip_number}/${row.status}` : null,
+      startedBeforeNow: row ? +new Date(row.created_at) < Date.now() && +new Date(row.started_at) < Date.now() : false,
+      startOdometerKm: row?.start_odometer_km ?? null,
+      noCountsYet: counts ? counts.n === 0 : false,
+      stockLedgerMatchesTruck: ledger,
+    };
+  },
+);
