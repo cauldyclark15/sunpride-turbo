@@ -66,6 +66,12 @@ const POSITIONS = {
   "Senior Channel Development Manager": { code: "SR_CDM", category: "supervisory" },
   "Channel Development Manager": { code: "CDM", category: "leadership" },
   "Sales Manager": { code: "SCDM", category: "leadership", existing: true },
+  // Office titles (SP-0168 roster update). 'support' = non-field office staff in the
+  // positions check constraint. 'Key Accounts Manager' is NOT the existing KAS title.
+  "Chief Marketing Officer": { code: "CMO", category: "leadership" },
+  "Key Accounts Manager": { code: "KEY_ACCOUNTS_MGR", category: "leadership" },
+  "Business Systems Analyst": { code: "BUSINESS_SYSTEMS_ANALYST", category: "support" },
+  "SAP SD Product Owner": { code: "SAP_SD_PRODUCT_OWNER", category: "support" },
 };
 const NO_TITLE = "(not given yet)";
 
@@ -106,7 +112,7 @@ const roster = parseCsv(readFileSync(CSV, "utf8")).map((r) => {
     title: r.position,
     branch: r.branch,
     head: r.immediate_head,
-    role: r.app_role.startsWith("sales") ? "sales" : r.app_role.startsWith("manager") ? "manager" : null,
+    role: ["sales", "manager", "admin"].find((x) => r.app_role.startsWith(x)) ?? null,
   };
 });
 // Validate the input before touching the database.
@@ -132,7 +138,8 @@ const reports = (p) => roster.filter((r) => r.supervisor === p);
 for (const p of roster)
   // A supervisor's unit must contain every report's branch (assignPerson invariant);
   // teams cross branches and the client gives no grouping, so supervisors sit at the root.
-  p.home = reports(p).length || !p.supervisor ? "ROOT" : branchCode(p.branch);
+  // Admins (project team) see every branch, so they sit at the root too.
+  p.home = reports(p).length || !p.supervisor || p.role === "admin" ? "ROOT" : branchCode(p.branch);
 // Top-down order so a supervisor exists before their reports.
 const depth = (p) => (p.supervisor ? 1 + depth(p.supervisor) : 0);
 roster.sort((a, b) => depth(a) - depth(b) || a.code.localeCompare(b.code));
@@ -248,7 +255,10 @@ try {
       if (others.length) throw new Error(`Email and id_no ${p.code} match different people`);
       if (person && (person.email.toLowerCase() !== p.email || (person.employee_code && person.employee_code !== p.code)))
         throw new Error(`Person ${p.code}: email/employee code mismatch with existing profile`);
-      if (person && ["super_admin", "admin"].includes(person.role)) throw new Error(`Person ${p.code} is an administrator; not touched`);
+      // Never touch administrators unless the roster itself makes them an admin (project
+      // team re-runs); super admins are never touched.
+      if (person && (person.role === "super_admin" || (person.role === "admin" && p.role !== "admin")))
+        throw new Error(`Person ${p.code} is an administrator; not touched`);
       // Invitation = sign-up allow-list (no mail). Only for people not signed up yet.
       const [invite] = await t`select * from access_invitations where lower(email)=${p.email} order by invited_at desc limit 1`;
       if (!person) {
@@ -265,7 +275,16 @@ try {
         });
         await writeAudit(t, { subject: actor.subject, action: "profile.provisioned", entityType: "profile", entityId: person.id, details: `${p.role}; SP-0168 client roster; awaiting first sign-in` });
         changes.profiles.push({ code: p.code, action: "created" });
-      } else if (person.name !== p.name || person.status !== "active") {
+      } else if (!person.user_id && invite?.status === "pending" &&
+        (invite.role !== p.role || invite.org_unit_id !== orgUnitId || invite.position_id !== positionId || invite.name !== p.name)) {
+        // Loaded but not signed up yet: keep the pending invitation in step with the roster
+        // (invitationCommand would mark it accepted because the profile exists, which would
+        // close sign-up). The assignment below updates the profile itself.
+        await t`update access_invitations set role=${p.role}, org_unit_id=${orgUnitId}, position_id=${positionId}, name=${p.name} where id=${invite.id}`;
+        await writeAudit(t, { subject: actor.subject, action: "people.invite", entityType: "people", entityId: invite.id, details: "SP-0168 client roster update (pending invitation kept pending)" });
+        changes.invitations.push({ code: p.code, action: "updated", status: "pending" });
+      }
+      if (person.name !== p.name || person.status !== "active") {
         if (person.status !== "active") throw new Error(`Person ${p.code} is disabled; not re-enabling`);
         await t`update profiles set name=${p.name} where id=${person.id}`;
         changes.profiles.push({ code: p.code, action: "renamed" });
