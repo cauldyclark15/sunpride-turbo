@@ -225,6 +225,14 @@ export function install(router, platform) {
       partners: [
         ...new Set(rows.map((/** @type {any} */ s) => s.partner_name)),
       ],
+      // WEB-120: the partner is picked from people in scope, not typed.
+      people: (await roster(c, {}, true).catch(() => []))
+        .filter((/** @type {any} */ p) => p.id !== c.actor.profileId)
+        .map((/** @type {any} */ p) => ({
+          profileId: p.id,
+          name: p.name,
+          employeeCode: p.employee_code,
+        })),
     };
   });
   post(

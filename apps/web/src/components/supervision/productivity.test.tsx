@@ -155,6 +155,9 @@ describe("productivity screen", () => {
 
   it("compares each person and the team on every figure", () => {
     const html = render("name", true);
+    // WEB-120: the period reads in words, not ISO.
+    expect(html).toContain("Sep 23 – Sep 29");
+    expect(html).not.toContain("2026-09-23 – 2026-09-29");
     expect(html).toContain("Actual / planned calls");
     expect(html).toContain("26/30");
     expect(html).toContain("84%");

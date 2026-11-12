@@ -87,12 +87,20 @@ const detail = {
   },
 };
 
+const nav = vi.hoisted(() => ({ search: "" }));
+vi.mock("next/navigation", () => ({
+  usePathname: () => "/call-sheets",
+  useRouter: () => ({ push: vi.fn(), replace: vi.fn() }),
+  useSearchParams: () => new URLSearchParams(nav.search),
+}));
+
 vi.mock("../supervision/report-api", () => ({
   useReportSearch: () => "",
   replaceReportSearch: () => {},
   useReportCommand: () => vi.fn(),
   useReport: (ref: unknown) => {
     const name = String(ref as never);
+    if (name === "callSheets.accounts.detail") return { canEdit: false, outlet: { id: "o1" } };
     if (name === "callSheets.accounts.list")
       return {
         page: [
@@ -165,5 +173,27 @@ describe("call sheet screens", () => {
     expect(html).toContain('value="₱189.00"');
     expect(html).toContain("inactive, remove before saving");
     expect(html).toContain("Save");
+  });
+
+  it("WEB-121 reopens the account from the URL after reload", () => {
+    nav.search = "account=o1";
+    try {
+      const html = renderToStaticMarkup(<CallSheetsWorkspace />);
+      expect(html).not.toContain("Choose an account");
+      expect(html).toContain('aria-current="true"');
+    } finally {
+      nav.search = "";
+    }
+  });
+
+  it("WEB-121 shows the parent-owned Saved confirmation after the editor remounts", () => {
+    const html = renderToStaticMarkup(
+      <CallSheetEditor
+        detail={detail as never}
+        message="Saved. Phones get revision 2 on next sync."
+        onMessage={vi.fn()}
+      />,
+    );
+    expect(html).toContain("Saved. Phones get revision 2 on next sync.");
   });
 });

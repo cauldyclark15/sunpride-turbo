@@ -13,6 +13,7 @@ import {
 } from "@sunpride/ui";
 import { useReportCommand, useReport } from "../supervision/report-api";
 import { useState } from "react";
+import { useUrlState } from "../cockpit/use-url-state";
 import {
   CALL_SHEET_HEADER_LABELS,
   CALL_SHEET_MEASURES,
@@ -38,13 +39,23 @@ const SHORT_LABELS: Record<string, string> = {
 };
 
 export function CallSheetsWorkspace() {
-  const [outletId, setOutletId] = useState<Id<"outlets"> | null>(null);
+  // WEB-121: the opened account and view live in the URL (?account=&view=).
+  const url = useUrlState();
+  const outletId = (url.params.get("account") || null) as Id<"outlets"> | null;
+  const setOutletId = (id: Id<"outlets"> | null) =>
+    url.set({ account: id, view: null });
   return (
     <div className="grid gap-4 xl:grid-cols-[320px_minmax(0,1fr)]">
       <AccountPicker selected={outletId} onSelect={setOutletId} />
       {outletId ? (
         <PanelErrorBoundary key={outletId} label="Call sheet">
-          <CallSheetAccount outletId={outletId} />
+          <CallSheetAccount
+            outletId={outletId}
+            view={url.params.get("view") === "setup" ? "setup" : "month"}
+            onView={(view) =>
+              url.set({ view: view === "setup" ? "setup" : null }, { replace: true })
+            }
+          />
         </PanelErrorBoundary>
       ) : (
         <Card label="Call sheet" icon={<WorkspaceIcon name="field" />}>
@@ -156,9 +167,21 @@ function AccountPicker({
   );
 }
 
-function CallSheetAccount({ outletId }: { outletId: Id<"outlets"> }) {
+function CallSheetAccount({
+  outletId,
+  view,
+  onView,
+}: {
+  outletId: Id<"outlets">;
+  view: "month" | "setup";
+  onView: (view: "month" | "setup") => void;
+}) {
   const detail = useReport("callSheets.accounts.detail", { outletId });
-  const [tab, setTab] = useState<"month" | "setup">("month");
+  const tab = view;
+  const setTab = onView;
+  // The editor remounts on each saved revision; keep its result here so the
+  // "Saved." confirmation survives that remount (WEB-121).
+  const [message, setMessage] = useState("");
   if (detail === undefined)
     return (
       <Card label="Call sheet">
@@ -180,7 +203,12 @@ function CallSheetAccount({ outletId }: { outletId: Id<"outlets"> }) {
         label="Call sheet views"
       />
       {tab === "setup" && detail.canEdit ? (
-        <CallSheetEditor key={detail.account?.revision ?? 0} detail={detail} />
+        <CallSheetEditor
+          key={detail.account?.revision ?? 0}
+          detail={detail}
+          message={message}
+          onMessage={setMessage}
+        />
       ) : (
         <CallSheetMonth outletId={outletId} />
       )}
@@ -368,7 +396,16 @@ type DraftLine = {
   active: boolean;
 };
 
-export function CallSheetEditor({ detail }: { detail: Detail }) {
+export function CallSheetEditor({
+  detail,
+  message: ownedMessage,
+  onMessage,
+}: {
+  detail: Detail;
+  /** Result owned by the parent so it survives the revision remount. */
+  message?: string;
+  onMessage?: (message: string) => void;
+}) {
   const save = useReportCommand("callSheets.accounts.save");
   const [header, setHeader] = useState<Record<CallSheetHeaderField, string>>(
     () => {
@@ -398,7 +435,12 @@ export function CallSheetEditor({ detail }: { detail: Detail }) {
     prefix.trim().length >= 2 ? { prefix } : "skip",
   );
   const [busy, setBusy] = useState(false);
-  const [message, setMessage] = useState("");
+  const [localMessage, setLocalMessage] = useState("");
+  const message = onMessage ? (ownedMessage ?? "") : localMessage;
+  const setMessage = (text: string) => {
+    setLocalMessage(text);
+    onMessage?.(text);
+  };
   const chosen = new Set(lines.map((line) => line.productId));
   async function submit() {
     setBusy(true);
