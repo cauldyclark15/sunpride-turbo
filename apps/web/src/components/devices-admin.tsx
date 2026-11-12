@@ -135,7 +135,7 @@ export function deviceHistoryTitle(action: string): string {
     .replace(/^(people\.devices|device)\./, "")
     .replace(/[._]+/g, " ")
     .trim();
-  return words ? words[0].toUpperCase() + words.slice(1) : "Phone event";
+  return words ? words.charAt(0).toUpperCase() + words.slice(1) : "Phone event";
 }
 
 /** FLD-013: only a short reason code becomes words; objects or "[object Object]" never reach the screen. */
