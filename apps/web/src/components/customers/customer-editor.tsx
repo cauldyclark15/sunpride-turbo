@@ -10,7 +10,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, mutate, useApi } from "../../lib/api";
 import { DuplicatePanel, useDebounced } from "../store-gathering/add-store";
 import type { Candidate } from "../store-gathering/model";
-import { usePermissions } from "../../lib/auth";
+import { usePermissions, useSession } from "../../lib/auth";
 import {
   CustomerForm,
   buttonClass,
@@ -90,6 +90,7 @@ export function CustomerEditor({
   onDone?: (customer: Customer) => void;
 }) {
   const { can } = usePermissions();
+  const { profile } = useSession();
   const canEdit = can("outlet.manage");
   const canApprove = can("outlet.enrol.approve");
   const loaded = useApi<Customer>(
@@ -116,6 +117,7 @@ export function CustomerEditor({
       index={index}
       canEdit={canEdit}
       canApprove={canApprove}
+      myProfileId={profile?.id ?? null}
       setup={setup.data ?? null}
       onDone={onDone}
     />
@@ -128,6 +130,7 @@ function EditorBody({
   index,
   canEdit,
   canApprove,
+  myProfileId = null,
   setup,
   onDone,
 }: {
@@ -136,6 +139,7 @@ function EditorBody({
   index: ReturnType<typeof indexReference>;
   canEdit: boolean;
   canApprove: boolean;
+  myProfileId?: string | null;
   setup: Setup | null;
   onDone?: (customer: Customer) => void;
 }) {
@@ -526,6 +530,7 @@ function EditorBody({
       busy={busy}
       canEdit={canEdit}
       canApprove={canApprove}
+      myProfileId={myProfileId}
       pinSlot={pinSlot}
       duplicates={matches}
       duplicatesAcknowledged={acknowledged}
@@ -561,6 +566,7 @@ export function CustomerEditorView({
   busy,
   canEdit,
   canApprove,
+  myProfileId = null,
   pinSlot,
   duplicates = [],
   duplicatesAcknowledged = false,
@@ -589,6 +595,8 @@ export function CustomerEditorView({
   busy: boolean;
   canEdit: boolean;
   canApprove: boolean;
+  /** WEB-059: the signed-in person; their own proposal cannot be decided by them. */
+  myProfileId?: string | null;
   pinSlot?: React.ReactNode;
   /** WEB-047: possible existing matches for a NEW customer; Create waits for "It's a different store". */
   duplicates?: Candidate[];
@@ -614,6 +622,15 @@ export function CustomerEditorView({
     !!onReject &&
     customer.status !== "inactive" &&
     customer.enrolmentStatus === "provisional";
+  const ownProposal =
+    !!customer &&
+    !!myProfileId &&
+    customer.proposedByProfileId === myProfileId;
+  const ownNote = ownProposal ? (
+    <span className="text-xs text-muted">
+      {OWN_PROPOSAL_WORDS}
+    </span>
+  ) : null;
   const dupBlocked =
     !customer && duplicates.length > 0 && !duplicatesAcknowledged;
   const tone =
@@ -701,7 +718,7 @@ export function CustomerEditorView({
             className={primaryClass}
             disabled={busy || dupBlocked}
           >
-            {customer ? "Save" : "Create customer"}
+            Save
           </button>
           {dupBlocked ? (
             <span className="text-xs text-muted">
@@ -712,15 +729,21 @@ export function CustomerEditorView({
             <button
               type="button"
               className={buttonClass}
-              disabled={busy}
+              disabled={busy || ownProposal}
               onClick={onApprove}
             >
               Approve
             </button>
           ) : null}
           {canReject ? (
-            <RejectControl busy={busy} onReject={(r) => onReject?.(r)} />
+            <RejectControl
+              busy={busy || ownProposal}
+              onReject={(r) => onReject?.(r)}
+            />
           ) : null}
+          {(customer ? awaitsApproval(customer) : false) && canApprove
+            ? ownNote
+            : null}
           {customer ? (
             deactivating ? (
               <span className="flex flex-wrap items-center gap-2">
@@ -763,19 +786,26 @@ export function CustomerEditorView({
           <button
             type="button"
             className={primaryClass}
-            disabled={busy}
+            disabled={busy || ownProposal}
             onClick={onApprove}
           >
             Approve
           </button>
           {canReject ? (
-            <RejectControl busy={busy} onReject={(r) => onReject?.(r)} />
+            <RejectControl
+              busy={busy || ownProposal}
+              onReject={(r) => onReject?.(r)}
+            />
           ) : null}
+          {ownNote}
         </div>
       ) : null}
     </form>
   );
 }
+
+export const OWN_PROPOSAL_WORDS =
+  "Another approver must decide your own proposal.";
 
 /** Reject a field capture: asks for the reason first (it goes to the enrolment record). */
 function RejectControl({

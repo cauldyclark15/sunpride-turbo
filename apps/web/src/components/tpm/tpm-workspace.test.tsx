@@ -2,11 +2,12 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, expect, it, vi } from "vitest";
 import {
+  CampaignEditor,
   FinanceClaimsWorkspace,
   readTpmTab,
   TradeMarketingWorkspace,
 } from "./tpm-workspace";
-import { centavos, peso } from "./model";
+import { centavos, peso, titleWords, words } from "./model";
 const state = vi.hoisted(() => ({
   edit: true,
   search: "",
@@ -287,4 +288,18 @@ it("WEB-142 claims read as words and the Finance tab lives in the URL", () => {
   expect(renderToStaticMarkup(createElement(FinanceClaimsWorkspace))).toMatch(
     /aria-pressed="true"[^>]*>Liability</,
   );
+});
+
+it("WEB-142 metric and status words read as plain words with one capital", () => {
+  expect(words("settlementVariance")).toBe("settlement variance");
+  expect(titleWords("settlementVariance")).toBe("Settlement variance");
+  expect(titleWords("needs_evidence")).toBe("Needs evidence");
+});
+it("WEB-161 the Add campaign form has Cancel next to Save", () => {
+  const onCancel = vi.fn();
+  const html = renderToStaticMarkup(
+    createElement(CampaignEditor, { campaign: null, onCancel }),
+  );
+  expect(html).toContain(">Save</button>");
+  expect(html).toContain(">Cancel</button>");
 });

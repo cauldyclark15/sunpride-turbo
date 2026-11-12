@@ -86,7 +86,7 @@ it("shows the MCP calendar, the reminder list and late approvals", () => {
       canApprove={false}
     />,
   );
-  expect(html).toContain("Master Coverage Plan (MCP) deadlines · 2026-11");
+  expect(html).toContain("Master Coverage Plan (MCP) deadlines · November 2026");
   expect(html).toContain("Submit between 25 Oct 2026 and 31 Oct 2026");
   expect(html).toContain("approves by 7 Nov 2026");
   const reminders = html.slice(

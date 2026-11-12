@@ -76,6 +76,20 @@ export function countLine(
   return `Showing ${from}–${to} of ${total.toLocaleString("en-PH")} ${total === 1 ? noun.one : noun.many}`;
 }
 
+/** The `range` a cursor list passes to ListPage (page is 1-based; null until the page has loaded). */
+export function cursorRange(
+  page: number,
+  pageSize: number,
+  page_?: { page: unknown[]; isDone: boolean } | null,
+): { from: number; to: number; more: boolean } | null {
+  if (!page_) return null;
+  return {
+    from: (page - 1) * pageSize + 1,
+    to: (page - 1) * pageSize + page_.page.length,
+    more: !page_.isDone,
+  };
+}
+
 /** Page numbers to show: first, last, and one either side of the current page. */
 export function pageNumbers(page: number, pages: number): Array<number | "…"> {
   const out: Array<number | "…"> = [];

@@ -20,6 +20,7 @@ import {
   day,
   peso,
   words,
+  titleWords,
   type Campaign,
   type Claim,
   type Options,
@@ -59,6 +60,7 @@ function CommandForm({
   label = "Save",
   reuseCompleted = true,
   onSaved,
+  onCancel,
 }: {
   path: string;
   build: (data: FormData) => Record<string, unknown>;
@@ -66,6 +68,8 @@ function CommandForm({
   label?: string;
   reuseCompleted?: boolean;
   onSaved?: () => void;
+  /** WEB-161: a form in a drawer offers Cancel next to Save. */
+  onCancel?: () => void;
 }) {
   const [pending, setPending] = useState(false),
     [message, setMessage] = useState("");
@@ -109,10 +113,20 @@ function CommandForm({
       <fieldset disabled={pending} className="grid gap-3 sm:grid-cols-2">
         {children}
       </fieldset>
-      <div>
+      <div className="flex flex-wrap gap-2">
         <button className={button} disabled={pending}>
           {pending ? "Saving…" : label}
         </button>
+        {onCancel ? (
+          <button
+            type="button"
+            className={button}
+            disabled={pending}
+            onClick={onCancel}
+          >
+            Cancel
+          </button>
+        ) : null}
       </div>
       {message ? (
         <p role="status" className="text-sm">
@@ -372,6 +386,9 @@ export function TradeMarketingWorkspace() {
               key={editing?.versionId ?? "new"}
               campaign={editing ?? null}
               options={options.data}
+              onCancel={() =>
+                editing ? set({ campaign: null }) : setAdding(false)
+              }
             />
           ) : null}
         </Drawer>
@@ -579,17 +596,20 @@ function CampaignPicker({ campaigns }: { campaigns: Campaign[] }) {
     </select>
   );
 }
-function CampaignEditor({
+export function CampaignEditor({
   campaign,
   options,
+  onCancel,
 }: {
   campaign: Campaign | null;
   options?: Options;
+  onCancel?: () => void;
 }) {
   const [now] = useState(() => Date.now());
   return (
     <CommandForm
       path="/api/v1/tpm/campaigns/save"
+      onCancel={onCancel}
       build={(d) => ({
         code: d.get("code"),
         name: d.get("name"),
@@ -1529,7 +1549,7 @@ export function FinanceClaimsWorkspace() {
               <ul className="text-xs text-muted">
                 {s.result.lines.map((l) => (
                   <li key={l.metric}>
-                    {words(l.metric)}:{" "}
+                    {titleWords(l.metric)}:{" "}
                     {l.excluded
                       ? "Excluded by plan"
                       : `${l.actual ?? "Unknown"} / ${l.target ?? "Unknown"}`}{" "}
@@ -1824,7 +1844,7 @@ function PolicyEditors({
               "settlementVariance",
             ].map((metric, i) => (
               <div key={metric} className="grid gap-2">
-                <Field key={metric} label={`${words(metric)} · weight %`}>
+                <Field key={metric} label={`${titleWords(metric)} · weight %`}>
                   <input
                     name={metric}
                     required
@@ -1853,7 +1873,7 @@ function PolicyEditors({
                   </select>
                 </Field>
                 <Field
-                  label={`${words(metric)} target · canonical units (optional)`}
+                  label={`${titleWords(metric)} target · canonical units (optional)`}
                 >
                   <input
                     type="number"
@@ -2232,7 +2252,7 @@ export function ClaimReview({
       <ul className="text-sm text-muted">
         {detail.data?.events.map((e, i) => (
           <li key={i}>
-            {words(e.action)} · {formatDate(e.created_at)}
+            {titleWords(e.action)} · {formatDate(e.created_at)}
           </li>
         ))}
       </ul>

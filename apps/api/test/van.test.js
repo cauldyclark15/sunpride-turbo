@@ -1087,3 +1087,35 @@ test("F-119 van invoice, payment, credit memo and settlement are transactionally
     sap.stop();
   }
 });
+
+test("WEB-099 a trip holding an empty planned load reuses it for the reviewed load and the board shows it", async () => {
+  const truck2 = crypto.randomUUID();
+  await h.db`insert into inventory_locations(id,organization_id,org_unit_id,site_code,code,name,type,active,allows_picking,allows_receiving,allows_sale,allows_production) values(${truck2},'sunpride',${unit},'CEBU','TRUCK99','TRUCK99','truck',true,true,true,true,false)`;
+  const v = await web("vehicles/create", {
+    orgUnitId: unit,
+    vehicleCode: "V99",
+    plateNumber: "SAMPLE99",
+    truckLocationId: truck2,
+    homeLocationId: depot,
+  });
+  expect(v.status).toBe(200);
+  const t = await web("trips/plan", {
+    vehicleId: v.body.vehicleId,
+    salespersonProfileId: manager.profile.id,
+    serviceDate: today(),
+  });
+  expect(t.status).toBe(200);
+  await h.db`insert into van_trip_loads(organization_id,trip_id,load_number,status,created_by) values('sunpride',${t.body.tripId},1,'planned','fixture')`;
+  const board = await h.fetch(`/api/v1/van/day-board?date=${today()}`, { headers: { cookie } });
+  const row = (await board.json()).rows.find((/** @type {any} */ r) => r.tripId === t.body.tripId);
+  expect(row.load.state).toBe("planned");
+  expect(row.load.label).toBe("Load planned");
+  const l = await web("loads/plan", {
+    tripId: t.body.tripId,
+    lines: [{ productId: product, expectedBase: "12" }],
+  });
+  expect(l.status).toBe(200);
+  const loads = await h.db`select id,load_number from van_trip_loads where trip_id=${t.body.tripId}`;
+  expect(loads).toHaveLength(1);
+  expect(loads[0].id).toBe(l.body.loadId);
+});

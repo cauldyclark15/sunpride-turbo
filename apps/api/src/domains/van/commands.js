@@ -255,8 +255,24 @@ export async function planLoad(db, actor, p) {
   if (trip.status !== "planned") refuse("Issue one load before departure");
   await locationFor(db, actor, trip.source_location_id, "van.manage");
   await supersedePlan(db, trip.id); // IP-VANDAY: a hand-made load replaces the suggestion
-  const [load] =
-    await db`insert into van_trip_loads(organization_id,trip_id,load_number,status,created_by) values(${trip.organization_id},${trip.id},1,'planned',${actor.subject}) returning id`;
+  // WEB-099: a trip may already hold an empty planned load (made earlier, nothing on it). Reuse it instead of
+  // inserting load 1 again (unique trip_id+load_number); otherwise take the next free number.
+  const existing =
+    await db`select l.id,l.status,l.stock_transfer_id,(select count(*)::int from van_trip_load_lines x where x.load_id=l.id and x.actual_base is not null) as counted
+      from van_trip_loads l where l.trip_id=${trip.id} and l.status<>'cancelled' and l.deleted_at is null order by l.load_number for update`;
+  const reusable = existing.find(
+    (/** @type {any} */ l) => l.status === "planned" && !l.stock_transfer_id && !l.counted,
+  );
+  if (existing.length && !reusable) refuse("This trip already has a load");
+  let load;
+  if (reusable) {
+    await db`delete from van_trip_load_lines where load_id=${reusable.id}`;
+    await db`update van_trip_loads set created_by=${actor.subject},updated_at=now() where id=${reusable.id}`;
+    load = { id: reusable.id };
+  } else
+    [load] =
+      await db`insert into van_trip_loads(organization_id,trip_id,load_number,status,created_by)
+        values(${trip.organization_id},${trip.id},(select coalesce(max(load_number),0)+1 from van_trip_loads where trip_id=${trip.id}),'planned',${actor.subject}) returning id`;
   const seen = new Set();
   for (const [i, l] of rows(p.lines).entries()) {
     const product = await productFor(db, uuid(l.productId));

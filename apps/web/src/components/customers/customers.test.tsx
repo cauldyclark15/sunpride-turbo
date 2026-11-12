@@ -649,6 +649,45 @@ describe("approval errors land next to the field", () => {
         />,
       ),
     ).not.toContain(">Reject<");
+    // WEB-059: your own proposal shows Approve/Reject disabled with the reason.
+    const own = renderToStaticMarkup(
+      <CustomerEditorView
+        customer={{ ...field, proposedByProfileId: "me" } as Customer}
+        draft={completeDraft()}
+        onChange={() => undefined}
+        index={index}
+        geo={GEO}
+        errors={{}}
+        message={null}
+        readOnly={false}
+        busy={false}
+        canEdit
+        canApprove
+        myProfileId="me"
+        onReject={() => undefined}
+      />,
+    );
+    expect(own).toMatch(/<button type="button"[^>]*disabled=""[^>]*>Approve</);
+    expect(own).toMatch(/<button type="button"[^>]*disabled=""[^>]*>Reject</);
+    expect(own).toContain("Another approver must decide your own proposal.");
+    const other = renderToStaticMarkup(
+      <CustomerEditorView
+        customer={{ ...field, proposedByProfileId: "someone" } as Customer}
+        draft={completeDraft()}
+        onChange={() => undefined}
+        index={index}
+        geo={GEO}
+        errors={{}}
+        message={null}
+        readOnly={false}
+        busy={false}
+        canEdit
+        canApprove
+        myProfileId="me"
+      />,
+    );
+    expect(other).not.toMatch(/disabled=""[^>]*>Approve</);
+    expect(other).not.toContain("Another approver must decide");
   });
 });
 
@@ -689,9 +728,11 @@ describe("WEB-047 Add customer checks for duplicates", () => {
     expect(html).toContain("This might already be in the list");
     expect(html).toContain("Sample Mercado Sari-sari 9");
     expect(html).toContain("different store");
-    expect(html).toMatch(/<button type="submit"[^>]*disabled=""[^>]*>Create customer/);
+    // WEB-161: the Add customer form saves with "Save" like every other form.
+    expect(html).toMatch(/<button type="submit"[^>]*disabled=""[^>]*>Save</);
+    expect(html).not.toContain("Create customer");
     expect(view([cand], true)).not.toMatch(
-      /<button type="submit"[^>]*disabled=""[^>]*>Create customer/,
+      /<button type="submit"[^>]*disabled=""[^>]*>Save</,
     );
     expect(view([])).not.toContain("This might already be in the list");
   });

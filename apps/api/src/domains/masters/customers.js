@@ -241,6 +241,12 @@ export async function readCustomer(db, id) {
   out.territoryId = o.territory_id ?? null;
   out.accountingCustomerId = o.customer_id ?? null;
   out.legacyChannel = o.channel ?? null;
+  // WEB-059: who proposed a pending field enrolment, so the web can disable Approve/Reject on one's own proposal
+  // (the server refuses it anyway: org/outlets.js "The proposer cannot decide their own store").
+  const [pending] =
+    await db`select e.proposed_by_profile_id as profile_id
+      from outlet_enrolments e where e.outlet_id=${o.id} and e.status='pending' and e.deleted_at is null order by e.created_at desc limit 1`;
+  out.proposedByProfileId = pending?.profile_id ?? null;
   out.createdAt = new Date(o.outlet_created_at).getTime();
   out.updatedAt = new Date(o.outlet_updated_at).getTime();
   return out;

@@ -640,3 +640,24 @@ test("WEB-118 removing an outlet prunes its dated visits; outlets off the assign
     "Plan needs dated slots before submitting",
   );
 });
+test("WEB-118 Save assignment on a plan without its primary assignment records one, so it can be submitted", async () => {
+  const p = await run(sales, "plans/create", {
+    assigneeProfileId: sales.id,
+    localMonth: "2031-07",
+  });
+  await h.db`delete from coverage_assignments where plan_id=${p._id}`;
+  await run(sales, "plans/setAssignment", {
+    planId: p._id,
+    reason: "Restore primary assignment",
+    effectiveFrom: localDate("2031-07-01"),
+    effectiveTo: localDate("2031-08-01"),
+  });
+  const rows =
+    await h.db`select assignee_profile_id,is_primary,reason from coverage_assignments where plan_id=${p._id}`;
+  expect(rows).toEqual([
+    { assignee_profile_id: sales.id, is_primary: true, reason: "Restore primary assignment" },
+  ]);
+  await run(sales, "plans/saveOutlets", { planId: p._id, outlets: roster() });
+  await run(sales, "plans/saveSlots", { planId: p._id, slots: [slot("2031-07-02")] });
+  await expect(run(sales, "plans/submit", { planId: p._id })).resolves.toBeTruthy();
+});
