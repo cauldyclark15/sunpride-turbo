@@ -24,6 +24,7 @@ import { catalogueMetadata } from "../masters/catalogue.js";
 import { approvalKey } from "./approvals.js";
 import { refundBundle } from "../fiscal/refunds.js";
 import { tripRefunds } from "./refunds.js";
+import { pickupDecisions } from "./pickups.js";
 import { vanDayBundle } from "./dayboard.js";
 import {
   date,
@@ -174,6 +175,8 @@ export function vanProjection(env) {
         ...(p.vanPrivilegeCap === true ? { vanPrivilegeCap: true } : {}),
         // SP-0169: whether Senior/PWD discounts are switched on for this van route / till; older apps never ask.
         ...(p.privilegeSwitch === true ? { privilegeSwitch: true } : {}),
+        // r6van3: the office's decision on returns held for its approval (pickup review); older apps never ask.
+        ...(p.pickupDecisions === true ? { pickupDecisions: true } : {}),
       };
     },
     snapshot,
@@ -631,6 +634,9 @@ export async function bundle(ctx, env) {
         },
         ...(ctx.params.schemeEngine === 1
           ? { schemes: { engineVersion: 1, outlets: schemeContexts } }
+          : {}),
+        ...(ctx.params.pickupDecisions === true
+          ? { pickupDecisions: await pickupDecisions(db, trip.id) }
           : {}),
         ...(routeOps ? { operationsVersion: 1 } : {}),
       },

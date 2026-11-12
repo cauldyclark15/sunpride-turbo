@@ -65,7 +65,7 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
         // The server deliberately refuses van deltas. A complete, bounded snapshot is required every cycle.
         val request = envelope().put("since",JSONObject.NULL).put("pageCursor",JSONObject.NULL).put("limit",100)
             .put("scopes",JSONArray().put(JSONObject().put("scopeId",identity.scopeId).put("projection","van.bundle")
-                .put("params",JSONObject().put("serviceDate",day).put("catalogue",true).put("schemeEngine",1).put("posMode",true).put("handheld",true).put("vanDay",true).put("categories",true).put("refunds",true).put("privilegeCap",true).put("vanPrivilegeCap",true).put("privilegeSwitch",true))))
+                .put("params",JSONObject().put("serviceDate",day).put("catalogue",true).put("schemeEngine",1).put("posMode",true).put("handheld",true).put("vanDay",true).put("categories",true).put("refunds",true).put("privilegeCap",true).put("vanPrivilegeCap",true).put("privilegeSwitch",true).put("pickupDecisions",true))))
         val response = JSONObject(send(PULL,request.toString().toByteArray()))
         val local = V2VanCodec.snapshot(response,identity,clock())
         tripId = local.optJSONObject("trip")?.getString("tripId")

@@ -52,7 +52,7 @@ class VanSyncClientTest {
         })))
         val local=JSONObject(client(t).bootstrap())
         val params=JSONObject(String(t.bodies.single())).getJSONArray("scopes").getJSONObject(0).getJSONObject("params")
-        assertTrue(params.getBoolean("vanDay")); assertTrue(params.getBoolean("categories")); assertTrue(params.getBoolean("handheld"))
+        assertTrue(params.getBoolean("vanDay")); assertTrue(params.getBoolean("pickupDecisions")); assertTrue(params.getBoolean("categories")); assertTrue(params.getBoolean("handheld"))
         assertFalse("the frozen top level is untouched",local.has("vanDay"))
         assertEquals("ABC-1234",VanBootstrapCodec.decode(local.toString()).policy.vanDay!!.vehicleLabel)
         assertTrue(VanBootstrapCodec.decode(local.toString()).products.all { it.category=="Juices" })

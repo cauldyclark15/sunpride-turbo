@@ -84,6 +84,20 @@ export async function pickupQueue(db, actor, tripId) {
   if (items.length > 500) refuse("Pickup list exceeds supported trip size");
   return { items };
 }
+/** r6van3: the office's latest pickup decision per held return of this trip, for the van phone's bundle
+ * (`policy.pickupDecisions`, opt-in). A return the office has not decided yet is simply absent.
+ * @param {any} db @param {string} tripId */
+export async function pickupDecisions(db, tripId) {
+  const rows =
+    await db`select distinct on (d.return_id) d.return_id as "returnId",d.kind as decision,d.reason,(extract(epoch from d.created_at)*1000)::bigint::text as "decidedAt" from van_return_reviews d join van_returns r on r.id=d.return_id where r.trip_id=${tripId} and r.custody_only order by d.return_id,d.created_at desc,d.id limit 501`;
+  if (rows.length > 500) refuse("Pickup list exceeds supported trip size");
+  return rows.map((/** @type {any} */ r) => ({
+    returnId: r.returnId,
+    decision: r.decision,
+    reason: r.reason,
+    decidedAt: Number(r.decidedAt),
+  }));
+}
 /** F-113 independent physical disposition and a separate SAP credit request; captured evidence never changes.
  * @param {any} db @param {any} actor @param {any} p */
 export async function reviewPickup(db, actor, p) {
