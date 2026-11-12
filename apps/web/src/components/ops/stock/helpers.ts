@@ -1,4 +1,4 @@
-import type { DispositionDecision, DispositionRequest } from "./types";
+import type { DispositionDecision, DispositionRequest, StockRow, Valuation } from "./types";
 
 /** "March 31, 2031 (1606 days)" — the Itemcount batch style, in plain words. */
 export function expiryLabel(expiresAt: number, daysLeft: number): string {
@@ -73,4 +73,54 @@ export function csvQuery(query: Record<string, string | undefined>): string {
   for (const [k, v] of Object.entries(query)) if (v) p.set(k, v);
   p.set("format", "csv");
   return `/api/v1/inventory/valuation?${p.toString()}`;
+}
+
+export type StockFilters = {
+  q: string;
+  locationId: string;
+  status: string;
+  groupBy: "product" | "lot";
+  basis: "cost" | "selling";
+};
+
+/** WEB-064: stock-on-hand filters read from the page URL (search, place, status, grouping, value basis). */
+export function stockFilters(
+  params: { get(name: string): string | null } | undefined,
+  initialLocationId = "",
+): StockFilters {
+  const get = (k: string) => params?.get(k) ?? "";
+  return {
+    q: get("q"),
+    locationId: get("locationId") || initialLocationId,
+    status: get("status"),
+    groupBy: get("groupBy") === "lot" ? "lot" : "product",
+    basis: get("basis") === "selling" ? "selling" : "cost",
+  };
+}
+
+/** URL patch for a filter change; defaults are dropped so the address stays short. */
+export function stockParamPatch(patch: Partial<StockFilters>): Record<string, string | null> {
+  const out: Record<string, string | null> = {};
+  for (const [k, v] of Object.entries(patch)) {
+    const isDefault = !v || (k === "groupBy" && v === "product") || (k === "basis" && v === "cost");
+    out[k] = isDefault ? null : String(v);
+  }
+  return out;
+}
+
+/** WEB-064: the value cards follow the rows on screen. The server already totals the
+ * place/status filter; a typed search narrows rows on the page, so re-add those. */
+export function shownTotals(
+  rows: StockRow[],
+  totals: Valuation["totals"] | undefined,
+  searching: boolean,
+): { costValueCentavos: number | null; sellingValueCentavos: number | null } | undefined {
+  if (!totals) return undefined;
+  if (!searching) return totals;
+  return {
+    costValueCentavos: rows.reduce((s, r) => s + (r.costValueCentavos ?? 0), 0),
+    sellingValueCentavos: rows.some((r) => r.sellingValueCentavos == null)
+      ? null
+      : rows.reduce((s, r) => s + (r.sellingValueCentavos ?? 0), 0),
+  };
 }

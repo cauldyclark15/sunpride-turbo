@@ -34,6 +34,8 @@ import {
 } from "./operations-pickers";
 import { ReceiveDelivery, ReceiveQueue } from "./receive";
 import { BadOrders, ExpiryBoard, StockCard, StockOnHand } from "./stock";
+import { stockParamPatch } from "./stock/helpers";
+import { withParams } from "../cockpit/url";
 import { TransferDetail, TransfersList } from "./transfers";
 import { PlannedLoad, RosterEditor, VanDayBoard } from "./vanday";
 
@@ -137,6 +139,17 @@ function Screen({ path, role }: { path: string[]; role: string }) {
           <StockOnHand
             cardHref={(p, l) =>
               `/operations/stock/card?product=${p}&location=${l}`
+            }
+            params={query}
+            onParams={(patch) =>
+              router.replace(
+                withParams(
+                  `/operations/stock`,
+                  query?.toString() ?? "",
+                  stockParamPatch(patch),
+                ),
+                { scroll: false },
+              )
             }
           />
         );
