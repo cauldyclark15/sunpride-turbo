@@ -16,6 +16,7 @@ const state = vi.hoisted(() => ({
   readError: "",
   requestKeys: [] as (string | undefined)[],
   queryCalls: [] as { name: string; args: unknown }[],
+  refetches: [] as string[],
   mutations: [] as { name: string; args: unknown }[],
   buttons: [] as { label: string; onPress?: () => void }[],
   elements: [] as { type: string; props: Record<string, unknown> }[],
@@ -64,6 +65,9 @@ vi.mock("../../lib/api", async (original) => {
                 message: "Connection lost",
               })
             : null,
+        refetch: async () => {
+          state.refetches.push(name);
+        },
       };
     },
     useLive: (topics: unknown, keys: unknown) => {
@@ -161,6 +165,14 @@ vi.mock("react/jsx-dev-runtime", async (original) => {
   };
 });
 vi.mock("@heroui/react", () => ({
+  Tooltip: Object.assign(
+    ({ children }: { children: React.ReactNode }) =>
+      createElement(React.Fragment, null, children),
+    {
+      Content: ({ children }: { children: React.ReactNode }) =>
+        createElement("span", { role: "tooltip" }, children),
+    },
+  ),
   Button: ({
     children,
     onPress,
@@ -416,6 +428,7 @@ beforeEach(() => {
     "/api/v1/issues/detail": detail,
   };
   state.queryCalls = [];
+  state.refetches = [];
   state.liveCalls = [];
   state.readError = "";
   state.requestKeys = [];
@@ -515,6 +528,30 @@ describe("issue board and list", () => {
     ])
       expect(html).toContain(label);
     expect((html.match(/<h1/g) ?? []).length).toBe(1);
+  });
+  it("refreshes the board and assignees in place from an icon button", async () => {
+    const html = render(<IssuesPage />);
+    expect(html).toContain('aria-label="Refresh issues"');
+    expect(html).toContain('data-icon="sync"');
+    expect(html).toContain('role="tooltip">Refresh<');
+    const button = state.buttons.find(
+      (entry) => entry.label === "Refresh issues",
+    );
+    expect(button?.onPress).toBeTypeOf("function");
+    button?.onPress?.();
+    await Promise.resolve();
+    expect(state.refetches.sort()).toEqual([
+      "/api/v1/issues/assignees",
+      "/api/v1/issues/board",
+    ]);
+  });
+  it("keeps the loaded issues on screen when a refresh fails", () => {
+    state.readError = "/api/v1/issues/board";
+    const html = render(<IssuesPage />);
+    expect(html).toContain(
+      "Could not refresh issues: Connection lost. Showing the last loaded list.",
+    );
+    expect(html).toContain("Order total is incorrect");
   });
   it("passes explicit filters and uses list for archived issues", () => {
     state.filters = {
