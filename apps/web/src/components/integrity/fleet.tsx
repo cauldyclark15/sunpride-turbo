@@ -1,6 +1,7 @@
 "use client";
 import { useState, type FormEvent } from "react";
 import { mutate, useApi, useLive } from "../../lib/api";
+import { formatDateTime } from "../../lib/format";
 import { usePermissions } from "../../lib/auth";
 import { CompanyIdentity } from "./identity";
 import { AppReleases } from "./app-releases";
@@ -32,7 +33,17 @@ type Asset = {
   source_ref: string;
   peripherals: Array<{ kind: string; tag: string }>;
 };
+export type WaitingPhone = {
+  id: string;
+  personId: string;
+  person: string;
+  app: string;
+  phoneCode: string;
+  requestedAt: number;
+  lastSeenAt: number;
+};
 type Fleet = {
+  waiting?: WaitingPhone[];
   assets: Asset[];
   devices: Device[];
   truncated: boolean;
@@ -479,6 +490,164 @@ export function IntegrityFleet() {
       <AppReleases />
       <IntegrityPolicy />
     </div>
+  );
+}
+
+const appName = (app: string) =>
+  app === "van-android" ? "Van POS" : "Field app";
+const when = (at: number) => formatDateTime(at);
+
+/** SP-0174: a person's FIRST phone signs in, waits here, and the office registers it with one click. */
+export function WaitingPhones() {
+  const { can } = usePermissions();
+  const allowed = can("admin.manage");
+  const result = useApi<Fleet>(
+    allowed ? ["integrity", "fleet"] : null,
+    "/api/v1/integrity/fleet",
+  );
+  useLive(allowed ? ["integrity"] : [], [["integrity"]]);
+  const waiting = result.data?.waiting ?? [];
+  const people = result.data?.people ?? [];
+  const [message, setMessage] = useState("");
+  const [busy, setBusy] = useState(false);
+  async function send(path: string, body: unknown, done: string) {
+    setBusy(true);
+    setMessage("");
+    try {
+      await mutate(path, body, {
+        invalidate: [["integrity"]],
+        idempotencyKey: crypto.randomUUID(),
+      });
+      setMessage(done);
+    } catch (e) {
+      setMessage(e instanceof Error ? e.message : "Could not save. Try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+  if (!allowed) return null;
+  return (
+    <section className={box} aria-labelledby="waiting-phones">
+      <h2 id="waiting-phones" className="text-lg font-semibold">
+        Phones waiting to be registered
+      </h2>
+      <p className="text-sm text-muted">
+        When someone signs in on a new phone, it shows here. Check the phone
+        code matches the code on their screen, then press Register. Their phone
+        opens by itself within a minute.
+      </p>
+      {result.error ? <p role="alert">{result.error.message}</p> : null}
+      {!result.data ? (
+        <p className="text-sm">Loading…</p>
+      ) : waiting.length === 0 ? (
+        <p className="text-sm">No phones are waiting.</p>
+      ) : (
+        waiting.map((w) => (
+          <article
+            key={w.id}
+            className="flex flex-wrap items-start justify-between gap-3 border-t border-border pt-3"
+          >
+            <div>
+              <p className="font-medium">
+                {w.person} · {appName(w.app)}
+              </p>
+              <p className="text-sm">
+                Phone code <span className="font-mono">{w.phoneCode}</span>
+              </p>
+              <p className="text-xs text-muted">Asked {when(w.requestedAt)}</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                className={button}
+                disabled={busy}
+                onClick={() =>
+                  void send(
+                    "/api/v1/integrity/devices/waiting/register",
+                    { requestId: w.id },
+                    `${w.person}'s phone is registered.`,
+                  )
+                }
+              >
+                Register
+              </button>
+              <button
+                className={button}
+                disabled={busy}
+                onClick={() => {
+                  if (
+                    window.confirm(
+                      `Reject this phone for ${w.person}? They can sign in again to ask again.`,
+                    )
+                  )
+                    void send(
+                      "/api/v1/integrity/devices/waiting/reject",
+                      { requestId: w.id },
+                      "Phone rejected.",
+                    );
+                }}
+              >
+                Reject
+              </button>
+            </div>
+          </article>
+        ))
+      )}
+      <details className="border-t border-border pt-3 text-sm">
+        <summary>Phone not listed? Register with the phone&apos;s code</summary>
+        <form
+          className="mt-3 grid gap-3"
+          onSubmit={(e) => {
+            e.preventDefault();
+            const f = new FormData(e.currentTarget);
+            void send(
+              "/api/v1/people/devices/register",
+              {
+                profileId: f.get("person"),
+                app: f.get("app"),
+                inventoryTag: f.get("tag") || "Phone",
+                publicKeySpki: String(f.get("code") ?? "").replace(/\s+/g, ""),
+              },
+              "Phone registered. It opens by itself within a minute.",
+            );
+          }}
+        >
+          <p>
+            On the phone, press Copy code and send it to you. Paste the whole
+            code here.
+          </p>
+          <label>
+            Person
+            <select name="person" className={input} required>
+              <option value="">Choose person</option>
+              {people.map((p) => (
+                <option key={p.id} value={p.id}>
+                  {p.name}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            App
+            <select name="app" className={input}>
+              <option value="field-android">Field app</option>
+              <option value="van-android">Van POS</option>
+            </select>
+          </label>
+          <label>
+            Phone code
+            <textarea name="code" className={input} required rows={3} />
+          </label>
+          <label>
+            Phone label (optional)
+            <input name="tag" className={input} maxLength={100} />
+          </label>
+          <button className={button} disabled={busy}>
+            Register phone
+          </button>
+        </form>
+      </details>
+      {message ? <p role="status">{message}</p> : null}
+    </section>
   );
 }
 
