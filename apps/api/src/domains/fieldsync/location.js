@@ -6,6 +6,7 @@ import { isUuid } from "../../core/util.js";
 import { enqueue } from "../../core/jobs.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { dayFacts } from "./projections.js";
+import { fieldNumbers, fieldStatus } from "./field-day.js";
 import {
   ORGANIZATION,
   ZERO_UUID,
@@ -386,9 +387,12 @@ export async function live(ctx) {
             : "fresh",
       visitOutletName: r.visit_outlet_name ?? null,
       sample: r.sample === true,
-      planned: f?.planned ?? 0,
-      visited: f?.visited ?? 0,
-      productive: f?.productive ?? 0,
+      // SP-0175: the same numbers and status as Today and the agent day (field-day.js).
+      planned: fieldNumbers(f).planned,
+      visited: fieldNumbers(f).visited,
+      productive: fieldNumbers(f).productive,
+      fieldStatus: fieldStatus(f, manilaDate(ctx.now), ctx.now),
+      fieldLastSeenAt: fieldNumbers(f).lastSeenAt,
       idleFlag:
         !ended &&
         new Date(ctx.now + 28_800_000).getUTCHours() >= 5 &&
@@ -418,9 +422,10 @@ export async function live(ctx) {
     const counts = await dayFacts(db, visibleIds, day);
     const sum = { date: day, planned: 0, visited: 0, productive: 0 };
     for (const value of counts.values()) {
-      sum.planned += value.planned;
-      sum.visited += value.visited;
-      sum.productive += value.productive;
+      const n = fieldNumbers(value);
+      sum.planned += n.planned;
+      sum.visited += n.visited;
+      sum.productive += n.productive;
     }
     trend.push(sum);
   }

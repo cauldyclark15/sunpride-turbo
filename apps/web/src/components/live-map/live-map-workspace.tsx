@@ -322,10 +322,10 @@ function DaySummary({
       <div className="grid gap-3">
         <p className="text-[13px] text-muted">
           {today
-            ? `People in scope: ${today.visited} visits against ${today.planned} planned stops · ${today.productive} productive`
+            ? `People in scope: ${today.visited} of ${today.planned} planned stops done · ${today.productive} productive`
             : "Day totals unavailable"}
           {prior
-            ? ` · ${prior.visited} visits on the prior day`
+            ? ` · ${prior.visited} stops done the prior day`
             : " · Prior day unavailable"}
         </p>
         {flagged.length ? (

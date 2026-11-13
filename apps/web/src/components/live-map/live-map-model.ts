@@ -33,6 +33,28 @@ export type LivePosition = {
   lastMovedAt: number | null;
   lastActivityAt: number | null;
   freshness: "fresh" | "stale" | "offline" | "ended";
+  /** SP-0175: the day status Today and the agent day show (older servers omit it). */
+  fieldStatus?:
+    | "no_plan"
+    | "not_started"
+    | "in_call"
+    | "working"
+    | "idle"
+    | "done";
+  fieldLastSeenAt?: number | null;
+};
+
+/** SP-0175: the same words Today's "Field right now" uses. */
+export const FIELD_STATUS_LABEL: Record<
+  NonNullable<LivePosition["fieldStatus"]>,
+  string
+> = {
+  no_plan: "No plan",
+  not_started: "Not started",
+  in_call: "In a call",
+  working: "Working",
+  idle: "Idle",
+  done: "Done",
 };
 export type DayCount = {
   date: string;
@@ -192,13 +214,16 @@ export function positionMeta(p: LivePosition, now = Date.now()) {
     p.batteryPercent !== null ? `${p.batteryPercent}% battery` : null,
     `±${Math.round(p.accuracyMeters)} m`,
     p.mockLocation ? "Mock location" : null,
+    p.fieldStatus && p.kind === "field"
+      ? `Day: ${FIELD_STATUS_LABEL[p.fieldStatus]}`
+      : null,
     p.visitOutletName ? `In call: ${p.visitOutletName}` : null,
-    `${p.planned ?? 0} planned · ${p.visited ?? 0} visited · ${p.productive ?? 0} productive`,
+    `${p.visited ?? 0} of ${p.planned ?? 0} stops done · ${p.productive ?? 0} productive`,
     p.lastMovedAt
       ? `Last move ${lastSeen(now, p.lastMovedAt)}`
       : "Last move unknown",
     p.idleFlag ? "Check in: no movement or visit for 45+ min" : null,
-    p.sample ? "Sample" : null,
+    p.sample ? "Sample position (test data, not this phone)" : null,
   ]
     .filter(Boolean)
     .join(" · ");

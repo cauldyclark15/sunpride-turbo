@@ -33,6 +33,15 @@ export type ResponseHeader = {
     asOf: number;
     devicesBehind: number;
     oldestDeviceSyncAt: number | null;
+    /** SP-0175: up to five phones behind, oldest first (older servers omit it). */
+    devicesBehindList?: Array<{
+      deviceId: string;
+      profileId: string;
+      name: string | null;
+      app: string;
+      phone: string;
+      lastSeenAt: number | null;
+    }>;
   };
   demo: boolean;
 };
@@ -79,7 +88,12 @@ export type ExceptionItem = {
 
 // ---------- /analytics/today ----------
 export type FieldStatus =
-  "no_plan" | "not_started" | "in_call" | "done" | "idle";
+  | "no_plan"
+  | "not_started"
+  | "in_call"
+  | "working"
+  | "done"
+  | "idle";
 export type VanStatus =
   "loading" | "on_route" | "returned" | "settled" | "unclosed";
 
@@ -98,6 +112,8 @@ export type TodayResponse = ResponseHeader & {
       noPlan: number;
       notStarted: number;
       inCall: number;
+      /** SP-0175: started and active within the hour, between calls. Older servers omit it. */
+      working: number;
       done: number;
       idle: number;
     };
@@ -211,6 +227,9 @@ export type AgentDayResponse = ResponseHeader & {
     position: string;
   };
   summary: {
+    /** SP-0175: the same status Today and the Live map show. */
+    status?: FieldStatus;
+    lastSeenAt?: number | null;
     planned: number;
     visited: number;
     productive: number;
@@ -229,6 +248,15 @@ export type AgentDayResponse = ResponseHeader & {
     onPlan: boolean | null;
   }>;
   trail: Array<{ at: number; lat: number; lng: number }>;
+  /** SP-0175: stores this person added that day (phone Add customer / gathered). */
+  storesAdded?: Array<{
+    id: string;
+    code: string | null;
+    name: string;
+    at: number | null;
+    via: "added" | "gathered";
+    state: "waiting" | "approved" | "rejected" | "merged";
+  }>;
 };
 
 // ---------- /analytics/stores ----------

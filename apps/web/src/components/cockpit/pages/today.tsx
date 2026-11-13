@@ -44,9 +44,19 @@ const FIELD: Array<{
   { status: "no_plan", count: "noPlan", label: "No plan" },
   { status: "not_started", count: "notStarted", label: "Not started" },
   { status: "in_call", count: "inCall", label: "In a call" },
-  { status: "done", count: "done", label: "Done" },
+  { status: "working", count: "working", label: "Working" },
   { status: "idle", count: "idle", label: "Idle" },
+  { status: "done", count: "done", label: "Done" },
 ];
+
+/** SP-0175: office, admin and manager roles open Today on the field team first. */
+export const FIELD_FIRST_ROLES = new Set([
+  "super_admin",
+  "admin",
+  "operations",
+  "manager",
+  "approver",
+]);
 
 type Person = TodayResponse["field"]["people"][number];
 
@@ -64,6 +74,7 @@ export function TodayView({
   link = (href: string) => href,
   canSetTarget = true,
   canOpenDecide = true,
+  fieldFirst = false,
 }: {
   data: TodayResponse;
   now?: number;
@@ -71,6 +82,8 @@ export function TodayView({
   canSetTarget?: boolean;
   /** CROSS r6: only roles that may open /decide get "Open all in Decide". */
   canOpenDecide?: boolean;
+  /** SP-0175: put "Field right now" above the sales cards (office roles). */
+  fieldFirst?: boolean;
 }) {
   const now = nowProp ?? data.freshness.asOf;
   const [field, setField] = useState<FieldStatus | null>(null);
@@ -84,7 +97,8 @@ export function TodayView({
     idle: 1,
     no_plan: 2,
     in_call: 3,
-    done: 4,
+    working: 4,
+    done: 5,
   };
   const peopleColumns: DrillColumn<Person>[] = [
     {
@@ -146,8 +160,65 @@ export function TodayView({
   const salesKpis = data.kpis.filter((k) => SALES_KPIS.has(k.key));
   const fieldKpis = data.kpis.filter((k) => !SALES_KPIS.has(k.key));
 
+  const fieldPanel = (
+    <Panel
+      title="Field right now"
+      question="Who is working, in a call, idle, done or not started yet."
+      flush
+      actions={
+        <Link
+          href={link(`/coverage-people?from=${date}&to=${date}`)}
+          className={buttonClass}
+        >
+          Coverage & people
+        </Link>
+      }
+    >
+      <div className="grid grid-cols-3 gap-1.5 px-4 pb-3 min-[480px]:grid-cols-6 sm:gap-2 sm:px-5">
+        {FIELD.map((item) => {
+          const value = data.field.counts[item.count] ?? 0;
+          const on = field === item.status;
+          return (
+            <button
+              key={item.status}
+              type="button"
+              aria-pressed={on}
+              onClick={() => setField(on ? null : item.status)}
+              className={`rounded-xl border px-2 py-2 text-left transition-colors sm:px-3 ${
+                on
+                  ? "border-foreground bg-default-soft"
+                  : "border-border hover:bg-default-soft/60"
+              }`}
+            >
+              <span className="block text-[22px] font-semibold leading-none tabular-nums text-foreground">
+                {formatCount(value)}
+              </span>
+              <span className="mt-1 block text-[11px] sm:text-[12px] [&>span]:whitespace-normal [&>span]:text-[11px] sm:[&>span]:text-[12px]">
+                <StatusChip status={item.status} label={item.label} />
+              </span>
+            </button>
+          );
+        })}
+      </div>
+      <DrillTable
+        label="People in the field"
+        columns={peopleColumns}
+        rows={people}
+        rowKey={(p) => p.profileId}
+        rowHref={(p) =>
+          link(
+            `/coverage-people/agent?profileId=${encodeURIComponent(p.profileId)}&date=${date}`,
+          )
+        }
+        initialSort={{ key: "status", dir: "asc" }}
+        empty={<EmptyState variant="zero" title="Nobody with this status" />}
+      />
+    </Panel>
+  );
+
   return (
     <div className="grid gap-4">
+      {fieldFirst ? fieldPanel : null}
       <KpiGrid
         kpis={salesKpis}
         canSetTarget={canSetTarget}
@@ -251,59 +322,7 @@ export function TodayView({
         />
       ) : null}
 
-      <Panel
-        title="Field right now"
-        question="Who has no plan, who has not started, who is idle."
-        flush
-        actions={
-          <Link
-            href={link(`/coverage-people?from=${date}&to=${date}`)}
-            className={buttonClass}
-          >
-            Coverage & people
-          </Link>
-        }
-      >
-        <div className="grid grid-cols-3 gap-1.5 px-4 pb-3 min-[480px]:grid-cols-5 sm:gap-2 sm:px-5">
-          {FIELD.map((item) => {
-            const value = data.field.counts[item.count];
-            const on = field === item.status;
-            return (
-              <button
-                key={item.status}
-                type="button"
-                aria-pressed={on}
-                onClick={() => setField(on ? null : item.status)}
-                className={`rounded-xl border px-2 py-2 text-left transition-colors sm:px-3 ${
-                  on
-                    ? "border-foreground bg-default-soft"
-                    : "border-border hover:bg-default-soft/60"
-                }`}
-              >
-                <span className="block text-[22px] font-semibold leading-none tabular-nums text-foreground">
-                  {formatCount(value)}
-                </span>
-                <span className="mt-1 block text-[11px] sm:text-[12px] [&>span]:whitespace-normal [&>span]:text-[11px] sm:[&>span]:text-[12px]">
-                  <StatusChip status={item.status} label={item.label} />
-                </span>
-              </button>
-            );
-          })}
-        </div>
-        <DrillTable
-          label="People in the field"
-          columns={peopleColumns}
-          rows={people}
-          rowKey={(p) => p.profileId}
-          rowHref={(p) =>
-            link(
-              `/coverage-people/agent?profileId=${encodeURIComponent(p.profileId)}&date=${date}`,
-            )
-          }
-          initialSort={{ key: "status", dir: "asc" }}
-          empty={<EmptyState variant="zero" title="Nobody with this status" />}
-        />
-      </Panel>
+      {fieldFirst ? null : fieldPanel}
 
       <div className="grid items-start gap-4 lg:grid-cols-5">
         <Panel
@@ -443,6 +462,7 @@ export function TodayPage() {
             link={link}
             canSetTarget={access.canSetTarget}
             canOpenDecide={canAccessWebModule("decide", access.role)}
+            fieldFirst={FIELD_FIRST_ROLES.has(access.role ?? "")}
           />
         )}
       </PageData>

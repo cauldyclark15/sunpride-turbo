@@ -86,6 +86,8 @@ export type Capture = {
   target?: { id: string; code: string | null; name: string | null } | null;
   changes?: StoreChange[];
   has_photo?: boolean;
+  /** Who sent it; that person cannot review it (two-person rule). */
+  actor_profile_id?: string;
 };
 
 export type StoreChange = {

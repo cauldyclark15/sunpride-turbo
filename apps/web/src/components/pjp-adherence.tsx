@@ -142,7 +142,8 @@ export function PjpAdherenceView({ data }: { data: PjpAdherence }) {
           ))}
         </ul>
       </details>
-      <Link className="text-sm underline" href="/sales-force">
+      {/* SP-0175: opens the Journey plans tab itself, not the Coverage plans list. */}
+      <Link className="text-sm underline" href="/sales-force?tab=pjp">
         Rebalance the next beat in Journey plans
       </Link>
     </section>

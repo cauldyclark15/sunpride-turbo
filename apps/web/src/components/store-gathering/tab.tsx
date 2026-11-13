@@ -50,11 +50,20 @@ export function StoreGatheringTab({
   );
 }
 
-/** How many items wait on the New stores tab for this user: gathered stores to review and office
- * pins to confirm (outlet.verify) plus new-store approvals (outlet.enrol.approve). null when the
- * user may review none of them or a count is still loading. A "+" page is counted as its size. */
+/** Field-review rows this user may decide: everything except what they sent themselves. */
+export function reviewableRows(queue: Queue | undefined, me?: string | null) {
+  return (queue?.rows ?? []).filter(
+    (r) => !me || !r.actor_profile_id || r.actor_profile_id !== me,
+  );
+}
+
+/** How many items wait on the New customers tab for THIS user (SP-0175: the badge equals what the
+ * tab's lists show them to act on): gathered stores they may review and office pins to confirm
+ * (outlet.verify), plus the prospects list they may approve (outlet.enrol.approve, which already
+ * holds the phone's "Add customer" stores). null when the user may act on none or a count is
+ * still loading. */
 export function useWaitingCount(): number | null {
-  const { can } = usePermissions();
+  const { can, profileId } = usePermissions();
   const verify = can("outlet.verify");
   const approve = can("outlet.enrol.approve");
   const queue = useApi<Queue>(
@@ -65,17 +74,17 @@ export function useWaitingCount(): number | null {
     verify ? ["masters", "pins"] : null,
     "/api/v1/outlets/pins/queue?limit=50",
   );
-  const enrolments = useApi<{ page: unknown[] }>(
-    approve ? ["masters", "enrolments", "pending-count"] : null,
-    "/api/v1/outlets/enrolment/pending?limit=50",
+  const prospects = useApi<{ total?: number; rows: unknown[] }>(
+    approve ? ["masters", "prospects", "waiting-count"] : null,
+    "/api/v1/customers?awaitingApproval=true&limit=1&offset=0",
   );
   if (!verify && !approve) return null;
   if (verify && (!queue.data || !pins.data)) return null;
-  if (approve && !enrolments.data) return null;
+  if (approve && !prospects.data) return null;
   return (
-    (queue.data?.rows.length ?? 0) +
+    reviewableRows(queue.data, profileId).length +
     (pins.data?.page.length ?? 0) +
-    (enrolments.data?.page.length ?? 0)
+    (prospects.data?.total ?? prospects.data?.rows.length ?? 0)
   );
 }
 

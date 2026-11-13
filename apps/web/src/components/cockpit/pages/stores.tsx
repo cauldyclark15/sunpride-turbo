@@ -279,7 +279,16 @@ export function StoresPage() {
         />
       ) : tab === "new" ? (
         <div className="grid gap-8">
-          <section className="grid gap-3">
+          {/* SP-0175: the agents' stores from the phone come first; office prospects second. */}
+          {can("outlet.verify") ? (
+            <section className="grid gap-3" data-testid="new-field-section">
+              <h2 className="text-[17px] font-semibold text-foreground">
+                Stores your agents added on the phone
+              </h2>
+              <StoreGatheringReview />
+            </section>
+          ) : null}
+          <section className="grid gap-3" data-testid="new-prospects-section">
             <h2 className="text-[17px] font-semibold text-foreground">
               {newTabHeading(can("outlet.enrol.approve"), canAdd)}
             </h2>
@@ -293,7 +302,6 @@ export function StoresPage() {
               onEdit={canAdd ? (id) => set({ edit: id }) : undefined}
             />
           </section>
-          <StoreGatheringReview />
         </div>
       ) : tab === "map" ? (
         <LocationCoverage />
@@ -378,6 +386,7 @@ function CustomersListTab({
       index={index}
       rows={result.data?.rows ?? (result.error ? [] : null)}
       statusCounts={result.data?.statusCounts ?? null}
+      adders={result.data?.adders ?? []}
       total={
         result.data ? (result.data.total ?? result.data.rows.length) : null
       }
@@ -877,6 +886,6 @@ function StorePerformance({ storeId }: { storeId: string }) {
 /** WEB-059: the New customers heading says only what this person can do there. */
 export function newTabHeading(canApprove: boolean, canEdit: boolean): string {
   if (canApprove) return "Prospects to complete and approve";
-  if (canEdit) return "Prospects to complete (another person approves)";
-  return "Prospects waiting for approval";
+  if (canEdit) return "Prospects to complete (a manager approves)";
+  return "Prospects waiting for a manager's approval";
 }

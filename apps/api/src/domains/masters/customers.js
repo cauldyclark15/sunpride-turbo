@@ -13,6 +13,7 @@ import {
   validateCustomer,
 } from "@sunpride/customer-master";
 import { requireCapability } from "../../core/capabilities.js";
+import { compactName, searchWordPatterns } from "./duplicates.js";
 import { ApiError } from "../../core/errors.js";
 import {
   allocate,
@@ -657,6 +658,10 @@ export async function listCustomers(c) {
   // EDGE-006/WEB-041: a code matches anywhere in it, ignoring case, spaces and dashes, letter O
   // read as zero ("smp c-OO69" finds SMP-C0069). Only [a-z0-9] survive, so it is LIKE-safe.
   const codeQ = compactCodeQuery(text);
+  // SP-0175: names are tolerant too: case, spaces, hyphens and one typo per longer word
+  // ("Aling Nina" finds "Aling Nena", "alingnena" and "sari sari 1" find "Sari-sari 1").
+  const words = searchWordPatterns(text);
+  const nameQ = compactName(text, true);
   const limit = Math.min(200, Math.max(1, Number(q.get("limit")) || 50));
   const after = q.get("cursor") ?? "";
   // Page-number lists (office web): `offset` skips rows in code order and the reply carries `total`.
@@ -675,6 +680,14 @@ export async function listCustomers(c) {
   // The office approval queue: prospects plus field enrolments still provisional (the phone's
   // "Add customer" store is active with a provisional code so the rep can visit it at once).
   const awaiting = ["true", "1"].includes(param("awaitingApproval") ?? "");
+  // SP-0175 "Who added what": the agent who added the store (phone Add customer, a gathered
+  // store the office approved, or the office user who created it) and the Manila day.
+  const addedBy = param("addedBy");
+  if (addedBy && !/^[0-9a-f-]{36}$/i.test(addedBy))
+    throw new ApiError("invalid_request", 400, "Unknown person.");
+  const addedOn = param("addedOn");
+  if (addedOn && !/^\d{4}-\d{2}-\d{2}$/.test(addedOn))
+    throw new ApiError("invalid_request", 400, "Choose a valid date.");
   const nationwide = unitIds === null;
   const rows =
     await c.db`select x.*,count(*) over() as total_count from (select o.id,o.code,o.name,o.address,o.status,o.enrolment_status,p.completeness,p.registered_name,
@@ -687,13 +700,22 @@ export async function listCustomers(c) {
     where (${nationwide} or s.owner_unit_id::text=any(${c.db.array(unitIds ?? [], "TEXT")}))
       and (${!awaiting} or (o.status='prospect' or (o.status='active' and o.enrolment_status='provisional')))
       and (${completeness}::text is null or coalesce(p.completeness,'draft')=${completeness})
+      and (${addedBy}::uuid is null or exists(select 1 from outlet_enrolments e where e.outlet_id=o.id and e.deleted_at is null and e.proposed_by_profile_id=${addedBy}::uuid)
+        or exists(select 1 from census_reviews r join census_captures cc on cc.id=r.capture_id where r.outlet_id=o.id and r.decision='accept' and cc.actor_profile_id=${addedBy}::uuid)
+        or exists(select 1 from profiles pr where pr.id=${addedBy}::uuid and o.created_by in (pr.user_id::text,pr.auth_subject)))
+      and (${addedOn}::date is null or (coalesce((select min(e.proposed_at) from outlet_enrolments e where e.outlet_id=o.id and e.deleted_at is null),
+        (select min(cc.captured_at) from census_reviews r join census_captures cc on cc.id=r.capture_id where r.outlet_id=o.id and r.decision='accept'),
+        o.created_at) at time zone 'Asia/Manila')::date=${addedOn}::date)
       and (${param("salesOrgCode")}::text is null or p.sales_org_code=${param("salesOrgCode")})
       and (${param("distributionChannelCode")}::text is null or p.distribution_channel_code=${param("distributionChannelCode")})
       and (${param("customerGroup1Code")}::text is null or p.customer_group1_code=${param("customerGroup1Code")})
       and (${param("customerGroupCode")}::text is null or p.customer_group_code=${param("customerGroupCode")})
       and (${param("salesOfficeCode")}::text is null or p.sales_office_code=${param("salesOfficeCode")})
       and (${param("customerGroup2Code")}::text is null or p.customer_group2_code=${param("customerGroup2Code")})
-      and (${text === ""} or o.name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"} or (${codeQ !== ""} and translate(regexp_replace(lower(o.code),'[^a-z0-9]','','g'),'o','0') like ${"%" + codeQ + "%"}) or p.registered_name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"})
+      and (${text === ""} or o.name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"} or (${codeQ !== ""} and translate(regexp_replace(lower(o.code),'[^a-z0-9]','','g'),'o','0') like ${"%" + codeQ + "%"}) or p.registered_name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"}
+        or (${nameQ !== ""} and regexp_replace(lower(o.name),'[^a-z0-9]+','','g') like ${"%" + nameQ + "%"})
+        or (${words.length > 0} and not exists (select 1 from unnest(${c.db.array(words.length ? words : [""], "TEXT")}::text[]) w(re)
+          where regexp_replace(lower(o.name),'[^a-z0-9]+','','g') !~ w.re and regexp_replace(lower(coalesce(p.registered_name,'')),'[^a-z0-9]+','','g') !~ w.re)))
     ) x
     where (${status}::text is null or x.status=${status})
       and (${offset !== null} or x.code > ${after})
@@ -709,13 +731,22 @@ export async function listCustomers(c) {
               where (${nationwide} or s.owner_unit_id::text=any(${c.db.array(unitIds ?? [], "TEXT")}))
                 and (${!awaiting} or (o.status='prospect' or (o.status='active' and o.enrolment_status='provisional')))
                 and (${completeness}::text is null or coalesce(p.completeness,'draft')=${completeness})
+                and (${addedBy}::uuid is null or exists(select 1 from outlet_enrolments e where e.outlet_id=o.id and e.deleted_at is null and e.proposed_by_profile_id=${addedBy}::uuid)
+                  or exists(select 1 from census_reviews r join census_captures cc on cc.id=r.capture_id where r.outlet_id=o.id and r.decision='accept' and cc.actor_profile_id=${addedBy}::uuid)
+                  or exists(select 1 from profiles pr where pr.id=${addedBy}::uuid and o.created_by in (pr.user_id::text,pr.auth_subject)))
+                and (${addedOn}::date is null or (coalesce((select min(e.proposed_at) from outlet_enrolments e where e.outlet_id=o.id and e.deleted_at is null),
+                  (select min(cc.captured_at) from census_reviews r join census_captures cc on cc.id=r.capture_id where r.outlet_id=o.id and r.decision='accept'),
+                  o.created_at) at time zone 'Asia/Manila')::date=${addedOn}::date)
                 and (${param("salesOrgCode")}::text is null or p.sales_org_code=${param("salesOrgCode")})
                 and (${param("distributionChannelCode")}::text is null or p.distribution_channel_code=${param("distributionChannelCode")})
                 and (${param("customerGroup1Code")}::text is null or p.customer_group1_code=${param("customerGroup1Code")})
                 and (${param("customerGroupCode")}::text is null or p.customer_group_code=${param("customerGroupCode")})
                 and (${param("salesOfficeCode")}::text is null or p.sales_office_code=${param("salesOfficeCode")})
                 and (${param("customerGroup2Code")}::text is null or p.customer_group2_code=${param("customerGroup2Code")})
-                and (${text === ""} or o.name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"} or (${codeQ !== ""} and translate(regexp_replace(lower(o.code),'[^a-z0-9]','','g'),'o','0') like ${"%" + codeQ + "%"}) or p.registered_name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"})`
+                and (${text === ""} or o.name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"} or (${codeQ !== ""} and translate(regexp_replace(lower(o.code),'[^a-z0-9]','','g'),'o','0') like ${"%" + codeQ + "%"}) or p.registered_name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"}
+        or (${nameQ !== ""} and regexp_replace(lower(o.name),'[^a-z0-9]+','','g') like ${"%" + nameQ + "%"})
+        or (${words.length > 0} and not exists (select 1 from unnest(${c.db.array(words.length ? words : [""], "TEXT")}::text[]) w(re)
+          where regexp_replace(lower(o.name),'[^a-z0-9]+','','g') !~ w.re and regexp_replace(lower(coalesce(p.registered_name,'')),'[^a-z0-9]+','','g') !~ w.re)))`
           )[0]
         : null);
     statusCounts = {
@@ -725,11 +756,49 @@ export async function listCustomers(c) {
       inactive: Number(any?.n_inactive ?? 0),
     };
   }
+  const pageIds = rows.slice(0, limit).map((/** @type {any} */ r) => r.id);
+  const addedRows = pageIds.length
+    ? await c.db`select o.id,coalesce(en.pid,cap.pid,cr.id) as pid,coalesce(en_p.name,cap_p.name,cr.name) as name,coalesce(en.at,cap.at,o.created_at) as at
+      from outlets o
+      left join lateral(select e.proposed_by_profile_id pid,e.proposed_at at from outlet_enrolments e where e.outlet_id=o.id and e.deleted_at is null order by e.proposed_at limit 1) en on true
+      left join profiles en_p on en_p.id=en.pid
+      left join lateral(select cc.actor_profile_id pid,cc.captured_at at from census_reviews r join census_captures cc on cc.id=r.capture_id where r.outlet_id=o.id and r.decision='accept' order by cc.captured_at limit 1) cap on true
+      left join profiles cap_p on cap_p.id=cap.pid
+      left join lateral(select pr.id,pr.name from profiles pr where o.created_by in (pr.user_id::text,pr.auth_subject) order by pr.id limit 1) cr on true
+      where o.id in ${c.db(pageIds)}`
+    : [];
+  const addedById = new Map(
+    addedRows.map((/** @type {any} */ r) => [r.id, r]),
+  );
+  // The agents (and office people) who added stores in this scope, for the "Added by" filter.
+  const adders =
+    offset === null
+      ? null
+      : await c.db`select distinct pid as id,name from (
+          select e.proposed_by_profile_id pid,pr.name from outlet_enrolments e join profiles pr on pr.id=e.proposed_by_profile_id join analytics_store_scope s on s.id=e.outlet_id
+            where e.deleted_at is null and (${nationwide} or s.owner_unit_id::text=any(${c.db.array(unitIds ?? [], "TEXT")}))
+          union
+          select cc.actor_profile_id,pr.name from census_reviews r join census_captures cc on cc.id=r.capture_id join profiles pr on pr.id=cc.actor_profile_id join analytics_store_scope s on s.id=r.outlet_id
+            where r.decision='accept' and (${nationwide} or s.owner_unit_id::text=any(${c.db.array(unitIds ?? [], "TEXT")}))
+        ) a order by name limit 200`;
   return {
+    ...(adders
+      ? {
+          adders: adders.map((/** @type {any} */ a) => ({
+            id: a.id,
+            name: a.name,
+          })),
+        }
+      : {}),
     rows: rows.slice(0, limit).map((/** @type {any} */ r) => ({
       id: r.id,
       code: r.code,
       customerName: r.name,
+      addedById: addedById.get(r.id)?.pid ?? null,
+      addedByName: addedById.get(r.id)?.name ?? null,
+      addedAt: addedById.get(r.id)?.at
+        ? new Date(addedById.get(r.id).at).getTime()
+        : null,
       registeredName: r.registered_name ?? null,
       customerAddress: r.address ?? null,
       status: r.status,

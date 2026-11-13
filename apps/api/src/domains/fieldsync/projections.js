@@ -118,37 +118,7 @@ async function salesData(ctx, person, date) {
     calls: { productiveCallRule: standard?.productive_call_rule ?? null },
   };
 }
-/** Facts are shared by the map and Team so planned/done/productive cannot disagree. @param {any} db @param {string[]} ids @param {string} date */
-export async function dayFacts(db, ids, date) {
-  if (!ids.length) return new Map();
-  const rows = await db`
-    select p.id,
-      (select count(*)::int from planned_visits pv join coverage_plans cp on cp.id=pv.plan_id
-       where pv.assignee_profile_id=p.id and pv.service_date=${date}::date and pv.status='planned' and pv.deleted_at is null
-         and cp.status in ('approved','active') and cp.approval_signature is not null and cp.deleted_at is null) as planned,
-      count(v.id) filter (where v.checked_in_at is not null)::int as visited,
-      count(v.id) filter (where v.checked_out_at is not null)::int as done,
-      count(distinct v.planned_visit_id) filter (where v.checked_out_at is not null and v.planned_visit_id in (
-        select pv.id from planned_visits pv join coverage_plans cp on cp.id=pv.plan_id
-        where pv.status='planned' and pv.deleted_at is null and cp.status in ('approved','active') and cp.deleted_at is null
-      ))::int as planned_done,
-      count(v.id) filter (where v.checked_out_at is not null and v.productivity='verified' and v.late_review_status is distinct from 'rejected')::int as productive,
-      count(v.id) filter (where v.checked_out_at is not null and v.productivity='nonproductive')::int as nonproductive,
-      (select count(*)::int from (
-        select s.sequence,max(s.sequence) over(order by x.checked_in_at,x.id rows between unbounded preceding and 1 preceding) as highest
-        from visit_executions x join planned_visits pv on pv.id=x.planned_visit_id join coverage_plan_slots s on s.id=pv.plan_slot_id
-        where x.assignee_profile_id=p.id and x.service_date=${date}::date and x.checked_in_at is not null and x.deleted_at is null
-      ) sequence_rows where sequence<highest) as out_of_sequence,
-      count(v.id) filter (where v.source='unplanned' and v.checked_in_at is not null)::int as unplanned,
-      count(v.id) filter (where v.checked_in_at is not null and v.checked_out_at is null)::int as in_progress,
-      count(v.id) filter (where v.late_sync_at is not null)::int as late_sync,
-      min(v.checked_in_at) as first_check_in_at,max(v.checked_out_at) as last_check_out_at,
-      max(v.last_server_time) as last_activity_at
-    from profiles p left join visit_executions v on v.assignee_profile_id=p.id
-      and v.service_date=${date}::date and v.deleted_at is null
-    where p.id in ${db(ids)} group by p.id`;
-  return new Map(rows.map((/** @type {any} */ r) => [r.id, r]));
-}
+export { dayFacts } from "./field-day.js";
 /** @param {ProjectionCtx} ctx */
 async function suggestedOrder(ctx) {
   await requireCapability(ctx, "report.read");

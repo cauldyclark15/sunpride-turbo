@@ -219,7 +219,7 @@ describe("live map model", () => {
 
   it("summarises a position and a trail", () => {
     expect(positionMeta(typed[0]!, NOW)).toBe(
-      "Field · Cebu North · 18 km/h · 80% battery · ±12 m · In call: Colon Grocery · 12 planned · 5 visited · 3 productive · Last move 1 min ago",
+      "Field · Cebu North · 18 km/h · 80% battery · ±12 m · In call: Colon Grocery · 5 of 12 stops done · 3 productive · Last move 1 min ago",
     );
     expect(positionMeta(typed[1]!)).toContain("Sample");
     expect(trailKm(trail as never)).toBeGreaterThan(1);
@@ -295,8 +295,8 @@ describe("live map view", () => {
 
   it("shows planned, visited, productive and last movement on each pin/list", () => {
     const html = renderToStaticMarkup(<LiveMapView {...props()} />);
-    expect(html).toContain("12 planned");
-    expect(html).toContain("5 visited");
+    // SP-0175: the same "stops done" wording Today uses.
+    expect(html).toContain("5 of 12 stops done");
     expect(html).toContain("3 productive");
     expect(html).toContain("Last move 1 min ago");
   });

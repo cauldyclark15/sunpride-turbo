@@ -215,9 +215,11 @@ export function periodFor(ctx, day = false) {
 }
 /** @param {any} ctx @param {any} p @param {any} s */
 export async function header(ctx, p, s) {
-  const [devices, demo] = await Promise.all([
+  const [devices, demo, behind] = await Promise.all([
     ctx.db`select count(*) filter(where last_seen_at is null or last_seen_at<${new Date(ctx.now - 30 * 60_000)}) as behind,min(last_seen_at) as oldest from registered_devices where status='active' and org_unit_id in ${ctx.db(s.ids.length ? s.ids : [null])} and (${s.ownProfileId}::uuid is null or profile_id=${s.ownProfileId})`,
     ctx.db`select exists(select 1 from sample_data_rows r join analytics_store_scope o on o.id::text=r.row_id and r.table_name='outlets' where o.owner_unit_id in ${ctx.db(s.ids.length ? s.ids : [null])}) as demo`,
+    // SP-0175: name the phones behind so the banner can say who and link to them.
+    ctx.db`select d.id,d.profile_id,d.app,d.inventory_tag,d.last_seen_at,p.name from registered_devices d left join profiles p on p.id=d.profile_id where d.status='active' and (d.last_seen_at is null or d.last_seen_at<${new Date(ctx.now - 30 * 60_000)}) and d.org_unit_id in ${ctx.db(s.ids.length ? s.ids : [null])} and (${s.ownProfileId}::uuid is null or d.profile_id=${s.ownProfileId}) order by d.last_seen_at nulls first,d.id limit 5`,
   ]);
   return {
     period: {
@@ -233,6 +235,14 @@ export async function header(ctx, p, s) {
       asOf: ctx.now,
       devicesBehind: Number(devices[0].behind),
       oldestDeviceSyncAt: ms(devices[0].oldest),
+      devicesBehindList: behind.map((/** @type {any} */ d) => ({
+        deviceId: d.id,
+        profileId: d.profile_id,
+        name: d.name ?? null,
+        app: d.app,
+        phone: d.inventory_tag,
+        lastSeenAt: ms(d.last_seen_at),
+      })),
     },
     demo: Boolean(demo[0].demo),
   };

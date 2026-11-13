@@ -782,7 +782,7 @@ function today(query: Query, clock: Clock): TodayResponse {
                 ? "in_call"
                 : r < 0.8
                   ? "done"
-                  : "in_call";
+                  : "working";
     return {
       profileId: agent.id,
       name: agent.name,
@@ -804,11 +804,19 @@ function today(query: Query, clock: Clock): TodayResponse {
       sales: status === "not_started" ? 0 : agentDaySales(agent, date, clock),
     };
   });
-  const counts = { noPlan: 0, notStarted: 0, inCall: 0, done: 0, idle: 0 };
+  const counts = {
+    noPlan: 0,
+    notStarted: 0,
+    inCall: 0,
+    working: 0,
+    done: 0,
+    idle: 0,
+  };
   for (const p of people) {
     if (p.status === "no_plan") counts.noPlan++;
     else if (p.status === "not_started") counts.notStarted++;
     else if (p.status === "in_call") counts.inCall++;
+    else if (p.status === "working") counts.working++;
     else if (p.status === "done") counts.done++;
     else counts.idle++;
   }

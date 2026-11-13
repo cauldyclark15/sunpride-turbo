@@ -552,6 +552,60 @@ describe("SP-0170 customer writer", () => {
     expect(await codes("%")).toEqual([]);
     expect(await codes("_")).toEqual([]);
   });
+  test("SP-0175 name search is tolerant (spaces, hyphens, one typo) and duplicate check matches the customer's mobile and near-miss names", async () => {
+    const made = await call(
+      "admin",
+      "POST",
+      "/api/v1/customers",
+      {
+        custodianOrgUnitId: UNIT,
+        customer: customer({
+          customerName: "Aling Nena Sari-Sari Store",
+          registeredName: "Nena Dela Paz",
+          mobileNo: "09185550199",
+          latitude: undefined,
+          longitude: undefined,
+        }),
+        reason: "SP-0175 search",
+      },
+      crypto.randomUUID(),
+    );
+    expect(made.status, JSON.stringify(made.body)).toBe(200);
+    /** @param {string} q */
+    const names = async (q) =>
+      (
+        await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent(q)}`)
+      ).body.rows.map((/** @type {any} */ r) => r.customerName);
+    for (const q of ["Aling Nina", "alingnena", "aling-nena", "ALING  NENA", "sari sari aling"])
+      expect([q, await names(q)]).toEqual([q, expect.arrayContaining(["Aling Nena Sari-Sari Store"])]);
+    expect(await names("Mang Kanor")).not.toContain("Aling Nena Sari-Sari Store");
+    // "Who added what": the creator and the Manila day are listed and filterable.
+    const list = await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent("Aling Nena")}`);
+    const row = list.body.rows.find((/** @type {any} */ r) => r.id === made.body.id);
+    expect(row.addedAt).toBeGreaterThan(0);
+    expect(Array.isArray(list.body.adders)).toBe(true);
+    const today = new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10);
+    const onDay = await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&addedOn=${today}`);
+    expect(onDay.body.rows.map((/** @type {any} */ r) => r.id)).toContain(made.body.id);
+    const otherDay = await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&addedOn=2020-01-01`);
+    expect(otherDay.body.rows.map((/** @type {any} */ r) => r.id)).not.toContain(made.body.id);
+    if (row.addedById) {
+      const by = await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&addedBy=${row.addedById}`);
+      expect(by.body.rows.map((/** @type {any} */ r) => r.id)).toContain(made.body.id);
+    }
+    expect((await call("admin", "GET", "/api/v1/customers?addedOn=nope")).status).toBe(400);
+    // Duplicate check (the office Add form and the phone call the same endpoint).
+    await h.db`delete from rate_limits where bucket_key like 'dupcheck:%'`;
+    /** @param {any} body */
+    const dup = async (body) =>
+      (await call("admin", "POST", "/api/v1/masters/census/duplicate-check", body)).body.candidates
+        .filter((/** @type {any} */ c) => c.id === made.body.id)
+        .map((/** @type {any} */ c) => c.reasons);
+    expect(await dup({ name: "Totally different", phone: "+63 918 555 0199" })).toEqual([["phone"]]);
+    expect(await dup({ name: "Aling Nina Store" })).toEqual([["name"]]);
+    expect(await dup({ name: "alingnena" })).toEqual([["name"]]);
+    expect(await dup({ name: "Aling Nina", barangay: "Somewhere Else", municipality: "Far City" })).toEqual([]);
+  });
   test("list, filters and permissions", async () => {
     const list = await call(
       "viewer",

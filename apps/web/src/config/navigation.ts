@@ -240,7 +240,6 @@ const moduleTabs: Record<string, WorkspaceModuleTab[]> = {
     },
     { id: "modern-trade", label: "Modern trade", href: "/modern-trade" },
     { id: "sales-force", label: "Coverage plans", href: "/sales-force" },
-    { id: "supervision", label: "Supervision", href: "/supervision" },
     { id: "call-sheets", label: "Call sheets", href: "/call-sheets" },
     { id: "daily-sales", label: "DSR", href: "/daily-sales" },
     { id: "activity-reports", label: "DAR / ROAR", href: "/activity-reports" },
@@ -277,6 +276,13 @@ const tailItems: WorkspaceNavGroup["items"] = [
     icon: "inventory",
   },
   { id: "live-map", label: "Live map", href: "/live-map", icon: "mobile" },
+  // SP-0175: Supervision is its own sidebar item, not a tab hidden under Work.
+  {
+    id: "field-team",
+    label: "Field team",
+    href: "/supervision",
+    icon: "field",
+  },
   { id: "work", label: "Work", href: "/orders", icon: "board" },
   { id: "messages", label: "Messages", href: "/messages", icon: "comment" },
   { id: "issues", label: "Issues", href: "/issues", icon: "issues" },
@@ -297,6 +303,7 @@ export function primaryIdFor(pathname: string): string {
     return segment === "analytics" ? "sales" : "today";
   if (isOwnerSlug(segment)) return segment;
   if (segment === "live-map") return "live-map";
+  if (segment === "supervision") return "field-team";
   if (OPERATIONS_SEGMENTS.has(segment)) return "operations";
   if (segment === "issues") return "issues";
   if (segment === "messages") return "messages";

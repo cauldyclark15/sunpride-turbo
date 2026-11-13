@@ -107,8 +107,15 @@ export function useSession(): SessionValue {
   return value;
 }
 
+/** The signed-in role, or null outside a SessionProvider (static previews, tests). */
+export function useOptionalRole(): string | null {
+  return useContext(SessionContext)?.me?.profile.role ?? null;
+}
+
 export type Permissions = {
   role: string | null;
+  /** The signed-in profile id (SP-0175: "waiting for me" excludes my own submissions). */
+  profileId?: string | null;
   permissions: ReadonlySet<string>;
   /** UI hint only — the API authorizes every request itself. */
   can: (capability: string) => boolean;
@@ -122,6 +129,7 @@ export function usePermissions(): Permissions {
     const permissions = me ? new Set(me.permissions) : NO_PERMISSIONS;
     return {
       role: me?.profile.role ?? null,
+      profileId: me?.profile.id ?? null,
       permissions,
       can: (capability: string) => permissions.has(capability),
     };

@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useEffect } from "react";
 import { AvailabilityPanel, PolicyPanel } from "./tower";
 import dynamic from "next/dynamic";
 const PjpAdherencePanel = dynamic(() =>
@@ -336,11 +337,20 @@ export function CoverageView({
   );
 }
 
+/** SP-0175: Coverage & people opens on "This week" when the link names no period. */
+export function needsDefaultPeriod(params: URLSearchParams) {
+  return !params.get("from") && !params.get("to") && !params.get("period");
+}
+
 export function CoveragePage() {
   const { query, params, link, set } = usePageQuery(["groupBy"]);
   const groupBy = params.get("groupBy") === "territory" ? "territory" : "agent";
   const full = { ...query, groupBy };
-  const result = useAnalytics("coverage", full);
+  const defaulting = needsDefaultPeriod(params);
+  useEffect(() => {
+    if (defaulting) set({ period: "week" }, { replace: true });
+  }, [defaulting, set]);
+  const result = useAnalytics("coverage", defaulting ? null : full);
   return (
     <CockpitPage
       title="Coverage & people"
@@ -438,9 +448,10 @@ export function TrailMap({ trail }: { trail: AgentDayResponse["trail"] }) {
         <circle cx={px(last.lng)} cy={py(last.lat)} r={5} fill="#c8102e" />
       </svg>
       <figcaption className="mt-2 text-[12px] text-muted">
-        <span className="text-[#1f7a43]">●</span> first stop{" "}
-        {formatTime(first.at)} · <span className="text-[#b4101f]">●</span> last{" "}
-        {formatTime(last.at)}
+        {/* SP-0175: these are phone positions, not stops; sample positions are excluded. */}
+        <span className="text-[#1f7a43]">●</span> first position{" "}
+        {formatTime(first.at)} · <span className="text-[#b4101f]">●</span> last
+        position {formatTime(last.at)}
       </figcaption>
     </figure>
   );
@@ -477,9 +488,23 @@ export function AgentDayView({
               {data.person.position} · {data.person.territory}
             </p>
           </div>
-          <Link href={link("/coverage-people")} className={buttonClass}>
-            Back to everyone
-          </Link>
+          <div className="flex flex-wrap items-center gap-2">
+            {s.status ? (
+              <span data-testid="agent-status">
+                <StatusChip status={s.status} />
+              </span>
+            ) : null}
+            {s.lastSeenAt !== undefined ? (
+              <span className="text-[12px] text-muted">
+                {s.lastSeenAt === null
+                  ? "Not seen this day"
+                  : `Last seen ${formatTime(s.lastSeenAt)}`}
+              </span>
+            ) : null}
+            <Link href={link("/coverage-people")} className={buttonClass}>
+              Back to everyone
+            </Link>
+          </div>
         </div>
         <dl className="mt-4 grid grid-cols-2 gap-x-6 gap-y-3 sm:grid-cols-3 lg:grid-cols-6">
           {facts.map(([label, value]) => (
@@ -567,11 +592,86 @@ export function AgentDayView({
             </EmptyState>
           )}
         </Panel>
-        <Panel title="Trail" question="Where the phone went.">
-          <TrailMap trail={data.trail} />
-        </Panel>
+        <div className="grid gap-4">
+          <Panel title="Trail" question="Where the phone went.">
+            <TrailMap trail={data.trail} />
+          </Panel>
+          {data.storesAdded ? (
+            <Panel
+              title="New stores added"
+              question="Stores this person added on the phone that day."
+              actions={
+                <Link
+                  href={link(
+                    `/customers?addedBy=${encodeURIComponent(data.person.profileId)}&addedOn=${data.period.to}`,
+                  )}
+                  className={buttonClass}
+                >
+                  In Customers
+                </Link>
+              }
+            >
+              <StoresAddedList stores={data.storesAdded} link={link} />
+            </Panel>
+          ) : null}
+        </div>
       </div>
     </div>
+  );
+}
+
+const ADDED_STATE: Record<string, string> = {
+  waiting: "Waiting for review",
+  approved: "Approved",
+  rejected: "Rejected",
+  merged: "Merged with an existing store",
+};
+
+/** SP-0175 "who added what": the agent's new stores for the day and where each stands. */
+export function StoresAddedList({
+  stores,
+  link = (href) => href,
+}: {
+  stores: NonNullable<AgentDayResponse["storesAdded"]>;
+  link?: (href: string) => string;
+}) {
+  if (!stores.length)
+    return <EmptyState variant="zero" title="No new stores this day" />;
+  return (
+    <ul className="grid gap-2" data-testid="stores-added">
+      {stores.map((store) => (
+        <li key={`${store.via}${store.id}`} className="text-[13px]">
+          <div className="flex flex-wrap items-baseline gap-x-2">
+            <span className="w-16 shrink-0 tabular-nums text-muted">
+              {formatTime(store.at)}
+            </span>
+            {store.state === "waiting" ? (
+              <Link
+                href={link("/customers?tab=new")}
+                className="font-medium text-foreground hover:underline"
+              >
+                {store.name}
+              </Link>
+            ) : store.code ? (
+              <Link
+                href={link(
+                  `/customers/customer?storeId=${encodeURIComponent(store.id)}`,
+                )}
+                className="font-medium text-foreground hover:underline"
+              >
+                {store.name}
+              </Link>
+            ) : (
+              <span className="font-medium text-foreground">{store.name}</span>
+            )}
+          </div>
+          <p className="pl-[72px] text-[12.5px] text-muted">
+            {ADDED_STATE[store.state] ?? store.state}
+            {store.code ? ` · ${store.code}` : ""}
+          </p>
+        </li>
+      ))}
+    </ul>
   );
 }
 

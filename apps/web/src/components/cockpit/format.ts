@@ -202,6 +202,7 @@ const KNOWN_LABELS: Record<string, string> = {
   no_plan: "No plan",
   not_started: "Not started",
   in_call: "In a call",
+  working: "Working",
   done: "Done",
   idle: "Idle",
   loading: "Loading",
@@ -265,6 +266,7 @@ export function toneFor(status: string | null | undefined): Tone {
     case "high":
       return "behind";
     case "in_call":
+    case "working":
     case "on_route":
     case "new":
       return "info";

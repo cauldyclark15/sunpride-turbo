@@ -620,8 +620,25 @@ describe("location work/consent boundary and retention", () => {
     const live = await api("/api/v1/location/live");
     expect(live.status).toBe(200);
     expect(live.body.positions[0].planned).toBe(1);
-    expect(live.body.positions[0].visited).toBe(1);
+    // SP-0175: "visited" is stops done (same as Today); the open call shows as In a call.
+    expect(live.body.positions[0].visited).toBe(0);
     expect(live.body.positions[0].productive).toBe(0);
+    expect(live.body.positions[0].fieldStatus).toBe("in_call");
+  });
+  test("SP-0175 a closed productive call counts on the map before review (pending), like Today", async () => {
+    await push([ping()]);
+    await h.db`update visit_executions set state='checked-out',checked_out_at=${new Date(now - 60_000)},productivity='pending' where id=${f.visit}`;
+    const live = await api("/api/v1/location/live");
+    expect(live.status).toBe(200);
+    expect(live.body.positions[0]).toMatchObject({
+      planned: 1,
+      visited: 1,
+      productive: 1,
+      fieldStatus: "done",
+    });
+    expect(live.body.trend.at(-1)).toMatchObject({ planned: 1, visited: 1, productive: 1 });
+    await h.db`update visit_executions set late_review_status='rejected' where id=${f.visit}`;
+    expect((await api("/api/v1/location/live")).body.positions[0].productive).toBe(0);
   });
   test("map workload includes a planned person before any location ping", async () => {
     const live = await api("/api/v1/location/live");

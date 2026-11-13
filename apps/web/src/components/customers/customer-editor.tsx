@@ -336,20 +336,34 @@ function EditorBody({
   const dupPhone = useDebounced((v.mobileNo ?? "").trim(), 400);
   const dupLat = validPin?.latitude ?? null;
   const dupLng = validPin?.longitude ?? null;
+  const dupTown = draft.names.municipalityCode ?? null;
+  const dupBarangay = draft.names.barangayCode ?? null;
   useEffect(() => {
     if (customer || !canEdit || dupName.length < 2) return;
     const controller = new AbortController();
     apiFetch<{ candidates: Candidate[] }>(
       "/api/v1/masters/census/duplicate-check",
       {
-        body: duplicateQuery(dupName, dupPhone, dupLat, dupLng),
+        body: duplicateQuery(dupName, dupPhone, dupLat, dupLng, {
+          municipality: dupTown,
+          barangay: dupBarangay,
+        }),
         signal: controller.signal,
       },
     )
       .then((r) => setCandidates(r.candidates ?? []))
       .catch(() => undefined);
     return () => controller.abort();
-  }, [customer, canEdit, dupName, dupPhone, dupLat, dupLng]);
+  }, [
+    customer,
+    canEdit,
+    dupName,
+    dupPhone,
+    dupLat,
+    dupLng,
+    dupTown,
+    dupBarangay,
+  ]);
   const matches = !customer && dupName.length >= 2 ? candidates : [];
 
   async function save(): Promise<Customer | null> {
@@ -862,6 +876,8 @@ export function duplicateQuery(
   phone: string,
   latitude: number | null,
   longitude: number | null,
+  /** SP-0175: near-miss names only warn in the same barangay / municipality. */
+  place: { municipality?: string | null; barangay?: string | null } = {},
 ) {
   return {
     name,
@@ -869,5 +885,7 @@ export function duplicateQuery(
     latitude,
     longitude,
     placeId: null,
+    ...(place.municipality ? { municipality: place.municipality } : {}),
+    ...(place.barangay ? { barangay: place.barangay } : {}),
   };
 }

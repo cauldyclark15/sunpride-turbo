@@ -215,8 +215,14 @@ describe("Operations: verbs first (IP-NAV)", () => {
       for (const sub of section.subs)
         reachable.add(sub.href.slice(1).split("?")[0]!);
     for (const slug of WORKSPACE_SLUGS)
-      if (slug !== "live-map" && slug !== "sap-integration")
+      // SP-0175: Supervision is its own sidebar item ("Field team"), like Live map.
+      if (
+        slug !== "live-map" &&
+        slug !== "sap-integration" &&
+        slug !== "supervision"
+      )
         expect(reachable.has(slug), `${slug} is reachable`).toBe(true);
+    expect(primaryIdFor("/supervision")).toBe("field-team");
   });
 
   it("finds the verb and the lit screen for a path, including detail pages and moved pages", () => {

@@ -26,6 +26,11 @@ import { readVans } from "./stock-money.js";
 import { exceptionsFor } from "./exceptions.js";
 import { ApiError } from "../../core/errors.js";
 import { sliceTiles } from "./tiles.js";
+import {
+  dayFacts,
+  fieldNumbers,
+  fieldStatus,
+} from "../fieldsync/field-day.js";
 import { availabilityModel } from "./availability-adapter.js";
 
 /** @param {any} db @param {any} p @param {any} s @param {string} [group] @param {string|null} [parent] */
@@ -321,6 +326,13 @@ export async function todayPage(ctx, p, s) {
         (/** @type {any} */ v) => v.assignee_profile_id === r.id,
       ),
   );
+  // SP-0175: status, stops done, productive and last seen come from the shared field-day facts
+  // (the Live map and the agent day read the same), never from a page-local rule.
+  const day = await dayFacts(
+    db,
+    fieldPeople.map((/** @type {any} */ r) => r.id),
+    p.to,
+  );
   const fieldRows = fieldPeople.map((/** @type {any} */ person) => {
     const planned = facts.planned.filter(
         (/** @type {any} */ r) => r.assignee_profile_id === person.id,
@@ -329,27 +341,16 @@ export async function todayPage(ctx, p, s) {
         (/** @type {any} */ r) => r.assignee_profile_id === person.id,
       );
     const v = visitSummary({ planned, visits, coaching: [] }),
-      open = visits.some((/** @type {any} */ r) =>
-        ["arrived", "checked-in", "in-progress"].includes(r.state),
-      );
-    const last = maxTime(visits, "last_server_time");
-    const status = !planned.length
-      ? "no_plan"
-      : !visits.length
-        ? "not_started"
-        : open
-          ? "in_call"
-          : v.visited >= v.planned
-            ? "done"
-            : last !== null && ctx.now - last > 60 * 60_000
-              ? "idle"
-              : "not_started";
+      f = day.get(person.id);
     return {
       profileId: person.id,
       name: person.name,
       territory: person.territory_name ?? null,
-      status,
-      lastSeenAt: last,
+      status: fieldStatus(f, p.to, ctx.now, {
+        planned: v.planned,
+        done: v.visited,
+      }),
+      lastSeenAt: fieldNumbers(f).lastSeenAt,
       planned: v.planned,
       visited: v.visited,
       productive: v.productive,
@@ -358,11 +359,19 @@ export async function todayPage(ctx, p, s) {
           ?.sales ?? 0,
     };
   });
-  const counts = { noPlan: 0, notStarted: 0, inCall: 0, done: 0, idle: 0 };
+  const counts = {
+    noPlan: 0,
+    notStarted: 0,
+    inCall: 0,
+    working: 0,
+    done: 0,
+    idle: 0,
+  };
   const map = /** @type {Record<string,keyof typeof counts>} */ ({
     no_plan: "noPlan",
     not_started: "notStarted",
     in_call: "inCall",
+    working: "working",
     done: "done",
     idle: "idle",
   });
@@ -772,7 +781,7 @@ export async function agentDayPage(ctx, p, s) {
     readSales(ctx.db, p, own),
     readCollections(ctx.db, p, own),
     ctx.actor.capabilities.has("location.read")
-      ? ctx.db`select recorded_at as at,latitude as lat,longitude as lng from location_pings where profile_id=${id} and service_date=${p.to} and org_unit_id in ${ctx.db(s.ids.length ? s.ids : [null])} and deleted_at is null and not mock_location order by recorded_at`
+      ? ctx.db`select recorded_at as at,latitude as lat,longitude as lng from location_pings where profile_id=${id} and service_date=${p.to} and org_unit_id in ${ctx.db(s.ids.length ? s.ids : [null])} and deleted_at is null and not mock_location and sample is not true order by recorded_at`
       : [],
   ]);
   const timeline = [];
@@ -833,6 +842,11 @@ export async function agentDayPage(ctx, p, s) {
         (/** @type {any} */ v) => v.outlet_id === o.store_id,
       ),
     });
+  // SP-0175: the same status and numbers as Today and the Live map.
+  const day = (await dayFacts(ctx.db, [id], p.to)).get(id),
+    n = fieldNumbers(day);
+  // P2: stores this agent added on this day (phone "Add customer" and gathered stores).
+  const added = await storesAddedBy(ctx.db, id, p.to);
   let distance = 0;
   for (let i = 1; i < trail.length; i++) {
     const a = trail[i - 1],
@@ -853,6 +867,11 @@ export async function agentDayPage(ctx, p, s) {
       position: person.position_label ?? null,
     },
     summary: {
+      status: fieldStatus(day, p.to, ctx.now, {
+        planned: summary.planned,
+        done: summary.visited,
+      }),
+      lastSeenAt: n.lastSeenAt,
       planned: summary.planned,
       visited: summary.visited,
       productive: summary.productive,
@@ -863,5 +882,32 @@ export async function agentDayPage(ctx, p, s) {
     },
     timeline: timeline.sort((a, b) => (a.at ?? 0) - (b.at ?? 0)),
     trail: trail.map((/** @type {any} */ r) => ({ ...r, at: ms(r.at) })),
+    storesAdded: added,
   };
+}
+
+/** Stores one agent added on one Manila day: phone "Add customer" enrolments and gathered
+ * stores (census captures), with where each stands now. @param {any} db @param {string} profileId @param {string} date */
+export async function storesAddedBy(db, profileId, date) {
+  const rows = await db`
+    select o.id,o.code,o.name,e.proposed_at as at,'added' as via,
+      case e.status when 'pending' then 'waiting' when 'approved' then 'approved' else 'rejected' end as state
+    from outlet_enrolments e join outlets o on o.id=e.outlet_id
+    where e.proposed_by_profile_id=${profileId} and e.deleted_at is null
+      and (e.proposed_at at time zone 'Asia/Manila')::date=${date}::date
+    union all
+    select coalesce(r.outlet_id,c.id) as id,o.code,c.name,c.captured_at as at,'gathered' as via,
+      case when r.id is null then 'waiting' when r.decision='accept' then 'approved' when r.decision='duplicate' then 'merged' else 'rejected' end as state
+    from census_captures c left join census_reviews r on r.capture_id=c.id left join outlets o on o.id=r.outlet_id
+    where c.actor_profile_id=${profileId} and c.kind='new'
+      and (c.captured_at at time zone 'Asia/Manila')::date=${date}::date
+    order by at limit 200`;
+  return rows.map((/** @type {any} */ r) => ({
+    id: r.id,
+    code: r.code ?? null,
+    name: r.name,
+    at: ms(r.at),
+    via: r.via,
+    state: r.state,
+  }));
 }

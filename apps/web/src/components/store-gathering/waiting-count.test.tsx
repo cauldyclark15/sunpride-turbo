@@ -4,10 +4,16 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // WEB-040: the New stores badge counts everything the tab asks this user to act on, not only
 // gathered field captures. An office-added store waits as a pin to confirm.
-const perms = vi.hoisted(() => ({ list: new Set<string>() }));
+const perms = vi.hoisted(() => ({
+  list: new Set<string>(),
+  me: null as string | null,
+}));
 const data = vi.hoisted(() => ({ byPath: {} as Record<string, unknown> }));
 vi.mock("../../lib/auth", () => ({
-  usePermissions: () => ({ can: (p: string) => perms.list.has(p) }),
+  usePermissions: () => ({
+    can: (p: string) => perms.list.has(p),
+    profileId: perms.me,
+  }),
 }));
 vi.mock("../../lib/api", () => ({
   useApi: (key: unknown, path: string) => ({
@@ -28,10 +34,12 @@ const render = () => renderToStaticMarkup(createElement(Probe));
 describe("New stores waiting count", () => {
   beforeEach(() => {
     perms.list = new Set();
+    perms.me = null;
     data.byPath = {
       "/api/v1/masters/census-queue": { rows: [], truncated: false },
       "/api/v1/outlets/pins/queue": { page: [{ id: "pin-1" }] },
-      "/api/v1/outlets/enrolment/pending": { page: [{ id: "e-1" }, { id: "e-2" }] },
+      // SP-0175: approvals = the prospects list total (it holds the phone's Add customer stores).
+      "/api/v1/customers": { total: 2, rows: [{ id: "c-1" }] },
     };
   });
 
@@ -52,6 +60,21 @@ describe("New stores waiting count", () => {
       truncated: false,
     };
     expect(render()).toContain(">5<");
+  });
+
+  it("SP-0175: does not count field stores I sent myself (I cannot review them)", () => {
+    perms.list = new Set(["outlet.verify"]);
+    perms.me = "me";
+    data.byPath["/api/v1/masters/census-queue"] = {
+      rows: [{ actor_profile_id: "me" }, { actor_profile_id: "agent" }],
+      truncated: false,
+    };
+    expect(render()).toContain(">2<");
+  });
+
+  it("SP-0175: an admin who cannot approve prospects is not counted for them", () => {
+    perms.list = new Set(["outlet.verify"]);
+    expect(render()).toContain(">1<");
   });
 
   it("shows no badge without a review permission", () => {

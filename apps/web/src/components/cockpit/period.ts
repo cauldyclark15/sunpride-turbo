@@ -121,6 +121,10 @@ export function readCommon(search: URLSearchParams): CommonQuery {
   if (isIsoDate(from) && isIsoDate(to) && from <= to) {
     query.from = from;
     query.to = to;
+  } else {
+    // SP-0175: a bare ?period=today|week|mtd|last_month link opens on that period.
+    const preset = PERIOD_PRESETS.find((p) => p.id === search.get("period"));
+    if (preset) Object.assign(query, presetRange(preset.id, manilaToday()));
   }
   const unitId = search.get("unitId");
   if (unitId) query.unitId = unitId;

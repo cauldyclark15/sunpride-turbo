@@ -87,6 +87,10 @@ export type CustomerRow = {
   municipalityName: string | null;
   barangayName: string | null;
   territoryName: string | null;
+  /** SP-0175 "who added what" (older servers omit these). */
+  addedById?: string | null;
+  addedByName?: string | null;
+  addedAt?: number | null;
 };
 
 /** The editable form state: every sheet key as text, names of chosen geography, ship-tos. */
@@ -473,4 +477,6 @@ export const LIST_FILTER_KEYS = [
   "customerGroup2Code",
   "customerGroupCode",
   "completeness",
+  "addedBy",
+  "addedOn",
 ] as const;

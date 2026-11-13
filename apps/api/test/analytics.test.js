@@ -141,7 +141,14 @@ for (const [page, kpis] of Object.entries(contracts))
     assertKpis(r, kpis);
     if (page === "today") {
       keys(r, ["byChannel", "field", "vans", "exceptions", "trend"]);
-      keys(r.field.counts, ["noPlan", "notStarted", "inCall", "done", "idle"]);
+      keys(r.field.counts, [
+        "noPlan",
+        "notStarted",
+        "inCall",
+        "working",
+        "done",
+        "idle",
+      ]);
       expect(r.trend).toHaveLength(14);
       for (const e of r.exceptions) assertException(e);
       expect(r.exceptions.length).toBeLessThanOrEqual(5);
@@ -237,6 +244,8 @@ test("agent-day schema and governed call evidence", async () => {
   assertHeader(r);
   keys(r.person, ["profileId", "name", "territory", "position"]);
   keys(r.summary, [
+    "status",
+    "lastSeenAt",
     "planned",
     "visited",
     "productive",
@@ -257,6 +266,31 @@ test("agent-day schema and governed call evidence", async () => {
       "amountCentavos",
       "onPlan",
     ]);
+});
+test("SP-0175 Today 'Field right now' and the agent day give the same status, stops and productive calls", async () => {
+  const today = await get(url("today", `date=${f.today}`));
+  const row = today.field.people.find(
+    (/** @type {any} */ p) => p.profileId === f.agent,
+  );
+  const day = await get(url("agent-day", `profileId=${f.agent}&date=${f.today}`));
+  expect(row).toBeTruthy();
+  expect({
+    status: row.status,
+    planned: row.planned,
+    visited: row.visited,
+    productive: row.productive,
+    lastSeenAt: row.lastSeenAt,
+  }).toEqual({
+    status: day.summary.status,
+    planned: day.summary.planned,
+    visited: day.summary.visited,
+    productive: day.summary.productive,
+    lastSeenAt: day.summary.lastSeenAt,
+  });
+  // A started day is never "Not started" (lane case: 2 stops done showed Not started).
+  if (row.visited > 0) expect(row.status).not.toBe("not_started");
+  expect(Array.isArray(day.storesAdded)).toBe(true);
+  expect(Array.isArray(today.freshness.devicesBehindList)).toBe(true);
 });
 test("exceptions schema, every kind has a count, actionable workflow paths", async () => {
   const r = await get(url("exceptions"));

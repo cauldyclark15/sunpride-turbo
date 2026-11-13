@@ -13,6 +13,11 @@ import {
   type ListFilter,
 } from "../list-page/list-page";
 import { inputClass } from "./customer-form";
+import { formatDate } from "../../lib/format";
+
+/** Manila calendar day of an epoch ms. */
+const manilaDay = (at: number) =>
+  new Date(at + 8 * 3_600_000).toISOString().slice(0, 10);
 import {
   STATUS_LABEL,
   awaitsApproval,
@@ -37,7 +42,12 @@ export type CustomerFilters = {
   customerGroup2Code?: string;
   customerGroupCode?: string;
   completeness?: string;
+  /** SP-0175: the person who added the store, and the Manila day (YYYY-MM-DD). */
+  addedBy?: string;
+  addedOn?: string;
 };
+
+export type Adder = { id: string; name: string };
 
 /** A filter whose parent changed is dropped (same chain as the form). */
 export const FILTER_DEPENDENTS: Record<string, (keyof CustomerFilters)[]> = {
@@ -106,6 +116,27 @@ export function customerColumns(
       text: (r) => nameOf(index, "sales_office", r.salesOfficeCode),
     },
     {
+      key: "added",
+      label: "Added by",
+      render: (r) =>
+        r.addedByName || r.addedAt ? (
+          <span className="inline-flex flex-col">
+            <span>{r.addedByName ?? ""}</span>
+            {r.addedAt ? (
+              <span className="text-[12px] text-muted tabular-nums">
+                {formatDate(manilaDay(r.addedAt))}
+              </span>
+            ) : null}
+          </span>
+        ) : (
+          ""
+        ),
+      text: (r) =>
+        [r.addedByName, r.addedAt ? manilaDay(r.addedAt) : null]
+          .filter(Boolean)
+          .join(" "),
+    },
+    {
       key: "municipality",
       label: "Municipality",
       render: (r) => r.municipalityName ?? "",
@@ -141,10 +172,13 @@ export function CustomerFilterBar({
   index,
   filters,
   onFilter,
+  adders = [],
 }: {
   index: ReferenceIndex;
   filters: CustomerFilters;
   onFilter: (key: keyof CustomerFilters, value: string | null) => void;
+  /** People who added stores in scope, for the "Added by" filter. */
+  adders?: Adder[];
 }) {
   const org = filters.salesOrgCode ?? null;
   const ch = filters.distributionChannelCode ?? null;
@@ -238,12 +272,40 @@ export function CustomerFilterBar({
           <option value="draft">Incomplete</option>
         </select>
       </label>
+      <label className="grid gap-1 text-[12px] text-muted">
+        Added by
+        <select
+          className={`${inputClass} border-border text-foreground`}
+          value={filters.addedBy ?? ""}
+          onChange={(e) => onFilter("addedBy", e.target.value || null)}
+        >
+          <option value="">Anyone</option>
+          {filters.addedBy && !adders.some((a) => a.id === filters.addedBy) ? (
+            <option value={filters.addedBy}>Selected person</option>
+          ) : null}
+          {adders.map((a) => (
+            <option key={a.id} value={a.id}>
+              {a.name}
+            </option>
+          ))}
+        </select>
+      </label>
+      <label className="grid gap-1 text-[12px] text-muted">
+        Added on
+        <input
+          type="date"
+          className={`${inputClass} border-border text-foreground`}
+          value={filters.addedOn ?? ""}
+          onChange={(e) => onFilter("addedOn", e.target.value || null)}
+        />
+      </label>
     </div>
   );
 }
 
 type ListResponse = {
   rows: CustomerRow[];
+  adders?: Adder[];
   nextCursor: string | null;
   total?: number;
   statusCounts?: StatusCounts | null;
@@ -306,7 +368,9 @@ export function CustomerListView({
   onFilter,
   onEdit,
   customerHref,
+  adders = [],
 }: {
+  adders?: Adder[];
   index: ReferenceIndex;
   rows: CustomerRow[] | null;
   total: number | null;
@@ -337,6 +401,7 @@ export function CustomerListView({
               index={index}
               filters={filters}
               onFilter={onFilter}
+              adders={adders}
             />
           ),
           active: Object.values(filters).filter(Boolean).length,
