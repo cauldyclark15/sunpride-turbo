@@ -11,6 +11,8 @@ import androidx.compose.ui.unit.dp
 
 /** F-212/F-213/F-217/F-218/F-219: a step inside the existing call, not a second call flow. */
 @Composable fun RetailAvailabilityStep(call: RetailCall, busy: Boolean, saved: Boolean,
+    /** Merchandiser (execution-only) calls take no order: no suggested order and nothing is prepared. */
+    ordering: Boolean = true,
     onSave: (List<ShelfAnswer>, Map<String,Long>) -> Unit) {
     var answers by remember(call.snapshotId) { mutableStateOf(call.required.map { ShelfAnswer(it.productId) }) }
     var quantities by remember(call.snapshotId) { mutableStateOf(call.lines.associate { it.productId to it.suggestedBase.toString() }) }
@@ -63,9 +65,9 @@ import androidx.compose.ui.unit.dp
                 }
             }
         }
-        Text("Suggested order · review before sending",style=MaterialTheme.typography.titleMedium)
-        Text("Quantities below are base units. ${call.lines.firstOrNull()?.let { "${it.scale} base units = 1 ${it.uom}." } ?: ""} Change a proposal or set it to zero to dismiss. Saving prepares an editable order; it does not send or invoice it.",style=MaterialTheme.typography.bodySmall)
-        call.lines.forEachIndexed { index,line ->
+        if(ordering) Text("Suggested order · review before sending",style=MaterialTheme.typography.titleMedium)
+        if(ordering) Text("Quantities below are base units. ${call.lines.firstOrNull()?.let { "${it.scale} base units = 1 ${it.uom}." } ?: ""} Change a proposal or set it to zero to dismiss. Saving prepares an editable order; it does not send or invoice it.",style=MaterialTheme.typography.bodySmall)
+        if(ordering) call.lines.forEachIndexed { index,line ->
             val absent=answers.any {it.productId==line.productId&&it.state=="absent"}
             if(absent || line.suggestedBase>0 || line.objective!=null) Column(verticalArrangement=Arrangement.spacedBy(4.dp)) {
                 Text(line.name,style=MaterialTheme.typography.titleSmall)
@@ -80,9 +82,9 @@ import androidx.compose.ui.unit.dp
         if(!saved) Button(onClick={
             try {
                 RetailAvailability.validate(call,answers)
-                val proposed=quantities.mapValues { (_,v)->v.toLongOrNull()?.takeIf {it in 0L..1_000_000_000L} ?: error("Use whole non-negative quantities") }
+                val proposed=if(!ordering) call.lines.associate { it.productId to 0L } else quantities.mapValues { (_,v)->v.toLongOrNull()?.takeIf {it in 0L..1_000_000_000L} ?: error("Use whole non-negative quantities") }
                 onSave(answers,proposed)
             }catch(e:IllegalArgumentException){notice=e.message}catch(e:IllegalStateException){notice=e.message}
-        },enabled=!busy&&RetailAvailability.complete(call,answers),modifier=Modifier.fillMaxWidth().testTag("retail-save")) {Text("Save check & prepare order")}
+        },enabled=!busy&&RetailAvailability.complete(call,answers),modifier=Modifier.fillMaxWidth().testTag("retail-save")) {Text(if(ordering) "Save check & prepare order" else "Save check")}
     }
 }

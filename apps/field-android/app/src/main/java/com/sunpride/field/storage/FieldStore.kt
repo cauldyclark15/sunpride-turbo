@@ -236,6 +236,13 @@ object EncryptedFieldDatabase {
      * projection, keeping only unsent/acknowledged evidence (ADR-020). Freed pages are zeroed and the
      * WAL truncated so the removed rows do not linger in the encrypted file.
      */
+    /** FLD-014/E2E-004: how much unsent work this phone still holds, whoever is (not) signed in. */
+    suspend fun unsentOnPhone(context: Context): Int {
+        if (!context.databaseList().contains(PassphraseVault.DB_NAME)) return 0
+        val db = open(context)
+        return try { db.rows().unsentOnPhone() } finally { db.close() }
+    }
+
     suspend fun purgeExisting(context: Context) {
         if (!context.databaseList().contains(PassphraseVault.DB_NAME)) return
         val db = open(context)

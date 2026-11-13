@@ -395,4 +395,38 @@ describe("an old removed phone row never overrules the current one", () => {
     expect(removed.status).toBe(401);
     expect(/** @type {any} */ (await removed.json()).error.code).toBe("device_revoked");
   });
+
+  // FLD-014/E2E-004: signing in again on the revoked phone must not create a live session.
+  test("FLD-014 sign-in on a revoked phone is refused with device_revoked and creates no session", async () => {
+    const userId = await createUser(h, "gone3@example.com", "device password");
+    const profile = profiles.set(userId, { role: "sales" });
+    const key = await deviceKey();
+    const deviceId = await registerDevice(h, {
+      profileId: profile.id,
+      orgUnitId: profile.orgUnitId,
+      key,
+    });
+    const deviceKeyBody = { keyId: key.keyId, publicKeySpki: key.publicKeySpki };
+    const ok = await nativeSignIn(h, "gone3@example.com", "device password", "field-android", deviceKeyBody);
+    expect(ok.res.status).toBe(200);
+    await h.db`update registered_devices set status='revoked' where id=${deviceId}`;
+    await h.db`update sessions set revoked_at=now() where user_id=${userId} and revoked_at is null`;
+    const refused = await nativeSignIn(h, "gone3@example.com", "device password", "field-android", deviceKeyBody);
+    expect(refused.res.status).toBe(403);
+    const body = /** @type {any} */ (refused.body);
+    expect(body.error.code).toBe("device_revoked");
+    expect(body.error.action).toBe("hold");
+    const live =
+      await h.db`select 1 from sessions where user_id=${userId} and device_key_id=${key.keyId} and revoked_at is null`;
+    expect(live.length).toBe(0);
+    // A suspended phone keeps the existing path (sign-in then the paused screen).
+    const other = await deviceKey();
+    const user2 = await createUser(h, "paused3@example.com", "device password");
+    const profile2 = profiles.set(user2, { role: "sales" });
+    const paused = await registerDevice(h, { profileId: profile2.id, orgUnitId: profile2.orgUnitId, key: other });
+    await h.db`update registered_devices set status='suspended' where id=${paused}`;
+    const signedIn = await nativeSignIn(h, "paused3@example.com", "device password", "field-android",
+      { keyId: other.keyId, publicKeySpki: other.publicKeySpki });
+    expect(signedIn.res.status).not.toBe(403);
+  });
 });

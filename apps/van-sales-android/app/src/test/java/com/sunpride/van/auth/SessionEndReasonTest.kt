@@ -39,4 +39,14 @@ class SessionEndReasonTest {
         assertFalse(e.removed)
         assertEquals("Your session has ended. Sign in again.", com.sunpride.van.ui.UserMessages.forFailure(e))
     }
+
+    @Test fun `E2E-004 sign-in on a revoked phone is refused with the removal words and stores no session`() {
+        val vault = InMemorySessionVault()
+        server.enqueue(MockResponse().setResponseCode(403).setBody("""{"version":2,"error":{"code":"device_revoked"}}"""))
+        val e = try { AuthClient(env, vault).signIn("a@b.c", "password1"); null } catch (f: AuthFailure) { f }!!
+        assertEquals(AuthFailure.Kind.REFUSED, e.kind)
+        assertTrue(e.removed)
+        assertTrue(com.sunpride.van.ui.UserMessages.forFailure(e).startsWith("This phone was removed by the office"))
+        assertNull(vault.readSession())
+    }
 }

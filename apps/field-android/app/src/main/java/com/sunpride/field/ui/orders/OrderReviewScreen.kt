@@ -55,8 +55,8 @@ fun OrderReviewScreen(visit: VisitDisplay, controller: FieldController, modifier
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
                 Row {
                     StatusChip(status.label, when (status) {
-                        OrderStatus.NEEDS_REVIEW -> Look.Tone.BAD
-                        OrderStatus.RECEIVED -> Look.Tone.GOOD
+                        OrderStatus.NEEDS_REVIEW, OrderStatus.REJECTED -> Look.Tone.BAD
+                        OrderStatus.RECEIVED, OrderStatus.APPROVED -> Look.Tone.GOOD
                         else -> Look.Tone.NEUTRAL
                     }, textTag = "order-status")
                 }
@@ -130,7 +130,12 @@ fun OrderReviewScreen(visit: VisitDisplay, controller: FieldController, modifier
                     }
                 }
             }
-            Text(if (status == OrderStatus.RECEIVED) "The office has this order. Sent orders can't be changed."
+            // E2E-018: a refused order says so with the office's reason.
+            if (status == OrderStatus.REJECTED) NoticeCard(
+                "The office rejected this order." + (controller.orderRejectionReason(draft)?.let { " Reason: $it" } ?: ""),
+                tone = Look.Tone.BAD, textTag = "order-rejected-reason")
+            Text(if (status == OrderStatus.REJECTED) "Rejected orders can't be changed. Start a new order if the customer still needs it."
+                else if (status == OrderStatus.RECEIVED || status == OrderStatus.APPROVED) "The office has this order. Sent orders can't be changed."
                 else if (sent) "Sent orders can't be changed. It reaches the office the next time this phone syncs."
                 else "Sending queues this order on the phone. It reaches the office the next time this phone syncs, " +
                     "even if you are offline now.", style = MaterialTheme.typography.bodySmall,

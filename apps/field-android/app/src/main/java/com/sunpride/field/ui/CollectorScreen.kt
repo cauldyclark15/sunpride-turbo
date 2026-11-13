@@ -28,6 +28,13 @@ object CollectorDraft {
      * online earlier today while its own grant is still current, so the success text stays next to the button;
      * the next recording still re-checks the grant (queueDomain) and the next verified refresh replaces it.
      */
+    const val SAVED = "Saved on this phone, awaiting office acknowledgement."
+    /** FLD-122: the lasting confirmation after a save (null when the save was refused; the error shows instead). */
+    fun savedNotice(error: String?, at: String, stopName: String?): String? {
+        if (error != null) return null
+        val what = when (at) { "promise" -> "Promise"; "cheque" -> "Cheque"; else -> null } ?: return SAVED
+        return "$what saved${stopName?.takeIf { it.isNotBlank() }?.let { " for $it" } ?: ""}. $SAVED"
+    }
     fun afterSave(previous: org.json.JSONObject?, reloaded: org.json.JSONObject?, now: Long): org.json.JSONObject? =
         reloaded ?: previous?.takeIf { it.optLong("authorizationExpiresAt") > now }
  fun minor(text:String):Long {
@@ -72,6 +79,9 @@ object CollectorDraft {
  var item by remember(life,selected){mutableStateOf<String?>(null)};var replacement by remember(life,selected){mutableStateOf<String?>(null)}
  var photo by remember(life,selected){mutableStateOf<JSONObject?>(null)};var message by remember(life,selected){mutableStateOf<String?>(null)};var messageAt by remember(life,selected){mutableStateOf("top")}
  var cameraTicket by remember{mutableStateOf<Triple<String?,String?,Long>?>(null)}
+ // FLD-122: the save confirmation outlives the reload that resets the selected stop (keyed by the account lifetime),
+ // so the person always sees that the promise/cheque was kept, even when the form collapses back to the stop list.
+ var saved by remember{mutableStateOf<String?>(null)}
  var now by remember{mutableStateOf(System.currentTimeMillis())};var page by remember(life){mutableStateOf(0)}
  LaunchedEffect(Unit){while(true){kotlinx.coroutines.delay(1000);now=System.currentTimeMillis()}}
  LaunchedEffect(life,refresh,c.today.lastSynced){loading=true;val before=life;val next=try{withContext(Dispatchers.IO){c.domainForms("collections",true)}}catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;null};if(before==c.sapMasterLifetime())data=next;loading=false}
@@ -84,13 +94,14 @@ object CollectorDraft {
   }
  }
  fun rows(a:JSONArray?)=a?.let{(0 until it.length()).map(it::getJSONObject)}.orEmpty()
- fun send(payload:JSONObject,at:String){scope.launch{messageAt=at;c.queueDomain("collections.capture",payload,UUID.randomUUID().toString()).join();message=if(c.error==null)"Saved on this phone, awaiting office acknowledgement."else c.error;val before=data;data=CollectorDraft.afterSave(before,withContext(Dispatchers.IO){c.domainForms("collections",false)},System.currentTimeMillis())}}
+ fun send(payload:JSONObject,at:String){val stopName=data?.optJSONArray("stops")?.let{a->(0 until a.length()).map(a::getJSONObject).firstOrNull{it.optString("customerCode")==selected}?.optString("name")};scope.launch{messageAt=at;c.queueDomain("collections.capture",payload,UUID.randomUUID().toString()).join();message=if(c.error==null)CollectorDraft.SAVED else c.error;saved=CollectorDraft.savedNotice(c.error,at,stopName);val before=data;data=CollectorDraft.afterSave(before,withContext(Dispatchers.IO){c.domainForms("collections",false)},System.currentTimeMillis())}}
  // FLD-122: errors/success render next to the button that produced them (see [note]), not at the top out of view.
- fun attempt(at:String,block:()->Unit){message=null;messageAt=at;CollectorDraft.guarded(block).onFailure{message=it.message?:"Check the fields"}}
+ fun attempt(at:String,block:()->Unit){message=null;saved=null;messageAt=at;CollectorDraft.guarded(block).onFailure{message=it.message?:"Check the fields"}}
  Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("collector-agenda"),verticalArrangement=Arrangement.spacedBy(10.dp)){
   NoticeCard("Your assigned collection stops. Promises and cheque evidence do not reduce SAP AR or certify bank clearance.")
   FieldButton({refresh++},Modifier.fillMaxWidth(),enabled=!loading&&!c.busy){Text(if(loading)"Refreshing…"else"Refresh")}
   c.error?.let{NoticeCard(it,tone=Look.Tone.BAD)};if(messageAt=="top")message?.let{NoticeCard(it)}
+  saved?.let{NoticeCard(it,tone=Look.Tone.GOOD,glyph=GlyphKind.CHECK,modifier=Modifier.testTag("collector-saved"))}
   @Composable fun note(at:String){if(messageAt==at)message?.let{m->val ok=m.startsWith("Saved");NoticeCard(m,tone=if(ok)Look.Tone.GOOD else Look.Tone.BAD,glyph=if(ok)GlyphKind.CHECK else GlyphKind.INFO,modifier=Modifier.testTag("collector-$at-message"))}}
   val d=data?.takeIf{it.optLong("authorizationExpiresAt")>now}
   if(d==null){NoticeCard("Connect to verify today's collector assignment. Held or expired data cannot record.",tone=Look.Tone.WARN,glyph=GlyphKind.LOCK);return@Column}

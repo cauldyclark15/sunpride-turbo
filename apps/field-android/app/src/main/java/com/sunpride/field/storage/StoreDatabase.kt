@@ -182,6 +182,9 @@ interface StoreDao {
     @Insert(onConflict = OnConflictStrategy.REPLACE) suspend fun putPartition(row: PartitionRow)
     @Query("SELECT COUNT(*) FROM outbox JOIN partitions ON outbox.account=partitions.account AND outbox.deviceId=partitions.deviceId AND outbox.scope=partitions.scope WHERE outbox.account=:account AND outbox.deviceId=:device AND partitions.held=1 AND outbox.state='pending'")
     suspend fun heldCount(account: String, device: String): Int
+    /** FLD-014/E2E-004: unsent work on this phone across every person/partition (counted before any sign-in). */
+    @Query("SELECT COUNT(*) FROM outbox WHERE state IN ('pending','sending')")
+    suspend fun unsentOnPhone(): Int
     @Query("SELECT * FROM partitions WHERE account=:account AND deviceId=:device AND scope=:scope")
     suspend fun partition(account: String, device: String, scope: String): PartitionRow?
     @Query("SELECT * FROM snapshots WHERE account=:account AND deviceId=:device AND scope=:scope AND generation=:generation AND kind=:kind AND (:day IS NULL OR serviceDate=:day) ORDER BY snapshotOrder, entityId")

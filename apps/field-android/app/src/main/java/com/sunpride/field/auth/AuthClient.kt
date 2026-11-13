@@ -130,11 +130,20 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
             http.newCall(request).execute().use { r ->
                 when {
                     signingIn && r.code in setOf(400, 401) -> throw AuthFailure(AuthFailure.Kind.INVALID_CREDENTIALS)
+                    // FLD-014/E2E-004: the office revoked this phone; sign-in is refused and says so plainly.
+                    signingIn && r.code == 403 -> {
+                        val code = runCatching { JSONObject(r.body?.string().orEmpty()).optJSONObject("error")?.optString("code") }.getOrNull()
+                        if (code in AuthFailure.REMOVED_CODES) {
+                            notifyEnded(true)
+                            throw AuthFailure(AuthFailure.Kind.REFUSED, removed = true)
+                        }
+                        throw AuthFailure(AuthFailure.Kind.REFUSED)
+                    }
                     !signingIn && r.code in setOf(401, 403) -> {
                         // FLD-014/171: the session is over; only the credential goes. Local work is never touched here.
                         val code = runCatching { JSONObject(r.body?.string().orEmpty()).optJSONObject("error")?.optString("code") }.getOrNull()
                         val removed = code in AuthFailure.REMOVED_CODES
-                        vault.wipe(); runCatching { onSessionEnded?.invoke(removed) }
+                        vault.wipe(); notifyEnded(removed)
                         throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED, removed = removed)
                     }
                     r.code == 403 -> throw AuthFailure(AuthFailure.Kind.REFUSED)
@@ -147,6 +156,11 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
             }
         } catch (_: IOException) { throw AuthFailure(AuthFailure.Kind.OFFLINE) }
         catch (_: JSONException) { throw AuthFailure(AuthFailure.Kind.SERVER) }
+    }
+    /** Every client in the process (main, chat, workers) records why the session ended, not only the one that saw it. */
+    private fun notifyEnded(removed: Boolean) {
+        runCatching { onSessionEnded?.invoke(removed) }
+        runCatching { sessionEndedSink?.invoke(removed) }
     }
     private fun credential(o: JSONObject, name: String, prefix: String): String =
         (o.opt(name) as? String)?.takeIf { it.startsWith(prefix) && it.length in 5..MAX_SESSION_TOKEN_LENGTH &&
@@ -162,6 +176,12 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
         const val MAX_SESSION_TOKEN_LENGTH = 4096
         const val REFRESH_MARGIN_MS = 60_000L
         const val DEFAULT_LIFETIME_MS = 15 * 60_000L
+        /**
+         * FLD-014/E2E-004: process-wide record of why the session ended. The chat client keeps its own AuthClient; when
+         * its refresh was the one the server refused with `device_revoked`, the reason was lost and the app said only
+         * "Your session has ended". The app sets this once so whichever client sees the refusal records it.
+         */
+        @Volatile var sessionEndedSink: ((removed: Boolean) -> Unit)? = null
         /** Legacy fixture utility, not used for v2 identity or access expiry. */
         fun expiryMillis(token: String): Long? = try {
             val claims = JSONObject(String(Base64.getUrlDecoder().decode(token.split('.')[1]), Charsets.UTF_8))

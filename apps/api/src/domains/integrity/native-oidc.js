@@ -4,7 +4,10 @@ import { verifySignature } from "../../core/devices.js";
 import { forbidden, invalid } from "../../core/errors.js";
 import { loadProfile } from "../../core/hooks.js";
 import { takeOrThrow } from "../../core/rate.js";
-import { registerSamplePhone } from "../../core/sample-devices.js";
+import {
+  refuseRevokedPhone,
+  registerSamplePhone,
+} from "../../core/sample-devices.js";
 import { randomToken, sha256Hex, isUuid } from "../../core/util.js";
 import {
   recordDeviceAssessment,
@@ -106,6 +109,7 @@ export function installNativeOidc(router) {
           await t`select id from users where id=${r.user_id} and disabled_at is null for update`;
         const profile = user ? await loadProfile(t, user.id) : null;
         if (!profile || profile.status !== "active") throw forbidden();
+        await refuseRevokedPhone(t, user.id, r.app, r.key_id);
         await registerSamplePhone(t, user.id, r.app, {
           keyId: r.key_id,
           publicKeySpki: r.public_key_spki,

@@ -1,5 +1,29 @@
 import { loadProfile } from "./hooks.js";
-import { invalid } from "./errors.js";
+import { forbidden, invalid } from "./errors.js";
+
+/** FLD-014/E2E-004: what a person sees when signing in on a phone the office revoked. */
+export const PHONE_REMOVED_MESSAGE =
+  "This phone was removed by the office. Your unsent work is kept on this phone. Give the phone to your supervisor so the office can recover it.";
+
+/**
+ * FLD-014/E2E-004: a revoked phone never gets a new session. The key is refused when every row this person has for
+ * it (same app) is revoked and the office has no pending recovery/erasure control on it (that path signs in to upload
+ * the held work, then erases). A phone the person never registered, or a suspended one, keeps the existing flow.
+ * @param {any} t @param {string} userId @param {string} app @param {string|null} keyId
+ */
+export async function refuseRevokedPhone(t, userId, app, keyId) {
+  if (!keyId) return;
+  const profile = await loadProfile(t, userId);
+  if (!profile) return;
+  const rows =
+    await t`select id, status from registered_devices where profile_id=${profile.id} and key_id=${keyId} and app=${app}`;
+  if (!rows.length || rows.some((/** @type {any} */ r) => r.status !== "revoked")) return;
+  const [control] =
+    await t`select 1 from device_controls c join registered_devices d on d.id=c.device_id
+      where d.profile_id=${profile.id} and d.key_id=${keyId} and d.app=${app} and c.status='pending' limit 1`;
+  if (control) return;
+  throw forbidden(PHONE_REMOVED_MESSAGE, "device_revoked");
+}
 
 /**
  * Sample-company first sign-in may register a phone, never restore/replace one.

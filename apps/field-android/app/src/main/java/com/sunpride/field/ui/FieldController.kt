@@ -67,6 +67,8 @@ interface FieldBackend {
     fun signOut()
     /** FLD-014/171: the plain reason the server last ended this phone's session, until the next sign-in. */
     fun endedSessionReason(): String? = null
+    /** FLD-014/E2E-004: unsent work held on this phone, readable while signed out or removed. */
+    fun unsentOnPhone(): Int = 0
     fun changePassword(current: String, next: String, confirm: String) { error("Password change unavailable") }
     fun refreshEnrollment(signer: DeviceSigner): EnrollmentState
     fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData = TodayData()
@@ -275,7 +277,12 @@ class LiveFieldBackend(
     /** The session is gone: say why and keep every local row (unsent work stays held for the same person/office). */
     private fun sessionEnded(): AuthFailure = sessionEndedFailure(sessionEnd.getBoolean("removed", false))
     init {
-        auth.onSessionEnded = { removed -> sessionEnd.edit().putBoolean("removed", removed).commit() }
+        // FLD-014: one sink for every AuthClient in the process (chat has its own client). A removal is never
+        // downgraded to a plain ended session by a later refusal of the already-wiped session.
+        AuthClient.sessionEndedSink = { removed ->
+            if (removed || !sessionEnd.getBoolean("removed", false))
+                sessionEnd.edit().putBoolean("removed", removed).commit()
+        }
         functions.api.onDeviceControl = { me ->
             retireSuggestions()
             runBlocking { com.sunpride.integrity.RemoteErasure.recordingLock.withLock {
@@ -1177,6 +1184,7 @@ class LiveFieldBackend(
     )
         sessionEnd.edit().clear().commit() // a chosen sign-out is not an ended session
     }
+    override fun unsentOnPhone(): Int = runBlocking { EncryptedFieldDatabase.unsentOnPhone(context) }
     override fun endedSessionReason(): String? =
         if (sessionEnd.contains("removed") && !auth.isSignedIn) sessionEnded().text else null
     override fun refreshEnrollment(signer: DeviceSigner): EnrollmentState {
@@ -1211,6 +1219,11 @@ class FieldController(
     var state by mutableStateOf<EnrollmentState>(EnrollmentState.SignedOut); private set
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
+    /** FLD-014/E2E-004: unsent work kept on this phone, shown on Sign in / Phone removed after the office removed it. */
+    var unsentOnPhone by mutableStateOf(0); private set
+    private fun countUnsent() = scope.launch(ui) {
+        unsentOnPhone = runCatching { withContext(io) { backend.unsentOnPhone() } }.getOrDefault(0)
+    }
     var key by mutableStateOf<DeviceKeyInfo?>(null); private set
     var today by mutableStateOf(TodayData()); private set
     var workforceOpen by mutableStateOf(false); private set
@@ -1264,7 +1277,11 @@ class FieldController(
     /** Draft being edited; null while composing a new one (set after its first save). */
     var orderDraftId by mutableStateOf<String?>(null); private set
     val openOrderDraft: OrderDraft? get() = orderDraftId?.let { id -> visitOrderDrafts.firstOrNull { it.draftId == id } }
-    fun saveRetail(answers: List<com.sunpride.retail.ShelfAnswer>, quantities: Map<String,Long>) = scope.launch(ui) {
+    /** Merchandiser calls are execution-only: they never prepare, send or require an order (or a no-order reason). */
+    val executionOnlyCall: Boolean get() = com.sunpride.callflow.CallFlowEngine.executionOnly(diagnosticFlow)
+    fun saveRetail(answers: List<com.sunpride.retail.ShelfAnswer>, proposed: Map<String,Long>) = scope.launch(ui) {
+        // Merchandiser: the availability check is saved, but no order draft is prepared (it could never be sent).
+        val quantities = if (executionOnlyCall) proposed.mapValues { 0L } else proposed
         val visit=diagnostic ?: return@launch
         val call=retailCall ?: return@launch
         if(busy)return@launch
@@ -1403,7 +1420,12 @@ class FieldController(
         orderChecks = runCatching { withContext(io) { backend.orderChecks(id) } }.getOrDefault(emptyList())
     }
     /** What the person sees about a draft's journey to the office (outbox state). */
-    fun orderStatus(draft: OrderDraft) = com.sunpride.field.orders.OrderSubmission.status(draft, diagnosticRows)
+    fun orderStatus(draft: OrderDraft) = com.sunpride.field.orders.OrderSubmission.status(draft, diagnosticRows, orderDecisions())
+    /** E2E-018: the office's decisions on this seller's phone orders, from the last synced sales report. */
+    private fun orderDecisions() = today.sales.sales?.orderDecisions.orEmpty()
+    /** E2E-018: why the office refused this order, when it did. */
+    fun orderRejectionReason(draft: OrderDraft): String? =
+        orderDecisions()[draft.draftId]?.takeIf { it.status == "rejected" || it.status == "voided" }?.reason
     /** Submit the reviewed draft: queue its order request behind the call's latest request. */
     fun submitOrder() = scope.launch(ui) {
         val visit = diagnostic ?: return@launch
@@ -1468,7 +1490,11 @@ class FieldController(
         finally { busy = false }
     }
     fun cancelEnd() = scope.launch(ui) { endReview = null
-        if (diagnosticError == com.sunpride.callflow.CallFlowEngine.NO_ORDER_REASON) diagnosticError = null }
+        // A changed choice clears a refusal it answers (no stale "Record the call outcome" under a chosen outcome).
+        if (diagnosticError == com.sunpride.callflow.CallFlowEngine.NO_ORDER_REASON ||
+            diagnosticFailure in setOf(VisitRuleFailure.Code.OUTCOME_REQUIRED, VisitRuleFailure.Code.REASON_REQUIRED)) {
+            diagnosticError = null; diagnosticFailure = null
+        } }
     /** The call's final, immutable result once its End is queued. */
     fun visitResult(visit: VisitDisplay): com.sunpride.field.storage.VisitResult? = openCheckIn(visit)?.let {
         com.sunpride.field.storage.VisitCompletion.result(it.clientVisitId, diagnosticRules, diagnosticRows,
@@ -1730,7 +1756,7 @@ class FieldController(
                 refresh()
             } else {
                 // FLD-171: after a relaunch the Sign in screen still says why the session ended.
-                runCatching { withContext(io) { backend.endedSessionReason() } }.getOrNull()?.let { error = it }
+                runCatching { withContext(io) { backend.endedSessionReason() } }.getOrNull()?.let { error = it; countUnsent() }
             }
         } finally { launchSettled = true }
     }
@@ -1760,6 +1786,7 @@ class FieldController(
             runCatching { onSignedIn() }
         } catch (e: Exception) {
             error = userMessage(e)
+            if (e is AuthFailure && e.removed) countUnsent()
             busy = false
             return@launch
         }
@@ -1800,6 +1827,7 @@ class FieldController(
             if (generation != sessionGeneration) return
             state = enrollment
             error = null
+            if (enrollment == EnrollmentState.Removed) countUnsent()
             if (state is EnrollmentState.Ready) loadToday(sync = true)
         } catch (e: AuthFailure) {
             if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) state = EnrollmentState.SignedOut
@@ -1865,6 +1893,7 @@ class FieldController(
     private fun sessionEnded(e: AuthFailure) {
         ++sessionGeneration; state = EnrollmentState.SignedOut; today = TodayData(); error = userMessage(e)
         retireSuggestedOrder()
+        countUnsent()
     }
     fun checkAgain(quiet: Boolean = false) = scope.launch(ui) { refresh(quiet) }
     fun queueDomain(kind:String,payload:JSONObject,aggregate:String,dependencies:List<String> = emptyList())=scope.launch(ui){

@@ -200,6 +200,30 @@ class AuthClientTest {
         assertNull(vault.readSession())
     }
 
+    // FLD-014/E2E-004: signing in on a revoked phone is refused with the removal words (no session is stored), and
+    // whichever client in the process sees the refusal (chat keeps its own AuthClient) records why the session ended.
+    @Test fun `FLD-014 sign-in on a revoked phone is refused plainly and any client records the removal`() {
+        val sink = mutableListOf<Boolean>()
+        AuthClient.sessionEndedSink = { sink += it }
+        try {
+            server.enqueue(MockResponse().setResponseCode(403).setBody("""{"version":2,"error":{"code":"device_revoked","action":"hold"}}"""))
+            val refused = try { auth.signIn("a@b.c", "password1"); null } catch (e: AuthFailure) { e }!!
+            assertTrue(refused.removed)
+            assertEquals(AuthFailure.PHONE_REMOVED, refused.text)
+            assertNull(vault.readSession())
+            // Another client (no per-instance callback) refreshes the revoked session: the app-wide sink hears it.
+            vault.saveSession("sps_fake-session")
+            server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":{"code":"device_revoked"}}"""))
+            try { auth.accessToken(); fail() } catch (_: AuthFailure) {}
+            assertEquals(listOf(true, true), sink)
+            // A plain 403 at sign-in stays the generic refusal.
+            server.enqueue(MockResponse().setResponseCode(403).setBody("""{"error":{"code":"forbidden"}}"""))
+            val plain = try { auth.signIn("a@b.c", "password1"); null } catch (e: AuthFailure) { e }!!
+            assertFalse(plain.removed)
+            assertEquals(AuthFailure.Kind.REFUSED, plain.kind)
+        } finally { AuthClient.sessionEndedSink = null }
+    }
+
     @Test fun tokenExchangeServerErrorKeepsSession() {
         vault.saveSession("sps_fake-session")
         server.enqueue(MockResponse().setResponseCode(502))

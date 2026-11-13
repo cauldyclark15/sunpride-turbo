@@ -61,4 +61,14 @@ class CollectorDraftInputTest {
         assertTrue(CollectorDraft.afterSave(verified, fresh, 1_000) === fresh)
         assertEquals(null, CollectorDraft.afterSave(null, null, 1_000))
     }
+
+    // FLD-122: a saved promise shows a lasting confirmation naming the stop; a refused save shows only its error.
+    @Test fun `FLD-122 saved promise gives a lasting confirmation`() {
+        org.junit.Assert.assertEquals(
+            "Promise saved for Sample Bayanihan Supermart 236. Saved on this phone, awaiting office acknowledgement.",
+            CollectorDraft.savedNotice(null, "promise", "Sample Bayanihan Supermart 236"))
+        org.junit.Assert.assertEquals("Cheque saved. Saved on this phone, awaiting office acknowledgement.",
+            CollectorDraft.savedNotice(null, "cheque", null))
+        org.junit.Assert.assertNull(CollectorDraft.savedNotice("Connect to refresh this form", "promise", "X"))
+    }
 }
