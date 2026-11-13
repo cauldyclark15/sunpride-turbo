@@ -535,33 +535,34 @@ test("cash variance approval, close and unload are atomic and auditable", async 
   const unremitted = /** @type {any} */ (await beforeHandIn.json());
   expect(unremitted.cash.declaredCentavos).toBe(90000);
   expect(unremitted.cash.remittedCentavos).toBeNull();
-  const refusedClose = await push([
-    op("trip.close", {
-      tripId: trip.tripId,
-      closeId: crypto.randomUUID(),
-      exceptionsReviewed: true,
-      operations: [],
-    }),
-  ]);
-  expect(refusedClose.body.results[0].status).toBe("rejected");
+  // VAN-083 (r6van5): before the office receipt the close is a temporary refusal: nothing is stored, and the phone
+  // sends the SAME close again after the office has received the cash.
+  const close = op("trip.close", {
+    tripId: trip.tripId,
+    closeId: crypto.randomUUID(),
+    exceptionsReviewed: true,
+    operations: accepted.map((o) => ({
+      kind: o.opType,
+      clientRequestId: o.clientOpId,
+      status: "done",
+    })),
+  });
+  const refusedClose = await push([close]);
+  expect(refusedClose.body.results[0]).toMatchObject({
+    status: "rejected",
+    code: "dependency_missing",
+    retryable: true,
+  });
+  const [stillOpen] =
+    await h.db`select status from van_trips where id=${trip.tripId}`;
+  expect(stillOpen.status).not.toBe("closed");
   const received = await web("cash/remit", {
     tripId: trip.tripId,
     amountMinor: "90000",
     reference: "SAMPLE-HANDIN",
   });
   expect(received.status).toBe(200);
-  await apply(
-    op("trip.close", {
-      tripId: trip.tripId,
-      closeId: crypto.randomUUID(),
-      exceptionsReviewed: true,
-      operations: accepted.map((o) => ({
-        kind: o.opType,
-        clientRequestId: o.clientOpId,
-        status: "done",
-      })),
-    }),
-  );
+  await apply(close);
   expect(postings.at(-1).kind).toBe("van_unload");
   expect(postings.at(-1).lines[0]).toMatchObject({
     quantityBase: 41,
@@ -614,6 +615,15 @@ test("F-616 full van bundle preserves strict legacy products and explicitly nego
   expect(r.res.status).toBe(200);
   const d = r.body.bundles[0].data;
   expect(d.products[0].catalogue).toBeUndefined();
+  // VAN-081 (r6van5): the trip's start odometer rides the policy so a phone that did not start the trip can check it.
+  const [started] =
+    await h.db`select start_odometer_km from van_trips where id=${d.trip.tripId}`;
+  expect(d.policy.tripFacts).toEqual({
+    startOdometerKm:
+      started.start_odometer_km == null
+        ? null
+        : Number(started.start_odometer_km),
+  });
   const extended = await signedPost(h, who, "/api/sync/pull", {
     ...request,
     scopes: request.scopes.map((scope) => ({

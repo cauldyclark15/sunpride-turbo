@@ -96,6 +96,12 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     val tripClosed: Flow<Boolean> = combine(dao.observeTrip(s,d),dao.observeTripClose(s,d)) { trips, rows ->
         trips.singleOrNull()?.let { t -> rows.any { it.tripId == t.tripId } } ?: false
     }
+    /** VAN-083: where this trip's close stands at the office. */
+    val closeOffice: Flow<com.sunpride.van.pos.CloseOffice> = combine(dao.observeTrip(s,d),dao.observeTripClose(s,d),dao.observeOutbox(s,d)) { trips, rows, ops ->
+        val t = trips.singleOrNull()
+        val op = t?.let { trip -> ops.lastOrNull { it.tripId == trip.tripId && it.kind == "trip.close" } }
+        com.sunpride.van.pos.CloseOfficeRules.state(t != null && rows.any { it.tripId == t.tripId },op?.status,op?.rejectionCode,t?.status)
+    }
     val truckStock: Flow<List<TruckStock>> = combine(dao.observeBaseline(s,d),dao.observeMovement(s,d),dao.observeSettlement(s,d),dao.observeTrip(s,d),dao.observeOutbox(s,d)) { b,m,settled,t,ops ->
         val trip = t.singleOrNull()?.tripId
         val refused = refusedOps(ops)
@@ -589,6 +595,9 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             OutboxRules.acknowledge(current.status,true)
             dao.markDone(s,d,row.clientRequestId)
             settle(dao.trip(s,d)?.tripId,dao.meta(s,d)?.lastBootstrapTime)
+        } else if (result.status == "waiting") {
+            // VAN-083: not refused; kept pending with the reason so the phone says what it waits for and retries.
+            dao.markWaiting(s,d,row.clientRequestId,result.code ?: com.sunpride.van.pos.CloseOfficeRules.WAITING_CASH_CODE)
         } else {
             require(result.status in setOf("rejected","conflict"))
             // SP-0169: a refused receipt whose number the office spoiled is kept with its own code so the seller is told.

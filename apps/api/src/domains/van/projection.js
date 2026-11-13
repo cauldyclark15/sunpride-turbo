@@ -665,6 +665,13 @@ export async function bundle(ctx, env) {
           ? { pickupDecisions: await pickupDecisions(db, trip.id) }
           : {}),
         ...(routeOps ? { operationsVersion: 1 } : {}),
+        // VAN-081: the close screen checks the end odometer against the start, even for a trip started elsewhere.
+        tripFacts: {
+          startOdometerKm:
+            trip.start_odometer_km == null
+              ? null
+              : Number(trip.start_odometer_km),
+        },
       },
       ...(routeOps ? { vanOps: routeOps } : {}),
       trip: {
