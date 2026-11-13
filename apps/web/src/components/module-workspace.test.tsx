@@ -24,6 +24,7 @@ import {
   AccessDenied,
   ModuleWorkspace,
   VanTripRoute,
+  WorkflowOrders,
 } from "./module-workspace";
 
 const html = (node: React.ReactElement) => renderToStaticMarkup(node);
@@ -38,6 +39,17 @@ describe("ModuleWorkspace", () => {
       });
       state.search = "trip=cockpit-trip&tripId=explicit-trip";
       expect(VanTripRoute().props.initialTripId).toBe("explicit-trip");
+    } finally {
+      state.search = "";
+    }
+  });
+  it("r6web5: Today's /workflows?order= link opens that order in the approvals list", () => {
+    try {
+      state.search = "order=ord-1";
+      expect(WorkflowOrders().props).toMatchObject({
+        view: "approvals",
+        initialOrderId: "ord-1",
+      });
     } finally {
       state.search = "";
     }

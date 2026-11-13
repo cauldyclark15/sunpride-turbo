@@ -469,6 +469,11 @@ export async function workflow(ctx, action, b) {
     const rows = await planRows(db, p.id);
     if (!rows.slots.length) fail("Plan needs dated slots before approval");
     const [assignment] = rows.assignments;
+    // WEB-118 (SP-0169 r6web5): say what is missing and who fixes it.
+    if (!rows.assignments.length)
+      fail(
+        "This plan has no assignment period saved. Return it to the planner: on the Plan tab they press \"Save assignment\" and submit it again.",
+      );
     if (
       rows.assignments.length !== 1 ||
       !assignment.is_primary ||
@@ -477,7 +482,9 @@ export async function workflow(ctx, action, b) {
       +new Date(assignment.effective_from) !== +new Date(p.effective_from) ||
       +new Date(assignment.effective_to) !== +new Date(p.effective_to)
     )
-      fail("Invalid primary plan assignment");
+      fail(
+        "This plan's assignment period does not match the plan (person, unit or dates). Return it to the planner: on the Plan tab they press \"Save assignment\" again and resubmit.",
+      );
     const overlaps =
       await db`select * from coverage_plans where id<>${p.id} and assignee_profile_id=${p.assignee_profile_id} and status in ('approved','active') and effective_from<${p.effective_to} and coalesce(active_through,effective_to)>${p.effective_from}`;
     if (

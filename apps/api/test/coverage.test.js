@@ -666,3 +666,18 @@ test("WEB-118 Save assignment on a plan without its primary assignment records o
   await run(sales, "plans/saveSlots", { planId: p._id, slots: [slot("2031-07-02")] });
   await expect(run(sales, "plans/submit", { planId: p._id })).resolves.toBeTruthy();
 });
+test("WEB-118 approving a plan without its assignment period says what is missing and who fixes it", async () => {
+  const p = await run(sales, "plans/create", {
+    assigneeProfileId: sales.id,
+    localMonth: "2031-09",
+  });
+  await run(sales, "plans/saveOutlets", { planId: p._id, outlets: roster() });
+  await run(sales, "plans/saveSlots", { planId: p._id, slots: [slot("2031-09-02")] });
+  await run(sales, "plans/submit", { planId: p._id });
+  await h.db`delete from coverage_assignments where plan_id=${p._id}`;
+  const refusal = run(supervisor, "plans/approve", { planId: p._id });
+  await expect(refusal).rejects.toThrow("no assignment period saved");
+  await expect(
+    run(supervisor, "plans/approve", { planId: p._id }),
+  ).rejects.toThrow('press "Save assignment"');
+});

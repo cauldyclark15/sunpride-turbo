@@ -186,6 +186,12 @@ export function VanTripRoute() {
   );
 }
 
+/** r6web5 sweep: Today's "order waiting" link (/workflows?order=…) opens that order. */
+export function WorkflowOrders() {
+  const query = useSearchParams();
+  return <OrdersWorkspace view="approvals" initialOrderId={query.get("order")} />;
+}
+
 function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
   switch (module) {
     case "orders":
@@ -198,7 +204,7 @@ function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
       return (
         <>
           <PanelErrorBoundary label="Orders waiting for approval">
-            <OrdersWorkspace view="approvals" />
+            <WorkflowOrders />
           </PanelErrorBoundary>
           <PanelErrorBoundary label="Truck damage">
             <VanDamageApprovals />

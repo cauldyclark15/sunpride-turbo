@@ -52,10 +52,16 @@ export function SupervisionWorkspace() {
   const now = useNow();
   const [pickedTab, setTab] = useState<SupervisionTab>("team");
   const [pickedDate, setServiceDate] = useState(() => manilaToday());
-  const [orgUnitId, setOrgUnitId] = useState<Id<"orgUnits"> | "">("");
-  const [channel, setChannel] = useState("");
-  const [directOnly, setDirectOnly] = useState(false);
   const params = new URLSearchParams(useReportSearch());
+  // r6web5 sweep: unit, channel and "my team only" live in the URL too, so a shared/linked view applies them on load.
+  const orgUnitId = (params.get("unit") ?? "") as Id<"orgUnits"> | "";
+  const channel = params.get("channel") ?? "";
+  const directOnly = params.get("direct") === "1";
+  const setOrgUnitId = (v: Id<"orgUnits"> | "") =>
+    replaceReportSearch({ unit: v || null });
+  const setChannel = (v: string) => replaceReportSearch({ channel: v || null });
+  const setDirectOnly = (v: boolean) =>
+    replaceReportSearch({ direct: v ? "1" : null });
   const requested = params.get("tab");
   const tab = TABS.some(([id]) => id === requested)
     ? (requested as SupervisionTab)

@@ -557,6 +557,14 @@ describe("90-day Sunpride demo", () => {
            where rs.route_id=s.route_id and rs.profile_id=p.assignee_profile_id and rs.deleted_at is null)`,
       ),
     ).toBe(0);
+    // WEB-118 (r6web5): it carries exactly one primary assignment matching the plan, as approval requires.
+    expect(
+      await number(
+        `select count(*) as n from coverage_plans p where p.status='submitted' and (select count(*) from coverage_assignments a
+           where a.plan_id=p.id and a.is_primary and a.assignee_profile_id=p.assignee_profile_id and a.org_unit_id=p.org_unit_id
+             and a.effective_from=p.effective_from and a.effective_to=p.effective_to)=1`,
+      ),
+    ).toBe(1);
   });
   test("canonical order scope and money fields reconcile to their legacy mirrors", async () => {
     expect(

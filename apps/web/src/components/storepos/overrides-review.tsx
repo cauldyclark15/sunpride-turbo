@@ -1,7 +1,7 @@
 "use client";
 import { formatDateTime } from "../../lib/format";
 
-import { useState } from "react";
+import { useUrlParam } from "../../lib/use-url-tab";
 import { useApi, useLive } from "../../lib/api";
 import { Peso } from "../ops";
 import {
@@ -22,9 +22,12 @@ export function overrideCounts(rows: OverrideRow[]): [string, number][] {
 export function OverridesList({
   rows,
   kind = null,
+  highlightId = null,
 }: {
   rows: OverrideRow[];
   kind?: string | null;
+  /** WEB-088: the override a Decide link points at, marked in the list. */
+  highlightId?: string | null;
 }) {
   const shown = kind ? rows.filter((r) => r.kind === kind) : rows;
   if (!shown.length)
@@ -48,7 +51,11 @@ export function OverridesList({
       </thead>
       <tbody>
         {shown.map((o) => (
-          <tr key={o.id} className="border-t border-separator">
+          <tr
+            key={o.id}
+            aria-current={o.id === highlightId ? "true" : undefined}
+            className={`border-t border-separator ${o.id === highlightId ? "bg-[#EF5706]/10" : ""}`}
+          >
             <td className="py-2 pr-3">
               {formatDateTime(o.capturedAt)}
               <span className="block text-xs text-muted">{o.registerName}</span>
@@ -76,13 +83,15 @@ export function OverridesList({
   );
 }
 
-/** Review screen: filter chips with counts, then the list. Not mounted in navigation yet (NAV lane). */
+/** Review screen: filter chips with counts (?kind=), then the list (?id= marks one row). */
 export function OverridesScreen({ registerId }: { registerId?: string }) {
   const url = `/api/v1/storepos/overrides${registerId ? `?registerId=${registerId}` : ""}`;
   const key = ["storepos", "overrides", registerId ?? "all"] as const;
   const result = useApi<{ overrides: OverrideRow[] }>(key, url);
   useLive(["storepos"], [key]);
-  const [kind, setKind] = useState<string | null>(null);
+  // WEB-088: kind and the highlighted override live in the URL, so a Decide link opens the list filtered.
+  const [kind, setKind] = useUrlParam("kind");
+  const [highlightId] = useUrlParam("id");
   if (result.error)
     return (
       <p role="alert" className="text-sm">
@@ -118,7 +127,7 @@ export function OverridesScreen({ registerId }: { registerId?: string }) {
           </button>
         ))}
       </div>
-      <OverridesList rows={rows} kind={kind} />
+      <OverridesList rows={rows} kind={kind} highlightId={highlightId} />
     </section>
   );
 }

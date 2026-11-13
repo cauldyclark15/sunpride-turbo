@@ -245,7 +245,12 @@ export function InventoryWorkspace({ setupMessage }: { setupMessage: string }) {
   void setupMessage;
   const [tab, setTab] = useUrlTab(TAB_IDS, "stock"),
     [locationId, setLocationId] = useState(""),
-    [productId, setProductId] = useState(""),
+    // r6web5 sweep: Today's count-variance link (/inventory?product=…) opens that product's movements.
+    [productId, setProductId] = useState(() =>
+      typeof window === "undefined"
+        ? ""
+        : (new URLSearchParams(window.location.search).get("product") ?? ""),
+    ),
     [traceId, setTraceId] = useState(""),
     [countId, setCountId] = useState("");
   const [cases, setCases] = useState(""),

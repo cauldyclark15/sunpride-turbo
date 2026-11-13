@@ -433,7 +433,7 @@ async function overrides(c, actor) {
         valueCentavos: o.amount_centavos == null ? null : Number(o.amount_centavos),
         rule: "A void, refund, price change or discount approved at the till gets a second look from someone who was not there.",
         makerChecker: "The supervisor who approved it at the till, and the cashier, cannot review it. The system checks that for you.",
-        link: "/operations/stores-pos/overrides",
+        link: `/operations/stores-pos/overrides?kind=${encodeURIComponent(o.kind)}&id=${encodeURIComponent(o.id)}`,
         canDecide: !involved,
         blockedReason: involved ? "You approved this at the till or were the cashier. Someone else must look at it." : null,
         lines: o.reason ? [{ label: "Reason given", value: o.reason }] : [],

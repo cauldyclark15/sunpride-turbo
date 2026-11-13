@@ -941,6 +941,23 @@ export function execution(d, c, stock, options = {}) {
     .rows("coverage_plans")
     .find((p) => p.status === "submitted");
   if (!pending) throw new Error("Sample submitted MCP is missing");
+  // WEB-118 (SP-0169 r6web5): a submitted plan carries its primary assignment, as the agent's "Save assignment"
+  // would; without it the first Approve is refused ("Invalid primary plan assignment").
+  d.add("coverage_plan_territories", pending.id, {
+    coverage_plan_id: pending.id,
+    ordinal: 0,
+    territory_id: c.territories[a.territoryIndex].id,
+  });
+  d.add("coverage_assignments", pending.id, {
+    plan_id: pending.id,
+    assignee_profile_id: a.id,
+    org_unit_id: a.org_unit_id,
+    is_primary: true,
+    effective_from: pending.effective_from,
+    effective_to: pending.effective_to,
+    actor_subject: a.auth_subject,
+    reason: "Sample submitted MCP",
+  });
   let serviceDate = `${month}-01`;
   if (weekday(serviceDate) === 0) serviceDate = plusDays(serviceDate, 1);
   // WEB-118: only stops on routes the assignee serves, or approval refuses the plan.

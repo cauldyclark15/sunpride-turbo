@@ -428,6 +428,8 @@ describe("till counts, forced closes and overrides", () => {
     const row = await rowOf(sup, o.id);
     expect(row).toMatchObject({ kind: "override_review", valueCentavos: 45000, canDecide: true });
     expect(row.title).toContain("Refund");
+    // WEB-088: the link opens the overrides list filtered to this kind with this override marked.
+    expect(row.link).toBe(`/operations/stores-pos/overrides?kind=refund&id=${o.id}`);
     const involved = await rowOf(planner, o.id);
     expect(involved).toMatchObject({ canDecide: false });
     expect((await act(planner, row.id, "approve")).status).toBe(403);

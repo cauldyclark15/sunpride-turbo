@@ -85,3 +85,36 @@ export function useUrlTab<T extends string>(
   );
   return [current, set];
 }
+
+/**
+ * A free-valued filter kept in the URL (list rule L8), e.g. `?kind=discount`. A link that carries the
+ * param applies it on load; changing it writes the URL (pushState, no navigation). `null` removes it.
+ */
+export function useUrlParam(
+  key: string,
+): [string | null, (value: string | null) => void] {
+  const search = useSearchParams();
+  const pathname = usePathname() ?? "/";
+  const [local, setLocal] = useState<string | null | undefined>(undefined);
+  const fromWindow =
+    typeof window === "undefined"
+      ? null
+      : new URLSearchParams(window.location.search).get(key);
+  const raw = search ? search.get(key) : local === undefined ? fromWindow : local;
+  const current = raw && raw.trim() ? raw.trim() : null;
+  const set = useCallback(
+    (value: string | null) => {
+      setLocal(value);
+      if (typeof window === "undefined") return;
+      const next = new URLSearchParams(window.location.search);
+      next.delete("page");
+      if (value) next.set(key, value);
+      else next.delete(key);
+      const qs = next.toString();
+      const path = window.location.pathname || pathname;
+      window.history.pushState(null, "", qs ? `${path}?${qs}` : path);
+    },
+    [key, pathname],
+  );
+  return [current, set];
+}
