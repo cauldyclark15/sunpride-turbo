@@ -604,6 +604,9 @@ describe("SP-0170 customer writer", () => {
     expect(await dup({ name: "Totally different", phone: "+63 918 555 0199" })).toEqual([["phone"]]);
     expect(await dup({ name: "Aling Nina Store" })).toEqual([["name"]]);
     expect(await dup({ name: "alingnena" })).toEqual([["name"]]);
+    // The field app's body (name, phone, GPS point; no new APK needed).
+    expect(await dup({ name: "Aling Nina", latitude: 10.3312, longitude: 123.9056 })).toEqual([["name"]]);
+    expect(await dup({ name: "Other", phone: "09185550199", latitude: 10.3312, longitude: 123.9056 })).toEqual([["phone"]]);
     expect(await dup({ name: "Aling Nina", barangay: "Somewhere Else", municipality: "Far City" })).toEqual([]);
   });
   test("list, filters and permissions", async () => {
