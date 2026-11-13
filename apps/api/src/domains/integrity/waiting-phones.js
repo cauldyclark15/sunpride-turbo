@@ -33,6 +33,9 @@ export async function noteWaitingPhone(t, userId, app, key) {
   const [has] =
     await t`select 1 from registered_devices where profile_id=${profile.id} limit 1`;
   if (has) return;
+  const [stored] =
+    await t`select 1 from profiles where id=${profile.id} and deleted_at is null`;
+  if (!stored) return;
   const [waiting] =
     await t`select id from phone_registration_requests where profile_id=${profile.id} and app=${app} and key_id=${key.keyId} and status='waiting'`;
   if (waiting)
