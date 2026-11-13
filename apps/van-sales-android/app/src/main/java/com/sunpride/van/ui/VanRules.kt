@@ -184,6 +184,7 @@ object VanRules {
         com.sunpride.van.pos.StockProblem.CODE_WRONG -> "That code does not match. Check the trip, count code and stock totals with your supervisor."
         com.sunpride.van.pos.StockProblem.STOCK_COUNTED -> "Truck stock is already counted. No more stock changes on this trip."
         com.sunpride.van.pos.StockProblem.TRIP_CLOSED -> "This trip is closed. No more stock changes on this trip."
+        com.sunpride.van.pos.StockProblem.DAMAGE_WAITING -> "A damage report must be decided and synced before the stock count. Ask your supervisor, then sync."
     }
     /** VAN-082: Close trip tapped with everything else ready but the exceptions not ticked: say so (null = close normally). */
     /**

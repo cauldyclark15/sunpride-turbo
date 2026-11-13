@@ -786,7 +786,10 @@ describe("eligible depot stock (WEB-082/084)", () => {
     // Approval agrees: refused for the same reason.
     const a = await web(boss, "loads/approve-plan", { tripIds: [sc.tripId] });
     expect(a.body).toMatchObject({ approved: 0, failed: 1 });
-    expect(a.body.results[0].message).toBe("Insufficient eligible lot stock");
+    // VAN-014: the refusal names the product, the place and why the stock cannot be used.
+    expect(a.body.results[0].message).toMatch(
+      /^Not enough stock of .+ at .+ can be used: 0 of 12 base units \(\d+ more are in batches that are on hold, expired or too close to expiry\)/,
+    );
     // Editing to that quantity is refused up front, quoting the eligible stock (0), not the 60 held pieces.
     const e = await web(boss, "loads/edit", { tripId: sc.tripId, lines: [{ productId: prodB.id, quantityBase: 12 }] });
     expect(e.status).toBe(422);

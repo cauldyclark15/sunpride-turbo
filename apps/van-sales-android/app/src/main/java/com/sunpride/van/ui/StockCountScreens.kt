@@ -55,14 +55,20 @@ import com.sunpride.van.pos.*
         action = if (saved != null) "Done" else if (c.busy) "Saving…" else "Save stock count",actionTag = "save-stock",
         enabled = if (saved != null) true else ready && !c.busy,
         onAction = { if (saved != null) c.back() else c.saveStockCount() },
-        footer = if (saved == null && missing.isNotEmpty()) stockMissingFooter(missing)
-            else if (saved == null && totals != null) "${totals.varianceLines} lines differ · ${totals.shortBase} short · ${totals.overBase} over" else null,
-        message = c.message) {
+        // VAN-079 (P3, as VAN-082): a refusal of the tap (e.g. a wrong approval code) shows next to the button, not at
+        // the top of the long list where it is off screen.
+        footer = stockCountFooter(saved == null,c.message,summary?.waiting,missing,totals),
+        message = null) {
         when {
             summary == null -> Text("Getting this trip's truck stock…")
-            saved != null -> SavedStockCount(saved,summary.tripNumber,summary.lines)
+            saved != null -> {
+                if (summary.officeWaiting) Text(CountOfficeRules.WAITING_DAMAGE_TEXT,Modifier.testTag("stock-office-waiting"),style = MaterialTheme.typography.bodyLarge)
+                SavedStockCount(saved,summary.tripNumber,summary.lines)
+            }
+            summary.waiting != null -> Text(summary.waiting,Modifier.testTag("stock-count-damage-waiting"),style = MaterialTheme.typography.bodyLarge)
             !summary.countable -> Text("Start the trip before counting stock.",Modifier.testTag("stock-count-blocked"))
             else -> {
+                summary.refusal?.let { Text(it,Modifier.testTag("stock-office-refused"),color = MaterialTheme.colorScheme.error,style = MaterialTheme.typography.bodyLarge) }
                 Text("Count sellable and damaged stock separately. Counts are entered in each product's UOM.",style = MaterialTheme.typography.bodyMedium)
                 if (c.sync.review > 0) Text("Some earlier work needs review. Expected stock excludes refused work; enter what is physically on the truck. The earlier records are kept for your supervisor.",style = MaterialTheme.typography.bodyMedium)
                 c.batchCountPositions.forEach {b->val p=c.products.single {it.productId==b.productId};val key="${b.lotId}:${b.status}"
@@ -173,3 +179,15 @@ internal fun stockCountMissing(lines: List<StockLineSummary>, counts: Map<Pair<S
 /** "Still to do: Sample Fruit Cocktail · damaged count and 2 more". */
 internal fun stockMissingFooter(missing: List<String>): String =
     "Still to do: ${missing.first()}" + if (missing.size > 1) " and ${missing.size - 1} more" else ""
+/**
+ * VAN-079: the line next to Save stock count. The answer to the last tap (wrong code, stock changed…) first, then
+ * why counting must wait, then what is still missing, then the totals.
+ */
+internal fun stockCountFooter(open: Boolean, message: String?, waiting: String?, missing: List<String>, totals: StockVarianceSummary?): String? = when {
+    !message.isNullOrBlank() -> message
+    !open -> null
+    waiting != null -> waiting
+    missing.isNotEmpty() -> stockMissingFooter(missing)
+    totals != null -> "${totals.varianceLines} lines differ · ${totals.shortBase} short · ${totals.overBase} over"
+    else -> null
+}

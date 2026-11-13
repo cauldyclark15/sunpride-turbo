@@ -376,7 +376,7 @@ class VanRepository private constructor(private val context: Context, private va
                 if (e.kind !in setOf(AuthFailure.Kind.OFFLINE,AuthFailure.Kind.PAUSED)) { current.value?.hold(); current.value = null; if (!auth.isSignedIn) session.value = SessionState(); throw e }
                 // Previously verified finite lease, not a new grant. Never unhold retained evidence offline.
                 if (current.value?.canSync() == true && gateway != null && device != null) enrollment.value = EnrollmentState.Ready(device)
-                if (e.kind == AuthFailure.Kind.PAUSED) throw e
+                if (e.kind == AuthFailure.Kind.PAUSED) { runCatching { current.value?.setHealth(com.sunpride.van.sync.SyncHealth.PAUSED_HEALTH, null) }; throw e }
                 // VAN-085: no signal at start. The day saved on this phone is shown at once; Sync now (or the
                 // scheduled sync) tries the office again instead of a second full timeout before Today opens.
                 restoredOffline = true
@@ -620,6 +620,8 @@ class VanRepository private constructor(private val context: Context, private va
         try {
             if (stubMode == null) enroll()
         } catch (e: AuthFailure) {
+            // VAN-086: paused before the sync could start; Sync & posting must not keep saying the last sync finished.
+            if (e.kind == AuthFailure.Kind.PAUSED) runCatching { current.value?.setHealth(com.sunpride.van.sync.SyncHealth.PAUSED_HEALTH, null) }
             if (e.kind in setOf(AuthFailure.Kind.REFUSED,AuthFailure.Kind.SESSION_EXPIRED)) {
                 try { current.value?.hold() } finally { current.value = null; gateway = null }
                 // A revoked or expired session goes back to Sign in (work stays held on this phone),

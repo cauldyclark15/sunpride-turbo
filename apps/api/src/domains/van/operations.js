@@ -348,14 +348,20 @@ async function dispatchOperation(ctx, env) {
   )
     refuse("Start the trip before recording operations");
   if (["cash.reconcile", "stock.reconcile"].includes(op.opType)) {
+    // VAN-079: only the stock count depends on a damage decision (a rejection puts the goods back to sellable); cash
+    // does not. While a supervisor has not decided, the stock count waits (temporary: nothing is stored, the phone
+    // keeps it and sends it again) instead of being refused for good.
     if (
+      op.opType === "stock.reconcile" &&
       (
         await db`select 1 from van_damage_records where trip_id=${trip.id} and status='pending_approval'`
       ).length
     )
-      refuse(
-        "Decide pending damage before counting",
+      throw new ApiError(
         "evidence_pending_review",
+        422,
+        "A damage report is waiting for a supervisor decision; the stock count is checked after it is decided",
+        true,
       );
     const prior =
       op.opType === "cash.reconcile"

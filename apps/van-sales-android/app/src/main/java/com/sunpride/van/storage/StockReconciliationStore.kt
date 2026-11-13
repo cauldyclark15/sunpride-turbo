@@ -43,14 +43,29 @@ class StockReconciliationStore(private val store: RoomVanStore) {
         val saved = dao.stockReconciliation(s, d, t.tripId)?.result(t.tripNumber, false)
         val products = dao.productRows(s, d).associate { it.productId to VanBootstrapCodec.product(JSONObject(it.json)) }
         val savedByLine = saved?.lines?.associateBy { it.productId to it.status } ?: emptyMap()
-        StockSummary(t.tripId, t.tripNumber, store.canSync() && countable(t) && saved == null,
+        val waiting = if (saved == null) damageWaiting(t) else null
+        val savedOp = saved?.let { dao.outboxRows(s, d).singleOrNull { o -> o.clientRequestId == dao.stockReconciliation(s, d, t.tripId)?.idempotencyKey } }
+        StockSummary(t.tripId, t.tripNumber, store.canSync() && countable(t) && saved == null && waiting == null,
             expected.map { line ->
                 val p = products[line.productId]
                 StockLineSummary(line.productId, p?.code ?: line.productId, p?.name ?: line.productId, p?.uomCode ?: "", p?.quantityScale ?: 1L,
                     line.status, line.expectedBase, savedByLine[line.productId to line.status]?.countedBase,
                     savedByLine[line.productId to line.status]?.reasonCode)
-            }, saved)
+            }, saved, waiting, if (saved == null) lastRefusal(t.tripId) else null,
+            savedOp?.rejectionCode == com.sunpride.van.pos.CountOfficeRules.WAITING_DAMAGE_CODE && savedOp.status in setOf("pending", "sending"))
     }
+
+    /** VAN-079: a damage report not sent yet or waiting for a supervisor's decision holds the stock count back. */
+    private suspend fun damageWaiting(t: TripRow): String? {
+        val records = runCatching { JSONObject(t.json).optJSONArray("_damageRecords") }.getOrNull()
+        val unsent = dao.outboxRows(s, d).any { it.tripId == t.tripId && it.kind == "truck.damage" && it.status in setOf("pending", "sending") }
+        return com.sunpride.van.pos.CountOfficeRules.damageWaiting(records, unsent)
+    }
+
+    /** VAN-079: the plain reason of this trip's latest stock count the office refused (null when none). */
+    private suspend fun lastRefusal(tripId: String): String? = dao.outboxRows(s, d)
+        .filter { it.tripId == tripId && it.kind == STOCK_RECONCILE_KIND && it.status in OutboxRules.reviewStatuses }
+        .maxByOrNull { it.createdAt }?.let { com.sunpride.van.pos.CountOfficeRules.refusal(it.kind, it.rejectionCode) }
 
     /**
      * Rechecks the screen's expected projection and writes the row, adjustment movements and parked operation in
@@ -69,6 +84,7 @@ class StockReconciliationStore(private val store: RoomVanStore) {
         }
         if (!StockReconciliationRules.validId(request.reconciliationId)) throw StockRefused(StockProblem.COUNT_INVALID)
         if (!countable(t)) throw StockRefused(StockProblem.NOT_ON_ROUTE)
+        if (damageWaiting(t) != null) throw StockRefused(StockProblem.DAMAGE_WAITING)
         if (request.lines.size > StockReconciliationRules.MAX_LINES) throw StockRefused(StockProblem.TOO_MANY_LINES)
         val expected = expectedLines(t.tripId)
         val supplied = normalizedLines(request.lines)
@@ -108,12 +124,7 @@ class StockReconciliationStore(private val store: RoomVanStore) {
             dao.insertMovement(MovementRow(s, d, "${request.reconciliationId}:${line.productId}:${line.status}:ADJUSTMENT", t.tripId,
                 line.productId, "ADJUSTMENT", line.status, delta, line.reasonCode, key, at))
         }
-        val payloadLines = JSONArray(supplied.sortedWith(compareBy<StockCountLine> { it.productId }.thenBy { it.status }).map { line ->
-            JSONObject().put("productId", line.productId).put("status", line.status)
-                .put("expectedBase", line.expectedBase.toString()).put("countedBase", line.countedBase.toString())
-                .put("varianceBase", Math.subtractExact(line.countedBase, line.expectedBase).toString())
-                .put("reasonCode", line.reasonCode ?: "")
-        })
+        val payloadLines = JSONArray(supplied.sortedWith(compareBy<StockCountLine> { it.productId }.thenBy { it.status }).map(StockReconciliationRules::wireLine))
         val payload = JSONObject().put("tripId", t.tripId).put("reconciliationId", request.reconciliationId)
             .put("countCode", countCode).put("varianceLines", totals.varianceLines).put("shortBase", totals.shortBase.toString())
             .put("overBase", totals.overBase.toString()).put("lines", payloadLines)

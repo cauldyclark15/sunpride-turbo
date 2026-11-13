@@ -30,7 +30,7 @@ import java.time.format.DateTimeFormatter
     val served = c.savedSales.filter { !it.isCollection && it.void == null }.map { it.receipt.customerName }.toSet()
     val storesLeft = routeStores.filter { it.name !in served }
     val step = VanDaySteps.next(DayFacts(c.trip != null,c.trip?.status,c.trip?.startPending == true,c.load?.status,c.load?.confirmPending == true,c.vanDay,c.tripClosed,c.cashCounted,c.stockCounted,
-        c.policy?.operationsVersion == 1,c.sync.items.any { it.kind == "unload.record" },storesLeft.firstOrNull()?.name,storesLeft.size,c.onHold,c.acceptWaiting,c.policy?.handheld?.supervisorName,c.setupProblem,c.closeOffice))
+        c.policy?.operationsVersion == 1,c.sync.items.any { it.kind == "unload.record" },storesLeft.firstOrNull()?.name,storesLeft.size,c.onHold,c.acceptWaiting,c.policy?.handheld?.loadApproverName,c.setupProblem,c.closeOffice))
     val go: () -> Unit = {
         when (step.target) {
             StepTarget.SYNC -> c.syncNow(); StepTarget.ACCEPT_LOAD -> c.open(Page.ACCEPT_LOAD); StepTarget.LOAD -> c.open(Page.LOAD); StepTarget.START -> c.open(Page.START)
@@ -122,7 +122,7 @@ private data class LoadDraft(val quantity: String, val reason: String?)
     }
     val sent = when {
         load?.confirmPending == true -> "Sent — waiting for sync"
-        load?.status == "discrepancy" -> UserMessages.loadDifferenceSent(c.policy?.handheld?.supervisorName)
+        load?.status == "discrepancy" -> UserMessages.loadDifferenceSent(c.policy?.handheld?.loadApproverName)
         load?.status == "posted" -> "Loaded"
         else -> null
     }

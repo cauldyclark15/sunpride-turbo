@@ -12,6 +12,8 @@ import { surfaceEnabled } from "../fiscal/legal-sale.js";
 import { fiscalBundle } from "../fiscal/transactions.js";
 import { routeBundle } from "./route-read.js";
 import { ApiError } from "../../core/errors.js";
+import { actorFor } from "../../core/context.js";
+import { requireCapability } from "../../core/capabilities.js";
 import { resolvePrice } from "../orders/pricing.js";
 import { schemeFeed } from "./schemes.js";
 import { cachedCreditView, creditTerms } from "../integration/credit-view.js";
@@ -143,19 +145,67 @@ export async function handheldInfo(db, actor, device, trip) {
         where t.deleted_at is null and t.status<>'cancelled' and (t.started_device_id=${device.id} or t.salesperson_profile_id=${actor.profileId})
         order by t.service_date desc,t.created_at desc limit 1`;
   const [assigned] =
-    await db`select p.name,p.phone from employee_assignments a join profiles p on p.id=a.supervisor_id
+    await db`select p.name,p.phone,p.user_id from employee_assignments a join profiles p on p.id=a.supervisor_id
     where a.profile_id=${actor.profileId} and a.deleted_at is null and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now())
       and p.deleted_at is null and p.status='active' limit 1`;
   const [named] = assigned
     ? []
-    : await db`select s.name,s.phone from profiles p join profiles s on s.auth_subject=p.supervisor_subject
+    : await db`select s.name,s.phone,s.user_id from profiles p join profiles s on s.auth_subject=p.supervisor_subject
         where p.id=${actor.profileId} and s.deleted_at is null and s.status='active' limit 1`;
   return {
     vehicleCode: vehicle?.vehicle_code ?? null,
     plateNumber: vehicle?.plate_number ?? null,
     supervisorName: (assigned ?? named)?.name ?? null,
     supervisorPhone: (assigned ?? named)?.phone ?? null,
+    // VAN-014: the person who can decide this trip's load difference (null: the phone says "your supervisor").
+    ...(trip
+      ? {
+          loadApproverName: await loadApproverName(
+            db,
+            actor,
+            trip,
+            (assigned ?? named)?.user_id ?? null,
+          ),
+        }
+      : {}),
   };
+}
+/** @param {any} db @param {string|null} userId @param {string} unitId */
+async function canApproveLoad(db, userId, unitId) {
+  if (!userId) return false;
+  const who = await actorFor(db, userId);
+  if (!who) return false;
+  try {
+    await requireCapability({ db, actor: who }, "van.load.approve", unitId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+/**
+ * VAN-014: the phone names who decides a load difference. The seller's own supervisor when they can decide loads for
+ * the trip's unit; otherwise the nearest in-scope load approver (manager, then approver) of the trip's unit or the
+ * unit above it. Never the seller (no self-approval). Null when nobody qualifies.
+ * @param {any} db @param {any} actor @param {any} trip @param {string|null} supervisorUserId
+ */
+export async function loadApproverName(db, actor, trip, supervisorUserId) {
+  if (
+    supervisorUserId &&
+    supervisorUserId !== actor.userId &&
+    (await canApproveLoad(db, supervisorUserId, trip.org_unit_id))
+  ) {
+    const [p] =
+      await db`select name from profiles where user_id=${supervisorUserId} and status='active' and deleted_at is null limit 1`;
+    if (p?.name) return p.name;
+  }
+  const candidates = await db`with recursive up(id,depth) as (
+      select ${trip.org_unit_id}::uuid,0 union all select u.parent_id,up.depth+1 from org_units u join up on u.id=up.id where u.parent_id is not null and up.depth<20)
+    select p.user_id,p.name from profiles p join up on up.id=p.org_unit_id
+    where p.status='active' and p.deleted_at is null and p.role in ('manager','approver') and p.user_id is distinct from ${actor.userId}
+    order by up.depth, case p.role when 'manager' then 0 else 1 end, p.name limit 20`;
+  for (const c of candidates)
+    if (await canApproveLoad(db, c.user_id, trip.org_unit_id)) return c.name;
+  return null;
 }
 /** @param {any[]} rows @param {number} bound */
 function complete(rows, bound) {

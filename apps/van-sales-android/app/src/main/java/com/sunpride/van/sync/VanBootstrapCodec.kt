@@ -22,7 +22,7 @@ object VanBootstrapCodec {
             strings(it.getJSONArray("reasons")),nullable(it,"key")) },
         o.optJSONObject("tripClose")?.let { TripClosePolicy(it.getBoolean("requireCashCount"),it.getBoolean("requireStockCount"),
             it.getBoolean("requireUploadsSent"),it.getBoolean("exceptionsNeedReview")) },o.optInt("operationsVersion",0),o.optJSONObject("fiscal")?.toString(),o.optJSONObject("schemes")?.toString(),
-        handheld = o.optJSONObject("handheld")?.let { h -> HandheldInfo(clean(h,"vehicleCode",40),clean(h,"plateNumber",40),clean(h,"supervisorName",80),clean(h,"supervisorPhone",30)) },
+        handheld = o.optJSONObject("handheld")?.let(::handheld),
         vanDay = com.sunpride.van.vanday.VanDayCodec.decode(o.optJSONObject("vanDay")),splitTender = o.optBoolean("splitTender",false),
         refunds = com.sunpride.van.pos.RefundPolicy.decode(o.optJSONObject("refunds")),
         // VAN-034: a van-only handheld (no POS mode) has no storePos; its limit rides policy.privilegeCap.
@@ -30,6 +30,9 @@ object VanBootstrapCodec {
         privilegeDiscount = com.sunpride.van.selling.PrivilegeSwitch.decode(o.optJSONObject("privilegeDiscount")),
         pickupDecisions = com.sunpride.van.pos.PickupDecision.decode(o.optJSONArray("pickupDecisions")))
     /** Optional display text: trimmed, bounded, no control characters; anything else is simply not shown. */
+    fun handheld(h: JSONObject): HandheldInfo = HandheldInfo(clean(h,"vehicleCode",40),clean(h,"plateNumber",40),clean(h,"supervisorName",80),clean(h,"supervisorPhone",30),
+        // VAN-014: a server that names the load approver is followed even when it names nobody; an older one only knows the supervisor.
+        if (h.has("loadApproverName")) clean(h,"loadApproverName",80) else clean(h,"supervisorName",80))
     private fun clean(o: JSONObject, key: String, max: Int): String? = if (o.isNull(key)) null else o.optString(key,"").trim().takeIf { it.isNotEmpty() && it.length <= max && it.none(Char::isISOControl) }
 
     /** VAN-012: optional; a policy cached before it (or an older server) allows cash only. */

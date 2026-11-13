@@ -602,7 +602,13 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             require(result.status in setOf("rejected","conflict"))
             // SP-0169: a refused receipt whose number the office spoiled is kept with its own code so the seller is told.
             dao.reject(s,d,row.clientRequestId,result.status,if (result.spoiledNumber != null) com.sunpride.van.selling.RefusedReceipt.CODE else result.code ?: "invalid_request")
+            // VAN-079: a refused count is not a count; the seller is told why and counts again (the refused op stays for review).
+            dropRefusedCount(row.kind,row.clientRequestId)
         }
+    }
+    private suspend fun dropRefusedCount(kind: String, key: String) {
+        if (kind == com.sunpride.van.pos.CountOfficeRules.CASH_KIND) dao.deleteCashReconciliation(s,d,key)
+        if (kind == com.sunpride.van.pos.CountOfficeRules.STOCK_KIND) dao.deleteStockReconciliation(s,d,key)
     }
     private suspend fun recordPostedLoad(op: OutboxRow, at: Long, settled: Boolean, serverLines: List<LoadLine>? = null) {
         val p = JSONObject(op.operationJson).getJSONObject("payload"); val loadId = p.getString("loadId")
@@ -666,6 +672,9 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             if (ack != null && b.serverTime > ack.serverTime) recordPostedLoad(op,b.serverTime,settled=true,serverLines=b.load.lines)
         }
         settle(b.trip?.tripId,b.serverTime)
+        // VAN-079: counts refused before this build kept their row and could never be counted again.
+        dao.outboxRows(s,d).filter { com.sunpride.van.pos.CountOfficeRules.isCount(it.kind) && it.status in OutboxRules.reviewStatuses }
+            .forEach { dropRefusedCount(it.kind,it.clientRequestId) }
         dao.insertSyncMeta(SyncMetaRow(s,d,b.serverTime,previous?.lastSyncTime,"bootstrap_ready",b.serviceDate,o.getJSONObject("policy").toString(),false,o.getJSONObject("seller").toString(),
             grant?.getString("cursor"),grant?.getString("scopeFingerprint"),grant?.getString("epoch"),grant?.getLong("leaseExpiresAt"),grant?.getLong("cacheExpiresAt")))
         deniedScopes.remove(scope)

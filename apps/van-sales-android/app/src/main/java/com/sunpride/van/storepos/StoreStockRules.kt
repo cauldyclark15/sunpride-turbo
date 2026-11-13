@@ -38,4 +38,16 @@ object StoreStockRules {
         .put("productId", product.getString("productId")).put("lotId", line.opt("lotId") ?: JSONObject.NULL)
         .put("stockStatus", line.getString("stockStatus")).put("version", line.getString("version"))
         .put("countedBase", countedBase.toString())
+
+    /**
+     * POS-044: "Receive all shipped" lines as the office reads them (`storepos/operations.js transferReceiveLines`):
+     * `receivedGoodBase` as a whole-number decimal string, nothing damaged or on hold.
+     */
+    fun receiveAllShipped(shipped: org.json.JSONArray): org.json.JSONArray = org.json.JSONArray((0 until shipped.length()).map { i ->
+        val line = shipped.getJSONObject(i)
+        val quantity = line.getString("quantityBase").trim()
+        require(Regex("0|[1-9][0-9]{0,15}").matches(quantity)) { "Shipped quantity must be a whole number" }
+        JSONObject().put("lineId", line.getString("lineId")).put("receivedGoodBase", quantity)
+            .put("receivedDamagedBase", "0").put("receivedHoldBase", "0")
+    })
 }

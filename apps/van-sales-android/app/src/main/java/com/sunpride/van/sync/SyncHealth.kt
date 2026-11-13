@@ -109,8 +109,13 @@ object SyncHealth {
         sapLine(s),
     ).joinToString("\n")
 
+    /** VAN-086: health recorded when the office paused this phone (device suspended); cleared by the next good sync. */
+    const val PAUSED_HEALTH = "paused"
+    const val PAUSED_LABEL = "Sync is paused: the office paused this phone. Your work stays here and is sent when the office turns the phone back on."
+
     /** Health code → plain words for the status screen. Unknown codes never echo raw text. */
     fun healthLabel(health: String): String = when (health) {
+        PAUSED_HEALTH -> PAUSED_LABEL
         "synced" -> "Last sync finished"
         "retry_pending" -> "Last sync did not finish — it will try again"
         "held_for_review" -> "Sync paused — ask your supervisor"

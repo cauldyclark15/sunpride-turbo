@@ -15,7 +15,9 @@ const val CASH_RECONCILE_KIND = "cash.reconcile"
 
 /** What the Count cash screen shows: the trip, what is expected, and the saved count once there is one. */
 data class CashSummary(val tripId: String, val tripNumber: String, val countable: Boolean, val expectation: CashExpectation,
-    val saved: CashCountResult?)
+    val saved: CashCountResult?,
+    /** VAN-079: the office refused the last cash count; plain reason and what to do. Null when nothing was refused. */
+    val refusal: String? = null)
 
 /**
  * VAN-022 end-of-trip cash count on the encrypted store. Expected cash is read only from this partition's saved
@@ -82,7 +84,10 @@ class CashReconciliationStore(private val store: RoomVanStore) {
         val t = dao.trip(s, d) ?: return@withTransaction null
         val saved = dao.cashReconciliation(s, d, t.tripId)
         CashSummary(t.tripId, t.tripNumber, store.canSync() && countable(t) && saved == null,
-            CashReconciliationRules.expectation(payments(t.tripId), openingFloat(t.tripId), RefundStore(store).cashRefunds(t.tripId), otherPhones(t.tripId)), saved?.result(t.tripNumber, false))
+            CashReconciliationRules.expectation(payments(t.tripId), openingFloat(t.tripId), RefundStore(store).cashRefunds(t.tripId), otherPhones(t.tripId)), saved?.result(t.tripNumber, false),
+            // VAN-079: why the office refused the last cash count, so the seller counts again knowing why.
+            if (saved == null) dao.outboxRows(s, d).filter { it.tripId == t.tripId && it.kind == CASH_RECONCILE_KIND && it.status in OutboxRules.reviewStatuses }
+                .maxByOrNull { it.createdAt }?.let { com.sunpride.van.pos.CountOfficeRules.refusal(it.kind, it.rejectionCode) } else null)
     }
 
     /**
@@ -112,8 +117,7 @@ class CashReconciliationStore(private val store: RoomVanStore) {
         val now = store.now()
         val at = maxOf(now, Math.addExact(dao.latestCreatedAt(s, d) ?: 0L, 1L))
         val counts = request.counts.filterValues { it != 0L }
-        val countsJson = JSONArray(CashDenominations.PHP.filter { it.minor in counts }.map {
-            JSONObject().put("denominationMinor", it.minor.toString()).put("count", counts.getValue(it.minor).toString()) })
+        val countsJson = CashReconciliationRules.wireCounts(counts)
         val row = CashReconciliationRow(s, d, request.reconciliationId, t.tripId, key, expectation.currency, expectation.expectedMinor,
             declared, variance, countsJson.toString(), authorized.reasonCode, authorized.note, authorized.method, authorized.code,
             expectation.cashSales, at)

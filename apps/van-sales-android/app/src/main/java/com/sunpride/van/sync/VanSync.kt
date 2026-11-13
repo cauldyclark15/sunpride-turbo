@@ -82,10 +82,15 @@ class VanSync(private val store: VanSyncStore, private val gateway: VanGateway, 
         } catch (e: CancellationException) {
             throw e
         } catch (e: VanSyncFailure) {
-            if (e.code == "unauthorized") store.hold() else store.setHealth(if (e.code == "version_unsupported") "update_required" else "retry_pending")
+            if (e.code == "unauthorized") store.hold() else store.setHealth(when (e.code) {
+                "version_unsupported" -> "update_required"
+                // VAN-086: the office paused this phone; Sync & posting says so instead of the last good sync.
+                "device_suspended" -> SyncHealth.PAUSED_HEALTH
+                else -> "retry_pending" })
             throw e
         } catch (e: AuthFailure) {
-            if (e.kind in setOf(AuthFailure.Kind.SESSION_EXPIRED,AuthFailure.Kind.REFUSED)) store.hold() else store.setHealth("retry_pending")
+            if (e.kind in setOf(AuthFailure.Kind.SESSION_EXPIRED,AuthFailure.Kind.REFUSED)) store.hold()
+            else store.setHealth(if (e.kind == AuthFailure.Kind.PAUSED) SyncHealth.PAUSED_HEALTH else "retry_pending")
             throw e
         } catch (e: Exception) {
             store.setHealth("retry_pending"); throw e

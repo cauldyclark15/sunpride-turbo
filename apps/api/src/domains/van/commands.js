@@ -19,7 +19,6 @@ import {
   productFor,
   frozenProduct,
   explainStock,
-  assertNotCounted,
 } from "./facts.js";
 import { finishLoad, movement, statusLine } from "./operations.js";
 import {
@@ -346,7 +345,12 @@ export async function decideDamage(db, actor, p) {
     true,
   );
   notSelf(actor, trip);
-  await assertNotCounted(db, trip.id);
+  // VAN-079: the cash count does not depend on damage, so a counted cash drawer does not stop the decision; the stock
+  // count waits for every decision (operations.js), so a counted truck can never have one pending.
+  if (
+    (await db`select 1 from van_stock_counts where trip_id=${trip.id}`).length
+  )
+    refuse("The trip's stock is counted; damage can no longer be decided");
   const [fresh] =
     await db`select * from van_damage_records where id=${record.id} for update`;
   if (fresh.status !== "pending_approval")

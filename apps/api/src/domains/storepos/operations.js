@@ -231,6 +231,7 @@ async function receive(c) {
   const { db, register: r, payload: p } = c;
   const body = { ...p, idempotencyKey: c.op.clientOpId };
   if (p.transferId) {
+    if (p.lines !== undefined) body.lines = transferReceiveLines(p.lines);
     const [transfer] =
       await db`select * from stock_transfers where id=${uuid(p.transferId)} and destination_location_id=${r.location_id} for update`;
     if (!transfer) refuse("Choose a shipped transfer to this store");
@@ -258,6 +259,63 @@ async function receive(c) {
     location,
   );
   return { entityId: result.id, movementId: result.movementId };
+}
+/**
+ * POS-044: the store wire for receiving a transfer. Quantities are whole-number decimal STRINGS (the van wire rule)
+ * named as the office names them: `receivedGoodBase`, `receivedDamagedBase`, `receivedHoldBase`. Handhelds up to
+ * 4c872cf3 sent `{receivedBase:<number>, rejectedBase:0, shortBase:0}` ("Receive all shipped"); that shape is read
+ * as received good so phones in the field keep working. Every refusal names the field that is wrong.
+ * @param {any} lines @returns {any[]}
+ */
+export function transferReceiveLines(lines) {
+  if (!Array.isArray(lines) || lines.length < 1 || lines.length > 300)
+    refuse("lines must list 1 to 300 transfer lines", "invalid_request");
+  return lines.map((/** @type {any} */ l, /** @type {number} */ i) => {
+    const at = `lines[${i}]`;
+    if (!l || typeof l !== "object" || Array.isArray(l))
+      refuse(`${at} must be an object`, "invalid_request");
+    /** @param {string} field @param {any} v */
+    const whole = (field, v) => {
+      if (v === undefined || v === null) return 0;
+      const ok =
+        (typeof v === "string" && /^(0|[1-9]\d{0,15})$/.test(v)) ||
+        (typeof v === "number" && Number.isSafeInteger(v) && v >= 0);
+      if (!ok || !Number.isSafeInteger(Number(v)))
+        refuse(
+          `${at}.${field} must be a whole number of base units as a string, for example "12"`,
+          "invalid_request",
+        );
+      return Number(v);
+    };
+    const legacy = "receivedBase" in l;
+    if (legacy && "receivedGoodBase" in l)
+      refuse(
+        `${at}.receivedBase is the old name of receivedGoodBase; send only receivedGoodBase`,
+        "invalid_request",
+      );
+    for (const field of ["rejectedBase", "shortBase"])
+      if (field in l && whole(field, l[field]) !== 0)
+        refuse(
+          `${at}.${field} is not read when receiving; send receivedDamagedBase or receivedHoldBase`,
+          "invalid_request",
+        );
+    const good = legacy
+      ? whole("receivedBase", l.receivedBase)
+      : whole("receivedGoodBase", l.receivedGoodBase);
+    const damaged = whole("receivedDamagedBase", l.receivedDamagedBase),
+      hold = whole("receivedHoldBase", l.receivedHoldBase);
+    if (typeof l.lineId !== "string" || !l.lineId)
+      refuse(`${at}.lineId is required`, "invalid_request");
+    /** @type {Record<string,any>} */ const out = {
+      lineId: l.lineId,
+      receivedGoodBase: good,
+      receivedDamagedBase: damaged,
+      receivedHoldBase: hold,
+    };
+    for (const k of ["batchId", "reasonCode", "note", "photoCount"])
+      if (l[k] !== undefined) out[k] = l[k];
+    return out;
+  });
 }
 /** F-R04 full/cycle blind capture freezes canonical versions; independent approval owns variance posting. @param {any} c */
 async function count(c) {

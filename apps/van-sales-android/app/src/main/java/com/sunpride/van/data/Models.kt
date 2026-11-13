@@ -26,7 +26,9 @@ data class VanPolicy(val allowNegativeStock: Boolean = false,
     /** r6van3: the office's decision per held return id (opt-in `params.pickupDecisions`); null on an older server. */
     val pickupDecisions: Map<String, com.sunpride.van.pos.PickupDecision>? = null)
 /** IP-P0 (SPEC 5.3): the van this handheld is bound to and the supervisor to call; every part is optional. */
-data class HandheldInfo(val vehicleCode: String? = null, val plateNumber: String? = null, val supervisorName: String? = null, val supervisorPhone: String? = null) {
+data class HandheldInfo(val vehicleCode: String? = null, val plateNumber: String? = null, val supervisorName: String? = null, val supervisorPhone: String? = null,
+    /** VAN-014: who can decide this trip's load difference (an in-scope approver; null = "your supervisor"). */
+    val loadApproverName: String? = null) {
     /** "ABC-1234" when the plate is known, else the van code. */
     val vanLabel: String? get() = plateNumber?.takeIf { it.isNotBlank() } ?: vehicleCode?.takeIf { it.isNotBlank() }
 }

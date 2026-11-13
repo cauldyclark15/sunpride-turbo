@@ -73,6 +73,10 @@ data class CashCountResult(val reconciliationId: String, val tripNumber: String,
     val counts: Map<Long,Long>, val createdAt: Long, val replay: Boolean = false)
 
 object CashReconciliationRules {
+    /** The `cash.reconcile` counts as the office reads them: denomination and pieces as whole-number decimal strings. */
+    fun wireCounts(counts: Map<Long, Long>): org.json.JSONArray = org.json.JSONArray(CashDenominations.PHP.filter { it.minor in counts && counts.getValue(it.minor) != 0L }.map {
+        org.json.JSONObject().put("denominationMinor", it.minor.toString()).put("count", counts.getValue(it.minor).toString()) })
+
     private val uuidV4 = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")
     fun newReconciliationId(): String = UUID.randomUUID().toString()
     fun validId(id: String): Boolean = uuidV4.matches(id)

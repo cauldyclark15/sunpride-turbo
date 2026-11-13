@@ -377,7 +377,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
                 HelpDisclosure("How transfers work","Receive marks every line as received in full, as shipped.","store-stock-help")
                 transfers.forEach {t->SectionCard(t.getString("name")){
                     StoreCheckout.objects(t.getJSONArray("lines")).forEach {Text("${it.getString("name")} · ${it.getString("quantityBase")} base units",style=MaterialTheme.typography.bodyLarge)}
-                    PillButton("Receive all shipped",{c.saveStoreAction("store.receive",JSONObject().put("transferId",t.getString("id")).put("lines",JSONArray(StoreCheckout.objects(t.getJSONArray("lines")).map {JSONObject().put("lineId",it.getString("lineId")).put("receivedBase",it.getString("quantityBase").toLong()).put("rejectedBase",0).put("shortBase",0)})))},Modifier.testTag("store-transfer-receive"),enabled=open,height=52.dp,fontSize=17.sp)
+                    PillButton("Receive all shipped",{c.saveStoreAction("store.receive",JSONObject().put("transferId",t.getString("id")).put("lines",com.sunpride.van.storepos.StoreStockRules.receiveAllShipped(t.getJSONArray("lines"))))},Modifier.testTag("store-transfer-receive"),enabled=open,height=52.dp,fontSize=17.sp)
                 }}
                 if(transfers.isEmpty())EmptyState(GlyphKind.TRUCK,"No transfers on the way","Shipments sent to this store show up here, ready to receive.")
             }

@@ -646,12 +646,15 @@ async function allocate(
         Number(a.receipt_sequence) - Number(b.receipt_sequence),
     );
   let left = line.quantityBase;
+  let notUsable = 0;
   const result = [];
   for (const row of candidates) {
     if (
       sale && !lotSellable(row, policy, cutoff)
-    )
+    ) {
+      notUsable += Number(row.available_base);
       continue;
+    }
     const qty = Math.min(left, Number(row.available_base));
     result.push({
       lotId: row.lot_id,
@@ -667,7 +670,20 @@ async function allocate(
         "allocation_overflow",
       );
   }
-  if (left) invalid("Insufficient eligible lot stock", "negative_stock");
+  if (left) {
+    // VAN-014/WEB-082: say what is missing in plain words (which product, where, how much is usable and why not).
+    const [where] =
+      await t`select (select name from products where id=${line.productId}) as product,(select name from inventory_locations where id=${line.fromLocationId}) as location`;
+    const usable = line.quantityBase - left;
+    invalid(
+      `Not enough stock of ${where?.product ?? "this product"} at ${where?.location ?? "the source"} can be used: ` +
+        `${usable} of ${line.quantityBase} base units` +
+        (notUsable
+          ? ` (${notUsable} more are in batches that are on hold, expired or too close to expiry). Release or replace those batches, or lower the quantity.`
+          : `. Receive more stock there, or lower the quantity.`),
+      "negative_stock",
+    );
+  }
   if (policy?.allow_mixed_lots_per_line === false && result.length > 1)
     invalid("Mixed lots are not allowed on this product");
   return result;

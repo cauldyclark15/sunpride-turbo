@@ -12,7 +12,8 @@ import { storeOperation } from "../src/domains/storepos/operations.js";
 
 /** F-R04 one SKU/one shipped transfer: a leaf-store cashier receives from a root warehouse.
  * Tests the real domain and canonical posting boundary; authentication transport is covered separately. */
-test("F-R04 receiving an authorized transfer does not need access to the warehouse scope", async () => {
+/** @param {((lineId: string) => any[]) | null} linesOf the phone's `lines` (null: receive everything shipped) */
+async function receiveTransfer(linesOf) {
   const h = await startHarness();
   try {
     const people = profileStore(h),
@@ -117,12 +118,15 @@ test("F-R04 receiving an authorized transfer does not need access to the warehou
     await h.db`insert into stock_transfer_lines(organization_id,transfer_id,product_id,requested_base,approved_base,shipped_base,received_base,rejected_base,short_base) values('sunpride',${transfer},${sku},1,1,1,0,0,0)`;
     const at = Date.now(),
       id = crypto.randomUUID();
+    const [line] =
+      await h.db`select id from stock_transfer_lines where transfer_id=${transfer}`;
     const payload = {
       registerId: register,
       modeVersionId: mode,
       shiftId: shift,
       transferId: transfer,
       deviceTime: at,
+      ...(linesOf ? { lines: linesOf(line.id) } : {}),
     };
     const result = await tx(h.db, (db) =>
       storeOperation({
@@ -147,4 +151,44 @@ test("F-R04 receiving an authorized transfer does not need access to the warehou
   } finally {
     await h.close();
   }
-}, 30000);
+}
+
+test("F-R04 receiving an authorized transfer does not need access to the warehouse scope", () => receiveTransfer(null), 30000);
+
+// POS-044: the phone's "Receive all shipped" lines, as the store wire names them (whole-number strings).
+test("POS-044 store.receive reads receivedGoodBase sent as a whole-number string", () =>
+  receiveTransfer((lineId) => [{ lineId, receivedGoodBase: "1", receivedDamagedBase: "0", receivedHoldBase: "0" }]), 30000);
+
+// POS-044: phones in the field (up to 4c872cf3) send receivedBase as a number; it is read as received good.
+test("POS-044 store.receive still reads the old phone's receivedBase number", () =>
+  receiveTransfer((lineId) => [{ lineId, receivedBase: 1, rejectedBase: 0, shortBase: 0 }]), 30000);
+
+test("POS-044 a wrong receive quantity is refused naming the field", async () => {
+  const { transferReceiveLines } = await import(
+    "../src/domains/storepos/operations.js"
+  );
+  /** @param {any} lines */
+  const message = (lines) => {
+    try {
+      transferReceiveLines(lines);
+      return "accepted";
+    } catch (e) {
+      return /** @type {any} */ (e).message;
+    }
+  };
+  expect(message([{ lineId: "x", receivedGoodBase: "1.5" }])).toContain(
+    "lines[0].receivedGoodBase",
+  );
+  expect(message([{ lineId: "x", receivedGoodBase: "-1" }])).toContain(
+    "lines[0].receivedGoodBase",
+  );
+  expect(
+    message([{ lineId: "x", receivedGoodBase: "1" }, { lineId: "y", receivedDamagedBase: 2.5 }]),
+  ).toContain("lines[1].receivedDamagedBase");
+  expect(message([{ lineId: "x", receivedBase: 1, shortBase: 1 }])).toContain(
+    "lines[0].shortBase",
+  );
+  expect(transferReceiveLines([{ lineId: "x", receivedGoodBase: "12" }])).toEqual([
+    { lineId: "x", receivedGoodBase: 12, receivedDamagedBase: 0, receivedHoldBase: 0 },
+  ]);
+});

@@ -65,7 +65,9 @@ enum class StockProblem {
     REASON_REQUIRED, NOTE_REQUIRED, NOTE_INVALID, APPROVAL_UNAVAILABLE, CODE_REQUIRED, CODE_WRONG,
     STOCK_COUNTED,
     /** VAN-024: the trip is closed on this phone. */
-    TRIP_CLOSED
+    TRIP_CLOSED,
+    /** VAN-079: a damage report is not sent yet or waits for a supervisor's decision. */
+    DAMAGE_WAITING
 }
 
 class StockRefused(val problem: StockProblem) : IllegalStateException(problem.name)
@@ -101,7 +103,13 @@ data class StockSummary(
     val tripNumber: String,
     val countable: Boolean,
     val lines: List<StockLineSummary>,
-    val saved: StockCountResult?
+    val saved: StockCountResult?,
+    /** VAN-079: why the stock cannot be counted yet (a damage report not sent or not decided); null = it can. */
+    val waiting: String? = null,
+    /** VAN-079: the office refused the last count; plain reason and what to do. Null when nothing was refused. */
+    val refusal: String? = null,
+    /** VAN-079: the saved count waits at the office for a damage decision (it is sent again). */
+    val officeWaiting: Boolean = false
 )
 
 object StockReconciliationRules {
@@ -111,6 +119,12 @@ object StockReconciliationRules {
     private val keyPattern = Regex("^[A-Za-z0-9_-]{43}$")
 
     fun newCountId(): String = UUID.randomUUID().toString()
+
+    /** One `stock.reconcile` line as the office reads it: quantities as whole-number decimal strings (van wire rule). */
+    fun wireLine(line: StockCountLine): org.json.JSONObject = org.json.JSONObject().put("productId", line.productId).put("status", line.status)
+        .put("expectedBase", line.expectedBase.toString()).put("countedBase", line.countedBase.toString())
+        .put("varianceBase", Math.subtractExact(line.countedBase, line.expectedBase).toString())
+        .put("reasonCode", line.reasonCode ?: "")
     fun validId(id: String): Boolean = uuidV4.matches(id)
 
     /** One line for both stock statuses of every product in the cache. */

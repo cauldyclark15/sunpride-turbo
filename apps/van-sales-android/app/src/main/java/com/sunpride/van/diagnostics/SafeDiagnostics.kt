@@ -81,6 +81,6 @@ class SupportInfo(context: Context) {
         "Android ${android.os.Build.VERSION.RELEASE}\nSupport handle: $handle\n" +
         "Queued: ${status.queued}; Sending: ${status.sending}; Needs review: ${status.review}; Held: ${status.held}\n" +
         "Phone only: ${status.phoneOnly}; Received by office: ${status.received}; Not posted to SAP: ${status.sapPending}\n" +
-        "Last outcome: ${when (status.health) { "synced", "retry_pending", "held_for_review", "never_synced" -> status.health; else -> "unknown" }}"
+        "Last outcome: ${when (status.health) { "synced", "retry_pending", "held_for_review", "never_synced", "paused" -> status.health; else -> "unknown" }}"
     )
 }

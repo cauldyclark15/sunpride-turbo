@@ -48,6 +48,7 @@ import com.sunpride.van.pos.*
             !summary.countable -> Text("Start the trip before counting cash.",Modifier.testTag("cash-blocked"))
             else -> {
                 val e = summary.expectation
+                summary.refusal?.let { Text(it,Modifier.testTag("cash-office-refused"),color = MaterialTheme.colorScheme.error,style = MaterialTheme.typography.bodyLarge) }
                 SectionCard("Expected cash") {
                     Text(PosMoney.format(e.expectedMinor,e.currency),style = MaterialTheme.typography.headlineMedium,modifier = Modifier.testTag("cash-expected"))
                     if (e.openingFloatMinor > 0) Text("Includes your opening float ${PosMoney.format(e.openingFloatMinor,e.currency)}",

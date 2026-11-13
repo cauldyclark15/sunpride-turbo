@@ -180,6 +180,9 @@ interface VanDao {
     @Query("SELECT * FROM sale_void WHERE fullAuthSubject=:subject AND deviceId=:device AND saleId=:saleId") suspend fun saleVoid(subject: String, device: String, saleId: String): SaleVoidRow?
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertCashReconciliation(row: CashReconciliationRow)
     @Query("SELECT * FROM cash_reconciliation WHERE fullAuthSubject=:subject AND deviceId=:device AND tripId=:tripId") suspend fun cashReconciliation(subject: String, device: String, tripId: String): CashReconciliationRow?
+    /** VAN-079: a count the office refused is not a count; the seller counts again. */
+    @Query("DELETE FROM cash_reconciliation WHERE fullAuthSubject=:subject AND deviceId=:device AND idempotencyKey=:key") suspend fun deleteCashReconciliation(subject: String, device: String, key: String)
+    @Query("DELETE FROM stock_reconciliation WHERE fullAuthSubject=:subject AND deviceId=:device AND idempotencyKey=:key") suspend fun deleteStockReconciliation(subject: String, device: String, key: String)
     @Query("SELECT * FROM cash_reconciliation WHERE fullAuthSubject=:subject AND deviceId=:device") fun observeCashReconciliation(subject: String, device: String): Flow<List<CashReconciliationRow>>
     @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertStockReconciliation(row: StockReconciliationRow)
     @Query("SELECT * FROM stock_reconciliation WHERE fullAuthSubject=:subject AND deviceId=:device AND tripId=:tripId") suspend fun stockReconciliation(subject: String, device: String, tripId: String): StockReconciliationRow?
