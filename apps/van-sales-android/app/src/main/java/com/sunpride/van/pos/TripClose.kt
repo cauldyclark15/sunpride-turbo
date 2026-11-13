@@ -59,6 +59,37 @@ enum class CloseProblem {
     REVIEW_REQUIRED, EXCEPTIONS_CHANGED, CLOSE_INVALID, ODOMETER_INVALID, NOTE_INVALID
 }
 
+/** VAN-083: where the trip close stands at the office, after it was closed on this phone. */
+enum class CloseOffice { NOT_CLOSED, WAITING_TO_SEND, WAITING_FOR_CASH, ACCEPTED, REFUSED }
+
+object CloseOfficeRules {
+    /** Outbox code kept on a still-pending close the office answered "receive the cash first" (temporary). */
+    const val WAITING_CASH_CODE = "waiting_office_cash"
+    /** The office's temporary refusal of a close: it has not confirmed the cash receipt yet. */
+    fun waitsForCash(opType: String, code: String?, retryable: Boolean): Boolean =
+        retryable && opType == "trip.close" && code == "dependency_missing"
+    /** [opStatus]/[opCode] of this trip's close operation in the outbox (null when none is saved). */
+    fun state(closedHere: Boolean, opStatus: String?, opCode: String?, tripStatus: String?): CloseOffice = when {
+        !closedHere -> CloseOffice.NOT_CLOSED
+        tripStatus == "closed" || opStatus == "done" -> CloseOffice.ACCEPTED
+        opStatus in setOf("rejected", "conflict") -> CloseOffice.REFUSED
+        opCode == WAITING_CASH_CODE -> CloseOffice.WAITING_FOR_CASH
+        else -> CloseOffice.WAITING_TO_SEND
+    }
+    fun title(state: CloseOffice): String = when (state) {
+        CloseOffice.WAITING_FOR_CASH -> "Waiting for the office"
+        CloseOffice.WAITING_TO_SEND -> "Closed here · not sent yet"
+        CloseOffice.REFUSED -> "The office refused the close"
+        else -> "Trip closed"
+    }
+    fun detail(state: CloseOffice): String = when (state) {
+        CloseOffice.WAITING_FOR_CASH -> "The office must confirm it received the cash before the trip closes there. Hand the cash to the office. This phone sends the close again by itself; you can also tap Try again."
+        CloseOffice.WAITING_TO_SEND -> "Saved on this phone. It goes to the office at the next sync."
+        CloseOffice.REFUSED -> "Call your supervisor. The Sync screen shows what needs review."
+        else -> "Nothing more to do on this phone."
+    }
+}
+
 class TripCloseRefused(val problem: CloseProblem) : IllegalStateException(problem.name)
 
 /**
@@ -89,6 +120,9 @@ data class TripCloseSummary(
 )
 
 object TripCloseRules {
+    /** VAN-081: the start reading the office sent with the trip (`policy.tripFacts.startOdometerKm`). */
+    fun startFromPolicy(policy: org.json.JSONObject): Double? =
+        policy.optJSONObject("tripFacts")?.let { f -> if (f.isNull("startOdometerKm")) null else f.optDouble("startOdometerKm").takeIf { it.isFinite() } }
     const val MAX_NOTE = 300
     const val MAX_ODOMETER_KM = 10_000_000.0
     private val UUID_V4 = Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$")

@@ -235,6 +235,8 @@ class VanRepository private constructor(private val context: Context, private va
     val stockCounted: Flow<Boolean> = current.flatMapLatest { it?.stockCounted ?: flowOf(false) }.offMain()
     /** VAN-024: the current trip is closed on this phone. */
     val tripClosed: Flow<Boolean> = current.flatMapLatest { it?.tripClosed ?: flowOf(false) }.offMain()
+    /** VAN-083: where the trip close stands at the office. */
+    val closeOffice: Flow<com.sunpride.van.pos.CloseOffice> = current.flatMapLatest { it?.closeOffice ?: flowOf(com.sunpride.van.pos.CloseOffice.NOT_CLOSED) }.offMain()
     /** SP-0137: the signed-in scope (person + registered phone) location sharing is recorded under. */
     val storeScope: Flow<StoreScope?> = current.map { it?.scope }.offMain()
     /** SP-0137: live-location pings waiting on this phone for upload. */
@@ -641,6 +643,8 @@ class VanRepository private constructor(private val context: Context, private va
         }
         finally { if (st.pending().isNotEmpty()) schedule() }
     }
+    /** VAN-083: the trip close is still waiting for the office to confirm the cash (the worker tries again later). */
+    suspend fun closeWaitsForOffice(): Boolean = closeOffice.first() == com.sunpride.van.pos.CloseOffice.WAITING_FOR_CASH
     /** Scope owned by the repository; never construct this from a UI-selected identity. */
     fun close() { lifetime.cancel(); current.value = null; database?.close(); database = null }
     companion object {

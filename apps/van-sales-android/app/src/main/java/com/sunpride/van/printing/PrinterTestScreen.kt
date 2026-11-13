@@ -113,12 +113,7 @@ fun PrinterTestScreen(
                                 val version = (state as? PrinterStatus.Ready)?.serviceVersion ?: "unavailable"
                                 val outcome = if (state is PrinterStatus.Ready) printer.print(TestReceipts.build(deviceModel, version))
                                     else PrintResult.Error(state)
-                                result = when (outcome) {
-                                    PrintResult.Success -> "Test receipt sent. Check the paper output."
-                                    is PrintResult.Unsupported -> outcome.feature
-                                    is PrintResult.Error -> "Print failed: ${outcome.status.displayText()}" +
-                                        if (outcome.mayHavePrinted) " (may have partly printed; check paper)" else ""
-                                }
+                                result = PrinterWords.testResult(outcome)
                                 val d = printer.diagnostics(); state = d.status; paper = d.paper; details = d.details
                             } finally { busy = false }
                         }

@@ -25,23 +25,26 @@ import java.time.format.DateTimeFormatter
     val checklist = summary?.checklist
     val km = draft.odometer.takeIf { it.isNotBlank() }?.trim()?.toDoubleOrNull()
     val operational=c.policy?.operationsVersion==1
-    val odometerValid = (!operational && draft.odometer.isBlank()) || TripCloseRules.validOdometer(km ?: Double.NaN,summary?.startOdometerKm)
+    val odometerProblem = VanRules.closeOdometerProblem(draft.odometer,summary?.startOdometerKm,draft.startOdometer,operational)
+    val odometerValid = odometerProblem == null && ((!operational && draft.odometer.isBlank()) || TripCloseRules.validOdometer(km ?: Double.NaN,summary?.startOdometerKm))
     val noteValid = TripCloseRules.validNote(draft.note)
     val needsReview = checklist != null && TripCloseRules.needsReview(checklist,policy)
     val otherwiseReady = summary != null && saved == null && checklist!!.ready && odometerValid && noteValid
     val ready = otherwiseReady && (!needsReview || draft.reviewed)
     // VAN-082: without the tick the button stays tappable and says what to do, instead of doing nothing.
     val tickMessage = VanRules.closeTapMessage(otherwiseReady,needsReview,draft.reviewed)
+    // VAN-082: the screen's own message sits at the top, out of sight once scrolled to the tick; say it next to the button.
+    var tapHint by remember(draft.reviewed) { mutableStateOf<String?>(null) }
 
     ScreenFrame("Close trip",c::back,
         action = if (saved != null) "Done" else if (c.busy) "Closing…" else "Close trip",actionTag = "close-trip",
         enabled = if (saved != null) true else (ready || tickMessage != null) && !c.busy && c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN).isEmpty(),
-        onAction = { if (saved != null) c.back() else if (tickMessage != null) c.say(tickMessage) else c.closeTrip() },
-        footer = if (saved == null && checklist != null) "${checklist.blockers.size} to do · ${checklist.exceptions.size} to check" else null,
+        onAction = { if (saved != null) c.back() else if (tickMessage != null) { tapHint = tickMessage; c.say(tickMessage) } else c.closeTrip() },
+        footer = if (saved == null && checklist != null) tapHint ?: "${checklist.blockers.size} to do · ${checklist.exceptions.size} to check" else null,
         message = c.message) {
         when {
             summary == null -> Text("Getting this trip's checks…")
-            saved != null -> SavedClose(saved,operational)
+            saved != null -> SavedClose(saved,operational,c.closeOffice,c::syncForClose,!c.busy)
             else -> {
                 Text("Trip ${summary.tripNumber}",style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("close-trip-number"))
                 // IP-HOLD: carts parked for customers stop the trip closing.
@@ -83,12 +86,16 @@ import java.time.format.DateTimeFormatter
                         SecondaryButton("Open receipts",{ c.open(Page.RECEIPTS) },Modifier.testTag("close-go-receipts"),!c.busy)
                     if (needsReview) Confirmation(if(operational) "I checked these records and differences. Office sign-off follows after sync." else "I have checked these with my supervisor",draft.reviewed,
                         { c.editClose(draft.copy(reviewed = it)) },"close-reviewed")
+                    tapHint?.let { Text(it,color = SunprideTokens.emptyRed,style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("close-tick-hint")) }
                 }
                 if(operational) SecondaryButton("Review temperature, unload and local settlement",{c.open(Page.ROUTE_OPS)},Modifier.testTag("close-route-controls"))
                 LabeledField(if(operational) "Closing odometer km (required)" else "End odometer km (optional)",draft.odometer,{ c.editClose(draft.copy(odometer = it)) },"close-odometer",
                     numeric = true,maxLength = 20,keyboardType = KeyboardType.Decimal,enabled = !c.busy)
-                summary.startOdometerKm?.let { Text("At start: ${VanRules.km(it)} km",style = MaterialTheme.typography.bodyMedium) }
-                if (!odometerValid) Text("Enter the end odometer in km, not lower than at the start.",Modifier.testTag("close-odometer-invalid"))
+                summary.startOdometerKm?.let { Text("At start: ${VanRules.km(it)} km",style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("close-odometer-start")) }
+                    ?: LabeledField("Start odometer km (at the start of this trip)",draft.startOdometer,{ c.editClose(draft.copy(startOdometer = it)) },"close-odometer-start-input",
+                        numeric = true,maxLength = 20,keyboardType = KeyboardType.Decimal,enabled = !c.busy)
+                if (!odometerValid && draft.odometer.isNotBlank()) Text(odometerProblem ?: "Enter the end odometer in km, not lower than at the start.",
+                    color = SunprideTokens.emptyRed,modifier = Modifier.testTag("close-odometer-invalid"))
                 LabeledField("Note (optional)",draft.note,{ c.editClose(draft.copy(note = it)) },"close-note",enabled = !c.busy,maxLength = 300)
                 Text("After closing, this trip takes no more sales, voids, returns, damage or counts on this phone.",style = MaterialTheme.typography.bodyMedium)
             }
@@ -96,9 +103,16 @@ import java.time.format.DateTimeFormatter
     }
 }
 
-@Composable private fun SavedClose(saved: TripCloseResult,operational: Boolean = false) {
-    SectionCard("Trip closed") {
-        Text("Closed on this phone",style = MaterialTheme.typography.headlineSmall,modifier = Modifier.testTag("close-saved"))
+@Composable private fun SavedClose(saved: TripCloseResult,operational: Boolean = false,office: CloseOffice = CloseOffice.ACCEPTED,
+    retry: () -> Unit = {},canRetry: Boolean = true) {
+    // VAN-083: "closed" only once the office accepted; until then say what the trip waits for and offer a retry.
+    SectionCard(CloseOfficeRules.title(office)) {
+        Text(if (office == CloseOffice.ACCEPTED) "Closed on this phone and at the office" else "Closed on this phone",
+            style = MaterialTheme.typography.headlineSmall,modifier = Modifier.testTag("close-saved"))
+        if (office != CloseOffice.ACCEPTED) {
+            Text(CloseOfficeRules.detail(office),style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("close-office-state"))
+            if (office != CloseOffice.REFUSED) SecondaryButton("Try again",retry,Modifier.testTag("close-retry"),canRetry)
+        }
         Text("Trip ${saved.tripNumber} · ${Instant.ofEpochMilli(saved.createdAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MMM d, h:mm a"))}")
         Text("${saved.operationCount} ${if (saved.operationCount == 1) "record" else "records"} from this trip saved for the office",
             modifier = Modifier.testTag("close-saved-records"))

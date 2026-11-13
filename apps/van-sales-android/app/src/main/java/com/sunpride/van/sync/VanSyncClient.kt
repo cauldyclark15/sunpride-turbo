@@ -163,6 +163,9 @@ object V2VanCodec {
             val status = r.getString("status")
             if (com.sunpride.van.BuildConfig.DEBUG && status !in setOf("applied","duplicate"))
                 android.util.Log.w("SunprideVan","op ${op.getString("opType")} $status ${r.optString("code")}")
+            // VAN-083: the office keeps the close until it has received the cash; the op stays here and is sent again.
+            if (com.sunpride.van.pos.CloseOfficeRules.waitsForCash(op.getString("opType"),r.optString("code"),r.optBoolean("retryable")))
+                return@mapIndexed PushResult(op.getString("opType"),op.getString("clientOpId"),"waiting",code = com.sunpride.van.pos.CloseOfficeRules.WAITING_CASH_CODE)
             if (r.optBoolean("retryable")) throw VanSyncFailure("temporarily_unavailable",true)
             val accepted = status in setOf("applied","duplicate")
             val ack = if (accepted) r.getJSONObject("ack").let { PushAck(it.getString("entityId"),

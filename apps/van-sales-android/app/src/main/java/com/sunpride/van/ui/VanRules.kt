@@ -186,6 +186,23 @@ object VanRules {
         com.sunpride.van.pos.StockProblem.TRIP_CLOSED -> "This trip is closed. No more stock changes on this trip."
     }
     /** VAN-082: Close trip tapped with everything else ready but the exceptions not ticked: say so (null = close normally). */
+    /**
+     * VAN-081: the end odometer against the trip's start. [startKm] comes from the trip (this phone or the office);
+     * when it is unknown the seller types it ([startText]) so a lower end reading is still caught. Null = fine.
+     */
+    fun closeOdometerProblem(endText: String, startKm: Double?, startText: String, required: Boolean): String? {
+        val end = endText.trim()
+        if (end.isEmpty()) return if (required) "Enter the closing odometer in km." else null
+        val endKm = end.toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..com.sunpride.van.pos.TripCloseRules.MAX_ODOMETER_KM }
+            ?: return "Enter the end odometer in km, numbers only (for example 48262)."
+        val start = startKm ?: run {
+            val typed = startText.trim()
+            if (typed.isEmpty()) return "This phone does not have the start odometer for this trip. Enter the reading at the start too."
+            typed.toDoubleOrNull()?.takeIf { it.isFinite() && it in 0.0..com.sunpride.van.pos.TripCloseRules.MAX_ODOMETER_KM }
+                ?: return "Enter the start odometer in km, numbers only."
+        }
+        return if (endKm < start) "The end odometer (${km(endKm)} km) cannot be lower than at the start (${km(start)} km)." else null
+    }
     fun closeTapMessage(otherwiseReady: Boolean, needsReview: Boolean, reviewed: Boolean): String? =
         if (otherwiseReady && needsReview && !reviewed) closeMessage(com.sunpride.van.pos.CloseProblem.REVIEW_REQUIRED) else null
     /** VAN-024: plain words for each trip close refusal. */

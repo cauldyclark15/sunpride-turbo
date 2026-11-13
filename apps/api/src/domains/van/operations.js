@@ -74,7 +74,7 @@ import {
 } from "./model.js";
 import { canonicalJson } from "../../core/util.js";
 import { ApiError } from "../../core/errors.js";
-import { OP_CODES } from "../../core/sync.js";
+import { OP_CODES, OpRejected } from "../../core/sync.js";
 import { vanAdapter } from "../callflow/index.js";
 import {
   ROUTE_OPS,
@@ -270,6 +270,9 @@ export async function applyOperation(ctx, env) {
     return await dispatchOperation(ctx, env);
   } catch (error) {
     if (error instanceof ApiError && [400, 409, 422].includes(error.status)) {
+      // VAN-083: a temporary refusal (e.g. waiting for the office's cash receipt) is not stored; the device retries.
+      if (error.retryable && OP_CODES.includes(error.code))
+        throw new OpRejected(error.code, true);
       return ctx.reject(
         OP_CODES.includes(error.code)
           ? error.code
@@ -1585,7 +1588,13 @@ async function closeTrip(db, trip, actor, p, opId) {
     !(await db`select 1 from van_cash_remittances where trip_id=${trip.id}`)
       .length
   )
-    refuse("The office must confirm receipt of the cash before closing");
+    // VAN-083: not final. The phone keeps the close and sends it again once the office has received the cash.
+    throw new ApiError(
+      "dependency_missing",
+      422,
+      "The office must confirm receipt of the cash before closing",
+      true,
+    );
   if (
     (
       await db`select 1 from van_damage_records where trip_id=${trip.id} and status='pending_approval'`

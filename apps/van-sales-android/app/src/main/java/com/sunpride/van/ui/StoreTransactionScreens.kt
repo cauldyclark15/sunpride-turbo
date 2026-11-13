@@ -337,13 +337,17 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     val selected=if(kind=="cycle")catalogue.filter {it.getString("productId")==product}else catalogue
     val entries=if(mode=="count")selected.flatMap {p->StoreCheckout.objects(p.getJSONArray("stockLines")).map {l->p to l}} else emptyList()
     fun key(p:JSONObject,l:JSONObject)="${p.getString("productId")}:${l.optString("lotId")}:${l.getString("stockStatus")}"
-    val receiveOk=po.isNotBlank()&&product.isNotBlank()&&(amount.toLongOrNull()?:0)>0&&open&&(expiry.isBlank()||runCatching{java.time.LocalDate.parse(expiry)}.isSuccess)
+    val receiveProblem=com.sunpride.van.storepos.StoreStockRules.receiveProblem(po,product,amount,expiry,open)
+    val receiveOk=receiveProblem==null
+    // POS-042: the button stays tappable and says what is wrong next to it (the field's own line can be off screen).
+    var receiveTapped by remember{mutableStateOf(false)}
     val countOk=entries.isNotEmpty()&&entries.all {(p,l)->quantity(counts[key(p,l)]?:"",p.getString("quantityScale").toLong())!=null}&&open
-    val saveReceive={c.saveStoreAction("store.receive",JSONObject().put("purchaseOrder",po).put("lines",JSONArray().put(JSONObject().put("productId",product).put("quantityBase",amount.toLong()).put("lotNumber",lot).apply{if(expiry.isNotBlank())put("expiresAt",java.time.LocalDate.parse(expiry).atStartOfDay(java.time.ZoneId.of("Asia/Manila")).toInstant().toEpochMilli())})))}
-    val submitCount={c.saveStoreAction("store.count",JSONObject().put("countType",kind).put("lines",JSONArray(entries.map {(p,l)->JSONObject().put("productId",p.getString("productId")).put("lotId",l.opt("lotId")).put("stockStatus",l.getString("stockStatus")).put("version",l.getString("version")).put("countedBase",checkNotNull(quantity(counts[key(p,l)]?:"",p.getString("quantityScale").toLong())))})))}
+    val saveReceive={c.saveStoreAction("store.receive",JSONObject().put("purchaseOrder",po).put("lines",JSONArray().put(JSONObject().put("productId",product).put("quantityBase",checkNotNull(com.sunpride.van.storepos.StoreStockRules.quantity(amount))).put("lotNumber",lot).apply{if(expiry.isNotBlank())put("expiresAt",java.time.LocalDate.parse(expiry.trim()).atStartOfDay(java.time.ZoneId.of("Asia/Manila")).toInstant().toEpochMilli())})))}
+    val submitCount={c.saveStoreAction("store.count",JSONObject().put("countType",kind).put("lines",JSONArray(entries.map {(p,l)->com.sunpride.van.storepos.StoreStockRules.countLine(p,l,checkNotNull(quantity(counts[key(p,l)]?:"",p.getString("quantityScale").toLong())))})))}
     ScreenFrame("Stock",message=c.message,trailing={SyncPill(c)},
         action=when(mode){"receive"->"Save receiving";"count"->"Submit count";else->null},actionTag="store-stock-save",
-        onAction={if(mode=="receive")saveReceive() else submitCount()},enabled=if(mode=="receive")receiveOk else countOk){
+        footer=if(mode=="receive"&&receiveTapped)receiveProblem else null,
+        onAction={if(mode=="receive"){receiveTapped=true;if(receiveOk)saveReceive()} else submitCount()},enabled=if(mode=="receive")c.storePos.shift!=null&&!c.busy else countOk){
         SegmentedChips(listOf("receive" to "Receive","count" to "Count","transfers" to (if(transfers.isEmpty())"Transfers" else "Transfers (${transfers.size})")),mode,{mode=it},"store-stock-mode")
         if(c.storePos.shift==null)Text("Open the till (Till tab) to save stock changes.",style=MaterialTheme.typography.bodyLarge,color=Look.muted,modifier=Modifier.testTag("store-stock-needs-till"))
         when(mode){
@@ -352,18 +356,19 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
                 LabeledField("Purchase order reference",po,{po=it},"store-po-reference",maxLength=100)
                 StockProductPicker(catalogue,product,{product=it},"store-product")
                 LabeledField("Quantity received (base units)",amount,{amount=it},"store-receive-quantity",numeric=true,maxLength=12)
+                if(amount.isNotBlank()&&com.sunpride.van.storepos.StoreStockRules.quantity(amount)==null)Text(com.sunpride.van.storepos.StoreStockRules.QUANTITY_PROBLEM,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-receive-quantity-problem"))
                 Row(Modifier.fillMaxWidth(),horizontalArrangement=Arrangement.spacedBy(8.dp)){
                     Box(Modifier.weight(1f)){LabeledField("Lot, if required",lot,{lot=it},"store-receive-lot",maxLength=100)}
                     Box(Modifier.weight(1f)){LabeledField("Expiry date",expiry,{expiry=it},"store-receive-expiry",maxLength=10)}
                 }
-                if(expiry.isNotBlank()&&runCatching{java.time.LocalDate.parse(expiry)}.isFailure)Text("Type the expiry date as YYYY-MM-DD, for example 2026-12-31.",color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-receive-expiry-problem"))
+                if(!com.sunpride.van.storepos.StoreStockRules.expiryOk(expiry))Text(com.sunpride.van.storepos.StoreStockRules.EXPIRY_PROBLEM,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-receive-expiry-problem"))
             }
             "count"->{
                 HelpDisclosure("How counting works","Count what is on the shelf. Expected quantities are hidden. The office must independently approve any variance before posting.","store-stock-help")
                 SegmentedChips(listOf("full" to "All products","cycle" to "One product"),kind,{kind=it},"store-count-kind")
                 if(kind=="cycle")StockProductPicker(catalogue,product,{product=it},"store-count-product")
                 entries.forEach {(p,l)->val k=key(p,l)
-                    LabeledField("${p.getString("name")} · ${l.optString("lotNumber",l.getString("stockStatus"))} · ${p.getString("uomCode")}",counts[k]?:"",{counts=counts+(k to it)},"store-count-${p.getString("code")}",numeric=true,maxLength=12)
+                    LabeledField(com.sunpride.van.storepos.StoreStockRules.lineLabel(p,l),counts[k]?:"",{counts=counts+(k to it)},"store-count-${p.getString("code")}",numeric=true,maxLength=12)
                 }
                 if(entries.isEmpty())EmptyState(GlyphKind.BOX,"Nothing to count","There is no stock on this phone for that choice. Sync to refresh the list.")
                 Spacer(Modifier.height(8.dp))

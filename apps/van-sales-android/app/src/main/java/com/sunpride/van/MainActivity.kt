@@ -47,6 +47,11 @@ class MainActivity : ComponentActivity() {
         val scannerInput = com.sunpride.van.scanning.ScannerInput(applicationContext).also { scanner = it }
         setContent { VanApp(controller,dark,scannerInput = scannerInput) }
     }
+    // VAN-002: the built-in printer's "Paper is not ready" alert takes the focus; the printer adapter asks after a job.
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        com.sunpride.van.printing.PrinterAlertWatch.focusChanged(hasFocus, android.os.SystemClock.elapsedRealtime())
+    }
     /** IP-HH1: keyboard-wedge bursts are taken here, before any text field, and only while the selling grid is on screen. */
     @android.annotation.SuppressLint("RestrictedApi")
     override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean = scanner?.onKeyEvent(event) == true || super.dispatchKeyEvent(event)

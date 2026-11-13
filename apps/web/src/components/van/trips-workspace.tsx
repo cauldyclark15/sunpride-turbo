@@ -52,6 +52,14 @@ export function settlementLabel(status: string) {
     )[status] ?? "Needs review"
   );
 }
+/** VAN-083: a counted trip cannot close at the office until the cash is received; say which side it waits for. */
+export function tripStageLabel(trip: Pick<TripSettlement, "status" | "cash">) {
+  if (trip.status === "reconciling" && trip.cash.declaredCentavos != null)
+    return trip.cash.remittedCentavos == null
+      ? "Waiting for cash receipt"
+      : "Cash received · waiting for the seller's phone to close";
+  return settlementLabel(trip.status);
+}
 export const hasVariance = (trip: TripSettlement) =>
   Boolean(
     trip.cash.varianceCentavos ||
@@ -143,7 +151,7 @@ export function VanTripDetail({ trip }: { trip: TripSettlement }) {
             {trip.truck} · {trip.tripNumber}
           </h2>
           <p className="text-sm text-muted">
-            {trip.seller} · {trip.plateNumber} · {settlementLabel(trip.status)}
+            {trip.seller} · {trip.plateNumber} · {tripStageLabel(trip)}
           </p>
         </div>
         <div className="flex gap-2 print:hidden">
