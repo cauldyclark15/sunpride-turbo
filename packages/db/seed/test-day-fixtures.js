@@ -2233,7 +2233,9 @@ section(
       activity_kind: "order_intent",
       activity: {
         kind: "order_intent",
-        lines: [{ uom: "PC", quantity: 4, productId: p.id }],
+        // An unconfigured unit is a genuine capture refusal (office-priced orders alone may be captured).
+        // WEB-106 should show 'Product unit is not set up for selling', and retry stays in review until setup.
+        lines: [{ uom: "TDCASE", quantity: 4, productId: p.id }],
         source: "sample",
         // The phone always sends a UUID; a text id was refused as a bad phone record (WEB-106 r6).
         clientOrderId: FIELD_ORDER_ID,
