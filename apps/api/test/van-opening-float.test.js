@@ -316,6 +316,9 @@ test("IP-P0 fix: the bundle carries the trip's opening float and the handheld ca
     plateNumber: veh.plate_number,
     supervisorName: "Supervisor",
     supervisorPhone: null,
+    // VAN-014 (r6van6): with a trip, the card also names who decides a load difference. Older phones read the
+    // handheld card field by field and strip it before the frozen v1 check, so the extra key is safe for them.
+    loadApproverName: "Supervisor",
   });
 
   // Frozen v1 trip and policy are validated strictly by older phones: nothing new unless asked for.
