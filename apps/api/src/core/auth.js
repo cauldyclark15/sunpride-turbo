@@ -1,3 +1,4 @@
+import { noteWaitingPhone } from "../domains/integrity/waiting-phones.js";
 import { tx } from "@sunpride/db/client";
 import {
   nativeControl,
@@ -230,6 +231,8 @@ export function installAuth(router) {
         await refuseRevokedPhone(t, user.id, app, deviceKeyId);
       if (native && deviceKeyId)
         await registerSamplePhone(t, user.id, app, body.deviceKey);
+      if (native && deviceKeyId)
+        await noteWaitingPhone(t, user.id, app, body.deviceKey);
       const session = await createSession(t, user.id, app, deviceKeyId);
       const access = native ? await createAccess(t, session.id) : null;
       return { user, session, access };
@@ -288,7 +291,10 @@ export function installAuth(router) {
         // person plainly and keep their unsent work for recovery. Codes only; nothing else about the device leaks.
         const removed = await removedPhoneSession(ctx.db, token);
         if (removed)
-          throw unauthenticated("This phone was removed by the office", removed);
+          throw unauthenticated(
+            "This phone was removed by the office",
+            removed,
+          );
       }
       if (!row || row.app === "web")
         throw unauthenticated("Session expired or revoked", "session_invalid");

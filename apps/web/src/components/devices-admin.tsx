@@ -19,6 +19,7 @@ import { useState, type FormEvent } from "react";
 import { AdminSelectField } from "./org-admin";
 import { SetupSearch } from "./master-data/setup-health";
 import { StorePosAdmin } from "./storepos/storepos-admin";
+import { WaitingPhones } from "./integrity/fleet";
 
 export type DeviceAction = "suspend" | "revoke" | "reinstate";
 type DeviceStatus = "active" | "suspended" | "revoked";
@@ -287,218 +288,229 @@ export function DevicesAdmin() {
 
   const device = report?.device;
   return (
-    <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
-      <Card
-        label="Phones"
-        icon={<WorkspaceIcon name="mobile" />}
-        count={devices?.page.length}
-        flush
-      >
-        <div className="border-b border-separator p-4">
-          <SetupSearch
-            label="Search phones"
-            value={search ?? ""}
-            onChange={(value) => {
-              setSearch(value);
-              setCursors([null]);
-            }}
-          />
-          <AdminSelectField
-            label="Status"
-            value={statusFilter}
-            onChange={(value) => {
-              setStatusFilter((value || "all") as DeviceStatus | "all");
-              setCursors([null]);
-            }}
-            options={[
-              { id: "all", label: "All phones" },
-              { id: "active", label: "Active" },
-              { id: "suspended", label: "Suspended" },
-              { id: "revoked", label: "Revoked" },
-            ]}
-          />
-        </div>
-        {devices === undefined ? (
-          <p className="p-4 text-sm text-muted">Loading phones…</p>
-        ) : (
-          <DataTable
-            bare
-            rows={rows}
-            columns={columns}
-            empty={
-              <p className="p-4 text-sm text-muted">
-                {devices.isDone
-                  ? "No phones"
-                  : "No phones on this page. Try the next page."}
-              </p>
-            }
-          />
-        )}
-        <Pager
-          label="Phone pages"
-          page={cursors.length}
-          canPrevious={cursors.length > 1}
-          canNext={!!devices && !devices.isDone}
-          onPrevious={() => setCursors((old) => old.slice(0, -1))}
-          onNext={() => {
-            if (devices && !devices.isDone)
-              setCursors((old) => [...old, devices.continueCursor]);
-          }}
-        />
-      </Card>
-      {selectedId ? (
-        report === undefined || !device ? (
-          <Card label="Phone">Loading phone…</Card>
-        ) : (
-          <Card label={`Phone ${device.inventoryTag}`}>
-            <aside
-              aria-label="Phone detail"
-              className="grid min-w-0 grid-cols-1 gap-4"
-            >
-              <p className="text-[13px] text-muted">
-                {device.employeeName ?? "Unassigned"} · {device.platform}{" "}
-                {device.osVersion} · app {device.appVersion}
-              </p>
-              <div className="flex items-center gap-2">
-                <StatusPill tone={statusTone(device.status)}>
-                  {device.status}
-                </StatusPill>
-                {device.statusReason && device.status !== "active" ? (
-                  <span className="text-[13px] text-muted">
-                    {device.statusReason.replaceAll("_", " ")} ·{" "}
-                    {formatManilaDateTime(device.statusAt)}
-                  </span>
-                ) : null}
-              </div>
-              <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
-                <dt className="text-muted">Last contact</dt>
-                <dd>{formatManilaDateTime(device.lastSeenAt)}</dd>
-                <dt className="text-muted">Last upload received</dt>
-                <dd>{formatManilaDateTime(report.lastAcknowledgedAt)}</dd>
-                <dt className="text-muted">Offline access until</dt>
-                <dd>{formatManilaDateTime(device.offlineLeaseExpiresAt)}</dd>
-              </dl>
-              {device.status !== "active" ? (
-                <p className="rounded-xl bg-warning-soft p-3 text-[13px] text-warning-soft-foreground">
-                  The server now refuses this phone. Work may remain only on the
-                  phone, or may already have reached the office. Reconcile the
-                  received operations before supervised recovery or recapture.
+    <div className="grid gap-4">
+      <WaitingPhones />
+      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
+        <Card
+          label="Phones"
+          icon={<WorkspaceIcon name="mobile" />}
+          count={devices?.page.length}
+          flush
+        >
+          <div className="border-b border-separator p-4">
+            <SetupSearch
+              label="Search phones"
+              value={search ?? ""}
+              onChange={(value) => {
+                setSearch(value);
+                setCursors([null]);
+              }}
+            />
+            <AdminSelectField
+              label="Status"
+              value={statusFilter}
+              onChange={(value) => {
+                setStatusFilter((value || "all") as DeviceStatus | "all");
+                setCursors([null]);
+              }}
+              options={[
+                { id: "all", label: "All phones" },
+                { id: "active", label: "Active" },
+                { id: "suspended", label: "Suspended" },
+                { id: "revoked", label: "Revoked" },
+              ]}
+            />
+          </div>
+          {devices === undefined ? (
+            <p className="p-4 text-sm text-muted">Loading phones…</p>
+          ) : (
+            <DataTable
+              bare
+              rows={rows}
+              columns={columns}
+              empty={
+                <p className="p-4 text-sm text-muted">
+                  {devices.isDone
+                    ? "No phones"
+                    : "No phones on this page. Try the next page."}
                 </p>
-              ) : null}
-              <StorePosAdmin key={device.deviceId} deviceId={device.deviceId} />
-              <h4 className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                Received from this phone
-              </h4>
-              {report.acknowledged.length === 0 ? (
-                <p className="text-sm text-muted">Nothing received yet</p>
-              ) : (
+              }
+            />
+          )}
+          <Pager
+            label="Phone pages"
+            page={cursors.length}
+            canPrevious={cursors.length > 1}
+            canNext={!!devices && !devices.isDone}
+            onPrevious={() => setCursors((old) => old.slice(0, -1))}
+            onNext={() => {
+              if (devices && !devices.isDone)
+                setCursors((old) => [...old, devices.continueCursor]);
+            }}
+          />
+        </Card>
+        {selectedId ? (
+          report === undefined || !device ? (
+            <Card label="Phone">Loading phone…</Card>
+          ) : (
+            <Card label={`Phone ${device.inventoryTag}`}>
+              <aside
+                aria-label="Phone detail"
+                className="grid min-w-0 grid-cols-1 gap-4"
+              >
+                <p className="text-[13px] text-muted">
+                  {device.employeeName ?? "Unassigned"} · {device.platform}{" "}
+                  {device.osVersion} · app {device.appVersion}
+                </p>
+                <div className="flex items-center gap-2">
+                  <StatusPill tone={statusTone(device.status)}>
+                    {device.status}
+                  </StatusPill>
+                  {device.statusReason && device.status !== "active" ? (
+                    <span className="text-[13px] text-muted">
+                      {device.statusReason.replaceAll("_", " ")} ·{" "}
+                      {formatManilaDateTime(device.statusAt)}
+                    </span>
+                  ) : null}
+                </div>
+                <dl className="grid grid-cols-[auto_1fr] gap-x-4 gap-y-1 text-[13px]">
+                  <dt className="text-muted">Last contact</dt>
+                  <dd>{formatManilaDateTime(device.lastSeenAt)}</dd>
+                  <dt className="text-muted">Last upload received</dt>
+                  <dd>{formatManilaDateTime(report.lastAcknowledgedAt)}</dd>
+                  <dt className="text-muted">Offline access until</dt>
+                  <dd>{formatManilaDateTime(device.offlineLeaseExpiresAt)}</dd>
+                </dl>
+                {device.status !== "active" ? (
+                  <p className="rounded-xl bg-warning-soft p-3 text-[13px] text-warning-soft-foreground">
+                    The server now refuses this phone. Work may remain only on
+                    the phone, or may already have reached the office. Reconcile
+                    the received operations before supervised recovery or
+                    recapture.
+                  </p>
+                ) : null}
+                <StorePosAdmin
+                  key={device.deviceId}
+                  deviceId={device.deviceId}
+                />
+                <h4 className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                  Received from this phone
+                </h4>
+                {report.acknowledged.length === 0 ? (
+                  <p className="text-sm text-muted">Nothing received yet</p>
+                ) : (
+                  <div className="-mx-4 border-y border-separator">
+                    {report.acknowledged.map((ack) => (
+                      <ListRow
+                        key={`${ack.kind}:${ack.clientRequestId}`}
+                        icon={<WorkspaceIcon name="sync" />}
+                        title={operationLabel[ack.kind] ?? ack.kind}
+                        meta={formatManilaDateTime(ack.serverAt)}
+                      />
+                    ))}
+                    {report.acknowledgedMore ? (
+                      <p className="p-3 text-xs text-muted">
+                        Showing the latest {report.acknowledged.length}
+                      </p>
+                    ) : null}
+                  </div>
+                )}
+                <h4 className="text-[11px] font-medium uppercase tracking-wide text-muted">
+                  History
+                </h4>
                 <div className="-mx-4 border-y border-separator">
-                  {report.acknowledged.map((ack) => (
+                  {report.history.map((entry) => (
                     <ListRow
-                      key={`${ack.kind}:${ack.clientRequestId}`}
-                      icon={<WorkspaceIcon name="sync" />}
-                      title={operationLabel[ack.kind] ?? ack.kind}
-                      meta={formatManilaDateTime(ack.serverAt)}
+                      key={`${entry.action}:${entry.at}`}
+                      icon={<WorkspaceIcon name="queue" />}
+                      title={deviceHistoryTitle(entry.action)}
+                      meta={[
+                        formatManilaDateTime(entry.at),
+                        entry.actorName ?? "Former user",
+                        deviceHistoryReason(entry.reason),
+                      ]
+                        .filter(Boolean)
+                        .join(" · ")}
                     />
                   ))}
-                  {report.acknowledgedMore ? (
-                    <p className="p-3 text-xs text-muted">
-                      Showing the latest {report.acknowledged.length}
-                    </p>
-                  ) : null}
                 </div>
-              )}
-              <h4 className="text-[11px] font-medium uppercase tracking-wide text-muted">
-                History
-              </h4>
-              <div className="-mx-4 border-y border-separator">
-                {report.history.map((entry) => (
-                  <ListRow
-                    key={`${entry.action}:${entry.at}`}
-                    icon={<WorkspaceIcon name="queue" />}
-                    title={deviceHistoryTitle(entry.action)}
-                    meta={[
-                      formatManilaDateTime(entry.at),
-                      entry.actorName ?? "Former user",
-                      deviceHistoryReason(entry.reason),
-                    ]
-                      .filter(Boolean)
-                      .join(" · ")}
-                  />
-                ))}
-              </div>
-              {deviceActionsFor(device.status).length ? (
-                <div className="flex flex-wrap gap-2">
-                  {deviceActionsFor(device.status).map((next) => (
-                    <Button
-                      key={next}
-                      variant="outline"
-                      onPress={() => {
-                        setAction(next);
-                        setReason("");
-                        setError("");
-                      }}
-                    >
-                      {actionLabel[next]}
-                    </Button>
-                  ))}
-                </div>
-              ) : (
-                <p className="text-[13px] text-muted">
-                  A revoked phone stays revoked. Enroll a replacement.
-                </p>
-              )}
-              {action ? (
-                <form
-                  aria-label={actionLabel[action]}
-                  onSubmit={submit}
-                  className="grid gap-3"
-                >
-                  <AdminSelectField
-                    label="Reason"
-                    value={reason}
-                    onChange={setReason}
-                    options={[
-                      { id: "", label: "Choose a reason" },
-                      ...deviceReasons[action],
-                    ]}
-                  />
-                  {action === "revoke" ? (
-                    <p className="text-[13px] text-muted">
-                      Revoking is permanent. Suspend instead if the phone may
-                      turn up.
-                    </p>
-                  ) : null}
-                  <div className="flex gap-2">
-                    <Button type="submit" variant="primary" isPending={pending}>
-                      {actionLabel[action]}
-                    </Button>
-                    <Button variant="outline" onPress={() => setAction(null)}>
-                      Cancel
-                    </Button>
+                {deviceActionsFor(device.status).length ? (
+                  <div className="flex flex-wrap gap-2">
+                    {deviceActionsFor(device.status).map((next) => (
+                      <Button
+                        key={next}
+                        variant="outline"
+                        onPress={() => {
+                          setAction(next);
+                          setReason("");
+                          setError("");
+                        }}
+                      >
+                        {actionLabel[next]}
+                      </Button>
+                    ))}
                   </div>
-                </form>
-              ) : null}
-              {error ? (
-                <p
-                  role="alert"
-                  className="rounded-xl bg-danger-soft p-3 text-sm text-danger-soft-foreground"
-                >
-                  {error}
-                </p>
-              ) : null}
-              {notice ? (
-                <p
-                  role="status"
-                  className="rounded-xl bg-success-soft p-3 text-sm text-success-soft-foreground"
-                >
-                  {notice}
-                </p>
-              ) : null}
-            </aside>
-          </Card>
-        )
-      ) : null}
+                ) : (
+                  <p className="text-[13px] text-muted">
+                    A revoked phone stays revoked. Enroll a replacement.
+                  </p>
+                )}
+                {action ? (
+                  <form
+                    aria-label={actionLabel[action]}
+                    onSubmit={submit}
+                    className="grid gap-3"
+                  >
+                    <AdminSelectField
+                      label="Reason"
+                      value={reason}
+                      onChange={setReason}
+                      options={[
+                        { id: "", label: "Choose a reason" },
+                        ...deviceReasons[action],
+                      ]}
+                    />
+                    {action === "revoke" ? (
+                      <p className="text-[13px] text-muted">
+                        Revoking is permanent. Suspend instead if the phone may
+                        turn up.
+                      </p>
+                    ) : null}
+                    <div className="flex gap-2">
+                      <Button
+                        type="submit"
+                        variant="primary"
+                        isPending={pending}
+                      >
+                        {actionLabel[action]}
+                      </Button>
+                      <Button variant="outline" onPress={() => setAction(null)}>
+                        Cancel
+                      </Button>
+                    </div>
+                  </form>
+                ) : null}
+                {error ? (
+                  <p
+                    role="alert"
+                    className="rounded-xl bg-danger-soft p-3 text-sm text-danger-soft-foreground"
+                  >
+                    {error}
+                  </p>
+                ) : null}
+                {notice ? (
+                  <p
+                    role="status"
+                    className="rounded-xl bg-success-soft p-3 text-sm text-success-soft-foreground"
+                  >
+                    {notice}
+                  </p>
+                ) : null}
+              </aside>
+            </Card>
+          )
+        ) : null}
+      </div>
     </div>
   );
 }

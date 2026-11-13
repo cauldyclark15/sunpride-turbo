@@ -24,6 +24,11 @@ import { installOidc, installMockIdp } from "./oidc.js";
 import { detect, policyAt, readQueue } from "./detectors.js";
 import { collectCommercialSignals } from "./commercial.js";
 import { installPairing } from "./pairing.js";
+import {
+  registerWaitingPhone,
+  rejectWaitingPhone,
+  waitingPhones,
+} from "./waiting-phones.js";
 import { takeOrThrow } from "../../core/rate.js";
 import { refusedCheckIn } from "./refused-attempt.js";
 import { installAppReleases } from "./app-releases.js";
@@ -317,6 +322,7 @@ export function install(router, platform) {
         await c.db`select id,name from org_units where id in ${c.db(ids.length ? ids : [null])} and deleted_at is null`,
       people:
         await c.db`select id,name,org_unit_id from profiles where org_unit_id in ${c.db(ids.length ? ids : [null])} and deleted_at is null and status='active' order by name limit 501`,
+      waiting: await waitingPhones(c, ids),
       providers:
         c.actor.role === "super_admin"
           ? await c.db`select code,label,issuer,client_id,redirect_uri,source_ref from identity_providers where effective_from<=now() and (effective_to is null or effective_to>now())`
@@ -361,6 +367,14 @@ export function install(router, platform) {
       });
       return command(c, requestHandover);
     },
+  );
+  router.post(
+    "/api/v1/integrity/devices/waiting/register",
+    (/** @type {any} */ c) => command(c, registerWaitingPhone),
+  );
+  router.post(
+    "/api/v1/integrity/devices/waiting/reject",
+    (/** @type {any} */ c) => command(c, rejectWaitingPhone),
   );
   router.post(
     "/api/v1/integrity/devices/complete-handover",

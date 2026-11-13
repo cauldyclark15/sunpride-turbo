@@ -32,6 +32,10 @@ const state = vi.hoisted(() => ({
   addingOverride: null as string | null,
   falseIndex: 0,
 }));
+vi.mock("./integrity/fleet", async (original) => ({
+  ...(await original<typeof import("./integrity/fleet")>()),
+  WaitingPhones: () => null,
+}));
 vi.mock("./master-data/location", () => ({
   useSetupParam: (name: string) => state.params[name] ?? "",
   setSetupParam: vi.fn(),
