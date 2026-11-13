@@ -498,6 +498,9 @@ const appName = (app: string) =>
 const when = (at: number) => formatDateTime(at);
 
 /** SP-0174: a person's FIRST phone signs in, waits here, and the office registers it with one click. */
+/** Lists a phone decision changes: the integrity fleet and Setup > Phones (people/devices/list). */
+export const WAITING_PHONE_INVALIDATE: string[][] = [["integrity"], ["setup"]];
+
 export function WaitingPhones() {
   const { can } = usePermissions();
   const allowed = can("admin.manage");
@@ -514,8 +517,9 @@ export function WaitingPhones() {
     setBusy(true);
     setMessage("");
     try {
+      // SP-0178: Register adds a phone to Setup > Phones (a "setup" list), so refresh it too.
       await mutate(path, body, {
-        invalidate: [["integrity"]],
+        invalidate: WAITING_PHONE_INVALIDATE,
         idempotencyKey: crypto.randomUUID(),
       });
       setMessage(done);

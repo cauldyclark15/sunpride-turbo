@@ -389,6 +389,8 @@ const KIND_TEXT: Record<TimelineKind, string> = {
   collection: "Collection",
   activity: "Activity",
   gap: "Gap",
+  day_start: "Day started",
+  day_end: "Day ended",
 };
 
 /** Static SVG of the day's GPS trail; no map tiles, so it works offline and prints. */
@@ -485,7 +487,9 @@ export function AgentDayView({
               {data.person.name}
             </h2>
             <p className="text-[13px] text-muted">
-              {data.person.position} · {data.person.territory}
+              {[data.person.position, data.person.territory]
+                .filter(Boolean)
+                .join(" · ")}
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">

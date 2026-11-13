@@ -59,13 +59,16 @@ export function reviewableRows(queue: Queue | undefined, me?: string | null) {
 
 /** How many items wait on the New customers tab for THIS user (SP-0175: the badge equals what the
  * tab's lists show them to act on): gathered stores they may review and office pins to confirm
- * (outlet.verify), plus the prospects list they may approve (outlet.enrol.approve, which already
- * holds the phone's "Add customer" stores). null when the user may act on none or a count is
+ * (outlet.verify), plus the prospects list they may approve or complete (outlet.enrol.approve /
+ * outlet.manage; it already holds the phone's "Add customer" stores). null when the user may act on none or a count is
  * still loading. */
 export function useWaitingCount(): number | null {
   const { can, profileId } = usePermissions();
   const verify = can("outlet.verify");
-  const approve = can("outlet.enrol.approve");
+  // SP-0178: everyone who works the prospects list (approvers AND the office people who complete
+  // the office fields) sees the same prospects total the list shows, so the badge never differs by
+  // role for the same stores.
+  const approve = can("outlet.enrol.approve") || can("outlet.manage");
   const queue = useApi<Queue>(
     verify ? ["masters", "census"] : null,
     "/api/v1/masters/census-queue",

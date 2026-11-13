@@ -382,7 +382,11 @@ export interface Endpoints {
       }[];
       partners: string[];
       /** People in scope; the Partner is picked from these (WEB-120). */
-      people?: { profileId: string; name: string; employeeCode: null | string }[];
+      people?: {
+        profileId: string;
+        name: string;
+        employeeCode: null | string;
+      }[];
     };
   };
   "supervision.talk_sheet.create": {
@@ -483,6 +487,8 @@ export interface Endpoints {
         firstCheckInAt: null | number;
         lastCheckOutAt: null | number;
         lastActivityAt: null | number;
+        dayStartedAt?: null | number;
+        dayEndedAt?: null | number;
         profileId: string;
         name: string;
         employeeCode: null | string;

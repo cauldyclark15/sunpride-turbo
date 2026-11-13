@@ -19,6 +19,7 @@ import {
 import { LIST_FILTER_KEYS, type CustomerStatus } from "../../customers/model";
 import { CustomerUpload } from "../../customer-upload/customer-upload";
 import { usePermissions } from "../../../lib/auth";
+import { useApi } from "../../../lib/api";
 import { Drawer } from "../kit/drawer";
 import {
   StoresTabs,
@@ -232,6 +233,10 @@ export function StoresPage() {
   const [uploading, setUploading] = useState(false);
   const editing = tab === "list" || tab === "new" ? params.get("edit") : null;
   const waiting = useWaitingCount();
+  const waitingProspects = useApi<{ total?: number }>(
+    tab === "new" ? ["masters", "prospects", "waiting-count"] : null,
+    "/api/v1/customers?awaitingApproval=true&limit=1&offset=0",
+  ).data?.total;
   const go = (next: StoresTab) =>
     set(
       next === "list"
@@ -283,9 +288,11 @@ export function StoresPage() {
           {can("outlet.verify") ? (
             <section className="grid gap-3" data-testid="new-field-section">
               <h2 className="text-[17px] font-semibold text-foreground">
-                Stores your agents added on the phone
+                Gathered stores and changes to review
               </h2>
-              <StoreGatheringReview />
+              <StoreGatheringReview
+                emptyHint={gatheredEmptyHint(waitingProspects)}
+              />
             </section>
           ) : null}
           <section className="grid gap-3" data-testid="new-prospects-section">
@@ -888,4 +895,10 @@ export function newTabHeading(canApprove: boolean, canEdit: boolean): string {
   if (canApprove) return "Prospects to complete and approve";
   if (canEdit) return "Prospects to complete (a manager approves)";
   return "Prospects waiting for a manager's approval";
+}
+
+/** SP-0178: the gathered-store review is empty while phone "Add customer" stores wait below. */
+export function gatheredEmptyHint(prospects: number | undefined): string {
+  if (!prospects) return "Nothing waiting for review.";
+  return `No gathered stores waiting. ${prospects === 1 ? "1 store" : `${prospects} stores`} added with Add customer on the phone ${prospects === 1 ? "waits" : "wait"} below.`;
 }

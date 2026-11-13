@@ -1,7 +1,7 @@
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { it, expect, vi } from "vitest";
-import { WaitingPhones } from "./fleet";
+import { WAITING_PHONE_INVALIDATE, WaitingPhones } from "./fleet";
 
 vi.mock("../../lib/auth", () => ({
   usePermissions: () => ({ can: (c: string) => c === "admin.manage" }),
@@ -43,5 +43,11 @@ it("SP-0174 Setup > Phones lists phones waiting to be registered with Register a
   expect(html).toContain(">Reject<");
   expect(html).toContain(
     "Phone not listed? Register with the phone&#x27;s code",
+  );
+});
+
+it("SP-0178 Register refreshes Setup > Phones (the setup device list), not only the waiting list", () => {
+  expect(WAITING_PHONE_INVALIDATE).toEqual(
+    expect.arrayContaining([["integrity"], ["setup"]]),
   );
 });

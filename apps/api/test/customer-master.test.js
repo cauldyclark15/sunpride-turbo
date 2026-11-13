@@ -14,6 +14,7 @@ import {
   referenceRows,
   resolveGeography,
 } from "../src/domains/masters/customers.js";
+import { addedByProfileOutlets } from "../src/domains/fieldsync/model.js";
 import { seedDemo } from "../../../packages/db/seed/index.js";
 import {
   rowId,
@@ -751,7 +752,7 @@ describe("SP-0170 customer writer", () => {
     ]);
     expect(await accounting(outletId)).toEqual([]);
     // The office approval queue lists the field capture (active under a provisional code so
-    // the rep can visit it), which a plain status=prospect filter does not.
+    // the rep can visit it). SP-0178: the Prospect filter/count lists the same stores, Active does not.
     const queue = async () =>
       (
         await call(
@@ -769,7 +770,23 @@ describe("SP-0170 customer writer", () => {
           "/api/v1/customers?status=prospect&limit=200",
         )
       ).body.rows.map((/** @type {any} */ r) => r.id),
-    ).not.toContain(outletId);
+    ).toContain(outletId);
+    const counted = await call(
+      "manager",
+      "GET",
+      "/api/v1/customers?status=active&limit=200&offset=0",
+    );
+    expect(counted.body.rows.map((/** @type {any} */ r) => r.id)).not.toContain(
+      outletId,
+    );
+    const waitingTotal = (
+      await call(
+        "manager",
+        "GET",
+        "/api/v1/customers?awaitingApproval=true&limit=1&offset=0",
+      )
+    ).body.total;
+    expect(counted.body.statusCounts.prospect).toBe(waitingTotal);
     const completed = await call(
       "admin",
       "PUT",
@@ -813,6 +830,14 @@ describe("SP-0170 customer writer", () => {
         where a.outlet_id=${outletId} and a.deleted_at is null and a.effective_to is null
           and p.email='agent@sunpride.test' and s.deleted_at is null and (s.effective_to is null or s.effective_to>now())`;
     expect(assigned.length).toBe(1);
+    // SP-0178: with or without a territory, the creator's phone lists his approved store ("my added
+    // stores": bootstrap outlets + manifest fence), so it shows after one Sync.
+    const [me] =
+      await h.db`select id from profiles where email='agent@sunpride.test'`;
+    const mineAdded = await addedByProfileOutlets(h.db, me.id);
+    expect(
+      mineAdded.find((/** @type {any} */ o) => o.id === outletId),
+    ).toMatchObject({ code: approved.body.code });
     // SP-0176: the proposing agent's phone gets the decision WITH the final Customer Code in one read.
     const [enrol] =
       await h.db`select client_request_id from outlet_enrolments where outlet_id=${outletId}`;
@@ -868,6 +893,12 @@ describe("SP-0170 customer writer", () => {
       enrolmentStatus: "rejected",
     });
     expect(await accounting(outletId)).toEqual([]);
+    // SP-0178: a rejected store never reaches the creator's Customers list.
+    const [me] =
+      await h.db`select id from profiles where email='agent@sunpride.test'`;
+    expect(
+      (await addedByProfileOutlets(h.db, me.id)).map((/** @type {any} */ o) => o.id),
+    ).not.toContain(outletId);
     // E2E-008: the proposing agent's phone learns the rejection and its reason (Saved customers row).
     const mine = await call("agent", "GET", "/api/v1/masters/census/my-changes");
     expect(mine.status).toBe(200);

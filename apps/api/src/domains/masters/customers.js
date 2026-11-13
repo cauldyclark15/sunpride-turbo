@@ -673,6 +673,8 @@ export async function listCustomers(c) {
     const v = q.get(name);
     return v && v.trim() ? v.trim() : null;
   };
+  // SP-0178: "Prospect" = waiting for approval, the same stores as the New customers queue (a phone
+  // "Add customer" store is active under a provisional code until approved); "Active" excludes them.
   const status = param("status");
   if (status && !["prospect", "active", "inactive"].includes(status))
     throw new ApiError("invalid_request", 400, "Unknown status.");
@@ -691,8 +693,9 @@ export async function listCustomers(c) {
   const nationwide = unitIds === null;
   const rows =
     await c.db`select x.*,count(*) over() as total_count from (select o.id,o.code,o.name,o.address,o.status,o.enrolment_status,p.completeness,p.registered_name,
-      count(*) over() as n_all,count(*) filter (where o.status='prospect') over() as n_prospect,
-      count(*) filter (where o.status='active') over() as n_active,count(*) filter (where o.status='inactive') over() as n_inactive,
+      (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end) as list_status,
+      count(*) over() as n_all,count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='prospect') over() as n_prospect,
+      count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='active') over() as n_active,count(*) filter (where o.status='inactive') over() as n_inactive,
       p.sales_org_code,p.distribution_channel_code,p.customer_group1_code,p.customer_group2_code,p.customer_group_code,
       p.sales_office_code,p.municipality_name,p.barangay_name,s.channel as distribution_channel_name,s.subchannel as customer_group1_name,
       s.customer_group2_name,s.customer_group_name,s.territory_id,s.territory_name
@@ -717,7 +720,7 @@ export async function listCustomers(c) {
         or (${words.length > 0} and not exists (select 1 from unnest(${c.db.array(words.length ? words : [""], "TEXT")}::text[]) w(re)
           where regexp_replace(lower(o.name),'[^a-z0-9]+','','g') !~ w.re and regexp_replace(lower(coalesce(p.registered_name,'')),'[^a-z0-9]+','','g') !~ w.re)))
     ) x
-    where (${status}::text is null or x.status=${status})
+    where (${status}::text is null or x.list_status=${status})
       and (${offset !== null} or x.code > ${after})
     order by x.code limit ${limit + 1} offset ${offset ?? 0}`;
   // WEB-040: chip counts for the current search/filters, whatever status is chosen.
@@ -727,7 +730,7 @@ export async function listCustomers(c) {
       rows[0] ??
       (status
         ? (
-            await c.db`select count(*) as n_all,count(*) filter (where o.status='prospect') as n_prospect,count(*) filter (where o.status='active') as n_active,count(*) filter (where o.status='inactive') as n_inactive from analytics_store_scope s join outlets o on o.id=s.id left join customer_profiles p on p.outlet_id=o.id and p.deleted_at is null
+            await c.db`select count(*) as n_all,count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='prospect') as n_prospect,count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='active') as n_active,count(*) filter (where o.status='inactive') as n_inactive from analytics_store_scope s join outlets o on o.id=s.id left join customer_profiles p on p.outlet_id=o.id and p.deleted_at is null
               where (${nationwide} or s.owner_unit_id::text=any(${c.db.array(unitIds ?? [], "TEXT")}))
                 and (${!awaiting} or (o.status='prospect' or (o.status='active' and o.enrolment_status='provisional')))
                 and (${completeness}::text is null or coalesce(p.completeness,'draft')=${completeness})

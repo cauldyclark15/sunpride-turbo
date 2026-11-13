@@ -38,8 +38,18 @@ export async function options(c, a) {
 export async function teamDay(c, a) {
   const d = date(a.serviceDate);
   const people = [];
-  for (const p of await roster(c, a)) {
+  const team = await roster(c, a);
+  // SP-0178: Start day / End day from the phone, so a started day is not "No plan".
+  const workDays = new Map(
+    (team.length
+      ? await c.db`select profile_id,started_at,ended_at from fieldsync_work_days
+          where service_date=${d}::date and profile_id in ${c.db(team.map((/** @type {any} */ p) => p.id))}`
+      : []
+    ).map((/** @type {any} */ w) => [w.profile_id, w]),
+  );
+  for (const p of team) {
     const x = await execution(c, p, d);
+    const wd = workDays.get(p.id);
     people.push({
       profileId: p.id,
       name: p.name,
@@ -72,7 +82,9 @@ export async function teamDay(c, a) {
       lastCheckOutAt: x.summary.lastCheckOutAt,
       lastActivityAt: x.visits.length
         ? Math.max(...x.visits.map((v) => ms(v.last_server_time) ?? 0))
-        : null,
+        : (ms(wd?.started_at) ?? null),
+      dayStartedAt: ms(wd?.started_at) ?? null,
+      dayEndedAt: ms(wd?.ended_at) ?? null,
     });
   }
   return {

@@ -11,13 +11,16 @@
  *                until a reviewer marks it 'verified'; the map used to wait for 'verified' and
  *                showed 0); a rejected late review never counts. Same rule and on-plan basis as
  *                the analytics call evaluation Today and the agent day use.
- * - last_seen_at newest of: server-side call activity, a real (non-sample) phone position today
+ * - day_started_at / day_ended_at  the phone's Start day / End day (fieldsync_work_days)
+ * - last_seen_at newest of: server-side call activity, a real (non-sample) phone position today,
+ *                Start day
  */
 
 export const IDLE_AFTER_MS = 60 * 60_000;
 
 /** Manila calendar date of an epoch ms. @param {number} at */
-const manilaDay = (at) => new Date(at + 8 * 3_600_000).toISOString().slice(0, 10);
+const manilaDay = (at) =>
+  new Date(at + 8 * 3_600_000).toISOString().slice(0, 10);
 
 /** @param {any} v */
 const ms = (v) =>
@@ -52,15 +55,19 @@ export async function dayFacts(db, ids, date) {
       max(v.last_server_time) as last_activity_at,
       (select max(l.recorded_at) from live_locations l where l.profile_id=p.id and l.deleted_at is null
          and l.service_date=${date}::date and l.sample is not true) as last_position_at,
+      (select w.started_at from fieldsync_work_days w where w.profile_id=p.id and w.service_date=${date}::date) as day_started_at,
       (select w.ended_at from fieldsync_work_days w where w.profile_id=p.id and w.service_date=${date}::date) as day_ended_at
     from profiles p left join visit_executions v on v.assignee_profile_id=p.id
       and v.service_date=${date}::date and v.deleted_at is null
     where p.id in ${db(ids)} group by p.id`;
   return new Map(
     rows.map((/** @type {any} */ r) => {
-      const seen = [ms(r.last_activity_at), ms(r.last_position_at)].filter(
-        (x) => x !== null,
-      );
+      // SP-0178: Start day is activity too (launch: nobody has a plan or a call yet).
+      const seen = [
+        ms(r.last_activity_at),
+        ms(r.last_position_at),
+        ms(r.day_started_at),
+      ].filter((x) => x !== null);
       return [
         r.id,
         { ...r, last_seen_at: seen.length ? Math.max(...seen) : null },
@@ -82,10 +89,17 @@ export function fieldStatus(f, date, now, counts = {}) {
   const planned = Number(counts.planned ?? f?.planned ?? 0),
     done = Number(counts.done ?? f?.planned_done ?? 0),
     checkedIn = Math.max(Number(f?.visited ?? 0), done);
-  if (!checkedIn) return planned ? "not_started" : "no_plan";
+  // SP-0178: a started day is working/idle/done even with no plan and no check-in yet
+  // (at launch nobody has a journey plan); "No plan" means the day was not started.
+  const started = Boolean(f?.day_started_at) || Boolean(f?.day_ended_at);
+  if (!checkedIn && !started) return planned ? "not_started" : "no_plan";
   if (Number(f?.in_progress ?? 0) > 0 && date === manilaDay(now))
     return "in_call";
-  if (f?.day_ended_at || date < manilaDay(now) || (planned > 0 && done >= planned))
+  if (
+    f?.day_ended_at ||
+    date < manilaDay(now) ||
+    (planned > 0 && done >= planned)
+  )
     return "done";
   const last = f?.last_seen_at ?? null;
   return last !== null && now - last > IDLE_AFTER_MS ? "idle" : "working";

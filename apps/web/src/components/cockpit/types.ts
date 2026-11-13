@@ -88,12 +88,7 @@ export type ExceptionItem = {
 
 // ---------- /analytics/today ----------
 export type FieldStatus =
-  | "no_plan"
-  | "not_started"
-  | "in_call"
-  | "working"
-  | "done"
-  | "idle";
+  "no_plan" | "not_started" | "in_call" | "working" | "done" | "idle";
 export type VanStatus =
   "loading" | "on_route" | "returned" | "settled" | "unclosed";
 
@@ -217,7 +212,14 @@ export type CoverageResponse = ResponseHeader & {
 
 // ---------- /analytics/agent-day ----------
 export type TimelineKind =
-  "check_in" | "check_out" | "order" | "collection" | "activity" | "gap";
+  | "check_in"
+  | "check_out"
+  | "order"
+  | "collection"
+  | "activity"
+  | "gap"
+  | "day_start"
+  | "day_end";
 
 export type AgentDayResponse = ResponseHeader & {
   person: {

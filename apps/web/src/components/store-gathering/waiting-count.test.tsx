@@ -72,9 +72,14 @@ describe("New stores waiting count", () => {
     expect(render()).toContain(">2<");
   });
 
-  it("SP-0175: an admin who cannot approve prospects is not counted for them", () => {
+  it("SP-0175: a verifier who works no prospects is not counted for them", () => {
     perms.list = new Set(["outlet.verify"]);
     expect(render()).toContain(">1<");
+  });
+
+  it("SP-0178: an admin who completes prospects sees the same prospects total as the approver", () => {
+    perms.list = new Set(["outlet.verify", "outlet.manage"]);
+    expect(render()).toContain(">3<");
   });
 
   it("shows no badge without a review permission", () => {

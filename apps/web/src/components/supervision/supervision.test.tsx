@@ -264,6 +264,21 @@ describe("supervision rules", () => {
       ),
     ).toBe("Incomplete");
   });
+  it("SP-0178: a started day without a plan is On route / Idle / Done, never No plan", () => {
+    const status = (p: Partial<TeamPerson>, now: number) =>
+      personStatus({ ...base, ...p }, "2026-09-28", dayCloseAt, now).label;
+    const started = { planned: 0, dayStartedAt: at("08:00") };
+    expect(
+      status({ ...started, lastActivityAt: at("10:30") }, at("11:00")),
+    ).toBe("On route");
+    expect(
+      status({ ...started, lastActivityAt: at("08:00") }, at("11:00")),
+    ).toBe("Idle 3h");
+    expect(status({ ...started, dayEndedAt: at("17:00") }, at("17:30"))).toBe(
+      "Done",
+    );
+    expect(status({ planned: 0 }, at("10:00"))).toBe("No plan");
+  });
   it("holds stops not visited back until the day closes", () => {
     const items = queue.items as Parameters<typeof splitQueue>[0];
     expect(splitQueue(items, dayCloseAt, at("12:00")).other).toHaveLength(2);

@@ -47,6 +47,9 @@ export type TeamPerson = {
   inProgress: boolean;
   firstCheckInAt: number | null;
   lastActivityAt: number | null;
+  /** SP-0178: the phone's Start day / End day (absent on older API responses). */
+  dayStartedAt?: number | null;
+  dayEndedAt?: number | null;
 };
 
 export type PersonStatus = { label: string; tone: StatusTone };
@@ -61,11 +64,15 @@ export function personStatus(
   const closed = now >= dayCloseAt;
   if (person.inProgress && !closed)
     return { label: "In call", tone: "success" };
-  if (person.planned === 0 && person.done === 0)
+  const started = person.dayStartedAt != null;
+  // SP-0178: no journey plans at launch: a started day still shows how the day is going.
+  if (person.planned === 0 && person.done === 0 && !started)
     return { label: "No plan", tone: "neutral" };
+  if (person.dayEndedAt != null && !person.inProgress)
+    return { label: "Done", tone: "success" };
   if (person.planned > 0 && person.plannedDone >= person.planned)
     return { label: "Done", tone: "success" };
-  if (person.firstCheckInAt === null) {
+  if (person.firstCheckInAt === null && !started) {
     if (closed) return { label: "No calls", tone: "danger" };
     if (now >= manilaMidnight(serviceDate) + EXPECTED_START_HOUR * 60 * MINUTE)
       return { label: "Not started", tone: "warning" };
@@ -234,3 +241,17 @@ export const PERSON_TONES = [
   "#be185d",
   "#1d4ed8",
 ] as const;
+
+/** SP-0178: a person's meta line without blanks or repeats (the team channel falls back to the
+ * position, so "Senior Route Salesman · Senior Route Salesman" must read once). */
+export function metaParts(...parts: Array<string | null | undefined>): string {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of parts) {
+    const p = raw?.trim();
+    if (!p || seen.has(p.toLowerCase())) continue;
+    seen.add(p.toLowerCase());
+    out.push(p);
+  }
+  return out.join(" · ");
+}

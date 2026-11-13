@@ -845,6 +845,27 @@ export async function agentDayPage(ctx, p, s) {
   // SP-0175: the same status and numbers as Today and the Live map.
   const day = (await dayFacts(ctx.db, [id], p.to)).get(id),
     n = fieldNumbers(day);
+  // SP-0178: Start day / End day belong on the day's story, even before any check-in.
+  if (ms(day?.day_started_at) !== null)
+    timeline.push({
+      at: ms(day.day_started_at),
+      kind: "day_start",
+      storeId: null,
+      storeLabel: null,
+      detail: "Started the day on the phone",
+      amountCentavos: null,
+      onPlan: null,
+    });
+  if (ms(day?.day_ended_at) !== null)
+    timeline.push({
+      at: ms(day.day_ended_at),
+      kind: "day_end",
+      storeId: null,
+      storeLabel: null,
+      detail: "Ended the day on the phone",
+      amountCentavos: null,
+      onPlan: null,
+    });
   // P2: stores this agent added on this day (phone "Add customer" and gathered stores).
   const added = await storesAddedBy(ctx.db, id, p.to);
   let distance = 0;
@@ -890,9 +911,14 @@ export async function agentDayPage(ctx, p, s) {
  * stores (census captures), with where each stands now. @param {any} db @param {string} profileId @param {string} date */
 export async function storesAddedBy(db, profileId, date) {
   const rows = await db`
-    select o.id,o.code,o.name,e.proposed_at as at,'added' as via,
+    select o.id,o.code,
+      -- SP-0178: Registered Name first, the owner (customer name) second.
+      case when nullif(trim(cp.registered_name),'') is not null and cp.registered_name<>o.name
+        then cp.registered_name||' · '||o.name else o.name end as name,
+      e.proposed_at as at,'added' as via,
       case e.status when 'pending' then 'waiting' when 'approved' then 'approved' else 'rejected' end as state
     from outlet_enrolments e join outlets o on o.id=e.outlet_id
+      left join customer_profiles cp on cp.outlet_id=o.id and cp.deleted_at is null
     where e.proposed_by_profile_id=${profileId} and e.deleted_at is null
       and (e.proposed_at at time zone 'Asia/Manila')::date=${date}::date
     union all

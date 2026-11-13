@@ -5,7 +5,13 @@ import { releasesAt } from "../availability/masters.js";
 import { workforceContext } from "../coverage/workforce-policies.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { recordChange } from "../../core/sync.js";
-import { bounded, DAY_MS, midnight, rebootstrap } from "./model.js";
+import {
+  addedByProfileOutlets,
+  bounded,
+  DAY_MS,
+  midnight,
+  rebootstrap,
+} from "./model.js";
 
 /**
  * A manifest fence complements transactional SQL triggers. In particular a future
@@ -100,6 +106,10 @@ export async function checkDayManifest(ctx) {
           500,
         )
       : [];
+    // SP-0178: an approval of a store this person added changes his Customers list.
+    const addedByMe = (
+      await addedByProfileOutlets(db, ctx.actor.profileId)
+    ).map((/** @type {any} */ o) => ({ id: o.id, code: o.code, name: o.name }));
     const catalogue = bounded(
       await db`select id,product_id,revision from product_catalogue_versions where effective_from<=${at} and (effective_to is null or effective_to>${at}) order by id limit 10001`,
       10000,
@@ -128,6 +138,7 @@ export async function checkDayManifest(ctx) {
         retail: await retailManifest(db, ctx.now),
         approvals,
         universe,
+        ...(addedByMe.length ? { addedByMe } : {}),
         availability: retail,
         mslFramework: await releasesAt(db, "msl", ctx.now),
         retailOutlets,

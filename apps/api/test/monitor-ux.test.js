@@ -138,3 +138,30 @@ test("SP-0175 office search word patterns tolerate one typo per longer word", ()
   expect(match("Mang Kanor", "Aling Nena")).toBe(false);
   expect(searchWordPatterns("  ")).toEqual([]);
 });
+
+test("SP-0178: Start day without a plan or call is working/idle/done, not no_plan", () => {
+  const started = {
+    planned: 0,
+    visited: 0,
+    day_started_at: new Date(NOW - 5 * 60_000),
+    last_seen_at: NOW - 5 * 60_000,
+  };
+  expect(fieldStatus(started, TODAY, NOW)).toBe("working");
+  expect(
+    fieldStatus(
+      { ...started, last_seen_at: NOW - IDLE_AFTER_MS - 1 },
+      TODAY,
+      NOW,
+    ),
+  ).toBe("idle");
+  expect(
+    fieldStatus({ ...started, day_ended_at: new Date(NOW) }, TODAY, NOW),
+  ).toBe("done");
+  expect(
+    fieldStatus({ ...started, in_progress: 0 }, TODAY, NOW, {
+      planned: 0,
+      done: 0,
+    }),
+  ).toBe("working");
+  expect(fieldStatus({ planned: 0 }, TODAY, NOW)).toBe("no_plan");
+});

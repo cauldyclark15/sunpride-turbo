@@ -11,7 +11,7 @@ import {
 } from "../../lib/daily-sales";
 import { useReport } from "./report-api";
 import type { TeamCockpit, TeamDsr } from "./depth-model";
-import type { SupervisionFilters } from "./supervision-model";
+import { metaParts, type SupervisionFilters } from "./supervision-model";
 
 export function Sparkline({
   values,
@@ -116,7 +116,10 @@ export function MyTeamView({
                       {r.name}
                     </Link>
                     <p className="text-xs text-muted">
-                      {r.position ?? "Position needs setup"} · {r.channel}
+                      {metaParts(
+                        r.position ?? "Position needs setup",
+                        r.channel,
+                      )}
                     </p>
                   </td>
                   <td className="p-3 tabular-nums">

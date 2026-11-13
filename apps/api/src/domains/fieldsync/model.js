@@ -141,3 +141,21 @@ export function distanceMeters(a, b) {
       Math.sin(((b.longitude - a.longitude) * rad) / 2) ** 2;
   return 2 * 6_371_000 * Math.asin(Math.sqrt(Math.min(1, h)));
 }
+
+/**
+ * SP-0178: approved stores this person added on the phone ("my added stores"). At launch nobody
+ * has a territory/route, so the E2E-006 proposer-territory assignment cannot place an approved
+ * store in his universe; the creator still sees it after one Sync (bootstrap outlets + manifest
+ * fence). Office assignments, when they exist, keep working the same way.
+ * @param {any} db @param {string} profileId
+ */
+export async function addedByProfileOutlets(db, profileId) {
+  return bounded(
+    await db`select distinct o.id,o.name,o.code,o.address,o.change_seq,e.id as enrolment_id,e.change_seq as enrolment_revision
+      from outlet_enrolments e join outlets o on o.id=e.outlet_id
+      where e.proposed_by_profile_id=${profileId} and e.status='approved' and e.deleted_at is null
+        and o.deleted_at is null and o.status='active' and o.enrolment_status='approved'
+      order by o.id limit 501`,
+    500,
+  );
+}

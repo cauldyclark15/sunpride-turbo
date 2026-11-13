@@ -638,13 +638,9 @@ export function CustomerEditorView({
     customer.status !== "inactive" &&
     customer.enrolmentStatus === "provisional";
   const ownProposal =
-    !!customer &&
-    !!myProfileId &&
-    customer.proposedByProfileId === myProfileId;
+    !!customer && !!myProfileId && customer.proposedByProfileId === myProfileId;
   const ownNote = ownProposal ? (
-    <span className="text-xs text-muted">
-      {OWN_PROPOSAL_WORDS}
-    </span>
+    <span className="text-xs text-muted">{OWN_PROPOSAL_WORDS}</span>
   ) : null;
   const dupBlocked =
     !customer && duplicates.length > 0 && !duplicatesAcknowledged;
@@ -740,14 +736,16 @@ export function CustomerEditorView({
             </span>
           ) : null}
           {(customer ? awaitsApproval(customer) : false) && canApprove ? (
-            <button
-              type="button"
-              className={buttonClass}
-              disabled={busy || ownProposal}
-              onClick={onApprove}
-            >
-              Approve
-            </button>
+            <ApproveControl
+              busy={busy || ownProposal}
+              name={
+                (typeof customer?.registeredName === "string" &&
+                  customer.registeredName) ||
+                customer?.customerName ||
+                ""
+              }
+              onApprove={() => onApprove?.()}
+            />
           ) : null}
           {canReject ? (
             <RejectControl
@@ -822,6 +820,62 @@ export const OWN_PROPOSAL_WORDS =
   "Another approver must decide your own proposal.";
 
 /** Reject a field capture: asks for the reason first (it goes to the enrolment record). */
+/** SP-0178: Approve gives the store its Customer Code and sends it to SAP, so it asks once. */
+export function ApproveControl({
+  busy,
+  name,
+  onApprove,
+  initiallyOpen = false,
+}: {
+  busy: boolean;
+  name: string;
+  onApprove: () => void;
+  initiallyOpen?: boolean;
+}) {
+  const [open, setOpen] = useState(initiallyOpen);
+  if (!open)
+    return (
+      <button
+        type="button"
+        className={buttonClass}
+        disabled={busy}
+        onClick={() => setOpen(true)}
+      >
+        Approve
+      </button>
+    );
+  return (
+    <span
+      className="flex flex-wrap items-center gap-2"
+      role="group"
+      aria-label="Confirm approval"
+    >
+      <span className="text-[13px] text-foreground">
+        Approve {name ? `${name} ` : ""}as a customer? It gets its final
+        Customer Code.
+      </span>
+      <button
+        type="button"
+        className={buttonClass}
+        disabled={busy}
+        onClick={() => {
+          setOpen(false);
+          onApprove();
+        }}
+      >
+        Yes, approve
+      </button>
+      <button
+        type="button"
+        className={buttonClass}
+        onClick={() => setOpen(false)}
+      >
+        Cancel
+      </button>
+    </span>
+  );
+}
+
 function RejectControl({
   busy,
   onReject,

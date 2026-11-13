@@ -135,7 +135,7 @@ export function TodayView({
       render: (p) =>
         p.planned
           ? `${formatCount(p.visited)} of ${formatCount(p.planned)}`
-          : "No plan",
+          : "—",
       sort: (p) => (p.planned ? p.visited / p.planned : -1),
     },
     {

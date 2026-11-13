@@ -1090,6 +1090,12 @@
             "lastActivityAt": {
               "anyOf": [{ "type": "null" }, { "type": "number" }]
             },
+            "dayStartedAt": {
+              "anyOf": [{ "type": "null" }, { "type": "number" }]
+            },
+            "dayEndedAt": {
+              "anyOf": [{ "type": "null" }, { "type": "number" }]
+            },
             "profileId": { "type": "string" },
             "name": { "type": "string" },
             "employeeCode": {

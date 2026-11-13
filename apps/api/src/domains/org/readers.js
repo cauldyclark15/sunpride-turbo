@@ -595,11 +595,18 @@ export async function queue(c, kind, p) {
     return { ...result, page: expanded };
   }
   const expanded = [];
-  for (const row of result.page)
+  for (const row of result.page) {
+    // SP-0178: the office knows a store by its Registered Name; the owner (outlet name) comes second.
+    const [profile] =
+      await c.db`select registered_name from customer_profiles where outlet_id=${row.outletId} and deleted_at is null limit 1`;
     expanded.push({
       ...row,
-      outlet: dto(await get(c.db, "outlets", row.outletId)),
+      outlet: {
+        ...dto(await get(c.db, "outlets", row.outletId)),
+        registeredName: profile?.registered_name ?? null,
+      },
     });
+  }
   return { ...result, page: expanded };
 }
 

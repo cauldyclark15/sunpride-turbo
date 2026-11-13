@@ -24,6 +24,7 @@ import {
   ORGANIZATION,
   ZERO_UUID,
   DAY_MS,
+  addedByProfileOutlets,
   bounded,
   closeAt,
   dateOf,
@@ -276,6 +277,26 @@ async function bundleData(ctx) {
           territoryCode: o.territory_code,
         });
   }
+  // SP-0178: approved stores this person added reach his Customers list after one Sync, even when
+  // no territory/route assignment exists yet (launch). Same per-store scope check as planned stops.
+  if (!partner)
+    for (const o of await addedByProfileOutlets(db, person.id)) {
+      if (outlets.has(o.id)) continue;
+      try {
+        await outletInScope(ctx, o.id);
+      } catch {
+        continue;
+      }
+      outlets.set(o.id, {
+        id: o.id,
+        name: o.name,
+        code: o.code,
+        address: o.address,
+        routeId: null,
+        territoryId: null,
+        territoryCode: null,
+      });
+    }
   // F-211/F-407: off-route shared outlets need the same canonical MSL, not a name-only roster.
   if (retailEnabled) {
     retailContext.availabilityOutletIds = [...outlets.keys()];

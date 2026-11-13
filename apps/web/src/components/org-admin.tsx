@@ -26,7 +26,13 @@ import {
 
 type Unit = Doc<"orgUnits">;
 type Action = "create" | "edit" | "reparent" | "deactivate";
-const typeLabel = (code: string) =>
+/** SP-0178: a unit type reads by its configured label (e.g. "department" → "Distribution
+ * Channel"); the code is only a fallback while the types load. */
+export const typeLabel = (
+  code: string,
+  types?: ReadonlyArray<{ code: string; label: string }> | null,
+) =>
+  types?.find((t) => t.code === code)?.label ||
   code
     .toLowerCase()
     .replaceAll("_", " ")
@@ -229,7 +235,7 @@ export function OrgAdmin() {
         >
           <span className="block text-sm font-medium">{row.name}</span>
           <span className="block font-mono text-xs text-muted">
-            {row.code} · {typeLabel(row.typeCode)}
+            {row.code} · {typeLabel(row.typeCode, unitTypes)}
           </span>
         </div>
       ),

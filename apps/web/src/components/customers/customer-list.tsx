@@ -84,18 +84,20 @@ export function customerColumns(
       render: (r) => <span className="tabular-nums">{r.code}</span>,
       text: (r) => r.code,
     },
-    {
-      key: "name",
-      label: "Customer Name",
-      primary: true,
-      render: (r) => r.customerName,
-      text: (r) => r.customerName,
-    },
+    // SP-0178: stores read by Registered Name (the store); the owner's Customer Name comes second.
+    // A draft from the phone has no Registered Name yet, so it shows the Customer Name.
     {
       key: "registered",
       label: "Registered Name",
-      render: (r) => r.registeredName ?? "",
-      text: (r) => r.registeredName ?? "",
+      primary: true,
+      render: (r) => r.registeredName || r.customerName,
+      text: (r) => r.registeredName || r.customerName,
+    },
+    {
+      key: "name",
+      label: "Customer Name",
+      render: (r) => r.customerName,
+      text: (r) => r.customerName,
     },
     {
       key: "channel",

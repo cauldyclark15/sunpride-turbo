@@ -583,7 +583,14 @@ export function ChangeDetail({
 }
 
 /** SP-0162 rebuilt store gathering review (was the F-011 census queue). */
-export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
+export function StoreGatheringReview({
+  units = [],
+  emptyHint,
+}: {
+  units?: Choice[];
+  /** SP-0178: what to say when no gathered store waits (e.g. where Add customer stores are). */
+  emptyHint?: string;
+}) {
   const { can } = usePermissions();
   const allowed = can("outlet.verify");
   const queue = useApi<Queue>(
@@ -734,7 +741,9 @@ export function StoreGatheringReview({ units = [] }: { units?: Choice[] }) {
               />
             ))
           ) : queue.data ? (
-            <p className="text-sm text-muted">Nothing waiting for review.</p>
+            <p className="text-sm text-muted">
+              {emptyHint ?? "Nothing waiting for review."}
+            </p>
           ) : (
             <p className="text-sm text-muted">Loading…</p>
           )}
@@ -820,7 +829,7 @@ export function PinToConfirmRow({
   busy,
   onDecide,
 }: {
-  pin: Pin & { outlet: Outlet };
+  pin: Pin & { outlet: Outlet & { registeredName?: string | null } };
   busy?: boolean;
   onDecide: (decision: "verified" | "rejected") => void;
 }) {
@@ -828,13 +837,13 @@ export function PinToConfirmRow({
     <li className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-border p-2">
       <span className="min-w-0">
         <span className="block text-sm font-medium">
-          {pin.outlet.name}{" "}
+          {storeTitle(pin.outlet)}{" "}
           <span className="text-xs font-normal text-muted">
             {pin.outlet.code}
           </span>
         </span>
         <span className="block text-xs text-muted">
-          {pin.source === "office" ? "Added from the office" : pin.source} ·{" "}
+          {pinSourceLabel(pin.source)} ·{" "}
           <a
             className="underline"
             target="_blank"
@@ -1004,4 +1013,33 @@ function BatchForm({
       </form>
     </details>
   );
+}
+
+/** SP-0178: plain words for where a pin came from (never a raw code like new_store_enrolment). */
+export function pinSourceLabel(source: string | null | undefined): string {
+  switch (source) {
+    case "office":
+      return "Added from the office";
+    case "new_store_enrolment":
+      return "Added on the phone (Add customer)";
+    case "census":
+      return "Gathered in the field";
+    case "customer_master":
+      return "Customer details";
+    case "migration":
+      return "Imported";
+    default:
+      return source ? source.replaceAll("_", " ") : "Pin";
+  }
+}
+
+/** SP-0178: a store reads by its Registered Name; the owner/customer name comes second. */
+export function storeTitle(outlet: {
+  name: string;
+  registeredName?: string | null;
+}): string {
+  const registered = outlet.registeredName?.trim();
+  return registered && registered !== outlet.name
+    ? `${registered} · ${outlet.name}`
+    : outlet.name;
 }
