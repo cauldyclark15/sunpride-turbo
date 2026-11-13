@@ -37,7 +37,7 @@ const REASON = "SP-0172 client answers (Loren 2026-11-13): region coverage, CDM 
 
 const REGIONS = [
   { code: "RG-VISAYAS", name: "Western Visayas, Central Visayas, Eastern Visayas, Negros Island Region" },
-  { code: "RG-NW-MINDANAO", name: "Cagayan Valley, Zamboanga Peninsula, Northern Mindanao" },
+  { code: "RG-NW-MINDANAO", name: "Zamboanga Peninsula, Northern Mindanao" },
   { code: "RG-ES-MINDANAO", name: "Davao Region, SOCCSKSARGEN, Caraga Region" },
 ];
 const BOSS = "bperez@sunpride.com.ph";
