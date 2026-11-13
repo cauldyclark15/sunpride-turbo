@@ -12,7 +12,7 @@ resources:
   - 61-ingress-prod.yaml
   - 70-backup.yaml
 images:
-  - {name: cauldyclark15/sunpride-api, newTag: "abea001715"}
-  - {name: cauldyclark15/sunpride-web, newTag: "fc82a04e7a"}
+  - {name: cauldyclark15/sunpride-api, newTag: "079294c973"}
+  - {name: cauldyclark15/sunpride-web, newTag: "079294c973"}
   - {name: cauldyclark15/sunpride-sap-mock, newTag: "42c3ee65a2"}
   - {name: cauldyclark15/sunpride-docs, newTag: "42c3ee65a2"}
