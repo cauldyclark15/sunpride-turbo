@@ -500,6 +500,48 @@ export function install(router, installCtx) {
       return result;
     },
   );
+  // FLD-176: a supervisor can close a call that is stuck open on the server (e.g. its End was refused) so the
+  // person's next Start is not refused call_open. Like the day boundary it never invents an End, outcome or
+  // no-order reason: the call is marked interrupted, a supervisor boundary event is appended, and it is audited.
+  router.post(
+    "/api/v1/callflow/calls/close-stuck",
+    async (/** @type {any} */ ctx) => {
+      const result = await tx(ctx.db, async (db) => {
+        const c = { ...ctx, db },
+          p = ctx.body ?? {};
+        const reason = text(p.reason, 500);
+        const [call] =
+          await db`select * from call_executions where id=${uuid(p.callId)} for update`;
+        if (!call) throw forbidden("Call unavailable");
+        await requireCapability(
+          c,
+          "visit.locationException.approve",
+          call.org_unit_id,
+        );
+        await accessOutlet(
+          c,
+          call.outlet_id,
+          "visit.locationException.approve",
+        );
+        if (call.profile_id === ctx.actor.profileId)
+          throw forbidden("You cannot close your own call");
+        if (call.state !== "open") throw conflict("This call is already closed");
+        await db`update call_executions set state='interrupted',interrupted_at=${new Date(ctx.now)} where id=${call.id}`;
+        await db`insert into call_step_events(call_id,step_key,adapter,operation_key,entity_id,facts,device_time,actor_subject)
+          values (${call.id},'supervisor_close','supervisor_close',${crypto.randomUUID()},${call.id},${{ source: "supervisor", checkoutReceived: false, reason }},${new Date(ctx.now)},${ctx.actor.subject})`;
+        await writeAudit(db, {
+          subject: ctx.actor.subject,
+          action: "callflow.call.closed_by_supervisor",
+          entityType: "callflow",
+          entityId: call.id,
+          details: { reason, profileId: call.profile_id, outletId: call.outlet_id },
+        });
+        return { id: call.id, state: "interrupted" };
+      });
+      await ctx.publish("callflow");
+      return result;
+    },
+  );
   router.post(
     "/api/v1/callflow/geofence/request",
     async (/** @type {any} */ ctx) => {

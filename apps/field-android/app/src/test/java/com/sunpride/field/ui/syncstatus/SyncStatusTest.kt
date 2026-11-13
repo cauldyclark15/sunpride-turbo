@@ -117,6 +117,22 @@ class SyncStatusTest {
         assertEquals("This visit was changed or closed by the office (for example marked missed)", SyncStatus.plainReason("invalid_plan"))
     }
 
+    /** FLD-176 (call f07fa710): a refused End call says the call is still open and what to do, not "already ended". */
+    @Test fun refusedEndCallSaysTheCallIsStillOpen() {
+        val scope = com.sunpride.field.storage.StoreScope("account", "device", "scope")
+        val start = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.checkIn", null, null, null,
+            "p", "o", emptyList(), null, null, null, null, null, 1000)
+        val end = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.checkOut", start.clientVisitId,
+            start.requestId, start.requestId, "p", "o", emptyList(), null, null, "completed", null, null, 2000)
+        val refused = OutboxRow("account", "device", "scope", end.requestId, 2000, "review", "invalid_transition")
+        val item = SyncStatus.fromRoom(partition, listOf(refused), intents = listOf(start, end)).reviewItems.single()
+        assertEquals("End visit", item.what)
+        assertTrue(item.reason, item.reason.startsWith("End call was not accepted, so this call is still open"))
+        assertTrue(item.reason.contains("ask your supervisor to close the call"))
+        // Other steps keep the general wording.
+        assertEquals("This visit was already ended or changed, so this step was not accepted", SyncStatus.plainReason("invalid_transition", "visit.activity"))
+    }
+
     /** FLD-176: a refused item is viewable with its reason, clearable, and the pill reflects only real pending work. */
     @Test fun refusedItemsAreListedClearableAndNotUnsentWork() {
         val scope = com.sunpride.field.storage.StoreScope("account", "device", "scope")

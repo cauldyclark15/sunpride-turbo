@@ -235,9 +235,25 @@ test("store edit: approve updates the existing store, adds no store, moves the p
   expect(profileRow.mobile_no).toBe("09175550199");
   const [shipTo] = await h.db`select contact_person,mobile_no from customer_ship_tos where outlet_id=${id} and deleted_at is null and ordinal=0`;
   expect(shipTo).toEqual({ contact_person: "New Owner", mobile_no: "09175550199" });
+  // E2E-010: the moved pin is a proposal for Pins to confirm (two-person pin verification), never verified at
+  // once; the store keeps its old verified pin and the agent who moved it cannot confirm it.
   const pins =
     await h.db`select latitude from outlet_pins where outlet_id=${id} and status='verified' and deleted_at is null and effective_from<=now() and (effective_to is null or effective_to>now())`;
-  expect(pins.map((/** @type {any} */ x) => x.latitude)).toEqual([10.3311]);
+  expect(pins.map((/** @type {any} */ x) => x.latitude)).not.toContain(10.3311);
+  const [proposed] =
+    await h.db`select id,status,proposed_by from outlet_pins where outlet_id=${id} and latitude=10.3311 and deleted_at is null`;
+  expect(proposed.status).toBe("pending");
+  const [agentRow] = await h.db`select user_id from profiles where id=${rep.profileId}`;
+  expect(proposed.proposed_by).toBe(String(agentRow.user_id));
+  const confirm = await as("manager", "/api/v1/outlets/pins/decide", {
+    pinId: proposed.id,
+    decision: "verified",
+    reason: "Pin checked on the map",
+  });
+  expect(confirm.status).toBe(200);
+  const moved =
+    await h.db`select latitude from outlet_pins where outlet_id=${id} and status='verified' and deleted_at is null and effective_from<=now() and (effective_to is null or effective_to>now())`;
+  expect(moved.map((/** @type {any} */ x) => x.latitude)).toEqual([10.3311]);
   const [photoRow] =
     await h.db`select f.purpose from outlet_photos p join files f on f.id=p.file_id where p.outlet_id=${id} and p.ordinal=0`;
   expect(photoRow.purpose).toBe("census-storefront");

@@ -275,17 +275,13 @@ async function applyChange(ctx, capture, actor, reason) {
       where outlet_id=${id} and deleted_at is null and ordinal=(select min(ordinal) from customer_ship_tos where outlet_id=${id} and deleted_at is null)`;
   if (capture.photo_file_id)
     await ctx.db`insert into outlet_photos(outlet_id,ordinal,file_id) values(${id},0,${capture.photo_file_id}) on conflict (outlet_id,ordinal) do update set file_id=excluded.file_id,deleted_at=null,updated_at=now()`;
+  // E2E-010: a moved pin is a proposal, not a verified pin. It goes to Pins to confirm (the two-person pin
+  // verification, customer-master contract §1 Geographical Coordinates); the agent who proposed it can never
+  // confirm it, and the store keeps its current verified pin until someone does.
   if (capture.latitude !== null) {
-    const now = ctx.now;
-    const [current] =
-      await ctx.db`select id,effective_from from outlet_pins where outlet_id=${id} and status='verified' and deleted_at is null and (effective_to is null or effective_to>${new Date(now)}) order by effective_from desc limit 1`;
-    const from = Math.max(
-      now,
-      current ? new Date(current.effective_from).getTime() + 1 : now,
-    );
-    if (current)
-      await ctx.db`update outlet_pins set effective_to=${new Date(from)} where id=${current.id}`;
-    await ctx.db`insert into outlet_pins(outlet_id,latitude,longitude,radius_meters,source,evidence_storage_id,status,effective_from,proposed_by,proposed_at,verified_by,verified_at,reviewer_reason) values(${id},${capture.latitude},${capture.longitude},50,'census',${capture.photo_file_id ?? null},'verified',${new Date(from)},${capture.actor_profile_id},${capture.captured_at},${actor.userId},${new Date(now)},${reason})`;
+    const [agent] =
+      await ctx.db`select coalesce(user_id::text,auth_subject,id::text) subject from profiles where id=${capture.actor_profile_id}`;
+    await ctx.db`insert into outlet_pins(outlet_id,latitude,longitude,radius_meters,source,evidence_storage_id,evidence_note,status,effective_from,proposed_by,proposed_at) values(${id},${capture.latitude},${capture.longitude},50,'census',${capture.photo_file_id ?? null},${`Edit customer change ${capture.id} accepted by the office: ${reason}`.slice(0, 1000)},'pending',${new Date(ctx.now)},${agent?.subject ?? String(capture.actor_profile_id)},${capture.captured_at})`;
   }
   return id;
 }
@@ -675,6 +671,19 @@ export async function myStoreChanges(ctx) {
       decision: r.decision === "accept" ? "accepted" : "rejected",
       reason: r.decision === "accept" ? null : (r.reason ?? null),
       decidedAt: new Date(r.created_at).getTime(),
+    })),
+    // E2E-008: the office's decision on this person's Add customer captures (field enrolments keyed by the
+    // capture id), so the phone's Saved customers row stops reading "Sent for review" once it is decided.
+    customers: (
+      await ctx.db`select e.client_request_id,e.outlet_id,e.status,e.decision_reason,e.updated_at from outlet_enrolments e
+        where e.proposed_by=${actor.subject} and e.client_request_id is not null and e.status in ('approved','rejected')
+        order by e.updated_at desc limit 100`
+    ).map((/** @type {any} */ r) => ({
+      captureId: String(r.client_request_id),
+      outletId: r.outlet_id,
+      decision: r.status === "approved" ? "accepted" : "rejected",
+      reason: r.status === "approved" ? null : (r.decision_reason ?? null),
+      decidedAt: new Date(r.updated_at).getTime(),
     })),
   };
 }

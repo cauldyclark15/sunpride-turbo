@@ -125,6 +125,9 @@ interface FieldBackend {
     fun warmCatalogueImages(isActive:()->Boolean = {true}) {}
     fun censusConfig(): JSONObject? = null
     fun censusHistory(): List<Pair<String, String>> = emptyList()
+    /** E2E-008: Saved customers with the office's decision once it is known (default: outbox state only). */
+    fun censusSaved(): List<com.sunpride.field.census.CensusRules.Saved> =
+        censusHistory().map { com.sunpride.field.census.CensusRules.Saved(it.first, it.second, null) }
     fun queueCensus(payload: JSONObject) { error("Census unavailable") }
     /** SP-0170 Add customer: PSGC geography kept on this phone (national pack + barangays of [provinces] and of
      * every province fetched before). Downloads what is missing or older than 30 days when online. */
@@ -514,6 +517,22 @@ class LiveFieldBackend(
             JSONObject(it.first.serializedOperation).getJSONObject("payload").getString("name") to it.second.state
         }
     }
+    override fun censusSaved(): List<com.sunpride.field.census.CensusRules.Saved> = withStore { store ->
+        val rows = store.history().filter { it.first.kind == com.sunpride.field.census.CensusRules.KIND }
+        val decided = if (rows.none { it.second.state == "done" }) emptyMap() else
+            com.sunpride.field.census.CensusRules.customerDecisions(myChanges(store))
+        rows.map {
+            val p = JSONObject(it.first.serializedOperation).getJSONObject("payload")
+            com.sunpride.field.census.CensusRules.Saved(p.getString("name"), it.second.state, decided[p.optString("captureId")])
+        }
+    }
+    /** GET my-changes when online (saved on the phone), else the saved copy. */
+    private suspend fun myChanges(store: com.sunpride.field.storage.FieldStore): JSONObject? {
+        val live = runCatching { functions.api.get("/api/v1/masters/census/my-changes").toString() }.getOrNull()
+        if (live != null) store.putLocalCache(STORE_CHANGES, "decisions", live, System.currentTimeMillis(), "decisions")
+        val text = live ?: store.localCache(STORE_CHANGES, "decisions")?.takeUnless { it.tombstone }?.json
+        return text?.let { runCatching { JSONObject(it) }.getOrNull() }
+    }
     override fun storeChanges(): List<Triple<JSONObject, String, Long>> = if (storedScope() == null) emptyList() else withStore { store ->
         store.history().filter { it.first.kind == com.sunpride.field.census.CensusRules.KIND }.map {
             Triple(JSONObject(it.first.serializedOperation).getJSONObject("payload"), it.second.state, it.first.createdAt)
@@ -521,10 +540,7 @@ class LiveFieldBackend(
     }
     override fun storeDecisions(): Map<String, com.sunpride.field.census.CensusRules.Decision> =
         if (storedScope() == null) emptyMap() else withStore { store ->
-            val live = runCatching { functions.api.get("/api/v1/masters/census/my-changes").toString() }.getOrNull()
-            if (live != null) store.putLocalCache(STORE_CHANGES, "decisions", live, System.currentTimeMillis(), "decisions")
-            val text = live ?: store.localCache(STORE_CHANGES, "decisions")?.takeUnless { it.tombstone }?.json
-            com.sunpride.field.census.CensusRules.decisions(text?.let { runCatching { JSONObject(it) }.getOrNull() })
+            com.sunpride.field.census.CensusRules.decisions(myChanges(store))
         }
     override fun seenRejections(): Set<String> = if (storedScope() == null) emptySet() else withStore { store ->
         store.localCache(STORE_SEEN, "seen")?.takeUnless { it.tombstone }?.json

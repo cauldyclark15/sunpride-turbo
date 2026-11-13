@@ -83,14 +83,17 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
     val places = remember(backend) { runCatching { backend?.censusPlaces() }.getOrNull() }
     var config by remember { mutableStateOf<JSONObject?>(null) }
-    var history by remember { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
+    var history by remember { mutableStateOf<List<CensusRules.Saved>>(emptyList()) }
     var message by remember { mutableStateOf("Loading customer setup…") }
     var busy by remember { mutableStateOf(false) }
     // Edit store: the same form, filled from the store; the office checks the changes before they replace the record.
-    var name by rememberSaveable { mutableStateOf((editing?.name ?: initialName).take(80)) }
-    var address by rememberSaveable { mutableStateOf(editing?.let { it.address ?: it.account?.address }.orEmpty()) }
-    var owner by rememberSaveable { mutableStateOf(editing?.contactName.orEmpty()) }
-    var phone by rememberSaveable { mutableStateOf(editing?.contactPhone.orEmpty()) }
+    // E2E-010: keyed by the store, so the form fills from the customer even when the record arrives after the
+    // first frame (it otherwise kept the empty first values: name, owner and phone had to be retyped).
+    val editKey = editing?.outletId
+    var name by rememberSaveable(editKey) { mutableStateOf((editing?.name ?: initialName).take(80)) }
+    var address by rememberSaveable(editKey) { mutableStateOf(editing?.let { it.address ?: it.account?.address }.orEmpty()) }
+    var owner by rememberSaveable(editKey) { mutableStateOf(editing?.contactName.orEmpty()) }
+    var phone by rememberSaveable(editKey) { mutableStateOf(editing?.contactPhone.orEmpty()) }
     var batch by rememberSaveable { mutableStateOf("") }; var channel by rememberSaveable { mutableStateOf("") }
     var subchannel by rememberSaveable { mutableStateOf("") }; var estimatedClass by rememberSaveable { mutableStateOf("D") }
     var landmark by rememberSaveable { mutableStateOf("") }
@@ -130,7 +133,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     LaunchedEffect(backend) {
         try {
             config = withContext(Dispatchers.IO) { backend?.censusConfig() }
-            history = withContext(Dispatchers.IO) { backend?.censusHistory().orEmpty() }
+            history = withContext(Dispatchers.IO) { backend?.censusSaved().orEmpty() }
             message = if (config == null) "Connect once to download the customer setup, then add customers offline."
                 else if (!edit && CustomerCapture.setup(config) == null) "Connect once to download the customer lists, then add customers offline."
                 else "Saved customers stay encrypted on this phone until the next sync."
@@ -180,7 +183,9 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         if (location.requiresPermission && ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
             locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)); return
         }
-        mode = "gps"; picked = null; predictions = emptyList()
+        // E2E-010: on Edit the searched pin and the agent's own fix are kept side by side (both are sent).
+        if (!edit || picked == null) { mode = "gps"; picked = null }
+        predictions = emptyList()
         scope.launch {
             busy = true; locationNote = "Getting your location…"
             try {
@@ -196,6 +201,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 fix = got; lastFix = got.getDouble("latitude") to got.getDouble("longitude")
                 locationNote = null
                 if (!edit) return@launch // Add customer: the address comes from the location pickers.
+                if (mode == "places") return@launch // the searched address stays the address
                 when (val r = places?.let { withContext(Dispatchers.IO) { it.reverse(got.getDouble("latitude"), got.getDouble("longitude")) } }) {
                     is CensusPlaces.Result.Ok -> {
                         reverse = r.value
@@ -215,7 +221,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 when (val r = withContext(Dispatchers.IO) { api.details(p.placeId, session) }) {
                     is CensusPlaces.Result.Ok -> {
                         withContext(Dispatchers.Main.immediate) { focus.clearFocus() }; picked = r.value; predictions = emptyList(); query = r.value.formattedAddress; searchNote = null
-                        address = r.value.formattedAddress; autoAddress = address; fix = null
+                        address = r.value.formattedAddress; autoAddress = address; if (!edit) fix = null
                         session = CensusPlaces.session() // the session ends with the details call
                     }
                     CensusPlaces.Result.Offline -> searchNote = OFFLINE_SEARCH
@@ -239,7 +245,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 CensusRules.validate(p)
                 withContext(Dispatchers.IO) { backendNow.queueCensus(p) }
                 onQueued?.invoke()
-                history = withContext(Dispatchers.IO) { backendNow.censusHistory() }
+                history = withContext(Dispatchers.IO) { backendNow.censusSaved() }
                 if (CensusRules.isChange(p)) {
                     message = "Change saved on phone. The office checks it first."
                     onChangeSaved?.invoke()
@@ -261,7 +267,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         if (!edit) return CustomerCapture.payload(CensusRules.captureId(), form, geography, System.currentTimeMillis(),
             fix ?: JSONObject(), jpeg?.let { Base64.getEncoder().encodeToString(it) } ?: "", acknowledged)
         if (edit) return CensusRules.changePayload(CensusRules.captureId(), editing!!.outletId, name, address, owner, phone,
-            System.currentTimeMillis(), if (mode == "gps") fix else null, place, landmark, jpeg?.let { Base64.getEncoder().encodeToString(it) })
+            System.currentTimeMillis(), if (mode == "gps" || (mode == "places" && place != null)) fix?.takeIf { CensusRules.fixUsable(it) } else null,
+            place, landmark, jpeg?.let { Base64.getEncoder().encodeToString(it) })
         return CensusRules.payload(CensusRules.captureId(), CensusRules.chosenBatch(showBatch, batch), name, address, owner, phone, channel, subchannel,
             estimatedClass, System.currentTimeMillis(), if (mode == "gps") fix else null, place, landmark,
             reverse?.takeIf { mode == "gps" }?.let { it.formattedAddress to it.components.json() }, acknowledged,
@@ -314,6 +321,13 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                     }
                 }
                 if (mode == "gps" && fix == null) throw IllegalArgumentException("Tap Use my location and wait for a good signal.")
+                // E2E-010: a searched pin on Edit is sent with the agent's own fix, fetched now if none is fresh, so the
+                // office sees how far the new pin is from where the agent stood.
+                if (edit && mode == "places" && picked != null && (fix == null || CensusRules.fixIsStale(fix, System.currentTimeMillis()))) {
+                    val got = try { withTimeoutOrNull(10_000) { location.fixWithinAccuracy(50.0) } }
+                        catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+                    fix = got?.takeIf { CensusRules.fixUsable(it) }
+                }
                 val draft = build(emptyList()); CensusRules.validate(draft)
                 if (edit) {
                     // A change is for this store: no duplicate check, nothing to send when nothing changed.
@@ -378,14 +392,14 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                         else TonalButton("Use my location", ::useMyLocation, Modifier.weight(1f).testTag("census-gps"), !busy, glyph = GlyphKind.PIN)
                         if (searchOffered) {
                             if (mode == "places") PrimaryBottomButton("Search address", { }, Modifier.weight(1f).testTag("census-search-mode"), !busy)
-                            else TonalButton("Search address", { mode = "places"; fix = null; reverse = null; locationNote = null; session = CensusPlaces.session() },
+                            else TonalButton("Search address", { mode = "places"; if (!edit) fix = null; reverse = null; locationNote = null; session = CensusPlaces.session() },
                                 Modifier.weight(1f).testTag("census-search-mode"), !busy)
                         }
                     }
                     if (edit && mode == "") Text("Keep the customer's pin, or set a new one.", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("census-edit-location"))
                     Marked(CensusRules.Field.LOCATION, marked, requesters) { }
-                    if (mode == "gps") fix?.let { StatusChip("Your location ±${it.getDouble("accuracyMeters").toInt()} m", Look.Tone.GOOD, textTag = "census-accuracy") }
+                    if (mode == "gps" || (edit && mode == "places")) fix?.let { StatusChip("Your location ±${it.getDouble("accuracyMeters").toInt()} m", Look.Tone.GOOD, textTag = "census-accuracy") }
                     locationNote?.let { Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("census-location-note")) }
                     if (mode == "places") {
                         FieldTextField(query, { query = it.take(120); if (picked != null && it != picked?.formattedAddress) picked = null },
@@ -438,8 +452,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             }
             if (history.isNotEmpty()) SectionCard("Saved customers") {
                 Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    history.takeLast(20).reversed().forEach { (store, state) ->
-                        Text("$store · ${if (state == "done") "Sent for review" else if (state == "review") "Needs review" else "Saved on phone"}",
+                    history.takeLast(20).reversed().forEach { saved ->
+                        Text("${saved.name} · ${CensusRules.savedLabel(saved)}",
                             style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("census-saved"))
                     }
                 }

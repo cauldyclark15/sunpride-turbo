@@ -758,6 +758,7 @@ describe("SP-0170 customer writer", () => {
     expect(assigned.length).toBe(1);
   });
   test("an approver can reject a field capture (old New store approvals' Reject): inactive, no accounting customer", async () => {
+    const captureId = crypto.randomUUID();
     const [agent] =
       await h.db`select p.user_id from profiles p where p.email='agent@sunpride.test'`;
     const [file] =
@@ -774,7 +775,7 @@ describe("SP-0170 customer writer", () => {
         latitude: 10.3,
         longitude: 123.9,
         photoStorageIds: [file.id],
-        clientRequestId: crypto.randomUUID(),
+        clientRequestId: captureId,
         customer: {
           salesOrgCode: "1000",
           distributionChannelCode: "41",
@@ -801,6 +802,20 @@ describe("SP-0170 customer writer", () => {
       enrolmentStatus: "rejected",
     });
     expect(await accounting(outletId)).toEqual([]);
+    // E2E-008: the proposing agent's phone learns the rejection and its reason (Saved customers row).
+    const mine = await call("agent", "GET", "/api/v1/masters/census/my-changes");
+    expect(mine.status).toBe(200);
+    expect(
+      mine.body.customers.find((/** @type {any} */ c) => c.captureId === captureId),
+    ).toMatchObject({
+      outletId,
+      decision: "rejected",
+      reason: "Duplicate of an existing store",
+    });
+    const other = await call("manager", "GET", "/api/v1/masters/census/my-changes");
+    expect(
+      (other.body.customers ?? []).some((/** @type {any} */ c) => c.captureId === captureId),
+    ).toBe(false);
     // Only a pending field capture can be rejected.
     expect(
       (await call("manager", "POST", path, { reason: "Again" })).status,

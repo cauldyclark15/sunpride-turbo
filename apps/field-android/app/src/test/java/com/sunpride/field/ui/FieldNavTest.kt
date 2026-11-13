@@ -14,6 +14,18 @@ class FieldNavTest {
         assertEquals("messages", FieldNav.pageOnReady(wasReady = false, ready = true, page = "messages", targeted = true))
     }
 
+    // E2E-001 r6: Register phone → Check again still opened on Customers. While Register phone shows, the page
+    // behind it returns to Today (Account/Support stay reachable), so Check again opens on Today.
+    @Test fun `E2E-001 the register screen resets a leftover tab so Check again opens on Today`() {
+        assertEquals("home", FieldNav.pageWhileWaiting("customers"))
+        assertEquals("home", FieldNav.pageWhileWaiting("customer"))
+        assertEquals("account", FieldNav.pageWhileWaiting("account"))
+        assertEquals("support", FieldNav.pageWhileWaiting("support"))
+        // Check again: ready arrives with wasReady still true (the not-ready step was never observed) and the
+        // page is already Today.
+        assertEquals("home", FieldNav.pageOnReady(wasReady = true, ready = true, page = FieldNav.pageWhileWaiting("customers")))
+    }
+
     @Test fun fiveTabsInDailyOrder() {
         assertEquals(listOf("Today", "Route", "Customers", "Messages", "More"), FieldTab.entries.map { it.label })
         assertEquals(listOf("home", "route", "customers", "messages", "more"), FieldTab.entries.map { it.page })

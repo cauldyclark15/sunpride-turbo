@@ -269,6 +269,59 @@ test("F-120 no-order closes require a snapshotted controlled reason for every ou
     ).toBe("rejected");
   expect((await push(f, await end(f, id)))[0].status).toBe("applied");
 });
+// FLD-176 (call f07fa710, agent1 SMP-C0292): the office rejected the call's order, then End call (Completed, no
+// no-order reason because the phone took an order) was refused invalid_transition and the call stayed open, so
+// every later Start was refused call_open. A rejected or voided order still counts as the call's order for End;
+// a draft (failed capture) does not. A supervisor can also close a stuck call, audited.
+test("FLD-176 a call whose order the office rejected still ends; a supervisor can close a stuck call", async () => {
+  for (const status of ["rejected", "voided", "draft"]) {
+    const f = await fixture();
+    const s = await start(f);
+    const id = s.result.ack.entityId;
+    const [a] =
+      await h.db`insert into visit_activities (organization_id,org_unit_id,visit_id,assignee_profile_id,outlet_id,activity_kind,activity,device_time,server_time)
+      values ('sunpride',${f.unit},${id},${f.d.profile.id},${f.outlet},'order_intent',${{ lines: [{ productId: f.sku, quantity: 1 }] }},now(),now()) returning id`;
+    const [o] =
+      await h.db`insert into orders(organization_id,client_request_id,order_number,customer_code,salesperson_subject,status,subtotal,total,created_at)
+      values ('sunpride',${crypto.randomUUID()},${"SP-" + crypto.randomUUID().slice(0, 8)},'C1',${f.d.userId},${status},0,0,now()) returning id`;
+    await h.db`insert into field_order_captures(visit_id,client_order_id,activity_id,order_id,payload_hash) values (${id},${crypto.randomUUID()},${a.id},${o.id},'h')`;
+    const r = (
+      await push(
+        f,
+        await end(f, id, {
+          outcome: "completed",
+          reasonCode: null,
+          zeroSaleReason: null,
+        }),
+      )
+    )[0];
+    expect([status, r.status]).toEqual([
+      status,
+      status === "draft" ? "rejected" : "applied",
+    ]);
+    const [c] = await h.db`select id,state from call_executions where visit_id=${id}`;
+    expect(c.state).toBe(status === "draft" ? "open" : "closed");
+    if (status !== "draft") continue;
+    // The stuck draft call: a supervisor closes it (never their own), audited; a second close is refused.
+    const boss = (await fixture({ role: "super_admin", unit: f.unit })).d;
+    /** @param {any} who @param {any} body */
+    const close = (who, body) =>
+      h.fetch("/api/v1/callflow/calls/close-stuck", {
+        method: "POST",
+        headers: { authorization: `Bearer ${who.access}`, "content-type": "application/json" },
+        body: JSON.stringify(body),
+      });
+    expect((await close(f.d, { callId: c.id, reason: "Stuck" })).status).toBe(403);
+    const ok = await close(boss, { callId: c.id, reason: "End refused after the office rejected the order" });
+    expect(ok.status).toBe(200);
+    const [after] = await h.db`select state from call_executions where id=${c.id}`;
+    expect(after.state).toBe("interrupted");
+    expect(
+      (await h.db`select 1 from audit_logs where action='callflow.call.closed_by_supervisor' and entity_id=${c.id}`).length,
+    ).toBe(1);
+    expect((await close(boss, { callId: c.id, reason: "again" })).status).toBe(409);
+  }
+});
 // agent1 SMP-C0293: a merchandiser call is execution-only (no order, no no-order reason list to pick from), so its
 // End is accepted without a no-order reason; a selling call still needs one.
 test("merchandiser call ends without a no-order reason; a selling call still needs one", async () => {
