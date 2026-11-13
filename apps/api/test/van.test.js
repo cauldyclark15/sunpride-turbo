@@ -616,9 +616,19 @@ test("F-616 full van bundle preserves strict legacy products and explicitly nego
   const d = r.body.bundles[0].data;
   expect(d.products[0].catalogue).toBeUndefined();
   // VAN-081 (r6van5): the trip's start odometer rides the policy so a phone that did not start the trip can check it.
+  // Opt-in with params.vanDay: a legacy (frozen v1 schema) pull gets no new policy key.
+  expect(d.policy.tripFacts).toBeUndefined();
   const [started] =
     await h.db`select start_odometer_km from van_trips where id=${d.trip.tripId}`;
-  expect(d.policy.tripFacts).toEqual({
+  const day = await signedPost(h, who, "/api/sync/pull", {
+    ...request,
+    scopes: request.scopes.map((scope) => ({
+      ...scope,
+      params: { ...scope.params, vanDay: true },
+    })),
+  });
+  expect(day.res.status).toBe(200);
+  expect(day.body.bundles[0].data.policy.tripFacts).toEqual({
     startOdometerKm:
       started.start_odometer_km == null
         ? null

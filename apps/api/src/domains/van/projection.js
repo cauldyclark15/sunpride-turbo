@@ -666,12 +666,17 @@ export async function bundle(ctx, env) {
           : {}),
         ...(routeOps ? { operationsVersion: 1 } : {}),
         // VAN-081: the close screen checks the end odometer against the start, even for a trip started elsewhere.
-        tripFacts: {
-          startOdometerKm:
-            trip.start_odometer_km == null
-              ? null
-              : Number(trip.start_odometer_km),
-        },
+        // Opt-in (params.vanDay): the frozen v1 schema of beta.26/27 refuses unknown policy keys.
+        ...(ctx.params.vanDay === true
+          ? {
+              tripFacts: {
+                startOdometerKm:
+                  trip.start_odometer_km == null
+                    ? null
+                    : Number(trip.start_odometer_km),
+              },
+            }
+          : {}),
       },
       ...(routeOps ? { vanOps: routeOps } : {}),
       trip: {
