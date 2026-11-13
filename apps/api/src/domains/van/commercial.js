@@ -1,5 +1,5 @@
 import { resolvePrice } from "../orders/pricing.js";
-import { activePromotions } from "../tpm/active.js";
+import { activePromotions, alignPromotionPriceLists } from "../tpm/active.js";
 import { evaluateSchemes as applyPromotions } from "../tpm/engine.js";
 import { eligibilityFacts } from "../tpm/campaigns.js";
 import { nativePromotions, schemeAccountKey } from "../tpm/native-context.js";
@@ -111,7 +111,16 @@ export async function quoteVanSchemes(db, trip, actor, env, p, customer) {
   }
   if (!paidLines.length)
     refuse("A scheme sale needs paid products", "invalid_request");
-  const quote = applyPromotions(paidLines, offers, facts);
+  // FLD-116: the same SAP-mirror list alignment the native quote used.
+  const quote = applyPromotions(
+    paidLines,
+    await alignPromotionPriceLists(
+      db,
+      offers,
+      paidLines.map((l) => l.priceListId),
+    ),
+    facts,
+  );
   if (
     quote.promotionsApplied.some((p) => p.earnedCentavos > 0) &&
     (!customer.customerCode ||

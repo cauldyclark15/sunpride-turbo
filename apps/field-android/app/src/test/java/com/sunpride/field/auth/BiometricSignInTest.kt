@@ -212,6 +212,24 @@ class BiometricSignInTest {
         assertEquals("fake-session-1", relaunch().let { vault().readSession() })
     }
 
+    /** FLD-015 (r4): "Not now" is remembered for that person on this phone, across sign-out and relaunch. */
+    @Test fun notNowIsRememberedPerPersonAcrossSignOutAndRelaunch() {
+        val declined = BiometricGate.OfferMemory.InMemory()
+        vault().saveSession("fake-session-1")
+        var gate = BiometricGate(vault(), crypto, declined)
+        gate.passwordSignedIn("Agent1@Trial.Sunpride.test")
+        assertTrue(gate.offer)
+        gate.decline()
+        vault().clearSession() // Account -> Sign out
+        memory = SessionMemory()
+        gate = BiometricGate(vault(), crypto, declined)
+        vault().saveSession("fake-session-2")
+        gate.passwordSignedIn("agent1@trial.sunpride.test")
+        assertFalse("Not now must stick for this person", gate.offer)
+        gate.passwordSignedIn("van1@trial.sunpride.test")
+        assertTrue("another person on the same phone is still asked", gate.offer)
+    }
+
     @Test fun accountToggleOffRestoresTheOrdinarySessionWithoutAPrompt() {
         val gate = signedInWithBiometrics()
         val prompts = crypto.prompts

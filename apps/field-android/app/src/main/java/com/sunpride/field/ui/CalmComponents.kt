@@ -3,6 +3,7 @@ package com.sunpride.field.ui
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.BoxScope
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.ime
@@ -200,7 +201,9 @@ fun LabeledField(label: String, value: String, onValueChange: (String) -> Unit,
         Text(label, style = MaterialTheme.typography.labelMedium, modifier = Modifier.padding(start = 14.dp))
         OutlinedTextField(value, onValueChange, singleLine = true, enabled = enabled,
             visualTransformation = visualTransformation, keyboardOptions = keyboardOptions, trailingIcon = trailingIcon,
-            modifier = modifier.fillMaxWidth().heightIn(min = 52.dp), shape = RoundedCornerShape(Look.pill),
+            // FLD-086: the visible label is the field's accessible name, so TalkBack and UI Automator can find it.
+            modifier = modifier.fillMaxWidth().heightIn(min = 52.dp)
+                .semantics { contentDescription = label }, shape = RoundedCornerShape(Look.pill),
             textStyle = MaterialTheme.typography.bodyLarge, colors = fieldColors())
     }
 }
@@ -403,6 +406,21 @@ fun ActionBar(modifier: Modifier = Modifier, content: @Composable androidx.compo
 fun Modifier.bottomSafe(): Modifier = this.composed { windowInsetsPadding(
     androidx.compose.foundation.layout.WindowInsets.safeDrawing.only(
         androidx.compose.foundation.layout.WindowInsetsSides.Bottom + androidx.compose.foundation.layout.WindowInsetsSides.Horizontal)) }
+
+/** FLD-074: the one bottom sheet for the field app. Opens fully expanded (a half-open sheet left its last button
+ * under the 3-button navigation bar on 720x1600 phones), scrolls when its content is taller than the screen, and pads
+ * its content above the navigation bar (Material's sheet insets plus bottomSafe for anything not yet consumed). Never call ModalBottomSheet directly. */
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+@Composable
+fun SafeBottomSheet(onDismissRequest: () -> Unit, modifier: Modifier = Modifier,
+    content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit) {
+    androidx.compose.material3.ModalBottomSheet(onDismissRequest = onDismissRequest,
+        sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)) {
+        Column(modifier.fillMaxWidth().verticalScroll(androidx.compose.foundation.rememberScrollState())
+            .bottomSafe().padding(start = 16.dp, end = 16.dp, bottom = 24.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp), content = content)
+    }
+}
 
 /** A pill-shaped dropdown field: label above, the chosen value inside with a chevron. Tag goes on the tappable pill. */
 @Composable

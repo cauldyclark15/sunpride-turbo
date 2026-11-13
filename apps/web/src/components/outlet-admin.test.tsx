@@ -155,6 +155,40 @@ describe("Outlet admin (unmounted)", () => {
     };
     expect(render()).not.toContain("Edit store");
   });
+  it("WEB-170: refuses a contact phone without a contact name instead of dropping it", async () => {
+    const calls = actions();
+    await expect(
+      performOutletAction(
+        "edit",
+        form({
+          name: "Sample store",
+          status: "active",
+          contactPhone: "0917 555 0101",
+          reason: "new phone",
+        }),
+        calls,
+        outlet._id,
+      ),
+    ).rejects.toThrow("Add the contact name for this phone.");
+    expect(calls.edit).not.toHaveBeenCalled();
+    await performOutletAction(
+      "edit",
+      form({
+        name: "Sample store",
+        status: "active",
+        contactName: "Aling Nena",
+        contactPhone: "0917 555 0101",
+        reason: "new phone",
+      }),
+      calls,
+      outlet._id,
+    );
+    expect(calls.edit).toHaveBeenCalledWith(
+      expect.objectContaining({
+        contacts: [{ name: "Aling Nena", phone: "0917 555 0101" }],
+      }),
+    );
+  });
   it("routes proposal and independent decision with required reasons", async () => {
     const calls = actions();
     await performOutletAction(

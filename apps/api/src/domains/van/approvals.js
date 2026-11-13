@@ -33,6 +33,11 @@ async function voidAuthority(db, trip, facts) {
     await db`select * from van_sales where trip_id=${trip.id} and receipt_number=${facts.receiptNumber}`;
   if (!sale || BigInt(sale.total_centavos) !== integer(facts.totalMinor))
     throw invalid("The original invoice amount does not match");
+  // A retained invoice without its line facts cannot be bound to a void code (it was a 500).
+  if (!Array.isArray(sale.receipt?.lines) || !sale.receipt.lines.length)
+    throw invalid(
+      "This receipt has no line detail, so a void code cannot be issued for it",
+    );
   const outlet = await outletFor(db, requester, sale.outlet_id);
   const input = {
     orgUnitId: trip.org_unit_id,

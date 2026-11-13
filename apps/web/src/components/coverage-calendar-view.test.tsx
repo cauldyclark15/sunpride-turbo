@@ -47,7 +47,7 @@ describe("calendar view", () => {
     expect(html).toContain("Non-visit activity");
     expect(html).not.toContain("outlet_visit");
     expect(html).not.toContain("non_visit");
-    expect(html).toContain("Week of 2026-09-28");
+    expect(html).toContain("Week of Sep 28, 2026");
     expect(html).toContain("cancelled");
     expect(html).toContain("Admin");
     expect(html).not.toContain("provisional proposal");

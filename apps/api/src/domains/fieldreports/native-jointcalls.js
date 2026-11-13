@@ -126,7 +126,13 @@ export function installNativeJointCalls(platform) {
           throw invalid("Review at most 200 carried actions");
         for (const r of a.reviews)
           await reviewAction(c, { ...r, sessionId: id });
-        if (a.complete === true) await completeSession(c, p);
+        if (a.complete === true)
+          await completeSession(c, p).catch((/** @type {any} */ e) => {
+            // FLD-159: a finish refused for a missing part says so (the draft itself was saved before).
+            if (e instanceof ApiError && e.status === 422)
+              throw new OpRejected("work_with_incomplete");
+            throw e;
+          });
         else if (a.complete !== false)
           throw invalid("Choose draft or complete");
         await c.db`insert into field_report_audit(actor_id,command,entity_id,details) values(${c.actor.profileId},'jointcall.capture',${id},${{ requestId: c.op.clientOpId, deviceId: c.device.id, complete: a.complete, resultRevision: revision(await sessionDetail(c, id)) }})`;

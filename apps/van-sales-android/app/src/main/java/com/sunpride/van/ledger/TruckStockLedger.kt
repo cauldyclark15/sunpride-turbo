@@ -18,6 +18,9 @@ object StockProjection {
         }
         return amounts.keys.map { it.first }.distinct().sorted().map { id -> TruckStock(id,amounts[id to "available"] ?: 0L,amounts[id to "damaged"] ?: 0L) }
     }
+    /** r6van4: movements of operations the office refused are left out (their goods are still on the truck at the office). */
+    fun withoutRefused(movements: List<MovementRow>, refused: Set<String>): List<MovementRow> =
+        if (refused.isEmpty()) movements else movements.filter { it.clientRequestId !in refused }
     fun reflected(ackServerTime: Long?, baselineServerTime: Long): Boolean = ackServerTime != null && baselineServerTime > ackServerTime
     fun canRemove(available: Long, quantity: Long, allowNegativeStock: Boolean): Boolean = quantity > 0 && (allowNegativeStock || available >= quantity)
 }

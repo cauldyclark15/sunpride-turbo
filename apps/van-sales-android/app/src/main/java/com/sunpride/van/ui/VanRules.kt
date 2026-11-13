@@ -81,7 +81,7 @@ object VanRules {
             com.sunpride.van.pos.CheckoutProblem.DUPLICATE_PRODUCT -> "$p is in the sale twice."
             com.sunpride.van.pos.CheckoutProblem.UNKNOWN_PRODUCT -> "A product is no longer on this phone. Remove it."
             com.sunpride.van.pos.CheckoutProblem.BAD_QUANTITY -> "$p: enter a quantity above zero."
-            com.sunpride.van.pos.CheckoutProblem.INSUFFICIENT_STOCK -> "$p: not enough on the truck."
+            com.sunpride.van.pos.CheckoutProblem.INSUFFICIENT_STOCK -> "$p: not enough on the truck to sell. Batches the office has on hold or that are too close to expiry cannot be sold."
             com.sunpride.van.pos.CheckoutProblem.UNPRICED -> "$p is priced by the office. There is no price for this customer on this phone, so it can't be sold yet. Remove it, or sync and try again."
             com.sunpride.van.pos.CheckoutProblem.PRICE_NOT_EXACT -> "$p: this quantity doesn't give an exact price. Change the quantity."
             com.sunpride.van.pos.CheckoutProblem.PROMOTION_CONFLICT -> "Two promotions apply to $p. Ask the office, or remove it."
@@ -111,6 +111,7 @@ object VanRules {
             com.sunpride.van.pos.CheckoutProblem.OVERRIDE_APPROVAL_REQUIRED -> "Another authorized person must approve this exact transaction. Request and check the approval."
             com.sunpride.van.pos.CheckoutProblem.OVERRIDE_INVALID -> "The exception or approval no longer matches. Review it and request again."
             com.sunpride.van.pos.CheckoutProblem.DISCOUNT_CLAIM_INVALID -> "The discount needs the ID number exactly as printed on the card and the name of the person on it."
+            com.sunpride.van.pos.CheckoutProblem.DISCOUNT_SWITCHED_OFF -> com.sunpride.van.selling.PrivilegeSwitch.OFF_MESSAGE
             com.sunpride.van.pos.CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL -> "A senior, PWD or other statutory discount cannot be combined with a manual discount or a price exception. Remove one of them."
             com.sunpride.van.pos.CheckoutProblem.DISCOUNT_TAX_UNKNOWN -> "$p has no tax set-up on this phone, so the discount cannot be worked out. Ask the office to finish the price and tax set-up, then sync."
             com.sunpride.van.pos.CheckoutProblem.SPLIT_INVALID -> "Check the split: the other tender must be more than zero and less than the total, and the rest is paid in cash."
@@ -124,6 +125,17 @@ object VanRules {
         "on_account" -> if (dueDate != null) "Charged to account · due $dueDate" else "Charged to account"
         else -> "To be confirmed by the office"
     }
+    /** VAN-070: say WHY a damage photo could not be saved (no fresh location, location off, mock location) instead of a generic retake. */
+    fun damagePhotoFailure(e: Throwable): String {
+        val location = generateSequence(e) { it.cause }.filterIsInstance<com.sunpride.integrity.EvidenceLocationUnavailable>().firstOrNull()
+        return when (location?.message) {
+            null -> "Could not save photo. Retake and try again."
+            com.sunpride.integrity.EvidenceLocationUnavailable.PERMISSION -> "Allow location to take damage photos. Each photo is stamped with where it was taken."
+            else -> location.message!!
+        }
+    }
+    /** A refused void code belongs to the reason it was tried with; choosing another reason clears it. */
+    fun voidError(error: String?, triedReason: String?, reason: String?): String? = error?.takeIf { triedReason != null && triedReason == reason }
     fun voidMessage(problem: com.sunpride.van.pos.VoidProblem): String = when (problem) {
         com.sunpride.van.pos.VoidProblem.VOID_UNAVAILABLE -> "Voiding sales is not set up on this phone. Sync, then try again."
         com.sunpride.van.pos.VoidProblem.SALE_NOT_FOUND -> "This sale is not on this phone."
@@ -173,6 +185,9 @@ object VanRules {
         com.sunpride.van.pos.StockProblem.STOCK_COUNTED -> "Truck stock is already counted. No more stock changes on this trip."
         com.sunpride.van.pos.StockProblem.TRIP_CLOSED -> "This trip is closed. No more stock changes on this trip."
     }
+    /** VAN-082: Close trip tapped with everything else ready but the exceptions not ticked: say so (null = close normally). */
+    fun closeTapMessage(otherwiseReady: Boolean, needsReview: Boolean, reviewed: Boolean): String? =
+        if (otherwiseReady && needsReview && !reviewed) closeMessage(com.sunpride.van.pos.CloseProblem.REVIEW_REQUIRED) else null
     /** VAN-024: plain words for each trip close refusal. */
     fun closeMessage(problem: com.sunpride.van.pos.CloseProblem): String = when (problem) {
         com.sunpride.van.pos.CloseProblem.NOT_ON_ROUTE -> "Start the trip before closing it."
@@ -272,6 +287,13 @@ object VanRules {
             com.sunpride.van.printing.PrintRefusal.HELD -> "Sign in again to print."
             com.sunpride.van.printing.PrintRefusal.PAPER_OUT -> "The printer is out of paper. Load paper, then print again."
         }
+    }
+    /** VAN-051: the line on "Did it print?" about re-sends; at zero it is the refusal itself. */
+    fun printAgainNote(left: Int?): String? = when {
+        left == null -> null
+        left <= 0 -> printMessage(com.sunpride.van.printing.PrintJobResult.Refused(com.sunpride.van.printing.PrintRefusal.CONFIRM_FIRST))
+        left == 1 -> "You can print it again 1 more time before you answer."
+        else -> "You can print it again $left more times before you answer."
     }
     fun sourceLabel(source: String): String = when (source) { "route" -> "Route"; "unplanned" -> "Not on route"; else -> "Walk-in" }
 }

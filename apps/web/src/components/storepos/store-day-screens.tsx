@@ -1,6 +1,6 @@
 "use client";
+import { useUrlTab } from "../../lib/use-url-tab";
 
-import { useState } from "react";
 import { OverridesScreen } from "./overrides-review";
 import { TillDaysScreen, ZHistoryScreen } from "./till-days";
 
@@ -9,13 +9,14 @@ export const STORE_DAY_TABS = [
   { id: "z", label: "Z readings" },
   { id: "overrides", label: "Supervisor approvals" },
 ] as const;
+const STORE_DAY_IDS = STORE_DAY_TABS.map((t) => t.id);
 
 /**
  * Stores POS day screens: registers, till days, sessions with expected/counted/variance, X/Z history with print,
  * cash movements and overrides review. Exported for the NAV lane; not mounted in navigation here.
  */
 export function StoreDayScreens() {
-  const [tab, setTab] = useState<(typeof STORE_DAY_TABS)[number]["id"]>("days");
+  const [tab, setTab] = useUrlTab(STORE_DAY_IDS, "days", "view");
   return (
     <div className="grid gap-4">
       <nav aria-label="Stores POS" className="flex flex-wrap gap-2">

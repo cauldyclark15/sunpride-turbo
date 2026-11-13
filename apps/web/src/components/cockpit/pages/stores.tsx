@@ -1,4 +1,5 @@
 "use client";
+import { useUrlTab } from "../../../lib/use-url-tab";
 
 import { RetailWorkspace } from "../../storepos/retail-workspace";
 import { DormancyPanel } from "../../dormancy-panel";
@@ -280,15 +281,15 @@ export function StoresPage() {
         <div className="grid gap-8">
           <section className="grid gap-3">
             <h2 className="text-[17px] font-semibold text-foreground">
-              Prospects to complete and approve
+              {newTabHeading(can("outlet.enrol.approve"), canAdd)}
             </h2>
             <CustomersListTab
               params={params}
               set={set}
               link={link}
-              canAdd={false}
+              canAdd={canAdd}
               awaitingApproval
-              onAdd={() => undefined}
+              onAdd={(name) => setAdding(name)}
               onEdit={canAdd ? (id) => set({ edit: id }) : undefined}
             />
           </section>
@@ -376,6 +377,7 @@ function CustomersListTab({
     <CustomerListView
       index={index}
       rows={result.data?.rows ?? (result.error ? [] : null)}
+      statusCounts={result.data?.statusCounts ?? null}
       total={
         result.data ? (result.data.total ?? result.data.rows.length) : null
       }
@@ -408,9 +410,11 @@ function CustomersListTab({
   );
 }
 
+const PERFORMANCE_VIEWS = ["distribution", "retail"] as const;
+
 /** Figures for the period: the only tab with the period filter. */
 function PerformanceTab() {
-  const [view, setView] = useState<"distribution" | "retail">("distribution");
+  const [view, setView] = useUrlTab(PERFORMANCE_VIEWS, "distribution", "view");
   const { query, link } = usePageQuery([]);
   // The top 200 stores (API limit) are enough for a ranked sales table.
   const result = useAnalytics("stores", { ...query, limit: "200" });
@@ -868,4 +872,11 @@ function StorePerformance({ storeId }: { storeId: string }) {
       </PageData>
     </CockpitPage>
   );
+}
+
+/** WEB-059: the New customers heading says only what this person can do there. */
+export function newTabHeading(canApprove: boolean, canEdit: boolean): string {
+  if (canApprove) return "Prospects to complete and approve";
+  if (canEdit) return "Prospects to complete (another person approves)";
+  return "Prospects waiting for approval";
 }

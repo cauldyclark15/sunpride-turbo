@@ -1,4 +1,5 @@
 "use client";
+import { formatStatus } from "../lib/format";
 
 import { Button } from "@heroui/react";
 import { Card, FormField, StatusPill, WorkspaceIcon } from "@sunpride/ui";
@@ -6,7 +7,7 @@ import { api } from "./coverage-model";
 import type { Doc, Id } from "./coverage-model";
 import { useCoverageMutation, useCoverageQuery } from "./coverage-data";
 import type { FunctionArgs, FunctionReturnType } from "./coverage-model";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { CoverageGrid } from "./coverage-grid";
 import {
   currentManilaDate,
@@ -148,10 +149,17 @@ export function CoveragePlanner({
   initialMonth,
   initialPersonId,
   initialPlanId,
+  onSelectionChange,
 }: {
   initialMonth?: string;
   initialPersonId?: string;
   initialPlanId?: string;
+  /** Mirrors month, person and opened plan into the page URL (WEB-113/114). */
+  onSelectionChange?: (selection: {
+    month: string;
+    personId: string | null;
+    planId: string | null;
+  }) => void;
 } = {}) {
   const permissions = useCoverageQuery(
     api.lib.capabilities.currentPermissions,
@@ -173,6 +181,11 @@ export function CoveragePlanner({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  // The editor remounts when a save bumps contentRevision; keep its last result here so
+  // confirmations such as "Assignment period saved." survive that remount.
+  const [editorMessage, setEditorMessage] = useState<PlanEditorMessage | null>(
+    null,
+  );
   const self = profile?._id;
   const people = useCoverageQuery(
     api.people.queries.list,
@@ -211,6 +224,15 @@ export function CoveragePlanner({
     api.coverage.discovery.attribution,
     canRead && selected ? { planId: selected } : "skip",
   );
+  useEffect(() => {
+    onSelectionChange?.({
+      month,
+      personId: assignee ?? null,
+      planId: selected ?? null,
+    });
+    // Report only real changes; the callback identity changes every render.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [month, assignee, selected]);
   const create = useCoverageMutation(api.coverage.plans.create);
   const revise = useCoverageMutation(api.coverage.plans.createRevision);
   async function action(run: () => Promise<Doc<"coveragePlans">>) {
@@ -329,7 +351,7 @@ export function CoveragePlanner({
                           : "neutral"
                     }
                   >
-                    {plan.status}
+                    {formatStatus(plan.status)}
                   </StatusPill>
                 </button>
               ))}
@@ -340,8 +362,8 @@ export function CoveragePlanner({
               detail.plan.localMonth === month && (
                 <>
                   <p>
-                    v{detail.plan.version} · {detail.plan.status} ·{" "}
-                    {formatManilaDate(detail.plan.effectiveFrom)} to{" "}
+                    v{detail.plan.version} · {formatStatus(detail.plan.status)}{" "}
+                    · {formatManilaDate(detail.plan.effectiveFrom)} to{" "}
                     {formatManilaDate(detail.plan.effectiveTo - 1)} · prepared
                     by {attribution?.preparedByName ?? "—"}
                   </p>
@@ -405,6 +427,12 @@ export function CoveragePlanner({
                     key={`${detail.plan._id}:${detail.plan.contentRevision}:${detail.plan.status}`}
                     detail={detail}
                     canPlan={canPlan}
+                    message={
+                      editorMessage?.planId === detail.plan._id
+                        ? editorMessage
+                        : undefined
+                    }
+                    onMessage={setEditorMessage}
                   />
                 </>
               )}
@@ -421,12 +449,35 @@ export function CoveragePlanner({
   );
 }
 
+/** True when the plan's assignee serves the outlet's route (or, routeless, its
+ * territory). Older API payloads without the lists keep every outlet. */
+export function assigneeServes(
+  detail: { servedRouteIds?: string[]; servedTerritoryIds?: string[] },
+  row: { routeId?: string | null; territoryId: string },
+) {
+  if (!detail.servedRouteIds || !detail.servedTerritoryIds) return true;
+  return row.routeId
+    ? detail.servedRouteIds.includes(row.routeId)
+    : detail.servedTerritoryIds.includes(row.territoryId);
+}
+
+export type PlanEditorMessage = {
+  planId: Id<"coveragePlans">;
+  error?: string;
+  notice?: string;
+};
+
 export function PlanEditor({
   detail,
   canPlan,
+  message,
+  onMessage,
 }: {
   detail: Detail;
   canPlan: boolean;
+  /** Result owned by the parent so it survives the editor's revision remount. */
+  message?: PlanEditorMessage;
+  onMessage?: (message: PlanEditorMessage | null) => void;
 }) {
   const { plan } = detail;
   const editable = plan.status === "draft" && canPlan;
@@ -434,7 +485,12 @@ export function PlanEditor({
     detail.outlets.map(inputOutlet),
   );
   const [slots, setSlots] = useState<Slot[]>(() => detail.slots.map(inputSlot));
-  const [territoryId, setTerritoryId] = useState<Id<"territories"> | "">("");
+  // A draft starts on its own territory so "Add plan outlet" lists stores at once.
+  const [territoryId, setTerritoryId] = useState<Id<"territories"> | "">(() =>
+    editable
+      ? ((detail.plan.territoryIds?.[0] ?? "") as Id<"territories"> | "")
+      : "",
+  );
   const [routeId, setRouteId] = useState<Id<"routes"> | "">("");
   const [candidate, setCandidate] = useState<Id<"outlets"> | "">("");
   const [outletCursor, setOutletCursor] = useState<string | null>(null);
@@ -537,22 +593,35 @@ export function PlanEditor({
     roster?.filter(
       (row) =>
         !outlets.some((o) => o.outletId === row.outletId) &&
-        (!routeId || row.routeId === routeId),
+        (!routeId || row.routeId === routeId) &&
+        assigneeServes(
+          detail as { servedRouteIds?: string[]; servedTerritoryIds?: string[] },
+          row,
+        ),
     ) ?? [];
   const patchOutlet = (id: Id<"outlets">, change: Partial<Outlet>) =>
     setOutlets((old) =>
       old.map((o) => (o.outletId === id ? { ...o, ...change } : o)),
     );
+  const report = (result: { error?: string; notice?: string }) => {
+    if (onMessage)
+      onMessage(
+        result.error || result.notice ? { planId: plan._id, ...result } : null,
+      );
+    setError(result.error ?? "");
+    setNotice(result.notice ?? "");
+  };
+  const shownError = onMessage ? (message?.error ?? "") : error;
+  const shownNotice = onMessage ? (message?.notice ?? "") : notice;
   async function run(label: string, mutate: () => Promise<unknown>) {
     if (!editable || busy) return;
     setBusy(true);
-    setError("");
-    setNotice("");
+    report({});
     try {
       await mutate();
-      setNotice(label);
+      report({ notice: label });
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : String(cause));
+      report({ error: cause instanceof Error ? cause.message : String(cause) });
     } finally {
       setBusy(false);
     }
@@ -567,6 +636,19 @@ export function PlanEditor({
       aria-label="Selected coverage plan"
       className="grid gap-4 rounded border border-border p-3"
     >
+      {!!detail.notices?.length && (
+        <aside
+          role="alert"
+          aria-label="Plan record problem"
+          className="rounded border border-danger bg-danger/10 p-3"
+        >
+          <ul className="list-inside list-disc">
+            {detail.notices.map((n, i) => (
+              <li key={`${i}:${n}`}>{n}</li>
+            ))}
+          </ul>
+        </aside>
+      )}
       {!!detail.warnings.length && (
         <aside
           role="status"
@@ -694,6 +776,17 @@ export function PlanEditor({
           </button>
         )}
       </div>
+      {editable && !territoryId && (
+        <p role="status">
+          Choose a territory above to list the stores you can add to this plan.
+        </p>
+      )}
+      {editable && territoryId && roster && !assigned.length && (
+        <p role="status">
+          No more stores on this person&apos;s routes in this territory
+          {routeId ? " and route" : ""}. Choose another territory to add stores.
+        </p>
+      )}
       {editable && territoryId && (
         <div className="flex gap-2">
           <select
@@ -940,12 +1033,12 @@ export function PlanEditor({
                 if (/work[ -]?with/i.test(activityKind) && !truck.trim())
                   throw new Error("Work-With requires a named truck");
               } catch (cause) {
-                setError(
-                  cause instanceof Error ? cause.message : String(cause),
-                );
+                report({
+                  error: cause instanceof Error ? cause.message : String(cause),
+                });
                 return;
               }
-              setError("");
+              report({});
               const key = `activity:${activityDate}:${crypto.randomUUID()}`;
               setSlots((old) => [
                 ...old,
@@ -1036,9 +1129,9 @@ export function PlanEditor({
       </ul>
       {plan.status !== "draft" && (
         <p className="text-sm">
-          Read-only {plan.status} version. Approved outlet cells use frozen
-          code/name/route snapshots where available; revisions create a separate
-          draft.
+          Read-only {formatStatus(plan.status).toLowerCase()} version. Approved
+          outlet cells use frozen code/name/route snapshots where available;
+          revisions create a separate draft.
         </p>
       )}
       {editable && (
@@ -1070,12 +1163,12 @@ export function PlanEditor({
           </button>
         </div>
       )}
-      {error && (
+      {shownError && (
         <p role="alert" className="text-danger">
-          {error}
+          {shownError}
         </p>
       )}
-      {notice && <p role="status">{notice}</p>}
+      {shownNotice && <p role="status">{shownNotice}</p>}
     </section>
   );
 }

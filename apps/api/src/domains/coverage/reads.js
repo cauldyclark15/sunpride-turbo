@@ -16,6 +16,7 @@ import {
   outletAt,
   page,
   planRows,
+  PLAN_ROW_LIMIT,
   visiblePeople,
 } from "./model.js";
 import { approvalView } from "./approval.js";
@@ -139,12 +140,26 @@ async function scopedRows(ctx, p) {
     await outletAt(ctx, id, ctx.now);
   return rows;
 }
+/** Plain-words reason a signed plan's approval cannot be trusted, else null.
+ * @param {any} p */
+export function signatureProblem(p) {
+  if (!["approved", "active", "superseded"].includes(p.status)) return null;
+  try {
+    verifySignature(p);
+    return null;
+  } catch {
+    return "This plan's approval record does not match its content. It is shown as saved, read-only, and no visits are generated from it. Prepare a revision and send it for approval again.";
+  }
+}
 /** @param {any} ctx @param {any} p */
 export async function projection(ctx, p) {
   const db = ctx.db,
     { outlets, slots } = await scopedRows(ctx, p);
-  const signed = ["approved", "active", "superseded"].includes(p.status);
-  if (signed) verifySignature(p);
+  // A broken approval record must not hide the plan: show live rows instead
+  // and let detail explain the problem (WEB-115).
+  const signed =
+    ["approved", "active", "superseded"].includes(p.status) &&
+    !signatureProblem(p);
   const visits =
     await db`select * from planned_visits where plan_id=${p.id} order by service_date,id`;
   const rows = [];
@@ -379,7 +394,7 @@ export async function read(ctx, action, b) {
       }
     }
     return action === "lookup/roster"
-      ? bounded(visible)
+      ? bounded(visible, "Eligible outlets", PLAN_ROW_LIMIT)
       : page(visible, b.paginationOpts);
   }
   if (action === "summary")
@@ -484,7 +499,21 @@ export async function read(ctx, action, b) {
     const review = await reviewStandard(ctx, p);
     const territories =
       await db`select territory_id from coverage_plan_territories where coverage_plan_id=${p.id} order by ordinal`;
+    const problem = signatureProblem(p);
+    // Routes/territories the assignee serves: the planner offers only these
+    // outlets (approval refuses the rest; WEB-118).
+    const servedAt = new Date(Math.max(+new Date(p.effective_from), ctx.now));
+    const servedRoutes =
+      await db`select distinct route_id from route_salespeople where profile_id=${p.assignee_profile_id} and deleted_at is null and effective_from<=${servedAt} and (effective_to is null or effective_to>${servedAt})`;
+    const servedTerritories =
+      await db`select distinct territory_id from territory_salespeople where profile_id=${p.assignee_profile_id} and deleted_at is null and effective_from<=${servedAt} and (effective_to is null or effective_to>${servedAt})`;
     return {
+      servedRouteIds: servedRoutes.map(/** @param {any} r */ (r) => r.route_id),
+      servedTerritoryIds: servedTerritories.map(
+        /** @param {any} r */ (r) => r.territory_id,
+      ),
+      notices: problem ? [problem] : [],
+      signatureValid: !problem,
       warnings: review.daily
         .filter((d) => d.target != null && d.calls < d.target)
         .map(

@@ -754,6 +754,8 @@ async function bundleData(ctx) {
       : [...ctx.actor.capabilities],
     employee: {
       id: person.id,
+      // NF-4: the phone burns this name into every visit photo (F-312 watermark); without it no photo saves.
+      name: person.name,
       role: ctx.actor.role,
       orgUnitId: ctx.actor.orgUnitId,
       ...(workforce ? { workforce } : {}),

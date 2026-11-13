@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 
 import type { EndpointResult, EndpointArgs } from "./report-api";
 
@@ -15,6 +16,7 @@ import {
   type DataColumn,
 } from "@sunpride/ui";
 import { useReportCommand, useReport } from "./report-api";
+import { commandErrorText } from "./command-error";
 import { useState } from "react";
 import { manilaToday, type SupervisionFilters } from "./supervision-model";
 import {
@@ -39,9 +41,24 @@ type SaveArgs = EndpointArgs<"supervision.talk_sheet.save">;
 type ItemInput = NonNullable<SaveArgs["items"]>[number];
 type SheetId = Id<"talkSheets">;
 
-function errorText(error: unknown) {
-  const data = (error as { data?: unknown })?.data;
-  return typeof data === "string" ? data : "Not saved. Try again.";
+const errorText = commandErrorText;
+
+/** Partner options: people in scope, then earlier partners not among them. */
+export function partnerChoices(mine: {
+  partners: string[];
+  people?: { name: string; employeeCode: null | string }[];
+}) {
+  const people = (mine.people ?? []).map((p) => ({
+    value: p.name,
+    label: p.employeeCode ? `${p.name} · ${p.employeeCode}` : p.name,
+  }));
+  const known = new Set(people.map((p) => p.value.toLowerCase()));
+  return [
+    ...people,
+    ...mine.partners
+      .filter((name) => !known.has(name.toLowerCase()))
+      .map((name) => ({ value: name, label: `${name} · earlier partner` })),
+  ];
 }
 
 const dateCell = (date: string | null) =>
@@ -695,7 +712,7 @@ export function MyTalkSheetsView({
             size="sm"
             variant="outline"
             className="h-8"
-            aria-label={`Open Talk Sheet with ${row.partnerName} on ${row.meetingDate}`}
+            aria-label={`Open Talk Sheet with ${row.partnerName} on ${formatDate(row.meetingDate)}`}
             onPress={() => onOpen(row.sheetId)}
           >
             Open
@@ -714,19 +731,19 @@ export function MyTalkSheetsView({
         <div className="flex flex-wrap items-end gap-3">
           <div className="w-[240px] max-w-full">
             <FormField label="Partner">
-              <input
+              <select
                 aria-label="Partner"
-                className="h-10"
-                list="talk-sheet-partners"
-                maxLength={120}
+                className="h-10 w-full"
                 value={partner}
                 onChange={(event) => setPartner(event.target.value)}
-              />
-              <datalist id="talk-sheet-partners">
-                {mine.partners.map((name) => (
-                  <option key={name} value={name} />
+              >
+                <option value="">Pick a person</option>
+                {partnerChoices(mine).map((choice) => (
+                  <option key={choice.value} value={choice.value}>
+                    {choice.label}
+                  </option>
                 ))}
-              </datalist>
+              </select>
             </FormField>
           </div>
           <div className="w-[160px] max-w-full">

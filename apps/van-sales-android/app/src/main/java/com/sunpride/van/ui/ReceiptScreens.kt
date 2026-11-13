@@ -100,7 +100,10 @@ import java.time.format.DateTimeFormatter
                 if (!saved.isCollection && saved.void == null && r.paymentKind == com.sunpride.van.data.PaymentKind.CREDIT && !c.tripClosed)
                     SecondaryButton("Collect payment & issue OR",{collecting=saved},Modifier.testTag("receipt-$index-collect"),enabled=!c.busy)
                 c.refundsBySale[r.saleId]?.let { Text("Refunded ${PosMoney.format(it,r.currency)} · void is closed, refund the items that are left",style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("receipt-$index-refunded")) }
-                if (!saved.isCollection && saved.void == null && !c.refundsBySale.containsKey(r.saleId) && c.policy?.let { VoidRules.offered(it).isNotEmpty() } == true)
+                // VAN-083: a closed trip voids nothing; say so instead of offering a button that can only be refused.
+                if (!saved.isCollection && saved.void == null && c.tripClosed && c.policy?.let { VoidRules.offered(it).isNotEmpty() } == true)
+                    Text(VanRules.voidMessage(com.sunpride.van.pos.VoidProblem.TRIP_CLOSED),style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("receipt-$index-void-closed"))
+                if (!saved.isCollection && saved.void == null && !c.tripClosed && !c.refundsBySale.containsKey(r.saleId) && c.policy?.let { VoidRules.offered(it).isNotEmpty() } == true)
                     DangerButton("Void sale",{ voiding = saved },Modifier.testTag("receipt-$index-void-sale"),enabled = !c.busy && !c.printing)
                 // IP-REFUND: take back some of the items (opt-in from the office; older servers never send the reasons)
                 if (!saved.isCollection && saved.void == null && r.paymentKind != com.sunpride.van.data.PaymentKind.CREDIT && c.policy?.refunds != null && !c.tripClosed)
@@ -160,8 +163,14 @@ import java.time.format.DateTimeFormatter
             Column(Modifier.padding(16.dp),verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("Did it print?",style = MaterialTheme.typography.titleLarge,modifier = Modifier.testTag("print-question"))
                 Text("The phone cannot see the paper. Look at the receipt. If nothing came out, print again.",style = MaterialTheme.typography.bodyLarge)
+                // VAN-051: the limit is read from the saved history, so it shows even if the last result was missed.
+                val left = c.printAgainLeft()
+                val limitNote = VanRules.printAgainNote(left)
+                val refusal = c.printQuestionNote ?: limitNote?.takeIf { left == 0 }
+                refusal?.let { Text(it,style = MaterialTheme.typography.bodyLarge,fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,modifier = Modifier.testTag("print-refused")) }
+                if (refusal == null && limitNote != null) Text(limitNote,style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("print-again-left"))
                 PrimaryBottomButton("Yes, printed",c::answerPrinted,enabled = !c.printing,tag = "print-yes")
-                SecondaryButton("Print again",c::answerPrintAgain,Modifier.testTag("print-again"),enabled = !c.printing)
+                if (left != 0) SecondaryButton("Print again",c::answerPrintAgain,Modifier.testTag("print-again"),enabled = !c.printing)
                 SecondaryButton("Skip, no paper",c::answerSkipped,Modifier.testTag("print-skip"),enabled = !c.printing)
             }
         }
@@ -174,6 +183,9 @@ import java.time.format.DateTimeFormatter
     var reason by remember { mutableStateOf<String?>(null) }
     var note by remember { mutableStateOf("") }
     var code by remember { mutableStateOf("") }
+    // The reason the shown error was tried with: a new reason clears "That code does not match".
+    var triedReason by remember { mutableStateOf<String?>(null) }
+    val shownError = VanRules.voidError(error,triedReason,reason)
     val needsApproval = VoidRules.needsApproval(policy,saved.receipt.totalMinor)
     val unavailable = needsApproval && policy.voidApproval?.key == null
     val validNote = note.length <= 300 && note.none(Char::isISOControl) && (reason != "other" || note.isNotBlank())
@@ -203,8 +215,8 @@ import java.time.format.DateTimeFormatter
                         }
                     }
                 }
-                error?.let { Text(it,style = MaterialTheme.typography.bodyMedium,color = MaterialTheme.colorScheme.error,modifier = Modifier.testTag("void-error")) }
-                PrimaryBottomButton("Void sale",{ reason?.let { onVoid(it,VoidRules.normalizedNote(note),code.takeIf { it.isNotBlank() }) } },
+                shownError?.let { Text(it,style = MaterialTheme.typography.bodyMedium,color = MaterialTheme.colorScheme.error,modifier = Modifier.testTag("void-error")) }
+                PrimaryBottomButton("Void sale",{ reason?.let { triedReason = it; onVoid(it,VoidRules.normalizedNote(note),code.takeIf { it.isNotBlank() }) } },
                     enabled = !busy && !unavailable && reason != null && validNote && (!needsApproval || VoidApprovalCodes.normalize(code) != null),tag = "confirm-void")
                 SecondaryButton("Cancel",onClose,Modifier.testTag("cancel-void"),enabled = !busy)
             }

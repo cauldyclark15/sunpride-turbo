@@ -33,7 +33,7 @@ class ActivityControllerTest {
         return BootstrapCodec.snapshot(listOf(BootstrapCodec.page(fixture("bootstrap-call-sheet-response.json"))))
             .copy(activityRules = rules)
     }
-    private inner class Backend(val store: FakeFieldStore) : FieldBackend {
+    private open inner class Backend(val store: FakeFieldStore) : FieldBackend {
         override val isSignedIn = true
         override val cachedDeviceId = scope.deviceId
         override fun loadSigner() = signer
@@ -56,11 +56,30 @@ class ActivityControllerTest {
                 activity = activity), 100)
         }
     }
-    private suspend fun kotlinx.coroutines.CoroutineScope.controller(): Pair<FieldController, FakeFieldStore> {
+    private suspend fun kotlinx.coroutines.CoroutineScope.controller(
+        backend: (FakeFieldStore) -> FieldBackend = { Backend(it) },
+    ): Pair<FieldController, FakeFieldStore> {
         val store = FakeFieldStore(scope)
         store.swap(store.stage(snapshot()), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
-        return FieldController(Backend(store), this, Dispatchers.Unconfined,
+        return FieldController(backend(store), this, Dispatchers.Unconfined,
             EmptyCoroutineContext, now = { 100L }) to store
+    }
+
+    /** P3 (r6): an unsaved must-stock checklist is a rule refusal; End review says so in plain words. */
+    @Test fun endReviewNamesTheUnsavedMustStockChecklist() = runBlocking {
+        val retail = com.sunpride.retail.RetailCall("snap-1", "outlet-1", "2026-11-13", "Must-stock", false, emptyList())
+        val (c, _) = controller { store -> object : Backend(store) {
+            override fun retailCall(outletId: String) = retail
+        } }
+        c.openDiagnostic(planned).join()
+        c.queueDiagnostic("visit.checkIn", null, null, null, null).join()
+        c.reviewEnd("completed", null).join()
+        assertEquals("Save the must-stock checklist before ending the call.", c.diagnosticError)
+        assertNotEquals(FieldController.END_CHECK_GENERIC, c.diagnosticError)
+        assertNull(c.endReview)
+        // The same refusal from the store (Confirm end path) is shown as-is, not as the queue fallback.
+        assertEquals("Save the must-stock checklist before ending the call.", QueueFailureText.of(RetailChecklistUnsaved()))
+        assertEquals(QueueFailureText.GENERIC, QueueFailureText.of(IllegalStateException("db broke")))
     }
 
     @Test fun plannedVisitRequiresItsRuleFormsBeforeACompletedEnd() = runBlocking {

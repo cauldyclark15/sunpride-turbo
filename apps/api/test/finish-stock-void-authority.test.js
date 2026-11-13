@@ -185,6 +185,18 @@ test("F-124 stock approval and handheld void code use the current fiscal matrix;
       issueApproval(db, reviewer, h.env, "void", { ...facts, tripId }),
     );
     expect(issued.code).toMatch(/^\d{8}$/);
+    // WEB-109: a retained invoice without line facts (older sample sales) is refused in words, not a 500.
+    const bare = `${receiptNumber}-BARE`;
+    await h.db`insert into van_sales(id,trip_id,receipt_number,outlet_id,total_centavos,discount_centavos,receipt,captured_request) values(${crypto.randomUUID()},${tripId},${bare},${outlet.id},300,0,${{ totalMinor: "300" }},'{}')`;
+    await expect(
+      tx(h.db, (db) =>
+        issueApproval(db, reviewer, h.env, "void", {
+          ...facts,
+          receiptNumber: bare,
+          tripId,
+        }),
+      ),
+    ).rejects.toThrow("no line detail");
     await h.db`update fiscal_authority_rules set effective_to=now()-interval '1 second' where kind='void'`;
     const operationId = crypto.randomUUID();
     await expect(

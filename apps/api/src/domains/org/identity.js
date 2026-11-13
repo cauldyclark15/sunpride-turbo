@@ -9,6 +9,7 @@ import {
 import { dto, insert, ORGANIZATION } from "./model.js";
 
 export const ORG_LOCK = 7343001;
+const NEEDS_WRITE = Symbol("needs-write");
 /** @typedef {import('@sunpride/db/client').Db} Db */
 /** @typedef {import('./model.js').Row} Row */
 /** @param {Db} db */
@@ -28,6 +29,133 @@ export function identityHooks(env) {
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
   );
+  /**
+   * @param {Db} t @param {string} userId @param {boolean} write
+   * @returns {Promise<import('../../core/hooks.js').HookProfile|null|typeof NEEDS_WRITE>}
+   */
+  async function resolveProfile(t, userId, write) {
+    const [user] =
+      await t`select id,email,disabled_at from users where id=${userId}`;
+    if (!user || user.disabled_at) return null;
+    const email = String(user.email).toLowerCase();
+    let [person] =
+      await t`select * from profiles where user_id=${userId} or lower(email)=${email} order by (user_id=${userId}) desc limit 1`;
+    // Disabled is durable: merely revisiting /me must not restore access.
+    if (
+      person &&
+      (person.status !== "active" ||
+        person.deleted_at ||
+        (person.user_id && person.user_id !== userId))
+    )
+      return null;
+    const [invitation] =
+      await t`select * from access_invitations where lower(email)=${email} order by invited_at desc,id desc limit 1`;
+    if (!person) {
+      if (!write) {
+        if (!bootstrap.has(email) && invitation?.status !== "pending")
+          return null;
+        return NEEDS_WRITE;
+      }
+      const isBootstrap = bootstrap.has(email);
+      if (!isBootstrap && invitation?.status !== "pending") return null;
+      const role = isBootstrap
+        ? "super_admin"
+        : invitation.role === "super_admin"
+          ? "viewer"
+          : invitation.role;
+      const orgUnitId = isBootstrap
+        ? await ensureRoot(t)
+        : (invitation.org_unit_id ?? null);
+      person = await insert(t, "profiles", {
+        user_id: userId,
+        auth_subject: userId,
+        email,
+        name: invitation?.name || email,
+        role,
+        status: "active",
+        org_unit_id: orgUnitId,
+        position_id: invitation?.position_id ?? null,
+        effective_from: new Date(),
+      });
+      await insert(t, "employee_assignments", {
+        profile_id: person.id,
+        org_unit_id: orgUnitId,
+        role,
+        position_id: person.position_id,
+        effective_from: person.effective_from,
+        actor_subject: userId,
+        reason: "provisioned",
+      });
+      if (invitation)
+        await t`update access_invitations set status='accepted',accepted_at=now(),profile_id=${person.id} where id=${invitation.id}`;
+      await writeAudit(t, {
+        subject: userId,
+        action: "profile.provisioned",
+        entityType: "profile",
+        entityId: person.id,
+        details: role,
+      });
+    } else {
+      if (invitation?.status === "revoked") return null;
+      if (!person.user_id) {
+        if (!write) return NEEDS_WRITE;
+        await t`update profiles set user_id=${userId},auth_subject=${userId} where id=${person.id}`;
+        person = { ...person, user_id: userId, auth_subject: userId };
+        // SP-0168: a person loaded before first sign-in (pre-provisioned profile) takes up
+        // their pending invitation now, and their reports' supervisor link gets this subject.
+        if (invitation?.status === "pending")
+          await t`update access_invitations set status='accepted',accepted_at=now(),profile_id=${person.id} where id=${invitation.id}`;
+        await t`update profiles p set supervisor_subject=${userId}
+              from employee_assignments a
+              where a.profile_id=p.id and a.supervisor_id=${person.id} and a.deleted_at is null
+                and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now())
+                and p.supervisor_subject is distinct from ${userId}`;
+      }
+      if (
+        bootstrap.has(email) &&
+        person.role === "super_admin" &&
+        !person.org_unit_id
+      ) {
+        if (!write) return NEEDS_WRITE;
+        const root = await ensureRoot(t);
+        await t`update profiles set org_unit_id=${root},scope_epoch=scope_epoch+1 where id=${person.id}`;
+        const assignments =
+          await t`select id from employee_assignments where profile_id=${person.id}`;
+        if (!assignments.length)
+          await insert(t, "employee_assignments", {
+            profile_id: person.id,
+            org_unit_id: root,
+            role: "super_admin",
+            effective_from: new Date(),
+            actor_subject: userId,
+            reason: "bootstrap root assignment",
+          });
+        else
+          await t`update employee_assignments set org_unit_id=${root} where profile_id=${person.id} and org_unit_id is null and effective_to is null`;
+        person.org_unit_id = root;
+      }
+    }
+    person = await personAt(t, person);
+    const tree = await topology(t);
+    const treeEpoch = new Bun.CryptoHasher("sha256")
+      .update(
+        JSON.stringify(
+          tree
+            .map((u) => [u.id, u.parent_id])
+            .sort((a, b) => a[0].localeCompare(b[0])),
+        ),
+      )
+      .digest("hex");
+    return {
+      id: person.id,
+      userId,
+      name: person.name,
+      role: person.role,
+      orgUnitId: person.org_unit_id,
+      status: person.status,
+      scopeEpoch: `${person.scope_epoch}:${treeEpoch}`,
+    };
+  }
   return {
     /** @param {Db} db @param {string} email */
     async isEmailInvited(db, email) {
@@ -37,122 +165,18 @@ export function identityHooks(env) {
     },
     /** @param {Db} db @param {string} userId @returns {Promise<import('../../core/hooks.js').HookProfile|null>} */
     async loadProfile(db, userId) {
+      // SP-0169: ORG_LOCK serializes identity *writes* (first-sign-in provisioning, linking a
+      // pre-provisioned profile, SP-0168 invitation acceptance, bootstrap root repair) against
+      // each other and against org commands/jobs. An already-linked user only reads, so the
+      // common path takes no lock: one stalled transaction no longer blocks every sign-in, and
+      // concurrent requests are not serialized. Only when a write is needed do we take the
+      // exclusive lock and re-read everything under it (double-checked), so two simultaneous
+      // first sign-ins still produce one profile.
+      const fast = await resolveProfile(db, userId, false);
+      if (fast !== NEEDS_WRITE) return /** @type {any} */ (fast);
       return tx(db, async (t) => {
         await t`select pg_advisory_xact_lock(${ORG_LOCK})`;
-        const [user] =
-          await t`select id,email,disabled_at from users where id=${userId}`;
-        if (!user || user.disabled_at) return null;
-        const email = String(user.email).toLowerCase();
-        let [person] =
-          await t`select * from profiles where user_id=${userId} or lower(email)=${email} order by (user_id=${userId}) desc limit 1`;
-        // Disabled is durable: merely revisiting /me must not restore access.
-        if (
-          person &&
-          (person.status !== "active" ||
-            person.deleted_at ||
-            (person.user_id && person.user_id !== userId))
-        )
-          return null;
-        const [invitation] =
-          await t`select * from access_invitations where lower(email)=${email} order by invited_at desc,id desc limit 1`;
-        if (!person) {
-          const isBootstrap = bootstrap.has(email);
-          if (!isBootstrap && invitation?.status !== "pending") return null;
-          const role = isBootstrap
-            ? "super_admin"
-            : invitation.role === "super_admin"
-              ? "viewer"
-              : invitation.role;
-          const orgUnitId = isBootstrap
-            ? await ensureRoot(t)
-            : (invitation.org_unit_id ?? null);
-          person = await insert(t, "profiles", {
-            user_id: userId,
-            auth_subject: userId,
-            email,
-            name: invitation?.name || email,
-            role,
-            status: "active",
-            org_unit_id: orgUnitId,
-            position_id: invitation?.position_id ?? null,
-            effective_from: new Date(),
-          });
-          await insert(t, "employee_assignments", {
-            profile_id: person.id,
-            org_unit_id: orgUnitId,
-            role,
-            position_id: person.position_id,
-            effective_from: person.effective_from,
-            actor_subject: userId,
-            reason: "provisioned",
-          });
-          if (invitation)
-            await t`update access_invitations set status='accepted',accepted_at=now(),profile_id=${person.id} where id=${invitation.id}`;
-          await writeAudit(t, {
-            subject: userId,
-            action: "profile.provisioned",
-            entityType: "profile",
-            entityId: person.id,
-            details: role,
-          });
-        } else {
-          if (invitation?.status === "revoked") return null;
-          if (!person.user_id) {
-            await t`update profiles set user_id=${userId},auth_subject=${userId} where id=${person.id}`;
-            person = { ...person, user_id: userId, auth_subject: userId };
-            // SP-0168: a person loaded before first sign-in (pre-provisioned profile) takes up
-            // their pending invitation now, and their reports' supervisor link gets this subject.
-            if (invitation?.status === "pending")
-              await t`update access_invitations set status='accepted',accepted_at=now(),profile_id=${person.id} where id=${invitation.id}`;
-            await t`update profiles p set supervisor_subject=${userId}
-              from employee_assignments a
-              where a.profile_id=p.id and a.supervisor_id=${person.id} and a.deleted_at is null
-                and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now())
-                and p.supervisor_subject is distinct from ${userId}`;
-          }
-          if (
-            bootstrap.has(email) &&
-            person.role === "super_admin" &&
-            !person.org_unit_id
-          ) {
-            const root = await ensureRoot(t);
-            await t`update profiles set org_unit_id=${root},scope_epoch=scope_epoch+1 where id=${person.id}`;
-            const assignments =
-              await t`select id from employee_assignments where profile_id=${person.id}`;
-            if (!assignments.length)
-              await insert(t, "employee_assignments", {
-                profile_id: person.id,
-                org_unit_id: root,
-                role: "super_admin",
-                effective_from: new Date(),
-                actor_subject: userId,
-                reason: "bootstrap root assignment",
-              });
-            else
-              await t`update employee_assignments set org_unit_id=${root} where profile_id=${person.id} and org_unit_id is null and effective_to is null`;
-            person.org_unit_id = root;
-          }
-        }
-        person = await personAt(t, person);
-        const tree = await topology(t);
-        const treeEpoch = new Bun.CryptoHasher("sha256")
-          .update(
-            JSON.stringify(
-              tree
-                .map((u) => [u.id, u.parent_id])
-                .sort((a, b) => a[0].localeCompare(b[0])),
-            ),
-          )
-          .digest("hex");
-        return {
-          id: person.id,
-          userId,
-          name: person.name,
-          role: person.role,
-          orgUnitId: person.org_unit_id,
-          status: person.status,
-          scopeEpoch: `${person.scope_epoch}:${treeEpoch}`,
-        };
+        return /** @type {any} */ (await resolveProfile(t, userId, true));
       });
     },
     /** @param {Db} db @param {import('../../core/context.js').Actor} actor @param {string} unitId */

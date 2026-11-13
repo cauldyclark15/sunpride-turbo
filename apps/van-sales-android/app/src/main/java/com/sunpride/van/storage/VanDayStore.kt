@@ -22,6 +22,9 @@ class VanDayStore(private val store: RoomVanStore) {
 
     private suspend fun nextTime(): Long = maxOf(store.now(), Math.addExact(dao.latestCreatedAt(s, d) ?: 0L, 1L))
 
+    /** The trip's operations version, like every other van op ([RouteOpsStore.prepare]); deviceTime stays the op's own time. */
+    private suspend fun stampVersion(payload: JSONObject) { com.sunpride.van.vanday.OperationsVersion.stamp(payload, RouteOpsStore(store).version()) }
+
     /** True while a count is saved on this phone and the office has not answered yet. */
     suspend fun acceptWaiting(tripId: String): Boolean = dao.outboxRows(s, d).any { it.kind == "load.accept" && it.tripId == tripId && it.status in setOf("pending", "sending") }
 
@@ -35,6 +38,8 @@ class VanDayStore(private val store: RoomVanStore) {
         check(LoadAccept.ready(load.lines, counts, load.reasons)) { LoadAccept.problem(load.lines, counts, load.reasons) ?: "Count every line first" }
         val at = nextTime(); val id = UUID.randomUUID().toString()
         val payload = LoadAccept.payload(trip.tripId, load.loadId, load.lines, counts, note, at)
+        // SP-0169 VAN-011: a trip on the route-controls configuration refuses any van op without its settlement version.
+        stampVersion(payload)
         val op = JSONObject().put("kind", "load.accept").put("clientRequestId", id).put("payload", payload).toString()
         dao.insertOutbox(OutboxRow(s, d, id, trip.tripId, "load.accept", op, at, null, store.capturedStatus))
         id
@@ -50,7 +55,8 @@ class VanDayStore(private val store: RoomVanStore) {
         check(member.hasPin && member in CrewSwitch.candidates(info)) { "That person cannot take over this phone" }
         val at = nextTime(); val id = UUID.randomUUID().toString()
         val proof = PinProofs.hmacHex(key, PinProofs.crewMessage(d, trip.tripId, member.profileId, checkNotNull(member.pinId), at))
-        val op = JSONObject().put("kind", "crew.switch").put("clientRequestId", id).put("payload", CrewSwitch.payload(trip.tripId, member, proof, at)).toString()
+        val payload = CrewSwitch.payload(trip.tripId, member, proof, at).also { stampVersion(it) }
+        val op = JSONObject().put("kind", "crew.switch").put("clientRequestId", id).put("payload", payload).toString()
         dao.insertOutbox(OutboxRow(s, d, id, trip.tripId, "crew.switch", op, at, null, store.capturedStatus))
         id
     }

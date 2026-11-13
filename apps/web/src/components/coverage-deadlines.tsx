@@ -1,4 +1,5 @@
 "use client";
+import { formatMonth } from "../lib/format";
 
 import {
   Card,
@@ -180,7 +181,7 @@ export function CoverageDeadlines({
   return (
     <div className="grid gap-4">
       <Card
-        label={`Master Coverage Plan (MCP) deadlines · ${localMonth}`}
+        label={`Master Coverage Plan (MCP) deadlines · ${formatMonth(localMonth)}`}
         icon={<WorkspaceIcon name="field" />}
       >
         <ul className="grid gap-1 text-sm">
@@ -219,7 +220,7 @@ export function CoverageDeadlines({
           </ul>
         ) : (
           <p className="text-[13px] text-muted">
-            Everyone on this page has submitted an MCP for {localMonth}.
+            Everyone on this page has submitted an MCP for {formatMonth(localMonth)}.
           </p>
         )}
       </Card>

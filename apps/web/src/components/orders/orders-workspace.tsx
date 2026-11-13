@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "../../lib/format";
 
 import { Button } from "@heroui/react";
 import Link from "next/link";
@@ -11,9 +12,11 @@ import {
   type FormEvent,
 } from "react";
 import { apiFetch, mutate, useApi, useLive } from "../../lib/api";
+import { formatDate, formatDateRange } from "../cockpit/format";
 import { usePermissions } from "../../lib/auth";
 import { manilaToday } from "../../lib/outside-calls";
 import {
+  creditExposureLines,
   creditLabel,
   money,
   stage,
@@ -62,6 +65,10 @@ const initial = (): Filters => ({
   q: "",
   view: "",
 });
+/** WEB-106: "1 captured phone order …" / "2 captured phone orders …". */
+export const fieldReviewHeading = (n: number) =>
+  `${n} captured phone order${n === 1 ? "" : "s"} waiting for commercial review`;
+
 export const SAVED_VIEWS = [
   "Waiting for my approval",
   "Today",
@@ -211,8 +218,7 @@ export function OrdersWorkspace({
           className="rounded-xl border border-border p-4"
         >
           <h3 className="font-medium">
-            {review.data.total} captured phone orders waiting for commercial
-            review
+            {fieldReviewHeading(review.data.total)}
           </h3>
           <ul className="mt-2 grid gap-2">
             {review.data.rows.map((r) => (
@@ -222,7 +228,8 @@ export function OrdersWorkspace({
               >
                 <div>
                   <p>
-                    {r.storeName} · {r.salespersonName} · {r.serviceDate}
+                    {r.storeName} · {r.salespersonName} ·{" "}
+                    {formatDate(r.serviceDate)}
                   </p>
                   <p className="text-xs text-muted">{r.reason}</p>
                 </div>
@@ -266,92 +273,7 @@ export function OrdersWorkspace({
             Try again
           </Button>
         </p>
-      ) : (
-        <>
-          <div
-            className="grid gap-3 sm:grid-cols-4"
-            aria-label="Order control summary"
-          >
-            <div className="rounded-xl border border-border p-4">
-              <p className="text-sm text-muted">Booked value</p>
-              <strong>
-                {summary ? money(summary.totalCentavos) : "Loading…"}
-              </strong>
-              <p className="text-xs text-muted">
-                Prior period:{" "}
-                {summary ? money(summary.priorCentavos) : "Loading…"}
-              </p>
-              <p className="text-xs text-muted">
-                {!wholeSalesView
-                  ? "Targets apply to the unfiltered sales view."
-                  : `Target: ${money(target)}`}
-              </p>
-              {wholeSalesView &&
-                target !== null &&
-                target > 0 &&
-                summary?.totalCentavos != null && (
-                  <p className="text-xs text-muted">
-                    {((summary.totalCentavos / target) * 100).toFixed(1)}% of
-                    period target
-                  </p>
-                )}
-              <Link href="/sales-targets" className="text-xs underline">
-                {target === null ? "Set target" : "Review target"}
-              </Link>
-            </div>
-            <div className="rounded-xl border border-border p-4">
-              <p className="text-sm text-muted">Waiting for approval</p>
-              <strong>{summary?.waiting ?? "—"}</strong>
-              <p className="text-xs text-muted">Open an order to decide</p>
-            </div>
-            <div className="rounded-xl border border-border p-4">
-              <p className="text-sm text-muted">Over credit</p>
-              <strong>{summary?.overCredit ?? "—"}</strong>
-              <p className="text-xs text-muted">
-                Review exposure and explain the decision
-              </p>
-            </div>
-            <div className="rounded-xl border border-border p-4">
-              <p className="text-sm text-muted">Missing prices</p>
-              <strong>{summary?.unpriced ?? "—"}</strong>
-              <Link href="/pricing" className="ml-2 text-xs underline">
-                Fix channel prices
-              </Link>
-            </div>
-          </div>
-          {data && (
-            <div className="rounded-xl border border-border p-4">
-              <h3 className="text-sm font-medium">
-                Booked trend · {data.period.from} to {data.period.to}
-              </h3>
-              {data.trend.length ? (
-                <ol
-                  aria-label="Daily booked value"
-                  className="mt-3 flex items-end gap-2 overflow-x-auto"
-                >
-                  {data.trend.map((d) => (
-                    <li key={d.date} className="min-w-20 flex-1 text-xs">
-                      <div
-                        className="bg-foreground/15"
-                        style={{
-                          height: `${d.totalCentavos == null ? 2 : Math.max(2, (d.totalCentavos / Math.max(1, ...data.trend.map((x) => x.totalCentavos ?? 0))) * 70)}px`,
-                        }}
-                      />
-                      <p>{d.date.slice(5)}</p>
-                      <p>{money(d.totalCentavos)}</p>
-                    </li>
-                  ))}
-                </ol>
-              ) : (
-                <p className="text-sm text-muted">
-                  No booked orders in this period. This is zero activity, not a
-                  target result.
-                </p>
-              )}
-            </div>
-          )}
-        </>
-      )}
+      ) : null}
       <Card label="Orders" icon={<WorkspaceIcon name="commercial" />}>
         <form
           onSubmit={submit}
@@ -457,7 +379,9 @@ export function OrdersWorkspace({
                       >
                         {r.orderNumber}
                       </button>
-                      <p className="text-xs text-muted">{r.serviceDate}</p>
+                      <p className="text-xs text-muted">
+                        {formatDate(r.serviceDate)}
+                      </p>
                     </td>
                     <td className="p-3">
                       {r.customerName}
@@ -499,6 +423,94 @@ export function OrdersWorkspace({
           />
         </div>
       </Card>
+      {/* L1: a list page leads with the list; the summary follows it. */}
+      {!list.error ? (
+        <section aria-label="Order summary" className="grid gap-3">
+          <div
+            className="grid gap-3 sm:grid-cols-4"
+            aria-label="Order control summary"
+          >
+            <div className="rounded-xl border border-border p-4">
+              <p className="text-sm text-muted">Booked value</p>
+              <strong>
+                {summary ? money(summary.totalCentavos) : "Loading…"}
+              </strong>
+              <p className="text-xs text-muted">
+                Prior period:{" "}
+                {summary ? money(summary.priorCentavos) : "Loading…"}
+              </p>
+              <p className="text-xs text-muted">
+                {!wholeSalesView
+                  ? "Targets apply to the unfiltered sales view."
+                  : `Target: ${money(target)}`}
+              </p>
+              {wholeSalesView &&
+                target !== null &&
+                target > 0 &&
+                summary?.totalCentavos != null && (
+                  <p className="text-xs text-muted">
+                    {((summary.totalCentavos / target) * 100).toFixed(1)}% of
+                    period target
+                  </p>
+                )}
+              <Link href="/sales-targets" className="text-xs underline">
+                {target === null ? "Set target" : "Review target"}
+              </Link>
+            </div>
+            <div className="rounded-xl border border-border p-4">
+              <p className="text-sm text-muted">Waiting for approval</p>
+              <strong>{summary?.waiting ?? "—"}</strong>
+              <p className="text-xs text-muted">Open an order to decide</p>
+            </div>
+            <div className="rounded-xl border border-border p-4">
+              <p className="text-sm text-muted">Over credit</p>
+              <strong>{summary?.overCredit ?? "—"}</strong>
+              <p className="text-xs text-muted">
+                Review exposure and explain the decision
+              </p>
+            </div>
+            <div className="rounded-xl border border-border p-4">
+              <p className="text-sm text-muted">Missing prices</p>
+              <strong>{summary?.unpriced ?? "—"}</strong>
+              <Link href="/pricing" className="ml-2 text-xs underline">
+                Fix channel prices
+              </Link>
+            </div>
+          </div>
+          {data && (
+            <div className="rounded-xl border border-border p-4">
+              <h3 className="text-sm font-medium">
+                Booked trend ·{" "}
+                {formatDateRange(data.period.from, data.period.to)}
+              </h3>
+              {data.trend.length ? (
+                <ol
+                  aria-label="Daily booked value"
+                  className="mt-3 flex items-end gap-2 overflow-x-auto"
+                >
+                  {data.trend.map((d) => (
+                    <li key={d.date} className="min-w-20 flex-1 text-xs">
+                      <div
+                        className="bg-foreground/15"
+                        style={{
+                          height: `${d.totalCentavos == null ? 2 : Math.max(2, (d.totalCentavos / Math.max(1, ...data.trend.map((x) => x.totalCentavos ?? 0))) * 70)}px`,
+                        }}
+                      />
+                      <p>{formatDate(d.date)}</p>
+                      <p>{money(d.totalCentavos)}</p>
+                    </li>
+                  ))}
+                </ol>
+              ) : (
+                <p className="text-sm text-muted">
+                  No booked orders in this period. This is zero activity, not a
+                  target result.
+                </p>
+              )}
+            </div>
+          )}
+        </section>
+      ) : null}
       {selected && <OrderDrawer id={selected} onClose={closeDrawer} />}
     </div>
   );
@@ -624,7 +636,7 @@ export function OrderDrawer({
                 {d.customerName} · {d.salespersonName}
               </p>
               <p className="text-sm text-muted">
-                {d.serviceDate} · {stage(d.status)} · {d.source}
+                {formatDate(d.serviceDate)} · {stage(d.status)} · {d.source}
               </p>
               <p className="mt-3 text-2xl font-semibold">
                 {money(d.totalCentavos)}
@@ -636,8 +648,7 @@ export function OrderDrawer({
             >
               <h3>{creditLabel(d.credit.status)}</h3>
               <p className="text-sm">
-                Limit {money(d.credit.limit)} · Exposure including this order{" "}
-                {money(d.credit.exposure)}
+                {creditExposureLines(d).join(" · ")}
               </p>
               <p className="text-xs text-muted">{d.credit.definition}</p>
             </section>
@@ -734,11 +745,7 @@ export function OrderDrawer({
                     <p>
                       {stage(h.to)} · {h.name}
                     </p>
-                    <p className="text-xs text-muted">
-                      {new Date(h.at).toLocaleString("en-PH", {
-                        timeZone: "Asia/Manila",
-                      })}
-                    </p>
+                    <p className="text-xs text-muted">{formatDateTime(h.at)}</p>
                     {h.reason && <p>{h.reason}</p>}
                   </li>
                 ))}

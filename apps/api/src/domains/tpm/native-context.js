@@ -1,4 +1,4 @@
-import { activePromotions } from "./active.js";
+import { activePromotions, alignPromotionPriceLists } from "./active.js";
 import { eligibilityFacts } from "./campaigns.js";
 import { eligibility, schemeUnits, ENGINE_VERSION } from "./engine.js";
 import { fail } from "../orders/validation.js";
@@ -60,7 +60,11 @@ export async function nativeSchemeContext(c, q) {
     at,
   });
   const offers = nativePromotions(
-    await activePromotions(c.db, "sunpride", at),
+    await alignPromotionPriceLists(
+      c.db,
+      await activePromotions(c.db, "sunpride", at),
+      q.prices.map((p) => p.priceListId),
+    ),
     facts,
     q.products,
   );

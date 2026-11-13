@@ -1,5 +1,7 @@
 package com.sunpride.field.ui
 
+import androidx.compose.ui.unit.Density
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
@@ -31,6 +33,9 @@ enum class FieldTab(val page: String, val label: String, val glyph: GlyphKind, v
 }
 
 object FieldNav {
+    /** Largest text scale the bottom bar's labels use; five labels must fit side by side on a 360 dp phone. */
+    const val MAX_BAR_LABEL_SCALE = 1.0f
+    fun barLabelFontScale(system: Float): Float = minOf(system, MAX_BAR_LABEL_SCALE)
     /** Pages that are the root of a tab: no Back arrow, system Back returns to Today. */
     val tabRoots: Set<String> = FieldTab.entries.map { it.page }.toSet()
 
@@ -81,7 +86,15 @@ fun FieldBottomBar(selected: FieldTab, unread: Int, onSelect: (FieldTab) -> Unit
                     }, modifier = Modifier.semantics { contentDescription = "Messages, $unread unread" }) { glyph() }
                     else glyph()
                 },
-                label = { Text(tab.label, style = MaterialTheme.typography.labelMedium, maxLines = 1) },
+                label = {
+                    // FLD-173: at the phone's largest font the five labels would clip ("Toda", "Mess");
+                    // the bar caps its own label scale so every label stays whole and readable.
+                    val density = LocalDensity.current
+                    CompositionLocalProvider(LocalDensity provides Density(density.density,
+                        FieldNav.barLabelFontScale(density.fontScale))) {
+                        Text(tab.label, style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
+                    }
+                },
                 alwaysShowLabel = true,
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = Look.onTint, selectedTextColor = MaterialTheme.colorScheme.onSurface,

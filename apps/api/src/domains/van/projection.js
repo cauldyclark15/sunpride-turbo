@@ -8,6 +8,7 @@ import {
 } from "../callflow/engine.js";
 import { tenderPolicy } from "../fiscal/tenders.js";
 import { capBundle } from "../fiscal/privilege-cap.js";
+import { surfaceEnabled } from "../fiscal/legal-sale.js";
 import { fiscalBundle } from "../fiscal/transactions.js";
 import { routeBundle } from "./route-read.js";
 import { ApiError } from "../../core/errors.js";
@@ -19,10 +20,12 @@ import { nativeSchemeContext } from "../tpm/native-context.js";
 import { masterId } from "../integration/replicas.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
 import { productFor, stockBearing } from "./facts.js";
+import { eligibleFreeBase } from "../inventory/eligible.js";
 import { catalogueMetadata } from "../masters/catalogue.js";
 import { approvalKey } from "./approvals.js";
 import { refundBundle } from "../fiscal/refunds.js";
 import { tripRefunds } from "./refunds.js";
+import { pickupDecisions } from "./pickups.js";
 import { vanDayBundle } from "./dayboard.js";
 import {
   date,
@@ -84,6 +87,48 @@ export function splitTenderFlag(ctx) {
     : {};
 }
 
+/**
+ * r6van4: truck stock the office will not let leave for a sale (quarantined, recall-held, expired or too close to
+ * expiry lots), per product. The phone subtracts it from what it may sell, so it never prints an invoice the office
+ * then refuses ("Insufficient eligible lot stock" refused SI-000000005 on a quarantined Sardines lot). The truck stock
+ * itself is unchanged: those goods are still physically on the truck and are counted at the stock count.
+ * @param {any} db @param {any} trip @param {any[]} balances @param {number} [at] */
+export async function heldStock(db, trip, balances, at = Date.now()) {
+  const withStock = balances.filter(
+    (/** @type {any} */ b) => Number(b.available_base ?? 0) > 0,
+  );
+  if (!withStock.length) return [];
+  const free = await eligibleFreeBase(
+    db,
+    trip.truck_location_id,
+    withStock.map((/** @type {any} */ b) => b.product_id),
+    { org: trip.organization_id, at },
+  );
+  /** @type {{productId:string,quantityBase:string}[]} */ const out = [];
+  for (const b of withStock) {
+    const held = Number(b.available_base) - (free.get(b.product_id) ?? 0);
+    if (held > 0)
+      out.push({ productId: b.product_id, quantityBase: String(held) });
+  }
+  return out;
+}
+/**
+ * NF-5: the cash payments the office holds for a trip (`sale`, `void_refund`, `refund`; method cash), per sale. The
+ * handheld adds the ones for sales it does not have (made on the seller's previous phone), so its expected cash equals
+ * `cashExpectation` instead of being refused at upload as "Expected cash changed".
+ * @param {any} db @param {string} tripId
+ */
+export async function serverCash(db, tripId) {
+  const rows =
+    await db`select sale_id,kind,amount_centavos::text as amount from van_payments
+      where trip_id=${tripId} and method='cash' and sale_id is not null order by created_at,id limit 5001`;
+  if (rows.length > 5000) return null;
+  return rows.map((/** @type {any} */ r) => ({
+    saleId: r.sale_id,
+    kind: r.kind,
+    amountMinor: r.amount,
+  }));
+}
 /**
  * IP-P0 (SPEC 5.3): who this handheld is for, so "No trip for today" can name the van and the supervisor.
  * The van is today's trip, else the last trip this handheld or seller drove. The supervisor is the seller's current
@@ -152,6 +197,12 @@ export function vanProjection(env) {
         ...(p.refunds === true ? { refunds: true } : {}),
         // IP-SCPWD-CAP: the senior/PWD weekly limit and each card's use this week; only a phone that asks gets it.
         ...(p.privilegeCap === true ? { privilegeCap: true } : {}),
+        // VAN-034: a van handheld with no POS mode row gets no `storePos`, so the limit rides `policy.privilegeCap` for a build that asks.
+        ...(p.vanPrivilegeCap === true ? { vanPrivilegeCap: true } : {}),
+        // SP-0169: whether Senior/PWD discounts are switched on for this van route / till; older apps never ask.
+        ...(p.privilegeSwitch === true ? { privilegeSwitch: true } : {}),
+        // r6van3: the office's decision on returns held for its approval (pickup review); older apps never ask.
+        ...(p.pickupDecisions === true ? { pickupDecisions: true } : {}),
       };
     },
     snapshot,
@@ -167,6 +218,25 @@ export function vanProjection(env) {
       );
     },
   };
+}
+/** SP-0169: the office's Senior/PWD switch for this van route (unit) or till (register), as the sale op will check it.
+ * @param {any} db @param {'van'|'store'} surface @param {string|null} ref org unit (van) or register id (store) @param {string|null} routeId */
+async function privilegeSwitch(db, surface, ref, routeId) {
+  if (!ref) return {};
+  let orgUnitId = ref;
+  if (surface === "store") {
+    const [r] =
+      await db`select l.org_unit_id from store_registers r join inventory_locations l on l.id=r.location_id where r.id=${ref}`;
+    if (!r) return {};
+    orgUnitId = r.org_unit_id;
+  }
+  const enabled = await surfaceEnabled(db, {
+    orgUnitId,
+    surface,
+    routeId,
+    at: Date.now(),
+  });
+  return { privilegeDiscount: { surface, enabled } };
 }
 /** Complete seller/trip DTO; never serializes a raw database document. @param {any} ctx @param {any} env */
 export async function bundle(ctx, env) {
@@ -203,6 +273,11 @@ export async function bundle(ctx, env) {
       modeFacts && ctx.params.privilegeCap === true
         ? { ...modeFacts, privilegeCap: await capBundle(db, Date.now(), env) }
         : modeFacts;
+    // VAN-034: the weekly limit for a van-only handheld (no POS mode, so no `storePos`); the codec strips it before the frozen v1 check.
+    const vanCap =
+      ctx.params.vanPrivilegeCap === true && !(modeFacts && ctx.params.privilegeCap === true)
+        ? { privilegeCap: await capBundle(db, Date.now(), env) }
+        : {};
     let trips =
       storePos?.mode === "store"
         ? []
@@ -219,12 +294,19 @@ export async function bundle(ctx, env) {
         "More than one trip needs office reconciliation",
       );
     const handheld = ctx.params.handheld === true;
+    // SP-0169: a till tells the phone its own Senior/PWD switch (the van one is set once the trip is known below).
+    const storeSwitch =
+      ctx.params.privilegeSwitch === true && storePos?.mode === "store"
+        ? await privilegeSwitch(db, "store", storePos.registerId, null)
+        : {};
     const empty = {
       serviceDate,
       seller: { profileId: actor.profileId, name: actor.name },
       policy: {
         ...policy(env, null),
         ...(storePos ? { storePos } : {}),
+        ...vanCap,
+        ...storeSwitch,
         ...(handheld
           ? {
               handheld: await handheldInfo(db, actor, device, null),
@@ -346,6 +428,7 @@ export async function bundle(ctx, env) {
       taxQuotes = [],
       schemeContexts = [];
     const priceKeys = new Set();
+    const quotedAt = ctx.now ?? Date.now();
     /** @type {Record<string,any>} */ const creditSnapshots = {};
     /** @type {Map<string,Map<string,string|null>>} */ const sourceLists =
       new Map();
@@ -373,10 +456,10 @@ export async function bundle(ctx, env) {
               termsDays: creditSnapshot.termsDays,
               availableMinor: creditSnapshot.availableMinor,
             };
-      let priceListId = null;
       const sourceList = new Map();
       sourceLists.set(o.id, sourceList);
       const nativePrices = [];
+      /** @type {any[]} */ const quoteRows = [];
       for (const p of products) {
         const price = await resolvePrice(db, {
           organizationId: trip.organization_id,
@@ -390,25 +473,17 @@ export async function bundle(ctx, env) {
         if (price.unitPriceCentavos === null || !price.priceListId) continue;
         sourceList.set(p.productId, price.priceListId);
         nativePrices.push({ productId: p.productId, uom: p.uomCode, ...price });
-        // F-016 a customer quote may combine base, channel and customer conditions.
-        // The offline grouping is a quote identity, not a second authoritative price list.
-        priceListId = masterId("van.priceQuote", o.id);
-        const key = `${priceListId}:${p.productId}:${p.uomCode}`;
-        if (!priceKeys.has(key)) {
-          priceKeys.add(key);
-          priceLines.push({
-            priceListId,
+        quoteRows.push({
+          line: {
             productId: p.productId,
             uomCode: p.uomCode,
             unitPriceMinor: String(price.unitPriceCentavos),
             currency: "PHP",
-            effectiveFrom: price.effectiveFrom ?? Date.now(),
+            effectiveFrom: price.effectiveFrom ?? quotedAt,
             effectiveTo: price.effectiveTo ?? null,
             priceListCode: "SAP replicated conditions",
-          });
-          complete(priceLines, 600);
-          taxQuotes.push({
-            priceListId,
+          },
+          tax: {
             productId: p.productId,
             uomCode: p.uomCode,
             sourcePriceListId: price.priceListId,
@@ -423,10 +498,25 @@ export async function bundle(ctx, env) {
             sourceSellingUnitMinor: String(price.unitPriceCentavos),
             sourceKey: price.sapKey ?? null,
             sourceVersion: price.sapVersion ?? null,
-            effectiveFrom: price.effectiveFrom ?? ctx.now,
+            effectiveFrom: price.effectiveFrom ?? quotedAt,
             effectiveTo: price.effectiveTo ?? null,
-          });
+          },
+        });
+      }
+      // F-016 a customer quote may combine base, channel and customer conditions. The offline grouping is a quote
+      // identity, not a second authoritative price list. VAN-006: it is keyed by the quote's CONTENT, so customers
+      // priced identically share one set of lines; keyed per outlet, a route of 30+ stores x 20+ products overflowed
+      // the frozen 600-line bound and the whole bundle was refused (the handheld never saw its dispatched trip).
+      const priceListId = quoteRows.length
+        ? masterId("van.priceQuote", JSON.stringify(quoteRows))
+        : null;
+      if (priceListId && !priceKeys.has(priceListId)) {
+        priceKeys.add(priceListId);
+        for (const q of quoteRows) {
+          priceLines.push({ priceListId, ...q.line });
+          taxQuotes.push({ priceListId, ...q.tax });
         }
+        complete(priceLines, 600);
       }
       if (ctx.params.schemeEngine === 1)
         schemeContexts.push(
@@ -530,6 +620,10 @@ export async function bundle(ctx, env) {
       policy: {
         ...tripPolicy,
         ...(storePos ? { storePos } : {}),
+        ...vanCap,
+        ...(ctx.params.privilegeSwitch === true
+          ? await privilegeSwitch(db, "van", trip.org_unit_id, trip.route_id)
+          : {}),
         ...(handheld
           ? {
               handheld: await handheldInfo(db, actor, device, trip),
@@ -567,6 +661,9 @@ export async function bundle(ctx, env) {
         ...(ctx.params.schemeEngine === 1
           ? { schemes: { engineVersion: 1, outlets: schemeContexts } }
           : {}),
+        ...(ctx.params.pickupDecisions === true
+          ? { pickupDecisions: await pickupDecisions(db, trip.id) }
+          : {}),
         ...(routeOps ? { operationsVersion: 1 } : {}),
       },
       ...(routeOps ? { vanOps: routeOps } : {}),
@@ -590,7 +687,13 @@ export async function bundle(ctx, env) {
         routeSessionId: trip.route_session_id,
         startedAt: trip.started_at ? new Date(trip.started_at).getTime() : null,
         ...(handheld
-          ? { openingFloatCentavos: Number(trip.opening_float_centavos ?? 0) }
+          ? {
+              openingFloatCentavos: Number(trip.opening_float_centavos ?? 0),
+              // NF-5: the trip's cash the office already holds, per sale, so a seller who signs in on another
+              // phone mid-trip counts against the same expected cash as the office (`cashExpectation`).
+              serverCash: await serverCash(db, trip.id),
+              heldStock: await heldStock(db, trip, balances),
+            }
           : {}),
       },
       load: load

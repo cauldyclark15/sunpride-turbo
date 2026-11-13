@@ -50,7 +50,10 @@ async function customerAccess(c) {
  * @param {any} router @param {any} ctx
  */
 export function install(router, ctx) {
-  ctx.env.SAP_MODE ??= "mock";
+  // Unset means the local SAP mock (F-002). `SAP_MODE=off` is the explicit no-SAP office: masters and
+  // prices are the office's to edit (no "SAP owns" refusals); postings still queue to the local mock.
+  if (ctx.env.SAP_MODE === "off") delete ctx.env.SAP_MODE;
+  else ctx.env.SAP_MODE ??= "mock";
   configureSap(ctx.db, ctx.env);
   ctx.registerTopic(
     "integration",

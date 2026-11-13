@@ -1,5 +1,6 @@
 import { ApiError } from "../../core/errors.js";
 import { requireCapability } from "../../core/capabilities.js";
+import { actorNames } from "../../core/actor-names.js";
 import { actorFor } from "../../core/context.js";
 import { nextDocNumber } from "../../core/docnum.js";
 import {
@@ -1445,14 +1446,8 @@ export function installTransferCommands() {
 
 // ---------------------------------------------------------------- reads
 
-/** @param {any} db @param {string[]} userIds */
-async function namesFor(db, userIds) {
-  const ids = [...new Set(userIds.filter(Boolean))];
-  if (!ids.length) return new Map();
-  const rows =
-    await db`select user_id,name from profiles where user_id in ${db(ids)}`;
-  return new Map(rows.map((/** @type {any} */ r) => [r.user_id, r.name]));
-}
+/** @param {any} db @param {Array<string|null|undefined>} actorIds */
+const namesFor = (db, actorIds) => actorNames(db, actorIds);
 /** @param {any} db @param {any} row @param {boolean} [full] */
 export async function presentTransfer(db, row, full = true) {
   const places =

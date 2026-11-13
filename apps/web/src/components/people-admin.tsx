@@ -1,4 +1,5 @@
 "use client";
+import { formatStatus } from "../lib/format";
 
 import { Button, Input } from "@heroui/react";
 import { api } from "./master-data/api";
@@ -10,7 +11,7 @@ import { useCallback, useState, type FormEvent } from "react";
 import { AdminSelectField } from "./org-admin";
 import { formatManilaDate } from "../lib/manila-date";
 import { useSetupParam } from "./master-data/location";
-import { ListPage, type ListColumn } from "./list-page/list-page";
+import { ListPage, cursorRange, type ListColumn } from "./list-page/list-page";
 import { Drawer } from "./cockpit/kit/drawer";
 
 type Person = Doc<"profiles">;
@@ -89,6 +90,9 @@ const readableError = (error: unknown) =>
   error instanceof Error ? error.message : "Could not save. Try again.";
 
 /** Who may edit a person: unchanged from the old Assign button. */
+/** WEB-177: one page size for the list, its cursor and its "Showing x–y" line. */
+const PEOPLE_PAGE_SIZE = 25;
+
 export function canEditPerson(
   row: Pick<Person, "role">,
   canManage: boolean,
@@ -123,7 +127,7 @@ export function PeopleAdmin() {
       : {
           ...(unassigned ? { unassigned: "true" } : {}),
           ...(q ? { q } : {}),
-          paginationOpts: { numItems: 25, cursor },
+          paginationOpts: { numItems: PEOPLE_PAGE_SIZE, cursor },
         },
   );
   const invitationPage = useQuery(
@@ -131,7 +135,7 @@ export function PeopleAdmin() {
     invited
       ? {
           ...(q ? { q } : {}),
-          paginationOpts: { numItems: 25, cursor },
+          paginationOpts: { numItems: PEOPLE_PAGE_SIZE, cursor },
         }
       : "skip",
   );
@@ -351,7 +355,7 @@ export function PeopleAdmin() {
       text: (row) => row.status,
       render: (row) => (
         <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
-          {row.status}
+          {formatStatus(row.status)}
         </StatusPill>
       ),
     },
@@ -420,7 +424,7 @@ export function PeopleAdmin() {
                 : "warning"
           }
         >
-          {row.status}
+          {formatStatus(row.status)}
         </StatusPill>
       ),
     },
@@ -493,6 +497,7 @@ export function PeopleAdmin() {
           {...shared}
           rows={(invitationPage?.page as Invitation[] | undefined) ?? null}
           loading={invitationPage === undefined}
+          range={cursorRange(cursors.length, PEOPLE_PAGE_SIZE, invitationPage)}
           columns={invitationColumns}
           rowKey={(row) => row._id}
         />
@@ -501,6 +506,7 @@ export function PeopleAdmin() {
           {...shared}
           rows={result ? people : null}
           loading={result === undefined}
+          range={cursorRange(cursors.length, PEOPLE_PAGE_SIZE, result)}
           columns={columns}
           rowKey={(row) => row._id}
         />

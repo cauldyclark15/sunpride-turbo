@@ -71,6 +71,12 @@ interface FieldStore {
     suspend fun pending(): List<Pair<IntentRow, OutboxRow>>
     suspend fun recordAck(requestId: String, entityId: String, eventIdsJson: String, serverTime: Long)
     suspend fun recordRejection(requestId: String, code: String)
+    /**
+     * FLD-176: the person read a refused item and cleared it from the phone's To review list. The refused row
+     * itself stays (nothing is deleted or re-sent); it only stops counting as work on this phone.
+     */
+    suspend fun dismissReview(requestId: String): Boolean = false
+    suspend fun dismissedReviews(): Set<String> = emptySet()
     suspend fun ack(requestId: String): AckRow?
     suspend fun cursor(): String?
     suspend fun setCursor(cursor: String?)
@@ -253,6 +259,9 @@ object EncryptedFieldDatabase {
     }
 }
 
+/** FLD-176: local-only list of refused items the person cleared from To review (kept in the partition's deltas). */
+const val DISMISSED_REVIEWS = "local.review.dismissed"
+
 /** Mirrors the server's LOCATION_POLICY.maxAgeMs. */
 const val PING_MAX_AGE_MS = 7 * 24 * 3_600_000L
 
@@ -369,7 +378,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     override suspend fun addPhoto(row: EvidencePhotoRow, now: Long) {
         require(row.account == a && row.deviceId == d && row.scope == s)
         db.withTransaction {
-            check(isLeaseValid(now)) { "Offline lease expired or held" }
+            if (!isLeaseValid(now)) throw RecordingClosed(metadata().held)
             EvidencePhotos.validate(row, photoTypes(), history().map { it.first to it.second.state },
                 dao.visitPhotos(a, d, s, row.clientVisitId).size)
             ConfiguredFieldCalls.validatePhoto(this@RoomFieldStore,row.clientVisitId)
@@ -466,7 +475,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut", com.sunpride.field.census.CensusRules.KIND, "availability.record", "availability.proposal", RetailCaptureQueue.KIND, MockAttempts.KIND) &&
             intent.serializedOperation.isNotBlank())
         db.withTransaction {
-            check(isLeaseValid(now)) { "Offline lease expired or held" }
+            if (!isLeaseValid(now)) throw RecordingClosed(metadata().held)
             MockAttempts.validate(intent)
             val prepared = ConfiguredFieldCalls.prepare(this@RoomFieldStore,intent)
             val payload = JSONObject(prepared.serializedOperation).optJSONObject("payload")
@@ -514,6 +523,16 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
         require(code.isNotBlank())
         db.withTransaction { check(dao.reject(a, d, s, requestId, code) == 1) }
     }
+    override suspend fun dismissReview(requestId: String): Boolean = db.withTransaction {
+        if (dao.outbox(a, d, s, requestId)?.state != "review") return@withTransaction false
+        val ids = dismissedReviews() + requestId
+        dao.putDelta(DeltaRow(a, d, s, DISMISSED_REVIEWS, "all", System.currentTimeMillis(),
+            org.json.JSONArray(ids.sorted()).toString(), false))
+        true
+    }
+    override suspend fun dismissedReviews(): Set<String> = dao.delta(a, d, s, DISMISSED_REVIEWS, "all")?.json
+        ?.let { runCatching { org.json.JSONArray(it).let { a -> (0 until a.length()).map(a::getString).toSet() } }.getOrNull() }
+        ?: emptySet()
     override suspend fun ack(requestId: String): AckRow? = dao.ack(a, d, s, requestId)
     override suspend fun cursor(): String? = metadata().cursor
     override suspend fun setCursor(cursor: String?) {
@@ -547,7 +566,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     }
     override suspend fun status(offline: Boolean): com.sunpride.field.ui.syncstatus.SyncStatus =
         com.sunpride.field.ui.syncstatus.SyncStatus.fromRoom(dao.partition(a, d, s),
-            dao.outstandingForDevice(a, d), offline, history().map { it.first })
+            dao.outstandingForDevice(a, d), offline, history().map { it.first }, dismissedReviews())
             .copy(photosWaiting = dao.waitingPhotos(a, d, s))
     override suspend fun history(): List<Pair<IntentRow, OutboxRow>> = dao.allOutbox(a, d, s)
         .map { row -> (dao.intent(a, d, s, row.requestId) ?: error("Orphaned outbox")) to row }

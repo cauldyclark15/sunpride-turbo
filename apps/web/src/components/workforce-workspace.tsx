@@ -1,4 +1,5 @@
 "use client";
+import { formatStatus } from "../lib/format";
 import { useRef, useState } from "react";
 import { apiFetch, useApi, useLive, useMutate } from "../lib/api";
 import { WorkforcePolicyEditor } from "./workforce-policy-editor";
@@ -664,7 +665,7 @@ export function WorkforceWorkspace() {
                 {p.name} · {p.code}
               </h4>
               <p className="text-sm">
-                {p.status.replaceAll("_", " ")} · captured by {p.preparedBy} ·{" "}
+                {formatStatus(p.status)} · captured by {p.preparedBy} ·{" "}
                 {time(p.capturedAt)}
               </p>
               <p className="text-sm">

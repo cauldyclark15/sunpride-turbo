@@ -5,6 +5,7 @@ import { toBaseQty, type CasesPieces } from "../qty-cases-pieces";
 
 export type LoadState =
   | "none"
+  | "planned"
   | "suggested"
   | "approved"
   | "picking"
@@ -103,6 +104,7 @@ export const loadText = (cases: number, pieces: number) =>
 /** The pill for a load, in the board's own words. */
 export const LOAD_PILL: Record<LoadState, { state: StatusState; label: string }> = {
   none: { state: "draft", label: "No load yet" },
+  planned: { state: "planned", label: "Load planned" },
   suggested: { state: "planned", label: "Suggested" },
   approved: { state: "approved", label: "Approved" },
   picking: { state: "picking", label: "Picking" },
@@ -165,6 +167,25 @@ export const cleanTripIds = (rows: BoardRow[]) =>
         r.load.products > 0,
     )
     .map((r) => r.tripId as string);
+
+/** WEB-082/084: approve-plan answers 200 even when a truck is refused ({failed, results[].message}).
+ * Returns the plain refusal to show, or null when every load was approved. */
+export function approvalRefusal(result: unknown): string | null {
+  const r = result as {
+    failed?: number;
+    approved?: number;
+    results?: Array<{ ok?: boolean; message?: string }>;
+  } | null;
+  if (!r || !Array.isArray(r.results)) return null;
+  const failed = r.results.filter((x) => x && x.ok === false);
+  if (!failed.length) return null;
+  const reasons = [...new Set(failed.map((x) => x.message || "Could not approve this load"))];
+  const head =
+    failed.length === 1 && !r.approved
+      ? "The load was not approved."
+      : `${failed.length} load${failed.length === 1 ? "" : "s"} not approved${r.approved ? `; ${r.approved} approved` : ""}.`;
+  return `${head} ${reasons.join(". ")}.`.replace(/\.\.+/g, ".");
+}
 
 export const approveAllRequest = (ids: string[]) => ({
   path: "/api/v1/van/loads/approve-plan",

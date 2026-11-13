@@ -28,6 +28,7 @@ import com.sunpride.van.data.*
         Text("Available stock includes saved changes on this phone.",style = MaterialTheme.typography.bodyMedium)
         if (c.sync.queued+c.sync.sending > 0) Text("Waiting for sync",Modifier.testTag("stock-pending"))
         if (c.sync.review > 0) Text("Some changes need review. Ask your supervisor.")
+        if (c.tripClosed) Text(VanRules.stockMessage(com.sunpride.van.pos.StockProblem.TRIP_CLOSED),Modifier.testTag("stock-trip-closed"))
         if (c.products.isEmpty()) Text("No truck stock available. Sync and check with your supervisor.")
         c.products.forEachIndexed { index,product ->
             val stock = c.stock.firstOrNull { it.productId == product.productId } ?: TruckStock(product.productId,0,0)
@@ -43,7 +44,8 @@ import com.sunpride.van.data.*
                             Text("${product.uomCode} available",style = MaterialTheme.typography.bodyMedium,color = Look.muted)
                         }
                     }
-                    SecondaryButton("Record damage",{ damageProduct = product },Modifier.testTag("damage-$index"),!c.busy)
+                    // VAN-083: a closed trip records no more damage.
+                    if (!c.tripClosed) SecondaryButton("Record damage",{ damageProduct = product },Modifier.testTag("damage-$index"),!c.busy)
                 }
             }
         }
@@ -81,7 +83,7 @@ import com.sunpride.van.data.*
         scope.launch {
             try { photo = c.repository.saveDamagePhoto(capture) }
             catch (e: CancellationException) { throw e }
-            catch (_: Exception) { photoMessage = "Could not save photo. Retake and try again." }
+            catch (e: Exception) { photoMessage = VanRules.damagePhotoFailure(e) }
             finally { processing = false }
         }
     }

@@ -4,7 +4,7 @@ import { Card, Notice, PageHeader } from "@sunpride/ui";
 import { useState } from "react";
 import { apiFetch, useApi, useLive } from "@/lib/api";
 import { Peso, QtyCasesPieces } from "../index";
-import { csvQuery, expiryLabel } from "./helpers";
+import { csvQuery, expiryLabel, shownTotals, stockFilters, type StockFilters } from "./helpers";
 import type { StockRow, Valuation } from "./types";
 
 type LocationOption = { id: string; name: string; type: string; code: string };
@@ -32,17 +32,43 @@ export function StockOnHand({
   cardHref,
   onOpenCard,
   initialLocationId,
+  params,
+  onParams,
 }: {
   /** Where a row's stock card lives (the NAV lane decides). */
   cardHref?: (productId: string, locationId: string) => string;
   onOpenCard?: (productId: string, locationId: string) => void;
   initialLocationId?: string;
+  /** WEB-064: the page URL (search, place, status, grouping, basis survive reload). */
+  params?: { get(name: string): string | null };
+  onParams?: (patch: Partial<StockFilters>) => void;
 }) {
-  const [basis, setBasis] = useState<"cost" | "selling">("cost");
-  const [locationId, setLocationId] = useState(initialLocationId ?? "");
-  const [status, setStatus] = useState("");
-  const [groupBy, setGroupBy] = useState<"product" | "lot">("product");
-  const [search, setSearch] = useState("");
+  const start = stockFilters(params, initialLocationId);
+  const [basis, setBasisState] = useState<"cost" | "selling">(start.basis);
+  const [locationId, setLocationState] = useState(start.locationId);
+  const [status, setStatusState] = useState(start.status);
+  const [groupBy, setGroupState] = useState<"product" | "lot">(start.groupBy);
+  const [search, setSearchState] = useState(start.q);
+  const setBasis = (v: "cost" | "selling") => {
+    setBasisState(v);
+    onParams?.({ basis: v });
+  };
+  const setLocationId = (v: string) => {
+    setLocationState(v);
+    onParams?.({ locationId: v });
+  };
+  const setStatus = (v: string) => {
+    setStatusState(v);
+    onParams?.({ status: v });
+  };
+  const setGroupBy = (v: "product" | "lot") => {
+    setGroupState(v);
+    onParams?.({ groupBy: v });
+  };
+  const setSearch = (v: string) => {
+    setSearchState(v);
+    onParams?.({ q: v });
+  };
   const query = {
     basis,
     groupBy,
@@ -62,6 +88,9 @@ export function StockOnHand({
     `${r.name} ${r.code} ${r.lotNumber ?? ""}`.toLowerCase().includes(search.trim().toLowerCase()),
   );
   const costFirst = basis === "cost";
+  const byBatch = groupBy === "lot";
+  // WEB-064: the value cards add up exactly the rows shown (search included).
+  const totals = shownTotals(rows, v?.totals, search.trim() !== "");
   return (
     <div className="space-y-4" data-screen="stock-on-hand">
       <PageHeader
@@ -70,10 +99,10 @@ export function StockOnHand({
       />
       {data.error ? <Notice title={data.error.message} tone="danger" /> : null}
       <div className="grid gap-3 md:grid-cols-3">
-        <Total label="Stock value at cost" centavos={v?.totals.costValueCentavos} primary={costFirst} />
-        <Total label="Stock value at selling price" centavos={v?.totals.sellingValueCentavos} primary={!costFirst} />
+        <Total label="Stock value at cost" centavos={totals?.costValueCentavos} primary={costFirst} />
+        <Total label="Stock value at selling price" centavos={totals?.sellingValueCentavos} primary={!costFirst} />
         <div className="rounded-2xl border border-gray-200 bg-white p-4">
-          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">Products shown</p>
+          <p className="text-xs font-medium uppercase tracking-wide text-gray-500">{byBatch ? "Batches shown" : "Products shown"}</p>
           <p className="text-2xl font-semibold tabular-nums">{rows.length}</p>
         </div>
       </div>
@@ -169,6 +198,8 @@ export function StockOnHand({
           <thead className="bg-gray-50 text-xs uppercase tracking-wide text-gray-500">
             <tr>
               <th className="px-3 py-2 text-left">Product</th>
+              {byBatch ? <th className="px-3 py-2 text-left">Batch</th> : null}
+              {byBatch ? <th className="px-3 py-2 text-left">Expires</th> : null}
               <th className="px-3 py-2 text-left">Place</th>
               <th className="px-3 py-2 text-right">On hand</th>
               {COLUMNS.map(([, label]) => (
@@ -183,14 +214,14 @@ export function StockOnHand({
               <tr key={`${r.productId}:${r.locationId}:${r.lotId ?? ""}`} className="border-t border-gray-100">
                 <td className="px-3 py-2">
                   <div className="font-medium">{r.name}</div>
-                  <div className="text-xs text-gray-500">
-                    {r.code}
-                    {r.lotNumber ? ` · Batch ${r.lotNumber}` : ""}
-                  </div>
-                  {r.expiresAt != null && r.daysToExpiry != null ? (
-                    <div className="text-xs text-gray-500">{expiryLabel(r.expiresAt, r.daysToExpiry)}</div>
-                  ) : null}
+                  <div className="text-xs text-gray-500">{r.code}</div>
                 </td>
+                {byBatch ? <td className="px-3 py-2">{r.lotNumber ?? "No batch"}</td> : null}
+                {byBatch ? (
+                  <td className="px-3 py-2 text-xs text-gray-600">
+                    {r.expiresAt != null && r.daysToExpiry != null ? expiryLabel(r.expiresAt, r.daysToExpiry) : "No expiry"}
+                  </td>
+                ) : null}
                 <td className="px-3 py-2">{r.locationName}</td>
                 <td className="px-3 py-2 text-right font-medium">
                   <QtyCasesPieces base={r.onHand.base} basePerCase={r.units.basePerCase} />
@@ -223,7 +254,7 @@ export function StockOnHand({
             ))}
             {!rows.length ? (
               <tr>
-                <td colSpan={COLUMNS.length + 5} className="px-3 py-8 text-center text-gray-500">
+                <td colSpan={COLUMNS.length + (byBatch ? 7 : 5)} className="px-3 py-8 text-center text-gray-500">
                   {data.isLoading ? "Loading stock…" : "No stock matches. Try another place or status."}
                 </td>
               </tr>

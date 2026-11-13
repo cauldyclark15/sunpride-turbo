@@ -859,3 +859,57 @@ test("F-611 external customer has no office capabilities; chain sees sibling bra
   ).toBe(403);
   expect((await api(customer, "/api/v1/portal/overview")).status).toBe(403);
 });
+
+test("WEB-143 portal access offers external identities that do not have access yet", async () => {
+  const id = await createUser(
+    h,
+    "first-portal@test.invalid",
+    "fixture password only",
+  );
+  const r = await api(admin, "settings");
+  expect(r.status).toBe(200);
+  const users = /** @type {any[]} */ (r.body.externalUsers);
+  const fresh = users.find((u) => u.id === id);
+  expect(fresh).toBeTruthy();
+  expect(fresh.access).toBeNull();
+  // existing members still appear, with their current access
+  expect(users.find((u) => u.id === otherCustomer.userId)?.access).toMatchObject({
+    kind: "account",
+    key: "X",
+    current: true,
+  });
+  // employees never appear
+  expect(users.some((u) => u.id === admin.userId)).toBe(false);
+  // and the first grant is accepted
+  const saved = await api(admin, "portal/access", {
+    userId: id,
+    name: "First portal customer",
+    scopeKind: "account",
+    scopeKey: "A",
+    effectiveFrom: new Date().toISOString(),
+    idempotencyKey: crypto.randomUUID(),
+  });
+  expect(saved.status).toBe(200);
+  // WEB-143: a later version with an end date ends the current one; the label still shows the access in force.
+  const day = 86_400_000;
+  const tomorrow = new Date(Date.now() + day).toISOString();
+  const next = {
+    userId: id,
+    name: "First portal customer",
+    scopeKind: "account",
+    scopeKey: "A",
+    effectiveFrom: tomorrow,
+    effectiveTo: new Date(Date.now() + 2 * day).toISOString(),
+  };
+  expect(
+    (await api(admin, "portal/access", { ...next, idempotencyKey: crypto.randomUUID() })).status,
+  ).toBe(200);
+  const after = (await api(admin, "settings")).body.externalUsers.find(
+    (/** @type {any} */ u) => u.id === id,
+  );
+  expect(after.access).toMatchObject({ kind: "account", key: "A", current: true });
+  // The same start day again is refused in plain words.
+  const dup = await api(admin, "portal/access", { ...next, idempotencyKey: crypto.randomUUID() });
+  expect(dup.status).toBe(409);
+  expect(JSON.stringify(dup.body)).toContain("already has access starting that day");
+});

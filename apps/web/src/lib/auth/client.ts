@@ -50,12 +50,16 @@ export async function fetchMe(
   fetchImpl?: FetchImpl,
 ): Promise<Me | null> {
   try {
-    const me = toMe(
-      await apiFetch<Parameters<typeof toMe>[0]>("/api/me", {
-        signal,
-        fetchImpl,
-      }),
-    );
+    const raw = await apiFetch<
+      Parameters<typeof toMe>[0] & { access?: string }
+    >("/api/me", { signal, fetchImpl });
+    const me = toMe(raw);
+    if (!me && raw?.access === "turned_off")
+      throw new ApiError({
+        code: "access_turned_off",
+        message: "Your access has been turned off.",
+        status: 403,
+      });
     if (!me)
       throw new ApiError({
         code: "not_invited",
@@ -67,7 +71,7 @@ export async function fetchMe(
   } catch (raw) {
     const error = normalizeError(raw);
     if (error.status === 401) {
-      await forgetLocalData();
+      await forgetLocalData({ keepDrafts: true });
       return null;
     }
     if (error.code === "network_error" && !signal?.aborted) {
@@ -78,10 +82,15 @@ export async function fetchMe(
   }
 }
 
-/** Removes everything this device kept for the signed-in person. */
-export async function forgetLocalData() {
+/**
+ * Removes everything this device kept for the signed-in person. Unsent
+ * message drafts go only on an explicit sign-out (SP-0169 go-live rule: a
+ * session that ends or a fresh sign-in never deletes unsent work; drafts are
+ * keyed by person, so nobody else can open them).
+ */
+export async function forgetLocalData(options: { keepDrafts?: boolean } = {}) {
   forgetSession();
-  forgetDrafts();
+  if (!options.keepDrafts) forgetDrafts();
   resetDataSource();
   await clearUserCaches();
 }
@@ -108,9 +117,9 @@ export function createAuthActions(
   live?: LiveClient,
   fetchImpl?: FetchImpl,
 ): AuthActions {
-  const identityChanged = async () => {
+  const identityChanged = async (signedOut = false) => {
     live?.reset();
-    await forgetLocalData();
+    await forgetLocalData({ keepDrafts: !signedOut });
     await store.clear();
   };
   return {
@@ -138,7 +147,7 @@ export function createAuthActions(
       } catch {
         // Local sign-out happens regardless; the cookie expires server-side.
       } finally {
-        await identityChanged();
+        await identityChanged(true);
       }
     },
   };

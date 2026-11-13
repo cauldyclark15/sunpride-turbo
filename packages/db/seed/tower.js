@@ -59,7 +59,10 @@ export function towerSamples(
               source_key: key,
               source_revision: "1",
               source_received_at: at,
-              source_effective_at: at,
+              source_effective_at:
+                n === 0 && Date.parse(d.effectiveNow) < Date.parse(at)
+                  ? d.effectiveNow
+                  : at,
               source_type: "sample",
               org_unit_id: o.custodian_org_unit_id,
               distributor_key: `SAMPLE-D${dist + 1}`,

@@ -1,5 +1,5 @@
 import { afterAll, beforeAll, describe, expect, it, mock } from "bun:test";
-import { tx } from "@sunpride/db/client";
+import { createDb, tx } from "@sunpride/db/client";
 import { startHarness, profileStore } from "./harness.js";
 import { sha256Hex } from "../src/core/util.js";
 import { capabilitiesFor } from "../src/core/capabilities.js";
@@ -111,9 +111,9 @@ function stockIn(to, items, at = Date.now() - 6 * 3600000) {
     }),
   );
 }
-/** Stock out (a sale / a van load) at a given time. @param {string} from @param {any} p @param {number} qty @param {number} at */
-function stockOut(from, p, qty, at) {
-  return tx(h.db, (t) =>
+/** Stock out (a sale / a van load) at a given time. @param {string} from @param {any} p @param {number} qty @param {number} at @param {any} [db] */
+function stockOut(from, p, qty, at, db = h.db) {
+  return tx(db, (t) =>
     postMovement(t, {
       kind: "inventory_issue",
       sourceType: "test",
@@ -598,7 +598,13 @@ describe("rules that stay", () => {
       const rows = await db`select * from stock_count_lines where session_id=${s.id}`;
       expect(s.legacy_whole).toBe(true);
       // Stock moves while the till is counting: the old engine would have thrown the count out.
-      await stockOut(loc, a, 1, Date.now());
+      // A separate client: another process's sale, not this request's own pool (SP-0169 guard).
+      const other = createDb(h.dbUrl, { max: 1 });
+      try {
+        await stockOut(loc, a, 1, Date.now(), other);
+      } finally {
+        await other.close();
+      }
       await commands["counts/submit"].run(
         ctxFor(db, counter),
         { lines: rows.map((/** @type {any} */ r) => ({ lineId: r.id, countedBase: 9 })), idempotencyKey: "k2" },
@@ -754,4 +760,78 @@ describe("pickers for the plan and found-item screens", () => {
     const viewer = await person("viewer");
     expect((await read(viewer, `counts/preview?locationId=${loc}`)).status).toBe(403);
   });
+});
+
+describe("WEB-078: the web sends the request key as the idempotency-key header", () => {
+  it("Add count saves with the header key alone, and a resend replays the same plan", async () => {
+    const loc = await location(`Header-${crypto.randomUUID()}`);
+    await stockIn(loc, [{ p: await product(), qty: 5 }]);
+    const key = crypto.randomUUID();
+    const send = async () => {
+      const res = await h.fetch("/api/v1/inventory/counts/plan", {
+        method: "POST",
+        headers: {
+          cookie: planner.cookie,
+          "content-type": "application/json",
+          "idempotency-key": key,
+        },
+        body: JSON.stringify({ locationId: loc, blindCount: true }),
+      });
+      return {
+        status: res.status,
+        body: /** @type {any} */ (await res.json()),
+      };
+    };
+    const first = await send();
+    expect(first.body.error?.message ?? null).toBe(null);
+    expect(first.status).toBe(200);
+    expect(first.body.number).toMatch(/^CNT-/);
+    const again = await send();
+    expect(again.status).toBe(200);
+    expect(again.body.id).toBe(first.body.id);
+  });
+});
+
+describe("WEB-081/093: who may post a counted difference is said before the click", () => {
+  it("a manager reviews lines but is told an approver posts a difference; the approver posts it", async () => {
+    const loc = await location(`Review-${crypto.randomUUID()}`);
+    const p = await product();
+    await stockIn(loc, [{ p, qty: 10 }]);
+    const plan = await command(planner, "counts/plan", { locationId: loc, assignedTo: clerk.userId, blindCount: false });
+    const sid = plan.body.id;
+    const ls = (await lines(clerk, sid)).lines;
+    expect((await command(clerk, "counts/save-lines", { sessionId: sid, lines: [{ lineId: ls[0].id, countedBase: 9 }] })).status).toBe(200);
+    expect((await command(clerk, "counts/submit", { sessionId: sid })).status).toBe(200);
+    // The planner is a counter here (they created it); use a second manager who did not count.
+    const mgr = await person("manager");
+    const asManager = await read(mgr, `counts/review?sessionId=${sid}`);
+    expect(asManager.status).toBe(200);
+    expect(asManager.body.canApprove).toBe(true); // may still decide lines
+    expect(asManager.body.approveBlockedReason).toBe(
+      "A count that changes the stock is approved by an approver. You can still decide each line.",
+    );
+    const refused = await command(mgr, "counts/approve", { sessionId: sid });
+    expect(refused.status).toBe(403);
+    const asApprover = await read(sup, `counts/review?sessionId=${sid}`);
+    expect(asApprover.body.approveBlockedReason).toBeNull();
+    expect((await command(sup, "counts/approve", { sessionId: sid })).status).toBe(200);
+  }, 60000);
+
+  it("with no stock band for the location's branch the approver is told where to set one up", async () => {
+    const boss = await person("super_admin"); // counts it; no super_admin stock band in this branch
+    const loc = await location(`NoBand-${crypto.randomUUID()}`);
+    const p = await product();
+    await stockIn(loc, [{ p, qty: 10 }]);
+    const plan = await command(admin, "counts/plan", { locationId: loc, assignedTo: boss.userId, blindCount: false });
+    expect(plan.status).toBe(200);
+    const sid = plan.body.id;
+    const ls = (await lines(boss, sid)).lines;
+    await command(boss, "counts/save-lines", { sessionId: sid, lines: [{ lineId: ls[0].id, countedBase: 9 }] });
+    await command(boss, "counts/submit", { sessionId: sid });
+    const res = await command(sup, "counts/approve", { sessionId: sid });
+    expect(res.status).toBe(409);
+    expect(res.body.error.message).toBe(
+      "No stock approval limit is set for Counts test. An administrator adds one in Admin → Fiscal & authority → Price and discount authority (Override: Stock).",
+    );
+  }, 60000);
 });

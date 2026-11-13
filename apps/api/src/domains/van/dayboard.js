@@ -6,10 +6,12 @@ import { cashExpectation, productFor } from "./facts.js";
 import { date, dayString, refuse, today, uuid } from "./model.js";
 import { personOnDevice, rostersOn, vehicleOfDevice, crewDirectory, weekdayLabel } from "./roster.js";
 import { planOf } from "./loadout.js";
+import { DEPOT_SHORT_TEXT, eligibleFreeBase } from "../inventory/eligible.js";
 
 /** Plain words for every stage (SPEC 3.10): "trip", "load-out", "settlement"; never "route session" or "load confirm". */
 export const LOAD_LABELS = /** @type {Record<string,string>} */ ({
   none: "No load yet",
+  planned: "Load planned",
   suggested: "Suggested",
   approved: "Approved",
   picking: "Picking",
@@ -52,7 +54,7 @@ function primaryAction(r) {
   const t = r.tripId;
   if (!r.tripId && r.rostered)
     return { kind: "plan_trip", label: "Plan trip", enabled: true };
-  if (r.load.state === "none" && r.trip.status === "planned")
+  if ((r.load.state === "none" || r.load.state === "planned") && r.trip.status === "planned")
     return { kind: "plan_load", label: "Plan load", enabled: true, tripId: t };
   if (r.load.state === "suggested")
     return r.load.attention.length
@@ -77,6 +79,20 @@ function primaryAction(r) {
   return { kind: "view_trip", label: "View trip", enabled: Boolean(t), tripId: t };
 }
 
+/** WEB-082/084: a suggested load is only "clean" when the depot can issue every line under the same
+ * eligible-lot rule approval uses. Stale plans (made before a lot was quarantined or neared expiry) get
+ * the shortfall reason added live, so the board never promises an approval that will be refused.
+ * @param {any} db @param {any} trip @param {any} plan @param {Array<{product_id:string, q:any}>} lines @returns {Promise<string[]>} */
+export async function liveAttention(db, trip, plan, lines) {
+  const attention = [...(plan?.attention ?? [])];
+  if (plan?.state !== "suggested" || attention.includes(DEPOT_SHORT_TEXT)) return attention;
+  const wanted = lines.filter((l) => Number(l.q) > 0);
+  if (!wanted.length) return attention;
+  const free = await eligibleFreeBase(db, trip.source_location_id, wanted.map((l) => l.product_id), { org: trip.organization_id });
+  if (wanted.some((l) => Number(l.q) > (free.get(l.product_id) ?? 0))) attention.push(DEPOT_SHORT_TEXT);
+  return attention;
+}
+
 /** GET van/day-board?date=&unitId=: every truck of a depot for one day on one screen. @param {any} ctx */
 export async function dayBoard(ctx) {
   const day = date(ctx.url.searchParams.get("date") ?? today());
@@ -97,9 +113,16 @@ export async function dayBoard(ctx) {
     /** @type {any[]} */ const rows = [];
     for (const t of trips) {
       const plan = await planOf(db, t.id);
+      // WEB-099: a hand-made load (van_trip_loads) with no suggested plan is still the trip's load; never "No load yet".
+      const [handLoad] = plan
+        ? []
+        : await db`select id from van_trip_loads where trip_id=${t.id} and status<>'cancelled' and deleted_at is null order by load_number desc limit 1`;
       const lines = plan
         ? await db`select l.product_id,coalesce(l.approved_base,l.suggested_base)::bigint as q,l.case_base,l.flags from van_planned_load_lines l where l.planned_load_id=${plan.id}`
-        : [];
+        : handLoad
+          ? await db`select l.product_id,l.expected_base::bigint as q,1 as case_base,null as flags from van_trip_load_lines l where l.load_id=${handLoad.id}`
+          : [];
+      const loadKey = plan ? loadStateOf(plan.state) : handLoad ? "planned" : "none";
       const [doc] = plan?.stock_transfer_id
         ? await db`select transfer_number,status,variance_status from stock_transfers where id=${plan.stock_transfer_id}`
         : [];
@@ -133,9 +156,9 @@ export async function dayBoard(ctx) {
         onPhone: on ? { profileId: on.profileId, name: on.name, role: on.role } : null,
         trip: { status: t.status, label: TRIP_LABELS[t.status] ?? t.status, stage: stageOf(t.status, settlement) },
         load: {
-          state: loadStateOf(plan?.state),
-          detail: plan?.state ?? "none",
-          label: LOAD_LABELS[loadStateOf(plan?.state)],
+          state: loadKey,
+          detail: plan?.state ?? (handLoad ? "planned" : "none"),
+          label: LOAD_LABELS[loadKey],
           plannedLoadId: plan?.id ?? null,
           number: doc?.transfer_number ?? null,
           documentStatus: doc?.status ?? null,
@@ -144,7 +167,7 @@ export async function dayBoard(ctx) {
           // Whole cases and loose pieces across the products, so the board can say "5 cs 2 pc".
           cases: caseLines.reduce((/** @type {number} */ n, /** @type {any} */ l) => n + (Number(l.case_base) > 1 ? Math.floor(Number(l.q) / Number(l.case_base)) : 0), 0),
           pieces: caseLines.reduce((/** @type {number} */ n, /** @type {any} */ l) => n + (Number(l.case_base) > 1 ? Number(l.q) % Number(l.case_base) : Number(l.q)), 0),
-          attention: plan?.attention ?? [],
+          attention: plan ? await liveAttention(db, t, plan, lines) : [],
           source: plan?.source ?? null,
           agreement: plan?.agreement ?? null,
           differenceCentavos: Number(plan?.difference_value_centavos ?? 0),
@@ -236,7 +259,7 @@ export async function planDetail(ctx) {
         state: plan.state,
         label: LOAD_LABELS[loadStateOf(plan.state)],
         source: plan.source,
-        attention: plan.attention,
+        attention: await liveAttention(db, trip, plan, lines.map((/** @type {any} */ l) => ({ product_id: l.product_id, q: l.approved_base ?? l.suggested_base }))),
         agreement: plan.agreement,
         clerkName: plan.clerk_name,
         sellerSignedAt: plan.seller_signed_at ? new Date(plan.seller_signed_at).getTime() : null,

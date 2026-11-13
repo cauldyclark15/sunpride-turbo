@@ -94,6 +94,16 @@ export async function seedFiscal(db) {
         await t`insert into fiscal_authority_rules(id,org_unit_id,kind,role,channel,min_centavos,max_centavos,self_limit_centavos,approver_roles,offline_allowed,effective_from,sample) values(${id},${pair.org_unit_id},${kind},${pair.role},'*',0,999999999,${kind === "discount" ? 500 : 0},${["manager", "approver", "super_admin"]},true,'2026-01-01',true) on conflict(id) do nothing`;
         await t`insert into sample_data_rows(batch,table_name,row_id,key) values('sunpride-fiscal-sample','fiscal_authority_rules',${id},${`fiscal_authority_rules:${id}`}) on conflict(batch,key) do nothing`;
       }
+    // WEB-081: count and adjustment authority is partitioned by the stock place's branch, not the counter's home
+    // unit, so each marked branch with stock places gets a stock band for every role that may count/request there.
+    const stockUnits =
+      await t`select distinct l.org_unit_id from inventory_locations l join sample_data_rows mu on mu.table_name='org_units' and mu.row_id=l.org_unit_id::text where l.deleted_at is null and l.org_unit_id is not null`;
+    for (const { org_unit_id } of stockUnits)
+      for (const role of ["super_admin", "admin", "operations", "manager"]) {
+        const id = rowId("fiscal_authority_rules", `${org_unit_id}-stock-${role}`);
+        await t`insert into fiscal_authority_rules(id,org_unit_id,kind,role,channel,min_centavos,max_centavos,self_limit_centavos,approver_roles,offline_allowed,effective_from,sample) values(${id},${org_unit_id},'stock',${role},'*',0,999999999,0,${["manager", "approver", "super_admin"]},true,'2026-01-01',true) on conflict(id) do nothing`;
+        await t`insert into sample_data_rows(batch,table_name,row_id,key) values('sunpride-fiscal-sample','fiscal_authority_rules',${id},${`fiscal_authority_rules:${id}`}) on conflict(batch,key) do nothing`;
+      }
     return { registrations: count, status: "sample, not filed" };
   });
   return {

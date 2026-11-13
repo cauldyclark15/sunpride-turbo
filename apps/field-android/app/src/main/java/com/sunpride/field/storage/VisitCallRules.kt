@@ -33,6 +33,12 @@ object VisitCallRules {
         } }.map { it.first.clientVisitId }.toSet()
         return rows.filter { it.first.clientVisitId in ids }
     }
+    /** FLD-207: outlets with a started call that has not ended (planned or unplanned, any day). */
+    fun openOutlets(rows: List<Pair<IntentRow, String>>): Set<String> = rows
+        .filter { (intent, state) -> intent.kind == "visit.checkIn" && usable(state) }
+        .filter { start -> !closed(rows.filter { it.first.clientVisitId == start.first.clientVisitId }) }
+        .mapNotNull { runCatching { payload(it.first).optString("outletId") }.getOrNull()?.takeIf { id -> id.isNotBlank() } }
+        .toSet()
     fun started(rows: List<Pair<IntentRow, String>>) = rows.any { it.first.kind == "visit.checkIn" && usable(it.second) }
     fun closed(rows: List<Pair<IntentRow, String>>) = rows.any {
         it.first.kind == "visit.checkOut" && usable(it.second) && started(rows.filter { row ->
@@ -58,7 +64,7 @@ object VisitCallRules {
             throw VisitRuleFailure(VisitRuleFailure.Code.CALL_OPEN)
         if (started(related(plannedId, outletId, day, rows)))
             throw VisitRuleFailure(VisitRuleFailure.Code.ALREADY_STARTED)
-        if (plans.any { ServerVisits.execution(it)?.optString("state") == "in-progress" &&
+        if (plans.any { ServerVisits.open(it) &&
                 !closed(related(it.id, JSONObject(it.json).getString("outletId"), day, rows)) })
             throw VisitRuleFailure(VisitRuleFailure.Code.CALL_OPEN)
         if (plannedId == null) return // Unplanned calls have no MCP position.
@@ -69,7 +75,7 @@ object VisitCallRules {
         fun position(item: SnapshotItem) = sequence(item) ?: item.listPosition ?: plans.indexOf(item)
         val targetPosition = ordered.getOrNull(rank)?.let { position(it) }
         val earlier = ordered.filter { targetPosition != null && position(it) < targetPosition }
-        if (sequenceReason.isNullOrBlank() && earlier.any { plan -> !ServerVisits.closed(plan) && !closed(related(plan.id, JSONObject(plan.json).getString("outletId"), day, rows)) })
+        if (sequenceReason.isNullOrBlank() && earlier.any { plan -> !ServerVisits.resolved(plan) && !closed(related(plan.id, JSONObject(plan.json).getString("outletId"), day, rows)) })
             throw VisitRuleFailure(VisitRuleFailure.Code.MCP_ORDER)
     }
     fun requireEnd(clientVisitId: String, end: JSONObject, rows: List<Pair<IntentRow, String>>) {

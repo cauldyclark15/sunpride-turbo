@@ -1,4 +1,5 @@
 "use client";
+import { formatDate, formatDateTime, formatStatus } from "../../lib/format";
 
 import { useState } from "react";
 import { Button } from "@heroui/react";
@@ -354,8 +355,7 @@ export function IntegrationWorkspace() {
                     <span className="font-medium capitalize">
                       {h.action.replaceAll("_", " ")}
                     </span>{" "}
-                    · {new Date(h.at).toLocaleString("en-PH")} ·{" "}
-                    {h.actor ?? "Integration worker"}
+                    · {formatDateTime(h.at)} · {h.actor ?? "Integration worker"}
                     {h.facts.reason ? ` — ${h.facts.reason}` : ""}
                     {h.facts.documentNumber
                       ? ` — ${h.facts.documentNumber}`
@@ -463,10 +463,10 @@ export function IntegrationWorkspace() {
                   {mappings.data?.rows.map((r, i) => (
                     <tr key={i} className="border-t border-border">
                       <td className="p-2">{r.name}</td>
-                      <td className="p-2">{r.kind}</td>
+                      <td className="p-2">{formatStatus(r.kind)}</td>
                       <td className="p-2">{r.plant ?? "Unknown"}</td>
                       <td className="p-2">{r.storageLocation ?? "Unknown"}</td>
-                      <td className="p-2">{r.status}</td>
+                      <td className="p-2">{formatStatus(r.status)}</td>
                     </tr>
                   ))}
                 </tbody>
@@ -517,12 +517,8 @@ export function IntegrationWorkspace() {
                       </td>
                       <td className="p-2">{r.source}</td>
                       <td className="p-2">{r.version}</td>
-                      <td className="p-2">
-                        {new Date(r.effectiveFrom).toLocaleDateString("en-PH")}
-                      </td>
-                      <td className="p-2">
-                        {new Date(r.receivedAt).toLocaleDateString("en-PH")}
-                      </td>
+                      <td className="p-2">{formatDate(r.effectiveFrom)}</td>
+                      <td className="p-2">{formatDate(r.receivedAt)}</td>
                       <td className="max-w-sm p-2 text-xs text-muted">
                         {masterKind === "material"
                           ? `${r.data.storageCondition}; ${r.data.shelfLifeDays} days shelf life`
@@ -531,7 +527,7 @@ export function IntegrationWorkspace() {
                             : masterKind === "stock"
                               ? `₱${(Number(r.data.valueCentavos) / 100).toFixed(2)} at ${r.data.locationCode}`
                               : masterKind === "ar"
-                                ? `₱${(Number(r.data.amountCentavos) / 100).toFixed(2)}; due ${new Date(Number(r.data.dueAt)).toLocaleDateString("en-PH")}`
+                                ? `₱${(Number(r.data.amountCentavos) / 100).toFixed(2)}; due ${formatDate(Number(r.data.dueAt))}`
                                 : "SAP-owned master"}
                       </td>
                     </tr>

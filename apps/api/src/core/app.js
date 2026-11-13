@@ -39,7 +39,11 @@ export function createApp(opts) {
   installMedia(router);
 
   const realtime = createRealtime({ db, url: opts.dbUrl });
-  const scheduler = createScheduler({ db, pollMs: opts.schedulerPollMs });
+  const scheduler = createScheduler({
+    db,
+    dbUrl: opts.dbUrl,
+    pollMs: opts.schedulerPollMs,
+  });
   const installCtx = {
     db,
     env,
@@ -105,6 +109,17 @@ export function createApp(opts) {
           route.options.maxBytes ?? MAX_JSON_BYTES,
         );
         body = parseJson(rawBody);
+        // The web client sends the per-intent key as the `idempotency-key` header; many
+        // commands read `body.idempotencyKey`. One contract for both, body wins.
+        const headerKey = req.headers.get("idempotency-key");
+        if (
+          headerKey &&
+          body &&
+          typeof body === "object" &&
+          !Array.isArray(body) &&
+          body.idempotencyKey == null
+        )
+          body.idempotencyKey = headerKey;
       }
       ctx = await buildCtx({
         db,

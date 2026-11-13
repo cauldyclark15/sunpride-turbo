@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime, formatStatus } from "../../lib/format";
 import { useState, type FormEvent, type ReactNode } from "react";
 import dynamic from "next/dynamic";
 import { Button } from "@heroui/react";
@@ -140,7 +141,7 @@ export function MastersWorkspace() {
                 >
                   <span className="block text-sm font-medium">{r.label}</span>
                   <span className="text-xs text-muted">
-                    Version {r.version} · {r.status}
+                    Version {r.version} · {formatStatus(r.status)}
                     {r.sample ? " · Sample" : ""}
                   </span>
                 </button>
@@ -568,9 +569,7 @@ function MasterEditor({
               <div key={r.versionId} className="text-sm">
                 <p>
                   Version {r.version} · {r.label} ·{" "}
-                  {new Date(r.effectiveFrom).toLocaleString("en-PH", {
-                    timeZone: "Asia/Manila",
-                  })}
+                  {formatDateTime(r.effectiveFrom)}
                 </p>
                 <p className="text-xs text-muted">
                   {r.actorName} · {r.reason}

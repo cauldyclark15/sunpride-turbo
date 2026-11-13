@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../lib/format";
 
 import { useState, type FormEvent } from "react";
 import { apiFetch, mutate, useApi, useLive } from "../lib/api";
@@ -636,7 +637,8 @@ export function CallFlowReport() {
                     className="rounded-md border border-border p-3"
                   >
                     <p>
-                      {call.person} · {call.outlet} · {call.serviceDate}
+                      {call.person} · {call.outlet} ·{" "}
+                      {formatDate(call.serviceDate)}
                     </p>
                     <p className="text-sm text-muted">
                       {call.state === "open"
@@ -709,6 +711,8 @@ export function CallFlowReviews() {
   const labels: Record<string, string> = {
     geofence_start: "Outside-radius start",
     geofence_end: "Outside-radius end",
+    location_unavailable_start: "No location at start",
+    location_unavailable_end: "No location at end",
     short_call: "Short call",
     sequence: "Out-of-sequence call",
     unplanned: "Unplanned call",
@@ -717,8 +721,8 @@ export function CallFlowReviews() {
     <section className={panel}>
       <h2 className="text-lg font-semibold">Call exceptions</h2>
       <p className="text-sm text-muted">
-        Review short calls, deviations and requests to start outside a store
-        radius. Approval never changes the planned-stop denominator or the
+        Review short calls, deviations, calls recorded without a location and
+        requests to start outside a store radius. Approval never changes the planned-stop denominator or the
         original evidence.
       </p>
       {(message || result.error) && (

@@ -1,6 +1,8 @@
 package com.sunpride.field.ui.diagnosticvisit
 
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.assertIsEnabled
 import androidx.compose.ui.test.assertIsNotEnabled
@@ -25,6 +27,8 @@ import kotlinx.coroutines.runBlocking
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import androidx.compose.ui.test.assertTextEquals
 import org.junit.Rule
 import org.junit.Test
 import java.util.UUID
@@ -35,7 +39,7 @@ class DiagnosticVisitTest {
     private val alias = "diagnostic-visit-ui-test"
     private val context get() = rule.activity
     private fun scoped(): RoomFieldStore = EncryptedFieldDatabase.store(context, identity)
-    private inner class Backend(private val plans: List<VisitDisplay> = listOf(
+    private open inner class Backend(private val plans: List<VisitDisplay> = listOf(
         VisitDisplay("Test outlet", "Planned", "Scheduled", "outlet-1", "planned-1")),
         private val unplanned: List<VisitDisplay> = emptyList(),
         private val customers: List<com.sunpride.field.ui.customers.CustomerRecord> = emptyList()) : FieldBackend {
@@ -373,6 +377,48 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("order-discard").performClick()
         rule.waitUntil(10_000) { backend.orderDrafts().isEmpty() }
         rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-new").fetchSemanticsNodes().isNotEmpty() }
+    }
+    /** FLD-110: an invalid Qty in a long catalogue says why on screen, next to the box and above the disabled Save. */
+    @Test fun invalidQuantityShowsTheWholeNumberRuleOnScreen() {
+        val products = (1..40).map { CallSheetProduct("product-$it", "SKU-$it", "Product $it", "PC", null, "₱10.00") }
+        val sheet = CallSheet("outlet-1", 1, CallSheetHeader("Test account", null, null, null, null, null, null, null, null, "SRP"), products)
+        val outlet = JSONObject().put("id", "outlet-1").put("name", "Test outlet").put("routeId", "route-1")
+            .put("customerId", "customer-1").put("territoryId", "territory-1").put("territoryCode", "PASIG-01")
+        val store = scoped()
+        runBlocking {
+            store.swap(store.stage(ScopedSnapshot("{\"id\":\"test\"}", null, emptyList(),
+                listOf(SnapshotItem("outlet-1", outlet.toString())),
+                listOf(SnapshotItem("customer-1", "{\"id\":\"customer-1\",\"code\":\"CUST-1\"}")), emptyList(),
+                listOf(sheet))), "cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        }
+        store.close()
+        val backend = Backend()
+        val location = object : VisitLocation { override val requiresPermission = false; override suspend fun fix(): JSONObject? = null }
+        rule.setContent { FieldApp(AppEnvironment("https://sunpride.cauldnclark.com"),
+            dark = false, debug = true, backend = backend, visitLocation = location) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("diagnostic-open").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
+        backend.queueVisit("visit.checkIn", null, null, null, "planned-1", "outlet-1", emptyList(), null, null, null, null, null)
+        rule.onNodeWithTag("visit-back").performClick()
+        rule.onNodeWithTag("diagnostic-open").performScrollTo().performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("order-new").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("order-new").performScrollTo().performClick()
+        for (bad in listOf("2.5", "0", "100000")) {
+            rule.onNodeWithTag("order-products").performScrollToNode(hasTestTag("order-qty-product-1"))
+            rule.onNodeWithTag("order-qty-product-1").performTextClearance()
+            rule.onNodeWithTag("order-qty-product-1").performTextInput(bad)
+            androidx.test.espresso.Espresso.closeSoftKeyboard()
+            rule.waitForIdle()
+            rule.onNodeWithTag("order-invalid").assertIsDisplayed().assertTextEquals("Use whole numbers from 1 to 99,999.")
+            rule.onNodeWithTag("order-qty-error-product-1").assertIsDisplayed()
+            rule.onNodeWithTag("order-save").assertIsNotEnabled()
+        }
+        rule.onNodeWithTag("order-qty-product-1").performTextClearance()
+        rule.onNodeWithTag("order-qty-product-1").performTextInput("2")
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        rule.waitForIdle()
+        assertTrue(rule.onAllNodesWithTag("order-invalid").fetchSemanticsNodes().isEmpty())
+        rule.onNodeWithTag("order-save").assertIsEnabled()
     }
     /** SP-0088: account terms survive Room reopen; switch selling units, review credit and send despite warning. */
     @Test fun pricedOrderSwitchesUnitAndShowsAdvisoryCreditAboveThePhoneNavigationBar() {
@@ -767,4 +813,108 @@ class DiagnosticVisitTest {
             if (missingFix) "End location unavailable" else "weak signal", substring = true)
         rule.onNodeWithTag("result-sync").assertTextContains("Waiting to send", substring = true)
     }
+
+    /** FLD-084: an unplanned visit at a store with a configured call flow (radius 100 m around a verified pin). */
+    private inner class FlowBackend : Backend(emptyList(), listOf(VisitDisplay("Walk-in outlet", "Unplanned", "Reason required", "outlet-9"))) {
+        val pin = JSONObject().put("id", "pin-1").put("latitude", 14.5995).put("longitude", 120.9842)
+        val approvals = org.json.JSONArray()
+        val requests = mutableListOf<Pair<String, String>>()
+        val config get() = JSONObject()
+            .put("definition", JSONObject().put("id", "def-1").put("version", 1).put("label", "Sample field selling")
+                .put("channelProfile", "field_sales").put("steps", org.json.JSONArray()
+                    .put(JSONObject().put("key", "check_in").put("adapter", "check_in").put("label", "Check in").put("required", true).put("condition", "always"))
+                    .put(JSONObject().put("key", "check_out").put("adapter", "check_out").put("label", "Check out").put("required", true).put("condition", "always"))))
+            .put("policy", JSONObject().put("id", "policy-1").put("radiusMeters", 100).put("maxAccuracyMeters", 50)
+                .put("maxFixAgeMs", 60_000).put("minDwellMs", 0))
+            .put("reasons", org.json.JSONArray()).put("pin", pin).put("geofenceApprovals", approvals)
+        override fun callFlow(outletId: String): JSONObject? = config
+        override fun requestGeofence(outletId: String, reason: String, kind: String) { requests += kind to reason }
+        // The live backend runs this same shared engine in ConfiguredFieldCalls.prepare before the outbox insert.
+        override fun queueConfiguredVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
+            plannedVisitId: String?, outletId: String, intents: List<String>, unplannedReason: String?, note: String?,
+            outcome: String?, reasonCode: String?, location: JSONObject?, options: JSONObject?) {
+            val now = System.currentTimeMillis()
+            if (kind == "visit.checkIn") {
+                val approval = com.sunpride.callflow.CallFlowEngine.approval(config, "geofence_start", now)
+                com.sunpride.callflow.CallFlowEngine.location(config, location, now, approval != null)
+                approvalUsed = approval
+            }
+            queueVisit(kind, clientVisitId, checkInRequestId, previousRequestId, plannedVisitId, outletId, intents,
+                unplannedReason, note, outcome, reasonCode, location)
+        }
+        var approvalUsed: String? = null
+    }
+    private fun flowLocation(backend: FlowBackend, offsetDegrees: () -> Double) = object : VisitLocation {
+        override val requiresPermission = false
+        override suspend fun fix(): JSONObject = JSONObject().put("latitude", backend.pin.getDouble("latitude") + offsetDegrees())
+            .put("longitude", backend.pin.getDouble("longitude")).put("accuracyMeters", 5).put("fixTime", System.currentTimeMillis())
+            .put("provider", "gps").put("mockSignal", false)
+    }
+    private fun openUnplanned(backend: FlowBackend, location: VisitLocation) {
+        val store = scoped()
+        runBlocking { store.swap(store.stage(ScopedSnapshot("{\"id\":\"test\"}", null, emptyList(), emptyList(), emptyList(),
+            emptyList())), "cursor", System.currentTimeMillis() + 120_000, System.currentTimeMillis() + 120_000) }
+        store.close()
+        rule.setContent { FieldApp(AppEnvironment("https://sunpride.cauldnclark.com"),
+            dark = false, debug = true, backend = backend, visitLocation = location) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("unplanned-open").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("unplanned-open").performScrollTo().performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithText("Sample field selling").fetchSemanticsNodes().isNotEmpty() }
+    }
+    /** FLD-084: the reason the agent types first is the unplanned Reason; with Sell, Start enables and starts inside the radius. */
+    @Test fun unplannedConfiguredVisitStartsInsideRadius() {
+        val backend = FlowBackend()
+        openUnplanned(backend, flowLocation(backend) { 0.0 })
+        // Before any refusal there is only one reason field on the screen: the unplanned visit's own.
+        rule.onNodeWithTag("geofence-reason").assertDoesNotExist()
+        rule.onNodeWithTag("geofence-request").assertDoesNotExist()
+        val reasonTop = rule.onNodeWithTag("unplanned-reason").fetchSemanticsNode().positionInRoot.y
+        val purposeTop = rule.onNodeWithTag("intent-sell").fetchSemanticsNode().positionInRoot.y
+        org.junit.Assert.assertTrue("Reason sits above the purposes", reasonTop < purposeTop)
+        rule.onNodeWithContentDescription("Reason").performScrollTo().performTextInput("Owner asked for a delivery check")
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        rule.onNodeWithTag("intent-sell").performScrollTo().performClick()
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkin").assertIsEnabled() }.isSuccess }
+        rule.onNodeWithTag("diagnostic-checkin").performClick()
+        rule.waitUntil(10_000) { backend.visitStates().size == 1 ||
+            rule.onAllNodesWithTag("queue-error").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("queue-error").assertDoesNotExist()
+        val start = JSONObject(backend.visitStates().single().first.serializedOperation).getJSONObject("payload")
+        assertEquals(JSONObject.NULL, start.opt("plannedVisitId"))
+        assertEquals("Owner asked for a delivery check", start.getString("unplannedReason"))
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-title").assertTextContains("Unplanned · In progress") }.isSuccess }
+    }
+    /** FLD-084/FLD-086 F-106: outside the radius Start is refused, the agent asks the supervisor, and starts once approved. */
+    @Test fun unplannedConfiguredVisitOutsideRadiusStartsAfterSupervisorApproval() {
+        val backend = FlowBackend()
+        openUnplanned(backend, flowLocation(backend) { 0.01 }) // about 1.1 km from the pin
+        rule.onNodeWithTag("unplanned-reason").performScrollTo().performTextInput("Owner asked for a delivery check")
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        rule.onNodeWithTag("intent-sell").performScrollTo().performClick()
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkin").assertIsEnabled() }.isSuccess }
+        rule.onNodeWithTag("diagnostic-checkin").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTag("geofence-reason").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithTag("queue-error").assertTextContains("Outside the store radius", substring = true)
+        assertEquals(0, backend.visitStates().size) // nothing queued without approval
+        rule.onNodeWithTag("geofence-request").performScrollTo().assertIsNotEnabled()
+        // FLD-086: the field is reachable by its visible label.
+        rule.onNodeWithContentDescription("Outside-radius exception reason").performScrollTo()
+            .performTextInput("Store entrance closed for construction")
+        androidx.test.espresso.Espresso.closeSoftKeyboard()
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("geofence-request").assertIsEnabled() }.isSuccess }
+        rule.onNodeWithTag("geofence-request").performScrollTo().performClick()
+        rule.waitUntil(10_000) { backend.requests.isNotEmpty() }
+        assertEquals("geofence_start" to "Store entrance closed for construction", backend.requests.single())
+        // The supervisor approves on the web; the next sync brings the grant down with the store's call flow.
+        val now = System.currentTimeMillis()
+        backend.approvals.put(JSONObject().put("id", "grant-1").put("policyId", "policy-1").put("kind", "geofence_start")
+            .put("approvedAt", now - 1_000).put("expiresAt", now + 3_600_000))
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkin").assertIsEnabled() }.isSuccess }
+        rule.onNodeWithTag("diagnostic-checkin").performClick()
+        rule.waitUntil(10_000) { backend.visitStates().size == 1 }
+        assertEquals("grant-1", backend.approvalUsed)
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-title").assertTextContains("Unplanned · In progress") }.isSuccess }
+        rule.onNodeWithTag("geofence-reason").assertDoesNotExist()
+    }
+
 }

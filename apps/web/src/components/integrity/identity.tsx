@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "../../lib/format";
 import { useState, type FormEvent } from "react";
 import { mutate, useApi } from "../../lib/api";
 import { usePermissions } from "../../lib/auth";
@@ -207,11 +208,9 @@ export function CompanyIdentity() {
               {p.label} · {p.issuer}
             </p>
             <p>
-              {new Date(p.effective_from).toLocaleString()} →{" "}
-              {p.effective_to
-                ? new Date(p.effective_to).toLocaleString()
-                : "Open ended"}{" "}
-              · {p.source_ref}
+              {formatDateTime(p.effective_from)} →{" "}
+              {p.effective_to ? formatDateTime(p.effective_to) : "Open ended"} ·{" "}
+              {p.source_ref}
             </p>
           </article>
         ))}

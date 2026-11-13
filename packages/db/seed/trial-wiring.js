@@ -139,7 +139,7 @@ export async function wirePerson(db, person, template, slug, adopted) {
 /** Clone only today's sample plan when a fallback person needs work; no fake executions.
  * Existing approved sample snapshots are left untouched.
  * @param {Db} db @param {Row} person @param {Row} template @param {string} slug */
-async function ensureTodayPlan(db, person, template, slug) {
+export async function ensureTodayPlan(db, person, template, slug) {
   const today = todayManila();
   const [existing] =
     await db`select id from planned_visits where assignee_profile_id=${person.id} and service_date=${today} and status='planned' and deleted_at is null limit 1`;

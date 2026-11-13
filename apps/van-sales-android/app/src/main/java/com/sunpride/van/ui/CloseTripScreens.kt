@@ -28,12 +28,15 @@ import java.time.format.DateTimeFormatter
     val odometerValid = (!operational && draft.odometer.isBlank()) || TripCloseRules.validOdometer(km ?: Double.NaN,summary?.startOdometerKm)
     val noteValid = TripCloseRules.validNote(draft.note)
     val needsReview = checklist != null && TripCloseRules.needsReview(checklist,policy)
-    val ready = summary != null && saved == null && checklist!!.ready && odometerValid && noteValid && (!needsReview || draft.reviewed)
+    val otherwiseReady = summary != null && saved == null && checklist!!.ready && odometerValid && noteValid
+    val ready = otherwiseReady && (!needsReview || draft.reviewed)
+    // VAN-082: without the tick the button stays tappable and says what to do, instead of doing nothing.
+    val tickMessage = VanRules.closeTapMessage(otherwiseReady,needsReview,draft.reviewed)
 
     ScreenFrame("Close trip",c::back,
         action = if (saved != null) "Done" else if (c.busy) "Closing…" else "Close trip",actionTag = "close-trip",
-        enabled = if (saved != null) true else ready && !c.busy && c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN).isEmpty(),
-        onAction = { if (saved != null) c.back() else c.closeTrip() },
+        enabled = if (saved != null) true else (ready || tickMessage != null) && !c.busy && c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN).isEmpty(),
+        onAction = { if (saved != null) c.back() else if (tickMessage != null) c.say(tickMessage) else c.closeTrip() },
         footer = if (saved == null && checklist != null) "${checklist.blockers.size} to do · ${checklist.exceptions.size} to check" else null,
         message = c.message) {
         when {
@@ -44,10 +47,18 @@ import java.time.format.DateTimeFormatter
                 // IP-HOLD: carts parked for customers stop the trip closing.
                 LaunchedEffect(Unit) { c.refreshHeld() }
                 val held = c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN)
+                // VAN-055: discarding throws the carts away for good, so it asks first (as the store till close does).
+                var confirmDiscard by remember { mutableStateOf(false) }
                 if (held.isNotEmpty()) SectionCard("Held carts") {
                     Text(com.sunpride.van.pos.HeldCartRules.closeBlock(held.size, "close the trip")!!,modifier = Modifier.testTag("close-held"))
-                    DangerButton("Discard held ${if (held.size == 1) "cart" else "carts"}",{ c.discardAllHeld(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN) },Modifier.testTag("close-discard-held"),!c.busy)
+                    DangerButton("Discard held ${if (held.size == 1) "cart" else "carts"}",{ confirmDiscard = true },Modifier.testTag("close-discard-held"),!c.busy)
                 }
+                if (confirmDiscard && held.isNotEmpty()) AlertDialog(onDismissRequest = { confirmDiscard = false },
+                    title = { Text("Discard ${held.size} held ${if (held.size == 1) "cart" else "carts"}?") },
+                    text = { Text("They are thrown away. They cannot be brought back.") },
+                    confirmButton = { TextButton({ c.discardAllHeld(com.sunpride.van.pos.HeldCartRules.SURFACE_VAN); confirmDiscard = false },Modifier.heightIn(min = 48.dp).testTag("close-discard-confirm")) {
+                        Text("Discard",color = SunprideTokens.emptyRed,fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold) } },
+                    dismissButton = { TextButton({ confirmDiscard = false },Modifier.heightIn(min = 48.dp).testTag("close-discard-cancel")) { Text("Keep them") } })
                 SectionCard("Before you close") {
                     checklist!!.steps.forEach { step ->
                         Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(10.dp)) {

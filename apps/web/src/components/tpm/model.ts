@@ -144,8 +144,16 @@ export const peso = (n: number | null | undefined) =>
         currency: "PHP",
         maximumFractionDigits: 2,
       }).format(n / 100);
+/** Lower-case words for use inside a sentence; statuses use formatStatus (lib/format). */
 export const words = (s: string) =>
-  s.replaceAll("_", " ").replace(/([a-z])([A-Z])/g, "$1 $2");
+  s
+    .replaceAll("_", " ")
+    .replace(/([a-z])([A-Z])/g, (_, a: string, b: string) => `${a} ${b.toLowerCase()}`);
+/** The same words starting with a capital, for a label or a line of its own ("Settlement variance"). */
+export const titleWords = (s: string) => {
+  const w = words(s);
+  return w.charAt(0).toUpperCase() + w.slice(1);
+};
 export const day = (n: number) =>
   new Date(n + 8 * 3600_000).toISOString().slice(0, 10);
 /** Exact decimal pesos -> centavos, never binary float multiplication. */

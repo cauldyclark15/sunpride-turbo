@@ -271,6 +271,32 @@ describe("orders and governed prices on Postgres", () => {
     ).toBe("unknown");
     await h.db`update orders set status='rejected' where id=${r.body.id}`;
   });
+  test("WEB-103: an order stored before price snapshots (no pricing_snapshot) can be approved and posts its stored lines", async () => {
+    const r = await create({ channelKey: "no-price" });
+    expect(r.status).toBe(200);
+    // Legacy/imported shape: no snapshot, decimal lines without base quantity, unit or centavos.
+    await h.db`update orders set pricing_snapshot=null,amount_known=true,total_centavos=coalesce(total_centavos,2500) where id=${r.body.id}`;
+    await h.db`update order_lines set uom=null,quantity_base=null,unit_price_centavos=null,line_total_centavos=null,unit_price=coalesce(unit_price,25) where order_id=${r.body.id}`;
+    const yes = await api(manager, "orders/approve", {
+      id: r.body.id,
+      reason: "Legacy order checked",
+      idempotencyKey: crypto.randomUUID(),
+    });
+    expect(yes.body.error?.message ?? null).toBeNull();
+    expect(yes.status).toBe(200);
+    const d = await api(manager, `orders/detail?id=${r.body.id}`);
+    expect(d.body.status).toBe("approved");
+    const [event] =
+      await h.db`select payload from integration_events where direction='outbound' and source_type='order' and source_id=${r.body.id}`;
+    const lines = event.payload.document.lines;
+    expect(lines.length).toBeGreaterThan(0);
+    for (const l of lines) {
+      expect(typeof l.uom).toBe("string");
+      expect(Number.isSafeInteger(l.quantityBase)).toBe(true);
+    }
+    expect(event.payload.document.facts.pricing).toBeNull();
+  });
+
   test("no self approval, separate approver, named history and replay", async () => {
     // HTTP callers cannot forge field lineage, a cheaper channel, credited person or capture time.
     const r = await create({
@@ -759,6 +785,9 @@ describe("orders and governed prices on Postgres", () => {
     expect(list.status).toBe(200);
     expect(list.body.total).toBe(1);
     expect(list.body.rows[0].storeName).toBe("Market Store");
+    // WEB-106: the specific reason, not the general sentence.
+    expect(list.body.rows[0].reviewCode).toBe("wrong_time");
+    expect(list.body.rows[0].reason).toBe("Order time is outside the visit");
     expect(
       (
         await api(admin, "orders/field-review/retry", {
@@ -1062,4 +1091,25 @@ test("when SAP owns prices, office price import and delete are refused like save
   }
   const gone = await raw("pricing/price-lists/delete", { id: list.id });
   expect(gone.body.ok).toBe(true);
+  // WEB-138: a code already used (even by a removed list) is refused in plain words, not "Something went wrong".
+  const dup = await raw("pricing/price-lists/save", {
+    priceListCode: "SAPGUARD",
+    channelKey: "sapguard-dup",
+    effectiveFrom: "2030-01-01T00:00:00Z",
+  });
+  expect(dup.status).toBe(422);
+  expect(dup.body.error.message).toBe(
+    "A price list with code SAPGUARD already exists. Choose another code.",
+  );
+});
+
+test("WEB-106 review codes name the specific cause in plain words", async () => {
+  const { reviewCodeOf, reviewReason } = await import("../src/domains/orders/field-queue.js");
+  const { ApiError } = await import("../src/core/errors.js");
+  const e = (/** @type {string} */ m, code = "invalid_request") => new ApiError(code, 422, m);
+  expect(reviewReason(reviewCodeOf(e("This store needs an accounting customer before a commercial order can be booked")))).toBe("Unknown store (no accounting customer linked)");
+  expect(reviewReason(reviewCodeOf(e("A free product needs a governed reference price before approval")))).toBe("Missing price");
+  expect(reviewReason(reviewCodeOf(e("The store's selling catalog needs setup")))).toBe("Store's selling list is not set up");
+  expect(reviewReason(reviewCodeOf(e("Product was not authorized on the visit day")))).toBe("Product was not on the store's list that day");
+  expect(reviewReason("invalid_request")).toMatch(/^Captured order needs selling setup/);
 });

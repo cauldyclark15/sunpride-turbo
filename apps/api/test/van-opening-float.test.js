@@ -7,6 +7,7 @@ import {
   signedPost,
 } from "./harness.js";
 import { openingFloat, today } from "../src/domains/van/model.js";
+import { cashExpectation } from "../src/domains/van/facts.js";
 
 /** @type {any[]} */ const postings = [];
 mock.module("../src/domains/inventory/posting.js", () => ({
@@ -348,4 +349,36 @@ test("IP-P0 fix: the bundle carries the trip's opening float and the handheld ca
     supervisorName: null,
     supervisorPhone: null,
   });
+});
+
+test("NF-5: the handheld bundle lists the trip's cash the office holds per sale, so a second phone expects the same cash", async () => {
+  const { trip, start } = await startTrip(100000);
+  expect((await push([start])).body.results[0].status).toBe("applied");
+  // Two sales made on the seller's first phone (one later voided) plus a GCash sale: only cash rows are sent.
+  const sale = async (/** @type {string} */ n, /** @type {number} */ total) => {
+    const id = crypto.randomUUID();
+    await h.db`insert into van_sales(id,trip_id,receipt_number,total_centavos,receipt,captured_request) values(${id},${trip.tripId},${n},${total},'{}','{}')`;
+    return id;
+  };
+  const a = await sale("NF5-1", 50000), b = await sale("NF5-2", 20000), g = await sale("NF5-3", 9000);
+  const pay = (/** @type {string} */ saleId, /** @type {string} */ kind, /** @type {string} */ method, /** @type {number} */ c) =>
+    h.db`insert into van_payments(id,trip_id,sale_id,kind,method,amount_centavos,facts) values(${crypto.randomUUID()},${trip.tripId},${saleId},${kind},${method},${c},'{}')`;
+  await pay(a, "sale", "cash", 50000);
+  await pay(b, "sale", "cash", 20000);
+  await pay(b, "void_refund", "cash", 20000);
+  await pay(g, "sale", "gcash", 9000);
+  const bundle = await pullBundle(true);
+  expect(bundle.trip.serverCash).toEqual([
+    { saleId: a, kind: "sale", amountMinor: "50000" },
+    { saleId: b, kind: "sale", amountMinor: "20000" },
+    { saleId: b, kind: "void_refund", amountMinor: "20000" },
+  ]);
+  // What the phone adds (float + sales - voids) is exactly what the office will check the count against.
+  const net = bundle.trip.serverCash.reduce(
+    (/** @type {number} */ t, /** @type {any} */ r) => t + (r.kind === "sale" ? 1 : -1) * Number(r.amountMinor),
+    bundle.trip.openingFloatCentavos,
+  );
+  expect(String(net)).toBe(String(await cashExpectation(h.db, trip.tripId)));
+  // Frozen v1 phones validate the trip strictly: nothing new unless the handheld asks.
+  expect((await pullBundle(false)).trip.serverCash).toBeUndefined();
 });

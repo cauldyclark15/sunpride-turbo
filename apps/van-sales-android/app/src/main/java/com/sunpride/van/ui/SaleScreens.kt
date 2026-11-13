@@ -87,7 +87,10 @@ import androidx.compose.runtime.saveable.rememberSaveable
         cartExtras = {
             val manualUsed = draft.manualDiscount?.let { it.lineMinor.isNotEmpty() || it.basketMinor > 0L } == true || draft.priceOverride?.unitMinor?.isNotEmpty() == true
             // IP-HH2: Senior / PWD / Solo parent / Athlete / Uniformed; it replaces the manual discount and the price exception on this sale.
-            SecondaryButton(draft.claim?.let { "${it.type.label} discount · ${it.holderName.trim()}" } ?: "Senior, PWD or other discount",{ claiming = true },Modifier.testTag("sale-claim"),!c.busy && draft.lines.isNotEmpty() && (draft.claim != null || !manualUsed))
+            // SP-0169: never offer a discount the office has switched off (a claim already on the cart can still be removed).
+            if (com.sunpride.van.selling.PrivilegeSwitch.offered(c.policy) || draft.claim != null)
+                SecondaryButton(draft.claim?.let { "${it.type.label} discount · ${it.holderName.trim()}" } ?: "Senior, PWD or other discount",{ claiming = true },Modifier.testTag("sale-claim"),!c.busy && draft.lines.isNotEmpty() && (draft.claim != null || !manualUsed))
+            else Text(com.sunpride.van.selling.PrivilegeSwitch.OFF_MESSAGE,style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("sale-claim-off"))
             draft.claim?.let { claim -> ClaimSummary(claim,quote?.legal,c.claimPreview,null) }
             SecondaryButton("Line & basket discounts",{ discounting = true },Modifier.testTag("sale-discounts"),!c.busy && draft.lines.isNotEmpty() && draft.claim == null)
             SecondaryButton("Price exception",{ changingPrice = true },Modifier.testTag("sale-price-exception"),!c.busy && draft.lines.isNotEmpty() && draft.claim == null)
@@ -173,7 +176,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
         onPay = { quote?.let { c.completeSale(payment,it.totalMinor,splitPayment) } }, onBack = c::back, message = c.message,
         options = listOf(
             // IP-HH2: Senior / PWD / Solo parent / Athlete / Uniformed replaces the manual discount and the price exception on this sale.
-            PayOption("Discount",draft.claim?.type?.label,"sale-claim",{ claiming = true },enabled = !c.busy && draft.lines.isNotEmpty() && (draft.claim != null || !manualUsed),active = draft.claim != null),
+            // SP-0169: disabled when the office has Senior/PWD switched off (a claim already on the cart can still be removed).
+            PayOption("Discount",draft.claim?.type?.label ?: "Off".takeUnless { com.sunpride.van.selling.PrivilegeSwitch.offered(c.policy) },"sale-claim",{ claiming = true },enabled = !c.busy && draft.lines.isNotEmpty() && (draft.claim != null || (!manualUsed && com.sunpride.van.selling.PrivilegeSwitch.offered(c.policy))),active = draft.claim != null),
             PayOption("Line discount",if (manualUsed) "Applied" else null,"sale-discounts",{ discounting = true },enabled = !c.busy && draft.lines.isNotEmpty() && draft.claim == null,active = manualUsed))) {
         draft.claim?.let { claim -> ClaimSummary(claim,due?.legal,preview,null) }
         if (splitOn) SectionCard("Second tender") {
@@ -234,7 +238,7 @@ private const val SPLIT_ID = "split"
 private fun claimIssue(c: VanController, draft: SaleDraft): String? {
     if (draft.claim == null) return null
     val issues = c.quote(PaymentInput(PaymentMethod.CASH.code,CheckoutRules.MAX_MINOR))?.issues.orEmpty()
-    val i = issues.firstOrNull { it.problem == CheckoutProblem.DISCOUNT_TAX_UNKNOWN || it.problem == CheckoutProblem.DISCOUNT_CLAIM_INVALID || it.problem == CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL } ?: return null
+    val i = issues.firstOrNull { it.problem == CheckoutProblem.DISCOUNT_TAX_UNKNOWN || it.problem == CheckoutProblem.DISCOUNT_CLAIM_INVALID || it.problem == CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL || it.problem == CheckoutProblem.DISCOUNT_SWITCHED_OFF } ?: return null
     return VanRules.checkoutMessage(i.problem,i.productId?.let { id -> c.products.firstOrNull { it.productId == id }?.name })
 }
 

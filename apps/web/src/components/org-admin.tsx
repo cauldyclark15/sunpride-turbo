@@ -1,4 +1,5 @@
 "use client";
+import { formatStatus } from "../lib/format";
 
 import { Button, Input, ListBox, Select } from "@heroui/react";
 import { api } from "./master-data/api";
@@ -239,7 +240,7 @@ export function OrgAdmin() {
       render: (row) => (
         <span className="whitespace-nowrap">
           <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
-            {row.status}
+            {formatStatus(row.status)}
           </StatusPill>
         </span>
       ),

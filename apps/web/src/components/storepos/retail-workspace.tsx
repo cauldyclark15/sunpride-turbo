@@ -1,10 +1,15 @@
 "use client";
+import { formatDate, formatStatus } from "../../lib/format";
 
 import { useState } from "react";
 import Link from "next/link";
 import { useApi, useLive, mutate } from "../../lib/api";
 import { Panel } from "../cockpit/kit";
 import { formatPhp as cockpitPhp } from "../cockpit/format";
+
+/** Plain status word for a void/refund request (WEB-043). */
+export const reversalStatus = (status: string) =>
+  status === "pending" ? "Waiting for a decision" : formatStatus(status);
 const formatPhp = (value: number | null | undefined) =>
   cockpitPhp(value, { cents: true });
 
@@ -50,6 +55,39 @@ type Read = {
     }[];
   };
 };
+type SavedPolicy = {
+  id: string;
+  toleranceCentavos: string;
+  loyaltyEnabled: boolean;
+  earnPerCentavos: string;
+  pointValueCentavos: string;
+  employeeDiscountBps: number;
+};
+
+const pesos = (centavos: string | number) => {
+  const n = Number(centavos) / 100;
+  return Number.isInteger(n) ? String(n) : n.toFixed(2);
+};
+
+/** WEB-044: the configuration form starts from the saved policy and target (sample
+ * defaults only when nothing is saved yet). */
+export function policyFormValues(d: {
+  policy?: SavedPolicy | null;
+  dailyTargetCentavos?: string | null;
+}) {
+  const p = d.policy;
+  return {
+    key: `${p?.id ?? "none"}:${d.dailyTargetCentavos ?? ""}`,
+    dailyTarget:
+      d.dailyTargetCentavos != null ? pesos(d.dailyTargetCentavos) : "",
+    tolerance: p ? pesos(p.toleranceCentavos) : "50",
+    discount: p ? String(p.employeeDiscountBps / 100) : "10",
+    loyalty: p ? p.loyaltyEnabled : false,
+    earn: p ? pesos(p.earnPerCentavos) : "100",
+    pointValue: p ? pesos(p.pointValueCentavos) : "1",
+  };
+}
+
 type Office = {
   register: {
     id: string;
@@ -64,6 +102,8 @@ type Office = {
     status: string;
     number: string;
     canDecide: boolean;
+    /** Who decides, when this viewer cannot (WEB-043). */
+    decideNote?: string | null;
   }[];
   deposits: {
     id: string;
@@ -85,6 +125,8 @@ type Office = {
     canDecide: boolean;
   }[];
   reads: Read[];
+  policy?: SavedPolicy | null;
+  dailyTargetCentavos?: string | null;
   locations: Choice[];
   products: Choice[];
   outlets: Choice[];
@@ -452,7 +494,7 @@ export function RetailWorkspace() {
                       className="border-l-2 border-foreground pl-3"
                     >
                       <span>
-                        {t.day} · {t.category}
+                        {formatDate(t.day)} · {t.category}
                       </span>
                       <strong className="block">{formatPhp(t.sales)}</strong>
                       <meter
@@ -593,6 +635,20 @@ export function RetailOperations({
     [pointValue, setPointValue] = useState("1");
   const [reason, setReason] = useState("");
   const d = result.data;
+  // Seed (and re-seed after a save) from what is stored, during render.
+  const [seeded, setSeeded] = useState("");
+  if (d) {
+    const v = policyFormValues(d);
+    if (v.key !== seeded) {
+      setSeeded(v.key);
+      setDailyTarget(v.dailyTarget);
+      setTolerance(v.tolerance);
+      setDiscount(v.discount);
+      setLoyalty(v.loyalty);
+      setEarn(v.earn);
+      setPointValue(v.pointValue);
+    }
+  }
   async function send(path: string, body: Record<string, unknown>) {
     setBusy(true);
     setNotice("");
@@ -641,7 +697,7 @@ export function RetailOperations({
             <div key={v.id} className="mt-3 border-t border-separator pt-3">
               <p>
                 {v.kind === "void" ? "Void" : "Refund"} · {v.number} ·{" "}
-                {v.reason}
+                {v.reason} · {reversalStatus(v.status)}
               </p>
               {v.canDecide ? (
                 <div className="mt-2 flex gap-2">
@@ -671,7 +727,10 @@ export function RetailOperations({
                   </button>
                 </div>
               ) : (
-                <p>A second person must decide.</p>
+                <p>
+                  {v.decideNote ??
+                    "A store manager, sales manager or approver decides this."}
+                </p>
               )}
             </div>
           ))}
@@ -681,7 +740,7 @@ export function RetailOperations({
               {v.bank} · {v.reference} · {formatPhp(Number(v.amount))} ·{" "}
               {v.status === "matched"
                 ? "Matches Z-read amount · not bank confirmation"
-                : v.status.replaceAll("_", " ")}
+                : formatStatus(v.status)}
             </p>
             {v.canViewPhoto && (
               <a
@@ -748,7 +807,7 @@ export function RetailOperations({
                 className="flex flex-wrap items-center justify-between gap-2 border-b border-separator py-3"
               >
                 <span>
-                  {r.kind.toUpperCase()} read {r.sequence} · {r.snapshot.date} ·{" "}
+                  {r.kind.toUpperCase()} read {r.sequence} · {formatDate(r.snapshot.date)} ·{" "}
                   {formatPhp(Number(r.snapshot.salesCentavos))}
                 </span>
                 <button

@@ -381,6 +381,8 @@ export interface Endpoints {
         carriedFrom: null | string;
       }[];
       partners: string[];
+      /** People in scope; the Partner is picked from these (WEB-120). */
+      people?: { profileId: string; name: string; employeeCode: null | string }[];
     };
   };
   "supervision.talk_sheet.create": {

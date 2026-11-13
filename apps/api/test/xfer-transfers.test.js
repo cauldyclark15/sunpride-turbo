@@ -701,6 +701,19 @@ describe("receive: good / damaged / on hold, partial, short, over", () => {
       (await read(admin, `transfers/detail?id=${crypto.randomUUID()}`)).status,
     ).toBe(404);
   });
+  it("SP-0169 r6: a document an automatic job requested (system:van-plan) lists and reads with a readable name", async () => {
+    const p = await product();
+    await receipt(p, 96);
+    const id = await dispatched(p, 96);
+    await h.db`update stock_transfers set requested_by='system:van-plan' where id=${id}`;
+    const list = await read(admin, "transfers/list");
+    expect(list.status).toBe(200);
+    const row = list.body.transfers.find((/** @type {any} */ t) => t.id === id);
+    expect(row).toBeTruthy();
+    const detail = await read(admin, `transfers/detail?id=${id}`);
+    expect(detail.status).toBe(200);
+    expect(JSON.stringify(detail.body)).toContain("Van plan (automatic)");
+  });
 });
 
 describe("van load-in document", () => {

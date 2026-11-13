@@ -506,7 +506,7 @@ links there.
    Distribution Channel narrows Customer Grp 1, which narrows Customer Grp 2 (greyed out when
    the chain has none); Region → Province → Municipality → Barangay → Postal Code.
 3. Customer Address is built from the location parts; type over it if needed.
-4. Click **Create customer**. A new customer starts as a **Prospect** (section 9).
+4. Click **Save**. A new customer starts as a **Prospect** (section 9).
 
 To edit: click **Edit** at the end of the customer's row (or open it), change and **Save**.
 People without the right to edit see the same form read only.
@@ -522,9 +522,17 @@ Two different people are needed: one proposes, another verifies.
 3. To verify (not the proposer): open **Customers**, then **New customers**, and confirm the
    pin under the pins to confirm.
 
-The pin radius never blocks a check-in (Client rule: no fixed distance). A check-in
-outside the radius is only flagged for the supervisor (section 15). Only verified pins show
-on the coverage map.
+A phone with **no location** (Location off, permission off, no signal) never blocks a
+check-in: the call starts, the seller sees **Location unavailable · supervisor will review**,
+and you get a **No location** item in section 15 (van calls: **No location at start** or **No location at end** in
+Call exceptions). On stores without a configured call flow, a check-in outside the radius is
+only flagged for the supervisor (section 15), and a weak or old fix that the phone sent is
+also saved: the seller sees "Location recorded · ±N m · supervisor will review", and you get the
+item in section 15. These stores have no visit evidence requirement and rural fixes are often
+weak, so the call is kept and you review it. On call-flow stores a weak or old fix is refused
+("Location is old or not accurate enough. Get a fresh fix outside."); the seller must get a fresh fix. On call-flow stores, a fix outside the radius
+needs your approval before Start (the seller taps Request supervisor approval on the phone), and a
+mock (fake) location is always refused. Only verified pins show on the coverage map.
 
 ### 12.3 Assign outlets to a territory and route, and set stop order
 

@@ -52,7 +52,7 @@ class VanSyncClientTest {
         })))
         val local=JSONObject(client(t).bootstrap())
         val params=JSONObject(String(t.bodies.single())).getJSONArray("scopes").getJSONObject(0).getJSONObject("params")
-        assertTrue(params.getBoolean("vanDay")); assertTrue(params.getBoolean("categories")); assertTrue(params.getBoolean("handheld"))
+        assertTrue(params.getBoolean("vanDay")); assertTrue(params.getBoolean("pickupDecisions")); assertTrue(params.getBoolean("categories")); assertTrue(params.getBoolean("handheld"))
         assertFalse("the frozen top level is untouched",local.has("vanDay"))
         assertEquals("ABC-1234",VanBootstrapCodec.decode(local.toString()).policy.vanDay!!.vehicleLabel)
         assertTrue(VanBootstrapCodec.decode(local.toString()).products.all { it.category=="Juices" })
@@ -130,6 +130,20 @@ class VanSyncClientTest {
             val v2=V2VanCodec.operation(row)
             assertEquals("op-id",v2.getString("clientOpId")); assertEquals(1000,v2.getLong("clientTime").toInt()); assertEquals(op.getJSONObject("payload").toString(),v2.getJSONObject("payload").toString())
         }
+    }
+    /** SP-0169: a refused sale whose number the office recorded as spoiled reaches the outbox with its own code and a plain message. */
+    @Test fun aRefusedReceiptTheOfficeSpoiledIsReportedAsSpoiled() {
+        val op=JSONObject().put("clientOpId","id").put("opType","sale.record")
+        val r=JSONObject().put("clientOpId","id").put("opType","sale.record").put("status","rejected").put("code","invalid_request").put("retryable",false)
+            .put("ack",JSONObject.NULL).put("spoiled",JSONObject().put("documentNumber","SI-000000001").put("serial","1"))
+        val body=JSONObject().put("version",2).put("results",JSONArray().put(r))
+        val result=V2VanCodec.results(body,listOf(op)).single()
+        assertEquals("rejected",result.status); assertEquals("SI-000000001",result.spoiledNumber); assertEquals("invalid_request",result.code)
+        val msg=com.sunpride.van.selling.RefusedReceipt.message("SI-000000001")
+        assertTrue(msg.contains("SI-000000001") && msg.contains("spoiled") && msg.contains("ring the sale again"))
+        // no spoil block, or a malformed number: an ordinary refusal
+        r.remove("spoiled"); assertNull(V2VanCodec.results(body,listOf(op)).single().spoiledNumber)
+        r.put("spoiled",JSONObject().put("documentNumber","SI 1; drop")); assertNull(V2VanCodec.results(body,listOf(op)).single().spoiledNumber)
     }
     @Test fun duplicateRetainsOriginalAckAndUnknownStatusesFreeze() {
         val op=JSONObject().put("clientOpId","id").put("opType","sale.record")

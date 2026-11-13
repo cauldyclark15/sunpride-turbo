@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime } from "../../lib/format";
 
 /**
  * SP-0170 "Upload customers" (machinery from SP-0169) — five-step flow shared by the Customers
@@ -47,8 +48,7 @@ type Picked = {
   rows: UploadRow[];
 };
 
-const when = (ms: number | null) =>
-  ms ? new Date(ms).toLocaleString("en-PH", { timeZone: "Asia/Manila" }) : "—";
+const when = (ms: number | null) => (ms ? formatDateTime(ms) : "—");
 const errorLabel = (e: UploadError) => e.label ?? columnLabel(e.column);
 
 export function UploadStepper({ step }: { step: Step }) {

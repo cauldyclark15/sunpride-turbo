@@ -1,4 +1,5 @@
 "use client";
+import { formatStatus } from "../../lib/format";
 import { useState, type FormEvent } from "react";
 import { Button } from "@heroui/react";
 import { Card } from "@sunpride/ui";
@@ -46,7 +47,7 @@ export function MigrationReview() {
               className="rounded-lg border border-border px-3 py-2 text-xs"
               key={`${t.kind}:${t.status}`}
             >
-              {t.kind.replaceAll("_", " ")} · {t.status}: {t.rows} rows
+              {formatStatus(t.kind)} · {formatStatus(t.status)}: {t.rows} rows
               {t.kind === "open_ar"
                 ? ` · ${migrationPesos(t.open_centavos)}`
                 : ""}

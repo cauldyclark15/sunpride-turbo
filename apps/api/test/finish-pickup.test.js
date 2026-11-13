@@ -9,7 +9,9 @@ import {
   pickupManifest,
   pickupQueue,
   reviewPickup,
+  pickupDecisions,
 } from "../src/domains/van/pickups.js";
+import { vanProjection } from "../src/domains/van/projection.js";
 test("F-113 unlinked evidence survives as custody, not stock or money; independent review links a historical SAP credit request", async () => {
   const h = await startHarness();
   try {
@@ -145,6 +147,107 @@ test("F-113 unlinked evidence survives as custody, not stock or money; independe
     const [event] =
       await h.db`select payload from integration_events where event_id=${`credit_memo:van_return:${p.returnId}`}`;
     expect(event.payload.document.lines[0].productCode).toBe("SAMPLE-ORIGINAL");
+
+    // VAN-061: on an operations-version-0 trip the handheld saves "Thrown away at the store · needs approval" as
+    // "Waiting for office approval" (no signed F-113 evidence, nothing on the truck). Sync must hold it for the
+    // office pickup review, not refuse it, and the office (never the seller) verifies the disposal.
+    const thrown = {
+      returnId: crypto.randomUUID(),
+      returnNumber: "SAMPLE-PICKUP-002",
+      customer: { outletId: outlet.id },
+      customerName: "SAMPLE buyer",
+      status: "awaiting_approval",
+      approval: { required: true, reasons: ["disposed_at_outlet"] },
+      originalSale: { saleId, receiptNumber: "SAMPLE-OLD-SI" },
+      deviceTime: Date.now(),
+      lines: [
+        {
+          lineNumber: 1,
+          productId: sku,
+          product: {
+            name: "SAMPLE item",
+            code: "SAMPLE-PICKUP",
+            quantityScale: "1",
+            uomCode: "EA",
+          },
+          uomCode: "EA",
+          uomBaseQuantity: "1",
+          uomQuantity: "1",
+          quantityBase: "1",
+          reason: "expired",
+          reasonLabel: "Expired",
+          lotNumber: "SAMPLE-LOT",
+          expiryDate: "2026-10-31",
+          disposition: "disposed_at_outlet",
+          stockEffect: "none",
+          approvalRequired: true,
+        },
+      ],
+    };
+    await tx(h.db, (db) => capturePickup(db, trip, seller, thrown));
+    const held = (await pickupQueue(h.db, reviewer, trip.id)).items.find(
+      (/** @type {any} */ x) => x.id === thrown.returnId,
+    );
+    expect(held?.returnNumber).toBe("SAMPLE-PICKUP-002");
+    expect(
+      (
+        await h.db`select count(*)::int as n from inventory_movements`
+      )[0].n,
+    ).toBe(0);
+    // Not presented as a completed disposal: the settlement gate still waits for the office.
+    expect(
+      (
+        await h.db`select count(*)::int as n from van_return_reviews where return_id=${thrown.returnId}`
+      )[0].n,
+    ).toBe(0);
+    await expect(
+      tx(h.db, (db) =>
+        reviewPickup(db, seller, {
+          returnId: thrown.returnId,
+          decision: "disposal_verified",
+          reason: "SAMPLE self",
+        }),
+      ),
+    ).rejects.toThrow();
+    await tx(h.db, (db) =>
+      reviewPickup(db, reviewer, {
+        returnId: thrown.returnId,
+        decision: "disposal_verified",
+        reason: "SAMPLE store disposal checked",
+      }),
+    );
+    // r6van3: the van phone learns the office's decision from its bundle (policy.pickupDecisions, opt-in).
+    const decided = await pickupDecisions(h.db, trip.id);
+    expect(decided.find((/** @type {any} */ d) => d.returnId === thrown.returnId)).toMatchObject({
+      decision: "disposal_verified",
+      reason: "SAMPLE store disposal checked",
+    });
+    // The first pickup's latest decision is the credit request, not the earlier warehouse receipt.
+    expect(decided.find((/** @type {any} */ d) => d.returnId === p.returnId)?.decision).toBe("credit_requested");
+    // A rejected disposal (goods back with the customer) carries the office's reason to the phone.
+    const rejected = { ...thrown, returnId: crypto.randomUUID(), returnNumber: "SAMPLE-PICKUP-003" };
+    await tx(h.db, (db) => capturePickup(db, trip, seller, rejected));
+    expect((await pickupDecisions(h.db, trip.id)).some((/** @type {any} */ d) => d.returnId === rejected.returnId)).toBe(false);
+    await tx(h.db, (db) =>
+      reviewPickup(db, reviewer, { returnId: rejected.returnId, decision: "returned_to_outlet", reason: "SAMPLE no disposal proof" }),
+    );
+    expect((await pickupDecisions(h.db, trip.id)).find((/** @type {any} */ d) => d.returnId === rejected.returnId)).toMatchObject({
+      decision: "returned_to_outlet",
+      reason: "SAMPLE no disposal proof",
+    });
+    const today = new Date().toISOString().slice(0, 10);
+    expect(vanProjection({}).params?.({ serviceDate: today, pickupDecisions: true })).toMatchObject({ pickupDecisions: true });
+    expect(vanProjection({}).params?.({ serviceDate: today })).not.toHaveProperty("pickupDecisions");
+    // A governed (version 1) handheld must still send the signed custody capture.
+    await expect(
+      tx(h.db, (db) =>
+        capturePickup(db, { ...trip, operations_version: 1 }, seller, {
+          ...thrown,
+          returnId: crypto.randomUUID(),
+          settlementVersion: 1,
+        }),
+      ),
+    ).rejects.toThrow("Update the handheld");
   } finally {
     await h.close();
   }

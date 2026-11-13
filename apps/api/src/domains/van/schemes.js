@@ -1,4 +1,5 @@
 import { activePromotions, applyPromotions } from "../orders/pricing.js";
+import { alignPromotionPriceLists } from "../tpm/active.js";
 import { eligibilityFacts } from "../tpm/campaigns.js";
 import { eligibility, schemeUnits } from "../tpm/engine.js";
 import { canonicalJson } from "../../core/util.js";
@@ -110,7 +111,12 @@ export async function validateSaleSchemes(
   incoming,
   at,
 ) {
-  const all = await activePromotions(db, trip.organization_id, at);
+  // FLD-116: verify against the same SAP-mirror list alignment the native quote used.
+  const all = await alignPromotionPriceLists(
+    db,
+    await activePromotions(db, trip.organization_id, at),
+    lines.map((/** @type {any} */ l) => l.priceListId),
+  );
   const facts = all.length
     ? await eligibilityFacts(
         { db, actor, now: at },

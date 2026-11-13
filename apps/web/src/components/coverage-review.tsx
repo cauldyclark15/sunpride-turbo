@@ -1,4 +1,10 @@
 "use client";
+import {
+  formatDate,
+  formatDateTime,
+  formatMonth,
+  formatStatus,
+} from "../lib/format";
 
 import {
   Card,
@@ -30,14 +36,7 @@ type Permissions = {
 };
 const secondaryAction =
   "h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground";
-const stamp = (ms?: number) =>
-  ms
-    ? new Date(ms).toLocaleString("en-PH", {
-        timeZone: "Asia/Manila",
-        dateStyle: "medium",
-        timeStyle: "short",
-      })
-    : "—";
+const stamp = (ms?: number) => (ms ? formatDateTime(ms) : "—");
 export const coverageStatus = (
   plan: Pick<Doc<"coveragePlans">, "status" | "effectiveFrom">,
 ) =>
@@ -84,6 +83,32 @@ export function signatureLabel(signature: string): string {
   const hash = parts[parts.length - 1] ?? "";
   if (parts.length < 5 || !/^\d+$/.test(version ?? "")) return "signed";
   return `v${version} · ${hash.slice(0, 12)}`;
+}
+
+/** WEB-118: history actions in plain words, not "plan.approve". */
+const ACTION_LABELS: Record<string, string> = {
+  "plan.created": "Plan created",
+  "plan.create": "Plan created",
+  "plan.createRevision": "Revision started",
+  "plan.applyToDraft": "Routine applied to the draft",
+  "plan.saveOutlets": "Outlets saved",
+  "plan.saveSlots": "Visit days saved",
+  "plan.setAssignment": "Assignment saved",
+  "plan.submit": "Submitted for approval",
+  "plan.returnPlan": "Returned to draft",
+  "plan.returned": "Returned to draft",
+  "plan.approved": "Approved and signed",
+  "plan.submitted": "Submitted for approval",
+  "plan.approve": "Approved and signed",
+  "plan.activated": "Plan in force",
+  "plan.superseded": "Replaced by a newer plan",
+  "routines.applied": "Weekly routine applied",
+};
+export function historyActionLabel(action: string): string {
+  if (ACTION_LABELS[action]) return ACTION_LABELS[action];
+  const tail = action.split(".").pop() ?? action;
+  const words = tail.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").toLowerCase();
+  return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
 function auditValue(
@@ -149,7 +174,7 @@ function PlanHistory({ planId }: { planId: Id<"coveragePlans"> }) {
               className="rounded border border-border p-2 text-sm"
             >
               <strong>
-                {auditValue(event.action, event.actorSubject, actorName)}
+                {historyActionLabel(event.action)}
               </strong>{" "}
               · {actorName} · {stamp(event.createdAt)}
               <p>Version {event.planVersion}</p>
@@ -237,7 +262,7 @@ function PlannedVisits({
   );
   return (
     <section aria-label="Planned visits" className="grid gap-2">
-      <h3 className="font-semibold">Planned visits · {month}</h3>
+      <h3 className="font-semibold">Planned visits · {formatMonth(month)}</h3>
       {visits && !visits.length && (
         <p>No generated visits for this person and month.</p>
       )}
@@ -247,12 +272,12 @@ function PlannedVisits({
             <ListRow
               icon={<WorkspaceIcon name="field" />}
               title={visit.approvedSnapshot.outletName}
-              meta={`${visit.serviceDate} · ${visit.approvedSnapshot.outletCode} · ${visit.approvedSnapshot.routeCode ?? "No route"} · stop ${visit.approvedSnapshot.sequence ?? "—"}`}
+              meta={`${formatDate(visit.serviceDate)} · ${visit.approvedSnapshot.outletCode} · ${visit.approvedSnapshot.routeCode ?? "No route"} · stop ${visit.approvedSnapshot.sequence ?? "—"}`}
               value={
                 <StatusPill
                   tone={visit.status === "planned" ? "success" : "neutral"}
                 >
-                  {visit.status}
+                  {formatStatus(visit.status)}
                 </StatusPill>
               }
             />
@@ -299,7 +324,7 @@ function SlotRow({
   return (
     <li className="rounded border border-border p-2 text-sm">
       <strong>
-        {slot.serviceDate} ·{" "}
+        {formatDate(slot.serviceDate)} ·{" "}
         {slot.kind === "non_visit"
           ? slot.activityKind
           : `${frozen?.outletCode ?? current?.outlet.code ?? "Store unavailable"} ${frozen?.outletName ?? current?.outlet.name ?? ""}`}
@@ -465,7 +490,7 @@ function SelectedPlan({
     >
       <div className="grid gap-3">
         <div className="flex flex-wrap items-center gap-2 text-[13px] text-muted">
-          {month} · v{plan.version}
+          {formatMonth(month)} · v{plan.version}
           <StatusPill
             tone={
               plan.status === "active" || plan.status === "approved"
@@ -756,7 +781,8 @@ export function CoverageReview({
                   setPersonId(p.assigneeProfileId);
                 }}
               >
-                {p.assigneeName} · {p.localMonth} · v{p.version} · {p.status}
+                {p.assigneeName} · {formatMonth(p.localMonth)} · v{p.version} ·{" "}
+                {formatStatus(p.status)}
               </button>
             ))}
           </div>

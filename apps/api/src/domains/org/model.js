@@ -66,7 +66,16 @@ export function dto(row) {
   for (const [key, value] of Object.entries(row)) {
     if (key === "search_vector" || value == null) continue;
     const name = key.replace(/_([a-z])/g, (_, c) => c.toUpperCase());
-    out[name] = value instanceof Date ? value.getTime() : value;
+    // Parameterised `db.unsafe` reads return int[] columns as typed arrays, which JSON
+    // would encode as {"0":1,...}; clients expect plain lists.
+    out[name] =
+      value instanceof Date
+        ? value.getTime()
+        : ArrayBuffer.isView(value) &&
+            !(value instanceof DataView) &&
+            !(value instanceof Uint8Array)
+          ? Array.from(/** @type {any} */ (value))
+          : value;
   }
   if (row.id) out._id = row.id;
   return out;

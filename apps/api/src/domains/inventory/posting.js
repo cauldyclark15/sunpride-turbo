@@ -3,6 +3,7 @@ import { ApiError } from "../../core/errors.js";
 import { actorFor } from "../../core/context.js";
 import { recordChange } from "../../core/sync.js";
 import { canonicalJson, isUuid, sha256Hex } from "../../core/util.js";
+import { lotSellable, shelfLifeCutoff } from "./eligible.js";
 import {
   audit,
   choice,
@@ -606,10 +607,7 @@ async function allocate(
       "van_load",
       "reservation",
     ].includes(kind) && status === "available";
-  const cutoff = new Date(
-    Math.max(at, Date.now()) +
-      Number(policy?.minimum_remaining_shelf_life_days ?? 0) * 86400000,
-  );
+  const cutoff = shelfLifeCutoff(policy, at);
   if (line.lotId) {
     id(line.lotId, "Lot");
     const row = lotById.get(line.lotId);
@@ -619,12 +617,7 @@ async function allocate(
         : null;
     if (!lot) invalid("Lot does not belong to this product");
     if (
-      sale &&
-      (lot.recall_held ||
-        lot.quality_status !== "released" ||
-        (lot.expires_at && new Date(lot.expires_at) <= cutoff) ||
-        (Number(policy?.minimum_remaining_shelf_life_days) > 0 &&
-          !lot.expires_at))
+      sale && !lotSellable(lot, policy, cutoff)
     )
       invalid(
         "This lot is expired, held, or too close to expiry",
@@ -656,12 +649,7 @@ async function allocate(
   const result = [];
   for (const row of candidates) {
     if (
-      sale &&
-      (row.recall_held ||
-        row.quality_status !== "released" ||
-        (row.expires_at && new Date(row.expires_at) <= cutoff) ||
-        (Number(policy?.minimum_remaining_shelf_life_days) > 0 &&
-          !row.expires_at))
+      sale && !lotSellable(row, policy, cutoff)
     )
       continue;
     const qty = Math.min(left, Number(row.available_base));

@@ -258,6 +258,22 @@ describe("90-day Sunpride demo", () => {
       ),
     ).toBe(0);
   });
+  test("WEB-115 every seeded signed MCP carries the API approval signature", async () => {
+    const { verifySignature } =
+      await import("../../../apps/api/src/domains/coverage/activation.js");
+    const plans =
+      await db`select * from coverage_plans where status in ('approved','active','superseded')`;
+    expect(plans.length).toBeGreaterThan(0);
+    const broken = plans.filter((/** @type {any} */ p) => {
+      try {
+        verifySignature(p);
+        return false;
+      } catch {
+        return true;
+      }
+    });
+    expect(broken.length).toBe(0);
+  });
   test("compliance, productivity, weak territory and channel mix meet the headline bounds", async () => {
     const [r] =
       await db`select (select count(*)::numeric from visit_executions where service_date<${ANCHOR})*100/(select count(*) from planned_visits where service_date<${ANCHOR}) as compliance,

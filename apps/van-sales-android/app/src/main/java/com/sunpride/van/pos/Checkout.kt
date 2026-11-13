@@ -59,6 +59,8 @@ enum class CheckoutProblem {
     STOCK_COUNTED,
     /** IP-HH2 discount claim: missing ID or name, used with a manual discount, or an item with no tax set-up on this phone. */
     DISCOUNT_CLAIM_INVALID, DISCOUNT_CLAIM_WITH_MANUAL, DISCOUNT_TAX_UNKNOWN,
+    /** SP-0169: the office has Senior/PWD discounts switched off for this route; the sale would be refused and its number spoiled. */
+    DISCOUNT_SWITCHED_OFF,
     /** IP-HH2 split tender: the parts do not add up, a part is missing, or the method cannot be split. */
     SPLIT_INVALID
 }
@@ -227,6 +229,7 @@ object CheckoutRules {
      */
     private fun applyClaim(request: CheckoutRequest, context: CheckoutContext, customer: Customer?, quoted: MutableList<QuotedLine>, issues: MutableList<CheckoutIssue>): com.sunpride.van.selling.LegalCart? {
         val claim = request.claim ?: return null
+        if (!com.sunpride.van.selling.PrivilegeSwitch.offered(context.policy)) { issues += CheckoutIssue(CheckoutProblem.DISCOUNT_SWITCHED_OFF); return null }
         if (com.sunpride.van.selling.ClaimRules.problem(claim) != null) { issues += CheckoutIssue(CheckoutProblem.DISCOUNT_CLAIM_INVALID); return null }
         if (quoted.any { it.manualDiscountMinor > 0L } || request.manualDiscount?.lineMinor?.isNotEmpty() == true || request.manualDiscount?.basketMinor?.let { it > 0L } == true || request.priceOverride?.unitMinor?.isNotEmpty() == true) {
             issues += CheckoutIssue(CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL); return null

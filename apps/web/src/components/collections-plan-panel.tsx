@@ -158,6 +158,14 @@ export function readMoneyTab(params: URLSearchParams): MoneyTab {
   return MONEY_TABS.some((x) => x.id === t) ? (t as MoneyTab) : "promises";
 }
 
+/** WEB-062: a settled promise shows its outcome note next to the status. */
+export function promiseStatusText(
+  p: Pick<Promise_, "status" | "overdue" | "outcomeNote">,
+): string {
+  const note = p.status !== "open" ? p.outcomeNote?.trim() : "";
+  return note ? `${promiseStatus(p)} · ${note}` : promiseStatus(p);
+}
+
 export function promiseStatus(p: Pick<Promise_, "status" | "overdue">) {
   if (p.status === "open") return p.overdue ? "Overdue" : "Open";
   return p.status[0]!.toUpperCase() + p.status.slice(1);
@@ -456,8 +464,8 @@ export function CollectionsPlanPanel({ overview }: { overview?: ReactNode }) {
             {
               key: "status",
               label: "Status",
-              render: (p) => promiseStatus(p),
-              text: (p) => promiseStatus(p),
+              render: (p) => promiseStatusText(p),
+              text: (p) => promiseStatusText(p),
             },
             {
               key: "edit",

@@ -77,7 +77,7 @@ object LocationShare {
         if (location.hasAccuracy()) location.accuracy.toDouble() else 1_000.0,
         if (location.hasSpeed()) location.speed.toDouble() else null,
         if (location.hasBearing()) location.bearing.toDouble() else null,
-        if (Build.VERSION.SDK_INT >= 31) location.isMock else location.isFromMockProvider,
+        com.sunpride.integrity.DeviceIntegrity.mock(location, com.sunpride.field.BuildConfig.E2E_MOCK_LOCATION),
         location.time)
 
     /** The final "stop" ping at End day / sign-out / 10 PM, from the last known position. */

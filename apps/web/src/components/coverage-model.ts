@@ -230,6 +230,9 @@ export type Detail = {
   slots: Slot[];
   assignments: Assignment[];
   warnings: string[];
+  /** Plain-words problems with the plan record itself (e.g. a broken approval). */
+  notices?: string[];
+  signatureValid?: boolean;
   review?: Review;
 };
 export type Away = {
@@ -284,6 +287,10 @@ export type Workload = {
   workingDays: string[];
   durationMinutes: number;
   dailyCallsTarget?: number;
+  /** Routes the assignee serves; outlets elsewhere cannot be planned. */
+  servedRouteIds?: string[];
+  /** Territories the assignee serves directly (routeless outlets). */
+  servedTerritoryIds?: string[];
   variance?: number;
 };
 export type Pin = {

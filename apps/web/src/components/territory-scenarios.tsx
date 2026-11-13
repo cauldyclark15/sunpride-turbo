@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../lib/format";
 import { useMemo, useRef, useState } from "react";
 import { useApi, useLive, useMutate } from "../lib/api";
 
@@ -351,7 +352,7 @@ export function TerritoryScenarios() {
             >
               <p className="text-sm font-medium">
                 {s.name} · {s.moves} {s.moves === 1 ? "store" : "stores"} · from{" "}
-                {s.effectiveOn} · prepared by {s.preparedBy}
+                {formatDate(s.effectiveOn)} · prepared by {s.preparedBy}
               </p>
               <p className="text-xs text-muted">
                 {boundaryMessage(s.plan, s.boundaryJobStatus)}
@@ -367,7 +368,7 @@ export function TerritoryScenarios() {
                     post(
                       "publish",
                       { scenarioId: s.id, contentHash: s.contentHash },
-                      `Published. The moves start on ${s.effectiveOn}.`,
+                      `Published. The moves start on ${formatDate(s.effectiveOn)}.`,
                     )
                   }
                 >
@@ -689,8 +690,8 @@ export function TerritoryScenarios() {
             {done.map((s) => (
               <li key={s.id}>
                 {s.name} · {s.moves} {s.moves === 1 ? "store" : "stores"} from{" "}
-                {s.effectiveOn} · prepared by {s.preparedBy}, published by{" "}
-                {s.publishedBy}
+                {formatDate(s.effectiveOn)} · prepared by {s.preparedBy},
+                published by {s.publishedBy}
                 <p className="text-xs text-muted">
                   {boundaryMessage(s.plan, s.boundaryJobStatus)}
                 </p>

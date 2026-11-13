@@ -172,6 +172,26 @@ class FieldAppTest {
         rule.onNodeWithTag("today-title").assertIsDisplayed()
     }
 
+    // FLD-132: a tab keeps its own state (the Stores search) when you switch to Today and back.
+    @Test fun storesSearchSurvivesSwitchingTabs() {
+        val backend = ScriptedBackend(EnrollmentState.Ready("dev1")).apply {
+            signedIn = true
+            customers = listOf(com.sunpride.field.ui.customers.CustomerRecord("o1", "First Store", "OUT-1"),
+                com.sunpride.field.ui.customers.CustomerRecord("o2", "Second Store", "OUT-2", address = "2 Mabini St"))
+        }
+        rule.setContent { FieldApp(configured, dark = false, debug = false, backend = backend) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("nav-stores") }
+        rule.onNodeWithTag("nav-stores").performClick()
+        rule.onNodeWithTag("customer-search").performTextInput("mabini")
+        androidx.test.espresso.Espresso.closeSoftKeyboard() // the bar steps aside while typing
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("nav-today") }
+        rule.onNodeWithTag("nav-today").performClick()
+        rule.onNodeWithTag("today-title").assertIsDisplayed()
+        rule.onNodeWithTag("nav-stores").performClick()
+        rule.onNodeWithTag("customer-search").assertTextContains("mabini")
+        rule.onNodeWithTag("customer-result").assertTextContains("Second Store", substring = true)
+    }
+
     // Add store is easy to find: FAB on Stores and an action on Today for users who may add stores.
     @Test fun addStoreFabOnStoresAndTodayActionOpenTheAddAStoreScreen() {
         val backend = ScriptedBackend(EnrollmentState.Ready("dev1")).apply {
@@ -385,6 +405,26 @@ class FieldAppTest {
         rule.onNodeWithTag("queued-count").assertDoesNotExist()
         rule.onNodeWithTag("last-synced").assertDoesNotExist()
         rule.onNodeWithTag("sync-details").assertDoesNotExist()
+    }
+
+    // FLD-171: a session ended on the server (password changed on the web) returns to sign-in with the reason.
+    @Test fun syncNowAfterTheSessionEndedReturnsToSignInWithThePlainReason() {
+        val scripted = ScriptedBackend(EnrollmentState.Ready("dev1")).apply { signedIn = true }
+        val backend = object : FieldBackend by scripted {
+            var ended = false
+            override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData {
+                if (sync && ended) throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED)
+                return TodayData(lastSynced = 150L, stale = false)
+            }
+        }
+        rule.setContent { FieldApp(configured, dark = false, debug = false, backend = backend) }
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("today-title") }
+        backend.ended = true
+        rule.onNodeWithTag("sync-status").performClick()
+        rule.onNodeWithTag("sync-now").performClick()
+        rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("auth-error") }
+        rule.onNodeWithTag("auth-error").assertTextContains("Your session has ended. Sign in again.")
+        rule.onNodeWithTag("sign-in").assertExists()
     }
 
     @Test fun wrongPasswordShowsFixedMessage() {

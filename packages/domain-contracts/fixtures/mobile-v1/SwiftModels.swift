@@ -98,6 +98,8 @@ struct BootstrapResponseDaySales {
 struct BootstrapResponseEmployee {
   // schema-field: bootstrapResponse.employee.id
   let id: String
+  // schema-field: bootstrapResponse.employee.name
+  let name: String?
   // schema-field: bootstrapResponse.employee.role
   let role: String
   // schema-field: bootstrapResponse.employee.orgUnitId

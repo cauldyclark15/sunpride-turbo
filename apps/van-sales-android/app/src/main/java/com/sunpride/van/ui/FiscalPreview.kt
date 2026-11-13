@@ -25,7 +25,7 @@ import com.sunpride.van.printing.*
         val r=saved.receipt
         val attempt=PrintAttempt("preview",r.saleId,if(reprint) PrintKind.REPRINT else PrintKind.ORIGINAL,if(reprint) 1 else 0,
             if(reprint) "customer_copy" else null,PrintOutcome.NOT_PRINTED,r.createdAt)
-        val lines=ReceiptLayoutFormatter().format(SaleReceiptDocuments.build(r,ReceiptHeader(null,null,null),attempt,r.createdAt))
+        val lines=ReceiptLayoutFormatter().format(SaleReceiptDocuments.build(r,saved.header ?: ReceiptHeader(null,null,null),attempt,r.createdAt))
             .filterIsInstance<ReceiptCommand.Line>().joinToString("\n") { it.text }
         Dialog(onDismissRequest={preview=null},properties=DialogProperties(usePlatformDefaultWidth=false)) {
             Surface(Modifier.fillMaxWidth().padding(12.dp).statusBarsPadding().navigationBarsPadding(),shape=SunprideTokens.shapes.large) {

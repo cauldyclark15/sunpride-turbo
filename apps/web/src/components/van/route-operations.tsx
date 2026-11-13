@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime, formatTime } from "../../lib/format";
 
 import { useState } from "react";
 import { Button } from "@heroui/react";
@@ -187,7 +188,7 @@ export function RouteOperationsReview({ trip }: { trip: TripSettlement }) {
                 {o.outletName ?? "Store"} · {o.facts.phase} · actual{" "}
                 {o.facts.actualSequence ?? "Not captured"} / planned{" "}
                 {o.facts.plannedSequence ?? "Off beat"} ·{" "}
-                {new Date(o.capturedAt).toLocaleTimeString("en-PH")}
+                {formatTime(o.capturedAt)}
                 {o.facts.durationSeconds !== undefined
                   ? ` · ${Math.floor(o.facts.durationSeconds / 60)} minutes`
                   : ""}
@@ -359,7 +360,7 @@ export function RouteOperationsReview({ trip }: { trip: TripSettlement }) {
               : c.level === "area_manager"
                 ? "A different area manager must record disposition"
                 : "Disposition recorded"}{" "}
-            · due {new Date(c.dueAt).toLocaleString("en-PH")}
+            · due {formatDateTime(c.dueAt)}
           </p>
           {reviewer && c.level !== "disposed" && (
             <div className="flex gap-2">

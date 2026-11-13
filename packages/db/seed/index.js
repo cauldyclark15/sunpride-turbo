@@ -13,6 +13,7 @@ import { appendVanOpsPolicies, seedVanOps } from "./vanops.js";
 import { towerSamples, extendTowerSamples } from "./tower.js";
 import { ensureRetailSamples } from "./retail.js";
 import { ensureStorePosSamples } from "./storepos.js";
+import { signSamplePlans } from "./sign-plans.js";
 export { resetDemo } from "./store.js";
 
 /** @param {{anchorDate?:string,days?:number}} [options] @param {string[]} [hashes] */
@@ -177,6 +178,8 @@ export async function seedDemo(
     for (let i = 0; i < 7; i++)
       hashes.push(await Bun.password.hash(password, { algorithm: "argon2id" }));
     const { data, summary } = generateDemo({ anchorDate, days }, hashes);
+    // Bulk MCPs carry the API approval signature, so every plan opens.
+    await signSamplePlans(data);
     await persist(t, data);
     // Read back exact targets and sums in the same transaction, before claiming a seed.
     const [owned] =

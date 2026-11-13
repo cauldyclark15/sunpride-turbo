@@ -29,6 +29,12 @@ export default function nextConfig(phase: string): NextConfig {
     phase === PHASE_DEVELOPMENT_SERVER || Boolean(process.env.API_ORIGIN);
   return {
     devIndicators: false,
+    experimental: {
+      // Dev/lane API proxy (rewrites below). Next's default resets a request
+      // after 30 s; requests should finish in seconds (WEB-037 made the target
+      // cascade preview fast), so 60 s only covers slow exports on a busy lane.
+      proxyTimeout: 60_000,
+    },
     transpilePackages: ["@sunpride/ui", "@sunpride/customer-master"],
     env: { NEXT_PUBLIC_SP_BUILD_ID: buildVersion() },
     async headers() {

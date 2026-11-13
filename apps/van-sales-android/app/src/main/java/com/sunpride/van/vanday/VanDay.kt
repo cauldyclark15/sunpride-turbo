@@ -96,6 +96,14 @@ object LoadAccept {
         .apply { note?.trim()?.takeIf { it.isNotEmpty() }?.let { put("note", it.take(300)) } }.put("deviceTime", deviceTime)
 }
 
+/**
+ * SP-0169 VAN-011: a trip on the route-controls configuration (`policy.operationsVersion == 1`) refuses every van operation that does not
+ * carry `settlementVersion: 1` ("Download the trip's current operations configuration"). The van-day ops must carry it like the rest.
+ */
+object OperationsVersion {
+    fun stamp(payload: JSONObject, operationsVersion: Int): JSONObject = payload.apply { if (operationsVersion == 1) put("settlementVersion", 1) }
+}
+
 /** Who may take over the phone, and the `crew.switch` payload (the proof is made by [com.sunpride.van.security.PinProofs]). */
 object CrewSwitch {
     /** Members who have a PIN and are not already the person on the phone. */
@@ -115,13 +123,18 @@ data class DayFacts(
     val vanDay: VanDayInfo?, val tripClosed: Boolean, val cashCounted: Boolean, val stockCounted: Boolean, val routeOps: Boolean,
     val loadInRecorded: Boolean, val nextStore: String?, val storesLeft: Int, val onHold: Boolean, val acceptWaitingToSync: Boolean = false,
     val supervisorName: String? = null,
+    /** NF-R5V-5: a named office setup gap (e.g. no payment methods) that blocks the bundle; shown instead of the generic hold text. */
+    val setupProblem: String? = null,
 )
 
 object VanDaySteps {
+    const val ON_HOLD = "Your trip is paused until the office confirms this phone. Tap Sync now. Your saved work is kept here."
+    /** NF-R5V-5: the hold sentence names the real reason when the last sync found one. */
+    fun holdText(setupProblem: String?): String = setupProblem?.let { "$it Your saved work is kept here." } ?: ON_HOLD
     fun next(f: DayFacts): NextStep {
         val load = f.vanDay?.load
         if (!f.hasTrip) return NextStep(StepKind.SYNC, if (f.onHold) "Waiting for the office" else "No trip yet",
-            if (f.onHold) "Your trip is paused until the office confirms this phone." else "Sync to get today's trip.", "Sync now", StepTarget.SYNC)
+            f.setupProblem ?: if (f.onHold) "Your trip is paused until the office confirms this phone." else "Sync to get today's trip.", "Sync now", StepTarget.SYNC)
         if (f.tripClosed) return NextStep(StepKind.DONE, "Trip closed", "Nothing more to do on this phone.", "See the trip close", StepTarget.CLOSE_TRIP)
         val status = f.tripStatus
         // A trip whose start is saved on this phone is already on the road.

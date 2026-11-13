@@ -139,7 +139,12 @@ describe("F-R08 retail owner reporting", () => {
     expect(view).toContain("X read 12");
     expect(view).toContain("SAMPLE-SI-01");
     expect(view).toContain("Export journal for Excel");
-    expect(view).toContain("A second person must decide");
+    // WEB-043: dates in words, a status word, and who can decide (not "a second person").
+    expect(view).toContain("X read 12 · Oct 21, 2026");
+    expect(view).not.toContain("2026-10-21");
+    expect(view).toContain("Waiting for a decision");
+    expect(view).toContain("A store manager, sales manager or approver decides this.");
+    expect(view).not.toContain("A second person must decide");
     expect(view).not.toContain("Approve refund");
     expect(view).not.toContain("Expected");
     for (const id of [
@@ -285,5 +290,44 @@ describe("F-R08 retail owner reporting", () => {
       'ss:Type="String">=SUM(A1) &amp; &lt;sample&gt;',
     );
     expect(workbook).not.toContain("ss:Formula");
+  });
+});
+
+describe("WEB-044 store configuration opens on the saved values", () => {
+  it("shows the saved daily target and cash tolerance, not the ₱50 sample", () => {
+    state.data = {
+      register: { id: "r", name: "Register one", store: "Colon", outletId: null },
+      reversals: [],
+      deposits: [],
+      replenishments: [],
+      reads: [],
+      policy: {
+        id: "p2",
+        toleranceCentavos: "5500",
+        loyaltyEnabled: true,
+        earnPerCentavos: "20000",
+        pointValueCentavos: "150",
+        employeeDiscountBps: 1500,
+      },
+      dailyTargetCentavos: "550000",
+      locations: [],
+      products: [],
+      outlets: [],
+      canManage: true,
+      canPrepare: false,
+      canApprove: false,
+    };
+    const view = html(
+      createElement(RetailOperations, {
+        registerId: "r",
+        from: "2026-11-12",
+        to: "2026-11-12",
+      }),
+    );
+    expect(view).toMatch(/aria-label="Daily target \(₱\)"[^>]*value="5500"/);
+    expect(view).toMatch(/aria-label="Cash tolerance \(₱\)"[^>]*value="55"/);
+    expect(view).toMatch(/aria-label="Employee discount \(%\)"[^>]*value="15"/);
+    expect(view).toMatch(/aria-label="Spend per point earned \(₱\)"[^>]*value="200"/);
+    expect(view).toMatch(/aria-label="Redemption value per point \(₱\)"[^>]*value="1.50"/);
   });
 });

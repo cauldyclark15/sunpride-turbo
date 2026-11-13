@@ -264,6 +264,15 @@ async function applyChange(ctx, capture, actor, reason) {
       : null;
   await ctx.db`update outlets set name=${capture.name},address=${capture.address},directions=coalesce(${capture.landmark ?? null}::text,directions),place_id=coalesce(${placeId}::text,place_id) where id=${id}`;
   await ctx.db`insert into outlet_contacts(outlet_id,ordinal,name,phone) values(${id},0,${capture.owner_name},${capture.owner_phone}) on conflict (outlet_id,ordinal) do update set name=excluded.name,phone=excluded.phone,deleted_at=null,updated_at=now()`;
+  // WEB-173: the office customer page reads the customer record (Mobile No. on customer_profiles, Contact Person /
+  // Mobile No. on the first ship-to), not outlet_contacts. Write the approved owner and phone there too.
+  const ownerName = capture.owner_name?.trim() || null,
+    ownerPhone = capture.owner_phone ? String(capture.owner_phone).replace(/[\s-]/g, "") : null;
+  if (ownerPhone)
+    await ctx.db`update customer_profiles set mobile_no=${ownerPhone},updated_by=${actor.userId},updated_at=now() where outlet_id=${id}`;
+  if (ownerName || ownerPhone)
+    await ctx.db`update customer_ship_tos set contact_person=coalesce(${ownerName}::text,contact_person),mobile_no=coalesce(${ownerPhone}::text,mobile_no),updated_by=${actor.userId},updated_at=now()
+      where outlet_id=${id} and deleted_at is null and ordinal=(select min(ordinal) from customer_ship_tos where outlet_id=${id} and deleted_at is null)`;
   if (capture.photo_file_id)
     await ctx.db`insert into outlet_photos(outlet_id,ordinal,file_id) values(${id},0,${capture.photo_file_id}) on conflict (outlet_id,ordinal) do update set file_id=excluded.file_id,deleted_at=null,updated_at=now()`;
   if (capture.latitude !== null) {

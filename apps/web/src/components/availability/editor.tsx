@@ -1,4 +1,5 @@
 "use client";
+import { formatDate, formatStatus } from "../../lib/format";
 
 import { useState, type FormEvent } from "react";
 import { apiFetch, mutate, useApi, useLive } from "../../lib/api";
@@ -595,13 +596,8 @@ export function AvailabilityEditor() {
               className="flex flex-wrap justify-between gap-2 border-b border-border py-2 text-sm"
             >
               <span>
-                {r.label} · v{r.version} · {r.status}
-                {r.sample ? " · Sample" : ""} ·{" "}
-                {new Date(r.effective_from).toLocaleDateString("en-US", {
-                  timeZone: "Asia/Manila",
-                  month: "short",
-                  day: "numeric",
-                })}
+                {r.label} · v{r.version} · {formatStatus(r.status)}
+                {r.sample ? " · Sample" : ""} · {formatDate(r.effective_from)}
               </span>
               <span>{r.source_ref}</span>
               {r.kind === "launch" && r.status === "published" && (

@@ -85,7 +85,7 @@ class ReturnStore(private val store: RoomVanStore) {
         val result = ReturnRules.evaluate(request, context)
         if (!result.ok) throw ReturnRefused(result.issues)
         val captured=checkNotNull(result.quote)
-        val custodyOnly=RouteOpsStore(store).version()==1&&captured.approvalRequired
+        val custodyOnly=ReturnRules.custodyOnly(captured,RouteOpsStore(store).version())
         val quote=if(custodyOnly)captured.heldCapture() else captured
         val t = checkNotNull(dao.trip(s, d))
         if(RouteOpsStore(store).version()==1) ReturnEvidence.validate(request)

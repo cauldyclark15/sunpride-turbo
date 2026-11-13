@@ -1,4 +1,5 @@
 "use client";
+import { formatDate, formatMonth, formatStatus } from "../lib/format";
 import { Button } from "@heroui/react";
 import type {
   ScheduleFilters,
@@ -34,9 +35,10 @@ export function CoveragePrint({
           Print / Save PDF
         </Button>
       </div>
-      <h2>Coverage · {header.localMonth}</h2>
+      <h2>Coverage · {formatMonth(header.localMonth)}</h2>
       <p>
-        {header.status} · Version {header.version} · {header.assigneeName}
+        {formatStatus(header.status)} · Version {header.version} ·{" "}
+        {header.assigneeName}
       </p>
       <p>
         Prepared: {header.preparedByName} · {time(header.preparedAt)}
@@ -76,7 +78,7 @@ export function CoveragePrint({
         <tbody>
           {rows.map((row) => (
             <tr key={row.slotKey}>
-              <td>{row.serviceDate}</td>
+              <td>{formatDate(row.serviceDate)}</td>
               <td>{row.sequence}</td>
               <td>{slotKindLabel(row.kind)}</td>
               <td>{row.outletCode ?? "—"}</td>

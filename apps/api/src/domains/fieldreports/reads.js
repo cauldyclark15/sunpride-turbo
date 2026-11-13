@@ -495,13 +495,24 @@ export async function perDiem(c, a) {
     : null;
   if (a.profileId && !p)
     fail("Person is outside this team", 403, "out_of_scope");
+  // WEB-120: each person's latest decision for this exact period, so the list shows what was decided.
+  const ids = members.map((/** @type {any} */ p) => p.id);
+  const latestBy = new Map(
+    (ids.length
+      ? await c.db`select distinct on (profile_id) profile_id,decision,decided_at from per_diem_validations where profile_id in ${c.db(ids)} and period_from=${a.from} and period_to=${a.to} order by profile_id,decided_at desc`
+      : []
+    ).map((/** @type {any} */ r) => [
+      r.profile_id,
+      { decision: r.decision, decidedAt: ms(r.decided_at) },
+    ]),
+  );
   const people = members.map((/** @type {any} */ p) => ({
     profileId: p.id,
     name: p.name,
     employeeCode: p.employee_code,
     positionLabel: p.position_label,
     channel: p.channel ?? p.channel_scope ?? "Unassigned",
-    latest: null,
+    latest: latestBy.get(p.id) ?? null,
   }));
   if (!p)
     return {

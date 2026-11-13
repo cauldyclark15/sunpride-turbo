@@ -164,6 +164,14 @@ object ReturnRules {
 
     fun newReturnId(): String = UUID.randomUUID().toString()
 
+    /**
+     * VAN-061: a return that needs office approval (e.g. "Thrown away at the store") is sent as held custody for the
+     * office pickup review on EVERY trip version, and moves no truck stock until the office decides. Sending it as an
+     * ordinary return on a version-0 trip was refused on sync and left "1 to review" forever.
+     */
+    @Suppress("UNUSED_PARAMETER")
+    fun custodyOnly(quote: ReturnQuote, operationsVersion: Int): Boolean = quote.approvalRequired
+
     /** The product's own UOM first, then each case/pack size the office set an exact base quantity for. */
     fun units(product: Product): List<ReturnUnit> = (listOf(ReturnUnit(product.uomCode, product.quantityScale)) +
         product.barcodeUnits.mapNotNull { u -> u.baseQuantity?.takeIf { it > 0 }?.let { ReturnUnit(u.uomCode, it) } })

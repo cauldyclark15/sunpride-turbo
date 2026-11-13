@@ -229,7 +229,7 @@ export function installOidc(router) {
         return null;
       }
       const s = await createSession(t, identity.id, "web", null);
-      await t`insert into audit_logs(subject,action,entity_type,entity_id,details) values (${identity.id},'auth.oidc_signed_in','user',${identity.id},${{ provider: p.code }})`;
+      await t`insert into audit_logs(subject,action,entity_type,entity_id,details) values (${identity.id},'auth.oidc_signed_in','user',${identity.id},${JSON.stringify({ provider: p.code })})`;
       return s;
     });
     if (!session)

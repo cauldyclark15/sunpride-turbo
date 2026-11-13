@@ -349,6 +349,10 @@ describe("count reviews", () => {
     const first = await submitted(10);
     const row = await rowOf(sup, first);
     expect(row).toMatchObject({ kind: "count_review", canDecide: true });
+    // WEB-093: a manager may review the lines but an approver posts a difference; the inbox says so up front.
+    const asManager = await rowOf(planner, first);
+    expect(asManager).toMatchObject({ canDecide: false });
+    expect(asManager.blockedReason).toBe("A count that changes the stock is approved by an approver. You can still decide each line.");
     expect(row.valueCentavos).toBeGreaterThan(0);
     expect(row.documentNumber).toMatch(/^CNT-/);
     expect(await rowOf(clerk, first)).toBeUndefined(); // the counter is not shown their own count

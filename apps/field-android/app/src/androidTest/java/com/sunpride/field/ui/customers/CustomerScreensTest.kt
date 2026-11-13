@@ -20,6 +20,9 @@ import androidx.compose.ui.test.performTouchInput
 import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.performTextReplacement
 import com.sunpride.field.storage.CallSheetHeader
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.captureToImage
+import androidx.compose.ui.graphics.asAndroidBitmap
 import com.sunpride.field.ui.SunprideTokens
 import com.sunpride.field.ui.TodayData
 import com.sunpride.field.ui.TodayScreen
@@ -123,6 +126,18 @@ class CustomerScreensTest {
             .assertTextContains("Not on today's plan", substring = true)
         rule.onNodeWithTag("customer-visit").performScrollTo().assertTextContains("Unplanned visit").performClick()
         assertEquals(VisitDisplay("Sto. Niño Grocery", "Unplanned", "Reason required", "o2"), visits.single())
+    }
+
+    /** FLD-052 (r4): the sample sheets carry only the store's own name; Summary must still say so. */
+    @Test fun sheetWithOnlyTheStoreNameSaysNoAccountDetailsYet() {
+        val bare = CustomerRecord("o3", "Sample Luz Sari-sari", "SMP-O0291", "SMP-C0291", "Cebu", 10.3, 123.9,
+            account = CallSheetHeader("Sample Luz Sari-sari", null, null, null, null, null, null, null, null, null))
+        content { CustomerDetailScreen(bare, data, onNavigate = { true }, onDial = { true }, onVisit = {}, visitEnabled = true, now = now) }
+        rule.onNodeWithTag("customer-summary").performScrollTo()
+            .assertTextContains("No account details yet", substring = true)
+        val bmp = rule.onRoot().captureToImage().asAndroidBitmap()
+        java.io.File(rule.activity.getExternalFilesDir(null), "FLD-052-summary.png").outputStream().use {
+            bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, it) }
     }
 
     @Test fun visitActionIsHiddenWhenRecordingIsOff() {

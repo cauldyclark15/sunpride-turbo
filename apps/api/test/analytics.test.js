@@ -502,9 +502,24 @@ test("scope: supervisor cannot see another team or widen unit filter; source-loc
     const [last] =
       await h.db`select count(*) as n from sales_targets where level='company'`;
     expect(Number(last.n)).toBe(0);
+    // WEB-035: the read tells the editor which levels this regional scope may write.
+    const m = f.today.slice(0, 7);
+    expect(
+      (await get(`/api/v1/targets?month=${m}&level=company`)).editable,
+    ).toBe(false);
+    expect(
+      (await get(`/api/v1/targets?month=${m}&level=channel`)).editable,
+    ).toBe(false);
+    expect((await get(`/api/v1/targets?month=${m}&level=agent`)).editable).toBe(
+      true,
+    );
   } finally {
     await h.db`update profiles set role='super_admin',org_unit_id=${f.root} where id=${f.boss}`;
   }
+  expect(
+    (await get(`/api/v1/targets?month=${f.today.slice(0, 7)}&level=company`))
+      .editable,
+  ).toBe(true);
 });
 test("rollup retry exactness, planned-only days, cancellation and coalescing/nightly jobs", async () => {
   await rebuildDay(h.db, f.today);
@@ -739,4 +754,52 @@ test("F-208 productive qualification is separate from linked-order strike rate a
     await db`delete from visit_activities where id=${act.id}`;
     await db`update profiles set role=${owner.role},org_unit_id=${owner.org_unit_id} where id=${f.boss}`;
   }
+});
+
+test("WEB-170: a store-code search lists the exact code first, not a longer code that contains it", async () => {
+  // "S1" also matches S10–S19 and S100–S199 (compact codes match by substring); the list used to
+  // keep id order, so Edit on the first row could open another store.
+  for (const q of ["S1", "s-1", "S01"]) {
+    const r = await get(url("stores", `q=${encodeURIComponent(q)}&limit=50`));
+    expect(r.total).toBeGreaterThan(1);
+    expect(r.rows[0].code).toBe("S1");
+  }
+});
+test("WEB-036 target import accepts territory codes, names unknown keys and previews without saving", async () => {
+  const month = "2031-01";
+  const [t1] = await h.db`select id::text as id from territories where code='T1'`;
+  const preview = await f.post("/api/v1/targets/import", {
+    month,
+    dryRun: true,
+    rows: [
+      { level: "territory", key: "t1", amountCentavos: 210000000 },
+      { level: "territory", key: "NOPE-XX", amountCentavos: 1 },
+    ],
+  });
+  const p = await preview.json();
+  expect(p.applied).toBe(0);
+  expect(p.errors).toEqual([
+    { row: 2, message: expect.stringContaining('Unknown territory "NOPE-XX"') },
+  ]);
+  expect(JSON.stringify(p.errors)).not.toContain("outside your team");
+  const ok = await f.post("/api/v1/targets/import", {
+    month,
+    rows: [{ level: "territory", key: "T1", amountCentavos: 210000000 }],
+  });
+  expect((await ok.json()).applied).toBe(1);
+  const list = await get(`/api/v1/targets?month=${month}&level=territory`);
+  expect(
+    list.rows.find((/** @type {any} */ r) => r.key === t1.id).amountCentavos,
+  ).toBe(210000000);
+  // The id and the code are one target, so both in one file is a duplicate.
+  const dup = await f.post("/api/v1/targets/import", {
+    month,
+    rows: [
+      { level: "territory", key: "T1", amountCentavos: 1 },
+      { level: "territory", key: t1.id, amountCentavos: 2 },
+    ],
+  });
+  expect((await dup.json()).errors[0].message).toBe(
+    "Duplicate target in this import",
+  );
 });

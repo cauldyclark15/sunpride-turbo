@@ -365,6 +365,12 @@ async function office(c) {
   const reads =
     await db`select id,kind,sequence::text,snapshot from store_reads where register_id=${r.id} and snapshot->>'date' between ${from} and ${to} order by captured_at desc limit 1001`;
   if (reads.length > 1000) refuse("Narrow the X/Z reporting period");
+  // WEB-044: the office form opens on the saved policy and today's target, so a
+  // later save never silently writes the sample defaults back.
+  const [policy] =
+    await db`select id,tolerance_centavos::text as "toleranceCentavos",loyalty_enabled as "loyaltyEnabled",earn_per_centavos::text as "earnPerCentavos",point_value_centavos::text as "pointValueCentavos",employee_discount_bps as "employeeDiscountBps" from store_register_policies where register_id=${r.id} and effective_from<=now() and (effective_to is null or effective_to>now()) order by effective_from desc limit 1`;
+  const [target] =
+    await db`select amount_centavos::text as amount from store_daily_targets where register_id=${r.id} and from_date<=${from} and to_date>=${from} limit 1`;
   const scope = await scopeFilterForActor(db, actor);
   const ids = scope.unitIds ?? [];
   const locations =
@@ -386,12 +392,21 @@ async function office(c) {
       store: r.store_name,
       outletId: r.outlet_id,
     },
-    reversals: reversals.map((/** @type {any} */ v) => ({
-      ...v,
-      canDecide:
-        roleHas(actor.role, "van.cash.approve") &&
-        v.cashier_id !== actor.profileId,
-    })),
+    reversals: reversals.map((/** @type {any} */ v) => {
+      const approver = roleHas(actor.role, "van.cash.approve");
+      const own = v.cashier_id === actor.profileId;
+      return {
+        ...v,
+        canDecide: approver && !own,
+        // WEB-043: say who can decide instead of a vague "a second person".
+        decideNote:
+          approver && !own
+            ? null
+            : own
+              ? "You rang this up, so another manager or approver decides."
+              : "A store manager, sales manager or approver decides this.",
+      };
+    }),
     deposits: deposits.map((/** @type {any} */ d) => ({
       ...d,
       canViewPhoto:
@@ -416,6 +431,8 @@ async function office(c) {
       canDecide: v.requested_by !== actor.profileId,
     })),
     reads,
+    policy: policy ?? null,
+    dailyTargetCentavos: target?.amount ?? null,
     locations,
     products,
     outlets,

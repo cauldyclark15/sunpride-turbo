@@ -9,6 +9,7 @@ const formatPhp = (value: number | null | undefined) =>
 
 type Choice = { id: string; name: string; org_unit_id?: string };
 type Register = Choice & {
+  org_unit_id?: string;
   terminal_code: string;
   store_name: string;
   tolerance_centavos: string | null;
@@ -35,6 +36,13 @@ export type StorePosWorkspace = {
   registers: Register[];
   devices: (Choice & { mode: string | null; register_id: string | null })[];
   people: Choice[];
+  /** Current cashier assignments (WEB-156). */
+  cashiers?: {
+    id: string;
+    register_id: string;
+    profile_id: string;
+    name: string;
+  }[];
   shifts: Shift[];
   canManage: boolean;
   truncated: boolean;
@@ -88,6 +96,23 @@ function Select({
     </label>
   );
 }
+/** Registers in the handheld's unit only (mode/set refuses any other). */
+export function registerChoices(
+  data: Pick<StorePosWorkspace, "registers">,
+  device: { org_unit_id?: string },
+) {
+  return data.registers.filter(
+    (r) => !device.org_unit_id || r.org_unit_id === device.org_unit_id,
+  );
+}
+/** Cashiers in the register's unit only (cashiers/save refuses any other). */
+export function cashierChoices(
+  data: Pick<StorePosWorkspace, "people">,
+  register: { org_unit_id?: string } | undefined,
+) {
+  if (!register) return [];
+  return data.people.filter((p) => p.org_unit_id === register.org_unit_id);
+}
 function useWorkspace() {
   const result = useApi<StorePosWorkspace>(key, "/api/v1/storepos/workspace");
   useLive(["storepos"], [key]);
@@ -117,8 +142,18 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
     );
   const device = data.devices.find((d) => d.id === deviceId);
   if (!data.canManage || !device) return null;
-  const selectedRegister = data.registers.find(
-    (r) => r.id === (registerId || device.register_id),
+  // WEB-156: offer only what the API accepts: registers in the handheld's
+  // unit, and cashiers in the chosen register's unit.
+  const registers = registerChoices(data, device);
+  const activeRegisterId =
+    registerId ||
+    (registers.some((r) => r.id === device.register_id)
+      ? (device.register_id ?? "")
+      : "");
+  const selectedRegister = registers.find((r) => r.id === activeRegisterId);
+  const people = cashierChoices(data, selectedRegister);
+  const assignedCashiers = (data.cashiers ?? []).filter(
+    (c) => c.register_id === activeRegisterId,
   );
   async function send(path: string, body: Record<string, unknown>) {
     setBusy(true);
@@ -160,13 +195,22 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
       )}
       <Select
         label="Store register"
-        value={registerId}
-        onChange={setRegisterId}
-        options={data.registers.map((r) => ({
+        value={activeRegisterId}
+        onChange={(v) => {
+          setRegisterId(v);
+          setPerson("");
+        }}
+        options={registers.map((r) => ({
           id: r.id,
           name: `${r.store_name} · ${r.name}`,
         }))}
       />
+      {registers.length === 0 && (
+        <p role="status" className="text-sm text-muted">
+          No register in this handheld&apos;s unit yet. Add one below at a store
+          in the same unit.
+        </p>
+      )}
       {selectedRegister && (
         <p className="min-w-0 break-words text-sm text-muted">
           {selectedRegister.store_name} · {selectedRegister.name}
@@ -180,7 +224,7 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
         onSubmit={submit("mode/set", {
           deviceId,
           mode,
-          registerId: registerId || null,
+          registerId: activeRegisterId || null,
           allowLocalSwitch: allowSwitch,
         })}
       >
@@ -202,7 +246,9 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
         </p>
         <button
           className={button}
-          disabled={busy || data.truncated || (mode === "store" && !registerId)}
+          disabled={
+            busy || data.truncated || (mode === "store" && !activeRegisterId)
+          }
         >
           Save POS mode
         </button>
@@ -218,34 +264,61 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
       <form
         className="grid gap-2 border-t border-separator pt-3"
         onSubmit={submit("cashiers/save", {
-          registerId,
+          registerId: activeRegisterId,
           profileId: person,
           enabled: true,
         })}
       >
+        <div aria-label="Assigned cashiers" className="grid gap-1 text-sm">
+          <strong className="font-medium">Assigned cashiers</strong>
+          {!selectedRegister ? (
+            <p className="text-muted">Choose a register to see its cashiers.</p>
+          ) : assignedCashiers.length === 0 ? (
+            <p className="text-muted">
+              No cashier is assigned to this register.
+            </p>
+          ) : (
+            <ul className="grid gap-1">
+              {assignedCashiers.map((c) => (
+                <li
+                  key={c.id}
+                  className="flex items-center justify-between gap-2"
+                >
+                  <span className="min-w-0 break-words">{c.name}</span>
+                  <button
+                    className={button}
+                    type="button"
+                    disabled={busy}
+                    aria-label={`Remove cashier ${c.name}`}
+                    onClick={() =>
+                      void send("cashiers/save", {
+                        registerId: activeRegisterId,
+                        profileId: c.profile_id,
+                        enabled: false,
+                      })
+                    }
+                  >
+                    Remove cashier
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
         <Select
           label="Cashier"
           value={person}
           onChange={setPerson}
-          options={data.people}
+          options={people.filter(
+            (p) => !assignedCashiers.some((c) => c.profile_id === p.id),
+          )}
         />
         <div className="flex gap-2">
-          <button className={button} disabled={busy || !registerId || !person}>
-            Assign cashier
-          </button>
           <button
             className={button}
-            type="button"
-            disabled={busy || !registerId || !person}
-            onClick={() =>
-              void send("cashiers/save", {
-                registerId,
-                profileId: person,
-                enabled: false,
-              })
-            }
+            disabled={busy || !activeRegisterId || !person}
           >
-            Remove cashier
+            Assign cashier
           </button>
         </div>
       </form>
@@ -255,7 +328,7 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
           e.preventDefault();
           if (/^\d+(\.\d{1,2})?$/.test(tolerance))
             void send("policies/save", {
-              registerId,
+              registerId: activeRegisterId,
               toleranceCentavos: String(Math.round(Number(tolerance) * 100)),
             });
         }}
@@ -271,12 +344,12 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
         </label>
         <p className="text-xs text-muted">
           Current:{" "}
-          {data.registers.find((r) => r.id === registerId)
+          {data.registers.find((r) => r.id === activeRegisterId)
             ?.tolerance_centavos == null
             ? "Needs setup"
             : formatPhp(
                 Number(
-                  data.registers.find((r) => r.id === registerId)
+                  data.registers.find((r) => r.id === activeRegisterId)
                     ?.tolerance_centavos,
                 ),
               )}
@@ -284,7 +357,9 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
         </p>
         <button
           className={button}
-          disabled={busy || !registerId || !/^\d+(\.\d{1,2})?$/.test(tolerance)}
+          disabled={
+            busy || !activeRegisterId || !/^\d+(\.\d{1,2})?$/.test(tolerance)
+          }
         >
           Save tolerance
         </button>

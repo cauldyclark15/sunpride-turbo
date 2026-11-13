@@ -1,5 +1,7 @@
 "use client";
 import { useState } from "react";
+import { useUrlTab } from "../../lib/use-url-tab";
+import { formatDate } from "../../lib/format";
 import { useApi, useLive } from "../../lib/api";
 import { usePermissions, useSession } from "../../lib/auth/session";
 import type { DeductionType, Options } from "./model";
@@ -19,10 +21,18 @@ import {
   useCommand,
 } from "./kit";
 
+const MT_TABS = ["intake", "terms", "deductions", "settings"] as const;
+type MtTab = (typeof MT_TABS)[number];
+
+/** WEB-143: what the page says after a setup save — the new version and when it starts. */
+export function savedVersionText(what: string, effectiveFrom: string): string {
+  return `Saved. The new ${what} applies from ${formatDate(effectiveFrom)}; the previous version ends then.`;
+}
+
 export function ModernTradeWorkspace() {
   const { can } = usePermissions(),
     session = useSession(),
-    [tab, setTab] = useState("intake");
+    [tab, setTab] = useUrlTab(MT_TABS, "intake");
   const query = useApi<Options>(["mt", "options"], "/api/v1/mt/options");
   useLive(["mt"], [["mt"]]);
   if (query.error) return <Notice>{query.error.message}</Notice>;
@@ -46,7 +56,7 @@ export function ModernTradeWorkspace() {
           <button
             className={`${action} ${tab === key ? "bg-foreground text-background" : ""}`}
             key={key}
-            onClick={() => setTab(key)}
+            onClick={() => setTab(key as MtTab)}
             aria-pressed={tab === key}
           >
             {title}
@@ -83,8 +93,43 @@ export function ModernTradeWorkspace() {
     </div>
   );
 }
+/** WEB-143: what the login's portal access is today, in plain words. */
+export function portalAccessLabel(
+  access: {
+    kind: string;
+    key: string;
+    current?: boolean;
+    from?: number;
+    to?: number | null;
+  } | null,
+): string {
+  if (!access) return " · no access yet";
+  const what = `${access.kind} ${access.key}`;
+  if (access.current === false && access.from)
+    return ` · ${what} from ${formatDate(access.from)}`;
+  return ` · has ${what}${access.to ? ` until ${formatDate(access.to)}` : ""}`;
+}
+
 function Settings({ options }: { options: Options }) {
   const cmd = useCommand();
+  const [saved, setSaved] = useState<{ section: string; text: string } | null>(
+    null,
+  );
+  const done = (section: string, text: string) => setSaved({ section, text });
+  // WEB-143: show a refusal next to the form that was sent, not only at the top of the page.
+  const [sent, setSent] = useState("");
+  const errorNote = (section: string) =>
+    cmd.error && sent === section ? (
+      <p role="alert" className="mt-3 text-sm font-medium text-danger">
+        {cmd.error}
+      </p>
+    ) : null;
+  const savedNote = (section: string) =>
+    saved?.section === section ? (
+      <p role="status" className="mt-3 text-sm font-medium text-foreground">
+        {saved.text}
+      </p>
+    ) : null;
   const query = useApi<{
     types: DeductionType[];
     stores: {
@@ -93,7 +138,18 @@ function Settings({ options }: { options: Options }) {
       customer_id: string;
       customer_name: string;
     }[];
-    externalUsers: { id: string; name: string; email: string }[];
+    externalUsers: {
+      id: string;
+      name: string;
+      email: string;
+      access: {
+        kind: string;
+        key: string;
+        current?: boolean;
+        from?: number;
+        to?: number | null;
+      } | null;
+    }[];
     profiles: {
       id: string;
       account_key: string;
@@ -106,13 +162,14 @@ function Settings({ options }: { options: Options }) {
   const { can } = usePermissions();
   return (
     <div className="grid gap-5">
-      {cmd.error ? <Notice>{cmd.error}</Notice> : null}
+      {cmd.error && sent !== "access" ? <Notice>{cmd.error}</Notice> : null}
       {query.error ? <Notice>{query.error.message}</Notice> : null}
       <section className={panel}>
         <h2 className="mb-4 font-semibold">Account export mapping</h2>
         <Form
           onSubmit={async (f) => {
-            await cmd.run("/api/v1/mt/settings/parser", {
+            setSaved(null);
+            const ok = await cmd.run("/api/v1/mt/settings/parser", {
               accountKey: text(f, "account"),
               format: text(f, "format"),
               effectiveFrom: iso(f, "from"),
@@ -127,6 +184,14 @@ function Settings({ options }: { options: Options }) {
                 ].map((k) => [k, text(f, k) || k]),
               ),
             });
+            if (ok)
+              done(
+                "parser",
+                savedVersionText(
+                  `${text(f, "account")} export mapping`,
+                  text(f, "from"),
+                ),
+              );
           }}
         >
           <div className="grid gap-3 md:grid-cols-3">
@@ -165,6 +230,7 @@ function Settings({ options }: { options: Options }) {
             Save mapping
           </button>
         </Form>
+        {savedNote("parser")}
         {query.data?.profiles.map((p) => (
           <p className="mt-3 text-sm text-muted" key={p.id}>
             {p.account_key} · {p.format.toUpperCase()} · from{" "}
@@ -177,12 +243,21 @@ function Settings({ options }: { options: Options }) {
         <h2 className="mb-4 font-semibold">Deduction types & follow-up SLA</h2>
         <Form
           onSubmit={async (f) => {
-            await cmd.run("/api/v1/mt/settings/deduction-type", {
+            setSaved(null);
+            const ok = await cmd.run("/api/v1/mt/settings/deduction-type", {
               code: text(f, "code"),
               label: text(f, "label"),
               slaDays: Number(text(f, "sla")),
               effectiveFrom: iso(f, "from"),
             });
+            if (ok)
+              done(
+                "type",
+                savedVersionText(
+                  `“${text(f, "label")}” deduction type`,
+                  text(f, "from"),
+                ),
+              );
           }}
         >
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -210,6 +285,7 @@ function Settings({ options }: { options: Options }) {
             Save type
           </button>
         </Form>
+        {savedNote("type")}
         <ul className="mt-4 grid gap-2 text-sm">
           {query.data?.types.map((t) => (
             <li key={t.id}>
@@ -228,7 +304,8 @@ function Settings({ options }: { options: Options }) {
         </p>
         <Form
           onSubmit={async (f) => {
-            await cmd.run("/api/v1/mt/bindings/save", {
+            setSaved(null);
+            const ok = await cmd.run("/api/v1/mt/bindings/save", {
               customerId: query.data?.stores.find(
                 (s) => s.outlet_id === text(f, "outlet"),
               )?.customer_id,
@@ -239,6 +316,11 @@ function Settings({ options }: { options: Options }) {
               label: text(f, "label"),
               effectiveFrom: iso(f, "from"),
             });
+            if (ok)
+              done(
+                "binding",
+                savedVersionText("branch mapping", text(f, "from")),
+              );
           }}
         >
           <div className="grid gap-3 sm:grid-cols-2">
@@ -269,13 +351,16 @@ function Settings({ options }: { options: Options }) {
             Map branch
           </button>
         </Form>
+        {savedNote("binding")}
       </section>
       {can("admin.manage") ? (
         <section className={panel}>
           <h2 className="mb-4 font-semibold">Customer portal access</h2>
           <Form
             onSubmit={async (f) => {
-              await cmd.run("/api/v1/mt/portal/access", {
+              setSaved(null);
+              setSent("access");
+              const ok = await cmd.run("/api/v1/mt/portal/access", {
                 userId: text(f, "user"),
                 name: text(f, "name"),
                 scopeKind: text(f, "kind"),
@@ -283,17 +368,34 @@ function Settings({ options }: { options: Options }) {
                 effectiveFrom: iso(f, "from"),
                 effectiveTo: text(f, "to") ? iso(f, "to") : null,
               });
+              if (ok)
+                done(
+                  "access",
+                  savedVersionText(
+                    `portal access for ${text(f, "name")}`,
+                    text(f, "from"),
+                  ),
+                );
             }}
           >
             <div className="grid gap-3 sm:grid-cols-2">
               <Field label="Customer login">
-                <select name="user" required className={inputClass}>
-                  {query.data?.externalUsers.map((u) => (
-                    <option key={u.id} value={u.id}>
-                      {u.name} · {u.email}
-                    </option>
-                  ))}
-                </select>
+                {query.data && !query.data.externalUsers.length ? (
+                  <p className="text-sm text-muted">
+                    No customer logins yet. A customer login is a sign-in
+                    without an employee profile; create it first, then give it
+                    access here.
+                  </p>
+                ) : (
+                  <select name="user" required className={inputClass}>
+                    {query.data?.externalUsers.map((u) => (
+                      <option key={u.id} value={u.id}>
+                        {u.name} · {u.email}
+                        {portalAccessLabel(u.access)}
+                      </option>
+                    ))}
+                  </select>
+                )}
               </Field>
               <Field label="Customer name">
                 <input name="name" required className={inputClass} />
@@ -324,6 +426,8 @@ function Settings({ options }: { options: Options }) {
               Save access
             </button>
           </Form>
+          {savedNote("access")}
+          {errorNote("access")}
           <p className="mt-3 text-sm text-muted">
             The portal is at /portal/login. Customer identities have no employee
             profile or office permissions. Sample passwords are written only to

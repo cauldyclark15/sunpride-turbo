@@ -97,6 +97,21 @@ class CustomerDirectoryTest {
         assertEquals(listOf("o2", "o1", "o3"), CustomerDirectory.search(records, "  ").map { it.outletId })
     }
 
+    @Test fun storeCodeSearchMatchesTheOfficeCompactCodeRule() {
+        // FLD-046 / EDGE-006: the phone must find a store under every spelling the web finds.
+        val records = CustomerDirectory.build(
+            outlets = listOf(outlet("t", "Target Store", "SMP-00069"), outlet("x", "Other Store", "SMP-00169"),
+                outlet("y", "Next Store", "SMP-00070")),
+            customers = emptyMap(), visits = emptyList(), routeJson = null, accounts = emptyMap(),
+            history = emptyList(), today = emptyList())
+        for (q in listOf("SMP-00069", "SMP-O0069", "smp00069", "smp o 0069", "SMP-O-0069", "smp\u201100069")) {
+            assertEquals(q, "t", CustomerDirectory.search(records, q).firstOrNull()?.outletId)
+        }
+        assertEquals(listOf("y"), CustomerDirectory.search(records, "SMP-00070").map { it.outletId })
+        assertTrue(CustomerDirectory.search(records, "SMP-690").isEmpty())
+        assertEquals("smp69", CustomerDirectory.compactCode("SMP-O0069"))
+    }
+
     @Test fun dialUriAcceptsPhoneNumbersOnly() {
         assertEquals("tel:09171234567", CustomerDirectory.dialUri("0917 123 4567"))
         assertEquals("tel:+6328123456", CustomerDirectory.dialUri("+63 (2) 812-3456"))
@@ -133,5 +148,26 @@ class CustomerDirectoryTest {
         // Without an owner contact the account header still works as before.
         assertEquals("Ana Cruz", records.getValue("o2").contactName)
         assertEquals("0917 123 4567", records.getValue("o2").contactPhone)
+    }
+
+    /** FLD-052 (r4): a sheet holding only the store's own name used to leave Summary with no account line at all. */
+    @Test fun summaryAlwaysSaysSomethingAboutTheAccount() {
+        val bare = CallSheetHeader("Sample Luz Sari-sari", null, null, null, null, null, null, null, null, null)
+        val (rows, note) = CustomerDirectory.accountFacts(CustomerRecord("o1", "Sample Luz Sari-sari", account = bare))
+        assertTrue(rows.isEmpty())
+        assertEquals("No account details yet", note)
+        assertEquals("No account sheet yet", CustomerDirectory.accountFacts(CustomerRecord("o1", "S")).second)
+        val (full, none) = CustomerDirectory.accountFacts(CustomerRecord("o1", "Store", account = header, ownerName = "Lito"))
+        assertEquals(listOf("Account", "Owner", "Contact", "Account in charge", "Distributor", "Delivery schedule"), full.map { it.first })
+        assertNull(none)
+    }
+
+    /** FLD-207: an open UNPLANNED call has no today row, but the Stores row still says "In progress". */
+    @Test fun openUnplannedCallMarksTheStoreInProgress() {
+        val records = directory().associateBy { it.outletId }
+        assertTrue(records.getValue("o3").callOpen)
+        assertEquals("In progress", records.getValue("o3").visitStatus)
+        assertEquals(false, records.getValue("o2").callOpen)
+        assertNull(records.getValue("o2").visitStatus)
     }
 }

@@ -1,4 +1,5 @@
 "use client";
+import { formatStatus } from "../lib/format";
 import { Button, Input } from "@heroui/react";
 import {
   Card,
@@ -266,7 +267,7 @@ export function RouteAdmin() {
                               row.status === "active" ? "success" : "neutral"
                             }
                           >
-                            {row.status}
+                            {formatStatus(row.status)}
                           </StatusPill>
                         }
                         action={

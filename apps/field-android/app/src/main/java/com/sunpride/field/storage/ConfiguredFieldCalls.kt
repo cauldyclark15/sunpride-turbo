@@ -38,6 +38,12 @@ object ConfiguredFieldCalls {
     fun done(config: JSONObject, rows: List<Pair<IntentRow,String>>, clientVisitId: String): Set<String> = rows.filter {
         it.first.clientVisitId == clientVisitId && it.second in setOf("pending","sending","done")
     }.mapNotNull { adapter(it.first)?.let { a -> CallFlowEngine.keyFor(config,a) } }.toSet()
+    /** FLD-105: End is refused before the review sheet when a no-order call has no listed no-order reason. */
+    fun needsNoOrderReason(config: JSONObject?, rows: List<Pair<IntentRow,String>>, clientVisitId: String, zeroSaleReason: String?): Boolean {
+        if (config == null) return false
+        val order = rows.any { it.first.clientVisitId == clientVisitId && it.second in setOf("pending","sending","done") && adapter(it.first) == "order_build" }
+        return CallFlowEngine.missingNoOrderReason(config, order, zeroSaleReason)
+    }
     suspend fun validatePhoto(store: FieldStore, clientVisitId: String) {
         val rows=store.history().map { it.first to it.second.state }
         val config=config(rows,clientVisitId) ?: return

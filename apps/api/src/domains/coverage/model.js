@@ -53,11 +53,14 @@ export function uuid(id) {
     fail("Invalid identifier");
   return /** @type {string} */ (id);
 }
-/** @param {any[]} rows @param {string} [label] */
-export function bounded(rows, label = "Rows") {
-  if (rows.length > 500) fail(`${label} exceeds 500 rows`, "too_many_rows");
+/** @param {any[]} rows @param {string} [label] @param {number} [max] */
+export function bounded(rows, label = "Rows", max = 500) {
+  if (rows.length > max) fail(`${label} exceeds ${max} rows`, "too_many_rows");
   return rows;
 }
+/** A month of daily calls (26 selling days x 25+ stops, plus activities) is
+ * well past 500 rows; plans are bounded by this per-table ceiling instead. */
+export const PLAN_ROW_LIMIT = 5000;
 /** @param {any} value */
 const dateText = (value) =>
   typeof value === "string"
@@ -125,14 +128,21 @@ export async function loadPlan(db, id, lock = false) {
 }
 /** @param {any} db @param {string} id */
 export async function planRows(db, id) {
+  const n = PLAN_ROW_LIMIT + 1;
   const outlets = bounded(
-    await db`select * from coverage_plan_outlets where plan_id=${id} order by outlet_id limit 501`,
+    await db`select * from coverage_plan_outlets where plan_id=${id} order by outlet_id limit ${n}`,
+    "Plan outlets",
+    PLAN_ROW_LIMIT,
   );
   const slots = bounded(
-    await db`select * from coverage_plan_slots where plan_id=${id} and deleted_at is null order by service_date,sequence,slot_key limit 501`,
+    await db`select * from coverage_plan_slots where plan_id=${id} and deleted_at is null order by service_date,sequence,slot_key limit ${n}`,
+    "Plan slots",
+    PLAN_ROW_LIMIT,
   );
   const assignments = bounded(
-    await db`select * from coverage_assignments where plan_id=${id} order by effective_from limit 501`,
+    await db`select * from coverage_assignments where plan_id=${id} order by effective_from limit ${n}`,
+    "Plan assignments",
+    PLAN_ROW_LIMIT,
   );
   return { outlets, slots, assignments };
 }
@@ -152,10 +162,10 @@ export async function outletAt(ctx, outletId, at, cap = "mcp.read") {
   await requireCapability(ctx, cap, unit);
   return { outlet: o, assignment: a, owner, orgUnitId: unit };
 }
-/** @param {any} ctx @param {any} p @param {string} action @param {any} before @param {any} after @param {string|null} [reason] */
-export async function audit(ctx, p, action, before, after, reason = null) {
-  await ctx.db`insert into coverage_audit_events (plan_id,assignee_profile_id,org_unit_id,local_month,actor_subject,action,reason,affected_entity,before,after,plan_version,created_at)
-  values (${p.id},${p.assignee_profile_id},${p.org_unit_id},${p.local_month},${ctx.actor?.subject ?? "scheduler"},${action},${reason},'coveragePlan',${before},${after},${p.version},${new Date(ctx.now)})`;
+/** @param {any} ctx @param {any} p @param {string} action @param {any} before @param {any} after @param {string|null} [reason] @param {string|null} [signatureRef] */
+export async function audit(ctx, p, action, before, after, reason = null, signatureRef = null) {
+  await ctx.db`insert into coverage_audit_events (plan_id,assignee_profile_id,org_unit_id,local_month,actor_subject,action,reason,affected_entity,before,after,plan_version,approval_signature_ref,created_at)
+  values (${p.id},${p.assignee_profile_id},${p.org_unit_id},${p.local_month},${ctx.actor?.subject ?? "scheduler"},${action},${reason},'coveragePlan',${before},${after},${p.version},${signatureRef},${new Date(ctx.now)})`;
 }
 /** @param {any} ctx */
 export async function visiblePeople(ctx) {

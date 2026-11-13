@@ -13,6 +13,9 @@ import kotlinx.coroutines.flow.*
 import org.json.JSONObject
 import java.util.UUID
 
+/** VAN-085: shown when the app starts without reaching the office and opens the day saved on this phone. */
+internal const val OFFLINE_START = "No signal. Working from the day saved on this phone. Tap Sync now when you have signal."
+
 /** One UI lifetime; no Activity, password persistence, identity selection, or raw error text. */
 class VanController(val repository: VanRepository, val environment: AppEnvironment,
     val fixtureMode: Boolean = false,
@@ -59,11 +62,15 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun saveStoreAction(kind:String,payload:org.json.JSONObject) = command("Saved securely on this phone. Sync when connected.") {repository.storeAction(kind,payload);page=Page.HOME}
     /** IP-HH1: the sale screen stays up and shows its Complete step; [onSaved] runs once the sale is durably saved. */
     fun saveStoreSale(id:String,lines:List<CartLine>,tenders:List<com.sunpride.van.storepos.StoreTransactions.Tender>,total:Long,phone:String?,pin:String?,points:Long,onSaved:()->Unit={},claim:com.sunpride.van.selling.DiscountClaim?=null) = command("Store sale saved. Printing the receipt…",failure={UserMessages.forStoreSale(it)}) {
+        // SP-0169: the office refuses a statutory discount it has switched off; never print that receipt.
+        check(claim==null||com.sunpride.van.selling.PrivilegeSwitch.offered(policy)){com.sunpride.van.selling.PrivilegeSwitch.OFF_MESSAGE}
         repository.storeSale(id,lines,tenders,total,phone,pin,points,claim)
         // IP-P0 (SPEC 6.5): the invoice prints by itself; the cashier then answers "Did it print?".
         startPrint(id,explicit=false,reason=null,store=true)
         onSaved()
     }
+    /** A new store sale starts clean: the previous sale's "Store sale saved. Printing the receipt…" must not show on its Payment step. */
+    fun startNewStoreSale() { message=null }
     fun switchStoreMode(pin:String) = command("POS mode updated") {repository.switchPosMode(if(storeMode)"van" else "store",pin);page=Page.HOME}
     /** Store receipts and their print history (original, reprints, confirmed or skipped), refreshed after every print. */
     var storePrints by mutableStateOf(emptyMap<String,List<PrintAttempt>>())
@@ -95,6 +102,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     var promotions by mutableStateOf(emptyList<Promotion>())
         private set
     var stock by mutableStateOf(emptyList<TruckStock>())
+    /** r6van4: per product, truck stock the office will not let leave for a sale. */
+    var heldStock by mutableStateOf(emptyMap<String,Long>())
         private set
     var damageRecords by mutableStateOf(emptyList<DamageRecord>())
         private set
@@ -107,12 +116,17 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     /** The office has not (re)confirmed this phone's access: trip data hidden, saved work kept. */
     var onHold by mutableStateOf(false)
         private set
+    /** NF-R5V-5: the office setup gap the last sync named (e.g. no payment methods); null once a sync succeeds. */
+    var setupProblem by mutableStateOf<String?>(null)
+        private set
     var busy by mutableStateOf(false)
         private set
     var initialized by mutableStateOf(false)
         private set
     var message by mutableStateOf<String?>(null)
         private set
+    /** Show plain words on the current screen (no work done). */
+    fun say(text: String) { message = text }
     var fingerprint by mutableStateOf("Loading…")
     /** Public key (never secret) an administrator pastes into phone registration. */
     var publicKey by mutableStateOf<String?>(null)
@@ -136,6 +150,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     /** IP-P0: the receipt whose "Did it print?" question is on screen (null = none), and whether it is a store receipt. */
     var printQuestionSaleId by mutableStateOf<String?>(null)
         private set
+    /** VAN-051: why the last "Print again" did not print (the re-send limit), shown inside the "Did it print?" sheet. */
+    var printQuestionNote by mutableStateOf<String?>(null); private set
     private var printQuestionStore by mutableStateOf(false)
     /** The latest print outcome in this session, for the printer check screen. */
     var lastPrint by mutableStateOf<LastPrint?>(null)
@@ -186,6 +202,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     private var pendingStart: (suspend () -> Unit)? = null
     private var syncFailureNotice: SyncFailureNotice? = null
     private fun rememberSyncFailure(text: String): String {
+        if (text == UserMessages.NO_PAYMENT_METHODS) setupProblem = text
         syncFailureNotice=SyncFailureNotice(text,System.currentTimeMillis())
         return text
     }
@@ -209,6 +226,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.priceLines.collect { prices = it } }
         launch { repository.promotions.collect { promotions = it } }
         launch { repository.truckStock.collect { stock = it } }
+        launch { repository.heldStock.collect { heldStock = it } }
         launch { repository.policy.collect { policy = it } }
         launch { repository.storePos.collect { value ->
             val changed=storePos.config?.mode != value.config?.mode
@@ -228,16 +246,20 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { publicKey = try { publicKeyLoader() } catch (_: Exception) { null } }
         if (restore) {
             busy = true
+            // VAN-085: the day saved on this phone opens as soon as it is read, without waiting for the office
+            // (offline, every request first runs into its timeout). The start-up check and sync carry on behind it.
+            val cachedDay = launch { repository.currentTrip.first { it != null }; if (!initialized) { initialized = true; busy = false; refreshSharing() } }
             try {
                 repository.restoreSession()
-                if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
+                if (repository.enrollmentState.value is EnrollmentState.Ready && !repository.restoredOffline) { repository.syncNow(); setupProblem = null }
+                else if (repository.restoredOffline) message = OFFLINE_START
             } catch (e: CancellationException) { throw e }
             catch (e: Exception) {
                 // A sync refusal is not a connection problem; say what actually happened.
                 message = rememberSyncFailure(if (e is com.sunpride.van.sync.VanSyncFailure) syncMessage(e)
                     else AuthMessages.forFailure(e,"Could not connect. Saved work stays on this phone. Try again."))
             }
-            finally { busy = false; initialized = true; refreshSharing() }
+            finally { cachedDay.cancel(); busy = false; initialized = true; refreshSharing() }
         } else { initialized = true; refreshSharing() }
         awaitCancellation()
     }
@@ -262,7 +284,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     /** Plain words for a failed sync; saved work is never lost by a failed sync. */
     internal fun syncMessage(e: Exception): String = when (e) {
         is com.sunpride.van.sync.VanSyncFailure -> UserMessages.forCode(e.code) ?: "The office could not take this work yet. Your work is kept here. Try again."
-        is com.sunpride.van.auth.AuthFailure -> e.kind.message
+        is com.sunpride.van.auth.AuthFailure -> e.text
         is com.sunpride.van.auth.NativeApiFailure -> UserMessages.forFailure(e)
         else -> "Could not sync. Your work is kept here. Try again."
     }
@@ -312,7 +334,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         scope?.launch {
             busy=true; message=null
             try {
-                val fix=if (callLocationSource != null) callLocationSource.invoke() else com.sunpride.callflow.AndroidCallLocation.capture(context)
+                val fix=if (callLocationSource != null) callLocationSource.invoke() else com.sunpride.van.location.VanCallLocation.capture(context)
                 repository.recordCall(kind,selected.outletId,fix,options)
                 refreshCall(); message="Call saved on this phone. Sync sends it to the office."
             } catch(e: CancellationException) { throw e }
@@ -379,7 +401,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         if (repository.enrollmentState.value !is EnrollmentState.Ready) return
         quietSyncing = true; quietSyncAt = now
         scope?.launch {
-            try { repository.syncNow() }
+            try { repository.syncNow(); setupProblem = null }
             catch (e: CancellationException) { throw e }
             catch (_: Exception) { /* offline is normal on a route; the grid keeps the last download */ }
             finally { quietSyncing = false }
@@ -635,7 +657,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         private set
     suspend fun refreshPaymentFacts() { paymentFacts = runCatching { repository.paymentFacts() }.getOrDefault(com.sunpride.van.storage.PaymentFacts()) }
     fun saleContext(now: Long = System.currentTimeMillis()): CheckoutContext =
-        CheckoutContext(VanRules.canSell(trip) && session.signedIn,customers,products,stock,prices,policy,now,trip?.serviceDate,
+        CheckoutContext(VanRules.canSell(trip) && session.signedIn,customers,products,com.sunpride.van.pos.HeldStock.sellable(stock,heldStock),prices,policy,now,trip?.serviceDate,
             paymentFacts.creditUsedMinor,paymentFacts.usedReferences,cashCounted,promotions,stockCounted,
             taxFacts = policy?.fiscalJson?.let { com.sunpride.van.fiscal.FiscalTax.facts(JSONObject(it),now) },
             capRemaining = com.sunpride.van.selling.PrivilegeCap.remainingFn(policy?.privilegeCap,paymentFacts.capUsedMinor,now))
@@ -806,7 +828,12 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun holdCart(surface: String, name: String?, note: String?, customer: Customer?, lines: List<HeldLine>, totalLabel: String, done: (String?) -> Unit) {
         val s = scope ?: return done("Try again in a moment.")
         s.launch {
-            try { repository.holdCart(surface, name, note, customer?.outletId, customer?.name, lines, totalLabel); refreshHeld(); done(null) }
+            try {
+                repository.holdCart(surface, name, note, customer?.outletId, customer?.name, lines, totalLabel)
+                // NF-R5V-3: a discount claim, manual discount or override belongs to the held cart's customer, not the next cart.
+                if (surface == com.sunpride.van.pos.HeldCartRules.SURFACE_VAN) sale?.let { sale = it.afterHold(CheckoutRules.newSaleId()); discountEpoch++; discountMessage = null; claimPreview = ClaimPreview.None }
+                refreshHeld(); done(null)
+            }
             catch (e: CancellationException) { throw e } catch (e: IllegalStateException) { done(e.message ?: "Could not hold this cart.") } catch (e: Exception) { done(UserMessages.forFailure(e)) }
         }
     }
@@ -956,7 +983,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun refreshReceipts() {
         scope?.launch { savedSales = runCatching { repository.savedSales() }.getOrElse { if (it is CancellationException) throw it; savedSales } }
     }
-    private fun startPrint(saleId: String, explicit: Boolean, reason: String?, store: Boolean = false) {
+    private fun startPrint(saleId: String, explicit: Boolean, reason: String?, store: Boolean = false, fromQuestion: Boolean = false) {
         if (printing) return
         val s = scope ?: return
         printing = true; printMessage = "Printing…"
@@ -971,7 +998,9 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
                     is PrintJobResult.Failed -> result.attempt?.let { it.kind != PrintKind.VOID && it.mayHaveReachedPaper } == true
                     is PrintJobResult.Refused -> false
                 }
-                if (sent) { printQuestionSaleId = saleId; printQuestionStore = store }
+                if (sent) { printQuestionSaleId = saleId; printQuestionStore = store; printQuestionNote = null }
+                // VAN-051: a refused "Print again" keeps the question open with the reason; it still needs Yes or Skip.
+                else if (fromQuestion && result is PrintJobResult.Refused) { printQuestionSaleId = saleId; printQuestionStore = store; printQuestionNote = printMessage }
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { printMessage = "Could not print. The sale is saved. Try again." }
             finally {
@@ -990,9 +1019,15 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         val id = printQuestionSaleId ?: return
         val store = printQuestionStore
         printQuestionSaleId = null
-        startPrint(id,explicit = true,reason = null,store = store)
+        startPrint(id,explicit = true,reason = null,store = store,fromQuestion = true)
     }
-    fun dismissPrintQuestion() { printQuestionSaleId = null }
+    /** VAN-051: re-sends left for the receipt on the "Did it print?" sheet, from its saved print history. */
+    fun printAgainLeft(): Int? {
+        val id = printQuestionSaleId ?: return null
+        val history = if (printQuestionStore) storePrints[id] else savedSales.firstOrNull { it.receipt.saleId == id }?.prints
+        return history?.let(com.sunpride.van.printing.ReprintRules::printAgainLeft)
+    }
+    fun dismissPrintQuestion() { printQuestionSaleId = null; printQuestionNote = null }
     /** Ask again for a receipt that was sent but never answered (for example the app was closed first). */
     fun askDidItPrint(saleId: String, store: Boolean) { printQuestionSaleId = saleId; printQuestionStore = store }
     private fun settlePrintQuestion(outcome: PrintOutcome, text: String) {
@@ -1001,7 +1036,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         scope?.launch {
             try {
                 if (store) repository.storeSettlePrint(id,outcome) else repository.settlePrint(id,outcome)
-                printQuestionSaleId = null; printMessage = text
+                printQuestionSaleId = null; printQuestionNote = null; printMessage = text
             } catch (e: CancellationException) { throw e }
             catch (_: Exception) { printMessage = "Could not save your answer. Try again." }
             finally {
@@ -1010,10 +1045,20 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
             }
         }
     }
+    /** VAN-074: why Count cash has no expected cash; the screen shows it instead of "Loading…" forever. */
+    var cashProblem by mutableStateOf<String?>(null); private set
     fun refreshCash() {
         scope?.launch {
-            cashSummary = try { repository.cashSummary() } catch (e: CancellationException) { throw e }
-                catch (e: CashRefused) { message = VanRules.cashMessage(e.problem); null } catch (_: Exception) { null }
+            cashProblem = null
+            cashSummary = try {
+                kotlinx.coroutines.withTimeoutOrNull(20_000L) { repository.cashSummary() } ?: run {
+                    cashProblem = "The expected cash could not be worked out on this phone. Go back and open Count cash again; if it stays, sync and tell your supervisor."; null }
+            } catch (e: CancellationException) { throw e }
+                catch (e: CashRefused) { message = VanRules.cashMessage(e.problem); cashProblem = message; null }
+                catch (e: Exception) {
+                    if (com.sunpride.van.BuildConfig.DEBUG) android.util.Log.w("SunprideVan","cash summary failed: ${e.javaClass.simpleName} at " +
+                        e.stackTrace.take(8).joinToString(" < ") { "${it.className.substringAfterLast('.')}.${it.methodName}:${it.lineNumber}" })
+                    cashProblem = "The expected cash could not be worked out on this phone. Sync, then open Count cash again; if it stays, tell your supervisor."; null }
         }
     }
     fun refreshStock() {
@@ -1107,7 +1152,10 @@ const val REFUND_FAILED = "The refund could not be saved. Nothing was taken. Try
 /** A sale being built for one customer (VAN-011). */
 data class SaleDraft(val saleId: String, val customer: Customer, val lines: List<CartLine>,val manualDiscount:ManualDiscountInput? = null,val priceOverride:SalePriceOverride?=null,val creditOverride:FinancialOverride?=null,
     /** IP-HH2: the statutory discount the cashier entered (type, ID, name); worked out by [com.sunpride.van.selling.Privilege]. */
-    val claim: com.sunpride.van.selling.DiscountClaim? = null)
+    val claim: com.sunpride.van.selling.DiscountClaim? = null) {
+    /** NF-R5V-3: after Hold the screen is clear for the next customer: same outlet, new sale id, no lines, no discount or override. */
+    fun afterHold(newSaleId: String): SaleDraft = SaleDraft(newSaleId, customer, emptyList())
+}
 
 /**
  * The refund slip goes through the same connect-then-print steps as a receipt (a printer that was never connected in this session

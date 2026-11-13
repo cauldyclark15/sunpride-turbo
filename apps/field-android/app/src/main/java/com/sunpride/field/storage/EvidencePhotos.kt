@@ -55,6 +55,14 @@ object EvidencePhotos {
     fun label(code: String, types: List<PhotoType>): String =
         offered(types).firstOrNull { it.code == code }?.label ?: "Photo"
 
+    /**
+     * NF-4: the name burned into a visit photo. The snapshot's employee header wins; a snapshot made before the
+     * server sent `name` falls back to the name the server verified for the SAME person at the last sync.
+     */
+    fun watermarkPerson(snapshotName: String?, employeeId: String, verifiedPersonId: String?, verifiedName: String?): String? =
+        snapshotName?.takeIf { it.isNotBlank() }
+            ?: verifiedName?.takeIf { it.isNotBlank() && verifiedPersonId == employeeId }
+
     fun sha256Hex(bytes: ByteArray): String = MessageDigest.getInstance("SHA-256").digest(bytes)
         .joinToString("") { "%02x".format(it.toInt() and 0xff) }
 

@@ -65,7 +65,7 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
         // The server deliberately refuses van deltas. A complete, bounded snapshot is required every cycle.
         val request = envelope().put("since",JSONObject.NULL).put("pageCursor",JSONObject.NULL).put("limit",100)
             .put("scopes",JSONArray().put(JSONObject().put("scopeId",identity.scopeId).put("projection","van.bundle")
-                .put("params",JSONObject().put("serviceDate",day).put("catalogue",true).put("schemeEngine",1).put("posMode",true).put("handheld",true).put("vanDay",true).put("categories",true).put("refunds",true).put("privilegeCap",true))))
+                .put("params",JSONObject().put("serviceDate",day).put("catalogue",true).put("schemeEngine",1).put("posMode",true).put("handheld",true).put("vanDay",true).put("categories",true).put("refunds",true).put("privilegeCap",true).put("vanPrivilegeCap",true).put("privilegeSwitch",true).put("pickupDecisions",true))))
         val response = JSONObject(send(PULL,request.toString().toByteArray()))
         val local = V2VanCodec.snapshot(response,identity,clock())
         tripId = local.optJSONObject("trip")?.getString("tripId")
@@ -131,6 +131,8 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
             val code = o?.optString("code")
             if (com.sunpride.van.BuildConfig.DEBUG) android.util.Log.w("SunprideVan","server refused: $status ${code ?: ""}")
             val mapped = when {
+                // VAN-086: the office paused this phone: say so and keep the work; reinstating the phone resumes sync.
+                status == 403 && code == "device_suspended" -> "device_suspended"
                 status == 401 || status == 403 || code in setOf("scope_changed","scope_withdrawn","profile_unavailable","device_unavailable") -> "unauthorized"
                 status == 426 || code == "version_unsupported" -> "version_unsupported"
                 status == 429 || status >= 500 -> "temporarily_unavailable"
@@ -166,7 +168,8 @@ object V2VanCodec {
             val ack = if (accepted) r.getJSONObject("ack").let { PushAck(it.getString("entityId"),
                 if (it.isNull("movementId")) null else it.getString("movementId"),it.getLong("serverTime")) } else null
             PushResult(op.getString("opType"),op.getString("clientOpId"),if (accepted) "accepted" else if (r.optString("code") == "idempotency_conflict") "conflict" else "rejected",
-                ack,if (accepted) null else r.optString("code").takeIf { Regex("[a-z_]{1,64}").matches(it) } ?: "unsupported_operation")
+                ack,if (accepted) null else r.optString("code").takeIf { Regex("[a-z_]{1,64}").matches(it) } ?: "unsupported_operation",
+                spoiledNumber = if (accepted) null else com.sunpride.van.selling.RefusedReceipt.spoiledNumber(r))
         }
     }
     fun snapshot(o: JSONObject, identity: NativeIdentity, now: Long): JSONObject {

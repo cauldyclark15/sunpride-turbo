@@ -87,7 +87,8 @@ class StoreTransactions(private val store:RoomVanStore) {
             .apply {claim?.let {put("claim",it.json("privilegeDiscountCentavos","vatRemovedCentavos",null))}}.toString()
         val hash=java.security.MessageDigest.getInstance("SHA-256").digest(input.toByteArray()).joinToString(""){"%02x".format(it.toInt() and 255)}
         rows.firstOrNull {it.clientRequestId==saleId}?.let {old->val meta=JSONObject(checkNotNull(old.metadataJson));check(meta.getString("inputHash")==hash){"Cart identifier has different content"};return@withTransaction meta.getJSONObject("receipt")}
-        check(rows.none {it.kind=="store.sale" && it.status in setOf("rejected","conflict")}) {"Review the refused store sale before recording more"}
+        // SP-0169: a refused sale whose number the office recorded as spoiled no longer holds the series; only an unresolved refusal blocks.
+        check(rows.none {it.kind=="store.sale" && it.status in setOf("rejected","conflict") && it.rejectionCode!=com.sunpride.van.selling.RefusedReceipt.CODE}) {"Review the refused store sale before recording more"}
         val shift=checkNotNull(StorePosStore.project(config,rows).shift){"Open a cashier session first"}
         check(claim==null||employeePin==null&&points==0L){"A senior, PWD or other statutory discount cannot be combined with the employee discount or points"}
         val quote=StoreCheckout.quote(config,rows,cart,store.now(),claim)
@@ -183,7 +184,7 @@ class StoreTransactions(private val store:RoomVanStore) {
             val server=StoreCheckout.objects(config.details.optJSONArray("sales"))
             val statuses=server.associate {it.getString("id") to it.getString("status")}
             val remote=server.map {it.getJSONObject("receipt")}
-            val local=rows.filter {it.kind=="store.sale"&&it.metadataJson!=null}.map {JSONObject(it.metadataJson!!).getJSONObject("receipt")}
+            val local=StorePosStore.onRegister(config,rows).filter {it.kind=="store.sale"&&it.metadataJson!=null}.map {JSONObject(it.metadataJson!!).getJSONObject("receipt")}
             return (local+remote).distinctBy {it.getString("saleId")}.map {JSONObject(it.toString()).put("_status",statuses[it.getString("saleId")]?:"saved")}.sortedByDescending {it.optLong("soldAt")}
         }
         fun document(r:JSONObject,reprint:Boolean=false):ReceiptDocument {

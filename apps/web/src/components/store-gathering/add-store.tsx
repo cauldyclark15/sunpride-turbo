@@ -120,10 +120,13 @@ export function summaryLine(c: Candidate): string {
 /** SP-0162 office Add store: address search + draggable pin + live duplicate check. */
 export function AddStore({
   onDone,
+  onCancel,
   initialName = "",
   bare = false,
 }: {
   onDone?: () => void;
+  /** Closes the form without saving (Save / Cancel, docs/ui-actions.md). */
+  onCancel?: () => void;
   initialName?: string;
   /** Inside a titled sheet: no card frame or heading of its own. */
   bare?: boolean;
@@ -459,13 +462,20 @@ export function AddStore({
             onAcknowledge={setAcknowledged}
           />
           <div>
-            <button
-              type="submit"
-              className={primary}
-              disabled={busy || blocked || !pin}
-            >
-              {busy ? "Adding…" : "Add store"}
-            </button>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="submit"
+                className={primary}
+                disabled={busy || blocked || !pin}
+              >
+                {busy ? "Saving…" : "Save"}
+              </button>
+              {onCancel ? (
+                <button type="button" className={button} onClick={onCancel}>
+                  Cancel
+                </button>
+              ) : null}
+            </div>
             {blocked ? (
               <p className="mt-1 text-xs text-muted">
                 Check the possible matches first.

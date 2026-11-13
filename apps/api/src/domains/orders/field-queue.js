@@ -55,7 +55,7 @@ export async function drainFieldOrders(ctx) {
         return "captured";
       } catch (e) {
         if (!(e instanceof ApiError)) throw e; // Infrastructure errors remain pending for retry.
-        await db`update order_intent_queue set status='review',review_code=${e.code},updated_at=now() where id=${item.id}`;
+        await db`update order_intent_queue set status='review',review_code=${reviewCodeOf(e)},updated_at=now() where id=${item.id}`;
         topics.add("orders");
         return "review";
       }
@@ -67,6 +67,38 @@ export async function drainFieldOrders(ctx) {
   }
   return { captured, review };
 }
+/** WEB-106: why a captured phone order went to review, as a specific code (kept in review_code).
+ * The capture path refuses with generic `invalid_request`, so the plain message decides the code.
+ * @param {ApiError} e @returns {string} */
+export function reviewCodeOf(e) {
+  const m = String(e.message ?? "");
+  if (e.code === "out_of_scope") return "person_inactive";
+  if (e.code === "wrong_date") return "wrong_time";
+  if (e.code === "idempotency_conflict") return "already_captured";
+  if (/price/i.test(m)) return "missing_price";
+  if (/accounting customer/i.test(m)) return "unknown_store";
+  if (/selling catalog/i.test(m)) return "store_not_set_up";
+  if (/not authorized/i.test(m)) return "product_not_listed";
+  if (/unit|quantity/i.test(m)) return "unit_not_set_up";
+  if (/visit/i.test(m)) return "visit_unavailable";
+  return e.code || "invalid_request";
+}
+/** Plain words per review code; older rows with a generic code keep the general sentence. */
+export const REVIEW_REASONS = /** @type {Record<string,string>} */ ({
+  missing_price: "Missing price",
+  unknown_store: "Unknown store (no accounting customer linked)",
+  store_not_set_up: "Store's selling list is not set up",
+  product_not_listed: "Product was not on the store's list that day",
+  unit_not_set_up: "Product unit is not set up for selling",
+  person_inactive: "The person who took the order is no longer active",
+  wrong_time: "Order time is outside the visit",
+  already_captured: "Already captured",
+  visit_unavailable: "Visit not available",
+});
+/** @param {string|null|undefined} code */
+export const reviewReason = (code) =>
+  (code && REVIEW_REASONS[code]) ||
+  "Captured order needs selling setup or authorization review; the original phone evidence is retained.";
 /** @param {any} router */
 export function installFieldReview(router) {
   router.get("/api/v1/orders/field-review", async (/** @type {any} */ c) => {
@@ -96,10 +128,11 @@ export function installFieldReview(router) {
         salespersonName: r.name,
         serviceDate: new Date(r.service_date).toISOString().slice(0, 10),
         status: r.status,
+        reviewCode: r.status === "pending" ? null : r.review_code,
         reason:
           r.status === "pending"
             ? "Waiting for commercial pricing"
-            : "Captured order needs selling setup or authorization review; the original phone evidence is retained.",
+            : reviewReason(r.review_code),
       });
     }
     return {

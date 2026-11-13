@@ -154,6 +154,21 @@ test("F-615 sales value cascade: preview from prior actuals, reconciliation, ide
   const [{ method }] =
     await h.db`select method from target_cascades where id=${submitted.body.id}`;
   expect(method).toBe("manual");
+  // WEB-037: the read says who may decide, so the regional manager is not
+  // offered Approve/Send back the server would refuse.
+  /** @param {string} [cookie] */
+  const decidable = async (cookie) => {
+    const r = await call(`/api/v1/targets/cascade?month=${month}`, undefined, cookie);
+    return {
+      wide: r.body.companyWide,
+      can: r.body.cascades.find(
+        (/** @type {any} */ k) => k.id === submitted.body.id,
+      )?.canDecide,
+    };
+  };
+  expect(await decidable(cookies["manager-a"])).toEqual({ wide: false, can: false });
+  expect(await decidable(cookies["approver-root"])).toEqual({ wide: true, can: true });
+  expect((await decidable()).can).toBe(false);
   // The preparer (super admin) cannot publish their own cascade.
   const decide = {
     cascadeId: submitted.body.id,
@@ -433,4 +448,51 @@ test("F-615 non-sales bundle: MSL rate carries to every child, volume names a pr
     [2, "superseded"],
     [3, "published"],
   ]);
+});
+test("WEB-037 the prior-actual basis reads the sales view once, fenced, before filtering by child and scope", async () => {
+  const { basisFor } =
+    await import("../src/domains/coverage/target-cascade.js");
+  /** @type {string[]} */ const texts = [];
+  /** @param {any} strings @param {any[]} values */
+  const db = (strings, ...values) => {
+    if (!Array.isArray(strings) || !("raw" in strings))
+      return { list: strings };
+    texts.push(
+      strings.reduce(
+        (
+          /** @type {string} */ out,
+          /** @type {string} */ s,
+          /** @type {number} */ i,
+        ) => out + s + (i < values.length ? (values[i]?.unsafe ?? "?") : ""),
+        "",
+      ),
+    );
+    return Promise.resolve([]);
+  };
+  db.unsafe = (/** @type {string} */ s) => ({ unsafe: s });
+  for (const metric of ["sales_value", "volume", "coverage_stores"])
+    await basisFor(
+      db,
+      metric,
+      metric === "volume" ? "SKU" : null,
+      "channel",
+      ["gt"],
+      "2026-11",
+      {
+        ids: ["u1"],
+        cross: true,
+      },
+    );
+  expect(texts).toHaveLength(3);
+  for (const sql of texts) {
+    const fence = sql.indexOf("as materialized (");
+    const close = sql.indexOf(")\n", fence);
+    expect(fence).toBeGreaterThan(-1);
+    const inner = sql.slice(fence, close);
+    expect(inner).toContain("from analytics_sales_facts f where f.approved");
+    // Child keys and unit scope stay outside the fence, so they cannot reshape the view's joins.
+    expect(inner).not.toContain("agent_unit_id");
+    expect(inner).not.toContain("f.channel in");
+    expect(sql.slice(close)).toContain("f.agent_unit_id in");
+  }
 });

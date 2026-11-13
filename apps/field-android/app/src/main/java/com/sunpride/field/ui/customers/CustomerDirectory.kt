@@ -45,7 +45,12 @@ data class CustomerRecord(
     /** The store's own owner contact (Add store, approved Edit store, office edit); wins over the account header. */
     val ownerName: String? = null,
     val ownerPhone: String? = null,
+    /** FLD-207: a call on this store is open (an unplanned call has no [today] row). */
+    val callOpen: Boolean = false,
 ) {
+    /** The chip on the Stores row: today's planned status, else "In progress" for an open unplanned call. */
+    val visitStatus: String? get() = today?.status?.takeIf { it in setOf("Done", "In progress", "Needs review") }
+        ?: "In progress".takeIf { callOpen }
     /** Who to ask for and the number Call dials: the store's owner contact, else the account header. */
     val contactName: String? get() = ownerName ?: account?.buyerName
     val contactPhone: String? get() = ownerPhone ?: account?.contactNumber
@@ -55,6 +60,31 @@ data class CustomerRecord(
 }
 
 object CustomerDirectory {
+    /**
+     * FLD-052: the account rows under Summary, then the note shown when none of them can be drawn.
+     * The Account row is skipped when it only repeats the store name.
+     */
+    fun accountFacts(record: CustomerRecord): Pair<List<Pair<String, String>>, String?> {
+        val account = record.account
+        val facts = listOfNotNull(
+            account?.takeIf { it.accountName != record.name }?.let { "Account" to it.accountName },
+            record.contactName?.let { (if (record.ownerName != null) "Owner" else "Buyer") to it },
+            record.contactPhone?.let { "Contact" to it },
+            account?.accountInCharge?.let { "Account in charge" to it },
+            account?.receivingInCharge?.let { "Receiving" to it },
+            account?.distributorName?.let { "Distributor" to it },
+            account?.distributorSchedule?.let { "Delivery schedule" to it },
+            account?.foc?.let { "FOC" to it },
+        )
+        // r4: a sheet holding only the store's name (the sample sheets) used to leave Summary silent about the account.
+        val note = when {
+            account == null -> "No account sheet yet"
+            facts.isEmpty() -> "No account details yet"
+            else -> null
+        }
+        return facts to note
+    }
+
     private const val HISTORY_LIMIT = 10
     private val manila: ZoneId = ZoneId.of("Asia/Manila")
 
@@ -86,6 +116,7 @@ object CustomerDirectory {
                 v.optJSONArray("intents")?.let { a -> (0 until a.length()).mapNotNull { a.opt(it) as? String } } ?: emptyList())
         }.groupBy({ it.first }, { it.second })
         val historyByOutlet = historyByOutlet(history)
+        val open = runCatching { com.sunpride.field.storage.VisitCallRules.openOutlets(history) }.getOrDefault(emptySet())
         return outlets.mapNotNull { row ->
             val o = runCatching { JSONObject(row.json) }.getOrNull() ?: return@mapNotNull null
             val latitude = o.number("latitude")?.takeIf { it in -90.0..90.0 }
@@ -98,7 +129,7 @@ object CustomerDirectory {
                 routeCode.takeIf { outletRoute != null && outletRoute == routeId }, accounts[row.id],
                 plansByOutlet[row.id].orEmpty().sortedBy { it.serviceDate }.distinctBy { it.plannedVisitId },
                 historyByOutlet[row.id].orEmpty(), today.firstOrNull { it.outletId == row.id },
-                o.text("ownerName"), o.text("ownerPhone"))
+                o.text("ownerName"), o.text("ownerPhone"), callOpen = row.id in open)
         }.distinctBy { it.outletId }
     }
 
@@ -148,6 +179,19 @@ object CustomerDirectory {
         .replace(Regex("\\p{M}+"), "").lowercase(Locale.ROOT)
         .replace(Regex("[^a-z0-9]+"), " ").trim()
 
+    /**
+     * Compact code form, the same rule as the office store search (`store-search.js`): no spaces,
+     * dashes or punctuation, letter O read as zero inside the number, leading zeros ignored, so
+     * "SMP-O0069", "smp00069" and "SMP-00069" are one code.
+     */
+    fun compactCode(value: String): String {
+        val s = Normalizer.normalize(value, Normalizer.Form.NFKC).lowercase(Locale.ROOT)
+            .replace(Regex("[\\s.\\-/#_\\u2010-\\u2015\\u2212\\uFE58\\uFE63\\uFF0D]"), "")
+        val m = Regex("^([a-z]*?)([0-9o]*[0-9][0-9o]*)$").find(s) ?: return s
+        val number = m.groupValues[2].replace('o', '0').replace(Regex("^0+(?=\\d)"), "")
+        return m.groupValues[1] + number
+    }
+
     private fun fields(record: CustomerRecord) = listOfNotNull(record.name, record.outletCode, record.customerCode,
         record.address, record.account?.accountName, record.contactName, record.routeCode)
 
@@ -158,16 +202,23 @@ object CustomerDirectory {
      */
     fun search(records: List<CustomerRecord>, query: String): List<CustomerRecord> {
         val words = normalize(query).split(' ').filter { it.isNotEmpty() }
+        val whole = compactCode(query)
         val ranked = records.mapNotNull { record ->
             val haystack = fields(record).map { normalize(it) }
             val joined = haystack.joinToString(" ")
-            if (words.any { word -> !joined.contains(word) }) return@mapNotNull null
+            val rawCodes = listOfNotNull(record.outletCode, record.customerCode)
+            val compact = rawCodes.map { compactCode(it) }
+            val wholeCode = words.isNotEmpty() && whole.isNotEmpty() &&
+                compact.any { it == whole || (whole.length >= 3 && it.contains(whole)) }
+            fun wordMatches(word: String): Boolean = joined.contains(word) ||
+                compactCode(word).let { cw -> cw.length >= 2 && compact.any { it.contains(cw) } }
+            if (!wholeCode && words.any { word -> !wordMatches(word) }) return@mapNotNull null
             val phrase = words.joinToString(" ")
-            val codes = listOfNotNull(record.outletCode, record.customerCode).map { normalize(it) }
+            val codes = rawCodes.map { normalize(it) }
             val name = normalize(record.name)
             val score = when {
                 words.isEmpty() -> 3
-                codes.any { it == phrase } -> 0
+                codes.any { it == phrase } || compact.any { it == whole } -> 0
                 codes.any { it.startsWith(phrase) } || name.startsWith(phrase) -> 1
                 name.split(' ').any { it.startsWith(words.first()) } -> 2
                 else -> 3

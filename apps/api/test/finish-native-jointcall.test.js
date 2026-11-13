@@ -160,6 +160,45 @@ test("F-223 signed native draft chain completes canonical coaching and carries a
     expect(follow.bundles[0].data.trainees[0].carried[0].agreement).toBe(
       "Prepare the next call",
     );
+    // FLD-159: reopen a saved draft from the office copy (expectedRevision, as the phone does) and finish it with
+    // a required part missing: the refusal names it (was the generic invalid_request), then a full finish lands.
+    const saved = await push(a);
+    expect(saved.result.status).toBe("applied");
+    const reopened = (await pull()).bundles[0].data.sessions.find(
+      (/** @type {any} */ x) => x.session.id === saved.result.ack.entityId,
+    );
+    const partial = {
+      ...a,
+      sessionId: saved.result.ack.entityId,
+      expectedRevision: reopened.revision,
+      observations: [{ area: "bcp", item: "Prepare call", rating: "met" }],
+      trainingLog: {
+        topics: "Call preparation",
+        tradeDevelopment: "Review shelf order",
+        discussedWithTrainee: false,
+      },
+      complete: true,
+    };
+    const refused = await push(partial);
+    expect(refused.result.status).toBe("rejected");
+    expect(refused.result.code).toBe("work_with_incomplete");
+    const finished = await push({
+      ...partial,
+      observations: [
+        ...partial.observations,
+        { area: "psf", item: "Explain benefit", rating: "met" },
+      ],
+      trainingLog: { ...partial.trainingLog, discussedWithTrainee: true },
+      reviews: reopened.jointCall.carried.map((/** @type {any} */ x) => ({
+        actionId: x.id,
+        outcome: "done",
+        note: "Prepared",
+      })),
+    });
+    expect(finished.result.status).toBe("applied");
+    const [done] =
+      await h.db`select status from work_with_sessions where id=${saved.result.ack.entityId}`;
+    expect(done.status).toBe("completed");
     const draft = await push(a);
     expect(draft.result.status).toBe("applied");
     await h.db`update work_with_sessions set training_log_topics='Office edit' where id=${draft.result.ack.entityId}`;

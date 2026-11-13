@@ -447,6 +447,24 @@ describe("load-out on the movement document", () => {
     expect(line).toEqual({ expected_base: "36", actual_base: "31", discrepancy_reason: "short_loaded" });
   });
 
+  it("SP-0169 VAN-011: a trip on the route-controls configuration accepts the phone's load count only with its settlement version (the lane's refused payload)", async () => {
+    const sc = await scenario();
+    await toDispatched(sc.tripId);
+    // The nightly roster trips (TRIP-...-VAN3-2 in the lane) are on operations version 1.
+    await h.db`update van_trips set operations_version=1 where id=${sc.tripId}`;
+    const loadId = await loadIdOf(sc.tripId);
+    const [sent] =
+      await h.db`select a.dispatched_base::text as b from stock_transfer_allocations a join van_planned_loads p on p.stock_transfer_id=a.transfer_id where p.trip_id=${sc.tripId} and a.dispatched_base>0`;
+    const lines = [{ productId: prodA.id, lotId: null, actualBase: sent.b }];
+    // The phone's payload before the fix: tripId, loadId, lines, deviceTime and no settlementVersion -> invalid_request.
+    const bare = await push([op("load.accept", { tripId: sc.tripId, loadId, lines })]);
+    expect(bare.body.results[0]).toMatchObject({ status: "rejected", code: "invalid_request" });
+    expect((await planOf(sc.tripId)).state).toBe("dispatched");
+    const fixed = await push([op("load.accept", { tripId: sc.tripId, loadId, lines, settlementVersion: 1 })]);
+    expect(fixed.body.results[0].status, JSON.stringify(fixed.body.results[0])).toBe("applied");
+    expect((await planOf(sc.tripId)).state).toBe("accepted");
+  });
+
   it("one case short is above the allowed difference: the clerk recounts on their own device, they agree, no supervisor, and the van leaves", async () => {
     const sc = await scenario();
     await toDispatched(sc.tripId);
@@ -744,5 +762,43 @@ describe("the van day board", () => {
     const hb = await read(helper, `day-board?date=${today()}`);
     expect(hb.status).toBe(200);
     expect((await web(helper, "trips/generate", { date: today() })).status).toBe(403);
+  });
+});
+
+describe("eligible depot stock (WEB-082/084)", () => {
+  it("a load that needs quarantined or nearly-expired batches is not clean on the board, matches approval's refusal, and edit/suggestion use the same rule", async () => {
+    const sc = await scenario();
+    const [q] = await h.db`insert into inventory_lots(organization_id,product_id,lot_number,normalized_lot_number,source_type,received_at,expires_at,quality_status,unit_cost_minor) values('sunpride',${prodB.id},'B-QUAR','B-QUAR','fixture',now(),${new Date(Date.now() + 90 * 86400000)},'released',${COST}) returning id`;
+    // Earlier tests may have left released prodB stock; take it out of the picture for this depot.
+    await h.db`update inventory_lots set quality_status='quarantined' where product_id=${prodB.id}`;
+    await h.db`update inventory_lots set quality_status='released' where id=${q.id}`;
+    await stockIn(prodB, 60, depot, q.id);
+    await h.db`update inventory_lots set quality_status='quarantined' where id=${q.id}`;
+    const plan = await planOf(sc.tripId);
+    // A plan made before the batch was held: the stored line still says the depot had it.
+    await h.db`insert into van_planned_load_lines(planned_load_id,product_id,case_base,depot_available_base,suggested_base,flags) values(${plan.id},${prodB.id},6,60,12,${h.db.array([], "TEXT")})`;
+    const board = await read(boss, `day-board?date=${today()}`);
+    const row = board.body.rows.find((/** @type {any} */ r) => r.tripId === sc.tripId);
+    expect(row.load.attention).toContain("The depot does not have enough for some products");
+    expect(row.primary.kind).toBe("review_load");
+    const detail = await read(boss, `loads/plan?tripId=${sc.tripId}`);
+    expect(detail.body.plan.attention).toContain("The depot does not have enough for some products");
+    // Approval agrees: refused for the same reason.
+    const a = await web(boss, "loads/approve-plan", { tripIds: [sc.tripId] });
+    expect(a.body).toMatchObject({ approved: 0, failed: 1 });
+    expect(a.body.results[0].message).toBe("Insufficient eligible lot stock");
+    // Editing to that quantity is refused up front, quoting the eligible stock (0), not the 60 held pieces.
+    const e = await web(boss, "loads/edit", { tripId: sc.tripId, lines: [{ productId: prodB.id, quantityBase: 12 }] });
+    expect(e.status).toBe(422);
+    expect(msg(e)).toContain("the depot has 0 pieces free");
+    // The suggestion's depot figure is the eligible stock too.
+    const s = await computeSuggestion(h.db, await tripOf(sc.tripId));
+    const b = s.lines.find((/** @type {any} */ l) => l.productId === prodB.id);
+    if (b) expect(b.depotFreeBase).toBe(0);
+    // Releasing the batch makes the same load clean again.
+    await h.db`update inventory_lots set quality_status='released' where id=${q.id}`;
+    const row2 = (await read(boss, `day-board?date=${today()}`)).body.rows.find((/** @type {any} */ r) => r.tripId === sc.tripId);
+    expect(row2.load.attention).not.toContain("The depot does not have enough for some products");
+    expect(row2.primary.kind).toBe("approve_load");
   });
 });

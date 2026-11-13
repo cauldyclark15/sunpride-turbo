@@ -62,9 +62,12 @@ export function overrideProof(keyHex, m) {
 /** Office sets or rotates ONE supervisor's own PIN. History is kept; the old row simply ends.
  * @param {any} db @param {any} actor @param {any} p */
 export async function setSupervisorPin(db, actor, p) {
+  // `for no key update` still serializes PIN rotations for this person, but does not
+  // wait on FK key-share locks other transactions hold on the profile (analytics
+  // facts, orders, visits insert rows referencing it) — SP-0169 set-pins hang.
   const profileId = uuid(p.profileId);
   const [person] =
-    await db`select id,name,role,org_unit_id from profiles where id=${profileId} and status='active' and deleted_at is null for update`;
+    await db`select id,name,role,org_unit_id from profiles where id=${profileId} and status='active' and deleted_at is null for no key update`;
   if (!person || !roleHas(person.role, "van.cash.approve"))
     refuse("Choose an active supervisor who can approve cash");
   await requireCapability({ db, actor }, "admin.manage", person.org_unit_id);

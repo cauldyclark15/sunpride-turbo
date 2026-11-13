@@ -6,7 +6,7 @@ import { ApiStore } from "@/lib/api/store";
 import { BadOrders } from "./bad-orders";
 import { ExpiryBoard } from "./expiry-board";
 import { board, card, queue, valuation } from "./fixtures";
-import { approvalHint, csvQuery, expiryLabel, expiryTone, missingForRequest } from "./helpers";
+import { approvalHint, csvQuery, expiryLabel, expiryTone, missingForRequest, shownTotals, stockFilters, stockParamPatch } from "./helpers";
 import { StockCard } from "./stock-card";
 import { StockOnHand } from "./stock-on-hand";
 import { formatPeso } from "../peso";
@@ -124,5 +124,52 @@ describe("helpers", () => {
   it("approval hint and CSV link", () => {
     expect(approvalHint({ approvalLevel: "manager", approvalLimitCentavos: 100000 }, formatPeso)).toBe("Needs a manager: over ₱1,000.00.");
     expect(csvQuery({ basis: "cost", locationId: undefined, status: "hold" })).toBe("/api/v1/inventory/valuation?basis=cost&status=hold&format=csv");
+  });
+});
+
+describe("WEB-064 stock value follows the filters and the URL", () => {
+  const params = (q: string) => new URLSearchParams(q);
+  it("cards add up only the rows a typed search shows", () => {
+    const html = render(StockOnHand, { params: params("q=sausage") }, [
+      [["inventory", "valuation", { basis: "cost", groupBy: "product" }], valuation],
+    ]);
+    // Only Sweet sausage: cost ₱0.00, selling ₱480.00 — not the ₱1,680.00 company total.
+    expect(html).not.toContain("₱1,680.00");
+    expect(html).toContain("₱480.00");
+    expect(html).not.toContain("Corned beef 150g");
+    expect(shownTotals(valuation.rows.filter((r) => r.code === "SS-6") as never, valuation.totals, true)).toEqual({
+      costValueCentavos: 0,
+      sellingValueCentavos: 48000,
+    });
+  });
+  it("By batch shows a Batch and an Expires column and counts batches", () => {
+    const lot = {
+      ...valuation,
+      groupBy: "lot",
+      rows: valuation.rows.map((r, i) => ({ ...r, lotId: `b${i}`, lotNumber: `L-${i}`, expiresAt: null, daysToExpiry: null })),
+    };
+    const html = render(StockOnHand, { params: params("groupBy=lot") }, [
+      [["inventory", "valuation", { basis: "cost", groupBy: "lot" }], lot],
+    ]);
+    const header = html.slice(html.indexOf("<thead"), html.indexOf("</thead>"));
+    expect(header).toContain(">Batch<");
+    expect(header).toContain(">Expires<");
+    expect(html).toContain(">L-0<");
+    expect(html).toContain("Batches shown");
+  });
+  it("search, place, status, grouping and basis come from and go to the URL", () => {
+    expect(stockFilters(params("q=Pine&groupBy=lot&basis=selling&status=hold&locationId=l1"))).toEqual({
+      q: "Pine",
+      locationId: "l1",
+      status: "hold",
+      groupBy: "lot",
+      basis: "selling",
+    });
+    expect(stockFilters(undefined)).toMatchObject({ groupBy: "product", basis: "cost", q: "" });
+    expect(stockParamPatch({ q: "Pine", groupBy: "product", basis: "selling" })).toEqual({
+      q: "Pine",
+      groupBy: null,
+      basis: "selling",
+    });
   });
 });

@@ -113,6 +113,20 @@ class AuthClientTest {
         assertNull(vault.readSession())
     }
 
+    @Test fun throttleNamesTheRealWaitFromTheServer() {
+        // FLD-004: sign-in allows 10 tries per 5 minutes; the message must not understate the wait.
+        server.enqueue(MockResponse().setResponseCode(429)
+            .setBody("""{"version":2,"serverTime":1,"error":{"code":"rate_limited","retryable":true,"retryAfterMs":241000,"action":"retry"}}"""))
+        val waited = runCatching { auth.signIn("a@example.test", "p") }.exceptionOrNull() as AuthFailure
+        assertEquals(AuthFailure.Kind.RATE_LIMITED, waited.kind)
+        assertEquals("Too many attempts. Try again in 5 minutes.", waited.text)
+        assertEquals("Too many attempts. Try again in 1 minute.", AuthFailure.text(AuthFailure.Kind.RATE_LIMITED, 20_000))
+        server.enqueue(MockResponse().setResponseCode(429))
+        val unknown = runCatching { auth.signIn("a@example.test", "p") }.exceptionOrNull() as AuthFailure
+        assertEquals("Too many attempts. Wait up to 5 minutes and try again.", unknown.text)
+        assertFalse(unknown.text.contains("a minute"))
+    }
+
     @Test fun forbiddenRateLimitServerAndMissingHeaderMapToFixedErrors() {
         server.enqueue(MockResponse().setResponseCode(403).setBody("""{"code":"MISSING_OR_NULL_ORIGIN"}"""))
         expect(AuthFailure.Kind.REFUSED) { auth.signIn("a@example.test", "p") }
@@ -163,6 +177,27 @@ class AuthClientTest {
         expect(AuthFailure.Kind.SESSION_EXPIRED) { auth.accessToken() }
         assertNull(vault.readSession())
         assertNull(vault.deviceId)
+    }
+
+    // FLD-014: a refresh refused because the office revoked this phone says so plainly; a password change says
+    // "session ended". Only the credential goes; the callback lets the app remember why for the Sign in screen.
+    @Test fun `FLD-014 revoked phone refresh names the removal and FLD-171 plain end stays generic`() {
+        val ends = mutableListOf<Boolean>()
+        auth.onSessionEnded = { ends += it }
+        vault.saveSession("sps_fake-session")
+        server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":{"code":"device_revoked"}}"""))
+        val removed = try { auth.accessToken(); null } catch (e: AuthFailure) { e }!!
+        assertEquals(AuthFailure.Kind.SESSION_EXPIRED, removed.kind)
+        assertTrue(removed.removed)
+        assertEquals(AuthFailure.PHONE_REMOVED, removed.text)
+        assertTrue(removed.text.startsWith("This phone was removed by the office"))
+        vault.saveSession("sps_fake-session-2")
+        server.enqueue(MockResponse().setResponseCode(401).setBody("""{"error":{"code":"session_invalid"}}"""))
+        val ended = try { auth.accessToken(); null } catch (e: AuthFailure) { e }!!
+        assertFalse(ended.removed)
+        assertEquals("Your session has ended. Sign in again.", ended.text)
+        assertEquals(listOf(true, false), ends)
+        assertNull(vault.readSession())
     }
 
     @Test fun tokenExchangeServerErrorKeepsSession() {

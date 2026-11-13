@@ -183,6 +183,32 @@ export function stockBook(d, c) {
           },
           time,
         );
+      // r6van4: the trip's own stock ledger (van_stock_events) must carry this load too. Without it the office's
+      // expected truck stock (ledger) and the truck balance disagree, so every stock count and trip close on today's
+      // sample trip was refused with "Canonical truck stock changed".
+      for (const l of excess)
+        d.add(
+          "van_stock_events",
+          `final-truck-${l.p}`,
+          {
+            trip_id: trip.id,
+            source_id: load.id,
+            kind: "load",
+            product_id: c.products[l.p].id,
+            stock_status: "available",
+            delta_base: l.qty,
+            facts: {
+              productId: c.products[l.p].id,
+              code: c.products[l.p].code,
+              name: c.products[l.p].name,
+              uomCode: "PC",
+              quantityScale: "1",
+              caseBase: String(c.products[l.p].caseQty),
+              pieceBase: "1",
+            },
+          },
+          time,
+        );
     }
     /** @type {Map<string,{qty:number,version:number,last:string}>} */
     const states = new Map();

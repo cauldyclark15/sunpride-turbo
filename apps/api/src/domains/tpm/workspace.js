@@ -1,3 +1,4 @@
+import { sourceDay } from "./claim-source-options.js";
 import { office, bounded } from "./common.js";
 /** F-501/F-505 web pickers expose labels; UUIDs remain transport-only.
  * @param {any} router */
@@ -30,7 +31,7 @@ export function installWorkspace(router) {
       evidenceTruncated: evidence.length > 100,
       evidence: evidence.slice(0, 100).map((/** @type {any} */ e) => ({
         id: e.id,
-        label: `Photo · ${e.outlet_name} · ${new Date(e.occurred_at).toLocaleDateString("en-PH", { timeZone: "Asia/Manila" })}`,
+        label: `Photo · ${e.outlet_name} · ${sourceDay(e.occurred_at)}`,
         kind: e.kind,
       })),
     };

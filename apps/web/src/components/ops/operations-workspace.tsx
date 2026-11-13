@@ -34,6 +34,8 @@ import {
 } from "./operations-pickers";
 import { ReceiveDelivery, ReceiveQueue } from "./receive";
 import { BadOrders, ExpiryBoard, StockCard, StockOnHand } from "./stock";
+import { stockParamPatch } from "./stock/helpers";
+import { withParams } from "../cockpit/url";
 import { TransferDetail, TransfersList } from "./transfers";
 import { PlannedLoad, RosterEditor, VanDayBoard } from "./vanday";
 
@@ -63,11 +65,9 @@ const SubTabs = ({
   pathname: string;
   role: string;
 }) => {
-  const subs = visibleOperationsSubs(section, (slug) =>
-    canAccessWebModule(slug, role),
-  ).filter((sub) => sub.id !== "plan" || COUNT_PLANNERS.has(role));
-  const current = operationsSubFor(pathname);
-  if (subs.length < 2) return null;
+  const row = subRowFor(section, pathname, role);
+  if (!row) return null;
+  const { subs, current } = row;
   return (
     <nav aria-label={`${section.label} screens`} className="flex flex-wrap gap-2">
       {subs.map((sub) => (
@@ -87,6 +87,22 @@ const SubTabs = ({
     </nav>
   );
 };
+
+/** WEB-026 rule (one rule for list and detail pages): a verb's second row is drawn only when
+ * the verb has two or more screens for this role; then a detail page (/operations/<verb>/<…>/<id>)
+ * keeps its parent screen lit. A one-screen verb (Transfers) has no second row on its list, so its
+ * detail page has none either; the verb tab stays lit and "← All transfers" leads back. */
+export function subRowFor(
+  section: OperationsSection,
+  pathname: string,
+  role: string,
+) {
+  const subs = visibleOperationsSubs(section, (slug) =>
+    canAccessWebModule(slug, role),
+  ).filter((sub) => sub.id !== "plan" || COUNT_PLANNERS.has(role));
+  if (subs.length < 2) return null;
+  return { subs, current: operationsSubFor(pathname) };
+}
 
 /** The two rows of Operations: the verbs, then the screens of the verb. Also drawn above the older pages that live under a verb. */
 export function OperationsTabs({ role }: { role: string }) {
@@ -138,6 +154,17 @@ function Screen({ path, role }: { path: string[]; role: string }) {
             cardHref={(p, l) =>
               `/operations/stock/card?product=${p}&location=${l}`
             }
+            params={query}
+            onParams={(patch) =>
+              router.replace(
+                withParams(
+                  `/operations/stock`,
+                  query?.toString() ?? "",
+                  stockParamPatch(patch),
+                ),
+                { scroll: false },
+              )
+            }
           />
         );
       if (screen === "card") {
@@ -171,7 +198,7 @@ function Screen({ path, role }: { path: string[]; role: string }) {
         );
       if (screen === "delivery")
         return (
-          <ReceiveDelivery onPosted={() => push("/operations/receive")} />
+          <ReceiveDelivery onDone={() => push("/operations/receive")} />
         );
       break;
     case "transfers":

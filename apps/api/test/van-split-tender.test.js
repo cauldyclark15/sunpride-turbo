@@ -645,3 +645,14 @@ test("a beta.26-shaped bundle request (handheld only) gets no policy key the fro
   expect((await pull(who, hh2)).policy.splitTender).toBe(true);
   expect((await pull(idle, hh2)).policy.splitTender).toBe(true);
 });
+
+test("NF-R4-V1: a trip on the road with no start handheld (office-started or seeded on route) still takes the seller's sale", async () => {
+  await h.db`update van_trips set started_device_id=null where id=${trip.tripId}`;
+  const p = salePayload(9, 1);
+  const r = await push([op("sale.record", p)]);
+  expect(r.body.results[0]).toMatchObject({ status: "applied" });
+  const [t] = await h.db`select started_device_id from van_trips where id=${trip.tripId}`;
+  expect(t.started_device_id).toBe(who.deviceId);
+  const [d] = await h.db`select a.device_id from fiscal_documents f join fiscal_allocations a on a.id=f.allocation_id where f.source_id=${p.saleId}`;
+  expect(d.device_id).toBe(who.deviceId);
+});

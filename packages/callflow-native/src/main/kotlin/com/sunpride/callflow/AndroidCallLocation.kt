@@ -15,7 +15,12 @@ import org.json.JSONObject
 
 /** F-106: one permission-aware capture adapter; no Play Services requirement on cheap phones. */
 object AndroidCallLocation {
-    suspend fun capture(context: Context): JSONObject? {
+    /**
+     * `benchTestProvider` is the app's BuildConfig.E2E_MOCK_LOCATION: true ONLY in an opted-in dev build, so the
+     * e2e bench can put a phone at a store with adb's test location provider. Prod, staging and beta pass false and
+     * a mock fix is still reported (and refused by [CallFlowEngine.location]).
+     */
+    suspend fun capture(context: Context, benchTestProvider: Boolean = false): JSONObject? {
         val precise = ContextCompat.checkSelfPermission(context,Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarse = ContextCompat.checkSelfPermission(context,Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!precise && !coarse) return null
@@ -40,8 +45,13 @@ object AndroidCallLocation {
             }
         } catch (_: SecurityException) { return null }
         finally { manager.removeUpdates(listener); updates.close() }
-        return best?.let { fix -> JSONObject().put("latitude",fix.latitude).put("longitude",fix.longitude).put("accuracyMeters",fix.accuracy.toDouble())
-            .put("fixTime",fix.time).put("provider",if (fix.provider in setOf("gps","network","fused")) fix.provider else "unknown")
-            .put("mockSignal",if (Build.VERSION.SDK_INT >= 31) fix.isMock else @Suppress("DEPRECATION") fix.isFromMockProvider) }
+        return best?.let { fix -> fixJson(fix.latitude,fix.longitude,fix.accuracy.toDouble(),fix.time,fix.provider,
+            if (Build.VERSION.SDK_INT >= 31) fix.isMock else @Suppress("DEPRECATION") fix.isFromMockProvider, benchTestProvider) }
     }
+    /** The wire fix. A platform-reported mock stays a mock unless this is the opted-in dev bench build. */
+    fun fixJson(latitude: Double, longitude: Double, accuracyMeters: Double, fixTime: Long, provider: String?,
+        reportedMock: Boolean, benchTestProvider: Boolean): JSONObject =
+        JSONObject().put("latitude",latitude).put("longitude",longitude).put("accuracyMeters",accuracyMeters)
+            .put("fixTime",fixTime).put("provider",if (provider in setOf("gps","network","fused")) provider else "unknown")
+            .put("mockSignal",reportedMock && !benchTestProvider)
 }

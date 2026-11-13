@@ -99,6 +99,8 @@ vi.mock("../../lib/auth", () => ({
 }));
 vi.mock("next/navigation", () => ({
   useRouter: () => ({ push: (href: string) => state.pushes.push(href) }),
+  useSearchParams: () => new URLSearchParams(`tab=${state.tab}`),
+  usePathname: () => "/issues",
 }));
 vi.mock("react", async (original) => {
   const actual = await original<typeof import("react")>();
@@ -617,9 +619,11 @@ describe("create issue", () => {
       "Fields marked with * are required.",
       "sticky bottom-0",
       "Cancel",
-      "Create issue",
+      "Save",
     ])
       expect(html).toContain(text);
+    // WEB-161: forms say Save, never "Create …"
+    expect(html).not.toMatch(/>\s*Create issue\s*</);
   });
   it("creates in the default area then navigates to the issue number", async () => {
     state.fields = {

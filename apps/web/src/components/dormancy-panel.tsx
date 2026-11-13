@@ -1,4 +1,5 @@
 "use client";
+import { formatDate, formatDay } from "../lib/format";
 import { useRef, useState } from "react";
 import { useApi, useLive, useMutate } from "../lib/api";
 import { currentManilaDate } from "../lib/coverage-calendar";
@@ -60,11 +61,6 @@ export type Dormancy = {
   units: { id: string; name: string }[];
 };
 
-const SOURCE: Record<string, string> = {
-  class_frequency: "outlet class visit frequency",
-  outlet_cadence: "outlet visit cadence",
-  policy_fallback: "policy fallback cycle",
-};
 const ACTION: Record<string, string> = {
   recovery_visit: "Recovery visit",
   win_back_offer: "Win-back offer",
@@ -83,10 +79,18 @@ export function crossedOn(c: DormancyCase) {
   return new Date(t).toISOString().slice(0, 10);
 }
 
+/** WEB-171: one plain line per Win-back row; the rule, its version and the cycle source stay in Settings. */
+export function caseLine(c: DormancyCase) {
+  const cycles = `${c.missedCycles} cycle${c.missedCycles === 1 ? "" : "s"} without an order`;
+  return c.status === "open"
+    ? `Last bought ${shortDate(c.lastPurchaseOn)} · ${cycles} · dormant since ${shortDate(crossedOn(c))}.`
+    : `Was dormant from ${shortDate(crossedOn(c))} after ${cycles}.`;
+}
+
 /** F-210: the owner's next step for one case, exceptions first. */
 export function nextStep(c: DormancyCase) {
   if (c.status === "recovered")
-    return `Recovered: bought again on ${c.recoveryPurchaseOn}.`;
+    return `Recovered: bought again on ${formatDate(c.recoveryPurchaseOn)}.`;
   if (c.status === "closed") return `Closed: ${c.closedReason}`;
   if (!c.actions.length)
     return c.nextVisit
@@ -94,7 +98,7 @@ export function nextStep(c: DormancyCase) {
       : "No visit is planned: plan a recovery visit.";
   const last = c.actions[c.actions.length - 1]!;
   return last.dueOn
-    ? `${ACTION[last.kind]} due ${last.dueOn}; close the case with a reason if it will not recover.`
+    ? `${ACTION[last.kind]} due ${formatDate(last.dueOn)}; close the case with a reason if it will not recover.`
     : `${ACTION[last.kind]} recorded; follow it through.`;
 }
 
@@ -228,20 +232,14 @@ export function DormancyPanel({
                 </a>{" "}
                 · {c.code} · {c.territory}
               </h3>
-              <p className="text-sm">
-                {c.status === "open"
-                  ? `No purchase since ${c.lastPurchaseOn}: ${c.missedCycles} missed cycles of ${c.cycleDays} days (rule: ${c.thresholdCycles}). Dormant since ${crossedOn(c)}; detected ${c.detectedOn}.`
-                  : `Dormant since ${crossedOn(c)} (detected ${c.detectedOn}) after ${c.missedCycles} missed cycles.`}{" "}
-                Cycle from the {SOURCE[c.cycleSource] ?? "configured cycle"};
-                rule version {c.policyVersion}.
-              </p>
+              <p className="text-sm">{caseLine(c)}</p>
               <p className="text-sm font-medium">Next: {nextStep(c)}</p>
               {c.actions.length > 0 && (
                 <ul className="mt-2 text-sm">
                   {c.actions.map((a, i) => (
                     <li key={i}>
                       {ACTION[a.kind]} by {a.actor}
-                      {a.dueOn ? `, due ${a.dueOn}` : ""}: {a.note}
+                      {a.dueOn ? `, due ${formatDate(a.dueOn)}` : ""}: {a.note}
                     </li>
                   ))}
                 </ul>
@@ -431,12 +429,5 @@ export function DormancyPanel({
 
 /** "2026-09-15" → "Sep 15". */
 export function shortDate(iso: string) {
-  const d = new Date(`${iso}T00:00:00Z`);
-  return Number.isNaN(d.getTime())
-    ? iso
-    : d.toLocaleDateString("en-US", {
-        month: "short",
-        day: "numeric",
-        timeZone: "UTC",
-      });
+  return formatDay(iso);
 }

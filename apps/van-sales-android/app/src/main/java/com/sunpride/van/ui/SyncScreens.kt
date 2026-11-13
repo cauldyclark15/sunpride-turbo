@@ -50,7 +50,8 @@ private fun time(at: Long) = Instant.ofEpochMilli(at).atZone(ZoneId.systemDefaul
                     Text("Phone: saved",Modifier.testTag("health-item-phone-$i"))
                     Text("Office: ${item.office.label}",Modifier.testTag("health-item-office-$i"))
                     Text("SAP: ${item.sap.label}",Modifier.testTag("health-item-sap-$i"))
-                    if (item.office == OfficeState.NEEDS_REVIEW) Text("Ask your supervisor about this one.")
+                    if (item.rejectionCode == com.sunpride.van.selling.RefusedReceipt.CODE) Text(com.sunpride.van.selling.RefusedReceipt.message(item.reference,item.kind),Modifier.testTag("health-item-spoiled-$i"))
+                    else if (item.office == OfficeState.NEEDS_REVIEW) Text("Ask your supervisor about this one.")
                 }
             }
             if (s.items.size >= SyncHealth.MAX_ITEMS) Text("Showing the latest ${SyncHealth.MAX_ITEMS}.",style = MaterialTheme.typography.bodyMedium)

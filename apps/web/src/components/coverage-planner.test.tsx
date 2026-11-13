@@ -5,6 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { Doc, Id } from "./coverage-model";
 import { CoverageGrid, toggleVisit } from "./coverage-grid";
 import {
+  assigneeServes,
   CoveragePlanner,
   PlanEditor,
   reviseCoveragePlan,
@@ -233,6 +234,48 @@ describe("standalone coverage planner", () => {
     expect(html).toContain("Save outlet cadence");
     expect(html).toContain("Save dated slots");
   });
+  it("a new draft offers its territory's stores to add at once (WEB-115)", () => {
+    state.values["outlets/assignments:territoryRoster"] = [
+      {
+        _id: "assignment-2",
+        outletId: id<"outlets">("outlet-2"),
+        territoryId: id<"territories">("territory-1"),
+        sequence: 4,
+      },
+    ];
+    const empty = { ...detail(), outlets: [], slots: [] } as ReturnType<
+      typeof detail
+    >;
+    const html = render(
+      createElement(PlanEditor, { detail: empty, canPlan: true }),
+    );
+    expect(html).toContain("Select assigned outlet");
+    expect(html).toContain("stop 4");
+    expect(html).toContain("Add outlet to plan");
+    const noTerritory = render(
+      createElement(PlanEditor, {
+        detail: {
+          ...empty,
+          plan: { ...empty.plan, territoryIds: [] },
+        } as ReturnType<typeof detail>,
+        canPlan: true,
+      }),
+    );
+    expect(noTerritory).toContain("Choose a territory above");
+  });
+  it("opens a plan whose approval record is broken and says so (WEB-115)", () => {
+    const html = render(
+      createElement(PlanEditor, {
+        detail: {
+          ...detail("active"),
+          notices: ["This plan's approval record does not match its content."],
+        } as ReturnType<typeof detail>,
+        canPlan: true,
+      }),
+    );
+    expect(html).toContain("Plan record problem");
+    expect(html).toContain("approval record does not match");
+  });
   it("renders submitted and approved plans read-only; approved rows use frozen snapshots", () => {
     const submitted = render(
       createElement(PlanEditor, { detail: detail("submitted"), canPlan: true }),
@@ -253,6 +296,20 @@ describe("standalone coverage planner", () => {
     );
     expect(denied).not.toContain("Save outlet cadence");
     expect(denied).not.toContain("Submit for approval");
+  });
+  it("keeps a save confirmation owned by the parent across the revision remount (WEB-114)", () => {
+    // Saving the assignment bumps contentRevision, which remounts PlanEditor and would
+    // drop editor-local state; the parent-owned message must still render.
+    const html = render(
+      createElement(PlanEditor, {
+        key: "plan-1:2:draft",
+        detail: detail(),
+        canPlan: true,
+        message: { planId: plan._id, notice: "Assignment period saved." },
+        onMessage: vi.fn(),
+      }),
+    );
+    expect(html).toContain("Assignment period saved.");
   });
   it("renders mutation error inline", () => {
     state.editorError = "Server denied outlet scope";
@@ -374,5 +431,17 @@ describe("planner mutation payloads", () => {
       effectiveFromDate: "2026-10-15",
       reason: "New route",
     });
+  });
+});
+
+describe("WEB-118 outlet picker offers only the assignee's outlets", () => {
+  const served = { servedRouteIds: ["r5"], servedTerritoryIds: ["t1"] };
+  it("keeps outlets on the assignee's routes and drops other routes", () => {
+    expect(assigneeServes(served, { routeId: "r5", territoryId: "t9" })).toBe(true);
+    expect(assigneeServes(served, { routeId: "r4", territoryId: "t1" })).toBe(false);
+  });
+  it("routeless outlets need a territory the assignee serves", () => {
+    expect(assigneeServes(served, { routeId: null, territoryId: "t1" })).toBe(true);
+    expect(assigneeServes(served, { territoryId: "t2" })).toBe(false);
   });
 });

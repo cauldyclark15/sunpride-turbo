@@ -59,6 +59,18 @@ class DiscountClaimCheckoutTest {
         assertEquals(listOf(CheckoutIssue(CheckoutProblem.DISCOUNT_TAX_UNKNOWN, "p2")), partial.issues)
     }
 
+    /** SP-0169: the office has Senior/PWD off for this route; the phone must not compute or save the discount (the office would refuse it). */
+    @Test fun aClaimIsRefusedOnThePhoneWhenTheOfficeSwitchedTheDiscountOff() {
+        val off = context().copy(policy = policy.copy(privilegeDiscount = false))
+        val r = CheckoutRules.evaluate(request(listOf(CartLine("p1", 1)), PaymentInput("cash", 3_900), senior()), off)
+        assertNull(r.quote); assertEquals(CheckoutProblem.DISCOUNT_SWITCHED_OFF, r.issues.single().problem)
+        assertTrue(com.sunpride.van.ui.VanRules.checkoutMessage(CheckoutProblem.DISCOUNT_SWITCHED_OFF, null).contains("switched off by the office"))
+        // the same cart without the claim sells normally; switched ON or not said (older server) still prices the claim
+        assertEquals(3_900L, CheckoutRules.evaluate(request(listOf(CartLine("p1", 1)), PaymentInput("cash", 3_900)), off).quote!!.totalMinor)
+        assertEquals(2_786L, CheckoutRules.evaluate(request(listOf(CartLine("p1", 1)), PaymentInput("cash", 3_000), senior()), context().copy(policy = policy.copy(privilegeDiscount = true))).quote!!.totalMinor)
+        assertEquals(2_786L, CheckoutRules.evaluate(request(listOf(CartLine("p1", 1)), PaymentInput("cash", 3_000), senior()), context()).quote!!.totalMinor)
+    }
+
     @Test fun aClaimNeedsTheIdAndTheNameAndNeverStacksWithAManualDiscount() {
         val bad = CheckoutRules.evaluate(request(listOf(CartLine("p1", 1)), PaymentInput("cash", 3_900), DiscountClaim(PrivilegeType.PWD, "", "Ana")), context())
         assertEquals(CheckoutProblem.DISCOUNT_CLAIM_INVALID, bad.issues.single().problem)

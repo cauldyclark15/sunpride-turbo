@@ -40,5 +40,5 @@ export async function registerSamplePhone(t, userId, app, key) {
     values (${profile.id},${app},${app === "field-ios" ? "ios" : "android"},
       ${`SAMPLE-${crypto.randomUUID()}`},${key.publicKeySpki},${key.keyId},${profile.orgUnitId}) returning id`;
   await t`insert into audit_logs(subject,action,entity_type,entity_id,details)
-    values (${userId},'device.sample_registered','device',${device.id},${{ app, sample: true, binding: "proof_required" }})`;
+    values (${userId},'device.sample_registered','device',${device.id},${JSON.stringify({ app, sample: true, binding: "proof_required" })})`;
 }

@@ -31,6 +31,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -120,6 +121,12 @@ fun FieldApp(
     var page by rememberSaveable { mutableStateOf("home") }
     // Where a drill-down page (Account, Sync, a tool) opened from, so Back and the arrow return there.
     var origin by rememberSaveable { mutableStateOf("home") }
+    // FLD-132: each page keeps its own remembered state (Stores search, list scroll) while you move between
+    // tabs. A new session (sign-out, expiry, removal) starts a fresh epoch so nothing typed carries over.
+    val pages = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+    var pagesEpoch by rememberSaveable { mutableStateOf(0) }
+    // FLD-075: the Sync screen always re-reads the durable outbox, whatever queued work since Today last loaded.
+    LaunchedEffect(page) { if (page == "sync") controller.refreshCache() }
     fun go(next: String) {
         if (page !in FieldNav.overlayPages) origin = page
         page = next
@@ -165,7 +172,7 @@ fun FieldApp(
     }
     val signOut = { controller.signOut(); biometrics?.signedOut(); page = "home"; Unit }
     // Whatever ends the session (sign-out, expiry, removal), the next person starts on a clean sign-in screen.
-    LaunchedEffect(controller.state) { if (controller.state == EnrollmentState.SignedOut) page = "home" }
+    LaunchedEffect(controller.state) { if (controller.state == EnrollmentState.SignedOut) { page = "home"; pagesEpoch++ } }
     // AND-020: each visit to the Team page asks the server again (saved copy when offline).
     LaunchedEffect(controller, page, controller.state) {
         if (page == "team" && controller.state is EnrollmentState.Ready) controller.loadTeam()
@@ -183,6 +190,12 @@ fun FieldApp(
     val minuteNow by remember { androidx.compose.runtime.derivedStateOf { now / 60_000 * 60_000 } }
     val ready = controller.state is EnrollmentState.Ready
     val status = controller.today.syncStatus.copy(offline = offline)
+    // FLD-147: the upload worker runs outside the UI; when it finishes, refresh the pill and the Photos card.
+    val photoRuns by com.sunpride.field.evidence.EvidenceWork.runs.collectAsState()
+    LaunchedEffect(photoRuns) { if (photoRuns > 0 && ready) controller.photosChanged() }
+    // FLD-122: likewise for the visit/form sync worker, so a mid-sync "Held" never stays frozen on screen.
+    val syncRuns by com.sunpride.field.sync.work.SyncWork.runs.collectAsState()
+    LaunchedEffect(syncRuns) { if (syncRuns > 0 && ready) controller.backgroundSyncFinished() }
     // F-616 prefetch after a verified snapshot/sync, never on every one-second UI pulse.
     LaunchedEffect(backend,ready,controller.today.lastSynced) {
         if(ready && controller.today.lastSynced!=null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
@@ -294,7 +307,9 @@ fun FieldApp(
                 val spec = headerSpec(ready, locked, signedIn = controller.state != EnrollmentState.SignedOut, page = page,
                     visitOpen = visitOpen, controller = controller, routeCode = controller.today.routeCode,
                     editingStore = censusEdit != null).let {
-                    if (STORE_EDIT_ENABLED && ready && !visitOpen && visits && page == "customer" && customer != null)
+                    // FLD-207: no header Edit while ANY call is open, not only while the visit screen shows.
+                    val callOpen = controller.today.customers.any { c -> c.callOpen || c.today?.status == "In progress" }
+                    if (STORE_EDIT_ENABLED && ready && !visitOpen && !callOpen && visits && page == "customer" && customer != null)
                         it.copy(action = HeaderAction("Edit", editStore, "customer-header-edit")) else it
                 }
                 FieldHeader(spec.title, subtitle = spec.subtitle, titleTag = spec.titleTag,
@@ -322,12 +337,12 @@ fun FieldApp(
             })
         }) { padding ->
             val modifier = Modifier.padding(padding).consumeWindowInsets(padding)
-            when {
+            pages.SaveableStateProvider("$pagesEpoch:$page") { when {
                 locked -> UnlockScreen(biometrics!!.busy, onUnlock = biometrics::unlock,
                     onPassword = biometrics::usePassword, modifier = modifier)
                 controller.state == EnrollmentState.SignedOut -> SignInScreen(environment, controller.busy || controller.companySignInPending,
                     controller.error ?: biometrics?.message,
-                    { email, password -> controller.signIn(email, password) { biometrics?.passwordSignedIn() } }, modifier,
+                    { email, password -> controller.signIn(email, password) { biometrics?.passwordSignedIn(email) } }, modifier,
                     onBiometric = biometrics?.takeIf { it.canRetry }?.let { gate -> gate::unlock },
                     companyContent = { com.sunpride.integrity.CompanySignIn(environment.apiOrigin,"field-android",environment.isReady && !controller.busy,
                         controller::companyKey,controller::signCompanyMessage,controller::updateCompanyWaiting, { controller.companySignIn(it) }) })
@@ -377,7 +392,8 @@ fun FieldApp(
                         stores = controller.today.customers, onOpenStore = { id -> customerId = id; page = "customer" },
                         initialName = censusName,
                         editing = censusEdit?.let { id -> controller.today.customers.firstOrNull { it.outletId == id } },
-                        onChangeSaved = { censusEdit = null; storeChangesTick++; page = "customer" })
+                        onChangeSaved = { censusEdit = null; storeChangesTick++; page = "customer" },
+                        onQueued = { controller.refreshCache() })
                 }
                 ready && page == "workforce" -> com.sunpride.field.ui.workforce.WorkforceScreen(controller,location,modifier)
                 // SP-0146 v2 messaging: the shared chat module; Back inside it steps back, Back on its list returns here.
@@ -388,7 +404,8 @@ fun FieldApp(
                             ?.let { id -> customerId = id; page = "customer"; true } ?: false
                     })
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = origin },
-                    onSync = controller::syncNow, busy = controller.busy, modifier = modifier)
+                    onSync = controller::syncNow, busy = controller.busy, modifier = modifier,
+                    onClearReview = { controller.dismissReview(it) })
                 ready && page == "more" -> MoreScreen(modifier = modifier, status = status, now = now,
                     onSync = { go("sync") }, onAccount = { go("account") }, onSupport = { go("support") },
                     onCatalogue = { go("catalogue") }, onCensus = if (visits) ({ censusName = ""; censusEdit = null; go("census") }) else null,
@@ -465,7 +482,7 @@ fun FieldApp(
                     onCheck = { controller.checkAgain() }, onSignOut = signOut, modifier = modifier,
                     unsent = status.queued + status.sending + status.review + status.held,
                     pairingContent = {com.sunpride.integrity.ReplacementPairing(controller::replacementCode)})
-            }
+            } }
         }
         if (biometrics != null && biometrics.offer && controller.state != EnrollmentState.SignedOut) BiometricOffer(
             onAccept = biometrics::enable, onDecline = biometrics::decline)

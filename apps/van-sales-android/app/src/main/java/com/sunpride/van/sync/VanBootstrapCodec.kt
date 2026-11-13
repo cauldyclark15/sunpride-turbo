@@ -25,7 +25,10 @@ object VanBootstrapCodec {
         handheld = o.optJSONObject("handheld")?.let { h -> HandheldInfo(clean(h,"vehicleCode",40),clean(h,"plateNumber",40),clean(h,"supervisorName",80),clean(h,"supervisorPhone",30)) },
         vanDay = com.sunpride.van.vanday.VanDayCodec.decode(o.optJSONObject("vanDay")),splitTender = o.optBoolean("splitTender",false),
         refunds = com.sunpride.van.pos.RefundPolicy.decode(o.optJSONObject("refunds")),
-        privilegeCap = com.sunpride.van.selling.PrivilegeCapInfo.decode(o.optJSONObject("storePos")?.optJSONObject("privilegeCap")))
+        // VAN-034: a van-only handheld (no POS mode) has no storePos; its limit rides policy.privilegeCap.
+        privilegeCap = com.sunpride.van.selling.PrivilegeCapInfo.decode(o.optJSONObject("storePos")?.optJSONObject("privilegeCap") ?: o.optJSONObject("privilegeCap")),
+        privilegeDiscount = com.sunpride.van.selling.PrivilegeSwitch.decode(o.optJSONObject("privilegeDiscount")),
+        pickupDecisions = com.sunpride.van.pos.PickupDecision.decode(o.optJSONArray("pickupDecisions")))
     /** Optional display text: trimmed, bounded, no control characters; anything else is simply not shown. */
     private fun clean(o: JSONObject, key: String, max: Int): String? = if (o.isNull(key)) null else o.optString(key,"").trim().takeIf { it.isNotEmpty() && it.length <= max && it.none(Char::isISOControl) }
 
@@ -74,6 +77,9 @@ object VanBootstrapCodec {
             priceListMode = mode)
     }
     fun promotionUnit(o: JSONObject) = PromotionUnit(o.getString("productId"),o.getString("uomCode"),o.getInt("quantity").also { require(it > 0) })
+    /** The office stores `exclusive`/`stack` (promotions.stacking check, pricing-routes); the scheme wire uses
+     * `stackable`. The engine reads anything but `exclusive` as stackable. Refusing `stack` failed the whole bootstrap. */
+    val STACKING = setOf("exclusive", "stack", "stackable")
     fun promotion(o: JSONObject): Promotion {
         val from = o.getLong("effectiveFrom")
         val to = if (o.isNull("effectiveTo")) null else o.getLong("effectiveTo")
@@ -90,7 +96,7 @@ object VanBootstrapCodec {
             else -> throw IllegalArgumentException("Unknown promotion")
         }
         val version=if(o.has("engineVersion"))o.getInt("engineVersion") else 0;require(version in 0..1)
-        val stacking=if(o.has("stacking"))o.getString("stacking") else "exclusive";require(stacking in listOf("exclusive","stackable"))
+        val stacking=if(o.has("stacking"))o.getString("stacking") else "exclusive";require(stacking in STACKING)
         fun list(key:String):List<String>?=o.optJSONArray(key)?.let{a->require(a.length()<=600);(0 until a.length()).map{a.getString(it)}}
         val outlets=list("outletIds");if(version==1)require(!outlets.isNullOrEmpty()&&outlets.distinct().size==outlets.size)
         return Promotion(o.getString("promotionId"),o.getString("code"),o.getString("name"),
@@ -115,7 +121,16 @@ object VanBootstrapCodec {
             it.getString("uomCode"),base(it,"quantityScale"),base(it,"quantityBase"),
             it.getString("reason"),it.getString("status"),it.getLong("recordedAt"),nullable(it,"decisionNote"))
     }
-    fun decode(text: String): VanBootstrap = try {
+    /** NF-R5V-5: the machine code for a bundle whose unit has no payment methods turned on. */
+    const val NO_PAYMENT_METHODS = "no_payment_methods"
+    fun decode(text: String): VanBootstrap {
+        // NF-R5V-5: an empty office tender list is a setup gap, not a broken response. Name it so the phone
+        // says "ask the office to set up payments" instead of the generic "paused until the office confirms".
+        val methods = runCatching { JSONObject(text).optJSONObject("policy")?.optJSONArray("paymentMethods") }.getOrNull()
+        if (methods != null && methods.length() == 0) throw VanSyncFailure(NO_PAYMENT_METHODS, false)
+        return decodeChecked(text)
+    }
+    private fun decodeChecked(text: String): VanBootstrap = try {
         val o = JSONObject(text)
         o.remove("_v2")
         // Versioned v2 extension; the frozen v1 validator continues to validate its original fields.
@@ -127,6 +142,8 @@ object VanBootstrapCodec {
         // F-019 F-616: validate negotiated extensions without changing frozen v1.
         val legacy = JSONObject(o.toString())
         objects(legacy.getJSONArray("products")).forEach { it.remove("catalogue"); it.remove("category") }
+        // SP-0170: the customer master classification is an additive server key on each customer (SP-0169 r5).
+        objects(legacy.getJSONArray("customers")).forEach { it.remove("channel"); it.remove("customerMaster") }
         legacy.getJSONObject("policy").remove("fiscal")
         legacy.optJSONArray("promotions")?.let(::objects)?.forEach{p->listOf("engineVersion","precedence","stacking","exclusionGroup","excludes","outletIds").forEach(p::remove)}
         legacy.getJSONObject("policy").remove("schemes")
@@ -135,8 +152,17 @@ object VanBootstrapCodec {
         legacy.getJSONObject("policy").remove("vanDay")
         legacy.getJSONObject("policy").remove("splitTender")
         legacy.getJSONObject("policy").remove("refunds")
+        legacy.getJSONObject("policy").remove("privilegeCap")
+        // SP-0169: the office's Senior/PWD switch is a negotiated v2 addition (params.privilegeSwitch).
+        legacy.getJSONObject("policy").remove("privilegeDiscount")
+        // r6van3: the office's pickup decisions on held returns are a negotiated v2 addition (params.pickupDecisions).
+        legacy.getJSONObject("policy").remove("pickupDecisions")
         // IP-P0: the trip float and the recount facts are negotiated v2 additions to the frozen trip and load.
         legacy.optJSONObject("trip")?.remove(com.sunpride.van.pos.OpeningFloat.FIELD)
+        // NF-5: the trip's office-held cash per sale is a v2 handheld addition too (read by CashReconciliationStore).
+        legacy.optJSONObject("trip")?.remove(com.sunpride.van.pos.ServerTripCash.FIELD)
+        // r6van4: truck stock the office will not let leave for a sale is a v2 handheld addition (read by HeldStock).
+        legacy.optJSONObject("trip")?.remove(com.sunpride.van.pos.HeldStock.FIELD)
         legacy.optJSONObject("load")?.let { it.remove("confirmRequestId"); it.remove("rejectionNote") }
         o.getJSONObject("policy").optJSONObject("storePos")?.let(com.sunpride.van.storepos.StorePosConfig::decode)
         VanWireSchema.validate(legacy)

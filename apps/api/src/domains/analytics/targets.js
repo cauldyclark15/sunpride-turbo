@@ -17,9 +17,9 @@ export async function subjects(db, s) {
   // Sequential on purpose: callers pass a transaction handle, and concurrent queries on one
   // Bun.SQL transaction were observed to leave it idle in transaction holding actor row locks (F-615).
   const people =
-    await db`select id::text as key,name as label,channel_scope as channel,current_unit_id as unit_id from analytics_people where status='active' and current_unit_id in ${db(ids)} and (${s.ownProfileId}::uuid is null or id=${s.ownProfileId})`;
+    await db`select id::text as key,name as label,employee_code as code,channel_scope as channel,current_unit_id as unit_id from analytics_people where status='active' and current_unit_id in ${db(ids)} and (${s.ownProfileId}::uuid is null or id=${s.ownProfileId})`;
   const territories =
-    await db`select t.id::text as key,t.name as label,t.channel,o.org_unit_id as unit_id from territories t join territory_ownerships o on o.territory_id=t.id where t.deleted_at is null and o.deleted_at is null and o.effective_from<=now() and (o.effective_to is null or o.effective_to>now()) and o.org_unit_id in ${db(ids)}`;
+    await db`select t.id::text as key,t.name as label,t.code,t.channel,o.org_unit_id as unit_id from territories t join territory_ownerships o on o.territory_id=t.id where t.deleted_at is null and o.deleted_at is null and o.effective_from<=now() and (o.effective_to is null or o.effective_to>now()) and o.org_unit_id in ${db(ids)}`;
   const channels =
     await db`select distinct channel as key,channel as label from analytics_store_scope where owner_unit_id in ${db(ids)} and channel is not null`;
   return {
@@ -142,6 +142,9 @@ export async function listTargets(ctx) {
   return {
     month,
     level,
+    // Tells the editor whether this level is writable for the caller's scope, so a
+    // regional manager is not offered company/channel cells the server would refuse.
+    editable: await levelWritable(ctx.db, s, level),
     rows,
     total: rows.some((/** @type {any} */ r) => r.amountCentavos != null)
       ? rows.reduce(
@@ -151,6 +154,54 @@ export async function listTargets(ctx) {
         )
       : null,
   };
+}
+const LEVEL_WORD = /** @type {Record<string,string>} */ ({
+  company: "company",
+  channel: "channel",
+  territory: "territory",
+  agent: "agent",
+});
+/** WEB-036: a CSV key may be the internal id, the code people see (territory SMP-T1,
+ * agent employee code) or the exact name. Returns the subject's internal key or null.
+ * @param {any} sub @param {string} level @param {string} key */
+export function resolveTargetKey(sub, level, key) {
+  const list = /** @type {any[]} */ (sub[level] ?? []);
+  const k = String(key).trim();
+  const exact = list.find((r) => r.key === k);
+  if (exact) return exact.key;
+  const up = k.toUpperCase();
+  const byCode = list.filter((r) => r.code && String(r.code).toUpperCase() === up);
+  if (byCode.length === 1) return byCode[0].key;
+  const byKeyCase = list.filter((r) => String(r.key).toUpperCase() === up);
+  if (byKeyCase.length === 1) return byKeyCase[0].key;
+  const byName = list.filter(
+    (r) => r.label && String(r.label).trim().toUpperCase() === up,
+  );
+  return byName.length === 1 ? byName[0].key : null;
+}
+/** Whether the key names a real subject anywhere (so "outside your team" is true). @param {any} db @param {string} level @param {string} key */
+async function existsAnywhere(db, level, key) {
+  const k = String(key).trim();
+  const uuid = /^[0-9a-f-]{36}$/i.test(k) ? k : null;
+  if (level === "territory")
+    return (
+      (
+        await db`select 1 from territories where deleted_at is null and (id=${uuid}::uuid or upper(code)=upper(${k}) or upper(name)=upper(${k})) limit 1`
+      ).length > 0
+    );
+  if (level === "agent")
+    return (
+      (
+        await db`select 1 from profiles where deleted_at is null and (id=${uuid}::uuid or upper(employee_code)=upper(${k}) or upper(name)=upper(${k})) limit 1`
+      ).length > 0
+    );
+  if (level === "channel")
+    return (
+      (
+        await db`select 1 from analytics_store_scope where upper(channel)=upper(${k}) limit 1`
+      ).length > 0
+    );
+  return false;
 }
 /** @param {any} db @param {any} s @param {any} row */
 async function validateRow(db, s, row) {
@@ -164,20 +215,24 @@ async function validateRow(db, s, row) {
   )
     return "A level, key and nonnegative integer centavos are required";
   const sub = await subjects(db, s);
-  if (
-    !sub[/** @type {keyof typeof sub} */ (row.level)].some(
-      (/** @type {any} */ r) => r.key === row.key,
-    )
-  )
-    return "The target is outside your team";
-  if (["company", "channel"].includes(row.level) && !s.cross) {
-    // A root-scoped administrator may manage the full company/channel, a regional one may not.
-    const outside =
-      await db`select count(*) as n from org_units where deleted_at is null and status='active' and id not in ${db(s.ids.length ? s.ids : [null])}`;
-    if (Number(outside[0].n) > 0)
-      return "Only a company-wide manager can set this target";
-  }
+  const resolved = resolveTargetKey(sub, row.level, row.key);
+  if (!resolved)
+    return (await existsAnywhere(db, row.level, row.key))
+      ? `The ${LEVEL_WORD[row.level]} ${row.key} is outside your team`
+      : `Unknown ${LEVEL_WORD[row.level]} "${row.key}". Use the ${row.level === "territory" ? "territory code (for example SMP-T1)" : row.level === "agent" ? "employee code" : "code"} shown on the targets page.`;
+  row.key = resolved;
+  if (!(await levelWritable(db, s, row.level)))
+    return "Only a company-wide manager can set this target";
   return null;
+}
+/** Whether this scope may write targets at a level (the caller's capability is checked separately).
+ * A root-scoped administrator may manage the full company/channel, a regional one may not.
+ * @param {any} db @param {any} s @param {string} level */
+export async function levelWritable(db, s, level) {
+  if (!["company", "channel"].includes(level) || s.cross) return true;
+  const outside =
+    await db`select count(*) as n from org_units where deleted_at is null and status='active' and id not in ${db(s.ids.length ? s.ids : [null])}`;
+  return Number(outside[0].n) === 0;
 }
 /** @param {any} ctx @param {any} t @param {string} month @param {any} row */
 export async function writeTarget(ctx, t, month, row) {
@@ -219,15 +274,20 @@ export async function setTargets(ctx, bulk = false, installCtx = null) {
     const errors = [],
       seen = new Set();
     for (let i = 0; i < rows.length; i++) {
-      const r = rows[i],
-        key = `${r?.level}:${r?.key}`;
-      const message = seen.has(key)
-        ? "Duplicate target in this import"
-        : await validateRow(t, currentScope, r);
-      seen.add(key);
+      const r = rows[i];
+      // Resolve codes to the internal key first, so SMP-T1 and its id are one target.
+      const message =
+        (await validateRow(t, currentScope, r)) ??
+        (seen.has(`${r.level}:${r.key}`)
+          ? "Duplicate target in this import"
+          : null);
+      if (!message) seen.add(`${r.level}:${r.key}`);
       if (message) errors.push({ row: i + 1, message });
     }
     if (errors.length) return { applied: 0, errors, ids: [] };
+    // WEB-036: the import preview checks every row on the server without saving.
+    if (bulk && ctx.body?.dryRun === true)
+      return { applied: 0, errors: [], ids: [], ready: rows.length };
     const ids = [];
     for (const row of [...rows].sort((a, b) =>
       `${a.level}:${a.key}`.localeCompare(`${b.level}:${b.key}`),

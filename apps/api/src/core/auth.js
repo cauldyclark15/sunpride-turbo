@@ -281,6 +281,13 @@ export function installAuth(router) {
       if (!token?.startsWith("sps_"))
         throw unauthenticated("Session credential required", "session_invalid");
       const row = await sessionByToken(ctx.db, token);
+      if (!row) {
+        // FLD-014: a session the office ended by revoking/pausing its phone says so, so the phone can tell the
+        // person plainly and keep their unsent work for recovery. Codes only; nothing else about the device leaks.
+        const removed = await removedPhoneSession(ctx.db, token);
+        if (removed)
+          throw unauthenticated("This phone was removed by the office", removed);
+      }
       if (!row || row.app === "web")
         throw unauthenticated("Session expired or revoked", "session_invalid");
       const body = ctx.body;
@@ -413,6 +420,10 @@ export function installAuth(router) {
     )
       return nativeMe(ctx);
     const profile = await loadProfile(ctx.db, ctx.user.id);
+    // WEB-016: an invited person whose profile was turned off is told so, not "not invited".
+    const [off] = profile
+      ? []
+      : await ctx.db`select 1 from profiles where user_id=${ctx.user.id} and status='disabled' and deleted_at is null limit 1`;
     const { partnerContext } = await import("../domains/partners/boundary.js");
     const partner = await partnerContext(ctx.db, ctx.actor);
     return {
@@ -427,6 +438,7 @@ export function installAuth(router) {
           }
         : null,
       capabilities: ctx.actor ? [...ctx.actor.capabilities] : [],
+      ...(off ? { access: "turned_off" } : {}),
       ...(partner
         ? {
             partner: {
@@ -505,4 +517,25 @@ async function nativeMe(ctx) {
       ),
     device,
   };
+}
+
+/**
+ * FLD-014: the closed code for a native session revoked because its bound phone is now revoked/suspended.
+ * Null for any other ended session (password change, sign-out, expiry).
+ * @param {any} db @param {string} token
+ */
+export async function removedPhoneSession(db, token) {
+  const [s] =
+    await db`select user_id, app, device_key_id from sessions where token_hash = ${sha256Hex(token)}
+      and revoked_at is not null and app <> 'web' and device_key_id is not null`;
+  if (!s) return null;
+  const profile = await loadProfile(db, s.user_id);
+  if (!profile) return null;
+  const rows =
+    await db`select status from registered_devices where profile_id=${profile.id} and key_id=${s.device_key_id} and app=${s.app}`;
+  const statuses = rows.map((/** @type {any} */ r) => r.status);
+  if (statuses.includes("active")) return null;
+  if (statuses.includes("revoked")) return "device_revoked";
+  if (statuses.includes("suspended")) return "device_suspended";
+  return null;
 }

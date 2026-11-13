@@ -52,6 +52,8 @@ class FieldControllerTest {
             passwordCalls++; passwordFailure?.let { throw it }
         }
         override fun refreshEnrollment(signer: DeviceSigner) = results.removeFirst()()
+        var endedReason: String? = null
+        override fun endedSessionReason() = endedReason
         val teamCalls = mutableListOf<Boolean>()
         var teamError: Exception? = null
         override fun team(directOnly: Boolean): com.sunpride.field.ui.team.TeamView {
@@ -205,6 +207,37 @@ class FieldControllerTest {
         b.results += { throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED) }
         c.refresh()
         assertEquals(EnrollmentState.SignedOut, c.state)
+    }
+
+    // FLD-014/FLD-171: a session ended by the background sync (phone revoked, password changed elsewhere) used to
+    // leave the app inside on an empty Today. It now returns to Sign in with the plain reason and clears nothing.
+    @Test fun `FLD-014 ended session found by a reload returns to sign in with the reason and keeps data`() = run { c, b, _ ->
+        b.results += { EnrollmentState.Ready("dev1") }
+        c.signIn("a@example.test", "p").join()
+        assertEquals(EnrollmentState.Ready("dev1"), c.state)
+        b.todayAction = { throw sessionEndedFailure(removed = true) }
+        c.backgroundSyncFinished().join()
+        assertEquals(EnrollmentState.SignedOut, c.state)
+        assertEquals(AuthFailure.PHONE_REMOVED, c.error)
+        assertEquals("local work is never torn down on an ended session", 0, b.signOuts)
+    }
+
+    @Test fun `FLD-171 sync now after a password change elsewhere says the session ended`() = run { c, b, _ ->
+        b.results += { EnrollmentState.Ready("dev1") }
+        c.signIn("a@example.test", "p").join()
+        b.todayAction = { throw sessionEndedFailure(removed = false) }
+        c.syncNow().join()
+        assertEquals(EnrollmentState.SignedOut, c.state)
+        assertEquals("Your session has ended. Sign in again.", c.error)
+        assertEquals(0, b.signOuts)
+        assertTrue(c.today.visits.isEmpty())
+    }
+
+    @Test fun `FLD-171 relaunch after an ended session still shows the reason`() = run { c, b, _ ->
+        b.endedReason = "Your session has ended. Sign in again."
+        c.start().join()
+        assertEquals(EnrollmentState.SignedOut, c.state)
+        assertEquals("Your session has ended. Sign in again.", c.error)
     }
 
     @Test fun signOutWipesAndReturnsToSignIn() = run { c, b, _ ->

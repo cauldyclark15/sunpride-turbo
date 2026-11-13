@@ -111,8 +111,8 @@ export function TesterGuide({ apkUrl }: { apkUrl: string | null }) {
               Volume down together.
             </li>
             <li>
-              Choose <strong>Create issue</strong>. You can follow it, and add
-              comments or more screenshots, under <strong>Issues</strong>.
+              Choose <strong>Save</strong>. You can follow it, and add comments
+              or more screenshots, under <strong>Issues</strong>.
             </li>
           </ol>
         </Section>

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calendarBucket, groupCalendar } from "./coverage-view-model";
+import { calendarBucket, calendarHeading, groupCalendar } from "./coverage-view-model";
 describe("Manila calendar grouping", () => {
   it("groups Sep 28–30 together and crosses into October in the same Monday week", () => {
     expect(
@@ -17,5 +17,13 @@ describe("Manila calendar grouping", () => {
         "month",
       ),
     ).toHaveLength(2);
+  });
+});
+
+describe("WEB-113 calendar headings use plain dates", () => {
+  it("never shows the ISO key", () => {
+    expect(calendarHeading("2026-11-02", "week")).toBe("Week of Nov 2, 2026");
+    expect(calendarHeading("2026-11", "month")).toBe("November 2026");
+    expect(calendarHeading("2026-11-13", "day")).toBe("Nov 13, 2026");
   });
 });

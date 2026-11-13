@@ -1,4 +1,5 @@
 "use client";
+import { formatDate, formatMonth, formatPeriod } from "../lib/format";
 import { useRef, useState } from "react";
 import { useApi, useLive, useMutate } from "../lib/api";
 import { formatPhp } from "./cockpit/format";
@@ -29,6 +30,8 @@ type Cascade = {
   contentHash: string;
   preparedBy: string;
   preparedById: string;
+  /** Server says Approve/Send back would be accepted for this caller (WEB-037). */
+  canDecide?: boolean;
   decidedBy: string | null;
   decisionReason: string | null;
   lines: Line[];
@@ -42,6 +45,8 @@ type Book = {
   >;
   canPrepare: boolean;
   canApprove: boolean;
+  /** Company/channel cascades need company-wide scope (WEB-037). */
+  companyWide?: boolean;
   me: string | null;
   cascades: Cascade[];
 };
@@ -62,6 +67,29 @@ const METHOD: Record<string, string> = {
 };
 const button =
   "min-h-10 rounded-[10px] border border-border px-3 py-2 text-sm disabled:opacity-40";
+
+const LEVEL_LABEL = {
+  company: "Company",
+  channel: "Channel",
+  territory: "Territory",
+} as const;
+
+/** WEB-037: parent levels this caller may cascade. */
+export function allowedLevels(d: {
+  companyWide?: boolean;
+}): ("company" | "channel" | "territory")[] {
+  return d.companyWide === false
+    ? ["territory"]
+    : ["company", "channel", "territory"];
+}
+
+/** WEB-037: show Approve/Send back only when the server would accept them. */
+export function canDecide(
+  d: { canApprove: boolean; me: string | null },
+  c: { preparedById: string; canDecide?: boolean },
+) {
+  return c.canDecide ?? (d.canApprove && c.preparedById !== d.me);
+}
 
 /** F-615: display a target amount in the metric's own unit. */
 export function formatAmount(metric: string, n: number | null) {
@@ -120,10 +148,10 @@ export function TargetCascadePanel() {
   const { mutate } = useMutate();
   const keys = useRef(new Map<string, string>());
   const [metric, setMetric] = useState("sales_value"),
-    [level, setLevel] = useState<"company" | "channel" | "territory">(
+    [chosenLevel, setLevel] = useState<"company" | "channel" | "territory">(
       "company",
     ),
-    [parentKey, setParentKey] = useState("company"),
+    [chosenParentKey, setParentKey] = useState("company"),
     [amountText, setAmountText] = useState(""),
     [product, setProduct] = useState(""),
     [source, setSource] = useState(
@@ -167,6 +195,10 @@ export function TargetCascadePanel() {
     return <p role="alert">Target cascades could not be loaded.</p>;
   if (!data.data) return <p>Loading target cascades…</p>;
   const d = data.data;
+  const levels = allowedLevels(d);
+  const level = levels.includes(chosenLevel) ? chosenLevel : levels[0]!;
+  const parentKey =
+    level === chosenLevel ? chosenParentKey : (d.parents[level][0]?.key ?? "");
   const parentAmount = parseAmount(metric, amountText);
   const identity = {
     month,
@@ -234,11 +266,11 @@ export function TargetCascadePanel() {
               </p>
               <p className="text-xs text-muted">
                 Prepared by {c.preparedBy}; {METHOD[c.method]}
-                {c.basisFrom ? ` from ${c.basisFrom}` : ""}. Source:{" "}
+                {c.basisFrom ? ` from ${formatDate(c.basisFrom)}` : ""}. Source:{" "}
                 {c.sourceRef}
               </p>
               <CascadeTable cascade={c} />
-              {d.canApprove && c.preparedById !== d.me ? (
+              {canDecide(d, c) ? (
                 <div className="mt-2 flex flex-wrap items-end gap-2">
                   <button
                     className={button}
@@ -289,7 +321,9 @@ export function TargetCascadePanel() {
                 <p className="mt-2 text-xs text-muted">
                   {c.preparedById === d.me
                     ? "A different person must approve your cascade."
-                    : "Awaiting a manager or approver."}
+                    : d.canApprove
+                      ? "A company-wide manager or approver decides this cascade."
+                      : "Awaiting a manager or approver."}
                 </p>
               )}
             </article>
@@ -297,7 +331,10 @@ export function TargetCascadePanel() {
         </section>
       )}
       <section aria-label="Published targets" className="grid gap-3">
-        <h3 className="font-medium">Published for {month}</h3>
+        <h3 className="font-medium">
+          Published for {formatMonth(month)} · applies from{" "}
+          {formatDate(`${month}-01`)}
+        </h3>
         {published.length === 0 && (
           <p className="text-sm">Nothing published for this month yet.</p>
         )}
@@ -356,9 +393,11 @@ export function TargetCascadePanel() {
                   setPreview(null);
                 }}
               >
-                <option value="company">Company</option>
-                <option value="channel">Channel</option>
-                <option value="territory">Territory</option>
+                {levels.map((v) => (
+                  <option key={v} value={v}>
+                    {LEVEL_LABEL[v]}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="grid gap-1 text-sm">
@@ -433,7 +472,7 @@ export function TargetCascadePanel() {
                     : "channels"}
                 , {METHOD[preview.method]}
                 {preview.basisFrom
-                  ? ` (${preview.basisFrom} to ${preview.basisTo})`
+                  ? ` (${formatPeriod(preview.basisFrom, preview.basisTo)})`
                   : ""}
                 . Edit any child; the total must still match.
               </p>

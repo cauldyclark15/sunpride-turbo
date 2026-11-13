@@ -64,6 +64,16 @@ class VanBootstrapCodecTest {
         val h = VanBootstrapCodec.decode(o.toString()).policy.handheld!!
         assertNull(h.vehicleCode); assertNull(h.supervisorName); assertNull(h.supervisorPhone); assertEquals("ABC-1234",h.plateNumber)
     }
+    @Test fun customerMasterClassificationRidesCustomersAndStaysOutOfTheFrozenValidator() {
+        // SP-0170 server adds channel + customerMaster to each van customer; a strict frozen copy refused every bootstrap (SP-0169 r5).
+        val o = JSONObject(fixture())
+        VanBootstrapCodec.objects(o.getJSONArray("customers")).forEach {
+            it.put("channel","General Trade").put("customerMaster",JSONObject().put("salesOrgCode","1000").put("distributionChannelCode","10")
+                .put("distributionChannelName","General Trade").put("customerGroup1Code",JSONObject.NULL).put("completeness","complete"))
+        }
+        val b = VanBootstrapCodec.decode(o.toString())
+        assertEquals(3,b.customers.size)
+    }
     @Test fun productCategoryIsOptionalAndStaysOutOfTheFrozenValidator() {
         assertNull(VanBootstrapCodec.decode(fixture()).products.first().category)
         val o = JSONObject(fixture())
@@ -94,6 +104,38 @@ class VanBootstrapCodecTest {
         assertNull(VanBootstrapCodec.decode(o.toString()).load!!.rejectionNote)
         o.getJSONObject("trip").put("openingFloatCentavos",10_000_001)
         assertTrue("a float over the cap is not a bundle we trust",runCatching { VanBootstrapCodec.decode(o.toString()) }.isFailure)
+    }
+    /** SP-0169: the office's Senior/PWD switch rides policy.privilegeDiscount, outside the frozen validator; the option is hidden when off. */
+    @Test fun privilegeSwitchRidesThePolicyAndHidesTheDiscountWhenOff() {
+        val plain = VanBootstrapCodec.decode(fixture()).policy
+        assertNull(plain.privilegeDiscount); assertTrue("older server: still offered", com.sunpride.van.selling.PrivilegeSwitch.offered(plain))
+        val o = JSONObject(fixture())
+        o.getJSONObject("policy").put("privilegeDiscount",JSONObject().put("surface","van").put("enabled",false))
+        val off = VanBootstrapCodec.decode(o.toString()).policy
+        assertEquals(false,off.privilegeDiscount); assertFalse(com.sunpride.van.selling.PrivilegeSwitch.offered(off))
+        o.getJSONObject("policy").put("privilegeDiscount",JSONObject().put("surface","store").put("enabled",true))
+        assertTrue(com.sunpride.van.selling.PrivilegeSwitch.offered(VanBootstrapCodec.decode(o.toString()).policy))
+        // malformed is "not said", never a silent ON or a failed bootstrap
+        o.getJSONObject("policy").put("privilegeDiscount",JSONObject().put("surface","van").put("enabled","no"))
+        assertNull(VanBootstrapCodec.decode(o.toString()).policy.privilegeDiscount)
+    }
+    /** VAN-034: a van-only handheld (no POS mode, so no storePos) gets the weekly limit at policy.privilegeCap, outside the frozen validator. */
+    @Test fun vanOnlyWeeklyLimitRidesThePolicyAndStaysOutOfTheFrozenValidator() {
+        assertNull(VanBootstrapCodec.decode(fixture()).policy.privilegeCap)
+        val o = JSONObject(fixture())
+        o.getJSONObject("policy").put("privilegeCap",JSONObject().put("version",1).put("enabled",true).put("capCentavos","250000").put("confirmed",false)
+            .put("weekStart","2026-11-09").put("weekEndsAt",System.currentTimeMillis() + 86_400_000L).put("asOf",System.currentTimeMillis()).put("complete",true)
+            .put("hashKey","A".repeat(43)).put("used",JSONArray()))
+        val cap = VanBootstrapCodec.decode(o.toString()).policy.privilegeCap
+        assertNotNull(cap); assertEquals(250_000L,cap!!.capMinor)
+    }
+    /** NF-5: the server's per-sale cash rides the handheld trip; the frozen v1 validator must not see it (VAN-075 r3: every bootstrap failed). */
+    @Test fun serverCashRidesTheTripAndStaysOutOfTheFrozenValidator() {
+        val o = JSONObject(fixture())
+        o.getJSONObject("trip").put("openingFloatCentavos",100_000).put(com.sunpride.van.pos.ServerTripCash.FIELD,
+            org.json.JSONArray().put(JSONObject().put("saleId","s1").put("kind","sale").put("amountMinor","50000")))
+        val b = VanBootstrapCodec.decode(o.toString())
+        assertEquals(100_000L,b.trip!!.openingFloatCentavos)
     }
     @Test fun wireCopyMatchesCommittedAuthority() {
         assertEquals(JSONObject(fixture("van-v1.schema.json")).toString(),JSONObject(VanWireSchema.SCHEMA).toString())
@@ -294,7 +336,7 @@ class VanBootstrapCodecTest {
             // VAN-012: unknown kind, duplicate code, empty list, a reference on cash, bad terms or a float credit amount.
             { it.getJSONObject("policy").getJSONArray("paymentMethods").getJSONObject(1).put("kind","voucher") },
             { it.getJSONObject("policy").getJSONArray("paymentMethods").getJSONObject(1).put("code","cash") },
-            { it.getJSONObject("policy").put("paymentMethods",org.json.JSONArray()) },
+            // NF-R5V-5: an empty list is still refused, but as the named setup gap (see NoPaymentMethodsTest).
             { it.getJSONObject("policy").getJSONArray("paymentMethods").getJSONObject(0).put("referenceRequired",true) },
             { it.getJSONArray("customers").getJSONObject(0).getJSONObject("credit").put("termsDays",0) },
             { it.getJSONArray("customers").getJSONObject(0).getJSONObject("credit").put("termsDays",181) },

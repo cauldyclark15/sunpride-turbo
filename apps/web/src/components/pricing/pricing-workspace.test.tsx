@@ -253,6 +253,13 @@ describe("price helpers", () => {
     expect(() => parsePriceRows("FOOD,,1250")).toThrow("Row 1");
     expect(() => parsePriceRows("")).toThrow();
   });
+  it("WEB-139: lists every bad row with its line number before anything is sent", () => {
+    expect(() =>
+      parsePriceRows("SMP-PCH-227,PC,4400\nZZZ-NOPE,PC,abc\nSMP-PCH-432,,6100"),
+    ).toThrow(
+      "Row 2: enter product code, selling unit, whole centavos. · Row 3: enter product code, selling unit, whole centavos.",
+    );
+  });
   it("matches on name, code and status", () => {
     const rows = [list(1), list(2, { status: "inactive" })];
     expect(matchRows(rows, "l2", null).map((r) => r.id)).toEqual(["list-2"]);
@@ -264,5 +271,15 @@ describe("price helpers", () => {
     expect(shortDate(nov9, Date.parse("2027-02-01T00:00:00Z"))).toBe(
       "Nov 9, 2026",
     );
+  });
+});
+
+describe("WEB-140: Add promotion can save under F-501", () => {
+  it("never asks the API to activate a promotion with no campaign budget", async () => {
+    const mod = await import("./pricing-workspace");
+    const body = mod.newPromotionBody({ code: "P1", name: "Promo" });
+    expect(body.status).toBe("inactive");
+    expect(body).not.toHaveProperty("campaignVersionId");
+    expect(mod.NEW_PROMOTION_NOTICE).toContain("Saved as Inactive");
   });
 });

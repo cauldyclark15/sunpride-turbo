@@ -1,4 +1,14 @@
 import { date } from "../orders/validation.js";
+
+/** WEB-142: the day a source was captured, in plain words ("Nov 13, 2026", Manila), never an ISO date.
+ * @param {Date|string|number} at */
+export const sourceDay = (at) =>
+  new Date(at).toLocaleDateString("en-US", {
+    timeZone: "Asia/Manila",
+    month: "short",
+    day: "numeric",
+    year: "numeric",
+  });
 /** F-506 all canonical evidence families, bounded before a reviewer selects a source.
  * Callers retain authorization and re-read each candidate before exposing its facts.
  * @param {any} c @param {any} r */

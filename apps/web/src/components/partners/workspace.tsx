@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 
 import Link from "next/link";
 import { useState, type FormEvent } from "react";
@@ -192,7 +193,7 @@ export function AgencyEvidenceView({
           .filter((r) => r.billingIssue)
           .map((r) => (
             <p key={`${r.profileId}-${r.date}`} className="mt-2 text-sm">
-              {r.name} · {r.date}: {r.billingIssue}
+              {r.name} · {formatDate(r.date)}: {r.billingIssue}
             </p>
           ))}
       </section>

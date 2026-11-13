@@ -14,6 +14,8 @@ import { install as masters } from "../src/domains/masters/index.js";
 import { setPlacesFetch } from "../src/domains/masters/places.js";
 import { SAMPLE_IMAGE } from "../src/domains/masters/catalogue.js";
 import { outletOwnerUnit, subtree } from "../src/domains/org/scope.js";
+import { scopeOf } from "../src/core/scope.js";
+import { actorFor } from "../src/core/context.js";
 import { seedDemo } from "../../../packages/db/seed/index.js";
 import { seedSpecMasters } from "../../../packages/db/seed/spec-masters.js";
 import {
@@ -204,6 +206,9 @@ test("store edit: approve updates the existing store, adds no store, moves the p
     reason: "x",
   });
   expect(dup.status).toBe(422);
+  // WEB-173: the customer page reads the customer record, so it holds the old contact before approval.
+  await h.db`insert into customer_profiles(outlet_id,mobile_no,updated_by) values(${id},'09000000000','fixture') on conflict (outlet_id) do update set mobile_no='09000000000'`;
+  await h.db`insert into customer_ship_tos(outlet_id,ordinal,ship_to_party,contact_person,mobile_no,updated_by) values(${id},0,'Old party','Old contact','09000000000','fixture') on conflict (outlet_id,ordinal) where deleted_at is null do update set contact_person='Old contact',mobile_no='09000000000'`;
   const ok = await as("manager", "/api/v1/masters/census/review", {
     captureId: p.captureId,
     decision: "accept",
@@ -226,6 +231,10 @@ test("store edit: approve updates the existing store, adds no store, moves the p
   const [contact] =
     await h.db`select name,phone from outlet_contacts where outlet_id=${id} and ordinal=0`;
   expect(contact).toEqual({ name: "New Owner", phone: "0917 555 0199" });
+  const [profileRow] = await h.db`select mobile_no from customer_profiles where outlet_id=${id}`;
+  expect(profileRow.mobile_no).toBe("09175550199");
+  const [shipTo] = await h.db`select contact_person,mobile_no from customer_ship_tos where outlet_id=${id} and deleted_at is null and ordinal=0`;
+  expect(shipTo).toEqual({ contact_person: "New Owner", mobile_no: "09175550199" });
   const pins =
     await h.db`select latitude from outlet_pins where outlet_id=${id} and status='verified' and deleted_at is null and effective_from<=now() and (effective_to is null or effective_to>now())`;
   expect(pins.map((/** @type {any} */ x) => x.latitude)).toEqual([10.3311]);
@@ -402,4 +411,41 @@ test("store edit: the phone learns the office's decision on its own changes", as
   expect((await as("viewer", "/api/v1/masters/census/my-changes")).status).toBe(
     403,
   );
+});
+
+test("store edit: an office move that is put back keeps the phone's scope, so its queued change still reaches the office (WEB-173)", async () => {
+  const rep = await fieldPerson();
+  const [{ user_id: userId }] =
+    await h.db`select user_id from profiles where id=${rep.profileId}`;
+  const fp = async () =>
+    (await scopeOf(h.db, /** @type {any} */ (await actorFor(h.db, userId))))
+      .fingerprint;
+  const before = await fp();
+  const inside = new Set(await subtree(h.db, UNIT()));
+  const [other] =
+    await h.db`select id from org_units where deleted_at is null and effective_from<=now() and (effective_to is null or effective_to>now()) and not (id::text = any(${h.db.array([...inside], "TEXT")})) order by code limit 1`;
+  const assign = (/** @type {any} */ b) =>
+    as("admin", "/api/v1/people/assign", { profileId: rep.profileId, ...b });
+  const moved = await assign({
+    orgUnitId: other.id,
+    role: "manager",
+    reason: "QA move",
+  });
+  expect(moved.status).toBe(200);
+  expect(await fp()).not.toBe(before); // a real move changes the phone's scope
+  await Bun.sleep(5);
+  const back = await assign({
+    orgUnitId: UNIT(),
+    role: "sales",
+    reason: "Put back",
+  });
+  expect(back.status).toBe(200);
+  // Same person, unit, role and reach: the phone keeps its partition (no held work).
+  expect(await fp()).toBe(before);
+  const p = change(storeIds[5], { name: "Moved And Back Store" });
+  expect((await rep.push(p)).status).toBe("applied");
+  const queue = await as("manager", "/api/v1/masters/census-queue");
+  expect(
+    queue.body.rows.some((/** @type {any} */ r) => r.id === p.captureId),
+  ).toBe(true);
 });

@@ -70,7 +70,9 @@ export function parsePriceRows(text: string) {
     .map((line) => line.split(",").map((s) => s.trim()));
   if (!rows.length || rows.length > 4000)
     throw new Error("Paste 1–4,000 product, unit and centavo rows.");
-  return rows.map((r, i) => {
+  // WEB-139: report every bad row (with its line number), not only the first.
+  const bad: string[] = [];
+  const parsed = rows.map((r, i) => {
     if (
       r.length !== 3 ||
       !r[0] ||
@@ -78,11 +80,13 @@ export function parsePriceRows(text: string) {
       !/^\d+$/.test(r[2] ?? "") ||
       !Number.isSafeInteger(Number(r[2]))
     )
-      throw new Error(
+      bad.push(
         `Row ${i + 1}: enter product code, selling unit, whole centavos.`,
       );
     return { productCode: r[0]!, uom: r[1]!, unitPriceCentavos: Number(r[2]) };
   });
+  if (bad.length) throw new Error(bad.join(" · "));
+  return parsed;
 }
 
 /** Rows matching the search text and status chip, before paging. */
@@ -115,6 +119,14 @@ const fromDate = (value: FormDataEntryValue | null) =>
   new Date(`${String(value)}T00:00:00+08:00`).getTime();
 const failure = (e: unknown) =>
   e instanceof Error ? e.message : "The change was not saved";
+/** F-501: the API refuses to ACTIVATE a new promotion that has no approved campaign budget, and this form has no
+ * campaign field, so a new promotion is saved Inactive (sending "active" made every save fail). */
+export function newPromotionBody<T extends object>(fields: T) {
+  return { ...fields, status: "inactive" as const };
+}
+export const NEW_PROMOTION_NOTICE =
+  "Saved as Inactive. A new promotion goes live only once it is linked to an approved campaign budget.";
+
 const statusWord = (s: string) => (s === "active" ? "Active" : "Inactive");
 const ruleWord = (kind: string) =>
   kind === "percent_off"
@@ -313,15 +325,20 @@ export function PricingWorkspace() {
               bundlePriceMinor: Number(f.get("bundlePrice")),
             };
     if (
-      await save("/api/v1/pricing/promotions/save", {
-        code: String(f.get("code")),
-        name: String(f.get("name")),
-        priceListId: String(f.get("priceListId")) || null,
-        effectiveFrom: fromDate(f.get("effectiveFrom")),
-        rule,
-      })
-    )
+      await save(
+        "/api/v1/pricing/promotions/save",
+        newPromotionBody({
+          code: String(f.get("code")),
+          name: String(f.get("name")),
+          priceListId: String(f.get("priceListId")) || null,
+          effectiveFrom: fromDate(f.get("effectiveFrom")),
+          rule,
+        }),
+      )
+    ) {
       setAdding(null);
+      setNotice(NEW_PROMOTION_NOTICE);
+    }
   }
   async function editPromotion(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
@@ -506,6 +523,11 @@ export function PricingWorkspace() {
                 >
                   <textarea name="rows" rows={5} required />
                 </FormField>
+                {error ? (
+                  <p role="alert" className="text-sm text-danger">
+                    {error}
+                  </p>
+                ) : null}
                 <div>
                   <Button type="submit" variant="primary" isDisabled={busy}>
                     Save

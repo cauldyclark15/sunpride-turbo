@@ -15,9 +15,17 @@ import { today, PAYMENT_METHODS } from "../src/domains/van/model.js";
  * planned load must still download. Anything that really holds stock, in ANY status, must stay represented, and a
  * genuinely oversized catalogue must still be refused (never truncated).
  */
+// VAN-006: quotes are grouped by content, so identically priced outlets share lines. `perOutlet` gives every
+// outlet its own price (a distinct quote each) for the genuinely oversized case.
+let perOutlet = false;
+/** @type {Map<string,number>} */ const outletPrice = new Map();
 mock.module("../src/domains/orders/pricing.js", () => ({
-  resolvePrice: async () => ({
-    unitPriceCentavos: 12525,
+  resolvePrice: async (/** @type {any} */ _db, /** @type {any} */ q) => ({
+    unitPriceCentavos: perOutlet
+      ? (outletPrice.get(q.outletId) ??
+        (outletPrice.set(q.outletId, 12525 + outletPrice.size),
+        outletPrice.get(q.outletId)))
+      : 12525,
     priceListId: "11111111-1111-4111-8111-111111111111",
     source: "office",
   }),
@@ -212,7 +220,9 @@ test("40 historical zero truck rows + 25 outlets + 3 load products: the bundle d
   expect(d.products.map((/** @type {any} */ p) => p.productId).sort()).toEqual(
     [...loadProducts].sort(),
   );
-  expect(d.priceLines).toHaveLength(OUTLETS * 3);
+  // one shared quote: 3 lines, not 25 x 3, and every customer points at it
+  expect(d.priceLines).toHaveLength(3);
+  expect(new Set(d.customers.map((/** @type {any} */ c) => c.priceListId)).size).toBe(1);
   // the load product's own (zero) row is still reported; the 40 dead products are not
   expect(d.truckStock.map((/** @type {any} */ s) => s.productId)).toEqual([
     loadProducts[0],
@@ -225,7 +235,7 @@ test("hundreds of zero rows (null or 0 in every status) neither trip the 500-row
   expect(n).toBe(521);
   const d = await bundle(await ctx(), h.env);
   expect(d.products).toHaveLength(3);
-  expect(d.priceLines).toHaveLength(OUTLETS * 3);
+  expect(d.priceLines).toHaveLength(3);
   // commercial.js builds the same catalogue: it must price a load product, and not know a dead zero-row product
   const [outlet] = await h.db`select id,channel from outlets limit 1`;
   const quote = async (/** @type {string} */ productId) =>
@@ -273,10 +283,11 @@ test("a quantity in ANY status keeps its product represented (each column on its
       ...rows.map((/** @type {any} */ r) => r.product_id),
     ].sort(),
   );
-  expect(d.priceLines).toHaveLength(OUTLETS * ids.length);
+  expect(d.priceLines).toHaveLength(ids.length);
 });
 test("a genuinely oversized catalogue is still refused, never truncated", async () => {
-  // 30 more real stock-bearing products: (3 + 11 + 30) x 25 outlets = 1100 price lines > 600
+  // 30 more real stock-bearing products, every outlet priced differently: (3 + 11 + 30) x 25 distinct quotes = 1100 > 600
+  perOutlet = true;
   const more =
     await h.db`select b.product_id from inventory_balances b join products p on p.id=b.product_id where b.location_id=${truck} and p.code like 'ZP%' and coalesce(b.physical_base,0)=0 and coalesce(b.available_stock_base,0)=0 and coalesce(b.reserved_base,0)=0 and coalesce(b.available_base,0)=0 and coalesce(b.quality_hold_base,0)=0 and coalesce(b.quarantine_base,0)=0 and coalesce(b.damaged_base,0)=0 and coalesce(b.expired_base,0)=0 and coalesce(b.rejected_base,0)=0 and coalesce(b.wip_base,0)=0 and coalesce(b.in_transit_base,0)=0 limit 30`;
   expect(more).toHaveLength(30);
@@ -285,6 +296,7 @@ test("a genuinely oversized catalogue is still refused, never truncated", async 
     code: "projection_too_large",
     status: 422,
   });
+  perOutlet = false;
 });
 test("more than 500 stock-bearing rows is refused at the row bound", async () => {
   await h.db`update inventory_balances set physical_base=1,available_base=1 where location_id=${truck}`;

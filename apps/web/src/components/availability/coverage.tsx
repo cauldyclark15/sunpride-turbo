@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../../lib/format";
 
 import Link from "next/link";
 import { useState } from "react";
@@ -33,7 +34,7 @@ export function AvailabilityCoverage({ data }: { data: RetailAvailability }) {
             <p className="mb-3 text-sm text-muted">
               {data.universe.sample ? "Sample data · " : ""}
               {data.universe.label} · {data.universe.members} stores ·{" "}
-              {data.universe.date}
+              {formatDate(data.universe.date)}
               {!data.universe.fresh
                 ? " · Stale universe — refresh before using ND or WD"
                 : ""}

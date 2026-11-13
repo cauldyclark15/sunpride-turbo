@@ -243,6 +243,8 @@ export type Product = Base & {
   category: string;
   uom: string;
   baseUomId?: string;
+  /** Set when the material was loaded from SAP; it stays read-only. */
+  sapKey?: string | null;
   quantityScale?: number | string;
   active: boolean;
   uomDisplay: string;

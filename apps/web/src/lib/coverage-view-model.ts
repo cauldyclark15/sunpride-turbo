@@ -1,3 +1,4 @@
+import { formatDate, formatMonth } from "./format";
 export function slotKindLabel(kind: string): string {
   const labels: Record<string, string> = {
     outlet_visit: "Store visit",
@@ -32,6 +33,11 @@ export type CalendarRow = {
   sequence: number;
 };
 export type CalendarMode = "day" | "week" | "month";
+/** WEB-113: a calendar group heading in plain words ("Week of Nov 2, 2026", "November 2026"), never the ISO key. */
+export function calendarHeading(key: string, mode: CalendarMode): string {
+  if (mode === "month") return formatMonth(key);
+  return mode === "week" ? `Week of ${formatDate(key)}` : formatDate(key);
+}
 /** ISO dates are Manila civil dates; UTC here is used solely for weekday arithmetic. */
 export function calendarBucket(date: string, mode: CalendarMode): string {
   if (mode === "day") return date;

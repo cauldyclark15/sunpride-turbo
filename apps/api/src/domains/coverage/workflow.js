@@ -16,6 +16,7 @@ import {
   ORG,
   outletAt,
   planRows,
+  PLAN_ROW_LIMIT,
   required,
   uuid,
 } from "./model.js";
@@ -54,12 +55,29 @@ function texts(a = []) {
     fail("Invalid objectives or intents");
   return a;
 }
+/**
+ * The assignee must serve the outlet: on its route, or (routeless) its territory.
+ * Checked on add so the planner learns at once, not at approval (WEB-118).
+ * @param {any} db @param {any} p @param {any} o @param {number} instant
+ */
+export async function assigneeCovers(db, p, o, instant) {
+  const at = new Date(instant);
+  const rows = o.routeId
+    ? await db`select 1 from route_salespeople where route_id=${o.routeId} and profile_id=${p.assignee_profile_id} and deleted_at is null and effective_from<=${at} and (effective_to is null or effective_to>${at}) limit 1`
+    : await db`select 1 from territory_salespeople where territory_id=${o.territoryId} and profile_id=${p.assignee_profile_id} and deleted_at is null and effective_from<=${at} and (effective_to is null or effective_to>${at}) limit 1`;
+  if (!rows.length)
+    fail(
+      o.routeId
+        ? "Outlet is on a route the assignee does not serve"
+        : "Outlet is in a territory the assignee does not serve",
+    );
+}
 /** @param {any} ctx @param {any} p @param {any[]} outlets */
 async function saveOutlets(ctx, p, outlets) {
   draft(p);
   const db = ctx.db;
   if (!Array.isArray(outlets)) fail("Plan outlets must be an array");
-  bounded(outlets, "Plan outlets");
+  bounded(outlets, "Plan outlets", PLAN_ROW_LIMIT);
   if (outlets.some((o) => !o || typeof o !== "object" || Array.isArray(o)))
     fail("Invalid outlet row");
   if (new Set(outlets.map((o) => o.outletId)).size !== outlets.length)
@@ -74,6 +92,7 @@ async function saveOutlets(ctx, p, outlets) {
       (live.assignment?.route_id ?? null) !== (o.routeId ?? null)
     )
       fail("Outlet assignment changed; use its effective territory and route");
+    await assigneeCovers(db, p, o, instant);
     if (!["weekly", "biweekly", "monthly", "custom"].includes(o.frequency))
       fail("Invalid frequency");
     integer(o.priority ?? 0, "priority");
@@ -112,6 +131,10 @@ async function saveOutlets(ctx, p, outlets) {
   for (const o of outlets)
     await db`insert into coverage_plan_outlets (plan_id,outlet_id,route_id,territory_id,frequency,anchor_local_date,week_ordinal,preferred_weekdays,custom_local_dates,sequence,priority,expected_duration_minutes,required_objectives,visit_window,content_revision,updated_by)
   values (${p.id},${o.outletId},${o.routeId ?? null},${o.territoryId},${o.frequency},${o.anchorLocalDate ?? null},${o.weekOrdinal ?? null},${db.array(o.preferredWeekdays, "SMALLINT")},${db.array(o.customLocalDates, "DATE")},${o.sequence ?? null},${o.priority ?? 0},${o.expectedDurationMinutes},${db.array(o.requiredObjectives ?? [], "TEXT")},${o.visitWindow ?? null},${p.content_revision + 1},${ctx.actor.subject})`;
+  // A removed outlet takes its dated visits with it; otherwise approval refuses
+  // the plan for slots the planner no longer shows (WEB-118).
+  const kept = outlets.map((o) => o.outletId);
+  await db`delete from coverage_plan_slots where plan_id=${p.id} and kind='outlet_visit' and not (outlet_id = any(${db.array(kept, "UUID")}))`;
   await db`delete from coverage_plan_territories where coverage_plan_id=${p.id}`;
   let ordinal = 0;
   for (const id of new Set(outlets.map((o) => o.territoryId)))
@@ -121,7 +144,7 @@ async function saveOutlets(ctx, p, outlets) {
 async function saveSlots(ctx, p, slots) {
   draft(p);
   if (!Array.isArray(slots)) fail("Plan slots must be an array");
-  bounded(slots, "Plan slots");
+  bounded(slots, "Plan slots", PLAN_ROW_LIMIT);
   if (slots.some((s) => !s || typeof s !== "object" || Array.isArray(s)))
     fail("Invalid slot row");
   const db = ctx.db;
@@ -366,7 +389,11 @@ export async function workflow(ctx, action, b) {
     if (a.org_unit_id !== p.org_unit_id)
       fail("Assignee unit changed; create a new scoped plan");
     await db`update coverage_plans set effective_from=${new Date(from)},effective_to=${new Date(to)} where id=${p.id}`;
-    await db`update coverage_assignments set effective_from=${new Date(from)},effective_to=${new Date(to)},reason=${b.reason},actor_subject=${ctx.actor.subject} where plan_id=${p.id}`;
+    const moved =
+      await db`update coverage_assignments set effective_from=${new Date(from)},effective_to=${new Date(to)},reason=${b.reason},actor_subject=${ctx.actor.subject} where plan_id=${p.id} returning id`;
+    // WEB-118: a plan that lost (or never had) its primary assignment gets one here, never a false "saved".
+    if (!moved.length)
+      await db`insert into coverage_assignments(plan_id,assignee_profile_id,org_unit_id,is_primary,effective_from,effective_to,actor_subject,reason) values (${p.id},${p.assignee_profile_id},${p.org_unit_id},true,${new Date(from)},${new Date(to)},${ctx.actor.subject},${b.reason})`;
   } else if (action === "applyToDraft") {
     draft(p);
     const a = await employeeAt(
@@ -424,6 +451,7 @@ export async function workflow(ctx, action, b) {
     draft(p);
     const rows = await planRows(db, p.id);
     if (!rows.assignments.length) fail("Primary coverage assignment required");
+    if (!rows.slots.length) fail("Plan needs dated slots before submitting");
     await db`update coverage_plans set status='submitted',submitted_by=${ctx.actor.subject},submitted_at=${new Date(ctx.now)} where id=${p.id}`;
   } else if (action === "returnPlan") {
     if (p.status !== "submitted") fail("Only submitted plans can be returned");
@@ -532,6 +560,8 @@ export async function workflow(ctx, action, b) {
     { status: p.status, revision: p.content_revision },
     { status: updated.status, revision: updated.content_revision },
     b.reason ?? null,
+    // WEB-118: the approve event carries the signature so History can show "Signed version".
+    action === "approve" ? updated.approval_signature : null,
   );
   return dto(updated);
 }

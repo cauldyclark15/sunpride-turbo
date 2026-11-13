@@ -79,7 +79,12 @@ beforeAll(async () => {
     cold_chain: policy,
     variance: { toleranceBasisPoints: 50, escalateAfterHours: 24 },
     returnables: { items: [{ code: "crate", label: "Sample crate" }] },
-    return_reasons: { items: [{ code: "damaged", label: "Damaged" }] },
+    return_reasons: {
+      items: [
+        { code: "damaged", label: "Damaged" },
+        { code: "expired", label: "Expired" },
+      ],
+    },
   }))
     await h.db`insert into van_policy_versions(org_unit_id,kind,effective_from,source_ref,facts,created_by) values(${unit},${kind},now()-interval '10 days','SAMPLE',${facts},${boss.profile.id})`;
   actor = await actorFor(h.db, who.userId);

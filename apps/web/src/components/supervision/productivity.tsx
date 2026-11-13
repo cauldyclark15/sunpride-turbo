@@ -1,4 +1,5 @@
 "use client";
+import { formatPeriod } from "../../lib/format";
 
 import type { EndpointResult } from "./report-api";
 
@@ -283,7 +284,7 @@ export function ProductivityView({
           </FormField>
         </div>
         <span className="flex h-10 items-center font-mono text-[13px] text-muted">
-          {period.from} – {period.to}
+          {formatPeriod(period.from, period.to)}
         </span>
       </div>
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">

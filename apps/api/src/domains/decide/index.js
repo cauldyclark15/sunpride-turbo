@@ -1,10 +1,12 @@
 import { tx } from "@sunpride/db/client";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
+import { actorNames } from "../../core/actor-names.js";
 import { ApiError } from "../../core/errors.js";
 import { isUuid } from "../../core/util.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { toleranceFor } from "../inventory/tolerances.js";
 import { uploadCountPhoto } from "./count-photo.js";
+import { postBlockedReason } from "../inventory/counts.js";
 
 /**
  * IP-NAV: ONE Decide inbox for every approval (SPEC 3.6, 3.9, 8).
@@ -67,13 +69,8 @@ async function toleranceRule(db, event, at, what) {
   }
 }
 
-/** @param {any} db @param {string[]} userIds */
-async function namesByUser(db, userIds) {
-  const ids = [...new Set(userIds.filter(Boolean))];
-  if (!ids.length) return new Map();
-  const rows = await db`select user_id,name from profiles where user_id in ${db(ids)}`;
-  return new Map(rows.map((/** @type {any} */ r) => [r.user_id, r.name]));
-}
+/** @param {any} db @param {Array<string|null|undefined>} actorIds */
+const namesByUser = (db, actorIds) => actorNames(db, actorIds);
 
 /**
  * Where a handler of another domain answers, called the way the router would. Reads and commands both.
@@ -243,6 +240,9 @@ async function countReviews(router, c, actor) {
     ).map((/** @type {any} */ r) => [r.id, r.created_by]),
   );
   const names = await namesByUser(c.db, [...owners.values()]);
+  /** @type {Map<string,string|null>} */ const blocked = new Map();
+  for (const x of cards)
+    blocked.set(x.id, await postBlockedReason(c.db, { id: x.id, created_by: owners.get(x.id) }, actor));
   const rule = await toleranceRule(c.db, "count_variance", c.now, "A count difference");
   return /** @type {Item[]} */ (
     cards.map((/** @type {any} */ x) => ({
@@ -257,8 +257,8 @@ async function countReviews(router, c, actor) {
       valueCentavos: sums.has(x.id) ? Number(sums.get(x.id).v) : null,
       rule,
       link: `/operations/counts/review?session=${x.id}`,
-      canDecide: true,
-      blockedReason: null,
+      canDecide: !blocked.get(x.id),
+      blockedReason: blocked.get(x.id) ?? null,
       makerChecker: "The person who counted cannot approve their own count. The list only shows counts you did not count.",
       lines: [
         { label: "Lines counted", value: `${x.progress.counted} of ${x.progress.total}` },

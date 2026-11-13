@@ -1,4 +1,5 @@
 "use client";
+import { formatDate } from "../lib/format";
 import { Button } from "@heroui/react";
 import { Card, ListRow, WorkspaceIcon } from "@sunpride/ui";
 import { api } from "./coverage-model";
@@ -68,7 +69,7 @@ export function CoverageWorkloadView({
                 <ListRow
                   icon={<WorkspaceIcon name="field" />}
                   title={person.assigneeName}
-                  meta={`${person.selection} · ${person.routeCodes.join(", ") || "No route"} · ${person.workingDays.join(", ") || "No working days"}`}
+                  meta={`${person.selection} · ${person.routeCodes.join(", ") || "No route"} · ${person.workingDays.map((d) => formatDate(d)).join(", ") || "No working days"}`}
                   value={
                     <span className="text-[13px] tabular-nums">
                       {person.visitCount} calls · {person.durationMinutes} min ·{" "}

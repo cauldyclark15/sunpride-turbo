@@ -65,11 +65,15 @@ interface FieldBackend {
     fun appUpdates(): com.sunpride.integrity.AppUpdateClient? = null
     fun queueMockRefusal(outletId: String) { error("Integrity attempt storage unavailable") }
     fun signOut()
+    /** FLD-014/171: the plain reason the server last ended this phone's session, until the next sign-in. */
+    fun endedSessionReason(): String? = null
     fun changePassword(current: String, next: String, confirm: String) { error("Password change unavailable") }
     fun refreshEnrollment(signer: DeviceSigner): EnrollmentState
     fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData = TodayData()
     fun visitHistory(): List<com.sunpride.field.storage.IntentRow> = emptyList()
     fun visitStates(): List<Pair<com.sunpride.field.storage.IntentRow, String>> = emptyList()
+    /** FLD-176: clear one refused item from the phone's To review list. */
+    fun dismissReview(requestId: String): Boolean = false
     fun syncStatus(): com.sunpride.field.ui.syncstatus.SyncStatus = com.sunpride.field.ui.syncstatus.SyncStatus()
     fun schedulePendingWork() {}
     fun queueVisit(kind: String, clientVisitId: String?, checkInRequestId: String?, previousRequestId: String?,
@@ -191,9 +195,12 @@ fun plannedVisitDisplay(row: SnapshotItem, outlets: Map<String, JSONObject>, cus
     val longitude = number("longitude")?.takeIf { it in -180.0..180.0 }
     val pinned = latitude != null && longitude != null
     val server = com.sunpride.field.storage.ServerVisits.execution(row)
-    val status = when (server?.optString("state")) {
-        "checked-out" -> "Done"
-        "in-progress" -> "In progress"
+    val status = when (val state = server?.optString("state")) {
+        in com.sunpride.field.storage.ServerVisits.CLOSED -> "Done"
+        in com.sunpride.field.storage.ServerVisits.OPEN -> "In progress"
+        "skipped" -> "Skipped"
+        "missed" -> "Missed"
+        "rescheduled" -> "Rescheduled"
         else -> "Scheduled"
     }
     return VisitDisplay(outlet?.optString("name", "Outlet") ?: "Outlet unavailable", "Planned", status,
@@ -224,6 +231,11 @@ data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynce
 
 private const val TEAM_CACHE = "local.team"
 private const val SALES_CACHE = "local.daysales"
+/**
+ * FLD-121: the phone-only cache row for a downloaded form agenda (`field.collections`, `field.jointcall`).
+ * The encrypted store only keeps `local.` summaries, so the server topic is never the cache entity.
+ */
+internal fun domainFormsCacheEntity(topic: String): String = "local.$topic"
 // Edit store: office decisions on this person's changes, and the rejections already shown (separate entities:
 // putLocalCache keeps only one key prefix per entity).
 private const val STORE_CHANGES = "local.storechanges"
@@ -238,6 +250,9 @@ private const val STORE_SEEN = "local.storeseen"
  * clear that throws must never skip [authSignOut], which wipes the unlocked session, the ordinary and
  * sealed copies and the biometric key. The first failure is rethrown once everything has run.
  */
+/** FLD-014/171: the one failure for an ended session; [removed] = the office revoked or paused this phone. */
+internal fun sessionEndedFailure(removed: Boolean) = AuthFailure(AuthFailure.Kind.SESSION_EXPIRED, removed = removed)
+
 internal fun signOutTeardown(purgeCache: () -> Unit, clearIndex: () -> Unit, authSignOut: () -> Unit) {
     val failures = listOf(purgeCache, clearIndex, authSignOut).mapNotNull { step -> runCatching { step() }.exceptionOrNull() }
     failures.firstOrNull()?.let { throw it }
@@ -255,7 +270,12 @@ class LiveFieldBackend(
     private val syncTransport = LiveBootstrapTransport(environment, auth, functions)
     private val visitTransport = com.sunpride.field.sync.LiveVisitTransport(environment, auth, functions)
     private val prefs = context.getSharedPreferences("field_v2_cache_index", Context.MODE_PRIVATE)
+    /** FLD-014/171: why the last session ended; survives sign-out's index clear and the worker's process. */
+    private val sessionEnd = context.getSharedPreferences("field_session_end", Context.MODE_PRIVATE)
+    /** The session is gone: say why and keep every local row (unsent work stays held for the same person/office). */
+    private fun sessionEnded(): AuthFailure = sessionEndedFailure(sessionEnd.getBoolean("removed", false))
     init {
+        auth.onSessionEnded = { removed -> sessionEnd.edit().putBoolean("removed", removed).commit() }
         functions.api.onDeviceControl = { me ->
             retireSuggestions()
             runBlocking { com.sunpride.integrity.RemoteErasure.recordingLock.withLock {
@@ -308,6 +328,11 @@ class LiveFieldBackend(
         finally { store.close() }
     }
     override fun visitHistory() = visitStates().map { it.first }
+    override fun dismissReview(requestId: String): Boolean {
+        val scope = storedScope() ?: return false
+        val store = EncryptedFieldDatabase.store(context, scope)
+        return try { runBlocking { store.dismissReview(requestId) } } finally { store.close() }
+    }
     override fun syncStatus(): com.sunpride.field.ui.syncstatus.SyncStatus {
         val scope = storedScope() ?: return com.sunpride.field.ui.syncstatus.SyncStatus()
         val store = EncryptedFieldDatabase.store(context, scope)
@@ -335,7 +360,7 @@ class LiveFieldBackend(
                     checkInRequestId, previousRequestId, plannedVisitId, outletId, intents, unplannedReason,
                     note, outcome, reasonCode, location)
                 val json = JSONObject(original.serializedOperation)
-                options?.let { opts -> listOf("sequenceReason","shortCallReason","zeroSaleReason","geofenceApprovalId").forEach { key ->
+                options?.let { opts -> listOf("sequenceReason","shortCallReason","zeroSaleReason","geofenceApprovalId","locationUnavailable").forEach { key ->
                     if (opts.has(key)) json.getJSONObject("payload").put(key,opts.get(key))
                 } }
                 val intent = original.copy(serializedOperation = json.toString())
@@ -539,13 +564,16 @@ class LiveFieldBackend(
             jpeg.size.toLong() in 1..com.sunpride.field.storage.EvidencePhotos.MAX_BYTES) { "Invalid photo" }
         val files = com.sunpride.field.evidence.KeystorePhotoFiles(context)
         val at = System.currentTimeMillis()
-        val fix = com.sunpride.integrity.DeviceIntegrity.captureLocation(context, at)
+        val fix = com.sunpride.integrity.DeviceIntegrity.captureLocation(context, at, com.sunpride.field.BuildConfig.E2E_MOCK_LOCATION)
         val snapshot = EncryptedFieldDatabase.store(context, scope)
         val captureFacts = try { runBlocking {
             val me = snapshot.employeeId() ?: error("Missing verified person")
             val outlet = snapshot.outlets().firstOrNull { it.id == outletId }?.let { JSONObject(it.json) }
                 ?: error("Missing verified outlet")
-            val employee = snapshot.employeeName() ?: error("Missing verified person name")
+            val key = sessionKey()
+            val employee = com.sunpride.field.storage.EvidencePhotos.watermarkPerson(snapshot.employeeName(), me,
+                key?.let { prefs.getString("$it.personId", null) }, key?.let { prefs.getString("$it.personName", null) })
+                ?: error("Missing verified person name")
             com.sunpride.integrity.ExecutionWatermark.Facts(fix.latitude, fix.longitude, fix.accuracy.toDouble(),
                 capturedAt, employee, me, outlet.optString("name").ifBlank { outlet.optString("code") }, outletId)
         } } finally { snapshot.close() }
@@ -602,6 +630,7 @@ class LiveFieldBackend(
                 .whileAuthorized { runCatching { epoch==authorizationEpoch && storedScope()==scope }.getOrDefault(false) }.run() }
         } finally { store.close() }
         if(report.uploaded>0)com.sunpride.field.sync.work.SyncWork.enqueue(context)
+        com.sunpride.field.evidence.EvidenceWork.notifyFinished(report)
         return report
     }
     override fun queueActivity(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
@@ -696,11 +725,11 @@ class LiveFieldBackend(
                 check(expires>response.getLong("serverTime"))
                 if(grant.current()&&storedScope()==partition){
                     val text=JSONObject().put("expiresAt",expires).put("data",data).toString()
-                    grant.wrap(text)?.let{store.putLocalCache(topic,day,it,response.getLong("serverTime"),day)}
+                    grant.wrap(text)?.let{store.putLocalCache(domainFormsCacheEntity(topic),day,it,response.getLong("serverTime"),day)}
                 }
             }catch(e:Exception){if(e is kotlinx.coroutines.CancellationException)throw e;if(e !is AuthFailure||e.kind!=AuthFailure.Kind.OFFLINE)refuse()}
             if(!grant.current()||storedScope()!=partition||!store.isLeaseValid(System.currentTimeMillis()))return@runBlocking null
-            val cache=store.localCache(topic,day)?.json?.let{grant.read(it)}?.let(::JSONObject)?:return@runBlocking null
+            val cache=store.localCache(domainFormsCacheEntity(topic),day)?.json?.let{grant.read(it)}?.let(::JSONObject)?:return@runBlocking null
             if(cache.getLong("expiresAt")<=System.currentTimeMillis())return@runBlocking null
             cache.getJSONObject("data").put("authorizationExpiresAt",cache.getLong("expiresAt")).put("localOperations",JSONArray().apply{for((row,out) in store.history().filter{it.first.kind=="$kind.capture"})put(JSONObject().put("requestId",row.requestId).put("aggregateId",row.clientVisitId).put("state",out.state).put("payload",JSONObject(row.serializedOperation).getJSONObject("payload")))})
         }}finally{store.close()}
@@ -736,7 +765,8 @@ class LiveFieldBackend(
         today(deviceId, signer, sync, scheduleRemainder = true)
 
     fun today(deviceId: String, signer: DeviceSigner, sync: Boolean, scheduleRemainder: Boolean): TodayData {
-        val key = sessionKey() ?: return TodayData()
+        // FLD-014/171: a session ended by another path (background sync, refresh) must not read as an empty phone.
+        val key = sessionKey() ?: throw sessionEnded()
         var subject = prefs.getString("$key.subject", null)
         var fingerprint = prefs.getString("$key.scope", null)
         var warning: String? = null
@@ -748,6 +778,10 @@ class LiveFieldBackend(
             try {
                 val verifiedMe=functions.api.me()
                 check(verifiedMe.getJSONObject("profile").getBoolean("active"))
+                // NF-4: remember the verified person's name for the visit-photo watermark (snapshots made by an
+                // older server carry no name in their employee header, and a delta sync never replaces that header).
+                verifiedMe.getJSONObject("profile").let { p -> prefs.edit().putString("$key.personId", p.optString("id"))
+                    .putString("$key.personName", p.optString("name").takeIf { it.isNotBlank() && it != "null" }).apply() }
                 if(verifiedMe.getJSONObject("profile").getString("role")=="distributor"){
                     check(prefs.edit().putBoolean("$key.partner",true).commit())
                     return dsrToday(deviceId,signer,verifiedMe,expectedKey=key)
@@ -806,6 +840,10 @@ class LiveFieldBackend(
                 prefs.edit().putBoolean("$key.failed", failed).apply()
             } catch (e: Exception) {
                 com.sunpride.field.diagnostics.SafeLog.event(context, "sync_retry")
+                // FLD-171: the server ended this session; the controller returns to sign-in with the reason.
+                if (e is AuthFailure && e.kind == AuthFailure.Kind.SESSION_EXPIRED) throw e
+                // FLD-014: a 401 inside sync (mapped to UNAUTHORIZED) that ended the session is the same event.
+                if (!auth.isSignedIn) throw sessionEnded()
                 if(prefs.getBoolean("$key.partner",false))return dsrToday(deviceId,signer,null,e,expectedKey=key)
                 failed = true
                 prefs.edit().putBoolean("$key.failed", true).apply()
@@ -848,6 +886,7 @@ class LiveFieldBackend(
             val outlets = outletRows.mapValues { it.value.optString("name", "Outlet") }
             val customers = store.customers().associate { it.id to JSONObject(it.json).optString("code") }
             val visits = store.todaysVisits(day).map { row -> plannedVisitDisplay(row, outletRows, customers) }
+            val dismissed = store.dismissedReviews()
             val history = store.history()
             val decorated = visits.map { visit ->
                 val own = history.filter { (intent, _) ->
@@ -859,7 +898,7 @@ class LiveFieldBackend(
                 val related = history.filter { it.first.clientVisitId in own }
                 val call = related.map { it.first to it.second.state }
                 visit.copy(status = when {
-                    related.any { it.second.state == "review" } -> "Needs review"
+                    related.any { it.second.state == "review" && it.second.requestId !in dismissed } -> "Needs review"
                     VisitCallRules.closed(call) -> "Done"
                     VisitCallRules.started(call) -> "In progress"
                     else -> visit.status
@@ -877,12 +916,12 @@ class LiveFieldBackend(
             }
             val held = db.rows().heldCount(subject, deviceId)
             val result = TodayData(decorated, store.status().lastSuccess,
-                failed || held > 0 || !store.isLeaseValid(System.currentTimeMillis()) || history.any { it.second.state != "done" } ||
+                failed || held > 0 || !store.isLeaseValid(System.currentTimeMillis()) || history.any { it.second.state != "done" && !(it.second.state == "review" && it.second.requestId in dismissed) } ||
                     store.syncHealth() != "synced",
                 warning ?: if (held > 0) "Prior assignment has held visit work — administrator review required"
                     else if (terminal) "Update required" else null,
                 terminal || warning == "Update required",
-                history.count { it.second.state == "review" } + held, history.count { it.second.state == "pending" },
+                history.count { it.second.state == "review" && it.second.requestId !in dismissed } + held, history.count { it.second.state == "pending" },
                 outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) },
                 store.status(), directory, tasks,
                 com.sunpride.field.ui.team.TeamRepository.offered(store.employeeRole()),
@@ -1100,8 +1139,14 @@ class LiveFieldBackend(
     }
     override fun sapMasterLifetime(): String? = if(auth.isSignedIn) "${sessionKey()}|${storedScope()}|$authorizationEpoch" else null
     override fun appUpdates() = com.sunpride.integrity.AppUpdateClient(context,environmentOrigin,token={refresh->auth.accessToken(refresh)})
-    override fun signIn(email: String, password: String) = auth.signIn(email, password)
-    override fun companySignIn(tokens: JSONObject) = auth.acceptCompanySession(tokens)
+    override fun signIn(email: String, password: String) {
+        auth.signIn(email, password)
+        sessionEnd.edit().remove("removed").commit()
+    }
+    override fun companySignIn(tokens: JSONObject) {
+        auth.acceptCompanySession(tokens)
+        sessionEnd.edit().remove("removed").commit()
+    }
     override fun replacementCode(): JSONObject = functions.api.post("/api/v1/integrity/devices/pairing/start",
         signerLoader().let { signer -> com.sunpride.integrity.replacementPairingBody("field-android",
             JSONObject().put("keyId",com.sunpride.field.device.RequestSigner.bodyDigest(signer.publicKeySpki)).put("publicKeySpki",signer.publicKeyBase64),signer::sign) })
@@ -1130,7 +1175,10 @@ class LiveFieldBackend(
         },
         authSignOut = { auth.signOut() },
     )
+        sessionEnd.edit().clear().commit() // a chosen sign-out is not an ended session
     }
+    override fun endedSessionReason(): String? =
+        if (sessionEnd.contains("removed") && !auth.isSignedIn) sessionEnded().text else null
     override fun refreshEnrollment(signer: DeviceSigner): EnrollmentState {
         val state = try {
             Enrollment(ServerDeviceApi(functions), signer, vault).refresh()
@@ -1317,7 +1365,10 @@ class FieldController(
             refreshDiagnostic(); loadToday(sync = false)
         } catch (e: VisitRuleFailure) { diagnosticFailure = e.code; diagnosticError = e.code.text }
         catch (e: kotlinx.coroutines.CancellationException) { throw e }
-        catch (_: Exception) { diagnosticError = "Could not save this photo. Try again." }
+        catch (e: Exception) {
+            com.sunpride.field.diagnostics.SafeLog.failure(null, "photo_save_failed", e)
+            diagnosticError = com.sunpride.field.storage.PhotoFailureText.of(e)
+        }
         finally { busy = false }
     }
     fun closeActivityForm() = scope.launch(ui) { activityForm = null; diagnosticError = null }
@@ -1376,8 +1427,10 @@ class FieldController(
             if (diagnostic == visit) loadOrderChecks()
         }
     }
+    /** FLD-084: set when this visit's Start or End was refused outside the radius; shows the approval request. */
+    var outsideRadius by mutableStateOf(false); private set
     fun openDiagnostic(visit: VisitDisplay) = scope.launch(ui) {
-        diagnostic = visit; diagnosticError = null; diagnosticFailure = null
+        diagnostic = visit; diagnosticError = null; diagnosticFailure = null; outsideRadius = false
         callSheetOpen = false; diagnosticCallSheet = null; diagnosticOrderTerms = null; activityForm = null; selectedIntents = emptyList()
         orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList(); orderReview = false; orderChecks = emptyList()
         endReview = null; photoCaptureOpen = false; diagnosticPhotos = emptyList()
@@ -1385,7 +1438,7 @@ class FieldController(
     }
     var diagnosticFailure by mutableStateOf<VisitRuleFailure.Code?>(null); private set
     fun closeDiagnostic() = scope.launch(ui) {
-        diagnostic = null; diagnosticError = null; diagnosticFailure = null; callSheetOpen = false; diagnosticCallSheet = null; diagnosticOrderTerms = null
+        diagnostic = null; diagnosticError = null; diagnosticFailure = null; outsideRadius = false; callSheetOpen = false; diagnosticCallSheet = null; diagnosticOrderTerms = null
         activityForm = null; selectedIntents = emptyList(); endReview = null
         orderOpen = false; orderDraftId = null; visitOrderDrafts = emptyList(); orderReview = false; orderChecks = emptyList()
         photoCaptureOpen = false; diagnosticPhotos = emptyList()
@@ -1393,22 +1446,29 @@ class FieldController(
     /** AND-017: the End confirmation (what will be recorded) while the person decides; null otherwise. */
     var endReview by mutableStateOf<com.sunpride.field.storage.EndReview?>(null); private set
     /** Re-read the call and show what End will record; the same rules End enforces refuse it here first. */
-    fun reviewEnd(outcome: String?, reasonCode: String?) = scope.launch(ui) {
+    fun reviewEnd(outcome: String?, reasonCode: String?, zeroSaleReason: String? = null) = scope.launch(ui) {
         val visit = diagnostic ?: return@launch
         if (busy) return@launch
         busy = true; diagnosticError = null; diagnosticFailure = null; endReview = null
         try {
             refreshDiagnostic()
             val checkin = openCheckIn(visit) ?: throw VisitRuleFailure(VisitRuleFailure.Code.CALL_NOT_OPEN)
-            check(retailCall == null || retailSaved) {"Check every MSL line before ending the call"}
+            if (retailCall != null && !retailSaved) throw com.sunpride.field.storage.RetailChecklistUnsaved()
+            // FLD-105: say so up front (the screen scrolls to the choices), not after Confirm end silently stalls.
+            if (com.sunpride.field.storage.ConfiguredFieldCalls.needsNoOrderReason(diagnosticFlow, diagnosticRows, checkin.clientVisitId, zeroSaleReason))
+                throw com.sunpride.callflow.CallFlowRefused(com.sunpride.callflow.CallFlowEngine.NO_ORDER_REASON)
             endReview = com.sunpride.field.storage.VisitCompletion.review(checkin.clientVisitId, outcome,
                 reasonCode?.trim(), diagnosticRules, diagnosticRows, diagnosticCallSheet, now())
         } catch (e: VisitRuleFailure) { diagnosticFailure = e.code; diagnosticError = e.code.text }
         catch (e: kotlinx.coroutines.CancellationException) { throw e }
-        catch (_: Exception) { diagnosticError = "Could not check this call. Try again." }
+        catch (e: com.sunpride.callflow.CallFlowRefused) { diagnosticError = e.message }
+        catch (e: com.sunpride.field.storage.RetailChecklistUnsaved) { diagnosticError = e.message }
+        // Only a truly unexpected failure (storage, decode) keeps the generic text.
+        catch (_: Exception) { diagnosticError = END_CHECK_GENERIC }
         finally { busy = false }
     }
-    fun cancelEnd() = scope.launch(ui) { endReview = null }
+    fun cancelEnd() = scope.launch(ui) { endReview = null
+        if (diagnosticError == com.sunpride.callflow.CallFlowEngine.NO_ORDER_REASON) diagnosticError = null }
     /** The call's final, immutable result once its End is queued. */
     fun visitResult(visit: VisitDisplay): com.sunpride.field.storage.VisitResult? = openCheckIn(visit)?.let {
         com.sunpride.field.storage.VisitCompletion.result(it.clientVisitId, diagnosticRules, diagnosticRows,
@@ -1613,14 +1673,19 @@ class FieldController(
                     reason, note, outcome, if (outcome == "nonproductive") reason?.trim() else null, location, flowOptions)
             }
             if (kind == "visit.checkOut") endReview = null
+            if (kind == "visit.checkIn" || kind == "visit.checkOut") outsideRadius = false
             // SP-0136: the day's first Start begins location sharing (if this person consented).
             if (kind == "visit.checkIn") runCatching { withContext(io) { backend.workDay?.onCheckIn(now()) } }
             refreshDiagnostic()
             loadToday(sync = false)
         } catch (e: VisitRuleFailure) { diagnosticFailure = e.code; diagnosticError = e.code.text }
         catch (e: kotlinx.coroutines.CancellationException) { throw e }
-        catch (e: com.sunpride.callflow.CallFlowRefused) { diagnosticError = e.message }
-        catch (_: Exception) { diagnosticError = "Could not queue visit. Sync for access and check required fields." }
+        catch (e: com.sunpride.callflow.CallFlowRefused) {
+            diagnosticError = e.message
+            // FLD-084: the approval request appears only once the phone has refused an outside-radius fix.
+            if (com.sunpride.callflow.CallFlowEngine.outsideRadius(e.message)) outsideRadius = true
+        }
+        catch (e: Exception) { diagnosticError = com.sunpride.field.storage.QueueFailureText.of(e) }
         finally { busy = false }
     }
     /** AND-020 Team page: the summary, its direct-reports filter and an in-flight flag. */
@@ -1663,6 +1728,9 @@ class FieldController(
                     launchSettled = true
                 }
                 refresh()
+            } else {
+                // FLD-171: after a relaunch the Sign in screen still says why the session ended.
+                runCatching { withContext(io) { backend.endedSessionReason() } }.getOrNull()?.let { error = it }
             }
         } finally { launchSettled = true }
     }
@@ -1751,19 +1819,52 @@ class FieldController(
         try {
             val value = withContext(io) { backend.today(ready.deviceId, loaded, sync) }
             if (generation == sessionGeneration && state == ready) today = value
+        } catch (e: AuthFailure) {
+            // FLD-014/171: every path that finds the session ended (Sync now, background sync, a reload) returns to
+            // Sign in with the plain reason. Nothing local is cleared: unsent work stays for the same person/office.
+            if (e.kind == AuthFailure.Kind.SESSION_EXPIRED && generation == sessionGeneration) sessionEnded(e)
+            throw e
         } finally { checkSuggestedOrderLifetime() }
+    }
+    /** FLD-147: a background photo upload finished; re-read the local status and the open visit's photos. */
+    fun photosChanged() = scope.launch(ui) {
+        if (state is EnrollmentState.Ready && !busy) {
+            runCatching { loadToday(sync = false) }
+            if (diagnostic != null) runCatching { refreshDiagnostic() }
+        }
     }
     fun refreshCache() = scope.launch(ui) {
         if (state is EnrollmentState.Ready && !busy) {
             runCatching { loadToday(sync = false) }.onFailure { today = today.copy(stale = true) }
         }
     }
+    /** FLD-176: the person read a refused item and clears it; the pill then reflects only real pending work. */
+    fun dismissReview(requestId: String) = scope.launch(ui) {
+        if (busy || state !is EnrollmentState.Ready) return@launch
+        runCatching { withContext(io) { backend.dismissReview(requestId) } }
+        runCatching { loadToday(sync = false) }
+    }
+    /** FLD-122: the background sync finished; re-read local status so the pill never freezes a mid-sync state. */
+    fun backgroundSyncFinished() = scope.launch(ui) {
+        if (state is EnrollmentState.Ready && !busy) runCatching { loadToday(sync = false) }
+    }
     fun syncNow() = scope.launch(ui) {
         if (busy || state !is EnrollmentState.Ready || today.updateRequired) return@launch
         busy = true
         try { loadToday(sync = true); if (diagnostic != null) refreshDiagnostic() }
+        catch (e: AuthFailure) {
+            // FLD-171: a session ended elsewhere (password changed, signed out everywhere) returns to sign-in
+            // with the plain reason. Queued work stays in the encrypted store for the same person.
+            if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) sessionEnded(e)
+            else today = today.copy(stale = true, warning = "Sync unavailable — showing saved visits")
+        }
         catch (_: Exception) { today = today.copy(stale = true, warning = "Sync unavailable — showing saved visits") }
         finally { busy = false }
+    }
+    /** FLD-014/171: Sign in with the reason; [today] is reset only in memory (the encrypted store is untouched). */
+    private fun sessionEnded(e: AuthFailure) {
+        ++sessionGeneration; state = EnrollmentState.SignedOut; today = TodayData(); error = userMessage(e)
+        retireSuggestedOrder()
     }
     fun checkAgain(quiet: Boolean = false) = scope.launch(ui) { refresh(quiet) }
     fun queueDomain(kind:String,payload:JSONObject,aggregate:String,dependencies:List<String> = emptyList())=scope.launch(ui){
@@ -1790,7 +1891,7 @@ class FieldController(
             passwordMessage = e.kind.text
             if (e.kind == com.sunpride.field.auth.PasswordChangeFailure.Kind.LOCAL_SESSION) signOut()
         } catch (e: AuthFailure) {
-            passwordMessage = e.kind.message
+            passwordMessage = e.text
             if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) signOut()
         } catch (e: kotlinx.coroutines.CancellationException) { throw e }
         catch (_: Exception) { passwordMessage = com.sunpride.field.auth.PasswordChangeFailure.Kind.SERVER.text }
@@ -1807,9 +1908,11 @@ class FieldController(
     }
 
     companion object {
+        /** End review failed for a reason the phone did not expect (not a rule refusal). */
+        const val END_CHECK_GENERIC = "Could not check this call. Try again."
         /** Fixed copy only — server text, URLs and credentials never reach the screen. */
         fun userMessage(e: Throwable): String = when (e) {
-            is AuthFailure -> e.kind.message
+            is AuthFailure -> e.text
             is ServerError -> when (e.code) {
                 "device_handover_required" -> "Another phone is active for your account. Ask the office to start a controlled handover."
                 "device_integrity_blocked" -> "This phone needs an integrity review before it can record work."

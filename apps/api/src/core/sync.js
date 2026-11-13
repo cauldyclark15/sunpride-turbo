@@ -1,5 +1,5 @@
 import { observePush } from "../domains/integrity/detectors.js";
-import { tx } from "@sunpride/db/client";
+import { ambient, tx } from "@sunpride/db/client";
 import {
   enforcePartnerOp,
   enforcePartnerPull,
@@ -68,6 +68,8 @@ export const OP_CODES = Object.freeze([
   "mock_location_refused",
   "place_mismatch",
   "places_unavailable",
+  // FLD-159: Work-With "Save and finish" refused because a required part of the joint call is missing.
+  "work_with_incomplete",
 ]);
 /** Advisory lock making change_log seq order equal commit order. */
 const CHANGE_LOCK = 4310002;
@@ -76,6 +78,16 @@ const CHANGE_LOCK = 4310002;
 const ops = new Map();
 /** @type {Map<string,(db:any,actor:any,op:any)=>Promise<void>>} */
 const opGuards = new Map();
+/** SP-0169: hooks that run in their own transaction after a permanent per-op refusal (e.g. fiscal: record the
+ * refused document number as spoiled so the series has no gap). Keyed by name so a re-install replaces, never doubles.
+ * `applies` is a cheap synchronous check, so ordinary refusals never open another transaction.
+ * @typedef {{applies:(op:any)=>boolean, run:(t:any,actor:any,device:any,op:any,code:string)=>Promise<any>}} RejectHook */
+/** @type {Map<string,RejectHook>} */
+const rejectHooks = new Map();
+/** @param {string} name @param {RejectHook} hook */
+export function registerRejectHook(name, hook) {
+  rejectHooks.set(name, hook);
+}
 /** @type {Map<string, Projection>} */
 const projections = new Map();
 
@@ -113,17 +125,20 @@ export function registerProjection(name, handler) {
 export function clearSyncRegistry() {
   ops.clear();
   opGuards.clear();
+  rejectHooks.clear();
   projections.clear();
 }
 
 /**
  * Append a change row. Call it LAST in the writing transaction: it takes a transaction-level
  * advisory lock so change_log seq order matches commit order (delta readers never skip rows).
- * @param {any} t transaction handle
+ * @param {any} db transaction handle (a pool handle resolves to the open transaction on this path)
  * @param {{ entity: string, entityId: string, scopeKey: string, op?: 'upsert'|'tombstone' }} change
  * @returns {Promise<number>} seq (the entity revision)
  */
-export async function recordChange(t, change) {
+export async function recordChange(db, change) {
+  // SP-0169: inside a transaction this path holds, record on it.
+  const t = ambient(db);
   await t`select pg_advisory_xact_lock(${CHANGE_LOCK})`;
   const [row] = await t`
     insert into change_log (entity, entity_id, scope_key, op)
@@ -352,8 +367,30 @@ async function applyOne(ctx, op, deviceId) {
     for (const topic of topics) await publishTopic(ctx.db, topic);
     return r;
   } catch (e) {
-    if (e instanceof OpRejected)
-      return result(op, "rejected", e.code, null, e.retryable);
+    if (e instanceof OpRejected) {
+      const r = result(op, "rejected", e.code, null, e.retryable);
+      const hooks = e.retryable
+        ? []
+        : [...rejectHooks.values()].filter((h) => h.applies(op));
+      if (!hooks.length) return r;
+      // SP-0169: a permanent refusal is final for this op; let domains clean up after it (outside the rolled-back tx).
+      /** @type {Record<string,any>} */ const extra = {};
+      for (const hook of hooks)
+        try {
+          const out = await tx(ctx.db, async (/** @type {any} */ t) => {
+            const { actor, device } = await reauthorizeDevice(
+              t,
+              /** @type {Actor} */ (ctx.actor),
+              deviceId,
+            );
+            return hook.run(t, actor, device, op, e.code);
+          });
+          if (isPlainObject(out)) Object.assign(extra, out);
+        } catch (err) {
+          console.error("reject hook failed", op.opType, err);
+        }
+      return { ...r, ...extra };
+    }
     if (isUniqueViolation(e)) {
       // A concurrent request with the same clientOpId committed first: answer from its receipt.
       topics.length = 0;

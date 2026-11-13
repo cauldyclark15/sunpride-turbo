@@ -98,6 +98,16 @@ export function allocate(total, rows) {
   return out;
 }
 
+/** True when the caller's scope covers every active unit (or crosses scope):
+ * only then may they cascade or decide a company or channel target.
+ * @param {any} db @param {any} s */
+export async function companyWide(db, s) {
+  if (s.cross) return true;
+  const [o] =
+    await db`select count(*)::int n from org_units where deleted_at is null and status='active' and id not in ${db(s.ids.length ? s.ids : [null])}`;
+  return o.n === 0;
+}
+
 /** @param {any} db @param {any} s @param {string} level @param {string} key */
 async function requireParent(db, s, level, key) {
   const sub = await subjects(db, s);
@@ -105,12 +115,8 @@ async function requireParent(db, s, level, key) {
     (/** @type {any} */ r) => r.key === key,
   );
   if (!parent) throw forbidden("This target is outside your team");
-  if (["company", "channel"].includes(level) && !s.cross) {
-    const [o] =
-      await db`select count(*)::int n from org_units where deleted_at is null and status='active' and id not in ${db(s.ids.length ? s.ids : [null])}`;
-    if (o.n > 0)
-      throw forbidden("Only a company-wide manager can cascade this target");
-  }
+  if (["company", "channel"].includes(level) && !(await companyWide(db, s)))
+    throw forbidden("Only a company-wide manager can cascade this target");
   return { sub, parent };
 }
 
@@ -144,7 +150,15 @@ function readIdentity(body) {
 
 /** Prior three complete months, measured with the shared analytics sales facts.
  * @param {any} db @param {string} metric @param {string|null} product @param {string} childLevel @param {string[]} keys @param {string} month @param {any} scope */
-async function basisFor(db, metric, product, childLevel, keys, month, scope) {
+export async function basisFor(
+  db,
+  metric,
+  product,
+  childLevel,
+  keys,
+  month,
+  scope,
+) {
   const from = shift(month, -3) + "-01",
     to = monthEnd(shift(month, -1));
   if (!Object.hasOwn(BASIS_SQL, metric) || !keys.length)
@@ -161,15 +175,19 @@ async function basisFor(db, metric, product, childLevel, keys, month, scope) {
       : BASIS_SQL[/** @type {keyof typeof BASIS_SQL} */ (metric)];
   const source =
     metric === "volume"
-      ? "analytics_sales_facts f join order_lines l on l.id=f.line_id join products p on p.id=f.product_id left join product_inventory_policies ip on ip.product_id=p.id and ip.active and ip.deleted_at is null"
-      : "analytics_sales_facts f";
+      ? "facts f join order_lines l on l.id=f.line_id join products p on p.id=f.product_id left join product_inventory_policies ip on ip.product_id=p.id and ip.active and ip.deleted_at is null"
+      : "facts f";
   const unknown =
     metric === "volume"
       ? "count(*) filter(where l.quantity_base is null)"
       : "0";
   const units = scope.ids.length ? scope.ids : [null];
   const records =
-    await db`select ${db.unsafe(group)} as key,${db.unsafe(expression)} as v,${db.unsafe(unknown)} as unknown from ${db.unsafe(source)} where f.approved and f.service_date between ${from}::date and ${to}::date and ${db.unsafe(group)} in ${db(keys)} and (${product}::text is null or f.product_code=${product}) and f.agent_unit_id in ${db(units)} and (f.owner_unit_id in ${db(units)} or (f.store_id is null and ${scope.cross})) and (f.source_location_id is null or f.source_unit_id in ${db(units)}) group by 1`;
+    // WEB-037: read the window's approved facts once (materialized), then filter and group.
+    // Pushing the key/scope predicates into the view made the planner nest-loop every
+    // order against every store (30-80 s per preview); the fenced read takes well under 1 s.
+    await db`with facts as materialized (select * from analytics_sales_facts f where f.approved and f.service_date between ${from}::date and ${to}::date)
+    select ${db.unsafe(group)} as key,${db.unsafe(expression)} as v,${db.unsafe(unknown)} as unknown from ${db.unsafe(source)} where ${db.unsafe(group)} in ${db(keys)} and (${product}::text is null or f.product_code=${product}) and f.agent_unit_id in ${db(units)} and (f.owner_unit_id in ${db(units)} or (f.store_id is null and ${scope.cross})) and (f.source_location_id is null or f.source_unit_id in ${db(units)}) group by 1`;
   if (records.some((/** @type {any} */ r) => Number(r.unknown) > 0))
     return { from: null, to: null, values: new Map() };
   return {
@@ -506,8 +524,13 @@ export async function readCascades(ctx) {
     ? await ctx.db`select cascade_id,child_key,child_label,basis,amount from target_cascade_lines where cascade_id in ${ctx.db(mine.map((/** @type {any} */ k) => k.id))} order by child_label`
     : [];
   const role = ctx.actor?.role;
+  const wide = await companyWide(ctx.db, s);
+  const approver = !!role && roleHas(role, "target.approve");
+  const me = ctx.actor?.profileId ?? null;
   return {
     month,
+    // WEB-037: levels this caller may cascade; company/channel need company-wide scope.
+    companyWide: wide,
     metrics: Object.entries(METRICS).map(([key, m]) => ({ key, ...m })),
     parents: {
       company: sub.company,
@@ -544,6 +567,11 @@ export async function readCascades(ctx) {
       contentHash: k.content_hash,
       preparedBy: k.prepared_name,
       preparedById: k.prepared_by,
+      // WEB-037: offer Approve/Send back only when the decision would be accepted.
+      canDecide:
+        approver &&
+        k.prepared_by !== me &&
+        (wide || !["company", "channel"].includes(k.parent_level)),
       decidedBy: k.decided_name,
       decisionReason: k.decision_reason,
       lines: lines

@@ -224,6 +224,9 @@ describe("talk sheet screens", () => {
               },
             ],
             partners: ["Ace Trading"],
+            people: [
+              { profileId: "p9", name: "Sample Dario Cruz", employeeCode: "E9" },
+            ],
           } as never
         }
         create={vi.fn()}
@@ -232,8 +235,12 @@ describe("talk sheet screens", () => {
     );
     expect(html).toContain("My Talk Sheets");
     expect(html).toContain("Add talk sheet");
-    expect(html).toContain('<option value="Ace Trading">');
+    // WEB-120: Partner is picked (a select of people), never free text.
+    expect(html).toContain('<select aria-label="Partner"');
+    expect(html).not.toContain("<datalist");
+    expect(html).toContain('<option value="Sample Dario Cruz">Sample Dario Cruz · E9</option>');
+    expect(html).toContain('<option value="Ace Trading">Ace Trading · earlier partner</option>');
     expect(html).toContain("25 Aug");
-    expect(html).toContain("Open Talk Sheet with Ace Trading on 2026-09-30");
+    expect(html).toContain("Open Talk Sheet with Ace Trading on Sep 30, 2026");
   });
 });

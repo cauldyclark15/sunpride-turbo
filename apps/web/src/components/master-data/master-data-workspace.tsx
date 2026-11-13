@@ -59,6 +59,9 @@ function setParams(values: Record<string, string | null>) {
   window.dispatchEvent(new Event("popstate"));
 }
 
+/** Rows per master-data page (cursor list). */
+const MASTER_PAGE_SIZE = 25;
+
 export function MasterDataWorkspace({
   initialSection = "products",
 }: { initialSection?: Kind } = {}) {
@@ -82,7 +85,10 @@ export function MasterDataWorkspace({
   const filter = "";
   const pageInput = {
     q,
-    paginationOpts: { numItems: 25, cursor: cursors.at(-1) ?? null },
+    paginationOpts: {
+      numItems: MASTER_PAGE_SIZE,
+      cursor: cursors.at(-1) ?? null,
+    },
     ...(missingPrice && kind === "products" ? { missingPrice: "true" } : {}),
   };
   const products = useOrgQuery(
@@ -386,19 +392,23 @@ export function MasterDataWorkspace({
           </Link>
         )
       : canEdit
-        ? (r: Row) => (
-            <button
-              type="button"
-              className={editClass}
-              aria-label={`Edit ${r.name}`}
-              onClick={() => {
-                setEditing({ row: r, kind: kind as Editing["kind"] });
-                setError("");
-              }}
-            >
-              Edit
-            </button>
-          )
+        ? (r: Row) =>
+            // WEB-135: a material loaded from SAP stays SAP's even with SAP off (the database refuses the edit).
+            r.product?.sapKey ? (
+              <span className="text-sm text-muted">From SAP</span>
+            ) : (
+              <button
+                type="button"
+                className={editClass}
+                aria-label={`Edit ${r.name}`}
+                onClick={() => {
+                  setEditing({ row: r, kind: kind as Editing["kind"] });
+                  setError("");
+                }}
+              >
+                Edit
+              </button>
+            )
         : undefined;
   const selected = editing?.row ?? null;
   return (
@@ -454,6 +464,15 @@ export function MasterDataWorkspace({
         rowEnd={rowEnd}
         exportName={NOUN[kind].many}
         loading={page === undefined}
+        range={
+          rows && page
+            ? {
+                from: (cursors.length - 1) * MASTER_PAGE_SIZE + 1,
+                to: (cursors.length - 1) * MASTER_PAGE_SIZE + rows.length,
+                more: !page.isDone,
+              }
+            : null
+        }
       />
       <div className="flex flex-wrap items-center justify-between gap-2">
         <Pager
@@ -508,18 +527,10 @@ export function MasterDataWorkspace({
                   />
                 </FormField>
                 <FormField label="Base unit">
-                  <select
-                    name="baseUomId"
-                    defaultValue={selected?.product?.baseUomId}
-                    required
-                  >
-                    <option value="">Pick a unit</option>
-                    {units?.map((u) => (
-                      <option key={u._id} value={u._id}>
-                        {u.name} · {u.code}
-                      </option>
-                    ))}
-                  </select>
+                  <BaseUnitSelect
+                    units={units}
+                    value={selected?.product?.baseUomId}
+                  />
                 </FormField>
               </>
             ) : (
@@ -584,5 +595,27 @@ export function MasterDataWorkspace({
       ) : null}
       {message ? <p role="status">{message}</p> : null}
     </div>
+  );
+}
+
+/** WEB-135: the units load after the form opens; mount the select only once they are here, so the product's
+ * current base unit is preselected instead of "Pick a unit" (an uncontrolled select ignores a late default). */
+export function BaseUnitSelect({
+  units,
+  value,
+}: {
+  units: { _id: string; name: string; code: string }[] | undefined;
+  value: string | undefined;
+}) {
+  if (!units) return <p className="text-sm text-muted">Loading units…</p>;
+  return (
+    <select name="baseUomId" defaultValue={value ?? ""} required>
+      <option value="">Pick a unit</option>
+      {units.map((u) => (
+        <option key={u._id} value={u._id}>
+          {u.name} · {u.code}
+        </option>
+      ))}
+    </select>
   );
 }

@@ -120,7 +120,7 @@ export function installNativeOidc(router) {
         const session = await createSession(t, user.id, r.app, r.key_id);
         const access = await createAccess(t, session.id);
         await t`update native_oidc_requests set consumed_at=now() where id=${r.id}`;
-        await t`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${user.id},'auth.native_oidc_signed_in','user',${user.id},${{ app: r.app }})`;
+        await t`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${user.id},'auth.native_oidc_signed_in','user',${user.id},${JSON.stringify({ app: r.app })})`;
         return {
           version: 2,
           status: "signed_in",

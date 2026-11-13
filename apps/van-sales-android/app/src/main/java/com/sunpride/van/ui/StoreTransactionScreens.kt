@@ -102,7 +102,9 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     // IP-HOLD: park this cart for the next customer; recall it later (prices and stock are checked again).
     LaunchedEffect(Unit){c.refreshHeld()}
     val storeHeld=HeldCartsUi(c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE).size,c.heldOf(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE),
-        onHold={name,note,lines,totalLabel,done->c.holdCart(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE,name,note,null,lines,totalLabel,done)},onRecalled=c::heldRecalled,onDiscard=c::discardHeld)
+        onHold={name,note,lines,totalLabel,done->c.holdCart(com.sunpride.van.pos.HeldCartRules.SURFACE_STORE,name,note,null,lines,totalLabel){err->
+            // NF-R5V-3: the claim and the customer's extras stay with the held cart's customer, never the next cart.
+            if(err==null){claim=null;claiming=false;employee=false;pin="";points="";phone="";saleId=UUID.randomUUID().toString()};done(err)}},onRecalled=c::heldRecalled,onDiscard=c::discardHeld)
     val setupProblem=remember(config){StoreCheckout.setupProblem(config)}
     val enabledTenders=remember(config){StoreCheckout.enabledTenders(config)}
     val canPay=setupProblem==null&&total!=null&&tenders!=null&&cashReady&&c.storePos.shift!=null&&!c.busy&&!c.onHold&&(!employee||pin.length>=6)
@@ -125,6 +127,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     DisposableEffect(Unit){onDispose{c.navHidden=false}}
 
     fun newSale(){
+        c.startNewStoreSale()
         cart=emptyList();saleId=UUID.randomUUID().toString();tender="cash";tenderedMinor=null;exact=false;cashShare="";cardShare="";received="";walletRef="";cardRef="";phone="";points="";employee=false;pin="";more=false;claim=null;claiming=false;notice=null;completed=null;savedFlag=false
         send(SellEvent.NewSaleTapped)
     }
@@ -143,6 +146,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     val reason=when{
         context.isFailure->context.exceptionOrNull()?.message
         !shiftOpen->"Open a session before selling."
+        claim!=null&&!com.sunpride.van.selling.PrivilegeSwitch.offered(c.policy)->com.sunpride.van.selling.PrivilegeSwitch.OFF_MESSAGE
         (evaluation.exceptionOrNull() as? CheckoutRefused)?.issues?.any{it.problem==CheckoutProblem.PROMOTION_NEEDS_OFFICE}==true->"This campaign needs office finance authority before selling"
         claim!=null&&(evaluation.exceptionOrNull() as? CheckoutRefused)?.issues?.firstOrNull{it.problem in setOf(CheckoutProblem.DISCOUNT_TAX_UNKNOWN,CheckoutProblem.DISCOUNT_CLAIM_INVALID,CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL)}!=null->
             (evaluation.exceptionOrNull() as CheckoutRefused).issues.first{it.problem in setOf(CheckoutProblem.DISCOUNT_TAX_UNKNOWN,CheckoutProblem.DISCOUNT_CLAIM_INVALID,CheckoutProblem.DISCOUNT_CLAIM_WITH_MANUAL)}.let{VanRules.checkoutMessage(it.problem,it.productId?.let{id->products.firstOrNull{p->p.productId==id}?.name})}
@@ -161,7 +165,8 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
             message=c.message?:notice?:reason,busy=c.busy,cashierName=c.seller?.name,roleLabel="Cashier",syncBadge={SyncPill(c)},
             held=storeHeld)
         SellStep.PAYMENT->{
-            val possible=StoreCheckout.claimsPossible(config)
+            val switchedOn=com.sunpride.van.selling.PrivilegeSwitch.offered(c.policy)
+            val possible=StoreCheckout.claimsPossible(config)&&(switchedOn||claim!=null)
             val canDiscount=possible&&!c.busy&&cart.isNotEmpty()
             val hasSupervisor=config.details.optJSONObject("supervisor")!=null
             val customerDetail=when{phone.isNotBlank()->phone;employee->"Employee";else->null}
@@ -186,7 +191,8 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
                 PayOption("Customer",customerDetail,"store-more",{more=true},enabled=!c.busy,active=customerDetail!=null)
             )){
             claim?.let{cl->ClaimSummary(cl,quote?.legal,VanController.ClaimPreview.None,{claiming=true})}
-            if(!possible)Text("Discounts are not available yet: this store's tax set-up has not reached the phone. Sync, or ask the office.",style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-claim-unavailable"))
+            if(!switchedOn&&claim==null)Text(com.sunpride.van.selling.PrivilegeSwitch.OFF_MESSAGE,style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-claim-off"))
+            else if(!possible)Text("Discounts are not available yet: this store's tax set-up has not reached the phone. Sync, or ask the office.",style=MaterialTheme.typography.bodyMedium,modifier=Modifier.testTag("store-claim-unavailable"))
             if(tender=="split"){
                 SectionCard("Split tender"){
                     LabeledField("Cash part (₱)",cashShare,{cashShare=it},"store-split-cash",numeric=true,maxLength=16)
@@ -287,6 +293,11 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
                 val rid=m.getString("refundId");val cm=m.optString("creditNumber")
                 Text("Credit memo $cm · ${pesos(m.getString("expectedCentavos").toLong())} refunded",Modifier.testTag("store-credit-memo-$rid"))
                 SecondaryButton(if(c.printing)"Printing…" else "Print credit memo",{c.printStoreRefundSlip(rid)},Modifier.testTag("store-print-credit-memo-$rid"),enabled=!c.printing)
+            }
+            com.sunpride.van.storepos.StoreRefunds.refused(c.storePos.rows).filter {it.first.getString("saleId")==id}.forEach {(m,why)->
+                val rid=m.getString("refundId")
+                Text("Credit memo ${m.optString("creditNumber")} · ${pesos(m.getString("expectedCentavos").toLong())} · refused by the office",fontWeight=FontWeight.SemiBold,modifier=Modifier.testTag("store-credit-memo-refused-$rid"))
+                Text(why,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)
             }
             if(r.optString("_status")!="voided"){
                 // IP-REFUND: take back some of the items now, paid out of the open drawer (a supervisor approves above the office's amount).

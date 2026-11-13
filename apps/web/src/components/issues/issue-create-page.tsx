@@ -94,7 +94,7 @@ export function IssueCreatePage({ from }: { from?: string } = {}) {
       });
       router.push(`/issues/${result.number}`);
     } catch (caught) {
-      setError(errorMessage(caught, "Create failed. Try again."));
+      setError(errorMessage(caught, "Could not save the issue. Try again."));
     } finally {
       submitting.current = false;
       setBusy(false);
@@ -272,7 +272,7 @@ export function IssueCreatePage({ from }: { from?: string } = {}) {
             Cancel
           </Button>
           <Button type="submit" variant="primary" isPending={busy}>
-            Create issue
+            Save
           </Button>
         </div>
       </footer>

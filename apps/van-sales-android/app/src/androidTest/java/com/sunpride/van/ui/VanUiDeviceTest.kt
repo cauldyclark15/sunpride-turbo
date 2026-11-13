@@ -714,8 +714,9 @@ class VanUiDeviceTest {
         rule.onNodeWithTag("return-number",useUnmergedTree = true).assertTextContains("TRIP-20261007-V014-1-",substring = true)
         rule.onNodeWithTag("return-status").assertTextContains("Not bought on a receipt from this phone",substring = true)
         captureVanScreenshot(rule,"42-return-saved","return-done")
-        // One case = 24 PC into damaged stock (held), none into sellable stock; parked, not queued.
-        rule.waitUntil(10_000) { c.sync.savedReturns == 1 && c.stock.single { it.productId == juice.productId }.damagedBase == damagedBefore+24 }
+        // VAN-061: it needs office approval, so the case is held as custody for the office review: no truck stock
+        // moves (damaged or sellable) until the office decides; parked, not queued.
+        rule.waitUntil(10_000) { c.sync.savedReturns == 1 && c.stock.single { it.productId == juice.productId }.damagedBase == damagedBefore }
         assertEquals(availableBefore,c.stock.single { it.productId == juice.productId }.availableBase)
         assertEquals(0,c.sync.queued); assertNull(c.returnDraft)
         rule.onNodeWithTag("return-done").performClick()

@@ -44,6 +44,17 @@ class VanDayTest {
         assertTrue(b.isNull("lotId")); assertEquals("28", b.getString("actualBase")); assertEquals("short_loaded", b.getString("reason"))
     }
 
+    @Test fun SP0169_VAN011_routeControlTripsGetTheSettlementVersionOnLoadAcceptAndCrewSwitch() {
+        // The lane's refused op: TRIP-...-VAN3-2 is on operations version 1 and the phone sent no settlementVersion -> invalid_request.
+        val counts = mapOf(sentJuice.key to AcceptCount(48))
+        val v1 = OperationsVersion.stamp(LoadAccept.payload("trip-1", "load-1", listOf(sentJuice), counts, null, 1700L), 1)
+        assertEquals(1, v1.getInt("settlementVersion")); assertEquals(1700L, v1.getLong("deviceTime"))
+        val v0 = OperationsVersion.stamp(LoadAccept.payload("trip-1", "load-1", listOf(sentJuice), counts, null, 1700L), 0)
+        assertFalse(v0.has("settlementVersion"))
+        val member = CrewMember("u2", "Ben", "helper", "p1", "aa", "bb")
+        assertEquals(1, OperationsVersion.stamp(CrewSwitch.payload("trip-1", member, "proof", 1800L), 1).getInt("settlementVersion"))
+    }
+
     @Test fun decodesTheServersVanDayObjectAndToleratesItsAbsence() {
         assertNull(VanDayCodec.decode(null)); assertNull(VanDayCodec.decode(JSONObject("{\"version\":2}")))
         val o = JSONObject("""{"version":1,"device":{"deviceId":"d1","vehicle":{"vehicleId":"v","vehicleCode":"V-1","plateNumber":"ABC-1234"}},

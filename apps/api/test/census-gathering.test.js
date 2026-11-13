@@ -959,3 +959,34 @@ test("SP-0162 office Add store uses the outlet writer, proposes the office pin f
   });
   expect(noPin.status).toBe(422);
 });
+
+test("WEB-050: office Add store keeps a supplied code, numbers a blank one, and refuses a reused code in words", async () => {
+  const setup = await as("admin", "/api/v1/masters/store-setup");
+  const sub = setup.body.subchannels[0];
+  /** @param {string} name @param {string|null} code @param {string} phone */
+  const add = (name, code, phone) =>
+    as("admin", "/api/v1/masters/stores/office-add", {
+      name,
+      address: "1 Test St, Cebu City",
+      ownerName: "Code Owner",
+      ownerPhone: phone,
+      channelId: sub.data.channelId,
+      subchannelId: sub.id,
+      orgUnitId: rowId("org_units", "territory-0"),
+      latitude: 10.33,
+      longitude: 123.91,
+      code,
+    });
+  const first = await add("Code Kept Store", "TST-WEB-0001", "0917 000 5551");
+  expect(first.status).toBe(200);
+  expect(first.body.code).toBe("TST-WEB-0001");
+  const blank = await add("Code Numbered Store", null, "0917 000 5552");
+  expect(blank.status).toBe(200);
+  expect(blank.body.code).toMatch(/^SP\d{6}$/);
+  const again = await add("Code Reused Store", "TST-WEB-0001", "0917 000 5553");
+  expect(again.status).toBe(422);
+  expect(again.text).toContain("Store code TST-WEB-0001 is already used");
+  const rows =
+    await h.db`select count(*)::int n from outlets where code='TST-WEB-0001' or name='Code Reused Store'`;
+  expect(rows[0].n).toBe(1);
+});

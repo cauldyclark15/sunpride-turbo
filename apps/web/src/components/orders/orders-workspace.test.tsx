@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   drawerKeys,
+  fieldReviewHeading,
   OrderDrawer,
   OrdersWorkspace,
   savedView,
@@ -143,6 +144,21 @@ describe("commercial control workspace", () => {
     expect(html).toContain("₱1,000.00");
     expect(html).toContain("Review target");
   });
+  it("WEB-166: shows dates in plain words, never raw ISO dates", () => {
+    const visible = (html: string) =>
+      html.replace(/<input[^>]*>/g, "").replace(/<[^>]+>/g, " ");
+    const list = visible(renderToStaticMarkup(createElement(OrdersWorkspace)));
+    const drawer = visible(
+      renderToStaticMarkup(
+        createElement(OrderDrawer, { id: "raw-order-id", onClose: vi.fn() }),
+      ),
+    );
+    for (const text of [list, drawer])
+      expect(text).not.toMatch(/\d{4}-\d{2}-\d{2}|\b\d{2}-\d{2}\b/);
+    expect(list).toContain("Oct 19");
+    expect(list).toContain("Oct 1 – Oct 19");
+    expect(drawer).toContain("Oct 19");
+  });
   it("keeps unknown money distinct from a real zero", () => {
     expect(money(null)).toBe("Unknown");
     expect(money(0)).toBe("₱0.00");
@@ -207,5 +223,16 @@ describe("commercial control workspace", () => {
   it("mounts no denied content", () => {
     state.can = false;
     expect(renderToStaticMarkup(createElement(OrdersWorkspace))).toBe("");
+  });
+});
+
+describe("field order review heading (WEB-106)", () => {
+  it("is singular for one order", () => {
+    expect(fieldReviewHeading(1)).toBe(
+      "1 captured phone order waiting for commercial review",
+    );
+    expect(fieldReviewHeading(3)).toBe(
+      "3 captured phone orders waiting for commercial review",
+    );
   });
 });

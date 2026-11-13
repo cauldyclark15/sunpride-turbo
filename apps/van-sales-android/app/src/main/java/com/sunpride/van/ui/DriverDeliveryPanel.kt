@@ -93,7 +93,7 @@ import org.json.JSONObject
             Surface(Modifier.fillMaxSize().safeDrawingPadding()) {
                 DamageCameraScreen({capture->camera=false;saving=true;scope.launch {
                     try {
-                        val fix=checkNotNull(c.callLocationSource?.invoke() ?: com.sunpride.callflow.AndroidCallLocation.capture(context)) { "A fresh precise location is required." }
+                        val fix=checkNotNull(c.callLocationSource?.invoke() ?: com.sunpride.van.location.VanCallLocation.capture(context)) { "A fresh precise location is required." }
                         val lines=JSONArray().apply { expected.forEachIndexed { i,l->
                             put(JSONObject().put("lineId",l.getString("lineId")).put("acceptedBase",accepted[i].toLong()).put("shortBase",shorts[i].toLong()).put("rejectedBase",rejected[i].toLong()).put("damagedBase",damaged[i].toLong()).apply {
                                 if(reason.isNotBlank())put("reason",reason);if(notes.isNotBlank())put("note",notes);if(batches[i].isNotBlank())put("lotNumber",batches[i])

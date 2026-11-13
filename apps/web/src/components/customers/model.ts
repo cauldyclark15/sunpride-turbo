@@ -61,6 +61,8 @@ export type Customer = Record<string, unknown> & {
   pinStatus: string | null;
   shipTos: ShipTo[];
   custodianOrgUnitId: string | null;
+  /** WEB-059: who proposed the pending field enrolment (null when none is pending). */
+  proposedByProfileId?: string | null;
 };
 
 export type CustomerRow = {

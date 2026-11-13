@@ -7,7 +7,14 @@ import { enqueueVanCreditMemo } from "../integration/posting.js";
 /** F-113: a pickup is custody evidence, not an invented stock asset, refund or financial credit.
  * @param {any} db @param {any} trip @param {any} actor @param {any} p */
 export async function capturePickup(db, trip, actor, p) {
-  if (p.custodyOnly !== true || p.refund)
+  // VAN-061: a pre-F-113 (operations version 0) trip has no signed return evidence. The handheld still saves a return
+  // that needs office approval ("Thrown away at the store") as "Waiting for office approval" and moves no truck stock
+  // for it, so it is held here as custody for the same office pickup review instead of being refused on sync.
+  const legacy = trip.operations_version !== 1 && p.settlementVersion !== 1;
+  if (
+    p.refund ||
+    (p.custodyOnly !== true && !(legacy && p.approval?.required === true))
+  )
     refuse(
       "Update the handheld to record this pickup without inventing stock or a refund",
     );
@@ -24,7 +31,7 @@ export async function capturePickup(db, trip, actor, p) {
       refuse("Return identifier was reused", "idempotency_conflict");
     return { entityId: id };
   }
-  await validateReturnEvidence(db, trip, p);
+  if (!legacy) await validateReturnEvidence(db, trip, p);
   const frozen = [];
   for (const l of input) {
     const product = await productFor(db, uuid(l.productId), p.deviceTime);
@@ -38,7 +45,8 @@ export async function capturePickup(db, trip, actor, p) {
         "Pickup needs distinct governed products and no sellable stock effect",
       );
     seen.add(l.productId);
-    text(l.lotNumber, 80, true);
+    text(l.lotNumber, 80, !legacy);
+    if (legacy) text(l.reason, 80, true);
     if (
       String(l.product?.quantityScale) !== String(product.scale) ||
       l.product?.uomCode !== product.base_code
@@ -75,6 +83,20 @@ export async function pickupQueue(db, actor, tripId) {
     await db`select r.id,r.return_number as "returnNumber",o.name as "customerName",r.captured_request as capture,(select coalesce(jsonb_agg(jsonb_build_object('kind',d.kind,'reason',d.reason,'by',p.name) order by d.created_at),'[]') from van_return_reviews d join profiles p on p.id=d.actor_profile_id where d.return_id=r.id) as decisions from van_returns r join outlets o on o.id=r.outlet_id where r.trip_id=${tripId} and r.custody_only order by r.created_at,r.id limit 501`;
   if (items.length > 500) refuse("Pickup list exceeds supported trip size");
   return { items };
+}
+/** r6van3: the office's latest pickup decision per held return of this trip, for the van phone's bundle
+ * (`policy.pickupDecisions`, opt-in). A return the office has not decided yet is simply absent.
+ * @param {any} db @param {string} tripId */
+export async function pickupDecisions(db, tripId) {
+  const rows =
+    await db`select distinct on (d.return_id) d.return_id as "returnId",d.kind as decision,d.reason,(extract(epoch from d.created_at)*1000)::bigint::text as "decidedAt" from van_return_reviews d join van_returns r on r.id=d.return_id where r.trip_id=${tripId} and r.custody_only order by d.return_id,d.created_at desc,d.id limit 501`;
+  if (rows.length > 500) refuse("Pickup list exceeds supported trip size");
+  return rows.map((/** @type {any} */ r) => ({
+    returnId: r.returnId,
+    decision: r.decision,
+    reason: r.reason,
+    decidedAt: Number(r.decidedAt),
+  }));
 }
 /** F-113 independent physical disposition and a separate SAP credit request; captured evidence never changes.
  * @param {any} db @param {any} actor @param {any} p */

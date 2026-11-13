@@ -94,6 +94,6 @@ it("F-122 scorecard states missing stop facts and target rather than asserting a
   const html = renderToStaticMarkup(<RouteScorecardView card={card} />);
   expect(html).toContain("missing actual stop facts");
   expect(html).toContain("Set an unambiguous monthly target");
-  expect(html).toContain("Previous trip 2026-10-19");
+  expect(html).toContain("Previous trip Oct 19, 2026");
   expect(html).not.toContain("100%");
 });

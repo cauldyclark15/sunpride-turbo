@@ -1,3 +1,4 @@
+import { ambient } from "@sunpride/db/client";
 import { resolveAuth } from "./context.js";
 import { partnerTopicAllowed } from "../domains/partners/boundary.js";
 import { canSubscribe } from "./hooks.js";
@@ -22,7 +23,8 @@ const MAX_TOPICS = 100;
  */
 export async function publish(db, topic) {
   if (!TOPIC_RE.test(topic)) throw new Error(`invalid topic ${topic}`);
-  await db`select pg_notify(${CHANNEL}, json_build_object('topic', ${topic}::text, 'seq', nextval('event_seq'))::text)`;
+  // SP-0169: inside a transaction this path holds, notify on it (sent at COMMIT).
+  await ambient(db)`select pg_notify(${CHANNEL}, json_build_object('topic', ${topic}::text, 'seq', nextval('event_seq'))::text)`;
 }
 
 /**

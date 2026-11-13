@@ -1,4 +1,5 @@
 "use client";
+import { formatDateTime, formatPeriod } from "../../../lib/format";
 
 import { Card, Notice, PageHeader } from "@sunpride/ui";
 import { useState } from "react";
@@ -6,8 +7,7 @@ import { apiFetch, useApi, useLive } from "@/lib/api";
 import { DocNumber, Peso, QtyCasesPieces } from "../index";
 import type { StockCard as StockCardData } from "./types";
 
-const day = (at: number) =>
-  new Date(at).toLocaleString("en-PH", { month: "short", day: "numeric", hour: "numeric", minute: "2-digit", timeZone: "Asia/Manila" });
+const day = (at: number) => formatDateTime(at);
 
 /** Stock card (SPEC 4.6): one product at one place, every movement with its document number. */
 export function StockCard({
@@ -26,9 +26,19 @@ export function StockCard({
 }) {
   const [from, setFrom] = useState(initialFrom ?? "");
   const [to, setTo] = useState(initialTo ?? "");
-  const query = { productId, locationId, ...(from ? { from } : {}), ...(to ? { to } : {}) };
-  const data = useApi<StockCardData>(["inventory", "stock-card", query], ({ signal }) =>
-    apiFetch<StockCardData>("/api/v1/inventory/stock-card", { signal, query }),
+  const query = {
+    productId,
+    locationId,
+    ...(from ? { from } : {}),
+    ...(to ? { to } : {}),
+  };
+  const data = useApi<StockCardData>(
+    ["inventory", "stock-card", query],
+    ({ signal }) =>
+      apiFetch<StockCardData>("/api/v1/inventory/stock-card", {
+        signal,
+        query,
+      }),
   );
   useLive(["inventory"], [["inventory", "stock-card"]]);
   const c = data.data;
@@ -37,7 +47,11 @@ export function StockCard({
     <div className="space-y-4" data-screen="stock-card">
       <PageHeader
         title={c ? `Stock card: ${c.product.name}` : "Stock card"}
-        description={c ? `${c.location.name} · ${c.from} to ${c.to}` : "Every movement of this product at this place."}
+        description={
+          c
+            ? `${c.location.name} · ${formatPeriod(c.from, c.to)}`
+            : "Every movement of this product at this place."
+        }
       />
       {data.error ? <Notice title={data.error.message} tone="danger" /> : null}
       {c && !c.reconcilesToday ? (
@@ -49,12 +63,26 @@ export function StockCard({
       <Card label="Dates">
         <div className="flex flex-wrap items-end gap-3">
           <label className="text-sm">
-            <span className="mb-1 block text-xs uppercase tracking-wide text-gray-500">From</span>
-            <input type="date" className="min-h-12 rounded-xl border border-gray-300 px-3" value={from || c?.from || ""} onChange={(e) => setFrom(e.target.value)} />
+            <span className="mb-1 block text-xs uppercase tracking-wide text-gray-500">
+              From
+            </span>
+            <input
+              type="date"
+              className="min-h-12 rounded-xl border border-gray-300 px-3"
+              value={from || c?.from || ""}
+              onChange={(e) => setFrom(e.target.value)}
+            />
           </label>
           <label className="text-sm">
-            <span className="mb-1 block text-xs uppercase tracking-wide text-gray-500">To</span>
-            <input type="date" className="min-h-12 rounded-xl border border-gray-300 px-3" value={to || c?.to || ""} onChange={(e) => setTo(e.target.value)} />
+            <span className="mb-1 block text-xs uppercase tracking-wide text-gray-500">
+              To
+            </span>
+            <input
+              type="date"
+              className="min-h-12 rounded-xl border border-gray-300 px-3"
+              value={to || c?.to || ""}
+              onChange={(e) => setTo(e.target.value)}
+            />
           </label>
         </div>
       </Card>
@@ -73,51 +101,112 @@ export function StockCard({
           <tbody>
             {c ? (
               <tr className="border-t border-gray-100 bg-gray-50 font-medium">
-                <td className="px-3 py-2" colSpan={4}>Opening balance</td>
-                <td className="px-3 py-2 text-right"><QtyCasesPieces base={c.opening.quantity.base} basePerCase={per} /></td>
-                <td className="px-3 py-2 text-right"><Peso centavos={c.opening.valueCentavos} /></td>
+                <td className="px-3 py-2" colSpan={4}>
+                  Opening balance
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <QtyCasesPieces
+                    base={c.opening.quantity.base}
+                    basePerCase={per}
+                  />
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <Peso centavos={c.opening.valueCentavos} />
+                </td>
               </tr>
             ) : null}
             {c?.rows.map((r) => {
               const href = documentHref?.(r.link) ?? null;
               return (
-                <tr key={r.movementId} className={`border-t border-gray-100 ${r.reversed ? "text-gray-400" : ""}`}>
+                <tr
+                  key={r.movementId}
+                  className={`border-t border-gray-100 ${r.reversed ? "text-gray-400" : ""}`}
+                >
                   <td className="px-3 py-2 whitespace-nowrap">{day(r.at)}</td>
                   <td className="px-3 py-2">
                     <div>{r.label}</div>
                     <div className="text-xs text-gray-500">
                       {r.documentLabel}{" "}
-                      {href ? <a className="text-blue-700" href={href}><DocNumber value={r.documentNumber} /></a> : <DocNumber value={r.documentNumber} />}
+                      {href ? (
+                        <a className="text-blue-700" href={href}>
+                          <DocNumber value={r.documentNumber} />
+                        </a>
+                      ) : (
+                        <DocNumber value={r.documentNumber} />
+                      )}
                       {r.reversed ? " · reversed" : ""}
                     </div>
                     {r.statusMoves.length ? (
                       <div className="text-xs text-gray-500">
-                        {r.statusMoves.map((m) => `${m.delta > 0 ? "+" : ""}${m.delta} ${m.status.replace("_", " ")}`).join(", ")}
+                        {r.statusMoves
+                          .map(
+                            (m) =>
+                              `${m.delta > 0 ? "+" : ""}${m.delta} ${m.status.replace("_", " ")}`,
+                          )
+                          .join(", ")}
                       </div>
                     ) : null}
                   </td>
-                  <td className="px-3 py-2 text-right text-green-700">{r.in ? <QtyCasesPieces base={r.in.base} basePerCase={per} /> : ""}</td>
-                  <td className="px-3 py-2 text-right text-red-700">{r.out ? <QtyCasesPieces base={r.out.base} basePerCase={per} /> : ""}</td>
-                  <td className="px-3 py-2 text-right font-medium"><QtyCasesPieces base={r.balance.base} basePerCase={per} /></td>
-                  <td className="px-3 py-2 text-right"><Peso centavos={r.valueBalanceCentavos} /></td>
+                  <td className="px-3 py-2 text-right text-green-700">
+                    {r.in ? (
+                      <QtyCasesPieces base={r.in.base} basePerCase={per} />
+                    ) : (
+                      ""
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right text-red-700">
+                    {r.out ? (
+                      <QtyCasesPieces base={r.out.base} basePerCase={per} />
+                    ) : (
+                      ""
+                    )}
+                  </td>
+                  <td className="px-3 py-2 text-right font-medium">
+                    <QtyCasesPieces base={r.balance.base} basePerCase={per} />
+                  </td>
+                  <td className="px-3 py-2 text-right">
+                    <Peso centavos={r.valueBalanceCentavos} />
+                  </td>
                 </tr>
               );
             })}
             {c ? (
               <tr className="border-t-2 border-gray-300 bg-gray-50 font-semibold">
-                <td className="px-3 py-2" colSpan={2}>Closing balance</td>
-                <td className="px-3 py-2 text-right text-green-700"><QtyCasesPieces base={c.totals.in.base} basePerCase={per} /></td>
-                <td className="px-3 py-2 text-right text-red-700"><QtyCasesPieces base={c.totals.out.base} basePerCase={per} /></td>
-                <td className="px-3 py-2 text-right"><QtyCasesPieces base={c.closing.quantity.base} basePerCase={per} /></td>
-                <td className="px-3 py-2 text-right"><Peso centavos={c.closing.valueCentavos} /></td>
+                <td className="px-3 py-2" colSpan={2}>
+                  Closing balance
+                </td>
+                <td className="px-3 py-2 text-right text-green-700">
+                  <QtyCasesPieces base={c.totals.in.base} basePerCase={per} />
+                </td>
+                <td className="px-3 py-2 text-right text-red-700">
+                  <QtyCasesPieces base={c.totals.out.base} basePerCase={per} />
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <QtyCasesPieces
+                    base={c.closing.quantity.base}
+                    basePerCase={per}
+                  />
+                </td>
+                <td className="px-3 py-2 text-right">
+                  <Peso centavos={c.closing.valueCentavos} />
+                </td>
               </tr>
             ) : (
-              <tr><td colSpan={6} className="px-3 py-8 text-center text-gray-500">{data.isLoading ? "Loading…" : "No stock card yet."}</td></tr>
+              <tr>
+                <td colSpan={6} className="px-3 py-8 text-center text-gray-500">
+                  {data.isLoading ? "Loading…" : "No stock card yet."}
+                </td>
+              </tr>
             )}
           </tbody>
         </table>
       </div>
-      {c?.nextCursor ? <p className="text-sm text-gray-500">Showing the first {c.rows.length} of {c.rowCount} movements. Narrow the dates to see the rest.</p> : null}
+      {c?.nextCursor ? (
+        <p className="text-sm text-gray-500">
+          Showing the first {c.rows.length} of {c.rowCount} movements. Narrow
+          the dates to see the rest.
+        </p>
+      ) : null}
     </div>
   );
 }
