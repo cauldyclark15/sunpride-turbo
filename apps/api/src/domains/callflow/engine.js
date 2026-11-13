@@ -410,8 +410,11 @@ export async function ownedCall(ctx, key, allowClosed = false) {
     refuse("out_of_scope");
   return call ?? null;
 }
-/** @param {any} ctx @param {any} call */
-export async function hasOrder(ctx, call) {
+/** FLD-176: `forClose` also counts an order the office later rejected or voided. The agent did take that order
+ * at the store, so End call needs no no-order reason; the office decision is the order's own outcome. Without
+ * this the phone (which sent the order) was refused invalid_transition and the call stayed open for good.
+ * @param {any} ctx @param {any} call @param {{ forClose?: boolean }} [options] */
+export async function hasOrder(ctx, call, { forClose = false } = {}) {
   if (call.visit_id) {
     // FLD-160: a distributor's order request is never captured as a Sunpride order; it always lands in the
     // office's review queue by design. That queued request IS the call's order, so End call is not refused
@@ -421,7 +424,8 @@ export async function hasOrder(ctx, call) {
       await ctx.db`select exists(select 1 from visit_activities a where a.visit_id=${call.visit_id} and a.activity_kind='order_intent' and a.deleted_at is null
       and jsonb_array_length(a.activity->'lines')>0
       and (${partner}::boolean or not exists(select 1 from order_intent_queue q where q.activity_id=a.id and q.status='review'))
-      and not exists(select 1 from field_order_captures f join orders o on o.id=f.order_id where f.activity_id=a.id and o.status in ('draft','rejected','voided'))) as yes`;
+      and not exists(select 1 from field_order_captures f join orders o on o.id=f.order_id where f.activity_id=a.id and o.status in ('draft','rejected','voided')
+        and not (${forClose}::boolean and o.status in ('rejected','voided')))) as yes`;
     return r.yes;
   }
   const [r] =
@@ -498,7 +502,7 @@ export async function closeCall(ctx, call) {
     p.location,
     at,
   );
-  const order = await hasOrder(ctx, call);
+  const order = await hasOrder(ctx, call, { forClose: true });
   // Merchandiser calls are execution-only: they take no order, so End never needs a no-order reason.
   const executionOnly =
     call.definition_snapshot?.channelProfile === "merchandiser";

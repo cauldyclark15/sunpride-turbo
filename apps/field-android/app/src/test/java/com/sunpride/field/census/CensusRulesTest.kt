@@ -85,6 +85,24 @@ class CensusRulesTest {
     private val target = UUID.randomUUID().toString()
     private fun change(name: String = "Nena Mini Mart") = CensusRules.changePayload(UUID.randomUUID().toString(), target, name,
         "5 Rizal St", "Nena Cruz", "0917 555 0101", 1000L, null, null, "", null)
+    /** E2E-010: a searched pin ~5 km away is sent as the proposal, and the agent's own fix as the capture location
+     * (it used to send the searched point as the location, so the place check measured 0 m and no pin decision came). */
+    @Test fun storeEditSendsTheAgentsFixSeparatelyFromTheSearchedPin() {
+        val fix = JSONObject().put("latitude", 10.2732).put("longitude", 123.8673).put("accuracyMeters", 6.0)
+            .put("fixTime", 1000L).put("mockSignal", false).put("provider", "gps")
+        val place = CensusRules.Place("ChIJ-mango", 10.3126, 123.8937, "Mango Avenue, Cebu City", null)
+        val p = CensusRules.changePayload(UUID.randomUUID().toString(), target, "Nena Mini Mart", "Mango Avenue, Cebu City",
+            "Nena Cruz", "0917 555 0101", 1000L, fix, place, "", null)
+        assertEquals("places", p.getString("locationSource")); assertEquals("ChIJ-mango", p.getString("placeId"))
+        val l = p.getJSONObject("location")
+        assertEquals(10.2732, l.getDouble("latitude"), 0.0); assertEquals(123.8673, l.getDouble("longitude"), 0.0)
+        assertEquals(6.0, l.getDouble("accuracyMeters"), 0.0)
+        CensusRules.validate(p)
+        // No fix at all: the searched point stands in (the office still confirms the moved pin).
+        val only = CensusRules.changePayload(UUID.randomUUID().toString(), target, "Nena Mini Mart", "Mango Avenue, Cebu City",
+            "Nena Cruz", "0917 555 0101", 1000L, null, place, "", null)
+        assertEquals(10.3126, only.getJSONObject("location").getDouble("latitude"), 0.0)
+    }
     @Test fun storeEditPayloadIsAChangeForTheStoreWithoutNewStoreFields() {
         val p = change()
         assertEquals("change", p.getString("kind")); assertEquals(target, p.getString("targetOutletId"))
@@ -155,5 +173,38 @@ class CensusRulesTest {
         assertEquals(mapOf(target to "Change waiting for office · Saved on phone"),
             CensusRules.waitingChanges(listOf(Triple(p, "pending", 1000L)), before, 2000L, rejected))
         assertEquals(emptyMap<String, CensusRules.Decision>(), CensusRules.decisions(null))
+    }
+    /** E2E-101 (2cb81db7 rejected "Owner phone not confirmed" while 7d9e4175 was still waiting): the rejection is
+     * shown beside the later change, and still once after that change is accepted, never silently dropped. */
+    @Test fun `E2E-101 a rejected change is shown even when a later change exists`() {
+        val first = change(); val second = change("Nena Mini Mart 2")
+        val before = mapOf(target to CensusRules.Current("Aling Nena Store", "5 Rizal St", "Nena Cruz", "0917 555 0101"))
+        val sent = listOf(Triple(first, "done", 1000L), Triple(second, "done", 1100L))
+        val one = first.getString("captureId"); val two = second.getString("captureId")
+        val rejectedOnly = mapOf(one to CensusRules.Decision(one, target, false, "Owner phone not confirmed"))
+        assertEquals(mapOf(target to "Change waiting for office · Change not accepted: Owner phone not confirmed"),
+            CensusRules.waitingChanges(sent, before, 2000L, rejectedOnly))
+        val both = rejectedOnly + (two to CensusRules.Decision(two, target, true, null))
+        assertEquals(mapOf(target to "Change not accepted: Owner phone not confirmed"),
+            CensusRules.waitingChanges(sent, before, 2000L, both))
+        assertEquals(setOf(one), CensusRules.rejectionsToMark(sent, both, target, emptySet()))
+        // Once seen, it is gone.
+        assertEquals(emptyMap<String, String>(), CensusRules.waitingChanges(sent, before, 2000L, both, setOf(one)))
+    }
+    /** E2E-008: a saved customer the office rejected reads "Not accepted: <reason>", not "Sent for review". */
+    @Test fun `E2E-008 a rejected saved customer says why`() {
+        val capture = UUID.randomUUID().toString()
+        val wire = JSONObject().put("items", org.json.JSONArray()).put("customers", org.json.JSONArray()
+            .put(JSONObject().put("captureId", capture).put("decision", "rejected").put("reason", "Duplicate of an existing store"))
+            .put(JSONObject().put("captureId", "x").put("decision", "maybe")))
+        val decided = CensusRules.customerDecisions(wire)
+        assertEquals(setOf(capture), decided.keys)
+        assertEquals("Not accepted: Duplicate of an existing store",
+            CensusRules.savedLabel(CensusRules.Saved("R6F2 Sari-sari", "done", decided[capture])))
+        assertEquals("Sent for review", CensusRules.savedLabel(CensusRules.Saved("R6F2 Sari-sari", "done", null)))
+        assertEquals("Saved on phone", CensusRules.savedLabel(CensusRules.Saved("R6F2 Sari-sari", "pending", decided[capture])))
+        assertEquals("Accepted by office", CensusRules.savedLabel(CensusRules.Saved("x", "done",
+            CensusRules.CustomerDecision(capture, true, null))))
+        assertEquals(emptyMap<String, CensusRules.CustomerDecision>(), CensusRules.customerDecisions(JSONObject().put("items", org.json.JSONArray())))
     }
 }

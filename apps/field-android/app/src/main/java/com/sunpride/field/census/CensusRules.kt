@@ -99,8 +99,12 @@ object CensusRules {
             .put("name", name.trim()).put("address", address.trim()).put("ownerName", ownerName.trim())
             .put("ownerPhone", ownerPhone.trim()).put("deviceTime", deviceTime)
         if (place != null) {
+            // E2E-010: the searched address is the PROPOSED pin, the agent's own fix is the capture location. The
+            // server checks the place against Google and measures it from this fix, so a pin moved far from where
+            // the agent stands goes to a pin decision. Only with no fix at all does the place point stand in.
             p.put("locationSource", "places").put("placeId", place.placeId)
-                .put("location", JSONObject().put("latitude", place.latitude).put("longitude", place.longitude))
+                .put("location", gpsFix?.let { JSONObject(it.toString()) }
+                    ?: JSONObject().put("latitude", place.latitude).put("longitude", place.longitude))
             place.formattedAddress?.let { p.put("formattedAddress", it.take(500)) }
             place.components?.takeIf { it.length() > 0 }?.let { p.put("addressComponents", it) }
         } else if (gpsFix != null) p.put("locationSource", "gps").put("location", gpsFix)
@@ -132,6 +136,20 @@ object CensusRules {
             }
             if (label == null) out.remove(id) else out[id] = label
         }
+        // E2E-101: an office rejection is never hidden by a later change. A newer change (waiting, or already
+        // accepted) used to replace the label, so "Change not accepted: <reason>" was never shown. The newest unseen
+        // rejection for the store is shown with whatever the latest change says; the store page then marks it seen.
+        val newestRejection = linkedMapOf<String, Decision>()
+        history.filter { (p, state, _) -> isChange(p) && state == "done" }.sortedBy { it.third }.forEach { (p, _, _) ->
+            val d = decisions[p.optString("captureId")] ?: return@forEach
+            if (!d.accepted && d.captureId !in seen && p.optString("targetOutletId") in stores)
+                newestRejection[p.optString("targetOutletId")] = d
+        }
+        newestRejection.forEach { (id, d) ->
+            val rejected = notAccepted(d.reason)
+            val current = out[id]
+            out[id] = if (current == null || current.startsWith(CHANGE_NOT_ACCEPTED)) rejected else "$current · $rejected"
+        }
         return out
     }
     /** The office's decision on one of this person's sent changes (GET /api/v1/masters/census/my-changes). */
@@ -155,6 +173,28 @@ object CensusRules {
             p.optString("targetOutletId") == outletId }
         .mapNotNull { decisions[it.first.optString("captureId")] }.filter { !it.accepted && it.captureId !in seen }
         .map { it.captureId }.toSet()
+    /** E2E-008: one row of Saved customers: its outbox state and, once decided, the office's decision. */
+    data class Saved(val name: String, val state: String, val decision: CustomerDecision?)
+    data class CustomerDecision(val captureId: String, val accepted: Boolean, val reason: String?)
+    /** The office's decisions on this person's Add customer captures (my-changes `customers`); malformed skipped. */
+    fun customerDecisions(json: JSONObject?): Map<String, CustomerDecision> {
+        val a = json?.optJSONArray("customers") ?: return emptyMap()
+        return (0 until a.length()).mapNotNull { i ->
+            val o = a.optJSONObject(i) ?: return@mapNotNull null
+            val capture = o.optString("captureId").takeIf { it.isNotBlank() } ?: return@mapNotNull null
+            val accepted = when (o.optString("decision")) { "accepted" -> true; "rejected" -> false; else -> return@mapNotNull null }
+            CustomerDecision(capture, accepted, if (o.isNull("reason")) null else o.optString("reason").trim().takeIf { it.isNotEmpty() })
+        }.associateBy { it.captureId }
+    }
+    /** The Saved customers row text: the office decision wins once the capture was sent. */
+    fun savedLabel(saved: Saved): String = when {
+        saved.state == "review" -> "Needs review"
+        saved.state != "done" -> "Saved on phone"
+        saved.decision?.accepted == true -> "Accepted by office"
+        saved.decision != null -> saved.decision.reason?.let { "$NOT_ACCEPTED: ${it.take(200)}" } ?: NOT_ACCEPTED
+        else -> "Sent for review"
+    }
+    const val NOT_ACCEPTED = "Not accepted"
     const val CHANGE_NOT_ACCEPTED = "Change not accepted"
     const val CHANGE_ON_PHONE = "Change waiting for office · Saved on phone"
     const val CHANGE_WAITING = "Change waiting for office"

@@ -68,6 +68,15 @@ object FieldNav {
     fun pageOnReady(wasReady: Boolean, ready: Boolean, page: String, targeted: Boolean = false): String =
         if (!wasReady && ready && !targeted) "home" else page
 
+    /** Pages a phone that is not ready yet (Register phone, Phone removed) can still open. */
+    val waitingPages: Set<String> = setOf("account", "support", "change-password")
+    /**
+     * E2E-001 (Register → Check again): while the Register phone screen shows, the page behind it goes back to
+     * Today. A tab left over from before (Customers) otherwise survived registration and was what opened on
+     * Check again, whatever the ready transition did.
+     */
+    fun pageWhileWaiting(page: String): String = if (page in waitingPages) page else "home"
+
     fun barVisible(ready: Boolean, locked: Boolean, partnerMode: Boolean, visitOpen: Boolean, page: String): Boolean =
         ready && !locked && !partnerMode && !visitOpen && page !in noBarPages
 }

@@ -73,7 +73,7 @@ data class SyncStatus(
                 .filterNot { it.state == "review" && it.requestId in dismissed }
             val byRequest = intents.associateBy { it.requestId }
             val reviewItems = active.filter { it.state == "review" }.map {
-                ReviewItem(it.requestId, describe(byRequest[it.requestId]?.kind), plainReason(it.rejectionCode))
+                ReviewItem(it.requestId, describe(byRequest[it.requestId]?.kind), plainReason(it.rejectionCode, byRequest[it.requestId]?.kind))
             }
             val starts = intents.filter { it.kind == "visit.checkIn" }.associateBy { it.clientVisitId }
             val earliestClose = active.filter { it.state in setOf("pending", "sending") }.minOfOrNull { row ->
@@ -152,6 +152,12 @@ data class SyncStatus(
             "photo_needs_review" to "The visit photo needs review, so this was not sent",
         )
 
-        fun plainReason(code: String?): String = REASONS[code] ?: "Visit needs administrator review"
+        /** FLD-176: a refused End call is not "already ended": the call is still open on the server and blocks the
+         * next Start, so say what to do instead of leaving the person stuck. */
+        const val END_REFUSED = "End call was not accepted, so this call is still open. Open the visit and End call " +
+            "again, choosing a no-order reason if there was no order. If it is refused again, ask your supervisor to close the call"
+        fun plainReason(code: String?, kind: String? = null): String =
+            if (code == "invalid_transition" && kind in setOf("visit.checkOut", "dsr.visit.checkOut")) END_REFUSED
+            else REASONS[code] ?: "Visit needs administrator review"
     }
 }

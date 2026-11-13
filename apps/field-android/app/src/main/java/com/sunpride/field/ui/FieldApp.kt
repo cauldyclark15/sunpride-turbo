@@ -485,10 +485,11 @@ fun FieldApp(
                                     android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                             })
                     } })
-                else -> EnrollmentScreen(controller.state, controller.key, controller.busy, controller.error,
+                else -> { LaunchedEffect(Unit) { page = FieldNav.pageWhileWaiting(page); origin = "home"; customerId = null }
+                    EnrollmentScreen(controller.state, controller.key, controller.busy, controller.error,
                     onCheck = { controller.checkAgain() }, onSignOut = signOut, modifier = modifier,
                     unsent = maxOf(status.queued + status.sending + status.review + status.held, controller.unsentOnPhone),
-                    pairingContent = {com.sunpride.integrity.ReplacementPairing(controller::replacementCode)})
+                    pairingContent = {com.sunpride.integrity.ReplacementPairing(controller::replacementCode)}) }
             } }
         }
         if (biometrics != null && biometrics.offer && controller.state != EnrollmentState.SignedOut) BiometricOffer(
