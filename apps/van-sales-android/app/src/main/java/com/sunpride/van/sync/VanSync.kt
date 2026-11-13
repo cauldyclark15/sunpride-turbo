@@ -62,7 +62,9 @@ class VanSync(private val store: VanSyncStore, private val gateway: VanGateway, 
                     pending.forEach { row ->
                         kotlinx.coroutines.currentCoroutineContext().ensureActive()
                         if (!store.canSync()) throw VanSyncFailure("unauthorized",false)
-                        store.recordResult(row,results.single { it.clientRequestId == row.clientRequestId })
+                        val r = results.single { it.clientRequestId == row.clientRequestId }
+                        store.recordResult(row,r)
+                        if (r.status == "waiting") blocked += row.clientRequestId // VAN-083: sent again next sync
                         store.cleanupAcknowledgedPhotos()
                     }
                 } catch (e: VanSyncFailure) {

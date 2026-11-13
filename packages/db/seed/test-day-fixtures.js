@@ -2203,6 +2203,7 @@ section(
 
 // ---------------------------------------------------------------- WEB-106: a captured phone order in Field order review (needs price setup)
 const ORDER_PRODUCT = "SMP-PCH-227";
+const FIELD_ORDER_ID = uid("r6-field-order-1");
 section(
   "r6-field-order-review",
   ["WEB-106"],
@@ -2220,7 +2221,9 @@ section(
     if (!v) throw new Error("agent@ has no completed visit before now; rerun --only r6-field-order-review later in the day");
     if (await officePrice(ORDER_PRODUCT, v.customer_code)) did = "created";
     const p = await one(db`select id from products where code=${ORDER_PRODUCT}`);
-    const at = new Date(Math.max(+new Date(v.checked_in_at) + 60_000, Date.now() - 120_000));
+    // Price conditions became effective 60 seconds before officePrice ran; capture AFTER that instant.
+    // Backdating by two minutes used the old valid price and silently captured the order instead of reviewing it.
+    const at = new Date();
     await markedRow("visit_activities", "r6-field-order", {
       organization_id: v.organization_id,
       org_unit_id: v.org_unit_id,
@@ -2230,23 +2233,26 @@ section(
       activity_kind: "order_intent",
       activity: {
         kind: "order_intent",
-        lines: [{ uom: "PC", quantity: 4, productId: p.id }],
+        // An unconfigured unit is a genuine capture refusal (office-priced orders alone may be captured).
+        // WEB-106 should show 'Product unit is not set up for selling', and retry stays in review until setup.
+        lines: [{ uom: "TDCASE", quantity: 4, productId: p.id }],
         source: "sample",
-        clientOrderId: `${TAG}-FIELD-ORDER-1`,
+        // The phone always sends a UUID; a text id was refused as a bad phone record (WEB-106 r6).
+        clientOrderId: FIELD_ORDER_ID,
       },
       device_time: at.toISOString(),
       server_time: new Date().toISOString(),
     });
     // The insert trigger queues it; the API's drain (about a minute) moves it to review.
     for (let i = 0; i < 24; i++) {
-      const q = await one(db`select q.status from order_intent_queue q join visit_activities a on a.id=q.activity_id where a.activity->>'clientOrderId'=${`${TAG}-FIELD-ORDER-1`}`);
+      const q = await one(db`select q.status from order_intent_queue q join visit_activities a on a.id=q.activity_id where a.activity->>'clientOrderId'=${FIELD_ORDER_ID}`);
       if (q && q.status !== "pending") break;
       await new Promise((r) => setTimeout(r, 5000));
     }
     return "created";
   },
   async () => {
-    const q = await one(db`select q.status,q.review_code from order_intent_queue q join visit_activities a on a.id=q.activity_id where a.activity->>'clientOrderId'=${`${TAG}-FIELD-ORDER-1`}`);
+    const q = await one(db`select q.status,q.review_code from order_intent_queue q join visit_activities a on a.id=q.activity_id where a.activity->>'clientOrderId'=${FIELD_ORDER_ID}`);
     const rows = (await api(ADMIN, "/api/v1/orders/field-review")).rows ?? [];
     return {
       fieldOrderInReview: q?.status === "review" ? q.review_code ?? "review" : false,
@@ -2255,94 +2261,151 @@ section(
   },
 );
 
-// ---------------------------------------------------------------- WEB-082/084: one clean suggested load (released, unexpired lots) on a non-VAN truck
-const cleanLoadTrip = () =>
+// ---------------------------------------------------------------- WEB-082/084: clean suggested loads (released, unexpired lots) on two non-VAN trucks
+// A6: two clean loads (agent@'s trial truck for WEB-082, agent3@trial's trial truck for WEB-084), each issuable
+// together with the other one, so both cases can run.
+const AGENT3 = "agent3@trial.sunpride.test";
+/** @param {string} email */
+const cleanLoadTrip = (email = AGENT) =>
   one(db`select t.id,t.trip_number,t.status,t.source_location_id from van_trips t join profiles p on p.id=t.salesperson_profile_id
-    where t.service_date=${TODAY} and t.trip_number like 'SMP-TRIAL-area-%' and lower(p.email)=${AGENT} and t.status not in ('cancelled','closed') and t.deleted_at is null order by t.created_at limit 1`);
+    where t.service_date=${TODAY} and t.trip_number like 'SMP-TRIAL-%' and t.trip_number not ilike 'SMP-TRIAL-van%' and lower(p.email)=${email} and t.status not in ('cancelled','closed') and t.deleted_at is null order by t.created_at limit 1`);
+/** Product quantities of the other clean loads (they compete for the same depot lots). @param {string} tripId */
+async function otherCleanLoads(tripId) {
+  /** @type {Map<string, number>} */ const m = new Map();
+  for (const email of [AGENT, AGENT3]) {
+    const o = await cleanLoadTrip(email);
+    if (!o || o.id === tripId) continue;
+    const rows = await db`select l.product_id,coalesce(l.approved_base,l.suggested_base)::bigint as q from van_planned_load_lines l join van_planned_loads p on p.id=l.planned_load_id
+      where p.trip_id=${o.id} and p.state='suggested' and p.id=(select id from van_planned_loads where trip_id=${o.id} order by created_at desc limit 1)`;
+    for (const r of rows) m.set(r.product_id, (m.get(r.product_id) ?? 0) + Number(r.q));
+  }
+  return m;
+}
+/** @param {any} t */
+async function ensureCleanLoad(t) {
+  const planOfTrip = () =>
+    one(db`select id,state,attention from van_planned_loads where trip_id=${t.id} order by created_at desc limit 1`);
+  let plan = await planOfTrip();
+  if (plan && plan.state !== "suggested") return "kept";
+  const { eligibleFreeBase } = await import(
+    new URL("../../../apps/api/src/domains/inventory/eligible.js", import.meta.url).href
+  );
+  /** Lines the depot cannot issue under the approval rule (released, unexpired lots), after the other clean loads. @param {any} pl */
+  const unissuable = async (pl) => {
+    const lines = await db`select product_id,coalesce(approved_base,suggested_base)::bigint as q from van_planned_load_lines where planned_load_id=${pl.id}`;
+    const wanted = lines.filter((/** @type {any} */ l) => Number(l.q) > 0);
+    const free = await eligibleFreeBase(db, t.source_location_id, wanted.map((/** @type {any} */ l) => l.product_id), { org: "sunpride" });
+    const taken = await otherCleanLoads(t.id);
+    return wanted.filter((/** @type {any} */ l) => Number(l.q) > (free.get(l.product_id) ?? 0) - (taken.get(l.product_id) ?? 0));
+  };
+  if (plan && (plan.attention ?? []).length === 0 && !(await unissuable(plan)).length) return "kept";
+  const from = await one(
+    db`select id from van_trips where service_date<${TODAY} and trip_number like 'SMP-TRIP-%' and status<>'cancelled' and deleted_at is null order by service_date desc, trip_number limit 1`,
+  );
+  if (!plan) {
+    await van("loads/copy", { tripId: t.id, fromTripId: from.id }, `copy-load:${t.id}`);
+    plan = await planOfTrip();
+  }
+  if ((plan.attention ?? []).length) {
+    // The depot is short of some copied products: the depot clerk finds stock (adjustment, second-person approval)
+    // on each product's freshest released lot, then the office copies yesterday again.
+    const short =
+      await db`select l.product_id,(select x.id from inventory_lots x where x.product_id=l.product_id and x.closed_at is null and x.quality_status='released' order by x.expires_at desc nulls last limit 1) as lot_id
+        from van_planned_load_lines l where l.planned_load_id=${plan.id} and 'depot_short'=any(l.flags)`;
+    const lines = short
+      .filter((/** @type {any} */ r) => r.lot_id)
+      .map((/** @type {any} */ r) => ({ productId: r.product_id, lotId: r.lot_id, locationId: t.source_location_id, stockStatus: "available", varianceBase: 240 }));
+    if (lines.length) {
+      const adj = await api(
+        ADMIN,
+        "/api/v1/inventory/adjustments/request",
+        { reasonCode: "FOUND", adjustmentType: "manual", note: `${TAG} depot stock for the clean load (WEB-082/084)`, lines },
+        { key: key(`clean-load-adjust:${t.id}`) },
+      );
+      await api(APPROVER, "/api/v1/inventory/adjustments/decide", { adjustmentId: adj.id, decision: "approved" }, { key: key(`clean-load-adjust-ok:${t.id}`) });
+    }
+    await van("loads/copy", { tripId: t.id, fromTripId: from.id }, `recopy-load:${t.id}`);
+    plan = await planOfTrip();
+  }
+  if ((plan.attention ?? []).length) {
+    // Some products have no released lot at all (seeded quarantine): copy an earlier day that did not carry them.
+    const earlier =
+      await db`select id from van_trips where service_date<${TODAY} and status<>'cancelled' and deleted_at is null and id<>${from.id} order by service_date desc, trip_number limit 20`;
+    for (const e of earlier) {
+      await van("loads/copy", { tripId: t.id, fromTripId: e.id }, `recopy-load:${t.id}:${e.id}`);
+      plan = await planOfTrip();
+      if (!(plan.attention ?? []).length) break;
+    }
+  }
+  // Lines whose only lots are quarantined, near expiry or taken by the other clean load cannot be approved: set to 0.
+  const bad = await unissuable(plan);
+  if (bad.length)
+    await van(
+      "loads/edit",
+      { tripId: t.id, lines: bad.map((/** @type {any} */ l) => ({ productId: l.product_id, quantityBase: "0" })) },
+      `edit-clean-load:${t.id}:${bad.map((/** @type {any} */ l) => l.product_id).sort().join(",")}`,
+    );
+  return "created";
+}
+/** @param {any} t */
+async function checkCleanLoad(t) {
+  const plan = t && (await one(db`select id,state,attention from van_planned_loads where trip_id=${t.id} order by created_at desc limit 1`));
+  return {
+    trip: t ? `${t.trip_number}/${t.status}` : null,
+    suggestedLoad: plan?.state === "suggested",
+    clean: plan ? (plan.attention ?? []).length === 0 : false,
+    issuable: plan
+      ? (await one(db`select count(*)::int n from van_planned_load_lines where planned_load_id=${plan.id} and coalesce(approved_base,suggested_base)>0`)).n
+      : 0,
+  };
+}
 section(
   "r6-clean-load",
-  ["WEB-082", "WEB-084"],
+  ["WEB-082"],
   async () => {
-    const t = await cleanLoadTrip();
+    const t = await cleanLoadTrip(AGENT);
     if (!t) throw new Error("agent@'s trial-truck trip for today is missing");
-    const planOfTrip = () =>
-      one(db`select id,state,attention from van_planned_loads where trip_id=${t.id} order by created_at desc limit 1`);
-    let plan = await planOfTrip();
-    if (plan && plan.state !== "suggested") return "kept";
-    const { eligibleFreeBase } = await import(
-      new URL("../../../apps/api/src/domains/inventory/eligible.js", import.meta.url).href
-    );
-    /** Lines the depot cannot issue under the approval rule (released, unexpired lots). @param {any} pl */
-    const unissuable = async (pl) => {
-      const lines = await db`select product_id,coalesce(approved_base,suggested_base)::bigint as q from van_planned_load_lines where planned_load_id=${pl.id}`;
-      const wanted = lines.filter((/** @type {any} */ l) => Number(l.q) > 0);
-      const free = await eligibleFreeBase(db, t.source_location_id, wanted.map((/** @type {any} */ l) => l.product_id), { org: "sunpride" });
-      return wanted.filter((/** @type {any} */ l) => Number(l.q) > (free.get(l.product_id) ?? 0));
-    };
-    if (plan && (plan.attention ?? []).length === 0 && !(await unissuable(plan)).length) return "kept";
-    const from = await one(
-      db`select id from van_trips where service_date<${TODAY} and trip_number like 'SMP-TRIP-%' and status<>'cancelled' and deleted_at is null order by service_date desc, trip_number limit 1`,
-    );
-    if (!plan) {
-      await van("loads/copy", { tripId: t.id, fromTripId: from.id }, `copy-load:${t.id}`);
-      plan = await planOfTrip();
+    return ensureCleanLoad(t);
+  },
+  async () => checkCleanLoad(await cleanLoadTrip(AGENT)),
+);
+section(
+  "r6-clean-load-2",
+  ["WEB-084"],
+  async () => {
+    let did = "kept";
+    let t = await cleanLoadTrip(AGENT3);
+    if (!t) {
+      // agent3@trial (same unit and depot as agent@) gets its own marked trial truck and a planned trip.
+      const p3 = await one(db`select * from profiles where lower(email)=${AGENT3} and deleted_at is null`);
+      const tpl = await one(db`select * from profiles where lower(email)=${AGENT} and deleted_at is null`);
+      if (!p3) throw new Error("agent3@trial is missing");
+      const { ensureTrip } = await import("./trial-wiring.js");
+      await ensureTrip(db, p3, tpl, "r6-load2");
+      t = await cleanLoadTrip(AGENT3);
+      if (!t) throw new Error("agent3@trial's trial-truck trip was not made");
+      did = "created";
     }
-    if ((plan.attention ?? []).length) {
-      // The depot is short of some copied products: the depot clerk finds stock (adjustment, second-person approval)
-      // on each product's freshest released lot, then the office copies yesterday again.
-      const short =
-        await db`select l.product_id,(select x.id from inventory_lots x where x.product_id=l.product_id and x.closed_at is null and x.quality_status='released' order by x.expires_at desc nulls last limit 1) as lot_id
-          from van_planned_load_lines l where l.planned_load_id=${plan.id} and 'depot_short'=any(l.flags)`;
-      const lines = short
-        .filter((/** @type {any} */ r) => r.lot_id)
-        .map((/** @type {any} */ r) => ({ productId: r.product_id, lotId: r.lot_id, locationId: t.source_location_id, stockStatus: "available", varianceBase: 240 }));
-      if (lines.length) {
-        const adj = await api(
-          ADMIN,
-          "/api/v1/inventory/adjustments/request",
-          { reasonCode: "FOUND", adjustmentType: "manual", note: `${TAG} depot stock for the clean load (WEB-082/084)`, lines },
-          { key: key(`clean-load-adjust:${t.id}`) },
-        );
-        await api(APPROVER, "/api/v1/inventory/adjustments/decide", { adjustmentId: adj.id, decision: "approved" }, { key: key(`clean-load-adjust-ok:${t.id}`) });
-      }
-      await van("loads/copy", { tripId: t.id, fromTripId: from.id }, `recopy-load:${t.id}`);
-      plan = await planOfTrip();
-    }
-    if ((plan.attention ?? []).length) {
-      // Some products have no released lot at all (seeded quarantine): copy an earlier day that did not carry them.
-      const earlier =
-        await db`select id from van_trips where service_date<${TODAY} and status<>'cancelled' and deleted_at is null and id<>${from.id} order by service_date desc, trip_number limit 20`;
-      for (const e of earlier) {
-        await van("loads/copy", { tripId: t.id, fromTripId: e.id }, `recopy-load:${t.id}:${e.id}`);
-        plan = await planOfTrip();
-        if (!(plan.attention ?? []).length) break;
-      }
-    }
-    // Lines whose only lots are quarantined or near expiry cannot be approved: the office sets them to 0.
-    const bad = await unissuable(plan);
-    if (bad.length)
-      await van(
-        "loads/edit",
-        { tripId: t.id, lines: bad.map((/** @type {any} */ l) => ({ productId: l.product_id, quantityBase: "0" })) },
-        `edit-clean-load:${t.id}:${bad.map((/** @type {any} */ l) => l.product_id).sort().join(",")}`,
-      );
-    return "created";
+    return (await ensureCleanLoad(t)) === "created" ? "created" : did;
   },
   async () => {
-    const t = await cleanLoadTrip();
-    const plan = t && (await one(db`select state,attention from van_planned_loads where trip_id=${t.id} order by created_at desc limit 1`));
-    return {
-      trip: t ? `${t.trip_number}/${t.status}` : null,
-      suggestedLoad: plan?.state === "suggested",
-      clean: plan ? (plan.attention ?? []).length === 0 : false,
-      issuable: plan
-        ? (
-            await one(
-              db`select count(*)::int n from van_planned_load_lines where planned_load_id=(select id from van_planned_loads where trip_id=${t.id} order by created_at desc limit 1) and coalesce(approved_base,suggested_base)>0`,
-            )
-          ).n
-        : 0,
-    };
+    const t = await cleanLoadTrip(AGENT3);
+    const c = await checkCleanLoad(t);
+    // Both clean loads can be approved together (released, unexpired depot lots cover the sum).
+    const first = await cleanLoadTrip(AGENT);
+    const lines = t && first
+      ? await db`select l.product_id,sum(coalesce(l.approved_base,l.suggested_base))::bigint as q from van_planned_load_lines l join van_planned_loads p on p.id=l.planned_load_id
+          where p.trip_id in ${db([t.id, first.id])} and p.state='suggested' group by 1 having sum(coalesce(l.approved_base,l.suggested_base))>0`
+      : [];
+    let together = lines.length > 0;
+    if (together) {
+      const { eligibleFreeBase } = await import(
+        new URL("../../../apps/api/src/domains/inventory/eligible.js", import.meta.url).href
+      );
+      const free = await eligibleFreeBase(db, t.source_location_id, lines.map((/** @type {any} */ l) => l.product_id), { org: "sunpride" });
+      together = lines.every((/** @type {any} */ l) => Number(l.q) <= (free.get(l.product_id) ?? 0));
+    }
+    return { ...c, bothLoadsIssuableTogether: together };
   },
 );
 
@@ -2488,5 +2551,107 @@ section(
       noCountsYet: counts ? counts.n === 0 : false,
       stockLedgerMatchesTruck: ledger,
     };
+  },
+);
+
+// ================================================================ r6 A6: last fixtures (SP-0169)
+// ---------------------------------------------------------------- WEB-088: a supervisor-PIN discount override at a till, waiting for Decide
+// Decide reviews void/refund/price/discount overrides approved at the till (decide/index.js). A real one needs a
+// PIN-signed phone op, so the kit writes the till's override log row (marked sample row) on North-01: van3@trial
+// cashier, supervisor@ approved it with their PIN. manager@ (not involved) reviews it.
+const OVERRIDE_ID = uid("r6-till-override-1");
+section(
+  "r6-till-override",
+  ["WEB-088"],
+  async () => {
+    const have = await one(db`select id from store_overrides where id=${OVERRIDE_ID}`);
+    if (have) return "kept";
+    const reg = await registerFor(NORTH.code);
+    if (!reg) throw new Error("North-01 register is missing");
+    const sup = await profile(SUPERVISOR);
+    const cash = await profile(VAN3_R6);
+    const pin = await one(db`select id from store_supervisor_pins where profile_id=${sup.id} and effective_to is null order by effective_from desc limit 1`);
+    if (!pin) throw new Error("supervisor@ has no store PIN");
+    const at = new Date(Date.now() - 10 * 60_000);
+    await tx(db, async (/** @type {any} */ t) => {
+      await t`insert into store_overrides(id,register_id,kind,method,supervisor_profile_id,supervisor_pin_id,cashier_profile_id,reason,amount_centavos,ref_type,ref_id,captured_at)
+        values(${OVERRIDE_ID},${reg.id},'discount','pin_online',${sup.id},${pin.id},${cash.id},${"Damaged label, 10% off agreed with the customer"},5000,'sale',${`${TAG}-TILL-DISCOUNT-1`},${at}) on conflict(id) do nothing`;
+      await t`insert into sample_data_rows(id,batch,table_name,row_id,key,created_at,updated_at) values(${uid("r6-till-override-marker")},${BATCH_R6},'store_overrides',${OVERRIDE_ID},${"store_overrides:trial-td-r6-till-override"},now(),now()) on conflict do nothing`;
+    });
+    return "created";
+  },
+  async () => {
+    const o = await one(db`select o.kind,o.method,r.terminal_code from store_overrides o join store_registers r on r.id=o.register_id where o.id=${OVERRIDE_ID}`);
+    const decided = await one(db`select count(*)::int n from decide_log where kind='override_review' and ref_id=${OVERRIDE_ID}`);
+    return {
+      override: o ? `${o.terminal_code} ${o.kind}/${o.method}` : null,
+      waitingInDecide: o ? decided.n === 0 : false,
+    };
+  },
+);
+
+// ---------------------------------------------------------------- POS-044: a transfer shipped to Colon (Receive all shipped on the till)
+section(
+  "r6-colon-shipped",
+  ["POS-044"],
+  async () => {
+    const ref = `${TAG}-XFER-COLON`;
+    const before = await xfer(ref);
+    if (before && before.status !== "requested" && before.status !== "approved") return "kept";
+    const depot = await location("SMP-DEPOT");
+    const colon = await location("SAMPLE-CEBU-COLON");
+    const transit = await one(
+      db`select id from inventory_locations where type='in_transit' and active and deleted_at is null and org_unit_id is not distinct from ${depot.org_unit_id} order by code limit 1`,
+    );
+    if (!transit) throw new Error("no in-transit place (run the transfers section first)");
+    // A product with released, unexpired depot lots (dispatch allocates lots).
+    const p = await one(db`select b.product_id as id from inventory_lot_balances b join inventory_lots l on l.id=b.lot_id join products p on p.id=b.product_id
+      where b.location_id=${depot.id} and b.stock_status='available' and l.quality_status='released' and p.active and (l.expires_at is null or l.expires_at>now()+interval '60 days')
+      group by b.product_id,p.code having sum(b.available_base)>=120 order by p.code limit 1`);
+    if (!p) throw new Error("the depot has no eligible lot stock for the Colon transfer");
+    await transfer(ref, "shipped", colon, depot, transit, p, 24);
+    return "created";
+  },
+  async () => {
+    const r = await xfer(`${TAG}-XFER-COLON`);
+    return { shippedToColon: r?.status === "shipped" };
+  },
+);
+
+// ---------------------------------------------------------------- VAN-012: van3's dispatched load, a whole-line short is above the load-out tolerance
+// VAN-011 passed in round 6c; van3's load is now for VAN-012. Counting 0 on the first line must be above tolerance
+// (approval_tolerances load_out_difference) so the seller's count goes back to the clerk (recount).
+section(
+  "r6-van-load-over-tolerance",
+  ["VAN-012"],
+  async () => "kept",
+  async () => {
+    const s3 = await profile(VAN3_R6);
+    const [t] = await tripOf(s3.id);
+    const plan = t && (await one(db`select id,state,load_id from van_planned_loads where trip_id=${t.id} order by created_at desc limit 1`));
+    const tol = await one(db`select max_centavos,max_cases from approval_tolerances where event='load_out_difference' and effective_from<=now() order by is_default asc, effective_from desc limit 1`);
+    const line = plan && (await one(db`select p.code,p.name,sum(a.dispatched_base)::bigint q,sum(a.unit_cost_minor*a.dispatched_base/greatest(a.quantity_scale,1))::bigint c
+      from stock_transfer_allocations a join van_trip_loads l on l.stock_transfer_id=a.transfer_id join products p on p.id=a.product_id
+      where l.id=${plan.load_id} and a.dispatched_base>0 group by p.code,p.name order by c desc limit 1`));
+    const above = line && tol ? (tol.max_centavos != null && Number(line.c) > Number(tol.max_centavos)) : false;
+    return {
+      van3Load: plan ? `${t.trip_number}/${plan.state}` : null,
+      canAccept: plan?.state === "dispatched",
+      countZeroOn: line ? `${line.code} ${line.name}: 0 of ${line.q} pcs (cost ${(Number(line.c) / 100).toFixed(2)} > tolerance ${tol ? Number(tol.max_centavos) / 100 : "?"})` : null,
+      aboveTolerance: above,
+    };
+  },
+);
+
+// ---------------------------------------------------------------- WEB-118: Ana's December plan is approvable (r6web4 seed fix)
+section(
+  "r6-ana-december-plan",
+  ["WEB-118"],
+  async () => "kept",
+  async () => {
+    const r = await one(db`select count(distinct p.id)::int plans, count(s.id)::int slots,
+        count(s.id) filter (where s.route_id is not null and not exists(select 1 from route_salespeople rs where rs.route_id=s.route_id and rs.profile_id=p.assignee_profile_id and rs.deleted_at is null))::int off
+      from coverage_plans p join coverage_plan_slots s on s.plan_id=p.id where p.status='submitted'`);
+    return { submittedPlan: r.plans, slots: r.slots, onServedRoutesOnly: r.slots > 0 && r.off === 0 };
   },
 );

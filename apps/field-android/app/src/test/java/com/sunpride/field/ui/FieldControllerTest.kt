@@ -54,6 +54,8 @@ class FieldControllerTest {
         override fun refreshEnrollment(signer: DeviceSigner) = results.removeFirst()()
         var endedReason: String? = null
         override fun endedSessionReason() = endedReason
+        var unsent = 0
+        override fun unsentOnPhone() = unsent
         val teamCalls = mutableListOf<Boolean>()
         var teamError: Exception? = null
         override fun team(directOnly: Boolean): com.sunpride.field.ui.team.TeamView {
@@ -220,6 +222,26 @@ class FieldControllerTest {
         assertEquals(EnrollmentState.SignedOut, c.state)
         assertEquals(AuthFailure.PHONE_REMOVED, c.error)
         assertEquals("local work is never torn down on an ended session", 0, b.signOuts)
+    }
+
+    // FLD-014/E2E-004: the queued check-in stays visible as unsent work after the office removed the phone, both when
+    // the sync finds the session ended and when signing in again on the removed phone is refused.
+    @Test fun `FLD-014 removed phone shows the unsent count on sign in and refused sign-in`() = run { c, b, _ ->
+        b.results += { EnrollmentState.Ready("dev1") }
+        c.signIn("a@example.test", "p").join()
+        b.unsent = 1
+        b.todayAction = { throw sessionEndedFailure(removed = true) }
+        c.syncNow().join()
+        assertEquals(EnrollmentState.SignedOut, c.state)
+        assertEquals(AuthFailure.PHONE_REMOVED, c.error)
+        assertEquals(1, c.unsentOnPhone)
+        b.unsent = 2
+        b.signInError = AuthFailure(AuthFailure.Kind.REFUSED, removed = true)
+        c.signIn("a@example.test", "p").join()
+        assertEquals(EnrollmentState.SignedOut, c.state)
+        assertEquals(AuthFailure.PHONE_REMOVED, c.error)
+        assertEquals(2, c.unsentOnPhone)
+        assertEquals(0, b.signOuts)
     }
 
     @Test fun `FLD-171 sync now after a password change elsewhere says the session ended`() = run { c, b, _ ->

@@ -33,6 +33,8 @@ class TripCloseStore(private val store: RoomVanStore) {
         .firstOrNull { it.tripId == tripId && it.kind == "trip.start" }
         ?.let { JSONObject(it.operationJson).getJSONObject("payload").optDouble("odometerKm").takeIf { km -> !km.isNaN() } }
         ?: RouteOpsStore(store).snapshot()?.optJSONObject("tripFacts")?.optDouble("startOdometerKm")?.takeIf { !it.isNaN() }
+        // VAN-081: a trip started on another phone or before this install: the office's start reading.
+        ?: dao.meta(s, d)?.policyJson?.let { TripCloseRules.startFromPolicy(JSONObject(it)) }
 
     suspend fun closed(tripId: String): Boolean = dao.tripClose(s, d, tripId) != null
 

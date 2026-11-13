@@ -65,6 +65,18 @@ const initial = (): Filters => ({
   q: "",
   view: "",
 });
+/** CROSS r6: a shared /orders?status=…&view=… link applies its filters on load (unknown keys ignored). */
+export function filtersFromSearch(search: string): Filters {
+  const base = initial();
+  const params = new URLSearchParams(search);
+  for (const key of Object.keys(base) as (keyof Filters)[]) {
+    const value = params.get(key);
+    if (value !== null && value.trim()) base[key] = value.trim();
+  }
+  return base;
+}
+const initialFromUrl = (): Filters =>
+  filtersFromSearch(typeof window === "undefined" ? "" : window.location.search);
 /** WEB-106: "1 captured phone order …" / "2 captured phone orders …". */
 export const fieldReviewHeading = (n: number) =>
   `${n} captured phone order${n === 1 ? "" : "s"} waiting for commercial review`;
@@ -104,7 +116,7 @@ export function OrdersWorkspace({
   initialOrderId = null,
 }: { initialOrderId?: string | null } = {}) {
   const { can } = usePermissions();
-  const [filters, setFilters] = useState(initial);
+  const [filters, setFilters] = useState(initialFromUrl);
   const [cursors, setCursors] = useState<string[]>([]);
   const [selected, setSelected] = useState<string | null>(initialOrderId);
   const closeDrawer = useCallback(() => setSelected(null), []);

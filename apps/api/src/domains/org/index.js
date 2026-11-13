@@ -251,7 +251,8 @@ export function install(router, platform) {
           );
         throw error;
       });
-      for (const topic of ["org", "people", "outlets", "catalog"])
+      // "me": role, scope or status may have changed for someone signed in (web session refetch).
+      for (const topic of ["org", "people", "outlets", "catalog", "me"])
         await c.publish(topic);
       return result?.value ?? null;
     });

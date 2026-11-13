@@ -7,6 +7,7 @@ import {
   pesos,
   tripCsv,
   settlementLabel,
+  tripStageLabel,
 } from "./trips-workspace";
 import type { TripSettlement, TripsDay } from "./model";
 
@@ -303,4 +304,19 @@ describe("owner truck settlement", () => {
     expect(html).toContain("Cost not set");
     expect(html).not.toContain("value_centavos");
   });
+});
+
+// VAN-083 (r6van5): the office sees that a counted trip waits for its cash receipt, not just "needs close".
+it("says a counted trip is waiting for the office cash receipt", () => {
+  const cash = (remitted: number | null) =>
+    ({ declaredCentavos: 1205401, remittedCentavos: remitted }) as never;
+  expect(tripStageLabel({ status: "reconciling", cash: cash(null) })).toBe(
+    "Waiting for cash receipt",
+  );
+  expect(tripStageLabel({ status: "reconciling", cash: cash(1205401) })).toBe(
+    "Cash received · waiting for the seller's phone to close",
+  );
+  expect(tripStageLabel({ status: "closed", cash: cash(1205401) })).toBe(
+    "Settled",
+  );
 });

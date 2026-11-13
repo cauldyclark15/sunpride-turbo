@@ -269,6 +269,18 @@ test("F-120 no-order closes require a snapshotted controlled reason for every ou
     ).toBe("rejected");
   expect((await push(f, await end(f, id)))[0].status).toBe("applied");
 });
+// agent1 SMP-C0293: a merchandiser call is execution-only (no order, no no-order reason list to pick from), so its
+// End is accepted without a no-order reason; a selling call still needs one.
+test("merchandiser call ends without a no-order reason; a selling call still needs one", async () => {
+  const f = await fixture();
+  const s = await start(f);
+  const id = s.result.ack.entityId;
+  await h.db`update call_executions set definition_snapshot=definition_snapshot || ${{ channelProfile: "merchandiser" }}::jsonb,
+    reasons_snapshot='[]'::jsonb where visit_id=${id} or id::text=${id}`;
+  expect(
+    (await push(f, await end(f, id, { zeroSaleReason: null })))[0].status,
+  ).toBe("applied");
+});
 test("F-207 class dwell is frozen at start; short calls require a reason and independent review", async () => {
   const f = await fixture();
   const s = await start(f),

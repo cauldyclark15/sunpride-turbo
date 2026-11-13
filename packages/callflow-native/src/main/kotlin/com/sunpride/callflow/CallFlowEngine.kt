@@ -12,8 +12,11 @@ object CallFlowEngine {
     fun outsideRadius(message: String?) = message == OUTSIDE_RADIUS
     /** The no-order refusal: the visit screen scrolls to the "No order this call" choices after this one. */
     const val NO_ORDER_REASON = "Choose a no-order reason from the list."
+    /** Merchandiser calls are execution-only: they take no order, so they never need a no-order reason. */
+    fun executionOnly(config: JSONObject?): Boolean =
+        config?.optJSONObject("definition")?.optString("channelProfile") == "merchandiser"
     fun missingNoOrderReason(config: JSONObject, hasOrder: Boolean, zeroSaleReason: String?) =
-        !hasOrder && objects(config.getJSONArray("reasons")).none { it.getString("code") == zeroSaleReason }
+        !executionOnly(config) && !hasOrder && objects(config.getJSONArray("reasons")).none { it.getString("code") == zeroSaleReason }
     private fun refuse(message: String): Nothing = throw CallFlowRefused(message)
     fun objects(a: JSONArray): List<JSONObject> = (0 until a.length()).map(a::getJSONObject)
     fun validate(config: JSONObject): JSONObject {

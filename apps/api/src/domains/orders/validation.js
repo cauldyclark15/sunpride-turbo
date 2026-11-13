@@ -8,14 +8,18 @@ export function decimalMoney(value) {
   const n = BigInt(integer(value, "Amount", MAX_CENTAVOS));
   return `${n / 100n}.${String(n % 100n).padStart(2, "0")}`;
 }
-/** @param {string} message @param {string} [code] */
-export function fail(message, code = "invalid_request") {
-  throw new ApiError(code, 422, message);
+/** `review` is the structured reason a captured phone order lands in Field order review (WEB-106).
+ * @param {string} message @param {string} [code] @param {string} [review] @returns {never} */
+export function fail(message, code = "invalid_request", review) {
+  const error = new ApiError(code, 422, message);
+  // Internal only: never part of the response envelope.
+  if (review) Object.assign(error, { reviewCode: review });
+  throw error;
 }
 /** @param {any} v @param {string} label @param {number} [max] */
 export function text(v, label, max = 500) {
-  if (typeof v !== "string" || !v.trim() || v.length > max)
-    fail(`${label} is required (up to ${max} characters)`);
+  if (typeof v !== "string" || !v.trim()) fail(`${label} is required`);
+  if (v.length > max) fail(`${label} is too long (up to ${max} characters)`);
   return v.trim();
 }
 /** @param {any} v @param {string} [label] */
@@ -62,11 +66,11 @@ export function date(s) {
 export function quantityMilli(v) {
   const s = String(v);
   if (!/^\d+(\.\d{1,3})?$/.test(s))
-    fail("Quantity must be positive with at most three decimal places");
+    fail("Quantity must be positive with at most three decimal places", undefined, "bad_quantity");
   const [whole = "0", decimals = ""] = s.split(".");
   const n = BigInt(whole) * 1000n + BigInt(decimals.padEnd(3, "0"));
   if (n <= 0n || n > 1_000_000_000n)
-    fail("Quantity must be between zero and one million units");
+    fail("Quantity must be between zero and one million units", undefined, "bad_quantity");
   return n;
 }
 /** @param {bigint} n */

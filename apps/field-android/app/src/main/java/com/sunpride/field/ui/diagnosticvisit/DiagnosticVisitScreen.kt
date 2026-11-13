@@ -236,7 +236,8 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                 controller.retailCall?.let { call ->
                     SectionCard("Availability · required") {
                         Column(Modifier.padding(16.dp)) {
-                            com.sunpride.retail.RetailAvailabilityStep(call,controller.busy,controller.retailSaved) { answers,quantities -> controller.saveRetail(answers,quantities) }
+                            com.sunpride.retail.RetailAvailabilityStep(call,controller.busy,controller.retailSaved,
+                                ordering = !controller.executionOnlyCall) { answers,quantities -> controller.saveRetail(answers,quantities) }
                         }
                     }
                 }
@@ -248,15 +249,21 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                     else ListRow("Call sheet", "Quantities for this visit", "activity",
                         Modifier.testTag("call-sheet-open"), onClick = { controller.openCallSheet() })
                 }
-                if (flow?.getJSONObject("definition")?.optString("channelProfile") != "merchandiser") SectionCard("Order") {
+                // A merchandiser call takes no order; an older build's unsent draft still shows so it can be discarded.
+                if (!controller.executionOnlyCall || controller.visitOrderDrafts.any { it.submittedRequestId == null }) SectionCard("Order") {
                     controller.visitOrderDrafts.forEach { draft ->
                         val status = controller.orderStatus(draft)
                         ListRow(if (draft.submittedRequestId == null) "Edit order" else "Order",
-                            "${draft.lines.size} product${if (draft.lines.size == 1) "" else "s"} · ${status.label}",
+                            "${draft.lines.size} product${if (draft.lines.size == 1) "" else "s"} · ${status.label}" +
+                                (controller.orderRejectionReason(draft)?.let { " · $it" } ?: ""),
                             "activity", Modifier.testTag(if (draft.submittedRequestId == null) "order-draft" else "order-sent"),
                             onClick = { controller.openOrder(draft.draftId) })
                     }
-                    if (controller.diagnosticCallSheet == null) Text(
+                    if (controller.executionOnlyCall) Text(
+                        "This merchandising call takes no order. Open the draft and discard it.",
+                        Modifier.padding(16.dp).testTag("order-execution-only"),
+                        style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    else if (controller.diagnosticCallSheet == null) Text(
                         "No products set up for this account yet. Ask your office.",
                         Modifier.padding(16.dp).testTag("order-unavailable"),
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
@@ -359,7 +366,8 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
             if (checkedOut && controller.visitOrderDrafts.isNotEmpty()) SectionCard("Order") {
                 controller.visitOrderDrafts.forEach { draft ->
                     ListRow(if (draft.submittedRequestId == null) "Order draft" else "Order",
-                        "${draft.lines.size} product${if (draft.lines.size == 1) "" else "s"} · ${controller.orderStatus(draft).label}",
+                        "${draft.lines.size} product${if (draft.lines.size == 1) "" else "s"} · ${controller.orderStatus(draft).label}" +
+                            (controller.orderRejectionReason(draft)?.let { " · $it" } ?: ""),
                         "activity", Modifier.testTag("order-draft-closed"),
                         onClick = if (draft.submittedRequestId == null) null else { { controller.openOrder(draft.draftId) } })
                 }

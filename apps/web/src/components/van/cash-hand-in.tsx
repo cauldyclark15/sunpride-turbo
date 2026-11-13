@@ -51,7 +51,12 @@ export function CashHandIn({ trip }: { trip: TripSettlement }) {
       onSubmit={submit}
       className="mt-4 grid gap-3 rounded-lg border border-separator p-4 print:hidden"
     >
-      <strong className="text-sm">Confirm the office received this cash</strong>
+      <strong className="text-sm">Waiting for cash receipt</strong>
+      <p className="text-xs">
+        The seller's phone cannot close this trip until the office confirms
+        it received the cash. After you confirm, the phone sends the close
+        again by itself.
+      </p>
       <p className="text-xs text-muted">
         A seller's count is not a remittance. Confirm only after checking the
         cash and hand-in reference. A different person must receive it.

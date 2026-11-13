@@ -24,7 +24,8 @@ class VanSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorke
                 !repository.sessionState.value.signedIn -> Result.success()
                 repository.sessionState.value.offlinePending -> Result.retry()
                 repository.enrollmentState.value !is com.sunpride.van.auth.EnrollmentState.Ready -> Result.success()
-                else -> { repository.syncNow(); Result.success() }
+                // VAN-083: a close waiting for the office's cash receipt is sent again with backoff, without a tap.
+                else -> { repository.syncNow(); if (repository.closeWaitsForOffice()) Result.retry() else Result.success() }
             }
         } catch (e: kotlinx.coroutines.CancellationException) { throw e }
         catch (e: VanSyncFailure) { if (e.retryable) Result.retry() else Result.failure() }

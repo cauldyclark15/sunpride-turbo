@@ -180,6 +180,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         private set
     /** VAN-024: the trip is closed on this phone; nothing more is recorded on it. */
     var tripClosed by mutableStateOf(false)
+    var closeOffice by mutableStateOf(com.sunpride.van.pos.CloseOffice.NOT_CLOSED)
         private set
     /** VAN-024: what Close trip shows; refreshed whenever the page opens, after a sync and after closing. */
     var closeSummary by mutableStateOf<TripCloseSummary?>(null)
@@ -240,6 +241,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.cashCounted.collect { cashCounted = it } }
         launch { repository.stockCounted.collect { stockCounted = it } }
         launch { repository.tripClosed.collect { tripClosed = it; refreshSharing() } }
+        launch { repository.closeOffice.collect { closeOffice = it } }
         launch { repository.storeScope.collect { storeScope = it; refreshSharing() } }
         launch { repository.pendingPings.collect { pendingPings = it } }
         launch { fingerprint = try { fingerprintLoader() } catch (_: Exception) { "Unavailable. Check again." } }
@@ -1123,7 +1125,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         try {
             repository.closeTrip(TripCloseRequest(draft.closeId,summary.checklist.reviewCode.takeIf { draft.reviewed },km,draft.note.takeIf { it.isNotBlank() }))
             closeSummary = repository.closeSummary()
-            message = "Trip closed on this phone. Hand the cash and truck to the office."
+            message = "Trip closed on this phone. Hand the cash and truck to the office. The office confirms the cash, then the trip closes there."
         } catch (e: TripCloseRefused) {
             message = VanRules.closeMessage(e.problem)
             if (e.problem == CloseProblem.EXCEPTIONS_CHANGED) closeDraft = draft.copy(reviewed = false)
@@ -1145,7 +1147,9 @@ data class CashDraft(val reconciliationId: String, val pieces: Map<Long,String> 
 data class StockDraft(val reconciliationId: String, val counts: Map<Pair<String,String>,String> = emptyMap(),
     val reasons: Map<Pair<String,String>,String?> = emptyMap(), val note: String = "", val code: String = "",val batchCounts: Map<String,String> = emptyMap())
 /** VAN-024 Close trip form: the seller ticked "I have checked these", end odometer text and note. */
-data class CloseDraft(val closeId: String, val reviewed: Boolean = false, val odometer: String = "", val note: String = "")
+data class CloseDraft(val closeId: String, val reviewed: Boolean = false, val odometer: String = "", val note: String = "",
+    /** VAN-081: typed only when the phone does not know the trip's start reading. */
+    val startOdometer: String = "")
 const val LOCATION_OFF_MESSAGE = "Location sharing is off. Allow location for Sunpride Van (and turn location on), then check Today."
 const val TRIP_CLOSED_MESSAGE = "This trip is closed on this phone. Nothing more can be recorded on it."
 const val REFUND_FAILED = "The refund could not be saved. Nothing was taken. Try again, or sync and try again."

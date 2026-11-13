@@ -131,7 +131,7 @@ export async function quote(ctx, input) {
     !input.lines.length ||
     input.lines.length > 100
   )
-    fail("Add 1–100 product lines");
+    fail("Add 1–100 product lines", undefined, "bad_phone_record");
   const seen = new Set();
   const priced = [];
   for (const raw of input.lines) {
@@ -142,10 +142,11 @@ export async function quote(ctx, input) {
       !product ||
       (product.organization_id && product.organization_id !== ORGANIZATION)
     )
-      fail("Product not available");
+      fail("Product not available", undefined, "product_unavailable");
     const uom = text(raw.uom ?? product.uom, "Selling unit", 32);
     const key = `${product.id}|${uom}`;
-    if (seen.has(key)) fail("Each product/unit may appear once");
+    if (seen.has(key))
+      fail("Each product/unit may appear once", undefined, "bad_phone_record");
     seen.add(key);
     const milli = quantityMilli(raw.quantity);
     const quantity = Number(milli) / 1000;
@@ -197,7 +198,11 @@ export async function quote(ctx, input) {
   );
   // Freeze NET line facts too: analytics sum(order_lines) must equal order.total.
   if (promo.knownSubtotalCentavos > MAX_CENTAVOS)
-    fail("Order amount exceeds the supported accounting range");
+    fail(
+      "Order amount exceeds the supported accounting range",
+      undefined,
+      "amount_too_large",
+    );
   // F-511: capture is a priced draft, not financial permission. The same Fiscal
   // matrix consumes exact persisted facts on independent approval, for ALL schemes.
 
@@ -215,7 +220,11 @@ export async function quote(ctx, input) {
         at: input.at ?? ctx.now,
       });
       if (price.unitPriceCentavos == null)
-        fail("A free product needs a governed reference price before approval");
+        fail(
+          "A free product needs a governed reference price before approval",
+          undefined,
+          "missing_price",
+        );
       gift.referenceValueCentavos = safe(
         BigInt(integer(price.unitPriceCentavos)) * BigInt(gift.quantity),
       );
@@ -258,7 +267,11 @@ export async function quote(ctx, input) {
     const [p] =
       await ctx.db`select * from products where id = ${uuid(gift.productId)} and active and deleted_at is null`;
     if (!p || (p.organization_id && p.organization_id !== ORGANIZATION))
-      fail("The promotion's free product is unavailable");
+      fail(
+        "The promotion's free product is unavailable",
+        undefined,
+        "product_unavailable",
+      );
     gift.productName = p.name;
     gift.productCode = p.code;
     net.push({
@@ -306,7 +319,7 @@ export async function createOrder(ctx, input, options = {}) {
   const customerCode = text(input.customerCode, "Customer", 100);
   const [customer] =
     await ctx.db`select * from customers where code = ${customerCode} and active and deleted_at is null for update`;
-  if (!customer) fail("Customer not available");
+  if (!customer) fail("Customer not available", undefined, "unknown_store");
   let unit = ctx.actor.orgUnitId;
   let territoryId = null;
   let outletId = null;
@@ -320,7 +333,7 @@ export async function createOrder(ctx, input, options = {}) {
     const links =
       await ctx.db`select customer_id from outlet_customer_links where outlet_id = ${input.outletId} and deleted_at is null and effective_from <= now() and (effective_to is null or effective_to > now())`;
     if (links.length !== 1 || links[0].customer_id !== customer.id)
-      fail("Store is not linked to this customer");
+      fail("Store is not linked to this customer", undefined, "unknown_store");
     unit = store.unit;
     sellingChannel = store.outlet.channel ?? customer.channel;
     territoryId = store.assignment?.territory_id ?? null;
@@ -339,7 +352,8 @@ export async function createOrder(ctx, input, options = {}) {
   const [person] = input.salespersonProfileId
     ? await ctx.db`select * from profiles where id = ${uuid(input.salespersonProfileId)} and status = 'active' and deleted_at is null`
     : await ctx.db`select * from profiles where id = ${ctx.actor.profileId} and status = 'active' and deleted_at is null`;
-  if (!person) fail("Salesperson not available");
+  if (!person)
+    fail("Salesperson not available", undefined, "person_inactive");
   await scoped(
     ctx,
     input.outsideCallId || officeIntake ? "order.encode" : "order.create",

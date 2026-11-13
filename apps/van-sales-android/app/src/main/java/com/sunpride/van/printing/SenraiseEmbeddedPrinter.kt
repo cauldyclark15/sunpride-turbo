@@ -31,7 +31,10 @@ import recieptservice.com.recieptservice.PrinterInterface
 class SenraiseEmbeddedPrinter(
     context: Context,
     private val bindTimeoutMillis: Long = 5_000,
+    /** VAN-002: how long after a job the service's own "Paper is not ready" alert is waited for. */
+    private val alertWindowMillis: Long = 1_500,
 ) : ReceiptPrinter {
+    @Volatile private var paperAlert = false
     private val context = context.applicationContext
     private val operations = Mutex()
     private val stateLock = Any()
@@ -157,6 +160,7 @@ class SenraiseEmbeddedPrinter(
                     val barcodeImages = commands.filterIsInstance<ReceiptCommand.Barcode>().associateWith {
                         barcodeBitmap(it.value).also(bitmaps::add)
                     }
+                    val started = android.os.SystemClock.elapsedRealtime()
                     service.beginWork()
                     begun = true
                     service.setTextSize(24f) // 384 dots / 12-dot ASCII cell = 32 columns.
@@ -185,7 +189,9 @@ class SenraiseEmbeddedPrinter(
                     setStyle(service, ReceiptStyle())
                     service.endWork()
                     begun = false
-                    PrintResult.Success
+                    // VAN-002: the service accepts the job, then shows its own alert when there is no paper.
+                    paperAlert = PrinterAlertWatch.awaitAlert(started, alertWindowMillis, android.os.SystemClock::elapsedRealtime, { kotlinx.coroutines.delay(it) })
+                    if (paperAlert) PrintResult.Error(PrinterStatus.PaperOut, mayHavePrinted = false) else PrintResult.Success
                 } catch (failure: Exception) {
                     if (failure is CancellationException) throw failure
                     lastStatus = failureStatus(failure)
@@ -228,7 +234,8 @@ class SenraiseEmbeddedPrinter(
     /** The vendor ABI has no paper query: the service shows its own "no paper" dialog instead (VersionCallback is internal). */
     override suspend fun diagnostics(): PrinterDiagnostics {
         val state = connect()
-        return PrinterDiagnostics(state, PaperState.NOT_REPORTED, if (state is PrinterStatus.Ready) scannerStatus() else null)
+        return PrinterDiagnostics(state, PaperState.NOT_REPORTED, if (state is PrinterStatus.Ready) scannerStatus() else null,
+            if (paperAlert) listOf(PrinterWords.LAST_JOB_PAPER_ALERT) else emptyList())
     }
 
     override suspend fun cut(): PrintResult = PrintResult.Unsupported("H10P has no cutter; use ReceiptElement.Feed")

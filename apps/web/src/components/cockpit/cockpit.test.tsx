@@ -34,6 +34,7 @@ import { SalesView } from "./pages/sales";
 import { StockView, stockColumns, stockFromValuation } from "./pages/stock";
 import { StoresView, StoreView } from "./pages/stores";
 import { TodayView } from "./pages/today";
+import { canAccessWebModule } from "@/lib/module-access";
 import { VansView } from "./pages/vans";
 import type { Kpi } from "./types";
 
@@ -47,6 +48,15 @@ const kpiValues = (kpis: Kpi[]) =>
 afterEach(() => vi.unstubAllEnvs());
 
 describe("pages render their contract fixture", () => {
+  it("r6: Today offers 'Open all in Decide' only to roles that can open Decide", () => {
+    const data = analyticsFixture("today", { date: MTD.to }, NOW);
+    expect(html(<TodayView data={data} />)).toContain("Open all in Decide");
+    expect(html(<TodayView data={data} canOpenDecide={false} />)).not.toContain(
+      "Open all in Decide",
+    );
+    expect(canAccessWebModule("decide", "sales")).toBe(false);
+    expect(canAccessWebModule("decide", "manager")).toBe(true);
+  });
   it("an empty selected-day channel panel never claims the month has no sales", () => {
     const data = analyticsFixture("today", { date: MTD.to }, NOW);
     data.byChannel = [];

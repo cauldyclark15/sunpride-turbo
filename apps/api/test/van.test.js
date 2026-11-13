@@ -535,33 +535,34 @@ test("cash variance approval, close and unload are atomic and auditable", async 
   const unremitted = /** @type {any} */ (await beforeHandIn.json());
   expect(unremitted.cash.declaredCentavos).toBe(90000);
   expect(unremitted.cash.remittedCentavos).toBeNull();
-  const refusedClose = await push([
-    op("trip.close", {
-      tripId: trip.tripId,
-      closeId: crypto.randomUUID(),
-      exceptionsReviewed: true,
-      operations: [],
-    }),
-  ]);
-  expect(refusedClose.body.results[0].status).toBe("rejected");
+  // VAN-083 (r6van5): before the office receipt the close is a temporary refusal: nothing is stored, and the phone
+  // sends the SAME close again after the office has received the cash.
+  const close = op("trip.close", {
+    tripId: trip.tripId,
+    closeId: crypto.randomUUID(),
+    exceptionsReviewed: true,
+    operations: accepted.map((o) => ({
+      kind: o.opType,
+      clientRequestId: o.clientOpId,
+      status: "done",
+    })),
+  });
+  const refusedClose = await push([close]);
+  expect(refusedClose.body.results[0]).toMatchObject({
+    status: "rejected",
+    code: "dependency_missing",
+    retryable: true,
+  });
+  const [stillOpen] =
+    await h.db`select status from van_trips where id=${trip.tripId}`;
+  expect(stillOpen.status).not.toBe("closed");
   const received = await web("cash/remit", {
     tripId: trip.tripId,
     amountMinor: "90000",
     reference: "SAMPLE-HANDIN",
   });
   expect(received.status).toBe(200);
-  await apply(
-    op("trip.close", {
-      tripId: trip.tripId,
-      closeId: crypto.randomUUID(),
-      exceptionsReviewed: true,
-      operations: accepted.map((o) => ({
-        kind: o.opType,
-        clientRequestId: o.clientOpId,
-        status: "done",
-      })),
-    }),
-  );
+  await apply(close);
   expect(postings.at(-1).kind).toBe("van_unload");
   expect(postings.at(-1).lines[0]).toMatchObject({
     quantityBase: 41,
@@ -614,6 +615,25 @@ test("F-616 full van bundle preserves strict legacy products and explicitly nego
   expect(r.res.status).toBe(200);
   const d = r.body.bundles[0].data;
   expect(d.products[0].catalogue).toBeUndefined();
+  // VAN-081 (r6van5): the trip's start odometer rides the policy so a phone that did not start the trip can check it.
+  // Opt-in with params.vanDay: a legacy (frozen v1 schema) pull gets no new policy key.
+  expect(d.policy.tripFacts).toBeUndefined();
+  const [started] =
+    await h.db`select start_odometer_km from van_trips where id=${d.trip.tripId}`;
+  const day = await signedPost(h, who, "/api/sync/pull", {
+    ...request,
+    scopes: request.scopes.map((scope) => ({
+      ...scope,
+      params: { ...scope.params, vanDay: true },
+    })),
+  });
+  expect(day.res.status).toBe(200);
+  expect(day.body.bundles[0].data.policy.tripFacts).toEqual({
+    startOdometerKm:
+      started.start_odometer_km == null
+        ? null
+        : Number(started.start_odometer_km),
+  });
   const extended = await signedPost(h, who, "/api/sync/pull", {
     ...request,
     scopes: request.scopes.map((scope) => ({
@@ -794,6 +814,24 @@ test("damage consumes own trip-bound JPEG, transfers statuses, and independent r
     note: "Verified good stock",
   });
   expect(rejected.status).toBe(200);
+  // WEB-112: the decided record leaves the waiting list and shows in the decided view with outcome and decider.
+  /** @param {string} q */
+  const read = async (q) =>
+    /** @type {any} */ (await (await h.fetch(`/api/v1/van/damage${q}`, { headers: { cookie } })).json());
+  expect(
+    (await read("")).items.some((/** @type {any} */ d) => d.damageId === a.ack.entityId),
+  ).toBe(false);
+  const decided = (await read("?view=decided")).items.find(
+    (/** @type {any} */ d) => d.damageId === a.ack.entityId,
+  );
+  expect(decided).toMatchObject({
+    status: "rejected",
+    decisionNote: "Verified good stock",
+    canDecide: false,
+  });
+  expect(decided.decidedByName).toBeTruthy();
+  expect(decided.decidedByName).not.toBe("Former user");
+  expect(typeof decided.decidedAt).toBe("number");
   expect(postings.at(-1).kind).toBe("reversal");
   expect(postings.at(-1).lines).toEqual([
     {

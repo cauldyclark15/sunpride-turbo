@@ -538,6 +538,20 @@ describe("SP-0170 customer writer", () => {
     expect(r.body.status).toBe("inactive");
     expect((await accounting(id))[0].active).toBe(false);
   });
+  test("EDGE-006/WEB-041 code search is tolerant: anywhere, any case, dashes/spaces, letter O for zero", async () => {
+    /** @param {string} q */
+    const codes = async (q) =>
+      (
+        await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent(q)}`)
+      ).body.rows.map((/** @type {any} */ r) => r.code);
+    for (const q of ["SMP-C0069", "SMP-CO069", "smpc0069", "smp c 0069", "SMP-C-0069", "c0069", "C0O69"])
+      expect([q, await codes(q)]).toEqual([q, expect.arrayContaining(["SMP-C0069"])]);
+    expect(await codes("SMP-C0070")).not.toContain("SMP-C0069");
+    expect(await codes("SMP-C690")).not.toContain("SMP-C0069");
+    // Wildcards stay literal (EDGE-005).
+    expect(await codes("%")).toEqual([]);
+    expect(await codes("_")).toEqual([]);
+  });
   test("list, filters and permissions", async () => {
     const list = await call(
       "viewer",
@@ -734,6 +748,14 @@ describe("SP-0170 customer writer", () => {
       active: true,
     });
     expect(await queue()).not.toContain(outletId);
+    // E2E-006: the approved customer reaches the proposing agent's phone: it is assigned to the agent's current
+    // territory (the coverage the phone's customer list reads), not left without any assignment.
+    const assigned =
+      await h.db`select a.territory_id from outlet_assignments a join territory_salespeople s on s.territory_id=a.territory_id
+        join profiles p on p.id=s.profile_id
+        where a.outlet_id=${outletId} and a.deleted_at is null and a.effective_to is null
+          and p.email='agent@sunpride.test' and s.deleted_at is null and (s.effective_to is null or s.effective_to>now())`;
+    expect(assigned.length).toBe(1);
   });
   test("an approver can reject a field capture (old New store approvals' Reject): inactive, no accounting customer", async () => {
     const [agent] =

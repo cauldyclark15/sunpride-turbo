@@ -36,6 +36,10 @@ export type DamageRow = {
   status: string;
   recordedAt: number;
   canDecide: boolean;
+  /** Present on view=decided rows (WEB-112). */
+  decidedAt?: number | null;
+  decidedByName?: string;
+  decisionNote?: string | null;
 };
 export type Quantity = {
   base: string;

@@ -159,6 +159,9 @@ describe("Receive grid for a transfer", () => {
     const html = wrap(
       createElement(ReceiveGrid, { ...base, rows: over, problems: [] }),
     );
+    // EDGE-030 (r6): an auto-accepted over must not be promised to a supervisor.
+    expect(html).not.toContain("only after a supervisor decides");
+    expect(html).toContain("Inside the allowed difference it is added to your stock at once");
     expect(html).toContain("recorded as over");
     expect(html).toContain("This batch goes On hold, it is not refused.");
   });

@@ -38,6 +38,9 @@ enum class OrderStatus(val label: String) {
     // The office has the order; it is not yet a priced sales order (no price list yet). SP-0124: no
     // "posted" wording; that implies the accounting system, which is out of scope for the beta.
     RECEIVED("Received by office"),
+    // E2E-018: the office's decision, learned on sync. A rejected order is never shown as merely received.
+    APPROVED("Approved by office"),
+    REJECTED("Rejected by office"),
     NEEDS_REVIEW("Not accepted · needs review"),
     NOT_SENT("Not sent · call ended"),
 }
@@ -189,11 +192,18 @@ object OrderSubmission {
     }
 
     /** Outbox state of the draft's request (`pending`/`sending`/`done`/`review`) → what the person sees. */
-    fun status(draft: OrderDraft, rows: List<Pair<IntentRow, String>>): OrderStatus {
+    fun status(draft: OrderDraft, rows: List<Pair<IntentRow, String>>,
+        decisions: Map<String, com.sunpride.field.ui.today.OrderDecision> = emptyMap()): OrderStatus {
         val id = draft.submittedRequestId ?: return if (rows.any {
                 it.first.clientVisitId == draft.clientVisitId && it.first.kind == "visit.checkOut"
             }) OrderStatus.NOT_SENT else OrderStatus.DRAFT
-        return when (rows.firstOrNull { it.first.requestId == id }?.second) {
+        val state = rows.firstOrNull { it.first.requestId == id }?.second
+        // E2E-018: the office's decision wins once known (the order reached it, so the request was delivered).
+        when (decisions[draft.draftId]?.status) {
+            "rejected", "voided" -> return OrderStatus.REJECTED
+            "approved", "posted", "fulfilled" -> return OrderStatus.APPROVED
+        }
+        return when (state) {
             "done" -> OrderStatus.RECEIVED
             "sending" -> OrderStatus.SENDING
             "pending", null -> OrderStatus.QUEUED

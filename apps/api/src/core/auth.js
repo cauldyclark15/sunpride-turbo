@@ -4,7 +4,7 @@ import {
   recordDeviceAssessment,
   requireDeviceIntegrity,
 } from "../domains/integrity/governance.js";
-import { registerSamplePhone } from "./sample-devices.js";
+import { refuseRevokedPhone, registerSamplePhone } from "./sample-devices.js";
 import { capabilitiesFor } from "./capabilities.js";
 import {
   OFFICE_APPS,
@@ -226,6 +226,8 @@ export function installAuth(router) {
         user?.password_hash ?? DUMMY_HASH,
       );
       if (!user || !ok || user.disabled_at) return null;
+      if (native && deviceKeyId)
+        await refuseRevokedPhone(t, user.id, app, deviceKeyId);
       if (native && deviceKeyId)
         await registerSamplePhone(t, user.id, app, body.deviceKey);
       const session = await createSession(t, user.id, app, deviceKeyId);

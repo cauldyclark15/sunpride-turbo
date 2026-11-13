@@ -41,7 +41,7 @@ export async function sellingBundle(db, actor, device, r, opts = {}) {
         })
       : null;
     const lots =
-      await db`select lot_id,stock_status,physical_base,version from inventory_lot_balances where location_id=${r.location_id} and product_id=${p.id} order by lot_id,stock_status limit 101`;
+      await db`select b.lot_id,b.stock_status,b.physical_base,b.version,l.lot_number,l.expires_at from inventory_lot_balances b left join inventory_lots l on l.id=b.lot_id where b.location_id=${r.location_id} and b.product_id=${p.id} order by b.lot_id,b.stock_status limit 101`;
     if (lots.length > 100)
       refuse("Too many stock-count lots; narrow the count");
     catalogue.push({
@@ -81,6 +81,13 @@ export async function sellingBundle(db, actor, device, r, opts = {}) {
       stockLines: lots.length
         ? lots.map((/** @type {any} */ l) => ({
             lotId: l.lot_id,
+            // POS-043: the cashier tells two batches of one product apart by lot and expiry.
+            lotNumber: l.lot_number ?? null,
+            expiresOn: l.expires_at
+              ? new Date(+new Date(l.expires_at) + 8 * 3600_000) // Manila day
+                  .toISOString()
+                  .slice(0, 10)
+              : null,
             stockStatus: l.stock_status,
             quantityBase: String(l.physical_base),
             version: String(l.version),

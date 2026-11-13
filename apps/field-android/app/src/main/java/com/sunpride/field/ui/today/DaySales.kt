@@ -19,7 +19,12 @@ data class DaySales(
     val serviceDate: String, val dailyTarget: Long?, val todaySales: Long, val todayPct: Int?,
     val monthlyTarget: Long?, val mtdSales: Long, val productiveCallRule: String?,
     /** The server sent the calls block but no productive-call rule: it counts no call as productive (fails closed). */
-    val ruleMissing: Boolean = false, val reportedCalls: Int? = null, val reportedProductive: Int? = null)
+    val ruleMissing: Boolean = false, val reportedCalls: Int? = null, val reportedProductive: Int? = null,
+    /** E2E-018: the office's decisions on this seller's own phone orders, by the phone's draft id. */
+    val orderDecisions: Map<String, OrderDecision> = emptyMap())
+
+/** E2E-018: what the office decided on one phone order (`approved`, `rejected`, ...) and its reason when refused. */
+data class OrderDecision(val status: String, val reason: String?)
 
 /** What the Sales card shows: figures (live or saved), or a fixed explanation. Never invented zeros. */
 data class DaySalesView(val sales: DaySales? = null, val savedAt: Long? = null, val message: String? = null)
@@ -46,9 +51,22 @@ object DaySalesCodec {
             calls?.wholeOrNull("calls")?.also { require(it in 0L..200L) }?.toInt(),
             calls?.wholeOrNull("productiveCalls")?.also {
                 require(it in 0L..(calls.wholeOrNull("calls") ?: 0L))
-            }?.toInt())
+            }?.toInt(), decisions(o.optJSONArray("orderDecisions")))
     } catch (e: DaySalesWireFailure) { throw e } catch (_: Exception) { throw DaySalesWireFailure() }
 
+    /** Optional (older servers omit it); a malformed entry is skipped, never shown. */
+    private fun decisions(a: org.json.JSONArray?): Map<String, OrderDecision> {
+        if (a == null) return emptyMap()
+        val out = LinkedHashMap<String, OrderDecision>()
+        for (i in 0 until minOf(a.length(), 500)) {
+            val d = a.optJSONObject(i) ?: continue
+            val id = d.optString("clientOrderId").takeIf { it.isNotBlank() && it.length <= 64 } ?: continue
+            val status = d.optString("status").takeIf { it.isNotBlank() && it.length <= 32 } ?: continue
+            val reason = if (d.isNull("reason")) null else d.optString("reason").trim().take(500).ifBlank { null }
+            out[id] = OrderDecision(status, reason)
+        }
+        return out
+    }
     private fun JSONObject.wholeOrNull(k: String): Long? = when (val v = opt(k)) {
         null, JSONObject.NULL -> null
         is Number -> v.toDouble().takeIf { it.isFinite() && it == Math.floor(it) && Math.abs(it) < 9e15 }?.toLong()

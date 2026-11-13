@@ -157,6 +157,8 @@ object VanBootstrapCodec {
         legacy.getJSONObject("policy").remove("privilegeDiscount")
         // r6van3: the office's pickup decisions on held returns are a negotiated v2 addition (params.pickupDecisions).
         legacy.getJSONObject("policy").remove("pickupDecisions")
+        // VAN-081: retain tripFacts in the cached policy, but never validate it as a frozen v1 key.
+        legacy.getJSONObject("policy").remove("tripFacts")
         // IP-P0: the trip float and the recount facts are negotiated v2 additions to the frozen trip and load.
         legacy.optJSONObject("trip")?.remove(com.sunpride.van.pos.OpeningFloat.FIELD)
         // NF-5: the trip's office-held cash per sale is a v2 handheld addition too (read by CashReconciliationStore).

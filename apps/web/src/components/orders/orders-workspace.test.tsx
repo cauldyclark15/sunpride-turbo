@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   drawerKeys,
   fieldReviewHeading,
+  filtersFromSearch,
   OrderDrawer,
   OrdersWorkspace,
   savedView,
@@ -210,6 +211,24 @@ describe("commercial control workspace", () => {
     const html = renderToStaticMarkup(createElement(OrdersWorkspace));
     expect(html).toContain("Outside your area");
     expect(html).not.toContain("Market Store");
+  });
+  it("r6: a /orders?status=…&view=… link applies its filters on load", () => {
+    const f = filtersFromSearch("?status=pending_approval&view=waiting&bogus=1");
+    expect(f.status).toBe("pending_approval");
+    expect(f.view).toBe("waiting");
+    expect("bogus" in f).toBe(false);
+    // Missing from/to keep the default month window.
+    expect(f.from).toMatch(/^\d{4}-\d{2}-01$/);
+    expect(filtersFromSearch("?from=2026-11-01&to=2026-11-13").to).toBe("2026-11-13");
+  });
+  it("r6: the page reads the URL on first render", () => {
+    vi.stubGlobal("window", { location: { search: "?status=rejected", pathname: "/orders" }, history: { replaceState: vi.fn() } });
+    try {
+      const html = renderToStaticMarkup(createElement(OrdersWorkspace));
+      expect(html).toMatch(/<option value="rejected" selected=""/);
+    } finally {
+      vi.unstubAllGlobals();
+    }
   });
   it("builds the exact saved-view server filters", () => {
     expect(savedView("Waiting for my approval")).toEqual({

@@ -7,6 +7,13 @@ import org.junit.Assert.*
 import org.junit.Test
 
 class VanBootstrapCodecTest {
+    @Test fun tripStartFactsAreAnExtensionNotAFrozenV1Key() {
+        val o = JSONObject(fixture())
+        o.getJSONObject("policy").put("tripFacts", JSONObject().put("startOdometerKm", 48210))
+        assertNotNull(VanBootstrapCodec.decode(o.toString()))
+        assertEquals(48210.0, com.sunpride.van.pos.TripCloseRules.startFromPolicy(o.getJSONObject("policy"))!!, 0.0)
+    }
+
     private fun fixture(name: String = "bootstrap-response.json") = javaClass.classLoader!!.getResourceAsStream(name)!!.bufferedReader().use { it.readText() }
     private fun jsonValue(value: Any): Any = when (value) {
         is JSONObject -> value.keys().asSequence().associateWith { jsonValue(value.get(it)) }

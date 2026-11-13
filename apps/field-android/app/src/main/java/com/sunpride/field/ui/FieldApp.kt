@@ -288,6 +288,12 @@ fun FieldApp(
     androidx.activity.compose.BackHandler(enabled = backStep != BackStep.Exit, onBack = goBack)
     // SP-0147: a chat notification tap opens Messages at its conversation once the app is ready.
     val chatTap = com.sunpride.chat.ui.rememberChatLaunch()
+    // E2E-001: becoming ready (registration finished, sign-in) opens on Today, not a leftover tab.
+    var wasReady by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(ready) {
+        page = FieldNav.pageOnReady(wasReady, ready, page, targeted = chatTap != null)
+        wasReady = ready
+    }
     LaunchedEffect(chatTap, ready) { if (ready && chatTap != null) page = "messages" }
     // Opening the app (or coming back from Settings with permission) restarts a running day's service.
     LaunchedEffect(workDayHost, dayView?.started, dayView?.locationAllowed) {
@@ -344,6 +350,7 @@ fun FieldApp(
                     controller.error ?: biometrics?.message,
                     { email, password -> controller.signIn(email, password) { biometrics?.passwordSignedIn(email) } }, modifier,
                     onBiometric = biometrics?.takeIf { it.canRetry }?.let { gate -> gate::unlock },
+                    unsent = controller.unsentOnPhone,
                     companyContent = { com.sunpride.integrity.CompanySignIn(environment.apiOrigin,"field-android",environment.isReady && !controller.busy,
                         controller::companyKey,controller::signCompanyMessage,controller::updateCompanyWaiting, { controller.companySignIn(it) }) })
                 ready&&controller.today.partnerMode&&page !in setOf("account","support","change-password","sync") -> DsrScreen(controller,location,modifier)
@@ -480,7 +487,7 @@ fun FieldApp(
                     } })
                 else -> EnrollmentScreen(controller.state, controller.key, controller.busy, controller.error,
                     onCheck = { controller.checkAgain() }, onSignOut = signOut, modifier = modifier,
-                    unsent = status.queued + status.sending + status.review + status.held,
+                    unsent = maxOf(status.queued + status.sending + status.review + status.held, controller.unsentOnPhone),
                     pairingContent = {com.sunpride.integrity.ReplacementPairing(controller::replacementCode)})
             } }
         }
@@ -564,6 +571,7 @@ fun SunprideLogo(modifier: Modifier = Modifier, size: androidx.compose.ui.unit.D
 @Composable
 private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: String?,
     onSignIn: (String, String) -> Unit, modifier: Modifier = Modifier, onBiometric: (() -> Unit)? = null,
+    unsent: Int = 0,
     companyContent: (@Composable () -> Unit)? = null) {
     var email by rememberSaveable { mutableStateOf("") }
     // Never saved: the password and its visibility live only while this screen is shown.
@@ -606,6 +614,8 @@ private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: Stri
                     }
                 })
             if (error != null) NoticeCard(error, tone = Look.Tone.BAD, textTag = "auth-error")
+            // FLD-014/E2E-004: work queued before the office removed this phone stays visible, never silently gone.
+            if (unsent > 0) NoticeCard(unsentText(unsent), tone = Look.Tone.WARN, textTag = "unsent-on-phone")
             if (companyContent != null) {
                 Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     androidx.compose.material3.HorizontalDivider(Modifier.weight(1f), color = Look.hairline)
@@ -658,7 +668,7 @@ fun EnrollmentScreen(state: EnrollmentState, key: DeviceKeyInfo?, busy: Boolean,
                 }
             }
             if (state == EnrollmentState.Removed) {
-                if (unsent > 0) NoticeCard("$unsent unsent on this phone", tone = Look.Tone.WARN)
+                if (unsent > 0) NoticeCard(unsentText(unsent), tone = Look.Tone.WARN, textTag = "unsent-on-phone")
             }
             if (error != null) NoticeCard(error, tone = Look.Tone.BAD, textTag = "auth-error")
         }
@@ -796,3 +806,7 @@ private val previewEnvironment = AppEnvironment("https://sunpride.cauldnclark.co
 @Composable private fun DarkPreview() = FieldApp(previewEnvironment, dark = true, debug = true)
 @Preview(name = "Large font", showBackground = true, fontScale = 2f)
 @Composable private fun LargeFontPreview() = FieldApp(previewEnvironment, dark = false, debug = true)
+
+/** FLD-014/E2E-004: plain count of work still on this phone that the office has not received. */
+internal fun unsentText(unsent: Int): String =
+    "$unsent unsent on this phone. It is kept here until the office recovers it."

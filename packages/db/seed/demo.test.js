@@ -549,6 +549,14 @@ describe("90-day Sunpride demo", () => {
         `select count(*) as n from coverage_plans p where p.status='submitted' and exists(select 1 from coverage_plan_slots s where s.plan_id=p.id)`,
       ),
     ).toBe(1);
+    // WEB-118: the submitted plan is approvable — every stop is on a route its assignee serves.
+    expect(
+      await number(
+        `select count(*) as n from coverage_plans p join coverage_plan_slots s on s.plan_id=p.id
+         where p.status='submitted' and s.route_id is not null and not exists(select 1 from route_salespeople rs
+           where rs.route_id=s.route_id and rs.profile_id=p.assignee_profile_id and rs.deleted_at is null)`,
+      ),
+    ).toBe(0);
   });
   test("canonical order scope and money fields reconcile to their legacy mirrors", async () => {
     expect(
