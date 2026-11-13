@@ -2221,7 +2221,9 @@ section(
     if (!v) throw new Error("agent@ has no completed visit before now; rerun --only r6-field-order-review later in the day");
     if (await officePrice(ORDER_PRODUCT, v.customer_code)) did = "created";
     const p = await one(db`select id from products where code=${ORDER_PRODUCT}`);
-    const at = new Date(Math.max(+new Date(v.checked_in_at) + 60_000, Date.now() - 120_000));
+    // Price conditions became effective 60 seconds before officePrice ran; capture AFTER that instant.
+    // Backdating by two minutes used the old valid price and silently captured the order instead of reviewing it.
+    const at = new Date();
     await markedRow("visit_activities", "r6-field-order", {
       organization_id: v.organization_id,
       org_unit_id: v.org_unit_id,
