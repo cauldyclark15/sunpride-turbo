@@ -813,6 +813,15 @@ describe("SP-0170 customer writer", () => {
         where a.outlet_id=${outletId} and a.deleted_at is null and a.effective_to is null
           and p.email='agent@sunpride.test' and s.deleted_at is null and (s.effective_to is null or s.effective_to>now())`;
     expect(assigned.length).toBe(1);
+    // SP-0176: the proposing agent's phone gets the decision WITH the final Customer Code in one read.
+    const [enrol] =
+      await h.db`select client_request_id from outlet_enrolments where outlet_id=${outletId}`;
+    const mine = await call("agent", "GET", "/api/v1/masters/census/my-changes");
+    expect(
+      mine.body.customers.find(
+        (/** @type {any} */ c) => c.captureId === String(enrol.client_request_id),
+      ),
+    ).toMatchObject({ outletId, decision: "accepted", code: approved.body.code });
   });
   test("an approver can reject a field capture (old New store approvals' Reject): inactive, no accounting customer", async () => {
     const captureId = crypto.randomUUID();
@@ -868,6 +877,7 @@ describe("SP-0170 customer writer", () => {
       outletId,
       decision: "rejected",
       reason: "Duplicate of an existing store",
+      code: null,
     });
     const other = await call("manager", "GET", "/api/v1/masters/census/my-changes");
     expect(

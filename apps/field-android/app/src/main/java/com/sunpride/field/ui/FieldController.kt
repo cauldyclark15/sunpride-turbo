@@ -124,6 +124,12 @@ interface FieldBackend {
     fun catalogueImage(image:com.sunpride.catalogue.CatalogueImage):ByteArray? = null
     fun warmCatalogueImages(isActive:()->Boolean = {true}) {}
     fun censusConfig(): JSONObject? = null
+    /** SP-0176: the unsaved Add customer form (JSON), kept on this phone until it is saved or discarded. */
+    fun customerDraft(): String? = null
+    /** SP-0176: save ([json] non-null) or drop (null) the unsaved Add customer form. */
+    fun saveCustomerDraft(json: String?) {}
+    /** SP-0176: download the Add customer lists and geography while online so the form works offline later. */
+    fun warmCustomerSetup() {}
     fun censusHistory(): List<Pair<String, String>> = emptyList()
     /** E2E-008: Saved customers with the office's decision once it is known (default: outbox state only). */
     fun censusSaved(): List<com.sunpride.field.census.CensusRules.Saved> =
@@ -246,6 +252,7 @@ internal fun domainFormsCacheEntity(topic: String): String = "local.$topic"
 private const val STORE_CHANGES = "local.storechanges"
 /** SP-0170 offline PSGC geography for Add customer (public reference data; see docs/runbooks/CUSTOMER_MASTER.md). */
 private const val GEOGRAPHY = "local.geography"
+private const val CUSTOMER_DRAFT = "local.customerdraft"
 private const val GEOGRAPHY_MAX_AGE_MS = 30L * 24 * 3600_000
 private val PSGC = Regex("^[0-9]{10}$")
 private const val STORE_SEEN = "local.storeseen"
@@ -473,17 +480,31 @@ class LiveFieldBackend(
         val cached = com.sunpride.field.census.CensusConfigCache.load(
             now=System.currentTimeMillis(),epoch={authorizationEpoch},
             generation={
-                val current=storedScope();val session=sessionKey()
-                if(current==null||session==null)null else runBlocking {
-                    store.censusCacheGrant(current,System.currentTimeMillis())?.let { "$it:$session" }
-                }
+                val current=storedScope()
+                com.sunpride.field.census.CensusConfigCache.grantFor(current,
+                    current!=null&&runBlocking { store.censusCacheGrant(current,System.currentTimeMillis()) }!=null)
             },
             read={runBlocking { store.localCache("local.census","config")?.takeUnless { it.tombstone }?.json }},
             block={runBlocking { store.blockLocalCache("local.census","config","checking",System.currentTimeMillis()) }},
             write={json->runBlocking { store.putLocalCache("local.census","config",json,JSONObject(json).getLong("savedAt"),"config") }},
             fetch={functions.api.get("/api/v1/masters/census-config").toString()},
-            isOffline={it is com.sunpride.field.auth.AuthFailure&&it.kind==com.sunpride.field.auth.AuthFailure.Kind.OFFLINE})
+            isOffline=com.sunpride.field.census.CensusConfigCache::isUnreachable)
         cached?.let(::JSONObject)
+    }
+    override fun customerDraft(): String? = if (storedScope() == null) null else withStore { store ->
+        store.localCache(CUSTOMER_DRAFT, "draft")?.takeUnless { it.tombstone }?.json
+    }
+    override fun saveCustomerDraft(json: String?) {
+        if (storedScope() == null) return
+        withStore { store ->
+            if (json == null) store.blockLocalCache(CUSTOMER_DRAFT, "draft", "discarded", System.currentTimeMillis())
+            else store.putLocalCache(CUSTOMER_DRAFT, "draft", json, System.currentTimeMillis(), "draft")
+        }
+    }
+    override fun warmCustomerSetup() {
+        val config = runCatching { censusConfig() }.getOrNull() ?: return
+        val provinces = com.sunpride.field.census.CustomerCapture.setup(config)?.provinceCodes.orEmpty()
+        runCatching { customerGeography(provinces) }
     }
     override fun customerGeography(provinces: List<String>): com.sunpride.field.census.CustomerCapture.Geography? =
         if (storedScope() == null) null else withStore { store ->
@@ -520,7 +541,7 @@ class LiveFieldBackend(
     override fun censusSaved(): List<com.sunpride.field.census.CensusRules.Saved> = withStore { store ->
         val rows = store.history().filter { it.first.kind == com.sunpride.field.census.CensusRules.KIND }
         val decided = if (rows.none { it.second.state == "done" }) emptyMap() else
-            com.sunpride.field.census.CensusRules.customerDecisions(myChanges(store))
+            com.sunpride.field.census.CensusRules.allDecisions(myChanges(store))
         rows.map {
             val p = JSONObject(it.first.serializedOperation).getJSONObject("payload")
             com.sunpride.field.census.CensusRules.Saved(p.getString("name"), it.second.state, decided[p.optString("captureId")])

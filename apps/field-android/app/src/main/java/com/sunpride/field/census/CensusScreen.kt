@@ -116,6 +116,10 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     var geography by remember { mutableStateOf<CustomerCapture.Geography?>(null) }
     var geoNote by remember { mutableStateOf<String?>(null) }
     var formErrors by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    // SP-0176: the unsaved form is kept on the phone (Back, app restart) until saved or discarded.
+    var draftLoaded by remember { mutableStateOf(false) }
+    var draftRestored by remember { mutableStateOf(false) }
+    var savedNotice by remember { mutableStateOf<String?>(null) }
     val keyRequesters = remember { mutableMapOf<String, BringIntoViewRequester>() }
     fun requester(key: String) = keyRequesters.getOrPut(key) { BringIntoViewRequester() }
     // Live test 2026-11-09: Save must never look like it does nothing.
@@ -133,11 +137,35 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     LaunchedEffect(backend) {
         try {
             config = withContext(Dispatchers.IO) { backend?.censusConfig() }
+            if (!edit && backend != null && !draftLoaded) {
+                val kept = CustomerCapture.parseDraft(runCatching { withContext(Dispatchers.IO) { backend.customerDraft() } }.getOrNull())
+                if (kept != null && !kept.isEmpty()) {
+                    form = kept.form.let { if (it.customerName.isBlank()) it.copy(customerName = initialName.take(200)) else it }
+                    fix = kept.fix; jpeg = kept.photo ?: jpeg; if (kept.fix != null) mode = "gps"; draftRestored = true
+                }
+            }
+            draftLoaded = true
             history = withContext(Dispatchers.IO) { backend?.censusSaved().orEmpty() }
             message = if (config == null) "Connect once to download the customer setup, then add customers offline."
                 else if (!edit && CustomerCapture.setup(config) == null) "Connect once to download the customer lists, then add customers offline."
+                else if (draftRestored) DRAFT_KEPT
                 else "Saved customers stay encrypted on this phone until the next sync."
-        } catch (_: Exception) { message = "Customer setup is unavailable. Connect and refresh your signed-in account." }
+        } catch (_: Exception) { draftLoaded = true; message = "Customer setup is unavailable. Connect and refresh your signed-in account." }
+    }
+    // SP-0176: keep the draft on every change (debounced), and once more when the screen closes.
+    val latestDraft by rememberUpdatedState(CustomerCapture.Draft(form, fix, jpeg))
+    val draftAllowed by rememberUpdatedState(draftLoaded && !edit && savedNotice == null)
+    LaunchedEffect(form, fix, jpeg, draftLoaded) {
+        if (!draftAllowed || backend == null) return@LaunchedEffect
+        delay(400)
+        val d = latestDraft
+        runCatching { withContext(Dispatchers.IO) { backend.saveCustomerDraft(if (d.isEmpty()) null else CustomerCapture.draftJson(d)) } }
+    }
+    DisposableEffect(backend) {
+        onDispose {
+            if (draftAllowed && backend != null) { val d = latestDraft
+                Thread { runCatching { backend.saveCustomerDraft(if (d.isEmpty()) null else CustomerCapture.draftJson(d)) } }.start() }
+        }
     }
     // Sales Organization defaults from the agent's assignment once the setup is known.
     LaunchedEffect(setup) { if (setup != null && form.salesOrgCode.isEmpty()) form = CustomerCapture.start(setup, form.customerName).let { form.copy(salesOrgCode = it.salesOrgCode) } }
@@ -239,8 +267,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     }
     fun queue(p: JSONObject) {
         val backendNow = backend ?: return
+        busy = true // synchronously: a second tap can never reach the cleared form
         scope.launch {
-            busy = true
             try {
                 CensusRules.validate(p)
                 withContext(Dispatchers.IO) { backendNow.queueCensus(p) }
@@ -251,8 +279,10 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                     onChangeSaved?.invoke()
                     return@launch
                 }
+                runCatching { withContext(Dispatchers.IO) { backendNow.saveCustomerDraft(null) } }
                 message = "Customer saved on this phone. The office completes and approves it after sync."
-                reset()
+                savedNotice = if (isOnline(context)) SAVED_ONLINE else SAVED_OFFLINE
+                reset(); draftRestored = false
             } catch (e: Exception) {
                 message = if (e is IllegalArgumentException) e.message ?: "Complete every field." else "Could not save. Check your offline recording access and retry."
                 saveNote = message
@@ -460,12 +490,22 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             }
         }
         ActionBar {
+            if (!edit && draftLoaded && !CustomerCapture.Draft(form, fix, jpeg).isEmpty())
+                TextButton({ reset(); draftRestored = false; message = "Started again. The unsaved store was discarded."
+                    scope.launch { runCatching { withContext(Dispatchers.IO) { backend?.saveCustomerDraft(null) } } } },
+                    Modifier.fillMaxWidth().testTag("census-discard"), enabled = !busy) { Text("Discard and start again") }
             val note = saveNote ?: if (marked.isNotEmpty()) CensusRules.missingSummary(marked.size)
                 else if (customerMarks.isNotEmpty()) CensusRules.missingSummary(customerMarks.size) else null
             note?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("census-save-note")) }
             if (staleRetry) TonalButton("Try again", ::save, Modifier.fillMaxWidth().testTag("census-retry"), !busy)
             PrimaryBottomButton(if (refreshing) "Checking your location…" else if (edit) "Save changes" else "Save customer", ::save, Modifier.fillMaxWidth().testTag("census-save"), !busy && (edit || setup != null) && !camera)
         }
+    }
+    savedNotice?.let { text ->
+        AlertDialog(onDismissRequest = { savedNotice = null; onBack() },
+            confirmButton = { TextButton({ savedNotice = null; onBack() }, Modifier.testTag("census-saved-ok")) { Text("OK") } },
+            title = { Text(if (text == SAVED_ONLINE) "Store saved" else "Saved on this phone") },
+            text = { Text(text, modifier = Modifier.testTag("census-saved-notice")) }, modifier = Modifier.testTag("census-saved-dialog"))
     }
     moved?.let { m -> SafeBottomSheet(onDismissRequest = { moved = null }, Modifier.testTag("census-moved")) {
             Text("Your location changed", style = MaterialTheme.typography.titleMedium)
@@ -500,6 +540,15 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             }, Modifier.fillMaxWidth().testTag("census-dup-different"))
     }
 }
+internal const val SAVED_ONLINE = "Store saved — sent to the office for approval."
+internal const val SAVED_OFFLINE = "Saved on this phone — will send when online."
+internal const val DRAFT_KEPT = "Your unsaved store was kept. Continue where you left off, or tap Discard and start again."
+private fun isOnline(context: android.content.Context): Boolean = runCatching {
+    val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
+    val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
+    caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+        caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
+}.getOrDefault(false)
 private const val STALE_FIX = "Couldn't get your location. Move to an open spot and tap Try again."
 private class Moved(val meters: Double, val address: CensusPlaces.Address?)
 /** A required field plus its plain-words message once Save found it missing; Save scrolls here. */
@@ -520,7 +569,38 @@ private fun CensusPicker(label: String, choices: List<Pair<String, String>>, val
     var expanded by remember { mutableStateOf(false) }
     Box {
         PickerField(label, choices.firstOrNull { it.first == value }?.second, empty, { expanded = true }, Modifier.testTag(tag))
-        DropdownMenu(expanded, { expanded = false }) { choices.forEach { choice -> DropdownMenuItem(text = { Text(choice.second) }, onClick = { onChange(choice.first); expanded = false }) } }
+        // SP-0176: long lists (Barangay, Customer Group ~90) open a type-to-search list.
+        if (choices.size > SEARCH_PICKER_MIN) {
+            if (expanded) SearchPickerDialog(label, choices, { onChange(it); expanded = false }, { expanded = false }, tag)
+        } else DropdownMenu(expanded, { expanded = false }) { choices.forEach { choice -> DropdownMenuItem(text = { Text(choice.second) }, onClick = { onChange(choice.first); expanded = false }) } }
+    }
+}
+internal const val SEARCH_PICKER_MIN = 12
+/** Words in any order, case and accents ignored ("sto nino" finds "Santo Niño"? no: "sto" must be in the label). */
+internal fun pickerMatches(label: String, query: String): Boolean {
+    fun norm(t: String) = java.text.Normalizer.normalize(t, java.text.Normalizer.Form.NFD).replace(Regex("\\p{M}+"), "").lowercase()
+    val l = norm(label); return norm(query).split(Regex("\\s+")).filter { it.isNotEmpty() }.all { l.contains(it) }
+}
+@Composable
+private fun SearchPickerDialog(label: String, choices: List<Pair<String, String>>, onPick: (String) -> Unit, onDismiss: () -> Unit, tag: String) {
+    var q by remember { mutableStateOf("") }
+    val shown = remember(q, choices) { choices.filter { pickerMatches(it.second, q) } }
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Surface(shape = RoundedCornerShape(20.dp), modifier = Modifier.fillMaxWidth().fillMaxHeight(0.85f).testTag("$tag-dialog")) {
+            Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Text(label, style = MaterialTheme.typography.titleMedium)
+                FieldTextField(q, { q = it.take(60) }, label = { Text("Type to search") }, singleLine = true,
+                    modifier = Modifier.fillMaxWidth().testTag("$tag-search"))
+                Text("${shown.size} of ${choices.size}", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                androidx.compose.foundation.lazy.LazyColumn(Modifier.weight(1f)) {
+                    items(shown.size) { i -> val c = shown[i]
+                        Text(c.second, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.fillMaxWidth()
+                            .clickable { onPick(c.first) }.padding(vertical = 12.dp).testTag("$tag-option"))
+                    }
+                }
+                TextButton(onDismiss, Modifier.align(androidx.compose.ui.Alignment.End)) { Text("Cancel") }
+            }
+        }
     }
 }
 private fun boundedJpeg(bytes: ByteArray): ByteArray {

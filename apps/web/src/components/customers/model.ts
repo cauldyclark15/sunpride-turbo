@@ -469,6 +469,23 @@ export const STATUS_LABEL: Record<CustomerStatus, string> = {
   inactive: "Inactive",
 };
 
+/** SP-0176: the badge people see. A store waiting for approval (prospect, or a field store visitable under a
+ * provisional code) never shows the green "Active" badge. */
+export function statusLabel(c: {
+  status: CustomerStatus;
+  enrolmentStatus: string | null;
+}): string {
+  return awaitsApproval(c)
+    ? "Waiting for approval"
+    : (STATUS_LABEL[c.status] ?? c.status);
+}
+export function statusTone(c: {
+  status: CustomerStatus;
+  enrolmentStatus: string | null;
+}): "good" | "wait" | "off" {
+  return awaitsApproval(c) ? "wait" : c.status === "active" ? "good" : "off";
+}
+
 export const LIST_FILTER_KEYS = [
   "salesOrgCode",
   "salesOfficeCode",

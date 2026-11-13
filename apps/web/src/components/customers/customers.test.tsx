@@ -22,6 +22,7 @@ import { CustomerEditorView, duplicateQuery } from "./customer-editor";
 import {
   ADP_KEYS,
   awaitsApproval,
+  statusLabel,
   addShipTo,
   checkDraft,
   emptyDraft,
@@ -611,7 +612,14 @@ describe("approval errors land next to the field", () => {
       />,
     );
     expect(html).toContain(">Approve<");
-    expect(html).toContain("Provisional code · awaiting approval");
+    // SP-0176: a provisional prospect never shows the green Active badge.
+    expect(html).toContain(">Waiting for approval<");
+    expect(html).not.toContain(">Active<");
+    expect(html).toContain("Provisional code");
+    expect(statusLabel(field)).toBe("Waiting for approval");
+    expect(statusLabel({ status: "active", enrolmentStatus: "approved" })).toBe(
+      "Active",
+    );
     // Approvers may also reject a field capture (the retired New store approvals' Reject).
     const withReject = renderToStaticMarkup(
       <CustomerEditorView

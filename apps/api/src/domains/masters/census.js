@@ -675,7 +675,8 @@ export async function myStoreChanges(ctx) {
     // E2E-008: the office's decision on this person's Add customer captures (field enrolments keyed by the
     // capture id), so the phone's Saved customers row stops reading "Sent for review" once it is decided.
     customers: (
-      await ctx.db`select e.client_request_id,e.outlet_id,e.status,e.decision_reason,e.updated_at from outlet_enrolments e
+      await ctx.db`select e.client_request_id,e.outlet_id,e.status,e.decision_reason,e.updated_at,o.code from outlet_enrolments e
+        left join outlets o on o.id=e.outlet_id
         where e.proposed_by=${actor.subject} and e.client_request_id is not null and e.status in ('approved','rejected')
         order by e.updated_at desc limit 100`
     ).map((/** @type {any} */ r) => ({
@@ -683,6 +684,8 @@ export async function myStoreChanges(ctx) {
       outletId: r.outlet_id,
       decision: r.status === "approved" ? "accepted" : "rejected",
       reason: r.status === "approved" ? null : (r.decision_reason ?? null),
+      // SP-0176: the final Customer Code, so the phone says "Approved · SP000123" after one sync.
+      code: r.status === "approved" ? (r.code ?? null) : null,
       decidedAt: new Date(r.updated_at).getTime(),
     })),
   };

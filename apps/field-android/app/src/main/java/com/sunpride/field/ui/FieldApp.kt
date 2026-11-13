@@ -200,6 +200,8 @@ fun FieldApp(
     LaunchedEffect(backend,ready,controller.today.lastSynced) {
         if(ready && controller.today.lastSynced!=null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val job=kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]
+            // SP-0176: Add customer lists + geography on the phone after every online sync, so a store can be added offline.
+            runCatching { backend?.warmCustomerSetup() }
             runCatching { backend?.warmCatalogueImages { job?.isActive!=false } }
         }
     }

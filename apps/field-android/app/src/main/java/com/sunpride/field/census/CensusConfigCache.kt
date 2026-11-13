@@ -7,6 +7,22 @@ import org.json.JSONObject
  * A bootstrap generation is a grant boundary, not permission to revive old setup. */
 object CensusConfigCache {
     private val lock=Any()
+    /** R6F3/SP-0176: the cache is keyed by the signed-in person on this phone (account, device, scope), NOT by the
+     * bootstrap generation or the rotating session token: every sync made a new generation, so the lists fetched
+     * minutes earlier were unreadable offline ("Connect once to download the customer lists"). [cacheValid] is the
+     * partition's own offline window (not held, cache not expired), so a removed/held phone still reads nothing. */
+    fun grantFor(scope:com.sunpride.field.storage.StoreScope?,cacheValid:Boolean):String? =
+        if(scope==null||!cacheValid)null else "scope:${scope.account}|${scope.deviceId}|${scope.fingerprint}"
+    /** R6F3/SP-0176: every "could not reach the office" failure falls back to the saved lists: no network, refused
+     * connection, timeout, DNS, captive-portal garbage, 5xx and throttling. Only an explicit refusal (the server
+     * said no, or the session ended) still blocks the saved copy. */
+    fun isUnreachable(error:Throwable):Boolean = when(error){
+        is com.sunpride.field.auth.AuthFailure -> error.kind in setOf(com.sunpride.field.auth.AuthFailure.Kind.OFFLINE,
+            com.sunpride.field.auth.AuthFailure.Kind.SERVER,com.sunpride.field.auth.AuthFailure.Kind.RATE_LIMITED)
+        is com.sunpride.field.auth.ServerError -> false
+        is java.io.IOException, is org.json.JSONException -> true
+        else -> false
+    }
     fun load(now:Long,epoch:()->Long,generation:()->String?,read:()->String?,block:()->Unit,
              write:(String)->Unit,fetch:()->String,isOffline:(Throwable)->Boolean):String? = synchronized(lock) {
         val started=epoch();val grant=generation()?:return@synchronized null

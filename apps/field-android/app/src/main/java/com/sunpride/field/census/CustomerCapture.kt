@@ -108,6 +108,34 @@ object CustomerCapture {
         ).mapValuesTo(linkedMapOf()) { it.value.trim() }.filterValues { it.isNotEmpty() }.toMap(linkedMapOf())
     }
 
+    /** SP-0176: the unsaved Add customer form kept on the phone (survives Back and an app restart) until it is
+     * saved or discarded: every typed/picked value, the GPS fix and the storefront photo. */
+    data class Draft(val form: Form, val fix: JSONObject?, val photo: ByteArray?) {
+        /** Nothing typed yet (the defaulted Sales Organization and a name carried from the search do not count). */
+        fun isEmpty() = fix == null && photo == null && form.contactPerson.isBlank() &&
+            form.values().keys.all { it == "salesOrgCode" || it == "customerName" }
+    }
+    fun draftJson(d: Draft): String {
+        val values = JSONObject(); d.form.values().forEach { (k, v) -> values.put(k, v) }
+        if (d.form.contactPerson.isNotBlank()) values.put("contactPerson", d.form.contactPerson)
+        val o = JSONObject().put("version", 1).put("form", values)
+        d.fix?.let { o.put("fix", JSONObject(it.toString())) }
+        d.photo?.let { o.put("photo", java.util.Base64.getEncoder().encodeToString(it)) }
+        return o.toString()
+    }
+    fun parseDraft(text: String?): Draft? = runCatching {
+        val o = JSONObject(text ?: return null); if (o.optInt("version") != 1) return null
+        val v = o.getJSONObject("form"); fun g(k: String) = v.optString(k, "")
+        val form = Form(registeredName = g("registeredName"), tradeName = g("tradeName"), customerName = g("customerName"),
+            email = g("email"), mobileNo = g("mobileNo"), telNo = g("telNo"), tin = g("tin"), regionCode = g("regionCode"),
+            provinceCode = g("provinceCode"), municipalityCode = g("municipalityCode"), barangayCode = g("barangayCode"),
+            houseNo = g("houseNo"), street1 = g("street1"), street2 = g("street2"), floor = g("floor"), roomStallNo = g("roomStallNo"),
+            postalCode = g("postalCode"), salesOrgCode = g("salesOrgCode"), distributionChannelCode = g("distributionChannelCode"),
+            customerGroup1Code = g("customerGroup1Code"), customerGroup2Code = g("customerGroup2Code"),
+            customerGroupCode = g("customerGroupCode"), typeOfBusiness = g("typeOfBusiness"), contactPerson = g("contactPerson"))
+        Draft(form, o.optJSONObject("fix"), o.optString("photo").takeIf { it.isNotEmpty() }?.let { java.util.Base64.getDecoder().decode(it) })
+    }.getOrNull()
+
     /** The agent's form starts with the Sales Organization of their assignment. */
     fun start(setup: Setup?, customerName: String = ""): Form = Form(customerName = customerName.take(200),
         salesOrgCode = setup?.salesOrgCode?.takeIf { code -> setup.options("sales_organization").any { it.code == code } }.orEmpty())

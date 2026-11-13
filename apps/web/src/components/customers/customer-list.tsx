@@ -19,7 +19,8 @@ import { formatDate } from "../../lib/format";
 const manilaDay = (at: number) =>
   new Date(at + 8 * 3_600_000).toISOString().slice(0, 10);
 import {
-  STATUS_LABEL,
+  statusLabel,
+  statusTone,
   awaitsApproval,
   optionLabel,
   type CustomerRow,
@@ -150,19 +151,16 @@ export function customerColumns(
           <span className="inline-flex items-center gap-1.5">
             <span
               aria-hidden="true"
-              className={`size-2 rounded-full ${r.status === "active" ? "bg-[#1f7a43]" : r.status === "prospect" ? "bg-[#c27a0a]" : "bg-[#9aa0a6]"}`}
+              className={`size-2 rounded-full ${statusTone(r) === "good" ? "bg-[#1f7a43]" : statusTone(r) === "wait" ? "bg-[#c27a0a]" : "bg-[#9aa0a6]"}`}
             />
-            {STATUS_LABEL[r.status] ?? r.status}
+            {statusLabel(r)}
           </span>
-          {r.status === "active" && r.enrolmentStatus === "provisional" ? (
-            <span className="text-[12px] text-muted">Awaiting approval</span>
-          ) : null}
           {r.completeness === "draft" ? (
             <span className="text-[12px] text-muted">Incomplete</span>
           ) : null}
         </span>
       ),
-      text: (r) => STATUS_LABEL[r.status] ?? r.status,
+      text: (r) => statusLabel(r),
     },
   ];
 }

@@ -175,7 +175,7 @@ object CensusRules {
         .map { it.captureId }.toSet()
     /** E2E-008: one row of Saved customers: its outbox state and, once decided, the office's decision. */
     data class Saved(val name: String, val state: String, val decision: CustomerDecision?)
-    data class CustomerDecision(val captureId: String, val accepted: Boolean, val reason: String?)
+    data class CustomerDecision(val captureId: String, val accepted: Boolean, val reason: String?, val code: String? = null)
     /** The office's decisions on this person's Add customer captures (my-changes `customers`); malformed skipped. */
     fun customerDecisions(json: JSONObject?): Map<String, CustomerDecision> {
         val a = json?.optJSONArray("customers") ?: return emptyMap()
@@ -183,14 +183,20 @@ object CensusRules {
             val o = a.optJSONObject(i) ?: return@mapNotNull null
             val capture = o.optString("captureId").takeIf { it.isNotBlank() } ?: return@mapNotNull null
             val accepted = when (o.optString("decision")) { "accepted" -> true; "rejected" -> false; else -> return@mapNotNull null }
-            CustomerDecision(capture, accepted, if (o.isNull("reason")) null else o.optString("reason").trim().takeIf { it.isNotEmpty() })
+            CustomerDecision(capture, accepted, if (o.isNull("reason")) null else o.optString("reason").trim().takeIf { it.isNotEmpty() },
+                if (accepted && !o.isNull("code")) o.optString("code").trim().takeIf { it.isNotEmpty() && !it.startsWith("PROV-") } else null)
         }.associateBy { it.captureId }
     }
+    /** SP-0176: Edit-store changes get the office's decision too (my-changes `items`), so a decided change never
+     * reads "Sent for review" forever. */
+    fun changeDecisions(json: JSONObject?): Map<String, CustomerDecision> =
+        decisions(json).mapValues { (_, d) -> CustomerDecision(d.captureId, d.accepted, d.reason) }
+    fun allDecisions(json: JSONObject?): Map<String, CustomerDecision> = changeDecisions(json) + customerDecisions(json)
     /** The Saved customers row text: the office decision wins once the capture was sent. */
     fun savedLabel(saved: Saved): String = when {
         saved.state == "review" -> "Needs review"
         saved.state != "done" -> "Saved on phone"
-        saved.decision?.accepted == true -> "Accepted by office"
+        saved.decision?.accepted == true -> saved.decision.code?.let { "Approved · $it" } ?: "Accepted by office"
         saved.decision != null -> saved.decision.reason?.let { "$NOT_ACCEPTED: ${it.take(200)}" } ?: NOT_ACCEPTED
         else -> "Sent for review"
     }

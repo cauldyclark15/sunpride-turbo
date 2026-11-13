@@ -19,7 +19,8 @@ import {
   type GeoLists,
 } from "./customer-form";
 import {
-  STATUS_LABEL,
+  statusLabel,
+  statusTone,
   awaitsApproval,
   applies,
   checkDraft,
@@ -665,15 +666,14 @@ export function CustomerEditorView({
       {customer ? (
         <div className="flex flex-wrap items-center gap-2 text-[13px]">
           <span
-            className={`rounded-full px-2 py-0.5 text-[12px] font-medium ${customer.status === "active" ? "bg-[#e6f4ea] text-[#1f7a43]" : customer.status === "prospect" ? "bg-[#fdf3e1] text-[#a15c07]" : "bg-default-soft text-muted"}`}
+            data-testid="customer-status-badge"
+            className={`rounded-full px-2 py-0.5 text-[12px] font-medium ${statusTone(customer) === "good" ? "bg-[#e6f4ea] text-[#1f7a43]" : statusTone(customer) === "wait" ? "bg-[#fdf3e1] text-[#a15c07]" : "bg-default-soft text-muted"}`}
           >
-            {STATUS_LABEL[customer.status]}
+            {statusLabel(customer)}
           </span>
           {customer.status === "active" &&
           customer.enrolmentStatus === "provisional" ? (
-            <span className="text-muted">
-              Provisional code · awaiting approval
-            </span>
+            <span className="text-muted">Provisional code</span>
           ) : null}
           <span className="text-muted">
             {customer.completeness === "complete"
