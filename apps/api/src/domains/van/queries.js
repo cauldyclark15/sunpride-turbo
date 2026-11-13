@@ -314,8 +314,13 @@ export async function damageReview(ctx) {
     if (!/^\d{1,8}$/.test(offsetText))
       throw new ApiError("invalid_request", 400, "Invalid page cursor");
     const offset = Number(offsetText);
-    /** @type {any[]} */ const records =
-      await db`select d.*,t.trip_number,t.service_date,p.name as seller_name,pr.name as product_name from van_damage_records d join van_trips t on t.id=d.trip_id join profiles p on p.id=d.recorded_profile_id join products pr on pr.id=d.product_id
+    // WEB-112: view=decided lists supervisor-decided records (outcome, who, when), newest decision first.
+    const decided = ctx.url.searchParams.get("view") === "decided";
+    /** @type {any[]} */ const records = decided
+      ? await db`select d.*,t.trip_number,t.service_date,p.name as seller_name,pr.name as product_name,dp.name as decider_name from van_damage_records d join van_trips t on t.id=d.trip_id join profiles p on p.id=d.recorded_profile_id join products pr on pr.id=d.product_id
+      left join lateral (select x.name from profiles x where x.auth_subject=d.decided_by or x.user_id::text=d.decided_by limit 1) dp on true
+      where d.status in ('approved','rejected') and d.needs_approval and d.deleted_at is null and (${scope.unitIds === null} or d.org_unit_id in ${db(ids)}) and (${actor.role !== "sales"} or d.recorded_profile_id=${actor.profileId}) order by d.decided_at desc nulls last,d.id limit 21 offset ${offset}`
+      : await db`select d.*,t.trip_number,t.service_date,p.name as seller_name,pr.name as product_name from van_damage_records d join van_trips t on t.id=d.trip_id join profiles p on p.id=d.recorded_profile_id join products pr on pr.id=d.product_id
       where d.status='pending_approval' and d.deleted_at is null and (${scope.unitIds === null} or d.org_unit_id in ${db(ids)}) and (${actor.role !== "sales"} or d.recorded_profile_id=${actor.profileId}) order by d.recorded_at desc,d.id limit 21 offset ${offset}`;
     return {
       items: records.slice(0, 20).map((d) => ({
@@ -337,8 +342,16 @@ export async function damageReview(ctx) {
         status: d.status,
         recordedAt: ms(d.recorded_at),
         canDecide:
+          !decided &&
           can(actor, "van.damage.approve") &&
           d.recorded_profile_id !== actor.profileId,
+        ...(decided
+          ? {
+              decidedAt: d.decided_at ? ms(d.decided_at) : null,
+              decidedByName: d.decider_name ?? "Former user",
+              decisionNote: d.decision_note ?? null,
+            }
+          : {}),
       })),
       nextCursor: records.length > 20 ? String(offset + 20) : null,
     };

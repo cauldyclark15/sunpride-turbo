@@ -794,6 +794,24 @@ test("damage consumes own trip-bound JPEG, transfers statuses, and independent r
     note: "Verified good stock",
   });
   expect(rejected.status).toBe(200);
+  // WEB-112: the decided record leaves the waiting list and shows in the decided view with outcome and decider.
+  /** @param {string} q */
+  const read = async (q) =>
+    /** @type {any} */ (await (await h.fetch(`/api/v1/van/damage${q}`, { headers: { cookie } })).json());
+  expect(
+    (await read("")).items.some((/** @type {any} */ d) => d.damageId === a.ack.entityId),
+  ).toBe(false);
+  const decided = (await read("?view=decided")).items.find(
+    (/** @type {any} */ d) => d.damageId === a.ack.entityId,
+  );
+  expect(decided).toMatchObject({
+    status: "rejected",
+    decisionNote: "Verified good stock",
+    canDecide: false,
+  });
+  expect(decided.decidedByName).toBeTruthy();
+  expect(decided.decidedByName).not.toBe("Former user");
+  expect(typeof decided.decidedAt).toBe("number");
   expect(postings.at(-1).kind).toBe("reversal");
   expect(postings.at(-1).lines).toEqual([
     {

@@ -68,32 +68,38 @@ export async function drainFieldOrders(ctx) {
   return { captured, review };
 }
 /** WEB-106: why a captured phone order went to review, as a specific code (kept in review_code).
- * The capture path refuses with generic `invalid_request`, so the plain message decides the code.
- * @param {ApiError} e @returns {string} */
+ * Classified only from structured facts: the refusal's `reviewCode` (set where the capture path
+ * refuses) or its ApiError code. Never from message wording.
+ * @param {ApiError & {reviewCode?:string}} e @returns {string} */
 export function reviewCodeOf(e) {
-  const m = String(e.message ?? "");
-  if (e.code === "out_of_scope") return "person_inactive";
-  if (e.code === "wrong_date") return "wrong_time";
-  if (e.code === "idempotency_conflict") return "already_captured";
-  if (/price/i.test(m)) return "missing_price";
-  if (/accounting customer/i.test(m)) return "unknown_store";
-  if (/selling catalog/i.test(m)) return "store_not_set_up";
-  if (/not authorized/i.test(m)) return "product_not_listed";
-  if (/unit|quantity/i.test(m)) return "unit_not_set_up";
-  if (/visit/i.test(m)) return "visit_unavailable";
-  return e.code || "invalid_request";
+  if (e.reviewCode && REVIEW_REASONS[e.reviewCode]) return e.reviewCode;
+  return CODE_REVIEW[e.code] ?? "needs_review";
 }
+/** ApiError codes the capture path raises without a refusal-specific reviewCode. */
+const CODE_REVIEW = /** @type {Record<string,string>} */ ({
+  out_of_scope: "person_inactive",
+  forbidden: "person_inactive",
+  wrong_date: "wrong_time",
+  idempotency_conflict: "already_captured",
+  authority_required: "discount_authority",
+  price_unknown: "missing_price",
+});
 /** Plain words per review code; older rows with a generic code keep the general sentence. */
 export const REVIEW_REASONS = /** @type {Record<string,string>} */ ({
   missing_price: "Missing price",
   unknown_store: "Unknown store (no accounting customer linked)",
   store_not_set_up: "Store's selling list is not set up",
   product_not_listed: "Product was not on the store's list that day",
+  product_unavailable: "Product is no longer available for selling",
   unit_not_set_up: "Product unit is not set up for selling",
+  bad_quantity: "Quantity cannot be booked in this unit",
+  amount_too_large: "Order amount is too large to book",
+  discount_authority: "Promotion discount needs finance approval",
   person_inactive: "The person who took the order is no longer active",
   wrong_time: "Order time is outside the visit",
   already_captured: "Already captured",
   visit_unavailable: "Visit not available",
+  bad_phone_record: "Phone order record is incomplete; ask the salesperson to resend it",
 });
 /** @param {string|null|undefined} code */
 export const reviewReason = (code) =>

@@ -13,8 +13,9 @@ export function fail(message, code = "invalid_request", status = 422) {
 }
 /** @param {any} v @param {string} [label] @param {number} [max] */
 export function text(v, label = "Value", max = 160) {
-  if (typeof v !== "string" || !v.trim() || v.trim().length > max)
-    fail(`${label} is required (up to ${max} characters)`);
+  if (typeof v !== "string" || !v.trim()) fail(`${label} is required`);
+  if (v.trim().length > max)
+    fail(`${label} is too long (up to ${max} characters)`);
   return v.trim();
 }
 /** @param {any} v @param {string} [label] */

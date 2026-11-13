@@ -638,12 +638,25 @@ export async function deactivateCustomer(c, outletId, b) {
   return outletId;
 }
 
+/** Tolerant customer-code search key, the SQL side applies the same folding to the code.
+ * @param {string} text */
+export function compactCodeQuery(text) {
+  return String(text ?? "")
+    .normalize("NFKC")
+    .toLowerCase()
+    .replace(/[^a-z0-9]/g, "")
+    .replace(/o/g, "0");
+}
+
 /** GET /api/v1/customers list, current-scope filtered. @param {any} c */
 export async function listCustomers(c) {
   const actor = await requireCapability(c, "outlet.read");
   const { unitIds } = await scopeFilterForActor(c.db, actor);
   const q = c.url.searchParams;
   const text = (q.get("q") ?? "").trim().slice(0, 100);
+  // EDGE-006/WEB-041: a code matches anywhere in it, ignoring case, spaces and dashes, letter O
+  // read as zero ("smp c-OO69" finds SMP-C0069). Only [a-z0-9] survive, so it is LIKE-safe.
+  const codeQ = compactCodeQuery(text);
   const limit = Math.min(200, Math.max(1, Number(q.get("limit")) || 50));
   const after = q.get("cursor") ?? "";
   // Page-number lists (office web): `offset` skips rows in code order and the reply carries `total`.
@@ -680,7 +693,7 @@ export async function listCustomers(c) {
       and (${param("customerGroupCode")}::text is null or p.customer_group_code=${param("customerGroupCode")})
       and (${param("salesOfficeCode")}::text is null or p.sales_office_code=${param("salesOfficeCode")})
       and (${param("customerGroup2Code")}::text is null or p.customer_group2_code=${param("customerGroup2Code")})
-      and (${text === ""} or o.name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"} or o.code ilike ${text.replace(/[%_\\]/g, "\\$&") + "%"} or p.registered_name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"})
+      and (${text === ""} or o.name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"} or (${codeQ !== ""} and translate(regexp_replace(lower(o.code),'[^a-z0-9]','','g'),'o','0') like ${"%" + codeQ + "%"}) or p.registered_name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"})
     ) x
     where (${status}::text is null or x.status=${status})
       and (${offset !== null} or x.code > ${after})
@@ -702,7 +715,7 @@ export async function listCustomers(c) {
                 and (${param("customerGroupCode")}::text is null or p.customer_group_code=${param("customerGroupCode")})
                 and (${param("salesOfficeCode")}::text is null or p.sales_office_code=${param("salesOfficeCode")})
                 and (${param("customerGroup2Code")}::text is null or p.customer_group2_code=${param("customerGroup2Code")})
-                and (${text === ""} or o.name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"} or o.code ilike ${text.replace(/[%_\\]/g, "\\$&") + "%"} or p.registered_name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"})`
+                and (${text === ""} or o.name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"} or (${codeQ !== ""} and translate(regexp_replace(lower(o.code),'[^a-z0-9]','','g'),'o','0') like ${"%" + codeQ + "%"}) or p.registered_name ilike ${"%" + text.replace(/[%_\\]/g, "\\$&") + "%"})`
           )[0]
         : null);
     statusCounts = {

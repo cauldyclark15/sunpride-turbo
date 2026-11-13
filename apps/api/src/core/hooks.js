@@ -50,6 +50,9 @@ const defaults = {
    * @param {Actor} actor @param {string} topic @returns {Promise<boolean>|boolean}
    */
   canSubscribe(actor, topic) {
+    // "me": the caller's own session/permission refresh signal. Every signed-in person may
+    // listen (it carries no data; each client then refetches only its own /api/me).
+    if (topic === SESSION_TOPIC) return Boolean(actor);
     for (const [prefix, check] of topicGrants)
       if (topic === prefix || topic.startsWith(`${prefix}:`))
         return check(actor, topic);
@@ -64,6 +67,9 @@ const defaults = {
     return true;
   },
 };
+
+/** Core session topic (web `SESSION_TOPIC`); org/people commands publish it. */
+export const SESSION_TOPIC = "me";
 
 /** @type {Map<string, (actor: Actor, topic: string) => boolean|Promise<boolean>>} */
 const topicGrants = new Map();

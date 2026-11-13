@@ -538,6 +538,20 @@ describe("SP-0170 customer writer", () => {
     expect(r.body.status).toBe("inactive");
     expect((await accounting(id))[0].active).toBe(false);
   });
+  test("EDGE-006/WEB-041 code search is tolerant: anywhere, any case, dashes/spaces, letter O for zero", async () => {
+    /** @param {string} q */
+    const codes = async (q) =>
+      (
+        await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent(q)}`)
+      ).body.rows.map((/** @type {any} */ r) => r.code);
+    for (const q of ["SMP-C0069", "SMP-CO069", "smpc0069", "smp c 0069", "SMP-C-0069", "c0069", "C0O69"])
+      expect([q, await codes(q)]).toEqual([q, expect.arrayContaining(["SMP-C0069"])]);
+    expect(await codes("SMP-C0070")).not.toContain("SMP-C0069");
+    expect(await codes("SMP-C690")).not.toContain("SMP-C0069");
+    // Wildcards stay literal (EDGE-005).
+    expect(await codes("%")).toEqual([]);
+    expect(await codes("_")).toEqual([]);
+  });
   test("list, filters and permissions", async () => {
     const list = await call(
       "viewer",

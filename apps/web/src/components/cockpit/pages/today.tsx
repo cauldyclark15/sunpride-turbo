@@ -25,6 +25,7 @@ import {
   type DrillColumn,
 } from "../kit";
 import { TONE_TEXT } from "../kit/tone";
+import { canAccessWebModule } from "@/lib/module-access";
 import type { FieldStatus, TodayResponse } from "../types";
 import {
   AttainmentBar,
@@ -62,11 +63,14 @@ export function TodayView({
   now: nowProp,
   link = (href: string) => href,
   canSetTarget = true,
+  canOpenDecide = true,
 }: {
   data: TodayResponse;
   now?: number;
   link?: (href: string) => string;
   canSetTarget?: boolean;
+  /** CROSS r6: only roles that may open /decide get "Open all in Decide". */
+  canOpenDecide?: boolean;
 }) {
   const now = nowProp ?? data.freshness.asOf;
   const [field, setField] = useState<FieldStatus | null>(null);
@@ -157,9 +161,11 @@ export function TodayView({
           question="Up to five urgent items, with who owns each."
           className="lg:col-span-3"
           actions={
-            <Link href={link("/decide")} className={buttonClass}>
-              Open all in Decide
-            </Link>
+            canOpenDecide ? (
+              <Link href={link("/decide")} className={buttonClass}>
+                Open all in Decide
+              </Link>
+            ) : undefined
           }
         >
           <ExceptionList items={data.exceptions} now={now} link={link} />
@@ -436,6 +442,7 @@ export function TodayPage() {
             data={data}
             link={link}
             canSetTarget={access.canSetTarget}
+            canOpenDecide={canAccessWebModule("decide", access.role)}
           />
         )}
       </PageData>

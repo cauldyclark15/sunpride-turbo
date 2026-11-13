@@ -60,22 +60,24 @@ export { activePromotions } from "../tpm/active.js";
 export async function baseQuantity(db, product, uom, quantity, at) {
   const milli = quantityMilli(quantity);
   const scale = BigInt(product.quantity_scale ?? 1);
-  if (scale <= 0n) fail("Product quantity scale needs setup");
+  if (scale <= 0n)
+    fail("Product quantity scale needs setup", undefined, "unit_not_set_up");
   if (product.uom === uom && !product.base_uom_id) {
-    if ((milli * scale) % 1000n) fail("Quantity is not an exact base unit");
+    if ((milli * scale) % 1000n) fail("Quantity is not an exact base unit", undefined, "bad_quantity");
     return safe((milli * scale) / 1000n);
   }
   const [unit] =
     await db`select * from units_of_measure where organization_id = ${product.organization_id ?? "sunpride"} and code = ${uom} and active and deleted_at is null`;
-  if (!unit) fail("This selling unit is not available");
+  if (!unit)
+    fail("This selling unit is not available", undefined, "unit_not_set_up");
   if (product.base_uom_id === unit.id) {
-    if ((milli * scale) % 1000n) fail("Quantity is not an exact base unit");
+    if ((milli * scale) % 1000n) fail("Quantity is not an exact base unit", undefined, "bad_quantity");
     return safe((milli * scale) / 1000n);
   }
   const [allowed] =
     await db`select 1 from product_selling_uoms where product_id = ${product.id} and uom_id = ${unit.id} and deleted_at is null`;
   if (!allowed && product.uom !== uom)
-    fail("This unit is not sold for this product");
+    fail("This unit is not sold for this product", undefined, "unit_not_set_up");
   const conversions =
     await db`select * from uom_conversions where organization_id = ${product.organization_id ?? "sunpride"}
     and (product_id = ${product.id} or product_id is null) and from_uom_id = ${unit.id} and to_uom_id = ${product.base_uom_id}
@@ -84,11 +86,12 @@ export async function baseQuantity(db, product, uom, quantity, at) {
     (/** @type {any} */ c) => c.product_id === product.id,
   );
   const candidates = specific.length ? specific : conversions;
-  if (candidates.length !== 1) fail("An exact unit conversion needs setup");
+  if (candidates.length !== 1)
+    fail("An exact unit conversion needs setup", undefined, "unit_not_set_up");
   const c = candidates[0];
   const n = milli * scale * BigInt(c.numerator),
     d = 1000n * BigInt(c.denominator);
   if (d <= 0n || n <= 0n || n % d !== 0n)
-    fail("Quantity is not an exact base unit");
+    fail("Quantity is not an exact base unit", undefined, "bad_quantity");
   return safe(n / d);
 }

@@ -1,6 +1,6 @@
 import { requireCapability } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
-import { canonicalJson, sha256Hex } from "../../core/util.js";
+import { canonicalJson, isUuid, sha256Hex } from "../../core/util.js";
 import { outletContext, scoped } from "./access.js";
 import { createOrder } from "./service.js";
 import { capturePromise } from "../presell/promise.js";
@@ -16,7 +16,7 @@ import { date, fail, uuid } from "./validation.js";
 export async function captureFieldOrder(ctx, { activityId }) {
   await requireCapability(ctx, "order.create");
   if (ctx.app !== "field-android" && ctx.app !== "field-ios")
-    fail("Field app required");
+    fail("Field app required", undefined, "bad_phone_record");
   const [activity] =
     await ctx.db`select * from visit_activities where id = ${uuid(activityId)} and activity_kind = 'order_intent' and deleted_at is null`;
   if (!activity || activity.assignee_profile_id !== ctx.actor.profileId)
@@ -28,12 +28,14 @@ export async function captureFieldOrder(ctx, { activityId }) {
     visit.assignee_profile_id !== ctx.actor.profileId ||
     visit.org_unit_id !== activity.org_unit_id
   )
-    fail("Visit not available");
+    fail("Visit not available", undefined, "visit_unavailable");
   await scoped(ctx, "order.create", visit.org_unit_id);
   await outletContext(ctx, visit.outlet_id, "order.create");
   const a = activity.activity;
   const hash = sha256Hex(canonicalJson(a));
-  const clientOrderId = uuid(a.clientOrderId, "Phone order");
+  const clientOrderId = isUuid(a?.clientOrderId)
+    ? a.clientOrderId
+    : fail("Phone order reference is invalid", undefined, "bad_phone_record");
   const [prior] =
     await ctx.db`select * from field_order_captures where visit_id = ${visit.id} and client_order_id = ${clientOrderId}`;
   if (prior) {
@@ -52,7 +54,7 @@ export async function captureFieldOrder(ctx, { activityId }) {
     end = new Date(start.getTime() + 86400_000);
   const [account] =
     await ctx.db`select * from call_sheet_accounts where outlet_id = ${visit.outlet_id} and deleted_at is null`;
-  if (!account) fail("The store's selling catalog needs setup");
+  if (!account) fail("The store's selling catalog needs setup", undefined, "store_not_set_up");
   const allowed =
     await ctx.db`select l.product_id from call_sheet_account_lines l where l.call_sheet_account_id = ${account.id} and l.deleted_at is null and ${new Date(account.updated_at)}::timestamptz < ${end}::timestamptz
     union select rp.product_id from call_sheet_account_revision_products rp join call_sheet_account_revisions r on r.id = rp.call_sheet_account_revision_id
@@ -65,13 +67,15 @@ export async function captureFieldOrder(ctx, { activityId }) {
         !allowed.some((/** @type {any} */ p) => p.product_id === l.productId),
     )
   )
-    fail("Product was not authorized on the visit day");
+    fail("Product was not authorized on the visit day", undefined, "product_not_listed");
   const [customer] =
     await ctx.db`select c.* from customers c join outlet_customer_links l on l.customer_id = c.id
     where l.outlet_id = ${visit.outlet_id} and l.deleted_at is null and l.effective_from <= ${new Date(at)} and (l.effective_to is null or l.effective_to > ${new Date(at)})`;
   if (!customer)
     fail(
       "This store needs an accounting customer before a commercial order can be booked",
+      undefined,
+      "unknown_store",
     );
   const row = await createOrder(ctx, {
     customerCode: customer.code,
