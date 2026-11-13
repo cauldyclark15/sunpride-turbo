@@ -192,8 +192,9 @@ const activity = {
   ],
 };
 
+const urlSearch = vi.hoisted(() => ({ value: "" }));
 vi.mock("./report-api", () => ({
-  useReportSearch: () => "",
+  useReportSearch: () => urlSearch.value,
   replaceReportSearch: () => {},
   useReportCommand: () => vi.fn(),
   useReport: (ref: unknown) => {
@@ -360,5 +361,16 @@ describe("supervision screens", () => {
     expect(html).toContain("Talk Sheet");
     expect(html).toContain("Productivity");
     expect(html).toContain("Ana");
+  });
+  it("r6web5: a link with ?unit=&channel=&direct=1 applies those filters on load", () => {
+    urlSearch.value = "?unit=u2&channel=PMOT&direct=1";
+    try {
+      const html = renderToStaticMarkup(<SupervisionWorkspace />);
+      expect(html).toMatch(/<option value="u2" selected="">Region B/);
+      expect(html).toMatch(/<option value="PMOT" selected="">PMOT/);
+      expect(html).toMatch(/type="checkbox" checked=""/);
+    } finally {
+      urlSearch.value = "";
+    }
   });
 });

@@ -153,7 +153,7 @@ vi.mock("../lib/api", () => ({
       };
     return { ...common, data: undefined };
   },
-  useApiPages: () => ({
+  useApiPages: (key: unknown) => (state.readKeys.push(key), {
     items: [],
     status: "exhausted",
     isComplete: true,
@@ -253,6 +253,15 @@ beforeEach(() => {
 });
 
 describe("Inventory owner overview on the v2 API", () => {
+  it("r6web5: Today's /inventory?product= link loads that product's movements", () => {
+    vi.stubGlobal("window", { location: { search: "?product=p9", pathname: "/inventory" } });
+    try {
+      render();
+      expect(state.readKeys).toContainEqual(["inventory", "movements", "p9"]);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
   it("shows real case units, location values, targets, prior period, trend, drills and actions without a healthy banner", () => {
     const html = render();
     expect(html).toContain("<h1>Inventory</h1>");

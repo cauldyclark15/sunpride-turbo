@@ -8,6 +8,7 @@ import type { DamageRow } from "./van/model";
 import { Card, Notice, StatusPill, WorkspaceIcon } from "@sunpride/ui";
 
 import { useState } from "react";
+import { useUrlParam } from "../lib/use-url-tab";
 
 /**
  * SP-0114 (VAN-020): truck damage records of 12 or more selling units wait here for a
@@ -73,7 +74,10 @@ export function VanDamageApprovals() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
-  const [showDecided, setShowDecided] = useState(false);
+  // r6web5 sweep: "Show decided" is a URL filter (?damage=decided) so a link or reload keeps it.
+  const [damageView, setDamageView] = useUrlParam("damage");
+  const showDecided = damageView === "decided";
+  const setShowDecided = (v: boolean) => setDamageView(v ? "decided" : null);
 
   async function run(damageId: string, decision: "approve" | "reject") {
     const note = notes[damageId]?.trim();
