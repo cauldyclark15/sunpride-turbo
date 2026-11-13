@@ -657,6 +657,12 @@ export function CallFlowReport() {
                         ? ` · Short call: ${call.shortCallReason}`
                         : ""}
                     </p>
+                    {call.state === "open" && (
+                      <CloseStuckCall
+                        callId={call.callId}
+                        onClosed={() => void result.refetch()}
+                      />
+                    )}
                   </article>
                 ))}
             </div>
@@ -666,6 +672,60 @@ export function CallFlowReport() {
         <p>Loading call breakdown…</p>
       )}
     </section>
+  );
+}
+
+/** FLD-176: a call left open on the server (its End was refused) blocks the person's next Start. A supervisor
+ * closes it with a reason; the server marks it "Missing checkout — reconcile", never inventing an End, and audits it. */
+function CloseStuckCall({
+  callId,
+  onClosed,
+}: {
+  callId: string;
+  onClosed: () => void;
+}) {
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState("");
+  async function close() {
+    setBusy(true);
+    setMessage("");
+    try {
+      await mutate(
+        "/api/v1/callflow/calls/close-stuck",
+        { callId, reason },
+        { invalidate: [["callflow"]] },
+      );
+      setMessage("Call closed. The person can start their next call.");
+      onClosed();
+    } catch (error) {
+      setMessage(
+        error instanceof Error ? error.message : "Could not close the call.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <div className="mt-2 flex flex-wrap items-end gap-2">
+      <label className="grid gap-1 text-sm">
+        Reason to close this call
+        <input
+          className={input}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+          maxLength={500}
+        />
+      </label>
+      <button
+        className={button}
+        disabled={busy || !reason.trim()}
+        onClick={() => void close()}
+      >
+        Close stuck call
+      </button>
+      {message && <p role="status">{message}</p>}
+    </div>
   );
 }
 
