@@ -61,6 +61,13 @@ object FieldNav {
         else -> FieldTab.MORE
     }
 
+    /**
+     * E2E-001: the moment the app becomes ready (sign-in or registration just finished, or a launch) it opens on
+     * Today, never on a tab left over from before (Customers). A notification tap that targets a page keeps it.
+     */
+    fun pageOnReady(wasReady: Boolean, ready: Boolean, page: String, targeted: Boolean = false): String =
+        if (!wasReady && ready && !targeted) "home" else page
+
     fun barVisible(ready: Boolean, locked: Boolean, partnerMode: Boolean, visitOpen: Boolean, page: String): Boolean =
         ready && !locked && !partnerMode && !visitOpen && page !in noBarPages
 }

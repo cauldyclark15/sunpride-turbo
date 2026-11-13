@@ -91,6 +91,14 @@ class OrderSubmissionTest {
         assertEquals("@checkin:${check.requestId}", op.getJSONObject("payload").getString("visitId"))
         assertTrue(OrderSubmission.sameActivity(OrderSubmission.activity(draft), op.getJSONObject("payload").getJSONObject("activity")))
         assertEquals(OrderStatus.QUEUED, OrderSubmission.status(sent, rows(store)))
+        // E2E-018: once the office decides, the phone shows it (a rejected order never reads "Received by office").
+        val rejected = mapOf(draft.draftId to com.sunpride.field.ui.today.OrderDecision("rejected", "Price list is stale"))
+        assertEquals(OrderStatus.REJECTED, OrderSubmission.status(sent, rows(store), rejected))
+        assertEquals("Rejected by office", OrderStatus.REJECTED.label)
+        assertEquals(OrderStatus.APPROVED, OrderSubmission.status(sent, rows(store),
+            mapOf(draft.draftId to com.sunpride.field.ui.today.OrderDecision("approved", null))))
+        assertEquals(OrderStatus.QUEUED, OrderSubmission.status(sent, rows(store),
+            mapOf("other" to com.sunpride.field.ui.today.OrderDecision("rejected", null))))
         assertEquals("order_intent" in ActivityRules.recordedKinds(check.clientVisitId, rows(store)), true)
 
         // Idempotent: the same order is never queued twice, edited or discarded after sending.

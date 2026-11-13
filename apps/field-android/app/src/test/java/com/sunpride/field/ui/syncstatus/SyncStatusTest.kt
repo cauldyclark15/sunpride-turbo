@@ -22,6 +22,15 @@ class SyncStatusTest {
         (earlier.heldReasons + access.heldReasons).forEach { assertFalse(it.contains('_')) }
     }
 
+    // E2E-001: right after registration (never synced, 07:15) the pill must not claim the day is closed.
+    @Test fun `E2E-001 never synced phone says sync to start, not day closed`() {
+        val fresh = SyncStatus.fromRoom(null, emptyList())
+        assertEquals(SyncStatus.NEVER_SYNCED, fresh.label(1100))
+        assertFalse(fresh.label(1100).contains("Day closed"))
+        // After a sync whose lease lapsed, the day really is closed.
+        assertEquals("Day closed · sync for access", SyncStatus.fromRoom(partition, emptyList()).label(2500))
+    }
+
     @Test fun everyUnresolvedStatePreventsAllSynced() {
         for (state in listOf("pending", "sending", "review")) {
             val status = SyncStatus.fromRoom(partition, listOf(row(state)))

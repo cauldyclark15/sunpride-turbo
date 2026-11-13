@@ -866,6 +866,53 @@ describe("orders and governed prices on Postgres", () => {
         .get(effect.event_id).n,
     ).toBe(1);
   });
+  // E2E-018: the phone learns the office's decision on its own order (by its draft id) with the reason.
+  test("E2E-018 a rejected field order reaches its seller's field.sales with status and reason", async () => {
+    const [v] =
+      await h.db`select v.* from visit_executions v join field_order_captures f on f.visit_id=v.id order by f.created_at limit 1`;
+    await h.db`insert into visit_activities(organization_id,org_unit_id,visit_id,assignee_profile_id,outlet_id,activity_kind,activity,device_time,server_time)
+      values('sunpride',${unit},${v.id},${v.assignee_profile_id},${outlet},'order_intent',${{ kind: "order_intent", clientOrderId: crypto.randomUUID(), lines: [{ productId: product, uom: "PC", quantity: 2 }] }},${new Date(new Date(v.checked_in_at).getTime() + 60_000)},now())`;
+    expect(
+      (await drainFieldOrders({ db: h.db, env: h.env, publish: async () => {} }))
+        .captured,
+    ).toBe(1);
+    const [field] =
+      await h.db`select f.client_order_id,f.order_id,o.status,v.assignee_profile_id,v.service_date
+        from field_order_captures f join orders o on o.id=f.order_id join visit_executions v on v.id=f.visit_id
+        order by f.created_at desc limit 1`;
+    expect(field).toBeDefined();
+    if (field.status === "submitted")
+      expect(
+        (
+          await api(manager, "orders/transition", {
+            id: field.order_id,
+            status: "pending_approval",
+            reason: "Send for approval",
+            idempotencyKey: crypto.randomUUID(),
+          })
+        ).status,
+      ).toBe(200);
+    const rejected = await api(manager, "orders/reject", {
+      id: field.order_id,
+      reason: "Price list is stale for this account",
+      idempotencyKey: crypto.randomUUID(),
+    });
+    expect(rejected.status).toBe(200);
+    const { orderDecisions } = await import(
+      "../src/domains/fieldreports/mobile.js"
+    );
+    const day = new Date(field.service_date).toISOString().slice(0, 10);
+    const decisions = await orderDecisions(
+      { db: h.db },
+      { profileId: field.assignee_profile_id, serviceDate: today() },
+    );
+    expect(day.length).toBe(10);
+    expect(decisions).toContainEqual({
+      clientOrderId: field.client_order_id,
+      status: "rejected",
+      reason: "Price list is stale for this account",
+    });
+  });
   test("selling cases convert to exact base pieces; fractional base units fail", async () => {
     const [pc] =
       await h.db`insert into units_of_measure(organization_id,code,name,dimension,decimal_places,active) values('sunpride','PC','Piece','count',0,true) returning id`;

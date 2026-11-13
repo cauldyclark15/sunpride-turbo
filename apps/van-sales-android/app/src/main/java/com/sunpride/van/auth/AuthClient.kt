@@ -37,7 +37,11 @@ class AuthClient(
         val o = call(request) { code, response ->
             when {
                 code == 400 || code == 401 -> throw AuthFailure(AuthFailure.Kind.INVALID_CREDENTIALS)
-                code == 403 -> throw AuthFailure(AuthFailure.Kind.REFUSED)
+                // FLD-014/E2E-004 parity: the office revoked this phone; the refusal says so plainly (no session is stored).
+                code == 403 -> {
+                    val reason = runCatching { JSONObject(response.body?.string().orEmpty()).optJSONObject("error")?.optString("code") }.getOrNull()
+                    throw AuthFailure(AuthFailure.Kind.REFUSED, removed = reason == "device_revoked")
+                }
                 code == 429 -> throw AuthFailure(AuthFailure.Kind.RATE_LIMITED)
                 code !in 200..299 -> throw AuthFailure(AuthFailure.Kind.SERVER)
             }

@@ -734,6 +734,14 @@ describe("SP-0170 customer writer", () => {
       active: true,
     });
     expect(await queue()).not.toContain(outletId);
+    // E2E-006: the approved customer reaches the proposing agent's phone: it is assigned to the agent's current
+    // territory (the coverage the phone's customer list reads), not left without any assignment.
+    const assigned =
+      await h.db`select a.territory_id from outlet_assignments a join territory_salespeople s on s.territory_id=a.territory_id
+        join profiles p on p.id=s.profile_id
+        where a.outlet_id=${outletId} and a.deleted_at is null and a.effective_to is null
+          and p.email='agent@sunpride.test' and s.deleted_at is null and (s.effective_to is null or s.effective_to>now())`;
+    expect(assigned.length).toBe(1);
   });
   test("an approver can reject a field capture (old New store approvals' Reject): inactive, no accounting customer", async () => {
     const [agent] =

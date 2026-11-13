@@ -18,6 +18,15 @@ class CallFlowEngineTest {
     private fun fix(at: Long = 1_000_000) = JSONObject().put("latitude",10.33).put("longitude",123.94).put("accuracyMeters",5)
         .put("fixTime",at).put("mockSignal",false).put("provider","gps")
     private fun refused(block: () -> Unit) { try { block(); fail("Expected a call-flow refusal") } catch (_: CallFlowRefused) {} }
+    // agent1 SMP-C0293: a merchandiser call takes no order, so End never waits for a no-order reason (its frozen list
+    // may even be empty); a selling call still needs one.
+    @Test fun `merchandiser call ends without a no-order reason`() {
+        val merch = config().apply { getJSONObject("definition").put("channelProfile","merchandiser"); put("reasons",JSONArray()) }
+        assertTrue(CallFlowEngine.executionOnly(merch))
+        assertFalse(CallFlowEngine.missingNoOrderReason(merch,false,null))
+        assertTrue(CallFlowEngine.missingNoOrderReason(config(),false,null))
+        assertFalse(CallFlowEngine.executionOnly(null))
+    }
     @Test fun `F-106 verified in-radius fresh fix works offline`() { CallFlowEngine.location(config(),fix(),1_000_000) }
     @Test fun `F-106 outside radius requires prior approval`() {
         refused { CallFlowEngine.location(config(),fix().put("latitude",11),1_000_000) }

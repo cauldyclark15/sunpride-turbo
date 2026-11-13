@@ -501,6 +501,47 @@ async function enrolmentEvent(c, row, kind, outletCode, reason) {
     reason,
   });
 }
+/**
+ * E2E-006: an approved field-added customer reaches the agent who captured it. When the store has no current
+ * assignment, it is assigned to the proposer's current territory in the enrolment's office (and the proposer's
+ * route there, when exactly one serves that territory) — the same coverage the phone's customer list reads.
+ * Nothing is assigned when the proposer has no such territory (the office assigns it as before).
+ * @param {Ctx} c @param {Row} enrolment @param {string} outletId
+ */
+async function carryProposerAssignment(c, enrolment, outletId) {
+  const at = instant(c.now);
+  const [current] =
+    await c.db`select 1 from outlet_assignments where outlet_id=${outletId} and deleted_at is null
+      and effective_from<=${at} and (effective_to is null or effective_to>${at}) limit 1`;
+  if (current || !enrolment.proposed_by_profile_id) return;
+  const [territory] =
+    await c.db`select s.territory_id from territory_salespeople s
+      join territory_ownerships own on own.territory_id=s.territory_id and own.deleted_at is null
+        and own.effective_from<=${at} and (own.effective_to is null or own.effective_to>${at})
+      join territories t on t.id=s.territory_id and t.deleted_at is null and t.status='active'
+      where s.profile_id=${enrolment.proposed_by_profile_id} and s.deleted_at is null
+        and s.effective_from<=${at} and (s.effective_to is null or s.effective_to>${at})
+        and (${enrolment.territory_id}::uuid is null or s.territory_id=${enrolment.territory_id}::uuid)
+        and own.org_unit_id=${enrolment.org_unit_id}
+      order by (s.kind='primary') desc nulls last, s.effective_from desc, s.id limit 1`;
+  if (!territory) return;
+  const routes =
+    await c.db`select distinct r.route_id from route_salespeople r
+      join route_territories rt on rt.route_id=r.route_id and rt.deleted_at is null
+        and rt.effective_from<=${at} and (rt.effective_to is null or rt.effective_to>${at})
+      where r.profile_id=${enrolment.proposed_by_profile_id} and r.deleted_at is null
+        and r.effective_from<=${at} and (r.effective_to is null or r.effective_to>${at})
+        and rt.territory_id=${territory.territory_id}`;
+  await insert(c.db, "outlet_assignments", {
+    outlet_id: outletId,
+    territory_id: territory.territory_id,
+    route_id: routes.length === 1 ? routes[0].route_id : null,
+    effective_from: at,
+    actor_subject: c.actor?.subject ?? "system",
+    reason: "Approved field customer: proposer's territory",
+  });
+}
+
 /** @param {Ctx} c @param {string} action @param {Row} b */
 export async function enrolmentCommand(c, action, b) {
   const actor = await requireCapability(
@@ -667,6 +708,7 @@ export async function enrolmentCommand(c, action, b) {
       code: assigned,
       enrolment_status: "approved",
     });
+    await carryProposerAssignment(c, row, outlet.id);
   } else {
     await assertUnlocked(c, [outlet.id], [], c.now);
     const assignments = await history(

@@ -45,6 +45,8 @@ data class SyncStatus(
         queued > 0 || sending > 0 -> if (now >= (earliestUnsentCloseAt ?: dayCloseFor(now)))
             "Late · held for review" else if (offline) "Offline · sync before 10 PM" else "Sync before 10 PM"
         offline -> "Offline · saved data"
+        // E2E-001: a phone that never synced has no day to close yet; say what to do instead.
+        lastSuccess == null && leaseExpiresAt == null -> NEVER_SYNCED
         leaseExpired(now) -> "Day closed · sync for access"
         cacheStale(now) -> "Cache stale · not synced"
         photosWaiting > 0 && health == "synced" -> "Visits synced · photos uploading"
@@ -53,6 +55,8 @@ data class SyncStatus(
     }
 
     companion object {
+        /** E2E-001: the pill before this phone's first sync (registration just finished). */
+        const val NEVER_SYNCED = "Not synced yet · sync to start"
         fun fromRoom(partition: PartitionRow?, rows: List<OutboxRow>, offline: Boolean = false,
             intents: List<IntentRow> = emptyList(), dismissed: Set<String> = emptySet()): SyncStatus {
             val current = rows.filter { it.scope == partition?.scope }

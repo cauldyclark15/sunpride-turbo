@@ -7,6 +7,13 @@ import org.junit.Test
 
 /** The bottom bar: five tabs, every page belongs to one, and the bar steps aside inside flows. */
 class FieldNavTest {
+    // E2E-001: finishing registration (or sign-in) lands on Today, not a leftover tab such as Customers.
+    @Test fun `E2E-001 becoming ready opens on Today`() {
+        assertEquals("home", FieldNav.pageOnReady(wasReady = false, ready = true, page = "customers"))
+        assertEquals("customers", FieldNav.pageOnReady(wasReady = true, ready = true, page = "customers"))
+        assertEquals("messages", FieldNav.pageOnReady(wasReady = false, ready = true, page = "messages", targeted = true))
+    }
+
     @Test fun fiveTabsInDailyOrder() {
         assertEquals(listOf("Today", "Route", "Customers", "Messages", "More"), FieldTab.entries.map { it.label })
         assertEquals(listOf("home", "route", "customers", "messages", "more"), FieldTab.entries.map { it.page })

@@ -499,12 +499,15 @@ export async function closeCall(ctx, call) {
     at,
   );
   const order = await hasOrder(ctx, call);
+  // Merchandiser calls are execution-only: they take no order, so End never needs a no-order reason.
+  const executionOnly =
+    call.definition_snapshot?.channelProfile === "merchandiser";
   const reason =
     !order &&
     call.reasons_snapshot.find(
       (/** @type {any} */ r) => r.code === p.zeroSaleReason,
     );
-  if (!order && !reason) refuse();
+  if (!order && !reason && !executionOnly) refuse();
   const duration = at - start,
     short = duration < config.policy.minDwellMs;
   if (

@@ -27,6 +27,18 @@ class DaySalesTest {
         override fun write(key: String, json: String, savedAt: Long) { rows[key] = json to savedAt }
     }
 
+    // E2E-018: the office's decisions on this seller's phone orders ride the sales report; malformed entries are skipped.
+    @Test fun `E2E-018 decodes order decisions with the rejection reason`() {
+        val o = JSONObject(report()).put("orderDecisions", org.json.JSONArray()
+            .put(JSONObject().put("clientOrderId", "d-1").put("status", "rejected").put("reason", "Price list is stale for this account"))
+            .put(JSONObject().put("clientOrderId", "d-2").put("status", "approved").put("reason", JSONObject.NULL))
+            .put(JSONObject().put("status", "rejected")))
+        val s = DaySalesCodec.decode(o.toString())
+        assertEquals(mapOf("d-1" to OrderDecision("rejected", "Price list is stale for this account"),
+            "d-2" to OrderDecision("approved", null)), s.orderDecisions)
+        assertTrue(DaySalesCodec.decode(report()).orderDecisions.isEmpty())
+    }
+
     @Test fun decodesCentavosAndTheGovernedRule() {
         val s = DaySalesCodec.decode(report())
         assertEquals(DaySales(day, 2_500_000, 1_000_050, 40, 65_000_000, 12_345_600, ProductiveCall.TRUCK_SELLER), s)
