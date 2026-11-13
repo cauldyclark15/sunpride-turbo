@@ -45,8 +45,9 @@ export function integer(value, name = "Quantity", min = 0) {
 }
 /** @param {any} v @param {string} [name] @param {number} [max] */
 export function text(v, name = "Value", max = 500) {
-  if (typeof v !== "string" || !v.trim() || v.length > max)
-    invalid(`${name} is required (up to ${max} characters)`);
+  if (typeof v !== "string" || !v.trim()) invalid(`${name} is required`);
+  if (v.length > max)
+    invalid(`${name} is too long (up to ${max} characters)`);
   return /** @type {string} */ (v.trim());
 }
 /** @param {any} v @param {string[]} allowed @param {string} [fallback] */

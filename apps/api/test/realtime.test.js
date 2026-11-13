@@ -127,6 +127,19 @@ describe("realtime /ws", () => {
     c.ws.close();
   });
 
+  test("r6: every signed-in role may subscribe to its own session topic 'me' (no forbidden)", async () => {
+    for (const role of ["sales", "viewer", "admin"]) {
+      const c = openWs(await signedInCookie(role));
+      await c.opened;
+      c.ws.send(JSON.stringify({ type: "subscribe", topics: ["me"] }));
+      expect((await c.next((m) => m.type === "subscribed"))?.topics).toEqual(["me"]);
+      expect(await c.next((m) => m.type === "error", 200)).toBeNull();
+      await publish(h.db, "me");
+      expect(await c.next((m) => m.type === "invalidate" && m.topic === "me")).toBeTruthy();
+      c.ws.close();
+    }
+  });
+
   test("admin may subscribe to the admin topic", async () => {
     const c = openWs(await signedInCookie("admin"));
     await c.opened;

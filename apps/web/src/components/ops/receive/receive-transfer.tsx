@@ -181,7 +181,7 @@ export function ReceiveGrid({
         <Notice
           tone="warning"
           title="Extra stock is recorded as over."
-          meta="It is added to your stock only after a supervisor decides."
+          meta="Inside the allowed difference it is added to your stock at once; a bigger difference waits for a supervisor."
         />
       ) : null}
       {problems.length ? (

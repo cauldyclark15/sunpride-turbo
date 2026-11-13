@@ -10,8 +10,9 @@ export function rule(message, code = "business_rule") {
 }
 /** @param {any} value @param {string} label @param {number} [max] */
 export function required(value, label, max = 500) {
-  if (typeof value !== "string" || !value.trim() || value.trim().length > max)
-    rule(`${label} required (max ${max})`);
+  if (typeof value !== "string" || !value.trim()) rule(`${label} is required`);
+  if (value.trim().length > max)
+    rule(`${label} is too long (up to ${max} characters)`);
   return value.trim();
 }
 /** @param {any} value */

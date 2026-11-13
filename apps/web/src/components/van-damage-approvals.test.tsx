@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
+  DecidedDamage,
   VanDamageApprovals,
   damageErrorMessage,
   damageReasonLabel,
@@ -174,5 +175,24 @@ describe("truck damage approvals (VAN-020)", () => {
     state.rows = [];
     state.status = "exhausted";
     expect(render()).toContain("No truck damage waiting");
+  });
+
+  it("WEB-112: Show older reveals decided records with outcome and who decided", () => {
+    state.rows = [row()];
+    const html = render();
+    expect(html).toContain("Show older");
+    state.buttons = [];
+    state.paginated = [];
+    state.rows = [
+      row({ damageId: "d2", status: "approved", canDecide: false, decidedByName: "Maria Manager", decidedAt: Date.parse("2026-10-06T03:00:00Z"), decisionNote: "Seen on photo" }),
+      row({ damageId: "d3", status: "rejected", canDecide: false, decidedByName: "Maria Manager", decidedAt: Date.parse("2026-10-06T04:00:00Z"), decisionNote: "Good stock" }),
+    ];
+    const decided = renderToStaticMarkup(createElement(DecidedDamage));
+    expect(state.paginated).toEqual([{ key: ["van", "damage", "decided"] }]);
+    expect(decided).toContain("Approved by Maria Manager");
+    expect(decided).toContain("Seen on photo");
+    expect(decided).toContain("Rejected by Maria Manager");
+    expect(decided).toContain("Good stock");
+    expect(decided).not.toContain("Decision note for");
   });
 });

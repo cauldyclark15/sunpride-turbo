@@ -2203,6 +2203,7 @@ section(
 
 // ---------------------------------------------------------------- WEB-106: a captured phone order in Field order review (needs price setup)
 const ORDER_PRODUCT = "SMP-PCH-227";
+const FIELD_ORDER_ID = uid("r6-field-order-1");
 section(
   "r6-field-order-review",
   ["WEB-106"],
@@ -2232,21 +2233,22 @@ section(
         kind: "order_intent",
         lines: [{ uom: "PC", quantity: 4, productId: p.id }],
         source: "sample",
-        clientOrderId: `${TAG}-FIELD-ORDER-1`,
+        // The phone always sends a UUID; a text id was refused as a bad phone record (WEB-106 r6).
+        clientOrderId: FIELD_ORDER_ID,
       },
       device_time: at.toISOString(),
       server_time: new Date().toISOString(),
     });
     // The insert trigger queues it; the API's drain (about a minute) moves it to review.
     for (let i = 0; i < 24; i++) {
-      const q = await one(db`select q.status from order_intent_queue q join visit_activities a on a.id=q.activity_id where a.activity->>'clientOrderId'=${`${TAG}-FIELD-ORDER-1`}`);
+      const q = await one(db`select q.status from order_intent_queue q join visit_activities a on a.id=q.activity_id where a.activity->>'clientOrderId'=${FIELD_ORDER_ID}`);
       if (q && q.status !== "pending") break;
       await new Promise((r) => setTimeout(r, 5000));
     }
     return "created";
   },
   async () => {
-    const q = await one(db`select q.status,q.review_code from order_intent_queue q join visit_activities a on a.id=q.activity_id where a.activity->>'clientOrderId'=${`${TAG}-FIELD-ORDER-1`}`);
+    const q = await one(db`select q.status,q.review_code from order_intent_queue q join visit_activities a on a.id=q.activity_id where a.activity->>'clientOrderId'=${FIELD_ORDER_ID}`);
     const rows = (await api(ADMIN, "/api/v1/orders/field-review")).rows ?? [];
     return {
       fieldOrderInReview: q?.status === "review" ? q.review_code ?? "review" : false,

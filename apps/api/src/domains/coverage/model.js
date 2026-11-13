@@ -40,8 +40,10 @@ export function monthDates(month) {
 }
 /** @param {unknown} value @param {string} label */
 export function required(value, label) {
-  if (typeof value !== "string" || !value.trim() || value.trim().length > 500)
-    fail(`${label} required (max 500)`);
+  // EDGE-023: a too-long reason says so; "required" only when nothing was typed.
+  if (typeof value !== "string" || !value.trim()) fail(`${label} is required`);
+  if (/** @type {string} */ (value).trim().length > 500)
+    fail(`${label} is too long (up to 500 characters)`);
   return /** @type {string} */ (value).trim();
 }
 /** @param {unknown} id */

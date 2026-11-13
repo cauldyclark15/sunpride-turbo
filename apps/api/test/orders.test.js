@@ -801,6 +801,33 @@ describe("orders and governed prices on Postgres", () => {
     ).toEqual({ captured: 0, review: 1 });
     expect((await h.db`select count(*) as n from orders`)[0].n).toBe(before);
   });
+  test("WEB-106 every capture refusal is classified from its structured reason, not its wording", async () => {
+    const [v] =
+      await h.db`select * from visit_executions order by created_at limit 1`;
+    const at = new Date(new Date(v.checked_in_at).getTime() + 1000);
+    /** @type {Array<[{clientOrderId:string,lines:any[]}, string]>} */
+    const cases = [
+      // r6: the test-day kit wrote a non-UUID phone reference; it stayed 'invalid_request'.
+      [{ clientOrderId: "TD-20261113-FIELD-ORDER-1", lines: [{ productId: product, uom: "PC", quantity: 1 }] }, "bad_phone_record"],
+      [{ clientOrderId: crypto.randomUUID(), lines: [] }, "bad_phone_record"],
+      [{ clientOrderId: crypto.randomUUID(), lines: [{ productId: product, uom: "PC", quantity: 0.0001 }] }, "bad_quantity"],
+      [{ clientOrderId: crypto.randomUUID(), lines: [{ productId: product, uom: "NOPE", quantity: 1 }] }, "unit_not_set_up"],
+    ];
+    const { REVIEW_REASONS } = await import("../src/domains/orders/field-queue.js");
+    for (const [activity, code] of cases) {
+      const [a] =
+        await h.db`insert into visit_activities(organization_id,org_unit_id,visit_id,assignee_profile_id,outlet_id,activity_kind,activity,device_time,server_time)
+        values('sunpride',${unit},${v.id},${v.assignee_profile_id},${outlet},'order_intent',${{ kind: "order_intent", ...activity }},${at},now()) returning id`;
+      expect(
+        await drainFieldOrders({ db: h.db, env: h.env, publish: async () => {} }),
+      ).toEqual({ captured: 0, review: 1 });
+      const [q] =
+        await h.db`select review_code from order_intent_queue where activity_id=${a.id}`;
+      expect([activity.clientOrderId, q.review_code]).toEqual([activity.clientOrderId, code]);
+      expect(REVIEW_REASONS[q.review_code]).toBeTruthy();
+      await h.db`update order_intent_queue set status='captured' where activity_id=${a.id}`;
+    }
+  });
   test("F-112/F-119 approved field orders bind SAP credit and only a worker acknowledgement can supply a SAP document number", async () => {
     const made = await create();
     expect(
@@ -1150,13 +1177,25 @@ test("when SAP owns prices, office price import and delete are refused like save
   );
 });
 
-test("WEB-106 review codes name the specific cause in plain words", async () => {
+test("WEB-106 review codes come from structured refusal facts, never message wording", async () => {
   const { reviewCodeOf, reviewReason } = await import("../src/domains/orders/field-queue.js");
   const { ApiError } = await import("../src/core/errors.js");
-  const e = (/** @type {string} */ m, code = "invalid_request") => new ApiError(code, 422, m);
-  expect(reviewReason(reviewCodeOf(e("This store needs an accounting customer before a commercial order can be booked")))).toBe("Unknown store (no accounting customer linked)");
-  expect(reviewReason(reviewCodeOf(e("A free product needs a governed reference price before approval")))).toBe("Missing price");
-  expect(reviewReason(reviewCodeOf(e("The store's selling catalog needs setup")))).toBe("Store's selling list is not set up");
-  expect(reviewReason(reviewCodeOf(e("Product was not authorized on the visit day")))).toBe("Product was not on the store's list that day");
+  const { fail } = await import("../src/domains/orders/validation.js");
+  const caught = (/** @type {() => void} */ fn) => {
+    try {
+      fn();
+    } catch (e) {
+      return /** @type {any} */ (e);
+    }
+    throw new Error("expected a refusal");
+  };
+  const e = caught(() => fail("Anything at all", undefined, "unknown_store"));
+  expect(reviewReason(reviewCodeOf(e))).toBe("Unknown store (no accounting customer linked)");
+  // The reason code never reaches the response envelope.
+  expect(e.details).toBeNull();
+  // Wording alone no longer decides: a 'price' sentence without a structured reason is not 'Missing price'.
+  expect(reviewCodeOf(new ApiError("invalid_request", 422, "A price was odd"))).toBe("needs_review");
+  expect(reviewCodeOf(new ApiError("authority_required", 422, "x"))).toBe("discount_authority");
+  expect(reviewCodeOf(new ApiError("wrong_date", 422, "x"))).toBe("wrong_time");
   expect(reviewReason("invalid_request")).toMatch(/^Captured order needs selling setup/);
 });

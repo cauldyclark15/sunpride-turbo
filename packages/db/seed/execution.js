@@ -943,8 +943,15 @@ export function execution(d, c, stock, options = {}) {
   if (!pending) throw new Error("Sample submitted MCP is missing");
   let serviceDate = `${month}-01`;
   if (weekday(serviceDate) === 0) serviceDate = plusDays(serviceDate, 1);
+  // WEB-118: only stops on routes the assignee serves, or approval refuses the plan.
+  const served = new Set(
+    d
+      .rows("route_salespeople")
+      .filter((r) => r.profile_id === a.id && !r.deleted_at)
+      .map((r) => r.route_id),
+  );
   for (const [sequence, s] of c.stores
-    .filter((s) => s.territoryIndex === 0)
+    .filter((s) => s.territoryIndex === a.territoryIndex && served.has(s.route.id))
     .slice(0, a.dailyCalls)
     .entries()) {
     d.add(
@@ -954,7 +961,7 @@ export function execution(d, c, stock, options = {}) {
         plan_id: pending.id,
         outlet_id: s.id,
         route_id: s.route.id,
-        territory_id: c.territories[0].id,
+        territory_id: c.territories[a.territoryIndex].id,
         frequency: "custom",
         preferred_weekdays: [],
         custom_local_dates: [serviceDate],

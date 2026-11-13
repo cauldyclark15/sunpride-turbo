@@ -73,6 +73,7 @@ export function VanDamageApprovals() {
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [notice, setNotice] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  const [showDecided, setShowDecided] = useState(false);
 
   async function run(damageId: string, decision: "approve" | "reject") {
     const note = notes[damageId]?.trim();
@@ -191,10 +192,86 @@ export function VanDamageApprovals() {
             className="w-fit"
             onPress={() => void loadMore()}
           >
-            Show older
+            Show more waiting
           </Button>
         ) : null}
       </section>
+      {showDecided ? (
+        <DecidedDamage />
+      ) : (
+        <Button
+          size="sm"
+          variant="secondary"
+          className="mx-4 w-fit"
+          onPress={() => setShowDecided(true)}
+        >
+          Show older
+        </Button>
+      )}
     </Card>
+  );
+}
+
+/** WEB-112: damage a supervisor already decided — outcome, who decided, when and their note. */
+export function DecidedDamage() {
+  const { items, status, loadMore, error } = useApiPages<DamageRow>(
+    ["van", "damage", "decided"],
+    (cursor, { signal }) =>
+      apiFetch("/api/v1/van/damage", {
+        query: { cursor, view: "decided" },
+        signal,
+      }),
+  );
+  const rows = items ?? [];
+  return (
+    <section aria-label="Truck damage decided" className="grid gap-2 border-t border-separator pt-3">
+      <h3 className="px-4 text-sm font-medium">Decided</h3>
+      {error ? <Notice title={error.message} tone="danger" /> : null}
+      {rows.map((row) => (
+        <div
+          key={row.damageId}
+          className="grid grid-cols-[minmax(0,1fr)_auto] items-start gap-3 border-b border-separator px-4 pb-3 last:border-b-0"
+        >
+          <div>
+            <strong className="text-sm font-medium">
+              {row.productName}{" "}
+              <span className="font-mono text-xs text-muted">
+                {row.productCode}
+              </span>
+            </strong>
+            <small className="block text-[13px] text-muted">
+              {formatDamageQuantity(
+                BigInt(row.quantityBase),
+                BigInt(row.quantityScale),
+              )}{" "}
+              {row.uomCode} · {damageReasonLabel(row.reason)} ·{" "}
+              {row.sellerName} · {row.tripNumber}
+            </small>
+            <small className="block text-[13px]">
+              {row.status === "approved" ? "Approved" : "Rejected"} by{" "}
+              {row.decidedByName ?? "Former user"}
+              {row.decidedAt ? ` · ${manilaTime.format(row.decidedAt)}` : ""}
+              {row.decisionNote ? ` · ${row.decisionNote}` : ""}
+            </small>
+          </div>
+          <StatusPill tone={row.status === "approved" ? "success" : "danger"}>
+            {row.status === "approved" ? "Approved" : "Rejected"}
+          </StatusPill>
+        </div>
+      ))}
+      {rows.length === 0 && status !== "loading" && !error ? (
+        <p className="px-4 text-[13px] text-muted">No decided truck damage yet</p>
+      ) : null}
+      {status === "canLoadMore" ? (
+        <Button
+          size="sm"
+          variant="secondary"
+          className="mx-4 w-fit"
+          onPress={() => void loadMore()}
+        >
+          Show older
+        </Button>
+      ) : null}
+    </section>
   );
 }
