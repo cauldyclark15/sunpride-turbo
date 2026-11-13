@@ -1,5 +1,5 @@
 "use client";
-import { Button } from "@heroui/react";
+import { Button, Tooltip } from "@heroui/react";
 import { useIssueQuery, useIssueCommand } from "./data";
 import { useLive } from "../../lib/api";
 import type { IssueBoard, IssueAssignee } from "./model";
@@ -57,12 +57,24 @@ export function IssuesPage() {
       : null,
   );
   const result = query.data;
-  const { data: assignees } = useIssueQuery<IssueAssignee[]>(
+  const assigneesQuery = useIssueQuery<IssueAssignee[]>(
     "assignees",
     canRead ? {} : null,
   );
+  const assignees = assigneesQuery.data;
   useLive(canRead ? ["issues"] : [], [["issues"]]);
   const move = useIssueCommand("move");
+  const [refreshing, setRefreshing] = useState(false);
+  /** Re-reads the board with the current filters; a failure lands in `query.error`. */
+  async function refresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    try {
+      await Promise.all([query.refetch(), assigneesQuery.refetch()]);
+    } finally {
+      setRefreshing(false);
+    }
+  }
   async function moveIssue(input: IssueMove) {
     if (!access?.canTriage || busy || filters.archived) return;
     setBusy(true);
@@ -93,15 +105,32 @@ export function IssuesPage() {
       <IssuesHeader
         title="Issues"
         actions={
-          access?.canWrite ? (
-            <Button
-              variant="primary"
-              onPress={() => router.push("/issues/new")}
-            >
-              <WorkspaceIcon name="plus" className="size-4" />
-              New issue
-            </Button>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            <Tooltip delay={300}>
+              <Button
+                variant="outline"
+                isIconOnly
+                aria-label="Refresh issues"
+                isDisabled={refreshing}
+                onPress={() => void refresh()}
+              >
+                <WorkspaceIcon
+                  name="sync"
+                  className={`size-4 ${refreshing ? "animate-spin" : ""}`}
+                />
+              </Button>
+              <Tooltip.Content>Refresh</Tooltip.Content>
+            </Tooltip>
+            {access?.canWrite ? (
+              <Button
+                variant="primary"
+                onPress={() => router.push("/issues/new")}
+              >
+                <WorkspaceIcon name="plus" className="size-4" />
+                New issue
+              </Button>
+            ) : null}
+          </div>
         }
       />
       {result?.summary && !filters.archived ? (
@@ -359,7 +388,10 @@ export function IssuesPage() {
       ) : null}
       {error || query.error ? (
         <p role="alert" className="text-[13px] text-danger">
-          {error || query.error?.message}
+          {error ||
+            (result === undefined
+              ? query.error?.message
+              : `Could not refresh issues: ${query.error?.message.replace(/\.$/, "")}. Showing the last loaded list.`)}
         </p>
       ) : null}
       {busy ? (
@@ -367,10 +399,12 @@ export function IssuesPage() {
           Saving move…
         </p>
       ) : null}
-      {query.error ? null : result === undefined ? (
-        <p role="status" className="py-10 text-center text-[13px] text-muted">
-          Loading issues…
-        </p>
+      {result === undefined ? (
+        query.error ? null : (
+          <p role="status" className="py-10 text-center text-[13px] text-muted">
+            Loading issues…
+          </p>
+        )
       ) : view === "board" && !filters.archived ? (
         <IssuesBoard
           issues={result.issues}
