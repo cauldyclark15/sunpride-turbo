@@ -681,16 +681,16 @@ export function CustomerEditorView({
           ) : null}
         </div>
       ) : null}
-      {customer && awaitsApproval(customer) && canEdit ? (
+      {customer && awaitsApproval(customer) ? (
         <p
-          data-testid="office-completes-note"
+          data-testid="customer-review-note"
           className="rounded-lg border border-border bg-default-soft px-3 py-2 text-[13px] text-foreground"
         >
-          The salesman fills in only what he knows on the phone. Complete the
-          rest here before approving: Tax Classification and TIN, Sales Office,
-          Sales Partner, Payment Arrangement, Delivery Arrangement (Delivering
-          Plant and ship-to) and, for Distribution Channel 40, the ADP Specific
-          details. Then Save and Approve.
+          The agent completes all enrollment details, including Tax
+          Classification, Sales Office, Sales Partner, Payment Arrangement,
+          Delivery Arrangement and, for Distribution Channel 40, ADP Specific
+          details. The CDM reviews and verifies the profile before approving or
+          rejecting it. No Admin completion step is needed.
         </p>
       ) : null}
       {message ? (

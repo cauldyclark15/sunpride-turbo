@@ -303,7 +303,7 @@ export async function captureCensus(ctx, p) {
   if (p.kind === "change") return captureChange(ctx, actor, p);
   if (p.kind !== undefined && p.kind !== "new") rule("Unknown store request.");
   // SP-0170: a capture carrying the client's customer fields becomes a prospect customer
-  // (field enrolment + draft customer profile) for the office to complete and approve.
+  // (field enrolment + customer profile) for CDM review and approval.
   if (p.customer !== undefined) return captureCustomer(ctx, actor, p);
   let batch;
   if (p.batchId !== undefined && p.batchId !== null) {
@@ -448,9 +448,9 @@ export async function createBatch(ctx, p) {
 }
 /** SP-0170 "Add customer": the same census.capture op, with the client's `customer` object
  * (contract §6). It goes through the existing enrolment writer (provisional code, pending pin,
- * pending enrolment) and saves the customer profile at `draft`; the office completes Payment,
- * Delivery, Tax, Pricing, Sales Office and Delivering Plant before approval. Old payloads (no
- * `customer`) keep the census review path unchanged.
+ * pending enrolment) and saves the agent's entire customer profile for CDM review (SP-0184).
+ * Every required customer field is checked by the shared field-level writer before saving.
+ * Old payloads (no `customer`) keep the census review path unchanged.
  * @param {any} ctx @param {any} actor @param {any} p */
 async function captureCustomer(ctx, actor, p) {
   if (
@@ -487,7 +487,7 @@ async function captureCustomer(ctx, actor, p) {
     customer: { ...p.customer, customerName: name },
   });
   if (!result) rule("The customer was not saved.");
-  await ctx.db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${actor.userId},'SP-0170.customer.capture','outlet',${result.outletId},'New customer captured on the field app; office completes it before approval')`;
+  await ctx.db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${actor.userId},'SP-0170.customer.capture','outlet',${result.outletId},'New customer captured on the field app; awaiting CDM review and verification')`;
   ctx.publish("outlets");
   ctx.publish("masters");
   return { entityId: result.outletId, eventIds: [] };

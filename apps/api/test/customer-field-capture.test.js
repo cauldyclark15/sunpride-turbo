@@ -54,6 +54,18 @@ async function fieldRep(app = "field-android") {
   const who = { access: tokens.accessToken, deviceId, key };
   return {
     userId,
+    /** @param {string} path @param {any} body */
+    post: async (path, body) => {
+      const r = await h.fetch(path, {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${tokens.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+      });
+      return { status: r.status, body: await r.json() };
+    },
     /** @param {string} path */
     get: async (path) => {
       const r = await h.fetch(path, {
@@ -122,13 +134,21 @@ function capture(over = {}) {
       customerGroup2Code: "RSS",
       customerGroupCode: "74",
       typeOfBusiness: "Sole Proprietor",
+      taxClassificationCode: "1",
+      salesOfficeCode: "100",
+      paymentTermsCode: "0003",
+      pricingProcedureCode: "2",
+      deliveringPlantCode: "1000",
     },
     ...over,
   };
 }
 
 beforeAll(async () => {
-  h = await startHarness({ installers: [org, masters], port: 5002 });
+  h = await startHarness({
+    installers: [org, masters],
+    port: Number(process.env.SP_TEST_PORT) || 5002,
+  });
   await seedDemo(h.db, { days: 3, anchorDate: plusDays(todayManila(), 1) });
   await tx(h.db, seedSpecMasters);
   await loadPhGeography(h.db);
@@ -155,6 +175,13 @@ test("census-config carries the customer reference lists, default Sales Organiza
     "customer_group_2",
     "customer_group",
     "type_of_business",
+    "tax_classification",
+    "country",
+    "sales_office",
+    "sales_partner",
+    "payment_terms",
+    "pricing_procedure",
+    "delivering_plant",
   ])
     expect(lists.has(l)).toBe(true);
   // Old keys unchanged for current apps.
@@ -193,7 +220,7 @@ test("geography pack: national levels in one request, barangays per province", a
   ).toBe(400);
 });
 
-test("Add customer capture becomes a prospect customer with a draft profile; replay is idempotent", async () => {
+test("Add customer capture becomes a prospect customer with a complete pending profile; replay is idempotent", async () => {
   const p = capture();
   const opId = crypto.randomUUID();
   const first = await rep.push(p, opId);
@@ -206,7 +233,7 @@ test("Add customer capture becomes a prospect customer with a draft profile; rep
   expect(c).toMatchObject({
     customerName: "Aling Nena Store",
     tradeName: "Nena's",
-    completeness: "draft",
+    completeness: "complete",
     enrolmentStatus: "provisional",
     distributionChannelCode: "41",
     customerGroup1Code: "RSF",
@@ -227,7 +254,7 @@ test("Add customer capture becomes a prospect customer with a draft profile; rep
     await h.db`select count(*)::int n from customer_reference_values where list='sales_partner' and active`;
   expect(c.salesPartnerCode).toBe(agents.n ? null : me.code);
   if (!agents.n) expect(c.salesPartnerName).toBe("Capture rep");
-  // No census review row: the office completes and approves it as a customer.
+  // No census review row: CDMs review it directly as a customer.
   expect(
     (await h.db`select 1 from census_captures where id=${p.captureId}`).length,
   ).toBe(0);
@@ -238,6 +265,142 @@ test("Add customer capture becomes a prospect customer with a draft profile; rep
       await h.db`select count(*)::int n from outlet_enrolments where client_request_id=${p.captureId}`
     )[0].n,
   ).toBe(1);
+});
+
+test("SP-0184 agents submit complete profiles directly for manager review, approval or rejection without Admin edits", async () => {
+  const password = "sp184-reviewer-test-only-password";
+  const email = `cdm-${crypto.randomUUID()}@example.com`;
+  const userId = await createUser(h, email, password);
+  const unitId = rowId("org_units", "territory-0");
+  const [profile] =
+    await h.db`insert into profiles(user_id,auth_subject,name,email,role,status,org_unit_id)
+    values(${userId},${userId},'Sample CDM',${email},'manager','active',${unitId}) returning id`;
+  await h.db`insert into employee_assignments(profile_id,org_unit_id,role,effective_from,actor_subject,reason)
+    values(${profile.id},${unitId},'manager',${new Date(0)},${userId},'SP-0184 reviewer fixture')`;
+  const signIn = await h.fetch("/api/auth/sign-in", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  expect(signIn.status).toBe(200);
+  const cookie = signIn.headers.get("set-cookie")?.split(";")[0] ?? "";
+  for (const decision of ["approve", "reject"]) {
+    const p = capture();
+    const adp = decision === "reject";
+    const fields = {
+      ...p.customer,
+      registeredName: "Sample Enrollment Inc",
+      tin: "123456789",
+      taxClassificationCode: "1",
+      countryCode: "PH",
+      salesOfficeCode: "100",
+      paymentTermsCode: "0003",
+      creditLimit: "12345.67",
+      pricingProcedureCode: "2",
+      deliveringPlantCode: "1000",
+      ...(adp
+        ? {
+            distributionChannelCode: "40",
+            customerGroup1Code: "ADP",
+            customerGroup2Code: "DAW",
+            distributorCode: "SAMPLE-D",
+            distributorName: "Sample Distributor",
+            distributorCustomerCode: "SAMPLE-C",
+            distributionMode: "Sample mode",
+            subDistributorCode: "SAMPLE-S",
+            subDistributorName: "Sample Sub Distributor",
+            distributorSalesman: "Sample Rep",
+            distributorSalesmanCode: "SAMPLE-R",
+            truckServing: "Sample Truck",
+            truckCode: "SAMPLE-T",
+            distributorHub: "Sample Hub",
+            clusterNo: "1",
+            clusterName: "Sample Cluster",
+          }
+        : {}),
+      shipTos: [
+        {
+          sameAsCustomer: false,
+          shipToParty: "Sample Delivery Warehouse",
+          shipToAddress: "99 Delivery Road",
+          contactPerson: "Sample Receiver",
+          mobileNo: "09175550202",
+          email: "delivery@example.ph",
+        },
+      ],
+    };
+    p.customer = fields;
+    expect((await rep.push(p)).status).toBe("applied");
+    const [enrolment] =
+      await h.db`select outlet_id,status from outlet_enrolments where client_request_id=${p.captureId}`;
+    expect(enrolment.status).toBe("pending");
+    const c = await readCustomer(h.db, enrolment.outlet_id);
+    expect(c).toMatchObject({
+      completeness: "complete",
+      enrolmentStatus: "provisional",
+      taxClassificationCode: "1",
+      salesOfficeCode: "100",
+      paymentTermsCode: "0003",
+      creditLimit: 12345.67,
+      pricingProcedureCode: "2",
+      deliveringPlantCode: "1000",
+    });
+    expect(c.shipTos[0]).toMatchObject(fields.shipTos[0]);
+    const visible = await h.fetch(`/api/v1/customers/${c.id}`, {
+      headers: { cookie },
+    });
+    expect(visible.status).toBe(200);
+    expect(await visible.json()).toMatchObject({
+      ...fields,
+      creditLimit: 12345.67,
+      tin: "123-456-789",
+    });
+    if (adp)
+      for (const [key, value] of Object.entries(fields).filter(
+        ([key]) => key.startsWith("distributor") || key.startsWith("cluster"),
+      ))
+        expect(c[key]).toBe(value);
+    expect(
+      (await h.db`select 1 from outlet_customer_links where outlet_id=${c.id}`)
+        .length,
+    ).toBe(0);
+    // Agents supply the details but cannot decide them, even when the profile is complete.
+    for (const action of ["approve", "reject"])
+      expect(
+        (
+          await rep.post(`/api/v1/customers/${c.id}/${action}`, {
+            reason: "Sample review",
+          })
+        ).status,
+      ).toBe(403);
+    // The CDM does not perform a PUT/complete step: directly reviews the submitted record.
+    const reviewed = await h.fetch(`/api/v1/customers/${c.id}/${decision}`, {
+      method: "POST",
+      headers: {
+        cookie,
+        "content-type": "application/json",
+        "idempotency-key": crypto.randomUUID(),
+      },
+      body: JSON.stringify({ reason: "Sample CDM verification" }),
+    });
+    const body = /** @type {any} */ (await reviewed.json());
+    expect({ status: reviewed.status, code: body.code }).toMatchObject({
+      status: 200,
+    });
+    expect(body.enrolmentStatus).toBe(
+      decision === "approve" ? "approved" : "rejected",
+    );
+    const stored = await readCustomer(h.db, c.id);
+    expect(stored.enrolmentStatus).toBe(body.enrolmentStatus);
+    expect(stored.shipTos[0]).toMatchObject(fields.shipTos[0]);
+    const [review] =
+      await h.db`select decided_by from outlet_enrolments where outlet_id=${c.id}`;
+    expect(review.decided_by).toBe(userId);
+    expect(
+      (await h.db`select 1 from outlet_customer_links where outlet_id=${c.id}`)
+        .length,
+    ).toBe(decision === "approve" ? 1 : 0);
+  }
 });
 
 // SP-0183: bypass the phone's form and submit signed operations to the real lane API.
@@ -295,7 +458,7 @@ test("SP-0183 missing agent fields are rejected with no customer, enrolment or e
   expect(await businessCounts()).toEqual(before);
 }, 60000);
 
-test("SP-0183 a valid Services customer needs no groups, optional fields or office completion yet", async () => {
+test("SP-0183 a valid Services customer needs no groups or optional fields; SP-0184 has no office completion", async () => {
   const p = capture();
   const customer = { ...p.customer, distributionChannelCode: "50" };
   delete customer.customerGroup1Code;
@@ -307,9 +470,58 @@ test("SP-0183 a valid Services customer needs no groups, optional fields or offi
   expect(c).toMatchObject({
     registeredName: "Aling Nena Store Inc.",
     distributionChannelCode: "50",
-    completeness: "draft",
+    completeness: "complete",
   });
 });
+
+test("SP-0184 former office requirements and nested ship-to nulls cannot bypass signed server validation", async () => {
+  const validationRep = await fieldRep();
+  const before = await businessCounts();
+  for (const key of [
+    "taxClassificationCode",
+    "salesOfficeCode",
+    "paymentTermsCode",
+    "pricingProcedureCode",
+    "deliveringPlantCode",
+  ]) {
+    for (const blank of [undefined, null, "", " "]) {
+      const p = capture();
+      const customer = { ...p.customer, [key]: blank };
+      if (blank === undefined) delete customer[key];
+      expect(await validationRep.push({ ...p, customer })).toMatchObject({
+        status: "rejected",
+        code: "invalid_request",
+      });
+      expect(await businessCounts()).toEqual(before);
+    }
+  }
+  for (const key of [
+    "shipToParty",
+    "shipToAddress",
+    "contactPerson",
+    "mobileNo",
+  ]) {
+    for (const blank of [undefined, null, "", " "]) {
+      const p = capture();
+      const ship = {
+        sameAsCustomer: false,
+        shipToParty: "Sample Warehouse",
+        shipToAddress: "99 Delivery Road",
+        contactPerson: "Sample Receiver",
+        mobileNo: "09175550202",
+        [key]: blank,
+      };
+      if (blank === undefined) delete ship[key];
+      expect(
+        await validationRep.push({
+          ...p,
+          customer: { ...p.customer, shipTos: [ship] },
+        }),
+      ).toMatchObject({ status: "rejected", code: "invalid_request" });
+      expect(await businessCounts()).toEqual(before);
+    }
+  }
+}, 60000);
 
 test("an invalid customer is refused, the old census payload still works", async () => {
   const bad = capture({

@@ -86,15 +86,23 @@ object CustomerCapture {
         val salesOrgCode: String = "", val distributionChannelCode: String = "", val customerGroup1Code: String = "",
         val customerGroup2Code: String = "", val customerGroupCode: String = "", val typeOfBusiness: String = "",
         val contactPerson: String = "",
+        /** SP-0184: the remaining sheet fields, keyed by CustomerMaster (including conditional ADP). */
+        val details: Map<String, String> = emptyMap(),
+        val sameAsCustomer: Boolean = true, val shipToParty: String = "", val shipToAddress: String = "",
+        val shipToMobileNo: String = "", val shipToEmail: String = "",
     ) {
+        fun detail(key: String): String = details[key] ?: if (key == "countryCode") "PH" else ""
+        fun withDetail(key: String, value: String) = copy(details = details + (key to value))
+        private fun withoutAdp() = details.filterKeys { key -> CustomerMaster.CUSTOMER_FIELDS.none { it.key == key && it.adp } }
         // Dependent pickers: a new parent clears every child chosen under the old one.
         fun withRegion(code: String) = if (code == regionCode) this else copy(regionCode = code, provinceCode = "", municipalityCode = "", barangayCode = "", postalCode = "")
         fun withProvince(code: String) = if (code == provinceCode) this else copy(provinceCode = code, municipalityCode = "", barangayCode = "", postalCode = "")
         /** A municipality with one postal code fills it in. */
         fun withMunicipality(code: String, geography: Geography?) = if (code == municipalityCode) this else
             copy(municipalityCode = code, barangayCode = "", postalCode = geography?.postalCodesOf(code)?.singleOrNull().orEmpty())
-        fun withSalesOrg(code: String) = if (code == salesOrgCode) this else copy(salesOrgCode = code, distributionChannelCode = "", customerGroup1Code = "", customerGroup2Code = "")
-        fun withChannel(code: String) = if (code == distributionChannelCode) this else copy(distributionChannelCode = code, customerGroup1Code = "", customerGroup2Code = "")
+        fun withSalesOrg(code: String) = if (code == salesOrgCode) this else copy(salesOrgCode = code, distributionChannelCode = "", customerGroup1Code = "", customerGroup2Code = "",
+            details = withoutAdp() - setOf("salesOfficeCode", "deliveringPlantCode"))
+        fun withChannel(code: String) = if (code == distributionChannelCode) this else copy(distributionChannelCode = code, customerGroup1Code = "", customerGroup2Code = "", details = withoutAdp())
         fun withGroup1(code: String) = if (code == customerGroup1Code) this else copy(customerGroup1Code = code, customerGroup2Code = "")
         /** The customer-object values (contract §1 keys), blank ones left out. */
         fun values(): LinkedHashMap<String, String> = linkedMapOf(
@@ -105,20 +113,30 @@ object CustomerCapture {
             "salesOrgCode" to salesOrgCode, "distributionChannelCode" to distributionChannelCode,
             "customerGroup1Code" to customerGroup1Code, "customerGroup2Code" to customerGroup2Code,
             "customerGroupCode" to customerGroupCode, "typeOfBusiness" to typeOfBusiness,
-        ).mapValuesTo(linkedMapOf()) { it.value.trim() }.filterValues { it.isNotEmpty() }.toMap(linkedMapOf())
+        ).also { out ->
+            out["countryCode"] = detail("countryCode")
+            for (field in CustomerMaster.CUSTOMER_FIELDS) {
+                if (field.key in details && (!field.adp || distributionChannelCode == CustomerMaster.ADP_CHANNEL))
+                    out[field.key] = details.getValue(field.key)
+            }
+        }.mapValuesTo(linkedMapOf()) { it.value.trim() }.filterValues { it.isNotEmpty() }.toMap(linkedMapOf())
     }
 
     /** SP-0176: the unsaved Add customer form kept on the phone (survives Back and an app restart) until it is
      * saved or discarded: every typed/picked value, the GPS fix and the storefront photo. */
     data class Draft(val form: Form, val fix: JSONObject?, val photo: ByteArray?) {
         /** Nothing typed yet (the defaulted Sales Organization and a name carried from the search do not count). */
-        fun isEmpty() = fix == null && photo == null && form.contactPerson.isBlank() &&
-            form.values().keys.all { it == "salesOrgCode" || it == "customerName" }
+        fun isEmpty() = fix == null && photo == null && form.contactPerson.isBlank() && form.sameAsCustomer &&
+            listOf(form.shipToParty, form.shipToAddress, form.shipToMobileNo, form.shipToEmail).all { it.isBlank() } &&
+            form.values().all { (key, value) -> key == "salesOrgCode" || key == "customerName" || (key == "countryCode" && value == "PH") }
     }
     fun draftJson(d: Draft): String {
         val values = JSONObject(); d.form.values().forEach { (k, v) -> values.put(k, v) }
         if (d.form.contactPerson.isNotBlank()) values.put("contactPerson", d.form.contactPerson)
         val o = JSONObject().put("version", 1).put("form", values)
+            .put("details", JSONObject(d.form.details)).put("sameAsCustomer", d.form.sameAsCustomer)
+            .put("shipToParty", d.form.shipToParty).put("shipToAddress", d.form.shipToAddress)
+            .put("shipToMobileNo", d.form.shipToMobileNo).put("shipToEmail", d.form.shipToEmail)
         d.fix?.let { o.put("fix", JSONObject(it.toString())) }
         d.photo?.let { o.put("photo", java.util.Base64.getEncoder().encodeToString(it)) }
         return o.toString()
@@ -132,7 +150,11 @@ object CustomerCapture {
             houseNo = g("houseNo"), street1 = g("street1"), street2 = g("street2"), floor = g("floor"), roomStallNo = g("roomStallNo"),
             postalCode = g("postalCode"), salesOrgCode = g("salesOrgCode"), distributionChannelCode = g("distributionChannelCode"),
             customerGroup1Code = g("customerGroup1Code"), customerGroup2Code = g("customerGroup2Code"),
-            customerGroupCode = g("customerGroupCode"), typeOfBusiness = g("typeOfBusiness"), contactPerson = g("contactPerson"))
+            customerGroupCode = g("customerGroupCode"), typeOfBusiness = g("typeOfBusiness"), contactPerson = g("contactPerson"),
+            details = o.optJSONObject("details")?.let { d -> CustomerMaster.CUSTOMER_FIELDS.filter { d.has(it.key) }
+                .associate { it.key to d.optString(it.key, "") } }.orEmpty(),
+            sameAsCustomer = o.optBoolean("sameAsCustomer", true), shipToParty = o.optString("shipToParty"),
+            shipToAddress = o.optString("shipToAddress"), shipToMobileNo = o.optString("shipToMobileNo"), shipToEmail = o.optString("shipToEmail"))
         Draft(form, o.optJSONObject("fix"), o.optString("photo").takeIf { it.isNotEmpty() }?.let { java.util.Base64.getDecoder().decode(it) })
     }.getOrNull()
 
@@ -141,9 +163,9 @@ object CustomerCapture {
         salesOrgCode = setup?.salesOrgCode?.takeIf { code -> setup.options("sales_organization").any { it.code == code } }.orEmpty())
 
     /** Customer Address, built from the location parts (same rule as the server). */
-    fun address(f: Form, g: Geography?): String = CustomerMaster.formatAddress(f.roomStallNo, f.floor, f.houseNo, f.street1, f.street2,
+    fun address(f: Form, g: Geography?): String = f.detail("customerAddress").trim().ifEmpty { CustomerMaster.formatAddress(f.roomStallNo, f.floor, f.houseNo, f.street1, f.street2,
         g?.barangay(f.municipalityCode, f.barangayCode)?.name, g?.municipality(f.municipalityCode)?.name,
-        g?.province(f.provinceCode)?.name, f.postalCode).orEmpty()
+        g?.province(f.provinceCode)?.name, f.postalCode).orEmpty() }
 
     data class Option(val code: String, val label: String)
     fun refOptions(rows: List<CustomerMaster.RefRow>) = rows.distinctBy { it.code }.map { Option(it.code, CustomerMaster.optionLabel(it)) }
@@ -161,13 +183,14 @@ object CustomerCapture {
 
     /** A field Save found missing, in form order; [key] matches the contract key ("photo" for the storefront photo). */
     data class Missing(val key: String, val message: String)
-    /** Every required field shown to the agent must be filled, even if its offline list is missing.
-     * Grp 1/Grp 2 remain conditional; office-only fields are completed by the office. */
+    /** SP-0184: all required sheet fields before submission, including conditional ADP and ship-to.
+     * Missing offline geography must be downloaded, not deferred to an Admin to complete. */
     fun missing(f: Form, s: Setup?, g: Geography?, hasFix: Boolean, hasPhoto: Boolean): List<Missing> = buildList {
         val values = f.values()
         val app = s?.let { applicability(it, f) }
         for (key in CustomerMaster.FIELD_CAPTURE) {
-            if (!CustomerMaster.field(key).required || key == "customerAddress") continue // derived from the required location
+            val field = CustomerMaster.field(key)
+            if (!field.required || key == "customerAddress" || (field.adp && f.distributionChannelCode != CustomerMaster.ADP_CHANNEL)) continue
             if (key == "customerGroup1Code" && app?.group1 == false) continue
             if (key == "customerGroup2Code" && (app?.group1 == false || app?.group2 == false)) continue
             if (key == "coordinates") {
@@ -178,19 +201,50 @@ object CustomerCapture {
                 add(Missing(key, "${label(key)} is required.$download"))
             }
         }
-        if (f.contactPerson.isBlank()) add(Missing("contactPerson", "${label("contactPerson")} is required."))
+        val ship = shipTo(f, g)
+        for (field in CustomerMaster.SHIP_TO_FIELDS.filter { it.required }) {
+            if (f.sameAsCustomer && field.key != "contactPerson") continue
+            val key = if (field.key == "mobileNo") "shipToMobileNo" else field.key
+            if ((ship[field.key] as? String).isNullOrBlank()) add(Missing(key, "${label(key)} is required."))
+        }
         if (!hasPhoto) add(Missing("photo", "Take a storefront photo."))
     }
-    fun label(key: String): String = if (key == "contactPerson") CustomerMaster.shipToField(key).label else CustomerMaster.field(key).label
+    fun label(key: String): String = when (key) {
+        "contactPerson", "shipToParty", "shipToAddress" -> CustomerMaster.shipToField(key).label
+        "shipToMobileNo" -> CustomerMaster.shipToField("mobileNo").label
+        "shipToEmail" -> CustomerMaster.shipToField("email").label
+        else -> CustomerMaster.field(key).label
+    }
     fun formLabel(key: String): String {
-        val field = if (key == "contactPerson") CustomerMaster.shipToField(key) else CustomerMaster.field(key)
+        val field = when (key) {
+            "contactPerson", "shipToParty", "shipToAddress" -> CustomerMaster.shipToField(key)
+            "shipToMobileNo" -> CustomerMaster.shipToField("mobileNo")
+            "shipToEmail" -> CustomerMaster.shipToField("email")
+            else -> CustomerMaster.field(key)
+        }
         return field.label + if (field.required) " *" else ""
     }
+    fun shipTo(f: Form, g: Geography?): Map<String, Any?> = linkedMapOf(
+        "sameAsCustomer" to f.sameAsCustomer,
+        "shipToParty" to if (f.sameAsCustomer) f.customerName.trim() else f.shipToParty.trim(),
+        "shipToAddress" to if (f.sameAsCustomer) address(f, g) else f.shipToAddress.trim(),
+        "contactPerson" to f.contactPerson.trim(),
+        "mobileNo" to if (f.sameAsCustomer) f.mobileNo.trim() else f.shipToMobileNo.trim(),
+        "email" to if (f.sameAsCustomer) f.email.trim() else f.shipToEmail.trim(),
+    )
 
     /** The shared draft rules (formats, lists, dependencies), as the server checks them. */
     fun draftErrors(f: Form, s: Setup, g: Geography?, latitude: Double?, longitude: Double?): List<CustomerMaster.Error> {
         val input = HashMap<String, Any?>(f.values()); input["latitude"] = latitude; input["longitude"] = longitude
-        return CustomerMaster.validate(input, "draft", s.index, g?.resolve(f)).errors
+        input["shipTos"] = listOf(shipTo(f, g))
+        return CustomerMaster.validate(input, "draft", s.index, g?.resolve(f)).errors.map { error ->
+            val key = when (error.field) {
+                "shipTos[0].mobileNo" -> if (f.sameAsCustomer) "mobileNo" else "shipToMobileNo"
+                "shipTos[0].email" -> if (f.sameAsCustomer) "email" else "shipToEmail"
+                else -> error.field.removePrefix("shipTos[0].")
+            }
+            error.copy(field = key)
+        }.distinctBy { it.field }
     }
 
     /** The contract's `customer` object: the agent's fields with the built Customer Address. */
@@ -198,6 +252,7 @@ object CustomerCapture {
         val o = JSONObject()
         f.values().forEach { (k, v) -> o.put(k, v) }
         address(f, g).takeIf { it.isNotEmpty() }?.let { o.put("customerAddress", it) }
+        o.put("shipTos", JSONArray().put(JSONObject(shipTo(f, g))))
         return o
     }
 
@@ -218,16 +273,24 @@ object CustomerCapture {
     fun validate(p: JSONObject) {
         require(uuid.matches(p.getString("captureId"))) { "Open Add customer again." }
         val c = p.getJSONObject("customer")
-        val allowed = CustomerMaster.CUSTOMER_FIELDS.map { it.key }.toSet()
+        val allowed = CustomerMaster.CUSTOMER_FIELDS.map { it.key }.toSet() + "shipTos"
         c.keys().forEach { k -> require(k in allowed) { "Unknown customer field $k." } }
         require(p.getString("name").trim().length in 1..200) { "Customer Name is required." }
         require(p.getString("address").trim().length in 1..500) { "Customer Address is required." }
-        require(p.getString("ownerName").trim().length in 1..100) { "Contact Person is required." }
+        require(p.getString("ownerName").trim().length in 1..150) { "Contact Person is required." }
         val input = HashMap<String, Any?>(); c.keys().forEach { input[it] = if (c.isNull(it)) null else c.get(it) }
+        c.optJSONArray("shipTos")?.let { a ->
+            require(a.length() in 1..20) { "Add a ship-to." }
+            input["shipTos"] = (0 until a.length()).map { i -> val ship = a.getJSONObject(i)
+                val keys = CustomerMaster.SHIP_TO_FIELDS.map { it.key }.toSet() + "sameAsCustomer"
+                require(ship.keys().asSequence().all { it in keys }) { "Unknown ship-to field." }
+                ship.keys().asSequence().associateWith { if (ship.isNull(it)) null else ship.get(it) }
+            }
+        }
         val location = p.getJSONObject("location")
         input["latitude"] = location.getDouble("latitude"); input["longitude"] = location.getDouble("longitude")
         val errors = CustomerMaster.validate(input, "field", CustomerMaster.ReferenceIndex(emptyList()), null).errors
-            // Lists are not available at this boundary. The form and server check conditional groups.
+            // Reference lists are unavailable here; the form and server check conditional groups.
             .filter { it.code !in setOf("invalid_option", "not_for_sales_org", "not_for_channel", "not_for_group1", "not_applicable", "choose_parent_first") &&
                 !(it.code == "required" && it.field in setOf("customerGroup1Code", "customerGroup2Code")) }
         require(errors.isEmpty()) { errors.first().message }

@@ -616,9 +616,11 @@ describe("approval errors land next to the field", () => {
     expect(html).toContain(">Waiting for approval<");
     expect(html).not.toContain(">Active<");
     expect(html).toContain("Provisional code");
-    // The office is told what the salesman leaves for it to fill before approving.
-    expect(html).toContain('data-testid="office-completes-note"');
-    expect(html).toContain("Delivery Arrangement (Delivering");
+    // SP-0184: no intermediate Admin completion step; the CDM verifies the agent's profile.
+    expect(html).toContain('data-testid="customer-review-note"');
+    expect(html).toContain("The agent completes all enrollment details");
+    expect(html).toContain("The CDM reviews");
+    expect(html).not.toContain("The salesman fills in only what he knows");
     expect(statusLabel(field)).toBe("Waiting for approval");
     expect(statusLabel({ status: "active", enrolmentStatus: "approved" })).toBe(
       "Active",
@@ -641,6 +643,7 @@ describe("approval errors land next to the field", () => {
       />,
     );
     expect(withReject).toContain(">Reject<");
+    expect(withReject).toContain('data-testid="customer-review-note"');
     const prospect = { ...field, status: "prospect", enrolmentStatus: null };
     expect(
       renderToStaticMarkup(

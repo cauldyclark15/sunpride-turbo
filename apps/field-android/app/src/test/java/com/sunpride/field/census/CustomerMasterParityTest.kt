@@ -52,11 +52,10 @@ class CustomerMasterParityTest {
         val order = CustomerMaster.CUSTOMER_FIELDS.map { it.key }
         assertEquals(CustomerMaster.FIELD_CAPTURE, CustomerMaster.FIELD_CAPTURE.sortedBy { order.indexOf(it) })
         assertTrue(CustomerMaster.FIELD_CAPTURE.all { it in order })
-        // SPEC rule 10: the office completes these.
-        for (office in listOf("taxClassificationCode", "salesOfficeCode", "paymentTermsCode", "creditLimit", "pricingProcedureCode",
-            "deliveringPlantCode")) assertTrue(office !in CustomerMaster.FIELD_CAPTURE)
-        assertEquals(CustomerMaster.CUSTOMER_FIELDS.filter { it.section == CustomerMaster.GENERAL }.map { it.key } - "taxClassificationCode",
-            CustomerMaster.FIELD_CAPTURE.take(8))
+        // SP-0184 supersedes the office-only subset: every client field is available to agents.
+        assertEquals(order, CustomerMaster.FIELD_CAPTURE)
+        assertEquals(CustomerMaster.SHIP_TO_FIELDS.map { it.key }, CustomerMaster.FIELD_CAPTURE_SHIP_TO)
+        assertEquals(plain(fixture.getJSONArray("fieldCaptureShipTo")), CustomerMaster.FIELD_CAPTURE_SHIP_TO)
     }
 
     @Test fun everyValidationCaseAnswersLikeJs() {

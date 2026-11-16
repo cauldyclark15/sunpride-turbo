@@ -221,10 +221,58 @@ export async function buildParity() {
     ...good,
     registeredName: "Aling Rosa Store Inc.",
     customerAddress: "Apas, City of Cebu, Cebu 6000",
+    taxClassificationCode: "1",
+    countryCode: "PH",
+    salesOfficeCode: "100",
+    paymentTermsCode: "0003",
+    pricingProcedureCode: "2",
+    deliveringPlantCode: "1000",
+    shipTos: [
+      {
+        sameAsCustomer: true,
+        shipToParty: good.customerName,
+        shipToAddress: "Apas, City of Cebu, Cebu 6000",
+        contactPerson: "Rosa",
+        mobileNo: good.mobileNo,
+      },
+    ],
+  };
+  const adpInput = {
+    ...fieldInput,
+    distributionChannelCode: "40",
+    customerGroup1Code: "ADP",
+    customerGroup2Code: "DAW",
+    ...Object.fromEntries(
+      FIELDS.filter((f) => f.adp).map((f) => [f.key, `Sample ${f.label}`]),
+    ),
   };
   /** @type {typeof CASES} */
   const fieldCases = [
-    ["field complete without office fields", fieldInput, cebu, "field"],
+    [
+      "field complete without office fields",
+      {
+        ...good,
+        registeredName: fieldInput.registeredName,
+        customerAddress: fieldInput.customerAddress,
+      },
+      cebu,
+      "field",
+    ],
+    ["field complete for CDM review", fieldInput, cebu, "field"],
+    ["field complete ADP", adpInput, cebu, "field"],
+    ["field missing ship-to", { ...fieldInput, shipTos: [] }, cebu, "field"],
+    ...["shipToParty", "shipToAddress", "contactPerson", "mobileNo"].map(
+      (key) =>
+        /** @type {typeof CASES[number]} */ ([
+          `field missing ship-to ${key}`,
+          {
+            ...fieldInput,
+            shipTos: [{ ...fieldInput.shipTos[0], [key]: null }],
+          },
+          cebu,
+          "field",
+        ]),
+    ),
     [
       "field Services without groups",
       {
@@ -244,7 +292,7 @@ export async function buildParity() {
           `field missing ${f.key}`,
           f.key === "coordinates"
             ? { ...fieldInput, latitude: null, longitude: null }
-            : { ...fieldInput, [f.key]: " " },
+            : { ...(f.adp ? adpInput : fieldInput), [f.key]: " " },
           cebu,
           "field",
         ]),
@@ -315,6 +363,7 @@ export async function buildParity() {
     sections: SECTIONS,
     adpChannel: ADP_CHANNEL,
     fieldCapture: FIELD_CAPTURE,
+    fieldCaptureShipTo: FIELDS.filter((f) => f.shipTo).map((f) => f.key),
     fields: FIELDS.map((f) =>
       dropUndefined({
         key: f.key,

@@ -280,7 +280,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                     return@launch
                 }
                 runCatching { withContext(Dispatchers.IO) { backendNow.saveCustomerDraft(null) } }
-                message = "Customer saved on this phone. The office completes and approves it after sync."
+                message = "Customer saved on this phone. The CDM reviews and verifies it after sync."
                 savedNotice = if (isOnline(context)) SAVED_ONLINE else SAVED_OFFLINE
                 reset(); draftRestored = false
             } catch (e: Exception) {
@@ -390,7 +390,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("census-edit-note"))
             NoticeCard(message, tone = if (config == null) Look.Tone.WARN else Look.Tone.NEUTRAL,
                 glyph = if (config == null) GlyphKind.INFO else GlyphKind.LOCK, textTag = "census-message")
-            if (!edit) CustomerSections(setup, geography, form, { form = it; formErrors = formErrors - changedKeys(form, it) }, customerMarks, ::requester,
+            if (!edit) CustomerSections(setup, geography, form, { formErrors = formErrors - changedKeys(form, it); form = it }, customerMarks, ::requester,
                 geoNote, fix, busy, ::useMyLocation, locationNote)
             if (edit) {
             SectionCard("Customer") {
@@ -617,11 +617,16 @@ private fun boundedJpeg(bytes: ByteArray): ByteArray {
 }
 
 /** Contract keys in form order, to scroll to the first marked field. */
-private val MARK_ORDER = CustomerMaster.FIELD_CAPTURE + listOf("contactPerson", "photo")
+private val MARK_ORDER = CustomerMaster.FIELDS.map {
+    if (it.shipTo && it.key == "mobileNo") "shipToMobileNo" else if (it.shipTo && it.key == "email") "shipToEmail" else it.key
+} + "photo"
 /** Keys whose value the edit changed (their old error is cleared until the next Save). */
 private fun changedKeys(old: CustomerCapture.Form, new: CustomerCapture.Form): Set<String> {
-    val a = old.values() + ("contactPerson" to old.contactPerson); val b = new.values() + ("contactPerson" to new.contactPerson)
-    return (a.keys + b.keys).filter { a[it] != b[it] }.toSet()
+    fun values(f: CustomerCapture.Form) = f.values() + mapOf("contactPerson" to f.contactPerson,
+        "shipToParty" to f.shipToParty, "shipToAddress" to f.shipToAddress, "shipToMobileNo" to f.shipToMobileNo, "shipToEmail" to f.shipToEmail)
+    val a = values(old); val b = values(new)
+    return (a.keys + b.keys).filter { a[it] != b[it] }.toSet() +
+        if (old.sameAsCustomer != new.sameAsCustomer) setOf("shipToParty", "shipToAddress", "shipToMobileNo", "shipToEmail") else emptySet()
 }
 /** The message under a field once Save found it missing or invalid. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
@@ -635,10 +640,10 @@ private fun KeyMark(key: String, marks: Map<String, String>, requester: (String)
 @Composable
 private fun CmText(key: String, value: String, onChange: (String) -> Unit, marks: Map<String, String>,
     requester: (String) -> BringIntoViewRequester, max: Int, keyboard: androidx.compose.ui.text.input.KeyboardType =
-        androidx.compose.ui.text.input.KeyboardType.Text, hint: String? = null) {
+        androidx.compose.ui.text.input.KeyboardType.Text, hint: String? = null, enabled: Boolean = true) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         FieldTextField(value, { onChange(it.take(max)) }, label = { Text(CustomerCapture.formLabel(key)) }, singleLine = true,
-            isError = key in marks, placeholder = hint?.let { h -> { Text(h) } },
+            isError = key in marks, placeholder = hint?.let { h -> { Text(h) } }, enabled = enabled,
             modifier = Modifier.fillMaxWidth().testTag("customer-$key"),
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = keyboard))
         KeyMark(key, marks, requester)
@@ -666,22 +671,21 @@ private fun CustomerSections(setup: CustomerCapture.Setup?, geography: CustomerC
             CmText("registeredName", form.registeredName, { onChange(form.copy(registeredName = it)) }, marks, requester, 200)
             CmText("tradeName", form.tradeName, { onChange(form.copy(tradeName = it)) }, marks, requester, 200)
             CmText("customerName", form.customerName, { onChange(form.copy(customerName = it)) }, marks, requester, 200)
-            Column(Modifier.fillMaxWidth()) {
-                Text(CustomerCapture.formLabel("customerAddress"), style = MaterialTheme.typography.labelMedium)
-                Text(CustomerCapture.address(form, geography).ifEmpty { "Built from the location below" },
-                    style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("customer-customerAddress"))
-            }
+            CmText("customerAddress", CustomerCapture.address(form, geography), { onChange(form.withDetail("customerAddress", it)) },
+                marks, requester, 500, hint = "Built from the location below; editable")
             CmText("email", form.email, { onChange(form.copy(email = it)) }, marks, requester, 200,
                 androidx.compose.ui.text.input.KeyboardType.Email)
             CmText("mobileNo", form.mobileNo, { onChange(form.copy(mobileNo = it)) }, marks, requester, 20, phone, "09XXXXXXXXX")
             CmText("telNo", form.telNo, { onChange(form.copy(telNo = it)) }, marks, requester, 40, phone)
             CmText("tin", form.tin, { onChange(form.copy(tin = it)) }, marks, requester, 20, androidx.compose.ui.text.input.KeyboardType.Number,
                 "Optional · ###-###-###")
+            CustomerDetailFields(listOf("taxClassificationCode"), setup, form, onChange, marks, requester)
         }
     }
     SectionCard(CustomerMaster.LOCATION) {
         Column(pad, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             val g = geography
+            CustomerDetailFields(listOf("countryCode"), setup, form, onChange, marks, requester)
             geoNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("customer-geo-note")) }
             CmPicker("regionCode", geoOptions(g?.regions.orEmpty().map { it.code to it.name }), form.regionCode,
@@ -723,6 +727,7 @@ private fun CustomerSections(setup: CustomerCapture.Setup?, geography: CustomerC
             else {
                 val app = CustomerCapture.applicability(setup, form)
                 CmPicker("salesOrgCode", CustomerCapture.salesOrgs(setup), form.salesOrgCode, { onChange(form.withSalesOrg(it)) }, marks, requester)
+                CustomerDetailFields(listOf("salesOfficeCode"), setup, form, onChange, marks, requester)
                 CmPicker("distributionChannelCode", CustomerCapture.channels(setup, form), form.distributionChannelCode,
                     { onChange(form.withChannel(it)) }, marks, requester, if (form.salesOrgCode.isEmpty()) "Choose Sales Organization first" else "Choose…")
                 if (app.group1 != false) CmPicker("customerGroup1Code", CustomerCapture.group1s(setup, form), form.customerGroup1Code,
@@ -736,16 +741,57 @@ private fun CustomerSections(setup: CustomerCapture.Setup?, geography: CustomerC
                     { onChange(form.copy(customerGroupCode = it)) }, marks, requester)
                 CmPicker("typeOfBusiness", CustomerCapture.typesOfBusiness(setup), form.typeOfBusiness,
                     { onChange(form.copy(typeOfBusiness = it)) }, marks, requester)
+                CustomerDetailFields(listOf("salesPartnerCode"), setup, form, onChange, marks, requester)
             }
+        }
+    }
+    SectionCard(CustomerMaster.PAYMENT) {
+        Column(pad, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            CustomerDetailFields(CustomerMaster.CUSTOMER_FIELDS.filter { it.section == CustomerMaster.PAYMENT }.map { it.key },
+                setup, form, onChange, marks, requester)
         }
     }
     SectionCard(CustomerMaster.DELIVERY) {
         Column(pad, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            CmText("contactPerson", form.contactPerson, { onChange(form.copy(contactPerson = it)) }, marks, requester, 100)
-            Text("Ship-to is the same as the customer. The office completes Payment, Delivery, Tax, Pricing, Sales Office and Delivering Plant.",
+            CustomerDetailFields(listOf("deliveringPlantCode"), setup, form, onChange, marks, requester)
+            Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                androidx.compose.material3.Checkbox(form.sameAsCustomer, { onChange(form.copy(sameAsCustomer = it)) },
+                    modifier = Modifier.testTag("customer-sameAsCustomer"))
+                Text("Ship-to is the same as the customer", style = MaterialTheme.typography.bodyMedium)
+            }
+            val ship = CustomerCapture.shipTo(form, geography)
+            CmText("shipToParty", ship["shipToParty"] as String, { onChange(form.copy(shipToParty = it)) }, marks, requester, 200, enabled = !form.sameAsCustomer)
+            CmText("shipToAddress", ship["shipToAddress"] as String, { onChange(form.copy(shipToAddress = it)) }, marks, requester, 500, enabled = !form.sameAsCustomer)
+            CmText("contactPerson", form.contactPerson, { onChange(form.copy(contactPerson = it)) }, marks, requester, 150)
+            CmText("shipToMobileNo", ship["mobileNo"] as String, { onChange(form.copy(shipToMobileNo = it)) }, marks, requester, 20, phone, enabled = !form.sameAsCustomer)
+            CmText("shipToEmail", ship["email"] as String, { onChange(form.copy(shipToEmail = it)) }, marks, requester, 200,
+                androidx.compose.ui.text.input.KeyboardType.Email, enabled = !form.sameAsCustomer)
+            Text("Complete all required details. The CDM reviews and verifies the profile after sync; no Admin completion is needed.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.testTag("customer-office-note"))
+                modifier = Modifier.testTag("customer-review-note"))
         }
+    }
+    if (form.distributionChannelCode == CustomerMaster.ADP_CHANNEL) SectionCard(CustomerMaster.ADP) {
+        Column(pad, verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            CustomerDetailFields(CustomerMaster.CUSTOMER_FIELDS.filter { it.adp }.map { it.key }, setup, form, onChange, marks, requester)
+        }
+    }
+}
+
+/** The former office-only fields use the same labels, reference lists and parent filters as the web. */
+@Composable
+private fun CustomerDetailFields(keys: List<String>, setup: CustomerCapture.Setup?, form: CustomerCapture.Form,
+    onChange: (CustomerCapture.Form) -> Unit, marks: Map<String, String>, requester: (String) -> BringIntoViewRequester) {
+    for (key in keys) {
+        val field = CustomerMaster.field(key)
+        if (field.kind == CustomerMaster.Kind.LIST) {
+            val orgScoped = key in listOf("salesOfficeCode", "deliveringPlantCode")
+            val rows = if (orgScoped && form.salesOrgCode.isEmpty()) emptyList() else
+                setup?.options(field.list!!, if (orgScoped) form.salesOrgCode else null).orEmpty()
+            CmPicker(key, CustomerCapture.refOptions(rows), form.detail(key), { onChange(form.withDetail(key, it)) }, marks, requester,
+                if (orgScoped && form.salesOrgCode.isEmpty()) "Choose Sales Organization first" else "Choose…")
+        } else CmText(key, form.detail(key), { onChange(form.withDetail(key, it)) }, marks, requester, field.max ?: 20,
+            if (field.kind == CustomerMaster.Kind.MONEY) androidx.compose.ui.text.input.KeyboardType.Decimal else androidx.compose.ui.text.input.KeyboardType.Text)
     }
 }
 @Composable

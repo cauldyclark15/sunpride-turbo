@@ -83,17 +83,9 @@ object CustomerMaster {
     fun field(key: String): Field = CUSTOMER_FIELDS.first { it.key == key }
     fun shipToField(key: String): Field = SHIP_TO_FIELDS.first { it.key == key }
 
-    /** SPEC rule 10: what the field agent fills on "Add customer", in sheet order (the office
-     * completes Tax, Sales Office, Payment, Delivery, Pricing and Delivering Plant). Customer Address
-     * is built from the location parts; Contact Person is the ship-to contact (contract §6). */
-    val FIELD_CAPTURE: List<String> = listOf(
-        "registeredName", "tradeName", "customerName", "customerAddress", "email", "mobileNo", "telNo", "tin",
-        "regionCode", "provinceCode", "municipalityCode", "barangayCode", "houseNo", "street1", "street2", "floor",
-        "roomStallNo", "postalCode", "coordinates",
-        "salesOrgCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code", "customerGroupCode", "typeOfBusiness",
-    )
-    /** Ship-to field the agent fills (Contact Person of the "same as customer" ship-to). */
-    val FIELD_CAPTURE_SHIP_TO: List<String> = listOf("contactPerson")
+    /** SP-0184: agents complete the entire enrollment sheet; CDMs review it after sync. */
+    val FIELD_CAPTURE: List<String> = CUSTOMER_FIELDS.map { it.key }
+    val FIELD_CAPTURE_SHIP_TO: List<String> = SHIP_TO_FIELDS.map { it.key }
 
     data class RefRow(val list: String, val salesOrgCode: String, val channelCode: String, val group1Code: String,
         val code: String, val name: String)
@@ -191,7 +183,7 @@ object CustomerMaster {
         val app = applicability(index, text(input["salesOrgCode"]), text(input["distributionChannelCode"]), text(input["customerGroup1Code"]))
         fun isRequired(f: Field): Boolean {
             if (level == "draft") return f.key == "customerName"
-            if (level == "field" && (f.shipTo || f.key !in FIELD_CAPTURE)) return false
+            if (level == "field" && !f.shipTo && f.key !in FIELD_CAPTURE) return false
             if (!f.required) return false
             if (f.adp) return app.adp
             if (f.key == "customerGroup1Code") return app.group1 != false
@@ -318,7 +310,7 @@ object CustomerMaster {
                 for (f in SHIP_TO_FIELDS) out[f.key] = scalar(f, s[f.key], i)
             }
         }
-        if (level == "complete" && shipTos.isEmpty())
+        if (level != "draft" && shipTos.isEmpty())
             fail("ship_to_required", SHIP_TO_FIELDS[0], "Add at least one ship-to (Ship-to Party, Ship-to Address, Contact Person, Mobile No.).")
         return Result(errors.isEmpty(), level, errors, value)
     }

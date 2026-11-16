@@ -375,7 +375,8 @@ export async function derive(db, merged, input, existing) {
 
 /**
  * Create (no `outletId`) or update a customer. Office saves allow drafts; field captures
- * require the agent's part of the sheet. Stores full completeness separately. Returns the customer id.
+ * require every required field, ship-to and applicable ADP detail for direct CDM review.
+ * Stores full completeness separately. Returns the customer id.
  * @param {any} c @param {Record<string, any>} b @param {{outletId?:string, fieldCapture?:boolean}} [opts]
  */
 export async function saveCustomer(c, b, opts = {}) {

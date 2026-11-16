@@ -40,7 +40,11 @@ class AddCustomerScreenTest {
             .put(ref("distribution_channel", "41", "Route Sales", "1000")).put(ref("distribution_channel", "50", "Services", "1000"))
             .put(ref("customer_group_1", "RSF", "RS Frozen", "1000", "41"))
             .put(ref("customer_group_2", "RSS", "Sari-Sari Store", "1000", "41", "RSF"))
-            .put(ref("customer_group", "74", "NO GROUP")).put(ref("type_of_business", "Sole Proprietor", "Sole Proprietor"))))
+            .put(ref("customer_group", "74", "NO GROUP")).put(ref("type_of_business", "Sole Proprietor", "Sole Proprietor"))
+            .put(ref("country", "PH", "Philippines")).put(ref("tax_classification", "1", "Liable for Taxes"))
+            .put(ref("sales_office", "100", "SFI Cebu", "1000")).put(ref("payment_terms", "0003", "Due in 7 days"))
+            .put(ref("pricing_procedure", "2", "Standard Inclusive Tax")).put(ref("delivering_plant", "1000", "Cebu Production", "1000"))
+            .put(ref("distribution_channel", "40", "Distributive Trade", "1000"))))
     private val geography = CustomerCapture.Geography.parse(JSONObject()
         .put("regions", JSONArray().put(JSONObject().put("code", "0700000000").put("name", "Region VII (Central Visayas)")))
         .put("provinces", JSONArray().put(JSONObject().put("code", "0702200000").put("name", "Cebu").put("regionCode", "0700000000")))
@@ -92,7 +96,8 @@ class AddCustomerScreenTest {
         rule.onNodeWithText(CustomerMaster.GENERAL).assertExists()
         rule.onNodeWithTag("customer-salesOrgCode").performScrollTo().assertTextContains("SFI (1000)", substring = true)
         rule.onNodeWithTag("customer-registeredName").performScrollTo(); shot("01-general-information")
-        type("customerName", "Aling Nena Store"); type("tradeName", "Nena's"); type("mobileNo", "09175550101")
+        type("registeredName", "Nena Store Inc"); type("customerName", "Aling Nena Store"); type("tradeName", "Nena's"); type("mobileNo", "09175550101")
+        choose("customer-taxClassificationCode", "Liable for Taxes (1)")
         choose("customer-regionCode", "Region VII (Central Visayas)"); choose("customer-provinceCode", "Cebu")
         choose("customer-municipalityCode", "City of Cebu"); choose("customer-barangayCode", "Apas")
         rule.onNodeWithTag("customer-postalCode").performScrollTo().assertTextContains("6000", substring = true)
@@ -100,10 +105,18 @@ class AddCustomerScreenTest {
         rule.onNodeWithTag("census-gps").performScrollTo().performClick(); waitTag("census-accuracy")
         rule.onNodeWithTag("census-accuracy").assertTextContains("±8 m", substring = true)
         shot("02-location")
+        choose("customer-salesOfficeCode", "SFI Cebu (100)")
         choose("customer-distributionChannelCode", "Route Sales (41)"); choose("customer-customerGroup1Code", "RS Frozen (RSF)")
         choose("customer-customerGroup2Code", "Sari-Sari Store (RSS)"); choose("customer-customerGroupCode", "NO GROUP (74)")
         choose("customer-typeOfBusiness", "Sole Proprietor")
         rule.onNodeWithTag("customer-typeOfBusiness").performScrollTo(); shot("03-assignment")
+        choose("customer-paymentTermsCode", "Due in 7 days (0003)")
+        type("creditLimit", "1000.50")
+        choose("customer-pricingProcedureCode", "Standard Inclusive Tax (2)")
+        choose("customer-deliveringPlantCode", "Cebu Production (1000)")
+        rule.onNodeWithTag("customer-sameAsCustomer").performScrollTo().performClick()
+        type("shipToParty", "Nena Warehouse"); type("shipToAddress", "99 Delivery Road")
+        type("shipToMobileNo", "09175550202"); type("shipToEmail", "delivery@example.ph")
         type("contactPerson", "Nena Cruz"); shot("04-delivery-contact")
         rule.onNodeWithTag("customer-customerAddress").performScrollTo().assertTextContains("12 Gorordo Ave, Apas, City of Cebu, Cebu 6000")
         // SP-0183: every other required field is filled; Registered Name alone must block saving.
@@ -119,7 +132,21 @@ class AddCustomerScreenTest {
         assertEquals("RSS", c.getString("customerGroup2Code")); assertEquals("0730600003", c.getString("barangayCode"))
         assertEquals("12 Gorordo Ave, Apas, City of Cebu, Cebu 6000", c.getString("customerAddress"))
         assertFalse(p.has("channelId"))
+        for (key in listOf("taxClassificationCode", "salesOfficeCode", "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode")) assertTrue(c.has(key))
+        assertEquals("Nena Warehouse", c.getJSONArray("shipTos").getJSONObject(0).getString("shipToParty"))
         shot("05-saved")
+    }
+
+    @Test fun allFormerAdminControlsAndConditionalAdpAreVisible() {
+        val backend = Backend(config, geography); show(backend); waitTag("customer-customerName")
+        for (key in listOf("taxClassificationCode", "countryCode", "salesOfficeCode", "salesPartnerCode", "paymentTermsCode",
+            "creditLimit", "pricingProcedureCode", "deliveringPlantCode", "shipToParty", "shipToAddress", "contactPerson", "shipToMobileNo", "shipToEmail"))
+            rule.onNodeWithTag("customer-$key").performScrollTo().assertExists()
+        assertTrue(rule.onAllNodesWithTag("customer-distributorCode").fetchSemanticsNodes().isEmpty())
+        choose("customer-distributionChannelCode", "Distributive Trade (40)")
+        for (field in CustomerMaster.CUSTOMER_FIELDS.filter { it.adp }) rule.onNodeWithTag("customer-${field.key}").performScrollTo().assertExists()
+        choose("customer-distributionChannelCode", "Services (50)")
+        assertTrue(rule.onAllNodesWithTag("customer-distributorCode").fetchSemanticsNodes().isEmpty())
     }
 
     @Test fun saveWithMissingFieldsMarksThemAndServicesHasNoGroups() {

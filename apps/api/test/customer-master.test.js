@@ -60,7 +60,7 @@ async function call(role, method, path, body, key) {
 const customer = (over = {}) => ({
   registeredName: "Tindahan ni Aling Rosa Inc.",
   customerName: "Aling Rosa Store",
-  mobileNo: "+639****4567",
+  mobileNo: "+639171234567",
   email: "Rosa@Example.PH",
   tin: "123456789",
   taxClassificationCode: "1",
@@ -700,7 +700,7 @@ describe("SP-0170 customer writer", () => {
       ],
     });
   });
-  test("field capture: enrolment carries the client's fields; office completes; approval allocates the code for both records", async () => {
+  test("field capture: enrolment carries all fields; optional office edits; approval allocates the code for both records", async () => {
     const [agent] =
       await h.db`select p.user_id,p.org_unit_id from profiles p where p.email='agent@sunpride.test'`;
     const [file] =
@@ -720,6 +720,11 @@ describe("SP-0170 customer writer", () => {
         clientRequestId: crypto.randomUUID(),
         customer: {
           registeredName: "Ana Santos",
+          taxClassificationCode: "1",
+          salesOfficeCode: "100",
+          paymentTermsCode: "0003",
+          pricingProcedureCode: "2",
+          deliveringPlantCode: "1000",
           customerGroupCode: "74",
           salesOrgCode: "1000",
           distributionChannelCode: "41",
@@ -740,7 +745,7 @@ describe("SP-0170 customer writer", () => {
     const outletId = proposed.body.outletId;
     const draft = await readCustomer(h.db, outletId);
     expect(draft).toMatchObject({
-      completeness: "draft",
+      completeness: "complete",
       distributionChannelName: "Route Sales",
       customerAddress: "Apas, City of Cebu, Cebu 6000",
       legacyChannel: "41",
@@ -807,7 +812,7 @@ describe("SP-0170 customer writer", () => {
     );
     expect(completed.status).toBe(200);
     expect(completed.body.completeness).toBe("complete");
-    // Completing it in the office does not yet make an accounting customer: its code is still
+    // Optional office edits do not yet make an accounting customer: its code is still
     // provisional and must never reach AR/SAP.
     expect(await accounting(outletId)).toEqual([]);
     const approved = await call(
@@ -871,6 +876,11 @@ describe("SP-0170 customer writer", () => {
         clientRequestId: captureId,
         customer: {
           registeredName: "Ana Santos",
+          taxClassificationCode: "1",
+          salesOfficeCode: "100",
+          paymentTermsCode: "0003",
+          pricingProcedureCode: "2",
+          deliveringPlantCode: "1000",
           customerGroupCode: "74",
           salesOrgCode: "1000",
           distributionChannelCode: "41",

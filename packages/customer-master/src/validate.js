@@ -171,8 +171,8 @@ export function applicability(index, c) {
 
 /**
  * Validate a customer at `draft` (office saves: formats, list membership and dependencies of
- * whatever is filled; only Customer Name required), `field` (the agent's required fields),
- * or `complete` (every required field, including office completion before approval/uploads).
+ * whatever is filled; only Customer Name required), `field` (the full agent enrollment,
+ * including ship-to and conditional ADP), or `complete` (approval/uploads).
  * @param {Record<string, any>} input
  * @param {{level?:Level, lists:ReferenceRow[]|ReferenceIndex, geography?:ResolvedGeography|null}} ctx
  * @returns {{ok:boolean, level:Level, errors:CustomerError[], value:Record<string, any>}}
@@ -198,7 +198,7 @@ export function validateCustomer(input, ctx) {
   /** @param {FieldSpecRef} f */
   const isRequired = (f) => {
     if (level === "draft") return f.key === "customerName";
-    if (level === "field" && (f.shipTo || !FIELD_CAPTURE.includes(f.key)))
+    if (level === "field" && !f.shipTo && !FIELD_CAPTURE.includes(f.key))
       return false;
     if (!f.required) return false;
     if (f.adp) return app.adp;
@@ -525,7 +525,7 @@ export function validateCustomer(input, ctx) {
       return out;
     },
   );
-  if (level === "complete" && value.shipTos.length === 0) {
+  if (level !== "draft" && value.shipTos.length === 0) {
     const f = /** @type {FieldSpecRef} */ (SHIP_TO_FIELDS[0]);
     fail(
       "ship_to_required",

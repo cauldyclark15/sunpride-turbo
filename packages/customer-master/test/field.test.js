@@ -1,10 +1,14 @@
 import { expect, test } from "bun:test";
-import { FIELD_CAPTURE, validateCustomer } from "../src/index.js";
+import {
+  CUSTOMER_FIELDS,
+  FIELD_CAPTURE,
+  validateCustomer,
+} from "../src/index.js";
 import { buildParity } from "../scripts/android-parity.js";
 
 const fixture = await buildParity();
 const sample = fixture.cases.find(
-  (c) => c.name === "field complete without office fields",
+  (c) => c.name === "field complete for CDM review",
 );
 if (!sample) throw new Error("Missing field fixture");
 /** @param {Record<string, any>} input */
@@ -19,6 +23,12 @@ const required = [
   "customerName",
   "customerAddress",
   "mobileNo",
+  "taxClassificationCode",
+  "countryCode",
+  "salesOfficeCode",
+  "paymentTermsCode",
+  "pricingProcedureCode",
+  "deliveringPlantCode",
   "regionCode",
   "provinceCode",
   "municipalityCode",
@@ -44,17 +54,40 @@ for (const key of required) {
   });
 }
 
-test("field requires coordinates, but not optional or office-only fields", () => {
+test("SP-0184 field capture covers the full sheet and uses complete-level checks", () => {
+  expect(FIELD_CAPTURE).toEqual(CUSTOMER_FIELDS.map((field) => field.key));
+  for (const example of fixture.cases.filter((c) => c.level === "field")) {
+    const field = validateCustomer(example.input, {
+      level: "field",
+      lists: fixture.lists,
+      geography: example.geography,
+    });
+    const complete = validateCustomer(example.input, {
+      level: "complete",
+      lists: fixture.lists,
+      geography: example.geography,
+    });
+    expect(field.ok).toBe(complete.ok);
+    expect(field.errors).toEqual(complete.errors);
+    expect(field.value).toEqual(complete.value);
+  }
+});
+
+test("field requires coordinates and all former office fields, but not optional fields", () => {
   expect(validate(sample.input).errors).toEqual([]);
   const r = validate({ ...sample.input, latitude: null, longitude: null });
   expect(r.errors.map((e) => [e.field, e.code])).toEqual([
     ["coordinates", "required"],
   ]);
-  expect(FIELD_CAPTURE).not.toContain("taxClassificationCode");
+  expect(FIELD_CAPTURE).toContain("taxClassificationCode");
+  const old = fixture.cases.find(
+    (c) => c.name === "field complete without office fields",
+  );
+  expect(old?.expected.ok).toBe(false);
   expect(
     validateCustomer(sample.input, { level: "complete", lists: fixture.lists })
       .ok,
-  ).toBe(false);
+  ).toBe(true);
   expect(
     validateCustomer(
       { customerName: "Office draft" },
@@ -63,7 +96,7 @@ test("field requires coordinates, but not optional or office-only fields", () =>
   ).toBe(true);
 });
 
-test("field groups are required only when applicable; ADP stays with the office", () => {
+test("field groups are required only when applicable; agents must complete conditional ADP", () => {
   const services = {
     ...sample.input,
     distributionChannelCode: "50",
@@ -97,5 +130,40 @@ test("field groups are required only when applicable; ADP stays with the office"
     customerGroup1Code: g1?.code ?? null,
     customerGroup2Code: g2?.code ?? null,
   };
-  expect(validate(adp).errors).toEqual([]);
+  expect(
+    validate(adp)
+      .errors.filter((e) => e.code === "required")
+      .map((e) => e.field),
+  ).toEqual(fixture.fields.filter((f) => f.adp).map((f) => f.key));
+  const completeAdp = fixture.cases.find(
+    (c) => c.name === "field complete ADP",
+  );
+  if (!completeAdp) throw new Error("Missing ADP fixture");
+  for (const field of fixture.fields.filter((f) => f.adp))
+    for (const blank of [undefined, null, "", " "])
+      expect(
+        validate({ ...completeAdp.input, [field.key]: blank }).errors,
+      ).toContainEqual(
+        expect.objectContaining({ field: field.key, code: "required" }),
+      );
+});
+
+test("field requires valid nested delivery entries, including explicit JSON nulls", () => {
+  for (const blank of [undefined, null, []])
+    expect(validate({ ...sample.input, shipTos: blank }).errors).toContainEqual(
+      expect.objectContaining({ code: "ship_to_required" }),
+    );
+  for (const field of fixture.fields.filter((f) => f.shipTo && f.required))
+    for (const blank of [undefined, null, "", " "])
+      expect(
+        validate({
+          ...sample.input,
+          shipTos: [{ ...sample.input.shipTos[0], [field.key]: blank }],
+        }).errors,
+      ).toContainEqual(
+        expect.objectContaining({
+          field: `shipTos[0].${field.key}`,
+          code: "required",
+        }),
+      );
 });

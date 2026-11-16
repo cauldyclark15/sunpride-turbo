@@ -25,6 +25,13 @@ class CustomerCaptureTest {
         error("fixture not found")
     }
     private val setup by lazy { CustomerCapture.setup(config)!! }
+    private fun plain(value: Any?): Any? = when (value) {
+        is JSONObject -> value.keys().asSequence().associateWith { plain(value.get(it)) }
+        is JSONArray -> (0 until value.length()).map { plain(value.get(it)) }
+        is Number -> value.toDouble()
+        JSONObject.NULL -> null
+        else -> value
+    }
     private val pack = JSONObject()
         .put("regions", JSONArray().put(JSONObject().put("code", "0700000000").put("name", "Region VII (Central Visayas)"))
             .put(JSONObject().put("code", "1300000000").put("name", "NCR")))
@@ -45,7 +52,9 @@ class CustomerCaptureTest {
     private fun complete() = CustomerCapture.start(setup, "Aling Nena Store").copy(registeredName = "Aling Nena Store Inc.", mobileNo = "0917 555 0101",
         regionCode = "0700000000", provinceCode = "0702200000", municipalityCode = "0730600000", barangayCode = "0730600003",
         houseNo = "12", street1 = "Gorordo Ave", postalCode = "6000", distributionChannelCode = "41", customerGroup1Code = "RSF",
-        customerGroup2Code = "RSS", customerGroupCode = "74", typeOfBusiness = "Sole Proprietor", contactPerson = "Nena Cruz")
+        customerGroup2Code = "RSS", customerGroupCode = "74", typeOfBusiness = "Sole Proprietor", contactPerson = "Nena Cruz",
+        details = mapOf("taxClassificationCode" to "1", "salesOfficeCode" to "100",
+            "paymentTermsCode" to "0003", "pricingProcedureCode" to "2", "deliveringPlantCode" to "1000"))
     private val fix = JSONObject().put("latitude", 10.3312).put("longitude", 123.9056).put("accuracyMeters", 9.0)
         .put("fixTime", 5000L).put("provider", "gps").put("mockSignal", false)
     private val jpeg = Base64.getEncoder().encodeToString(byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xd9.toByte()))
@@ -101,14 +110,14 @@ class CustomerCaptureTest {
         assertEquals(listOf("customerGroup1Code"), missing(food))
         val g1 = CustomerCapture.group1s(setup, food).first().code
         assertEquals(emptyList<String>(), missing(food.withGroup1(g1)))
-        // Missing offline lists must not turn required fields into optional fields.
+        // SP-0184: missing offline geography must not submit an incomplete profile for an Admin.
         val bohol = complete().withProvince("0704600000").withMunicipality("0701200000", geography)
         assertEquals(listOf("barangayCode", "postalCode"), missing(bohol))
         assertEquals(listOf("barangayCode"), missing(complete().copy(barangayCode = "")))
         val blank = CustomerCapture.missing(CustomerCapture.Form(), setup, geography, hasFix = false, hasPhoto = false)
-        assertEquals(listOf("registeredName", "customerName", "mobileNo", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "postalCode", "coordinates",
-            "salesOrgCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code", "customerGroupCode", "typeOfBusiness",
-            "contactPerson", "photo"), blank.map { it.key })
+        assertEquals(listOf("registeredName", "customerName", "mobileNo", "taxClassificationCode", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "postalCode", "coordinates",
+            "salesOrgCode", "salesOfficeCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code", "customerGroupCode", "typeOfBusiness",
+            "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode", "contactPerson", "photo"), blank.map { it.key })
         assertEquals("Registered Name is required.", blank.first().message)
         assertEquals("Contact Person is required.", blank.first { it.key == "contactPerson" }.message)
     }
@@ -130,14 +139,84 @@ class CustomerCaptureTest {
         assertEquals(c.getString("customerAddress"), p.getString("address"))
         assertEquals(listOf("registeredName", "customerName", "mobileNo", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "houseNo",
             "street1", "postalCode", "salesOrgCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code",
-            "customerGroupCode", "typeOfBusiness", "customerAddress").sorted(), c.keys().asSequence().toList().sorted())
+            "customerGroupCode", "typeOfBusiness", "customerAddress", "countryCode", "taxClassificationCode", "salesOfficeCode",
+            "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode", "shipTos").sorted(), c.keys().asSequence().toList().sorted())
         assertEquals("Aling Nena Store", p.getString("name")); assertEquals("Nena Cruz", p.getString("ownerName"))
         assertEquals("0917 555 0101", p.getString("ownerPhone")); assertEquals("gps", p.getString("locationSource"))
         for (old in listOf("channelId", "subchannelId", "estimatedClass", "batchId", "kind")) assertFalse(old, p.has(old))
         CensusRules.validate(p) // routes to CustomerCapture.validate
         val intent = CensusRules.intent(StoreScope("account", "device", "scope"), p, 5000L)
         assertEquals(CensusRules.KIND, intent.kind)
-        assertEquals(p.toString(), JSONObject(intent.serializedOperation).getJSONObject("payload").toString())
+        // Nested JSON object order is unspecified; every value must survive the intent serialization.
+        assertEquals(plain(p), plain(JSONObject(intent.serializedOperation).getJSONObject("payload")))
+    }
+
+    @Test fun everyEnrollmentSectionSurvivesDraftAndOutboxIncludingSeparateDeliveryAndAdp() {
+        val adp = CustomerMaster.CUSTOMER_FIELDS.filter { it.adp }.associate { it.key to "Sample ${it.label}" }
+        val f = complete().withChannel("40").copy(customerGroup1Code = "ADP", customerGroup2Code = "DAW",
+            sameAsCustomer = false, shipToParty = "Nena Warehouse", shipToAddress = "99 Delivery Road",
+            shipToMobileNo = "09175550202", shipToEmail = "delivery@example.ph").let {
+            it.copy(details = it.details + adp + mapOf("creditLimit" to "12345.67", "salesPartnerCode" to "",
+                "customerAddress" to "12 Custom Street, Cebu"))
+        }
+        val roundtrip = CustomerCapture.parseDraft(CustomerCapture.draftJson(CustomerCapture.Draft(f, fix, byteArrayOf(1, 2))))!!
+        assertEquals(f, roundtrip.form)
+        assertTrue(CustomerCapture.missing(f, setup, geography, true, true).isEmpty())
+        assertTrue(CustomerCapture.draftErrors(f, setup, geography, 10.33, 123.9).isEmpty())
+        val p = CustomerCapture.payload(UUID.randomUUID().toString(), f, geography, 5000L, fix, jpeg)
+        CensusRules.validate(p)
+        val c = p.getJSONObject("customer")
+        for ((key, value) in adp) assertEquals(key, value, c.getString(key))
+        assertEquals("12345.67", c.getString("creditLimit"))
+        assertEquals("12 Custom Street, Cebu", c.getString("customerAddress"))
+        val ship = c.getJSONArray("shipTos").getJSONObject(0)
+        assertFalse(ship.getBoolean("sameAsCustomer"))
+        assertEquals("Nena Warehouse", ship.getString("shipToParty"))
+        assertEquals("99 Delivery Road", ship.getString("shipToAddress"))
+        assertEquals("Nena Cruz", ship.getString("contactPerson"))
+        assertEquals("09175550202", ship.getString("mobileNo"))
+        assertEquals("delivery@example.ph", ship.getString("email"))
+        // Every scalar contract field has a control/model value; coordinates come from GPS.
+        val fields = CustomerMaster.CUSTOMER_FIELDS.filter { it.key !in complete().values() && it.key !in listOf("coordinates", "customerAddress") }
+        for (field in fields) {
+            val set = f.withDetail(field.key, "sample")
+            assertEquals(field.key, "sample", set.values()[field.key])
+        }
+    }
+
+    @Test fun formerOfficeFieldsAreRequiredAndValidatedAndDependentSelectionsClear() {
+        val f = complete()
+        for (key in listOf("taxClassificationCode", "salesOfficeCode", "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode")) {
+            assertTrue(key, CustomerCapture.missing(f.withDetail(key, ""), setup, geography, true, true).any { it.key == key })
+            assertTrue(key, CustomerCapture.draftErrors(f.withDetail(key, "NOPE"), setup, geography, 10.33, 123.9).any { it.field == key })
+        }
+        assertTrue(CustomerCapture.draftErrors(f.withDetail("creditLimit", "-1"), setup, geography, 10.33, 123.9).any { it.code == "invalid_credit_limit" })
+        val adp = f.withChannel("40").copy(customerGroup1Code = "ADP", customerGroup2Code = "DAW")
+        assertEquals(CustomerMaster.CUSTOMER_FIELDS.filter { it.adp }.map { it.key },
+            CustomerCapture.missing(adp, setup, geography, true, true).map { it.key })
+        val filled = adp.withDetail("distributorCode", "D001")
+        assertFalse(filled.withChannel("41").values().containsKey("distributorCode"))
+        assertFalse(filled.withChannel("41").details.containsKey("distributorCode"))
+        val ari = filled.withSalesOrg("2000")
+        for (key in listOf("salesOfficeCode", "deliveringPlantCode", "distributorCode")) assertEquals("", ari.detail(key))
+        assertEquals("", ari.distributionChannelCode)
+        assertEquals("0003", ari.detail("paymentTermsCode"))
+    }
+
+    @Test fun shipToCopyIsDerivedAndSeparateDeliveryErrorsPointToVisibleControls() {
+        val f = complete().copy(email = "shop@example.ph")
+        val ship = CustomerCapture.customer(f, geography).getJSONArray("shipTos").getJSONObject(0)
+        assertEquals(f.customerName, ship.getString("shipToParty"))
+        assertEquals(f.email, ship.getString("email"))
+        val separate = f.copy(sameAsCustomer = false, shipToMobileNo = "123", shipToEmail = "bad")
+        assertEquals(listOf("shipToParty", "shipToAddress"), CustomerCapture.missing(separate, setup, geography, true, true).map { it.key })
+        assertEquals(listOf("shipToMobileNo", "shipToEmail"), CustomerCapture.draftErrors(separate, setup, geography, 10.33, 123.9).map { it.field })
+        val bad = CustomerCapture.payload(UUID.randomUUID().toString(), separate, geography, 5000L, fix, jpeg)
+        assertTrue(runCatching { CensusRules.validate(bad) }.isFailure)
+        val old = CustomerCapture.parseDraft("{\"version\":1,\"form\":{\"customerName\":\"Old draft\",\"contactPerson\":\"Nena\"}}")!!
+        assertEquals("Old draft", old.form.customerName)
+        assertTrue(old.form.sameAsCustomer)
+        assertEquals("PH", old.form.detail("countryCode"))
     }
 
     @Test fun everyRequiredAgentFieldBlocksSaveIncludingWhitespaceAndMissingOfflineLists() {
@@ -159,7 +238,8 @@ class CustomerCaptureTest {
     @Test fun outboxCannotQueueAnIncompleteCustomerEvenWithoutTheScreenCheck() {
         val ok = CustomerCapture.payload(UUID.randomUUID().toString(), complete(), geography, 5000L, fix, jpeg)
         for (key in listOf("registeredName", "customerName", "customerAddress", "mobileNo", "regionCode", "provinceCode",
-            "municipalityCode", "barangayCode", "postalCode", "salesOrgCode", "distributionChannelCode", "customerGroupCode", "typeOfBusiness")) {
+            "municipalityCode", "barangayCode", "postalCode", "salesOrgCode", "distributionChannelCode", "customerGroupCode", "typeOfBusiness", "countryCode", "taxClassificationCode",
+            "salesOfficeCode", "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode")) {
             for (blank in listOf(null, JSONObject.NULL, "", " \t ")) {
                 val p = JSONObject(ok.toString())
                 if (blank == null) p.getJSONObject("customer").remove(key) else p.getJSONObject("customer").put(key, blank)
@@ -167,6 +247,33 @@ class CustomerCaptureTest {
             }
         }
         CensusRules.validate(ok)
+    }
+
+    @Test fun outboxHandlesNestedNullsAndRequiresDeliveryAndConditionalAdp() {
+        val ok = CustomerCapture.payload(UUID.randomUUID().toString(), complete(), geography, 5000L, fix, jpeg)
+        val optional = JSONObject(ok.toString())
+        for (key in listOf("tradeName", "email", "telNo", "tin", "creditLimit", "salesPartnerCode")) optional.getJSONObject("customer").put(key, JSONObject.NULL)
+        optional.getJSONObject("customer").getJSONArray("shipTos").getJSONObject(0).put("email", JSONObject.NULL)
+        CensusRules.validate(optional)
+        for (key in CustomerMaster.SHIP_TO_FIELDS.filter { it.required }.map { it.key }) {
+            for (blank in listOf(null, JSONObject.NULL, "", " ")) {
+                val p = JSONObject(ok.toString())
+                val ship = p.getJSONObject("customer").getJSONArray("shipTos").getJSONObject(0)
+                if (blank == null) ship.remove(key) else ship.put(key, blank)
+                assertTrue(key, runCatching { CensusRules.validate(p) }.isFailure)
+            }
+        }
+        assertTrue(runCatching { CensusRules.validate(JSONObject(ok.toString()).also { it.getJSONObject("customer").remove("shipTos") }) }.isFailure)
+        val f = complete().withChannel("40").copy(customerGroup1Code = "ADP", customerGroup2Code = "DAW")
+        val adp = CustomerMaster.CUSTOMER_FIELDS.filter { it.adp }.associate { it.key to "Sample ${it.label}" }
+        val full = f.copy(details = f.details + adp)
+        val valid = CustomerCapture.payload(UUID.randomUUID().toString(), full, geography, 5000L, fix, jpeg)
+        CensusRules.validate(valid)
+        for (key in adp.keys) for (blank in listOf(null, JSONObject.NULL, "", " ")) {
+            val p = JSONObject(valid.toString())
+            if (blank == null) p.getJSONObject("customer").remove(key) else p.getJSONObject("customer").put(key, blank)
+            assertTrue(key, runCatching { CensusRules.validate(p) }.isFailure)
+        }
     }
 
     @Test fun outboxCheckRefusesBadCaptures() {
