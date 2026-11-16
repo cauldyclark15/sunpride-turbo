@@ -848,7 +848,7 @@ describe("SP-0170 customer writer", () => {
       ),
     ).toMatchObject({ outletId, decision: "accepted", code: approved.body.code });
   });
-  test("an approver can reject a field capture (old New store approvals' Reject): inactive, no accounting customer", async () => {
+  test("an approver or office admin can reject a field capture (old New store approvals' Reject): inactive, no accounting customer", async () => {
     const captureId = crypto.randomUUID();
     const [agent] =
       await h.db`select p.user_id from profiles p where p.email='agent@sunpride.test'`;
@@ -880,11 +880,9 @@ describe("SP-0170 customer writer", () => {
     expect(proposed.status).toBe(200);
     const outletId = proposed.body.outletId;
     const path = `/api/v1/customers/${outletId}/reject`;
-    expect(
-      (await call("admin", "POST", path, { reason: "Duplicate" })).status,
-    ).toBe(403);
-    expect((await call("manager", "POST", path, {})).status).toBe(422);
-    const rejected = await call("manager", "POST", path, {
+    // Office admins (the client's project test team) approve and reject new customers too.
+    expect((await call("admin", "POST", path, {})).status).toBe(422);
+    const rejected = await call("admin", "POST", path, {
       reason: "Duplicate of an existing store",
     });
     expect(rejected.status).toBe(200);

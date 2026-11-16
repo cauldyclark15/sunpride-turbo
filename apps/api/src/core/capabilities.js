@@ -51,7 +51,8 @@ export const CAPABILITIES = Object.freeze({
   // SP-0179: office admins (the client's project test team) use the Field app too:
   // first Sync, store visits and adding stores from the phone.
   "outlet.enrol.propose": ["super_admin", "admin", "manager", "sales"],
-  "outlet.enrol.approve": ["super_admin", "manager"],
+  // Office admins (the client's project test team) approve/reject new customers from the field.
+  "outlet.enrol.approve": ["super_admin", "admin", "manager"],
   "outlet.assign": ["super_admin", "admin", "operations"],
   "masterdata.manage": ["super_admin", "admin", "operations"],
   "inventory.read": ALL,

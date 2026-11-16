@@ -40,7 +40,7 @@ const EXPECTED = {
   "outlet.manage": ["super_admin", "admin", "operations"],
   "outlet.verify": ["super_admin", "admin", "manager"],
   "outlet.enrol.propose": ["super_admin", "admin", "manager", "sales"],
-  "outlet.enrol.approve": ["super_admin", "manager"],
+  "outlet.enrol.approve": ["super_admin", "admin", "manager"],
   "outlet.assign": ["super_admin", "admin", "operations"],
   "masterdata.manage": ["super_admin", "admin", "operations"],
   "inventory.read": A,
