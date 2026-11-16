@@ -267,7 +267,9 @@ async function applyChange(ctx, capture, actor, reason) {
   // WEB-173: the office customer page reads the customer record (Mobile No. on customer_profiles, Contact Person /
   // Mobile No. on the first ship-to), not outlet_contacts. Write the approved owner and phone there too.
   const ownerName = capture.owner_name?.trim() || null,
-    ownerPhone = capture.owner_phone ? String(capture.owner_phone).replace(/[\s-]/g, "") : null;
+    ownerPhone = capture.owner_phone
+      ? String(capture.owner_phone).replace(/[\s-]/g, "")
+      : null;
   if (ownerPhone)
     await ctx.db`update customer_profiles set mobile_no=${ownerPhone},updated_by=${actor.userId},updated_at=now() where outlet_id=${id}`;
   if (ownerName || ownerPhone)
@@ -459,11 +461,7 @@ async function captureCustomer(ctx, actor, p) {
     rule("Enter the customer details.");
   const id = uuid(p.captureId);
   const at = integer(p.deviceTime, ctx.now - 7 * 86400000, ctx.now + 120000);
-  const name = required(
-    p.customer.customerName ?? p.name,
-    "Customer Name",
-    200,
-  );
+  const name = required(p.customer.customerName, "Customer Name", 200);
   const [previous] =
     await ctx.db`select id,outlet_id from outlet_enrolments where proposed_by=${actor.subject} and client_request_id=${id}`;
   if (previous) return { entityId: previous.outlet_id, eventIds: [] };

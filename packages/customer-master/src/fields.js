@@ -448,6 +448,23 @@ export const ADP_CHANNEL = "40";
 
 /** The customer-level (non ship-to) fields. */
 export const CUSTOMER_FIELDS = FIELDS.filter((f) => !f.shipTo);
+/** The agent's part of the sheet; office-only required fields wait for completion.
+ * Keep in step with the Android CustomerMaster.FIELD_CAPTURE (parity-tested). */
+export const FIELD_CAPTURE = CUSTOMER_FIELDS.filter(
+  (f) =>
+    !f.adp &&
+    ![
+      "taxClassificationCode",
+      "countryCode",
+      "salesOfficeCode",
+      "salesPartnerCode",
+      "paymentTermsCode",
+      "creditLimit",
+      "pricingProcedureCode",
+      "deliveringPlantCode",
+    ].includes(f.key),
+).map((f) => f.key);
+
 /** The fields of one ship-to entry. */
 export const SHIP_TO_FIELDS = FIELDS.filter((f) => f.shipTo);
 /** @param {string} key */

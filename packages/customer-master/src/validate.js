@@ -3,6 +3,7 @@
 import {
   ADP_CHANNEL,
   CUSTOMER_FIELDS,
+  FIELD_CAPTURE,
   SHIP_TO_FIELDS,
   field,
 } from "./fields.js";
@@ -15,7 +16,7 @@ import {
 /** @typedef {{code:string,name?:string,municipalityCode:string}} GeoBarangay */
 /** @typedef {{region?:GeoRegion|null,province?:GeoProvince|null,municipality?:GeoMunicipality|null,barangay?:GeoBarangay|null,postalCodes?:string[]}} ResolvedGeography */
 /** @typedef {{code:string,field:string,label:string,section:string,message:string,index?:number}} CustomerError */
-/** @typedef {'draft'|'complete'} Level */
+/** @typedef {'draft'|'field'|'complete'} Level */
 
 /** Stable error codes (documented in docs/architecture/CUSTOMER_MASTER_CONTRACT.md). */
 export const ERROR_CODES = /** @type {const} */ ([
@@ -169,9 +170,9 @@ export function applicability(index, c) {
 }
 
 /**
- * Validate a customer at `draft` (field capture: formats, list membership and dependencies of
- * whatever is filled; only Customer Name required) or `complete` (every required field of the
- * sheet with the conditional rules; needed for approval/activation and uploads).
+ * Validate a customer at `draft` (office saves: formats, list membership and dependencies of
+ * whatever is filled; only Customer Name required), `field` (the agent's required fields),
+ * or `complete` (every required field, including office completion before approval/uploads).
  * @param {Record<string, any>} input
  * @param {{level?:Level, lists:ReferenceRow[]|ReferenceIndex, geography?:ResolvedGeography|null}} ctx
  * @returns {{ok:boolean, level:Level, errors:CustomerError[], value:Record<string, any>}}
@@ -197,6 +198,8 @@ export function validateCustomer(input, ctx) {
   /** @param {FieldSpecRef} f */
   const isRequired = (f) => {
     if (level === "draft") return f.key === "customerName";
+    if (level === "field" && (f.shipTo || !FIELD_CAPTURE.includes(f.key)))
+      return false;
     if (!f.required) return false;
     if (f.adp) return app.adp;
     if (f.key === "customerGroup1Code") return app.group1 !== false;
@@ -481,7 +484,7 @@ export function validateCustomer(input, ctx) {
   const lat = input.latitude,
     lng = input.longitude;
   if (blank(lat) && blank(lng)) {
-    if (level === "complete") fail("required", cf, `${cf.label} is required.`);
+    if (level !== "draft") fail("required", cf, `${cf.label} is required.`);
     value.latitude = null;
     value.longitude = null;
   } else {

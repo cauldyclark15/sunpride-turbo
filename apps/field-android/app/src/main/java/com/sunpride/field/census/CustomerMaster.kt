@@ -180,7 +180,8 @@ object CustomerMaster {
     data class Result(val ok: Boolean, val level: String, val errors: List<Error>, val value: Map<String, Any?>)
 
     /** Same as JS validateCustomer: `draft` = formats, list membership and dependencies of whatever is
-     * filled (only Customer Name required); `complete` = every required field with rules 5/6. */
+     * filled (only Customer Name required); `field` = the agent's required fields;
+     * `complete` = every required field with rules 5/6. */
     fun validate(input: Map<String, Any?>, level: String, index: ReferenceIndex, geography: ResolvedGeography?): Result {
         val errors = mutableListOf<Error>()
         val value = linkedMapOf<String, Any?>()
@@ -190,6 +191,7 @@ object CustomerMaster {
         val app = applicability(index, text(input["salesOrgCode"]), text(input["distributionChannelCode"]), text(input["customerGroup1Code"]))
         fun isRequired(f: Field): Boolean {
             if (level == "draft") return f.key == "customerName"
+            if (level == "field" && (f.shipTo || f.key !in FIELD_CAPTURE)) return false
             if (!f.required) return false
             if (f.adp) return app.adp
             if (f.key == "customerGroup1Code") return app.group1 != false
@@ -297,7 +299,7 @@ object CustomerMaster {
         val cf = field("coordinates")
         val lat = input["latitude"]; val lng = input["longitude"]
         if (blank(lat) && blank(lng)) {
-            if (level == "complete") fail("required", cf, "${cf.label} is required.")
+            if (level != "draft") fail("required", cf, "${cf.label} is required.")
             value["latitude"] = null; value["longitude"] = null
         } else {
             val la = (lat as? Number)?.toDouble() ?: lat?.toString()?.trim()?.toDoubleOrNull()

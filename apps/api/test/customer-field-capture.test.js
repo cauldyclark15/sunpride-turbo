@@ -62,24 +62,25 @@ async function fieldRep(app = "field-android") {
       return { status: r.status, body: /** @type {any} */ (await r.json()) };
     },
     /** @param {any} payload @param {string} [clientOpId] */
-    push: async (payload, clientOpId = crypto.randomUUID()) =>
-      (
-        await signedPost(h, who, "/api/sync/push", {
-          version: 2,
-          app,
-          deviceId,
-          scopeId: unitId,
-          operations: [
-            {
-              clientOpId,
-              opType: "census.capture",
-              clientTime: payload.deviceTime,
-              dependsOn: [],
-              payload,
-            },
-          ],
-        })
-      ).body.results[0],
+    push: async (payload, clientOpId = crypto.randomUUID()) => {
+      const response = await signedPost(h, who, "/api/sync/push", {
+        version: 2,
+        app,
+        deviceId,
+        scopeId: unitId,
+        operations: [
+          {
+            clientOpId,
+            opType: "census.capture",
+            clientTime: payload.deviceTime,
+            dependsOn: [],
+            payload,
+          },
+        ],
+      });
+      expect(response.res.status).toBe(200);
+      return response.body.results[0];
+    },
   };
 }
 
@@ -104,6 +105,7 @@ function capture(over = {}) {
     },
     photoJpegBase64: photo,
     customer: {
+      registeredName: "Aling Nena Store Inc.",
       customerName: "Aling Nena Store",
       tradeName: "Nena's",
       mobileNo: "09175550101",
@@ -126,7 +128,7 @@ function capture(over = {}) {
 }
 
 beforeAll(async () => {
-  h = await startHarness({ installers: [org, masters] });
+  h = await startHarness({ installers: [org, masters], port: 5002 });
   await seedDemo(h.db, { days: 3, anchorDate: plusDays(todayManila(), 1) });
   await tx(h.db, seedSpecMasters);
   await loadPhGeography(h.db);
@@ -238,7 +240,78 @@ test("Add customer capture becomes a prospect customer with a draft profile; rep
   ).toBe(1);
 });
 
-test("an invalid customer (draft rules) is refused, the old census payload still works", async () => {
+// SP-0183: bypass the phone's form and submit signed operations to the real lane API.
+async function businessCounts() {
+  return (
+    await h.db`select
+    (select count(*)::int from outlets) outlets,
+    (select count(*)::int from outlet_enrolments) enrolments,
+    (select count(*)::int from customer_profiles) profiles,
+    (select count(*)::int from customer_ship_tos) ship_tos,
+    (select count(*)::int from outlet_pins) pins,
+    (select count(*)::int from outlet_contacts) contacts,
+    (select count(*)::int from files) files,
+    (select count(*)::int from customers) accounting_customers`
+  )[0];
+}
+
+test("SP-0183 missing agent fields are rejected with no customer, enrolment or evidence rows saved", async () => {
+  // This matrix has its own device, below the unchanged 60-challenge budget.
+  const validationRep = await fieldRep();
+  const before = await businessCounts();
+  for (const key of [
+    "registeredName",
+    "customerName",
+    "mobileNo",
+    "regionCode",
+    "provinceCode",
+    "municipalityCode",
+    "barangayCode",
+    "postalCode",
+    "salesOrgCode",
+    "distributionChannelCode",
+    "customerGroup1Code",
+    "customerGroup2Code",
+    "customerGroupCode",
+    "typeOfBusiness",
+  ]) {
+    for (const blank of [undefined, null, "", " "]) {
+      const p = capture();
+      const customer = { ...p.customer, [key]: blank };
+      if (blank === undefined) delete customer[key];
+      const refused = await validationRep.push({ ...p, customer });
+      expect(refused).toMatchObject({
+        status: "rejected",
+        code: "invalid_request",
+      });
+      expect(await businessCounts()).toEqual(before);
+    }
+  }
+  const p = capture({ ownerName: " " });
+  expect(await validationRep.push(p)).toMatchObject({
+    status: "rejected",
+    code: "invalid_request",
+  });
+  expect(await businessCounts()).toEqual(before);
+}, 60000);
+
+test("SP-0183 a valid Services customer needs no groups, optional fields or office completion yet", async () => {
+  const p = capture();
+  const customer = { ...p.customer, distributionChannelCode: "50" };
+  delete customer.customerGroup1Code;
+  delete customer.customerGroup2Code;
+  delete customer.tradeName;
+  const r = await rep.push({ ...p, customer });
+  expect(r.status).toBe("applied");
+  const c = await readCustomer(h.db, r.ack.entityId);
+  expect(c).toMatchObject({
+    registeredName: "Aling Nena Store Inc.",
+    distributionChannelCode: "50",
+    completeness: "draft",
+  });
+});
+
+test("an invalid customer is refused, the old census payload still works", async () => {
   const bad = capture({
     customer: { ...capture().customer, customerGroup1Code: "NOPE" },
   });

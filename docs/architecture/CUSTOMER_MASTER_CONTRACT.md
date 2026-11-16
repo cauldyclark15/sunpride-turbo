@@ -100,8 +100,15 @@ sameAsCustomer }]`, one or more. `sameAsCustomer: true` copies Customer Name, Cu
 
 ## 2. Levels and conditional rules
 
-- `draft` (any save): only Customer Name is required; whatever is filled must be valid
-  (formats, list membership, dependencies). Field captures may be drafts.
+- `draft` (office saves): only Customer Name is required; whatever is filled must be valid
+  (formats, list membership, dependencies).
+- `field` (new-customer enrolment, SP-0183): all required fields in the agent's part of the sheet
+  must be filled: Registered Name, Customer Name, generated Customer Address, Mobile No., Region,
+  Province, Municipality, Barangay, Postal Code, Geographical Coordinates, Sales Organization,
+  Distribution Channel, applicable Customer Grp 1/2, Customer Group and Type of Business.
+  Contact Person and storefront evidence are also required by enrolment. Missing offline lists
+  do not waive required fields. Office-only Tax, Sales Office, Payment, Delivery and ADP fields
+  wait for office completion; optional fields remain optional. Full `completeness` can still be `draft`.
 - `complete` (approval/activation and uploads): every field marked required in the sheet, with:
   - **Customer Grp 1** required only when the Distribution Channel has Grp 1 values (not 50 Services).
   - **Customer Grp 2** required only when the chosen Grp 1 has Grp 2 values (not Food Service 20,

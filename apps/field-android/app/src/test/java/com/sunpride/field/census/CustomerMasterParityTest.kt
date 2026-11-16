@@ -48,6 +48,7 @@ class CustomerMasterParityTest {
     }
 
     @Test fun fieldCaptureIsTheAgentsPartInSheetOrder() {
+        assertEquals(plain(fixture.getJSONArray("fieldCapture")), CustomerMaster.FIELD_CAPTURE)
         val order = CustomerMaster.CUSTOMER_FIELDS.map { it.key }
         assertEquals(CustomerMaster.FIELD_CAPTURE, CustomerMaster.FIELD_CAPTURE.sortedBy { order.indexOf(it) })
         assertTrue(CustomerMaster.FIELD_CAPTURE.all { it in order })

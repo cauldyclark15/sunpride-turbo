@@ -60,7 +60,7 @@ async function call(role, method, path, body, key) {
 const customer = (over = {}) => ({
   registeredName: "Tindahan ni Aling Rosa Inc.",
   customerName: "Aling Rosa Store",
-  mobileNo: "+639171234567",
+  mobileNo: "+639****4567",
   email: "Rosa@Example.PH",
   tin: "123456789",
   taxClassificationCode: "1",
@@ -93,7 +93,7 @@ async function accounting(id) {
 }
 
 beforeAll(async () => {
-  h = await startHarness({ installers: [org, masters] });
+  h = await startHarness({ installers: [org, masters], port: 5002 });
   await seedDemo(h.db, { days: 3, anchorDate: plusDays(todayManila(), 1) });
   await loadPhGeography(h.db);
   for (const role of ["admin", "manager", "viewer", "agent"])
@@ -719,6 +719,8 @@ describe("SP-0170 customer writer", () => {
         photoStorageIds: [file.id],
         clientRequestId: crypto.randomUUID(),
         customer: {
+          registeredName: "Ana Santos",
+          customerGroupCode: "74",
           salesOrgCode: "1000",
           distributionChannelCode: "41",
           customerGroup1Code: "RSF",
@@ -868,12 +870,19 @@ describe("SP-0170 customer writer", () => {
         photoStorageIds: [file.id],
         clientRequestId: captureId,
         customer: {
+          registeredName: "Ana Santos",
+          customerGroupCode: "74",
           salesOrgCode: "1000",
           distributionChannelCode: "41",
           customerGroup1Code: "RSF",
           customerGroup2Code: "RSS",
           mobileNo: "09170000002",
           typeOfBusiness: "Sole Proprietor",
+          regionCode: "0700000000",
+          provinceCode: "0702200000",
+          municipalityCode: "0730600000",
+          barangayCode: "0730600003",
+          postalCode: "6000",
         },
       },
     );

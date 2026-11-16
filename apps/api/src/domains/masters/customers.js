@@ -374,8 +374,8 @@ export async function derive(db, merged, input, existing) {
 }
 
 /**
- * Create (no `outletId`) or update a customer. Saves at `draft` level (field capture may be
- * incomplete); stores the completeness of the result. Returns the customer id.
+ * Create (no `outletId`) or update a customer. Office saves allow drafts; field captures
+ * require the agent's part of the sheet. Stores full completeness separately. Returns the customer id.
  * @param {any} c @param {Record<string, any>} b @param {{outletId?:string, fieldCapture?:boolean}} [opts]
  */
 export async function saveCustomer(c, b, opts = {}) {
@@ -424,7 +424,7 @@ export async function saveCustomer(c, b, opts = {}) {
   if (!hadProfile && !merged.salesPartnerCode)
     merged.salesPartnerCode = await defaultSalesPartner(c, lists);
   const draft = validateCustomer(merged, {
-    level: "draft",
+    level: opts.fieldCapture ? "field" : "draft",
     lists,
     geography: geo,
   });

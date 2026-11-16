@@ -42,7 +42,7 @@ class CustomerCaptureTest {
     private val geography by lazy {
         CustomerCapture.Geography.parse(pack).withBarangays("0702200000", CustomerCapture.Geography.barangays(cebuBarangays))
     }
-    private fun complete() = CustomerCapture.start(setup, "Aling Nena Store").copy(mobileNo = "0917 555 0101",
+    private fun complete() = CustomerCapture.start(setup, "Aling Nena Store").copy(registeredName = "Aling Nena Store Inc.", mobileNo = "0917 555 0101",
         regionCode = "0700000000", provinceCode = "0702200000", municipalityCode = "0730600000", barangayCode = "0730600003",
         houseNo = "12", street1 = "Gorordo Ave", postalCode = "6000", distributionChannelCode = "41", customerGroup1Code = "RSF",
         customerGroup2Code = "RSS", customerGroupCode = "74", typeOfBusiness = "Sole Proprietor", contactPerson = "Nena Cruz")
@@ -101,15 +101,15 @@ class CustomerCaptureTest {
         assertEquals(listOf("customerGroup1Code"), missing(food))
         val g1 = CustomerCapture.group1s(setup, food).first().code
         assertEquals(emptyList<String>(), missing(food.withGroup1(g1)))
-        // Barangay only when its list is on the phone; Postal Code only when the municipality has one.
+        // Missing offline lists must not turn required fields into optional fields.
         val bohol = complete().withProvince("0704600000").withMunicipality("0701200000", geography)
-        assertEquals(emptyList<String>(), missing(bohol))
+        assertEquals(listOf("barangayCode", "postalCode"), missing(bohol))
         assertEquals(listOf("barangayCode"), missing(complete().copy(barangayCode = "")))
         val blank = CustomerCapture.missing(CustomerCapture.Form(), setup, geography, hasFix = false, hasPhoto = false)
-        assertEquals(listOf("customerName", "mobileNo", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "coordinates",
+        assertEquals(listOf("registeredName", "customerName", "mobileNo", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "postalCode", "coordinates",
             "salesOrgCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code", "customerGroupCode", "typeOfBusiness",
             "contactPerson", "photo"), blank.map { it.key })
-        assertEquals("Customer Name is required.", blank.first().message)
+        assertEquals("Registered Name is required.", blank.first().message)
         assertEquals("Contact Person is required.", blank.first { it.key == "contactPerson" }.message)
     }
 
@@ -128,7 +128,7 @@ class CustomerCaptureTest {
         val c = p.getJSONObject("customer")
         assertEquals("12 Gorordo Ave, Apas, City of Cebu, Cebu 6000", c.getString("customerAddress"))
         assertEquals(c.getString("customerAddress"), p.getString("address"))
-        assertEquals(listOf("customerName", "mobileNo", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "houseNo",
+        assertEquals(listOf("registeredName", "customerName", "mobileNo", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "houseNo",
             "street1", "postalCode", "salesOrgCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code",
             "customerGroupCode", "typeOfBusiness", "customerAddress").sorted(), c.keys().asSequence().toList().sorted())
         assertEquals("Aling Nena Store", p.getString("name")); assertEquals("Nena Cruz", p.getString("ownerName"))
@@ -138,6 +138,35 @@ class CustomerCaptureTest {
         val intent = CensusRules.intent(StoreScope("account", "device", "scope"), p, 5000L)
         assertEquals(CensusRules.KIND, intent.kind)
         assertEquals(p.toString(), JSONObject(intent.serializedOperation).getJSONObject("payload").toString())
+    }
+
+    @Test fun everyRequiredAgentFieldBlocksSaveIncludingWhitespaceAndMissingOfflineLists() {
+        val required = listOf("registeredName", "customerName", "mobileNo", "regionCode", "provinceCode", "municipalityCode",
+            "barangayCode", "postalCode", "salesOrgCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code",
+            "customerGroupCode", "typeOfBusiness", "contactPerson")
+        for (key in required) for (blank in listOf("", " \t ")) {
+            val draft = JSONObject(CustomerCapture.draftJson(CustomerCapture.Draft(complete(), fix, null)))
+            draft.getJSONObject("form").put(key, blank)
+            val f = CustomerCapture.parseDraft(draft.toString())!!.form
+            assertTrue(key, CustomerCapture.missing(f, setup, geography, true, true).any { it.key == key })
+        }
+        assertTrue(CustomerCapture.missing(complete().copy(barangayCode = ""), setup,
+            CustomerCapture.Geography.parse(pack), true, true).any { it.key == "barangayCode" })
+        assertEquals("Registered Name *", CustomerCapture.formLabel("registeredName"))
+        assertEquals("Trade Name", CustomerCapture.formLabel("tradeName"))
+    }
+
+    @Test fun outboxCannotQueueAnIncompleteCustomerEvenWithoutTheScreenCheck() {
+        val ok = CustomerCapture.payload(UUID.randomUUID().toString(), complete(), geography, 5000L, fix, jpeg)
+        for (key in listOf("registeredName", "customerName", "customerAddress", "mobileNo", "regionCode", "provinceCode",
+            "municipalityCode", "barangayCode", "postalCode", "salesOrgCode", "distributionChannelCode", "customerGroupCode", "typeOfBusiness")) {
+            for (blank in listOf(null, JSONObject.NULL, "", " \t ")) {
+                val p = JSONObject(ok.toString())
+                if (blank == null) p.getJSONObject("customer").remove(key) else p.getJSONObject("customer").put(key, blank)
+                assertTrue(key, runCatching { CensusRules.validate(p) }.isFailure)
+            }
+        }
+        CensusRules.validate(ok)
     }
 
     @Test fun outboxCheckRefusesBadCaptures() {

@@ -161,30 +161,31 @@ object CustomerCapture {
 
     /** A field Save found missing, in form order; [key] matches the contract key ("photo" for the storefront photo). */
     data class Missing(val key: String, val message: String)
-    /** What the agent must fill before Save: the agent's required fields of the sheet (Grp 1/Grp 2 only when the
-     * chain has them, Barangay when its list is on the phone, Postal Code when the municipality has one), the GPS
-     * pin and the storefront photo the enrolment needs. Everything else is completed by the office. */
+    /** Every required field shown to the agent must be filled, even if its offline list is missing.
+     * Grp 1/Grp 2 remain conditional; office-only fields are completed by the office. */
     fun missing(f: Form, s: Setup?, g: Geography?, hasFix: Boolean, hasPhoto: Boolean): List<Missing> = buildList {
-        fun need(key: String, blank: Boolean) { if (blank) add(Missing(key, "${label(key)} is required.")) }
-        need("customerName", f.customerName.isBlank())
-        need("mobileNo", f.mobileNo.isBlank())
-        need("regionCode", f.regionCode.isEmpty())
-        need("provinceCode", f.provinceCode.isEmpty())
-        need("municipalityCode", f.municipalityCode.isEmpty())
-        if (g == null || g.barangaysOf(f.municipalityCode) != null) need("barangayCode", f.barangayCode.isEmpty())
-        if (g?.postalCodesOf(f.municipalityCode)?.isNotEmpty() == true) need("postalCode", f.postalCode.isEmpty())
-        if (!hasFix) add(Missing("coordinates", "Tap Use my location to set the ${label("coordinates")}."))
-        need("salesOrgCode", f.salesOrgCode.isEmpty())
-        need("distributionChannelCode", f.distributionChannelCode.isEmpty())
+        val values = f.values()
         val app = s?.let { applicability(it, f) }
-        if (app?.group1 != false) need("customerGroup1Code", f.customerGroup1Code.isEmpty())
-        if (app?.group1 != false && app?.group2 != false) need("customerGroup2Code", f.customerGroup2Code.isEmpty())
-        need("customerGroupCode", f.customerGroupCode.isEmpty())
-        need("typeOfBusiness", f.typeOfBusiness.isEmpty())
-        need("contactPerson", f.contactPerson.isBlank())
+        for (key in CustomerMaster.FIELD_CAPTURE) {
+            if (!CustomerMaster.field(key).required || key == "customerAddress") continue // derived from the required location
+            if (key == "customerGroup1Code" && app?.group1 == false) continue
+            if (key == "customerGroup2Code" && (app?.group1 == false || app?.group2 == false)) continue
+            if (key == "coordinates") {
+                if (!hasFix) add(Missing(key, "Tap Use my location to set the ${label(key)}."))
+            } else if (values[key].isNullOrBlank()) {
+                val download = if (key == "barangayCode" && g?.barangaysOf(f.municipalityCode) == null)
+                    " Connect once to download this province's barangays." else ""
+                add(Missing(key, "${label(key)} is required.$download"))
+            }
+        }
+        if (f.contactPerson.isBlank()) add(Missing("contactPerson", "${label("contactPerson")} is required."))
         if (!hasPhoto) add(Missing("photo", "Take a storefront photo."))
     }
     fun label(key: String): String = if (key == "contactPerson") CustomerMaster.shipToField(key).label else CustomerMaster.field(key).label
+    fun formLabel(key: String): String {
+        val field = if (key == "contactPerson") CustomerMaster.shipToField(key) else CustomerMaster.field(key)
+        return field.label + if (field.required) " *" else ""
+    }
 
     /** The shared draft rules (formats, lists, dependencies), as the server checks them. */
     fun draftErrors(f: Form, s: Setup, g: Geography?, latitude: Double?, longitude: Double?): List<CustomerMaster.Error> {
@@ -222,9 +223,13 @@ object CustomerCapture {
         require(p.getString("name").trim().length in 1..200) { "Customer Name is required." }
         require(p.getString("address").trim().length in 1..500) { "Customer Address is required." }
         require(p.getString("ownerName").trim().length in 1..100) { "Contact Person is required." }
-        val input = HashMap<String, Any?>(); c.keys().forEach { input[it] = c.get(it) }
-        val errors = CustomerMaster.validate(input, "draft", CustomerMaster.ReferenceIndex(emptyList()), null).errors
-            .filter { it.code !in setOf("invalid_option", "not_for_sales_org", "not_for_channel", "not_for_group1", "not_applicable", "choose_parent_first") }
+        val input = HashMap<String, Any?>(); c.keys().forEach { input[it] = if (c.isNull(it)) null else c.get(it) }
+        val location = p.getJSONObject("location")
+        input["latitude"] = location.getDouble("latitude"); input["longitude"] = location.getDouble("longitude")
+        val errors = CustomerMaster.validate(input, "field", CustomerMaster.ReferenceIndex(emptyList()), null).errors
+            // Lists are not available at this boundary. The form and server check conditional groups.
+            .filter { it.code !in setOf("invalid_option", "not_for_sales_org", "not_for_channel", "not_for_group1", "not_applicable", "choose_parent_first") &&
+                !(it.code == "required" && it.field in setOf("customerGroup1Code", "customerGroup2Code")) }
         require(errors.isEmpty()) { errors.first().message }
         val at = p.getLong("deviceTime"); val l = p.getJSONObject("location")
         require(l.getDouble("latitude").isFinite() && l.getDouble("latitude") in -90.0..90.0)

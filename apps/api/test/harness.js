@@ -41,7 +41,7 @@ export async function dropTestDatabase(admin, name) {
 
 /**
  * Throwaway database + migrated schema + API on a random free port.
- * @param {{ env?: Record<string,string|undefined>, installers?: any[], listen?: boolean, poolMax?: number, schedule?: boolean }} [opts]
+ * @param {{ env?: Record<string,string|undefined>, installers?: any[], listen?: boolean, poolMax?: number, schedule?: boolean, port?: number }} [opts]
  */
 export async function startHarness(opts = {}) {
   resetHooks();
@@ -74,7 +74,7 @@ export async function startHarness(opts = {}) {
     schedulerPollMs: 50,
   });
   const server = await app.start({
-    port: 0,
+    port: opts.port ?? 0,
     hostname: "127.0.0.1",
     listen: opts.listen ?? false,
     schedule: opts.schedule ?? false,

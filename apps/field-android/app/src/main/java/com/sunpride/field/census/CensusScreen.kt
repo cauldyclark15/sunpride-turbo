@@ -637,7 +637,7 @@ private fun CmText(key: String, value: String, onChange: (String) -> Unit, marks
     requester: (String) -> BringIntoViewRequester, max: Int, keyboard: androidx.compose.ui.text.input.KeyboardType =
         androidx.compose.ui.text.input.KeyboardType.Text, hint: String? = null) {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        FieldTextField(value, { onChange(it.take(max)) }, label = { Text(CustomerCapture.label(key)) }, singleLine = true,
+        FieldTextField(value, { onChange(it.take(max)) }, label = { Text(CustomerCapture.formLabel(key)) }, singleLine = true,
             isError = key in marks, placeholder = hint?.let { h -> { Text(h) } },
             modifier = Modifier.fillMaxWidth().testTag("customer-$key"),
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = keyboard))
@@ -648,7 +648,7 @@ private fun CmText(key: String, value: String, onChange: (String) -> Unit, marks
 private fun CmPicker(key: String, options: List<CustomerCapture.Option>, value: String, onChange: (String) -> Unit,
     marks: Map<String, String>, requester: (String) -> BringIntoViewRequester, empty: String = "Choose…") {
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
-        CensusPicker(CustomerCapture.label(key), options.map { it.code to it.label }, value, onChange, "customer-$key", empty)
+        CensusPicker(CustomerCapture.formLabel(key), options.map { it.code to it.label }, value, onChange, "customer-$key", empty)
         KeyMark(key, marks, requester)
     }
 }
@@ -667,7 +667,7 @@ private fun CustomerSections(setup: CustomerCapture.Setup?, geography: CustomerC
             CmText("tradeName", form.tradeName, { onChange(form.copy(tradeName = it)) }, marks, requester, 200)
             CmText("customerName", form.customerName, { onChange(form.copy(customerName = it)) }, marks, requester, 200)
             Column(Modifier.fillMaxWidth()) {
-                Text(CustomerCapture.label("customerAddress"), style = MaterialTheme.typography.labelMedium)
+                Text(CustomerCapture.formLabel("customerAddress"), style = MaterialTheme.typography.labelMedium)
                 Text(CustomerCapture.address(form, geography).ifEmpty { "Built from the location below" },
                     style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("customer-customerAddress"))
             }
@@ -707,7 +707,7 @@ private fun CustomerSections(setup: CustomerCapture.Setup?, geography: CustomerC
             else CmText("postalCode", form.postalCode, { onChange(form.copy(postalCode = it.filter(Char::isDigit))) }, marks, requester, 4,
                 androidx.compose.ui.text.input.KeyboardType.Number)
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                Text(CustomerCapture.label("coordinates"), style = MaterialTheme.typography.labelMedium)
+                Text(CustomerCapture.formLabel("coordinates"), style = MaterialTheme.typography.labelMedium)
                 if (fix == null) PrimaryBottomButton("Use my location", useMyLocation, Modifier.fillMaxWidth().testTag("census-gps"), !busy)
                 else TonalButton("Use my location again", useMyLocation, Modifier.fillMaxWidth().testTag("census-gps"), !busy, glyph = GlyphKind.PIN)
                 fix?.let { StatusChip("%.6f, %.6f · ±%d m".format(java.util.Locale.US, it.getDouble("latitude"), it.getDouble("longitude"),

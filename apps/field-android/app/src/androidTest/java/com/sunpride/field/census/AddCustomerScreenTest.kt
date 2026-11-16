@@ -106,6 +106,12 @@ class AddCustomerScreenTest {
         rule.onNodeWithTag("customer-typeOfBusiness").performScrollTo(); shot("03-assignment")
         type("contactPerson", "Nena Cruz"); shot("04-delivery-contact")
         rule.onNodeWithTag("customer-customerAddress").performScrollTo().assertTextContains("12 Gorordo Ave, Apas, City of Cebu, Cebu 6000")
+        // SP-0183: every other required field is filled; Registered Name alone must block saving.
+        rule.onNodeWithTag("census-save").performClick()
+        waitTag("customer-missing-registeredName")
+        rule.onNodeWithTag("customer-missing-registeredName").assertTextContains("Registered Name is required.")
+        assertTrue(backend.queued.isEmpty())
+        type("registeredName", "Aling Nena Store Inc.")
         rule.onNodeWithTag("census-save").performClick()
         rule.waitUntil(10_000) { backend.queued.isNotEmpty() }
         val p = backend.queued.single(); val c = p.getJSONObject("customer")
@@ -121,7 +127,7 @@ class AddCustomerScreenTest {
         waitTag("customer-customerName")
         type("customerName", "Bebot Grocery")
         rule.onNodeWithTag("census-save").performClick(); rule.waitForIdle()
-        for (k in listOf("mobileNo", "regionCode", "coordinates", "distributionChannelCode", "contactPerson")) waitTag("customer-missing-$k", 3_000)
+        for (k in listOf("registeredName", "mobileNo", "regionCode", "coordinates", "distributionChannelCode", "contactPerson")) waitTag("customer-missing-$k", 3_000)
         rule.onNodeWithTag("customer-missing-mobileNo").assertTextContains("Mobile No. is required.")
         shot("06-missing-fields")
         choose("customer-distributionChannelCode", "Services (50)")
