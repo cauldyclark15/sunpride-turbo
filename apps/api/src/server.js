@@ -45,7 +45,12 @@ async function shutdown() {
     process.exit(1);
   }, SHUTDOWN_MS + 2_000);
   timer.unref?.();
-  const stopped = await bounded(app.stop(), SHUTDOWN_MS / 2);
+  // Rolling releases: k8s sends SIGTERM after the preStop sleep has taken this pod out of the
+  // ingress, so finish requests already running (e.g. a save) instead of cutting them off.
+  const stopped = await bounded(
+    app.stop({ drainMs: Math.max(0, SHUTDOWN_MS / 2 - 500) }),
+    SHUTDOWN_MS / 2,
+  );
   const closed = await bounded(db.close({ timeout: 2 }), SHUTDOWN_MS / 2);
   process.exit(stopped && closed ? 0 : 1);
 }

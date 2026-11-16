@@ -9,7 +9,7 @@ ClusterIssuer `cnc-cert`, secret `default/regcred` (copied into `sunpride`).
 | Workload | Kind | Image | Requests / limits | Storage |
 |---|---|---|---|---|
 | `sunpride-pg` | StatefulSet (1) | `pgvector/pgvector:0.8.7-pg17` | 250m/1Gi · 1/2Gi | PVC `data-sunpride-pg-0` 20Gi |
-| `sunpride-api` (+ `sap-mock` sidecar, `migrate` init) | Deployment (1, Recreate) | `cauldyclark15/sunpride-api`, `-sap-mock` | api 200m/384Mi · 1/1Gi; sap 20m/64Mi | `sunpride-api-files` 10Gi, `sunpride-sap-mock-data` 10Gi |
+| `sunpride-api` (+ `sap-mock` sidecar, `migrate` init) | Deployment (1, RollingUpdate surge 1) | `cauldyclark15/sunpride-api`, `-sap-mock` | api 200m/384Mi · 1/1Gi; sap 20m/64Mi | `sunpride-api-files` 10Gi, `sunpride-sap-mock-data` 10Gi |
 | `sunpride-web` | Deployment (1) | `cauldyclark15/sunpride-web` | 100m/256Mi · 1/768Mi | – |
 | `sunpride-docs` | Deployment (1) | `cauldyclark15/sunpride-docs` (nginx-unprivileged) | 10m/16Mi | – |
 | `sunpride-pg-backup` | CronJob 02:00 Asia/Manila | pgvector image (`pg_dump -Fc`, keep 7) | 50m/64Mi | `sunpride-pg-backups` 20Gi |
@@ -18,7 +18,10 @@ Notes
 - sap-mock is a **sidecar in the api pod** on 127.0.0.1:4435: `apps/api/src/domains/integration/transport.js`
   refuses `SAP_MODE=mock` unless `SAP_ORIGIN` is localhost.
 - Linode block storage has a 10Gi minimum, so the api-files and sap-mock volumes are 10Gi.
-- RWO volumes ⇒ api is `Recreate`; a pod restart is ~50 s of api downtime (volume detach/attach).
+- Releases are zero-downtime (RollingUpdate maxSurge 1 / maxUnavailable 0, preStop sleep, SIGTERM drain).
+  The RWO volumes attach per node, so a required podAffinity keeps the new api pod on the old pod's node;
+  if that node has no room the rollout waits (old pod keeps serving) and `rollout status` times out.
+  Migrations run in the new pod's init container while the old version still serves: keep them backward compatible.
 - Ingress: `^/(api|ws|sync|healthz)(/.*)?$` → api:4320, everything else → web:4330 (same as the tunnel),
   3600 s proxy read/send timeouts for `/ws`, TLS from `cnc-cert` (HTTP-01).
 

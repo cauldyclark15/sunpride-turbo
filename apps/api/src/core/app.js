@@ -171,11 +171,26 @@ export function createApp(opts) {
       if (o.schedule !== false) scheduler.start();
       return server;
     },
-    async stop() {
-      await scheduler.stop();
-      await realtime.stop();
-      server?.stop(true);
+    /**
+     * Graceful stop for rolling releases: stop background work, stop accepting connections,
+     * let in-flight requests finish (up to `drainMs`), then close what is left (websockets
+     * reconnect to the new pod). drainMs 0 = close at once (tests).
+     * @param {{ drainMs?: number }} [o]
+     */
+    async stop(o = {}) {
+      // A long scheduled task must not use up the drain time: stop both at once.
+      const scheduled = scheduler.stop();
+      const s = server;
       server = null;
+      if (s) {
+        void Promise.resolve(s.stop(false)).catch(() => {});
+        const deadline = Date.now() + (o.drainMs ?? 0);
+        while (s.pendingRequests > 0 && Date.now() < deadline)
+          await Bun.sleep(25);
+        s.stop(true);
+      }
+      await scheduled;
+      await realtime.stop();
     },
     get server() {
       return server;

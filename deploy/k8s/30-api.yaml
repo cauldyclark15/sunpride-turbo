@@ -18,13 +18,31 @@ kind: Deployment
 metadata: {name: sunpride-api, namespace: sunpride}
 spec:
   replicas: 1
-  strategy: {type: Recreate}
+  # Zero-downtime releases (16 Nov 2026: a client's save failed during a Recreate release).
+  # The new pod starts beside the old one and takes traffic before the old one stops.
+  # The two volumes are ReadWriteOnce = one NODE (not one pod): the podAffinity below keeps the
+  # new pod on the old pod's node so both can mount them while they overlap.
+  # Two api pods overlapping is safe: scheduler tasks hold pg advisory locks, jobs / SAP outbox /
+  # customer uploads claim rows with leases or SKIP LOCKED, realtime fans out via LISTEN/NOTIFY,
+  # and migrate.js serialises on an advisory lock. Migrations must stay backward compatible:
+  # the old version keeps serving while the new pod's `migrate` init container runs.
+  strategy: {type: RollingUpdate, rollingUpdate: {maxSurge: 1, maxUnavailable: 0}}
+  minReadySeconds: 5
   selector: {matchLabels: {app: sunpride-api}}
   template:
     metadata: {labels: {app: sunpride-api}}
     spec:
       imagePullSecrets: [{name: regcred}]
       securityContext: {fsGroup: 1000}
+      # preStop 10 s + api drain (SHUTDOWN_TIMEOUT_MS) + margin
+      terminationGracePeriodSeconds: 45
+      affinity:
+        podAffinity:
+          # Same node as the running api pod (RWO volumes). The first pod, or one rescheduled
+          # after a node loss, has no peer and schedules anywhere.
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector: {matchLabels: {app: sunpride-api}}
+              topologyKey: kubernetes.io/hostname
       initContainers:
         - name: migrate
           image: cauldyclark15/sunpride-api:placeholder
@@ -41,9 +59,12 @@ spec:
             - secretRef: {name: sunpride-app}
             - configMapRef: {name: sunpride-api-env}
           ports: [{containerPort: 4320}]
+          lifecycle:
+            # Keep serving while the ingress stops sending here; SIGTERM then drains in-flight requests.
+            preStop: {sleep: {seconds: 10}}
           readinessProbe:
             httpGet: {path: /healthz, port: 4320}
-            periodSeconds: 10
+            periodSeconds: 5
           livenessProbe:
             httpGet: {path: /healthz, port: 4320}
             initialDelaySeconds: 30
@@ -59,6 +80,9 @@ spec:
             - {name: sapdata, mountPath: /data/sapvol}
         - name: sap-mock
           image: cauldyclark15/sunpride-sap-mock:placeholder
+          lifecycle:
+            # Outlive the api container's preStop + drain: requests still finishing may call SAP.
+            preStop: {sleep: {seconds: 22}}
           env:
             - {name: HOST, value: 127.0.0.1}
             - {name: PORT, value: "4435"}
@@ -87,6 +111,8 @@ data:
   FILES_DIR: /data/files
   PUBLIC_ORIGIN: https://sunpride.cauldnclark.com
   DB_POOL_MAX: "20"
+  # SIGTERM: up to ~half of this drains in-flight requests (src/server.js)
+  SHUTDOWN_TIMEOUT_MS: "20000"
   # MT OCR on Linux (ocr.js otherwise needs macOS swift)
   SUNPRIDE_OCR_COMMAND: '["bun","/app/apps/api/scripts/ocr-tesseract.js"]'
   # APK release inspection (apk-artifacts.js) with Debian aapt/apksigner instead of the Mac SDK
