@@ -234,6 +234,16 @@ describe("FIELDSYNC projections through real core proof/cursor harness", () => {
     });
   });
 
+  test("SP-0179 an office admin's registered field phone completes its first Sync now", async () => {
+    // The client's project test team are admins and test the Field app before the salesmen.
+    who = await boundDevice(h, profiles, { orgUnitId: f.unit, role: "admin" });
+    await h.db`insert into profiles(id,user_id,auth_subject,name,email,role,status,org_unit_id) values (${who.profile.id},${who.userId},${who.userId},'Office tester',${who.email},'admin','active',${f.unit})`;
+    const { res, body } = await pull();
+    expect(res.status).toBe(200);
+    expect(body.bundles[0].complete).toBe(true);
+    expect(body.bundles[0].data.permissions).toContain("visit.record");
+    expect(body.bundles[0].data.permissions).toContain("outlet.enrol.propose");
+  });
   test("F-203 signed sync snapshot carries objectives, prior outcome and absent versus unmeasured MSL", async () => {
     const db = h.db,
       previous = manilaDate(midnight(date) - DAY_MS);

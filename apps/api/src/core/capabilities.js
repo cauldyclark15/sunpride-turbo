@@ -48,7 +48,9 @@ export const CAPABILITIES = Object.freeze({
   "route.manage": ["super_admin", "admin", "operations"],
   "outlet.manage": ["super_admin", "admin", "operations"],
   "outlet.verify": ["super_admin", "admin", "manager"],
-  "outlet.enrol.propose": ["super_admin", "manager", "sales"],
+  // SP-0179: office admins (the client's project test team) use the Field app too:
+  // first Sync, store visits and adding stores from the phone.
+  "outlet.enrol.propose": ["super_admin", "admin", "manager", "sales"],
   "outlet.enrol.approve": ["super_admin", "manager"],
   "outlet.assign": ["super_admin", "admin", "operations"],
   "masterdata.manage": ["super_admin", "admin", "operations"],
@@ -72,7 +74,7 @@ export const CAPABILITIES = Object.freeze({
   "mcp.read": ALL,
   "mcp.plan": ["super_admin", "admin", "manager", "sales"],
   "mcp.approve": ["super_admin", "manager"],
-  "visit.record": ["super_admin", "manager", "sales"],
+  "visit.record": ["super_admin", "admin", "manager", "sales"],
   // F-209/F-222: attendance is not permission to start location tracking.
   "workforce.read": ALL,
   "workforce.record": ["super_admin", "manager", "sales"],
