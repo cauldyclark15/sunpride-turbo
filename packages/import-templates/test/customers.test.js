@@ -388,3 +388,175 @@ describe("SP-0170 values", () => {
     expect(writerInput(item, row, index, null).tradeName).toBeNull();
   });
 });
+
+describe("Customer Enrollment Form layout (client's own Template tab)", () => {
+  // Row 1 = section titles, row 2 = labels with blank separator columns, no Customer Code,
+  // Longitude and Latitude as two columns — exactly as in Sunpride's Customer_Enrollment.xlsx.
+  const SECTIONS = [
+    " A. Customer General Information",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    " B. Customer Location",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    " C. Customer Assignment",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    " D. Payment Arrangement ",
+    "",
+    "",
+    "",
+    " E. Delivery Arrangement",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "  F.  ADP Specific",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+    "",
+  ];
+  const LABELS = [
+    "",
+    "Registered Name",
+    "Trade Name",
+    "Customer Name",
+    "Customer Address",
+    "Email Address",
+    "Mobile No.",
+    "Tel. No.",
+    "TIN number",
+    "Tax Classification",
+    "",
+    "Country",
+    "Region",
+    "Province",
+    "Municipality",
+    "Barangay",
+    "House No.",
+    "Street 1",
+    "Street 2",
+    "Floor",
+    "Room No. / Stall No.",
+    "Postal Code",
+    "Longitude",
+    "Latitude",
+    "",
+    "Sales Organization",
+    "Sales Office",
+    "Distribution Channel",
+    "Customer Grp 1",
+    "Customer Grp 2",
+    "Customer Group",
+    "Type of Business",
+    "Sales Partner",
+    "",
+    "Terms of payment",
+    "Credit Limit",
+    "Customer Pricing Procedure",
+    "",
+    "Delivering Plant",
+    "Ship-to Party",
+    "Ship-to Address",
+    "Contact Person ",
+    "Mobile No.",
+    "Email Address",
+    "",
+    "Distributor Code",
+    "Distributor Name",
+    "Distributor Customer Code",
+    "Distribution Mode",
+    "Sub-Distributor Code",
+    "Sub-Distributor Name",
+    "Distributor Salesman",
+    "Distributor Salesman Code",
+    "Truck Serving",
+    "Truck Code",
+    "Distributor Hub",
+    "Cluster #",
+    "Cluster Name",
+  ];
+  /** Values by label occurrence from the template example. */
+  function exampleRow() {
+    /** @type {Map<string, number>} */ const seen = new Map();
+    return LABELS.map((label) => {
+      const k = label.trim();
+      if (!k) return "";
+      if (k === "Latitude") return "10.3312";
+      if (k === "Longitude") return "123.9056";
+      const n = seen.get(k) ?? 0;
+      seen.set(k, n + 1);
+      const col = CUSTOMER_COLUMNS.filter((c) => c.label === k)[n];
+      return col ? (EXAMPLE[col.id] ?? "") : "";
+    });
+  }
+  test("xlsx 'Template' sheet with section titles reads with no header errors", async () => {
+    const wb = new ExcelJS.Workbook();
+    wb.addWorksheet("source").addRow(["FIELD NAME", "REQUIRED", "Remarks"]);
+    const ws = wb.addWorksheet("Template");
+    ws.addRow(SECTIONS);
+    ws.addRow(LABELS);
+    ws.addRow(exampleRow());
+    const bytes = new Uint8Array(await wb.xlsx.writeBuffer());
+    const parsed = await parseCustomerFile("Customer_Enrollment.xlsx", bytes);
+    expect(parsed.fileErrors).toEqual([]);
+    expect(parsed.rows).toHaveLength(1);
+    const row = /** @type {any} */ (parsed.rows[0]);
+    expect(row.rowNumber).toBe(3);
+    expect(row.values.coordinates).toBe("10.3312, 123.9056");
+    expect(row.values.clusterName).toBe(EXAMPLE.clusterName ?? "");
+    expect(row.values["shipTo.contactPerson"]).toBe(
+      EXAMPLE["shipTo.contactPerson"] ?? "",
+    );
+    const { errors, items } = validateCustomerRows(parsed.rows, REFERENCE);
+    expect(errors).toEqual([]);
+    const item = /** @type {any} */ (items.get(3));
+    expect(item.code).toBe("");
+    expect(item.customer.latitude).toBe(10.3312);
+    expect(item.customer.longitude).toBe(123.9056);
+  });
+  test("Customer Code is optional: blank = new customer numbered automatically", () => {
+    const { missing } = mapHeader(LABELS);
+    expect(missing).toEqual([]);
+    const half = mapHeader(LABELS.filter((l) => l !== "Latitude"));
+    expect(half.missing).toContain(
+      "Geographical Coordinates (or Latitude and Longitude)",
+    );
+  });
+});

@@ -129,6 +129,21 @@ export async function referenceRows(db) {
   return rows;
 }
 
+/** The saving person's Sales Partner code, when they are on the Sales Partner list.
+ * @param {any} c @param {any[]} lists @returns {Promise<string|null>} */
+export async function defaultSalesPartner(c, lists) {
+  const profileId = c.actor?.profileId;
+  if (!profileId) return null;
+  const [p] =
+    await c.db`select coalesce(employee_code, id::text) as code from profiles where id=${profileId} and deleted_at is null`;
+  if (!p) return null;
+  return lists.some(
+    (/** @type {any} */ r) => r.list === "sales_partner" && r.code === p.code,
+  )
+    ? p.code
+    : null;
+}
+
 /** Resolve the chosen PSGC codes with their parents for validation and display.
  * @param {any} db @param {Record<string, any>} v */
 export async function resolveGeography(db, v) {
@@ -244,8 +259,7 @@ export async function readCustomer(db, id) {
   out.legacyChannel = o.channel ?? null;
   // WEB-059: who proposed a pending field enrolment, so the web can disable Approve/Reject on one's own proposal
   // (the server refuses it anyway: org/outlets.js "The proposer cannot decide their own store").
-  const [pending] =
-    await db`select e.proposed_by_profile_id as profile_id
+  const [pending] = await db`select e.proposed_by_profile_id as profile_id
       from outlet_enrolments e where e.outlet_id=${o.id} and e.status='pending' and e.deleted_at is null order by e.created_at desc limit 1`;
   out.proposedByProfileId = pending?.profile_id ?? null;
   out.createdAt = new Date(o.outlet_created_at).getTime();
@@ -404,6 +418,11 @@ export async function saveCustomer(c, b, opts = {}) {
     ];
   const geo = await derive(c.db, merged, input, existing);
   const lists = await referenceRows(c.db);
+  // Sales Partner (client sheet: "pre-determined based on who saved the customer profile"):
+  // a new customer record defaults it to the person saving it (the salesman on the phone's
+  // Add customer) when that person is on the Sales Partner list. The office can change it.
+  if (!hadProfile && !merged.salesPartnerCode)
+    merged.salesPartnerCode = await defaultSalesPartner(c, lists);
   const draft = validateCustomer(merged, {
     level: "draft",
     lists,
@@ -770,9 +789,7 @@ export async function listCustomers(c) {
       left join lateral(select pr.id,pr.name from profiles pr where o.created_by in (pr.user_id::text,pr.auth_subject) order by pr.id limit 1) cr on true
       where o.id in ${c.db(pageIds)}`
     : [];
-  const addedById = new Map(
-    addedRows.map((/** @type {any} */ r) => [r.id, r]),
-  );
+  const addedById = new Map(addedRows.map((/** @type {any} */ r) => [r.id, r]));
   // The agents (and office people) who added stores in this scope, for the "Added by" filter.
   const adders =
     offset === null

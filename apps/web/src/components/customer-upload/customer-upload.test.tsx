@@ -184,16 +184,19 @@ describe("customer upload — reading and synchronous validation", () => {
     expect(syncValidate(parsed, REFERENCE).rowErrors).toEqual([]);
   });
   it("lists missing and unknown columns", async () => {
-    const header = [...CUSTOMER_HEADERS.slice(1), "Area"].join(",");
+    // Customer Code may be left out (new customers are numbered automatically); Region may not.
+    const header = [
+      ...CUSTOMER_HEADERS.slice(1).filter((h) => h !== "Region"),
+      "Area",
+    ].join(",");
     const parsed = await parseCustomerFile("c.csv", bytes(`${header}\r\n`));
     const result = syncValidate(parsed, REFERENCE);
     expect(result.fileErrors[0]).toMatchObject({
       rowNumber: 1,
       code: "header_mismatch",
     });
-    expect(result.fileErrors[0]?.message).toContain(
-      "missing columns: Customer Code",
-    );
+    expect(result.fileErrors[0]?.message).toContain("missing columns: Region");
+    expect(result.fileErrors[0]?.message).not.toContain("Customer Code");
     expect(result.fileErrors[0]?.message).toContain("unknown columns: Area");
   });
   it("ties each problem to row, client label and value; finds duplicates and dependent-list errors", async () => {

@@ -616,6 +616,9 @@ describe("approval errors land next to the field", () => {
     expect(html).toContain(">Waiting for approval<");
     expect(html).not.toContain(">Active<");
     expect(html).toContain("Provisional code");
+    // The office is told what the salesman leaves for it to fill before approving.
+    expect(html).toContain('data-testid="office-completes-note"');
+    expect(html).toContain("Delivery Arrangement (Delivering");
     expect(statusLabel(field)).toBe("Waiting for approval");
     expect(statusLabel({ status: "active", enrolmentStatus: "approved" })).toBe(
       "Active",

@@ -159,7 +159,7 @@ export function cellText(v) {
 
 /**
  * Read the "Customers" sheet (else the first sheet whose first row has "Customer Code", else the
- * first sheet) into a grid with spreadsheet row numbers.
+ * client's form sheet with "Registered Name" in its first rows, else the first sheet) into a grid with spreadsheet row numbers.
  * @param {Uint8Array|ArrayBuffer} bytes
  * @returns {Promise<{rowNumber:number,cells:string[]}[]>}
  */
@@ -172,9 +172,18 @@ export async function readCustomerXlsx(bytes) {
       (v) => cellText(v).trim().toLowerCase() === "customer code",
     );
   };
+  // The client's own Customer Enrollment Form: a "Template" sheet whose header (under a row
+  // of section titles) starts with Registered Name.
+  const hasForm = (/** @type {any} */ s) =>
+    [1, 2, 3].some((n) =>
+      /** @type {any[]} */ (s.getRow(n).values ?? []).some(
+        (v) => cellText(v).trim().toLowerCase() === "registered name",
+      ),
+    );
   const ws =
     wb.getWorksheet(CUSTOMERS_SHEET) ??
     wb.worksheets.find(hasCode) ??
+    wb.worksheets.find(hasForm) ??
     wb.worksheets[0];
   if (!ws) return [];
   /** @type {{rowNumber:number,cells:string[]}[]} */ const grid = [];

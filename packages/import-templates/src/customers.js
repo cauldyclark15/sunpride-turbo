@@ -106,12 +106,12 @@ export const CUSTOMER_COLUMNS = Object.freeze([
     key: "code",
     label: "Customer Code",
     section: "System",
-    required: true,
+    required: false,
     when: null,
     kind: "code",
     shipTo: false,
     remark:
-      "Our key (SAP customer number when known). An existing code updates that customer; a new code adds one.",
+      "Our key (SAP customer number when known). An existing code updates that customer; a new code adds one; blank adds a new customer numbered automatically.",
     hint: "Letters, numbers, - or _ (up to 40). Unique per customer.",
   },
   ...FIELDS.map((f, i) => {
@@ -225,6 +225,11 @@ export function mapHeader(header) {
   const ids = (header ?? []).map((h) => {
     const k = headerKey(h);
     if (!k) return null;
+    // The client's Customer Enrollment Form has Longitude and Latitude as two columns.
+    if (k === "latitude" || k === "longitude") {
+      used.add(k);
+      return k;
+    }
     const n = seen.get(k) ?? 0;
     seen.set(k, n + 1);
     const col = CUSTOMER_COLUMNS.filter((c) => headerKey(c.label) === k)[n];
@@ -235,10 +240,17 @@ export function mapHeader(header) {
     used.add(col.id);
     return col.id;
   });
-  const missing = CUSTOMER_COLUMNS.filter((c) => !used.has(c.id)).map((c) =>
+  if (used.has("latitude") && used.has("longitude")) used.add("coordinates");
+  const missing = CUSTOMER_COLUMNS.filter(
+    // Customer Code may be left out (the client's form has none): new customers are numbered
+    // automatically, the same as on the web form.
+    (c) => !used.has(c.id) && c.id !== "code",
+  ).map((c) =>
     c.shipTo && CUSTOMER_COLUMNS.some((o) => !o.shipTo && o.label === c.label)
       ? `${c.label} (Delivery Arrangement)`
-      : c.label,
+      : c.id === "coordinates"
+        ? `${c.label} (or Latitude and Longitude)`
+        : c.label,
   );
   return { ids, missing, unknown };
 }
@@ -306,7 +318,19 @@ export function splitCsv(text) {
  * @returns {{header:string[], rows:UploadRow[], fileErrors:UploadError[]}}
  */
 export function rowsFromGrid(grid) {
-  const first = grid.find((r) => r.cells.some((c) => String(c ?? "").trim()));
+  const filled = grid.filter((r) =>
+    r.cells.some((c) => String(c ?? "").trim()),
+  );
+  // The header is the first filled row, unless the file starts with section titles
+  // (" A. Customer General Information", ... as on the client's Customer Enrollment Form):
+  // then the first of the next few rows that names more template columns.
+  /** @param {{cells:string[]}} r */
+  const known = (r) =>
+    mapHeader(r.cells.map((c) => String(c ?? "").trim())).ids.filter(Boolean)
+      .length;
+  let first = filled[0];
+  for (const r of filled.slice(1, 5))
+    if (first && known(r) > known(first) && known(first) < 3) first = r;
   if (!first)
     return {
       header: [],
@@ -329,6 +353,14 @@ export function rowsFromGrid(grid) {
     ids.forEach((id, i) => {
       if (id) values[id] = String(line.cells[i] ?? "").trim();
     });
+    if ("latitude" in values || "longitude" in values) {
+      const lat = values.latitude ?? "",
+        lng = values.longitude ?? "";
+      delete values.latitude;
+      delete values.longitude;
+      if (!values.coordinates)
+        values.coordinates = lat || lng ? `${lat}, ${lng}` : "";
+    }
     rows.push({ rowNumber: line.rowNumber, values });
   }
   if (!bad && !rows.length)
@@ -684,8 +716,9 @@ export function validateCustomerRows(rows, lists, geo = null) {
         message,
         value: cellOf(row, column),
       });
-    if (!item.code) fail("code", "required", "Customer Code is required.");
-    else if (!CODE_RE.test(item.code))
+    if (!item.code) {
+      // Blank Customer Code: a new customer, numbered automatically.
+    } else if (!CODE_RE.test(item.code))
       fail(
         "code",
         "invalid_code",
@@ -1047,7 +1080,7 @@ export function instructionLines() {
     "",
     'Fill in the "Customers" sheet: one row per customer (= one store). Do not rename or remove the column headings.',
     "The columns follow Sunpride's Customer Information template: Customer General Information, Customer Location, Customer Assignment, Payment Arrangement, Delivery Arrangement (the first ship-to), ADP Specific.",
-    "Customer Code: an existing code updates that customer; a new code adds a customer. Blank optional cells on an existing customer keep its current values.",
+    "Customer Code: an existing code updates that customer; a new code adds a customer; leave it blank (or leave the column out) to add a new customer numbered automatically. Blank optional cells on an existing customer keep its current values. Sunpride's own Customer Enrollment Form (Template tab, with Longitude and Latitude columns) can be uploaded as it is.",
     "Yellow headings are required. Hover over a heading to read the rule and Sunpride's remark.",
     "Customer Grp 1 is required when the Distribution Channel has Grp 1 values (not 50 Services); Customer Grp 2 when the chosen Grp 1 has Grp 2 values.",
     `ADP Specific (the last 13 columns) is required only for Distribution Channel ${ADP_CHANNEL} (Distributive Trade).`,

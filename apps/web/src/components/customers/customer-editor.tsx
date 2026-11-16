@@ -681,6 +681,18 @@ export function CustomerEditorView({
           ) : null}
         </div>
       ) : null}
+      {customer && awaitsApproval(customer) && canEdit ? (
+        <p
+          data-testid="office-completes-note"
+          className="rounded-lg border border-border bg-default-soft px-3 py-2 text-[13px] text-foreground"
+        >
+          The salesman fills in only what he knows on the phone. Complete the
+          rest here before approving: Tax Classification and TIN, Sales Office,
+          Sales Partner, Payment Arrangement, Delivery Arrangement (Delivering
+          Plant and ship-to) and, for Distribution Channel 40, the ADP Specific
+          details. Then Save and Approve.
+        </p>
+      ) : null}
       {message ? (
         <p
           role="status"

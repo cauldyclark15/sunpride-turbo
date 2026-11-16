@@ -303,13 +303,36 @@ describe("SP-0170 customer upload — validation", () => {
   });
 
   test("a header with missing/unknown columns is refused with both lists", async () => {
-    const header = [...CUSTOMER_HEADERS.slice(1), "Area"];
+    const header = [
+      ...CUSTOMER_HEADERS.slice(1).filter((x) => x !== "Region"),
+      "Area",
+    ];
     const r = await call("boss", "/preview", { ...file([row(2)]), header });
     expect(r.status).toBe(400);
     expect(r.body.error.code).toBe("header_mismatch");
-    expect(r.body.error.message).toContain("missing columns: Customer Code");
+    expect(r.body.error.message).toContain("missing columns: Region");
+    expect(r.body.error.message).not.toContain("Customer Code");
     expect(r.body.error.message).toContain("unknown columns: Area");
   });
+
+  test("Customer Enrollment Form layout: no Customer Code column → new customers numbered automatically", async () => {
+    const header = CUSTOMER_HEADERS.slice(1);
+    const blank = row(2, { code: "", customerName: "No Code Store" });
+    const r = await call("boss", "/preview", { ...file([blank]), header });
+    expect(r.status).toBe(200);
+    expect(r.body.errors).toEqual([]);
+    expect(r.body.newCount).toBe(1);
+    const run = await call("boss", "/runs", {
+      ...file([blank], "Customer_Enrollment.xlsx"),
+      header,
+    });
+    expect(run.status).toBe(200);
+    const done = await finish(run.body.id);
+    expect(done.succeeded_count).toBe(1);
+    const [o] =
+      await h.db`select code from outlets where name='No Code Store' and deleted_at is null`;
+    expect(o.code).toMatch(/^[A-Z0-9][A-Z0-9_-]+$/);
+  }, 30000);
 
   test("a full 5,000-row file (over the default 1 MB JSON cap) previews; 5,001 is refused", async () => {
     const big = file(many("BIG", 5000));
@@ -410,7 +433,7 @@ describe("SP-0170 customer upload — import", () => {
       clusterName: "Cluster One",
     });
     const [audit] =
-      await h.db`select count(*)::int n from audit_logs where action='SP-0170.customer.upload_new'`;
+      await h.db`select count(*)::int n from audit_logs where action='SP-0170.customer.upload_new' and entity_id::text in (select id::text from outlets where code like 'PAR-%')`;
     expect(audit.n).toBe(250);
   }, 120000);
 

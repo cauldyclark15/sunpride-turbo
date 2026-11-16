@@ -672,7 +672,9 @@ export function CustomerUpload({ compact = false }: { compact?: boolean }) {
               same order (General Information, Location, Assignment, Payment,
               Delivery with the first ship-to, ADP Specific). An existing
               Customer Code updates that customer (blank optional cells keep
-              their values); a new code adds one. Up to{" "}
+              their values); a new or blank code adds one. Your own Customer
+              Enrollment Form (its Template tab, with Longitude and Latitude
+              columns) can be uploaded as it is. Up to{" "}
               {CUSTOMER_MAX_ROWS.toLocaleString("en-PH")} rows per file.
             </p>
             <div className="flex flex-wrap gap-2">
