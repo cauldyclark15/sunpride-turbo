@@ -33,7 +33,11 @@ import {
   seedSpecMasters,
   sampleCatalogueIngredients,
 } from "../../../packages/db/seed/spec-masters.js";
-import { rowId, todayManila, plusDays } from "../../../packages/db/seed/store.js";
+import {
+  rowId,
+  todayManila,
+  plusDays,
+} from "../../../packages/db/seed/store.js";
 
 /** @type {import('./harness.js').Harness} */ let h;
 let cookie = "";
@@ -72,8 +76,11 @@ beforeAll(async () => {
   // F-020 F-013/F-022: generate the future fixture through its writer, never
   // mutate the now-immutable audit log to simulate a future manifest.
   await seedDemo(h.db, { days: 3, anchorDate: plusDays(todayManila(), 1) });
-  const [futureManifest] = await h.db`select created_at from audit_logs where id=${rowId("audit_logs", "manifest")}`;
-  expect(new Date(futureManifest.created_at).getTime()).toBeGreaterThan(Date.now());
+  const [futureManifest] =
+    await h.db`select created_at from audit_logs where id=${rowId("audit_logs", "manifest")}`;
+  expect(new Date(futureManifest.created_at).getTime()).toBeGreaterThan(
+    Date.now(),
+  );
   await tx(h.db, seedSpecMasters);
   const password = (
     await Bun.file(`${process.env.HOME}/.sunpride-keys/v2-test-password`).text()
@@ -455,7 +462,7 @@ test("F-305 chain → banner → branch preserves outlet and effective SAP accou
 });
 test("F-012 candidates combine contact/name/proximity and audited merge preserves every original reference", async () => {
   const [source] =
-    await h.db`select * from outlets where status='active' order by code limit 1`;
+    await h.db`select o.* from outlets o where o.status='active' and exists(select 1 from outlet_pins p where p.outlet_id=o.id and p.status='verified') order by o.code limit 1`;
   const [pin] =
     await h.db`select * from outlet_pins where outlet_id=${source.id} and status='verified' limit 1`;
   const [other] =
