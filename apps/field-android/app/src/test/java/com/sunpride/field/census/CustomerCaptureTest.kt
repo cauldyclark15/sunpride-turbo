@@ -276,6 +276,26 @@ class CustomerCaptureTest {
         }
     }
 
+    @Test fun mixedCaseRestoredCapturePassesTheRealOutboxWithNormalizedNames() {
+        val typed = complete().copy(registeredName = "ALING NENA STORE INC.", customerName = "aling nena store",
+            tradeName = "nEna'S", street1 = "GORORDO AVE", contactPerson = "NENA CRUZ", email = "Nena.Team@Example.COM")
+        val restored = CustomerCapture.parseDraft(CustomerCapture.draftJson(CustomerCapture.Draft(typed, fix, null)))!!.form
+        val p = CustomerCapture.payload(UUID.randomUUID().toString(), restored, geography, 5000L, fix, jpeg)
+        CensusRules.validate(p)
+        val intent = CensusRules.intent(StoreScope("account", "device", "scope"), p, 5000L)
+        val saved = JSONObject(intent.serializedOperation).getJSONObject("payload")
+        val c = saved.getJSONObject("customer")
+        assertEquals("Aling Nena Store", saved.getString("name"))
+        assertEquals("Nena Cruz", saved.getString("ownerName"))
+        assertEquals("Aling Nena Store Inc.", c.getString("registeredName"))
+        assertEquals("Nena's", c.getString("tradeName"))
+        assertEquals("12 Gorordo Ave, Apas, City of Cebu, Cebu 6000", c.getString("customerAddress"))
+        assertEquals("Nena.Team@Example.COM", c.getString("email"))
+        assertEquals("Nena.Team@Example.COM", c.getJSONArray("shipTos").getJSONObject(0).getString("email"))
+        assertEquals("RSS", c.getString("customerGroup2Code"))
+        assertEquals(plain(p), plain(saved))
+    }
+
     @Test fun outboxCheckRefusesBadCaptures() {
         fun refused(p: JSONObject) = runCatching { CensusRules.validate(p) }.isFailure
         val ok = CustomerCapture.payload(UUID.randomUUID().toString(), complete(), geography, 5000L, fix, jpeg)

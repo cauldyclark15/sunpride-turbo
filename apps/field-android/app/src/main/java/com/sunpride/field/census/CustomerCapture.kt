@@ -3,11 +3,30 @@ package com.sunpride.field.census
 import org.json.JSONArray
 import org.json.JSONObject
 import java.util.Base64
+import java.util.Locale
 
 /** SP-0170 "Add customer" (the field app's new-store flow): the agent's part of the client's
  * customer sheet (SPEC rule 10), its dependent pickers and the census.capture payload carrying the
  * contract's `customer` object. Pure logic; CensusScreen renders it. */
 object CustomerCapture {
+    // SP-0182: same free-text policy as the web. Emails, list keys and identifiers keep their case.
+    private val titleCaseFields = CustomerMaster.FIELDS.filter {
+        it.kind == CustomerMaster.Kind.TEXT && !it.key.endsWith("Code") && it.key != "clusterNo"
+    }.map { it.key }.toSet()
+    private val words = Regex("\\p{L}[\\p{L}\\p{M}]*(?:['’][\\p{L}\\p{M}]+)*")
+    private val nameParts = Regex("(^|['’])([\\p{L}\\p{M}]+)")
+    fun normalizeText(key: String, value: String): String {
+        if (key !in titleCaseFields) return value
+        return words.replace(value.lowercase(Locale.ROOT)) { word ->
+            nameParts.replace(word.value) { match ->
+                val separator = match.groupValues[1]; val part = match.groupValues[2]
+                // Preserve possessive 's; capitalize O'Neil and D’Angelo.
+                separator + if (separator.isNotEmpty() && part == "s") part
+                    else part.take(1).uppercase(Locale.ROOT) + part.drop(1)
+            }
+        }
+    }
+
     /** Offline setup from census-config `customerMaster` (reference lists, default Sales Organization,
      * the provinces of the agent's customers whose barangays the phone keeps). */
     data class Setup(val salesOrgCode: String, val provinceCodes: List<String>, val index: CustomerMaster.ReferenceIndex) {
@@ -162,10 +181,13 @@ object CustomerCapture {
     fun start(setup: Setup?, customerName: String = ""): Form = Form(customerName = customerName.take(200),
         salesOrgCode = setup?.salesOrgCode?.takeIf { code -> setup.options("sales_organization").any { it.code == code } }.orEmpty())
 
-    /** Customer Address, built from the location parts (same rule as the server). */
-    fun address(f: Form, g: Geography?): String = f.detail("customerAddress").trim().ifEmpty { CustomerMaster.formatAddress(f.roomStallNo, f.floor, f.houseNo, f.street1, f.street2,
-        g?.barangay(f.municipalityCode, f.barangayCode)?.name, g?.municipality(f.municipalityCode)?.name,
-        g?.province(f.provinceCode)?.name, f.postalCode).orEmpty() }
+    /** Customer Address: normalize typed parts, preserving official geography labels. */
+    fun address(f: Form, g: Geography?): String = normalizeText("customerAddress", f.detail("customerAddress").trim()).ifEmpty {
+        CustomerMaster.formatAddress(normalizeText("roomStallNo", f.roomStallNo), normalizeText("floor", f.floor),
+            normalizeText("houseNo", f.houseNo), normalizeText("street1", f.street1), normalizeText("street2", f.street2),
+            g?.barangay(f.municipalityCode, f.barangayCode)?.name, g?.municipality(f.municipalityCode)?.name,
+            g?.province(f.provinceCode)?.name, f.postalCode).orEmpty()
+    }
 
     data class Option(val code: String, val label: String)
     fun refOptions(rows: List<CustomerMaster.RefRow>) = rows.distinctBy { it.code }.map { Option(it.code, CustomerMaster.optionLabel(it)) }
@@ -226,9 +248,9 @@ object CustomerCapture {
     }
     fun shipTo(f: Form, g: Geography?): Map<String, Any?> = linkedMapOf(
         "sameAsCustomer" to f.sameAsCustomer,
-        "shipToParty" to if (f.sameAsCustomer) f.customerName.trim() else f.shipToParty.trim(),
-        "shipToAddress" to if (f.sameAsCustomer) address(f, g) else f.shipToAddress.trim(),
-        "contactPerson" to f.contactPerson.trim(),
+        "shipToParty" to normalizeText("shipToParty", if (f.sameAsCustomer) f.customerName.trim() else f.shipToParty.trim()),
+        "shipToAddress" to if (f.sameAsCustomer) address(f, g) else normalizeText("shipToAddress", f.shipToAddress.trim()),
+        "contactPerson" to normalizeText("contactPerson", f.contactPerson.trim()),
         "mobileNo" to if (f.sameAsCustomer) f.mobileNo.trim() else f.shipToMobileNo.trim(),
         "email" to if (f.sameAsCustomer) f.email.trim() else f.shipToEmail.trim(),
     )
@@ -250,7 +272,8 @@ object CustomerCapture {
     /** The contract's `customer` object: the agent's fields with the built Customer Address. */
     fun customer(f: Form, g: Geography?): JSONObject {
         val o = JSONObject()
-        f.values().forEach { (k, v) -> o.put(k, v) }
+        // Normalize at submission as well as blur: restored drafts and Save from a focused field are covered.
+        f.values().forEach { (k, v) -> o.put(k, normalizeText(k, v)) }
         address(f, g).takeIf { it.isNotEmpty() }?.let { o.put("customerAddress", it) }
         o.put("shipTos", JSONArray().put(JSONObject(shipTo(f, g))))
         return o
@@ -260,9 +283,10 @@ object CustomerCapture {
     fun payload(captureId: String, f: Form, g: Geography?, deviceTime: Long, gpsFix: JSONObject, photo: String,
         acknowledged: List<String> = emptyList()): JSONObject {
         val customer = customer(f, g)
-        val p = JSONObject().put("captureId", captureId).put("name", f.customerName.trim())
-            .put("address", customer.optString("customerAddress").ifEmpty { f.customerName.trim() })
-            .put("ownerName", f.contactPerson.trim()).put("ownerPhone", f.mobileNo.trim()).put("deviceTime", deviceTime)
+        val name = customer.optString("customerName").trim()
+        val p = JSONObject().put("captureId", captureId).put("name", name)
+            .put("address", customer.optString("customerAddress").ifEmpty { name })
+            .put("ownerName", normalizeText("contactPerson", f.contactPerson.trim())).put("ownerPhone", f.mobileNo.trim()).put("deviceTime", deviceTime)
             .put("locationSource", "gps").put("location", gpsFix).put("photoJpegBase64", photo).put("customer", customer)
         if (acknowledged.isNotEmpty()) p.put("acknowledgedDuplicateIds", JSONArray(acknowledged.distinct().take(10)))
         return p

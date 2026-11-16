@@ -23,6 +23,7 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.layout.ContentScale
 import com.sunpride.field.ui.ActionBar
 import com.sunpride.field.ui.bottomSafe
@@ -640,11 +641,19 @@ private fun KeyMark(key: String, marks: Map<String, String>, requester: (String)
 @Composable
 private fun CmText(key: String, value: String, onChange: (String) -> Unit, marks: Map<String, String>,
     requester: (String) -> BringIntoViewRequester, max: Int, keyboard: androidx.compose.ui.text.input.KeyboardType =
-        androidx.compose.ui.text.input.KeyboardType.Text, hint: String? = null, enabled: Boolean = true) {
+        androidx.compose.ui.text.input.KeyboardType.Text, hint: String? = null, enabled: Boolean = true,
+    normalizeOnBlur: Boolean = true) {
+    var wasFocused by remember(key) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         FieldTextField(value, { onChange(it.take(max)) }, label = { Text(CustomerCapture.formLabel(key)) }, singleLine = true,
             isError = key in marks, placeholder = hint?.let { h -> { Text(h) } }, enabled = enabled,
-            modifier = Modifier.fillMaxWidth().testTag("customer-$key"),
+            modifier = Modifier.fillMaxWidth().testTag("customer-$key").onFocusChanged { state ->
+                if (wasFocused && !state.isFocused && enabled && normalizeOnBlur) {
+                    val normalized = CustomerCapture.normalizeText(key, value)
+                    if (normalized != value) onChange(normalized)
+                }
+                wasFocused = state.isFocused
+            },
             keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(keyboardType = keyboard))
         KeyMark(key, marks, requester)
     }
@@ -671,8 +680,9 @@ private fun CustomerSections(setup: CustomerCapture.Setup?, geography: CustomerC
             CmText("registeredName", form.registeredName, { onChange(form.copy(registeredName = it)) }, marks, requester, 200)
             CmText("tradeName", form.tradeName, { onChange(form.copy(tradeName = it)) }, marks, requester, 200)
             CmText("customerName", form.customerName, { onChange(form.copy(customerName = it)) }, marks, requester, 200)
-            CmText("customerAddress", CustomerCapture.address(form, geography), { onChange(form.withDetail("customerAddress", it)) },
-                marks, requester, 500, hint = "Built from the location below; editable")
+            CmText("customerAddress", form.detail("customerAddress").takeIf { it.isNotBlank() } ?: CustomerCapture.address(form, geography),
+                { onChange(form.withDetail("customerAddress", it)) }, marks, requester, 500,
+                hint = "Built from the location below; editable", normalizeOnBlur = form.detail("customerAddress").isNotBlank())
             CmText("email", form.email, { onChange(form.copy(email = it)) }, marks, requester, 200,
                 androidx.compose.ui.text.input.KeyboardType.Email)
             CmText("mobileNo", form.mobileNo, { onChange(form.copy(mobileNo = it)) }, marks, requester, 20, phone, "09XXXXXXXXX")
@@ -760,8 +770,10 @@ private fun CustomerSections(setup: CustomerCapture.Setup?, geography: CustomerC
                 Text("Ship-to is the same as the customer", style = MaterialTheme.typography.bodyMedium)
             }
             val ship = CustomerCapture.shipTo(form, geography)
-            CmText("shipToParty", ship["shipToParty"] as String, { onChange(form.copy(shipToParty = it)) }, marks, requester, 200, enabled = !form.sameAsCustomer)
-            CmText("shipToAddress", ship["shipToAddress"] as String, { onChange(form.copy(shipToAddress = it)) }, marks, requester, 500, enabled = !form.sameAsCustomer)
+            CmText("shipToParty", if (form.sameAsCustomer) ship["shipToParty"] as String else form.shipToParty,
+                { onChange(form.copy(shipToParty = it)) }, marks, requester, 200, enabled = !form.sameAsCustomer)
+            CmText("shipToAddress", if (form.sameAsCustomer) ship["shipToAddress"] as String else form.shipToAddress,
+                { onChange(form.copy(shipToAddress = it)) }, marks, requester, 500, enabled = !form.sameAsCustomer)
             CmText("contactPerson", form.contactPerson, { onChange(form.copy(contactPerson = it)) }, marks, requester, 150)
             CmText("shipToMobileNo", ship["mobileNo"] as String, { onChange(form.copy(shipToMobileNo = it)) }, marks, requester, 20, phone, enabled = !form.sameAsCustomer)
             CmText("shipToEmail", ship["email"] as String, { onChange(form.copy(shipToEmail = it)) }, marks, requester, 200,
