@@ -147,6 +147,31 @@ export const ADP_KEYS = CUSTOMER_FIELDS.filter((f) => f.adp).map((f) => f.key);
 const str = (v: unknown) =>
   v === null || v === undefined ? "" : typeof v === "string" ? v : String(v);
 
+// SP-0182: normalize free text, never reference keys or manually entered identifiers.
+const TITLE_CASE_FIELDS = new Set(
+  FIELDS.filter(
+    (f) =>
+      f.kind === "text" && !f.key.endsWith("Code") && f.key !== "clusterNo",
+  ).map((f) => f.key),
+);
+
+export function normalizeCustomerText(key: string, value: string): string {
+  if (!TITLE_CASE_FIELDS.has(key)) return value;
+  return value
+    .toLowerCase()
+    .replace(/\p{L}[\p{L}\p{M}]*(?:['’][\p{L}\p{M}]+)*/gu, (word) =>
+      word
+        .split(/(['’])/u)
+        .map((part, i) =>
+          // Keep possessive 's, but capitalize names such as O'Neil and D’Angelo.
+          i % 2 || (i > 0 && part === "s")
+            ? part
+            : part.charAt(0).toUpperCase() + part.slice(1),
+        )
+        .join(""),
+    );
+}
+
 export function emptyShipTo(sameAsCustomer = false): ShipTo {
   return {
     sameAsCustomer,
@@ -201,11 +226,14 @@ export function draftFromCustomer(c: Customer): Draft {
 export function generatedAddress(d: Draft): string {
   return (
     formatAddress({
-      roomStallNo: d.values.roomStallNo,
-      floor: d.values.floor,
-      houseNo: d.values.houseNo,
-      street1: d.values.street1,
-      street2: d.values.street2,
+      roomStallNo: normalizeCustomerText(
+        "roomStallNo",
+        d.values.roomStallNo ?? "",
+      ),
+      floor: normalizeCustomerText("floor", d.values.floor ?? ""),
+      houseNo: normalizeCustomerText("houseNo", d.values.houseNo ?? ""),
+      street1: normalizeCustomerText("street1", d.values.street1 ?? ""),
+      street2: normalizeCustomerText("street2", d.values.street2 ?? ""),
       barangayName: d.names.barangayCode,
       municipalityName: d.names.municipalityCode,
       provinceName: d.names.provinceCode,
@@ -371,11 +399,18 @@ export function toPayload(d: Draft, a?: { adp: boolean }) {
   for (const f of CUSTOMER_FIELDS) {
     if (f.kind === "coordinates") continue;
     if (f.adp && a && !a.adp) continue;
-    customer[f.key] = blankToNull(d.values[f.key] ?? "");
+    customer[f.key] = blankToNull(
+      normalizeCustomerText(f.key, d.values[f.key] ?? ""),
+    );
   }
   // "" returns Customer Address to the generated line (contract §1).
   customer.customerAddress = d.addressCustom
-    ? blankToNull(d.values.customerAddress ?? "")
+    ? blankToNull(
+        normalizeCustomerText(
+          "customerAddress",
+          d.values.customerAddress ?? "",
+        ),
+      )
     : "";
   if (customer.creditLimit !== null && customer.creditLimit !== undefined)
     customer.creditLimit = Number(
@@ -387,9 +422,17 @@ export function toPayload(d: Draft, a?: { adp: boolean }) {
     const r = resolvedShipTo(d, s);
     return {
       sameAsCustomer: s.sameAsCustomer,
-      shipToParty: blankToNull(r.shipToParty),
-      shipToAddress: blankToNull(r.shipToAddress),
-      contactPerson: blankToNull(r.contactPerson),
+      shipToParty: blankToNull(
+        normalizeCustomerText("shipToParty", r.shipToParty),
+      ),
+      shipToAddress: blankToNull(
+        s.sameAsCustomer && !d.addressCustom
+          ? generatedAddress(d)
+          : normalizeCustomerText("shipToAddress", r.shipToAddress),
+      ),
+      contactPerson: blankToNull(
+        normalizeCustomerText("contactPerson", r.contactPerson),
+      ),
       mobileNo: blankToNull(r.mobileNo),
       email: blankToNull(r.email),
     };

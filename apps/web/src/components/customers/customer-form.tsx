@@ -13,6 +13,7 @@ import {
   addShipTo,
   applies,
   optionLabel,
+  normalizeCustomerText,
   optionsFor,
   removeShipTo,
   requiredMarks,
@@ -305,6 +306,15 @@ export function CustomerForm({
         aria-invalid={invalid || undefined}
         aria-describedby={invalid ? `${id}-error` : undefined}
         onChange={(e) => set(f.key, e.target.value)}
+        onBlur={(e) => {
+          // Generated addresses retain official place names and keep following location edits.
+          if (f.key === "customerAddress" && !draft.addressCustom) return;
+          const normalized = normalizeCustomerText(
+            f.key,
+            e.currentTarget.value,
+          );
+          if (normalized !== e.currentTarget.value) set(f.key, normalized);
+        }}
       />
     );
   }
@@ -337,6 +347,12 @@ export function CustomerForm({
 
   return (
     <div className="grid gap-5" data-testid="customer-form">
+      {!readOnly ? (
+        <p className="text-[12px] text-muted">
+          Names and addresses use Title Case when you leave a field. Email
+          addresses and codes stay as entered.
+        </p>
+      ) : null}
       <fieldset className="grid gap-1">
         <Label htmlFor="cm-code" label="Customer Code" required={false} />
         <input
@@ -458,6 +474,21 @@ function ShipToList({
                       disabled={readOnly || locked}
                       type={f.kind === "email" ? "email" : "text"}
                       aria-invalid={Boolean(errors[key]) || undefined}
+                      onBlur={(e) => {
+                        const normalized = normalizeCustomerText(
+                          f.key,
+                          e.currentTarget.value,
+                        );
+                        if (normalized !== e.currentTarget.value)
+                          onChange(
+                            setShipTo(
+                              draft,
+                              i,
+                              f.key as keyof ShipTo,
+                              normalized,
+                            ),
+                          );
+                      }}
                       onChange={(e) =>
                         onChange(
                           setShipTo(

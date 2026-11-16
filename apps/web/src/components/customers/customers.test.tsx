@@ -370,7 +370,7 @@ describe("dependent dropdowns reset what was chosen under them", () => {
     expect(back.addressCustom).toBe(false);
     expect(back.values.customerAddress).toContain("Banilad Rd");
     expect(toPayload(back).customerAddress).toBe("");
-    expect(toPayload(typed).customerAddress).toBe("Near the chapel");
+    expect(toPayload(typed).customerAddress).toBe("Near The Chapel");
   });
 
   it("leaving channel 40 clears the ADP block", () => {
