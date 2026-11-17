@@ -77,7 +77,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
     val syncStatus: Flow<SyncStatus> = combine(dao.observeOutbox(s,d),dao.observeSyncMeta(s,d)) { ops, metas ->
         val m = metas.singleOrNull(); val held = isDenied(scope) || m != null && !m.authorizes(clock())
         SyncStatus(if (held) 0 else ops.count { it.status == "pending" },if (held) 0 else ops.count { it.status == "sending" },
-            ops.count { it.status in setOf("rejected","conflict") },if (held) ops.count { it.status in setOf("pending","sending") } else 0,m?.lastSyncTime,m?.health ?: "never_synced",
+            ops.count { it.status in com.sunpride.van.storage.OutboxRules.REFUSED },if (held) ops.count { it.status in setOf("pending","sending") } else 0,m?.lastSyncTime,m?.health ?: "never_synced",
             ops.count { it.status == SALE_PARKED && it.kind == SALE_KIND },ops.count { it.status == SALE_PARKED && it.kind == RETURN_KIND },
             ops.count { it.status == SALE_PARKED },ops.count { it.status == "done" },ops.count { it.kind in com.sunpride.van.sync.SyncHealth.SAP_KINDS },
             com.sunpride.van.sync.SyncHealth.items(ops.map { com.sunpride.van.sync.OutboxFacts(it.clientRequestId,it.kind,it.status,it.createdAt,it.operationJson,it.rejectionCode) },held))
@@ -422,7 +422,7 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
         check(dao.outboxRows(s,d).none {it.kind=="payment.record" && JSONObject(it.operationJson).getJSONObject("payload").optString("saleId")==saleId}) { "This invoice has a collection; reconcile it with the office before cancellation" }
         // VAN-019 x VAN-021: goods already returned against this sale are back on the truck; voiding the whole sale
         // would put them back a second time. The rest goes through a return instead.
-        if (dao.outboxRows(s,d).any { (it.kind == RETURN_KIND || (it.kind == REFUND_KIND && it.status !in setOf("rejected","conflict"))) &&
+        if (dao.outboxRows(s,d).any { (it.kind == RETURN_KIND || (it.kind == REFUND_KIND && it.status !in com.sunpride.van.storage.OutboxRules.REFUSED)) &&
                 JSONObject(it.operationJson).getJSONObject("payload").optJSONObject("originalSale")?.optString("saleId") == saleId } ||
             dao.meta(s,d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)).refunds?.made?.any { m -> m.saleId == saleId } } == true)
             throw VoidRefused(VoidProblem.SALE_HAS_RETURNS)
@@ -599,9 +599,9 @@ class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private 
             // VAN-083: not refused; kept pending with the reason so the phone says what it waits for and retries.
             dao.markWaiting(s,d,row.clientRequestId,result.code ?: com.sunpride.van.pos.CloseOfficeRules.WAITING_CASH_CODE)
         } else {
-            require(result.status in setOf("rejected","conflict"))
+            require(result.status in OutboxRules.UNKEPT)
             // SP-0169: a refused receipt whose number the office spoiled is kept with its own code so the seller is told.
-            dao.reject(s,d,row.clientRequestId,result.status,if (result.spoiledNumber != null) com.sunpride.van.selling.RefusedReceipt.CODE else result.code ?: "invalid_request")
+            dao.reject(s,d,row.clientRequestId,OutboxRules.refusedState(result.status,result.kept),if (result.spoiledNumber != null) com.sunpride.van.selling.RefusedReceipt.CODE else result.code ?: "invalid_request")
             // VAN-079: a refused count is not a count; the seller is told why and counts again (the refused op stays for review).
             dropRefusedCount(row.kind,row.clientRequestId)
         }

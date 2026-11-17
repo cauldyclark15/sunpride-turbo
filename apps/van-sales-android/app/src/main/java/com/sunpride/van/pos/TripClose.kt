@@ -72,20 +72,20 @@ object CloseOfficeRules {
     fun state(closedHere: Boolean, opStatus: String?, opCode: String?, tripStatus: String?): CloseOffice = when {
         !closedHere -> CloseOffice.NOT_CLOSED
         tripStatus == "closed" || opStatus == "done" -> CloseOffice.ACCEPTED
-        opStatus in setOf("rejected", "conflict") -> CloseOffice.REFUSED
+        opStatus in com.sunpride.van.storage.OutboxRules.REFUSED -> CloseOffice.REFUSED
         opCode == WAITING_CASH_CODE -> CloseOffice.WAITING_FOR_CASH
         else -> CloseOffice.WAITING_TO_SEND
     }
     fun title(state: CloseOffice): String = when (state) {
         CloseOffice.WAITING_FOR_CASH -> "Waiting for the office"
         CloseOffice.WAITING_TO_SEND -> "Closed here · not sent yet"
-        CloseOffice.REFUSED -> "The office refused the close"
+        CloseOffice.REFUSED -> "Trip closed · with the office"
         else -> "Trip closed"
     }
     fun detail(state: CloseOffice): String = when (state) {
         CloseOffice.WAITING_FOR_CASH -> "The office must confirm it received the cash before the trip closes there. Hand the cash to the office. This phone sends the close again by itself; you can also tap Try again."
         CloseOffice.WAITING_TO_SEND -> "Saved on this phone. It goes to the office at the next sync."
-        CloseOffice.REFUSED -> "Call your supervisor. The Sync screen shows what needs review."
+        CloseOffice.REFUSED -> "The office finishes it. Nothing more to do on this phone."
         else -> "Nothing more to do on this phone."
     }
 }

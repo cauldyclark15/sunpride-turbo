@@ -48,7 +48,7 @@ class RefundStore(private val store: RoomVanStore) {
     private suspend fun policy(): VanPolicy? = dao.meta(s, d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) }
     private fun payload(op: OutboxRow) = JSONObject(op.operationJson).getJSONObject("payload")
     private suspend fun refundOps(saleId: String? = null): List<JSONObject> =
-        dao.outboxRows(s, d).filter { it.kind == REFUND_KIND && it.status !in setOf("rejected", "conflict") }.map(::payload)
+        dao.outboxRows(s, d).filter { it.kind == REFUND_KIND && it.status !in com.sunpride.van.storage.OutboxRules.REFUSED }.map(::payload)
             .filter { saleId == null || it.getJSONObject("originalSale").getString("saleId") == saleId }
 
     /** Every refund of this trip: those saved on this phone plus any only the office knows about (a replaced phone), once each. */

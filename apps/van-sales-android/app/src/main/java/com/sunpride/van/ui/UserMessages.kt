@@ -48,7 +48,7 @@ object UserMessages {
         "already_bound" to "This phone is registered to a different account. Ask your administrator.",
         "credential_taken" to "This phone is registered to a different account. Ask your administrator.",
         "rate_limited" to "Too many attempts. Wait a minute and try again.",
-        "unauthorized" to "The office did not accept this phone's work. Your work is kept here. Ask your supervisor.",
+        "unauthorized" to "Waiting to send. Your work is kept on this phone.",
         "version_unsupported" to "This app needs an update. Your work is kept here.",
         "temporarily_unavailable" to "Could not reach the office. Your work is kept here. Try again.",
         "opening_float_invalid" to "The opening float must be between ₱0 and ₱100,000.",
@@ -76,7 +76,7 @@ object UserMessages {
      * already plain, but several are developer-ish ("Tenders must equal the total"), so the cashier gets what to DO instead.
      */
     private val storeSale: List<Pair<String,String>> = listOf(
-        "review the refused store sale" to "An earlier sale was refused by the office. Open Review, sort it out, then sell again.",
+        "review the refused store sale" to "An earlier sale is with the office. Call the office before you sell again.",
         "open a cashier session first" to "Open a cashier session first.",
         "cart identifier has different content" to "This sale was already tried with other details. Start a new sale.",
         "cannot be combined with the employee discount" to "A senior or PWD discount cannot be combined with an employee discount or points.",

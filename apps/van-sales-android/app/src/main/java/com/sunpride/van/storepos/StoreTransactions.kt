@@ -28,7 +28,7 @@ class StoreTransactions(private val store:RoomVanStore) {
         // IP-HH2: the day-end Z is read after every session is closed, so it names the last session instead of an open one.
         val zAfterClose=kind=="store.read"&&payload.optString("kind")=="z"
         val shiftId=shift?.shiftId ?: if(kind in setOf("store.deposit","store.print")||zAfterClose)checkNotNull(last){"No cashier session on this phone"} else error("Open a cashier session first")
-        val z=rows.any {it.kind=="store.read" && it.status !in setOf("rejected","conflict") && JSONObject(it.operationJson).getJSONObject("payload").let {p->p.getString("shiftId")==shiftId && p.getString("kind")=="z"}}
+        val z=rows.any {it.kind=="store.read" && it.status !in com.sunpride.van.storage.OutboxRules.REFUSED && JSONObject(it.operationJson).getJSONObject("payload").let {p->p.getString("shiftId")==shiftId && p.getString("kind")=="z"}}
             || StoreCheckout.objects(config.details.optJSONArray("reads")).any {it.optString("shift_id")==shiftId&&it.getString("kind")=="z"}
         check(!z||kind in setOf("store.deposit","store.print")){"Z closing has stopped sales for this day"}
         check(!zAfterClose||shift==null){"End your cashier session first. Z comes after every session is closed."}
@@ -88,7 +88,7 @@ class StoreTransactions(private val store:RoomVanStore) {
         val hash=java.security.MessageDigest.getInstance("SHA-256").digest(input.toByteArray()).joinToString(""){"%02x".format(it.toInt() and 255)}
         rows.firstOrNull {it.clientRequestId==saleId}?.let {old->val meta=JSONObject(checkNotNull(old.metadataJson));check(meta.getString("inputHash")==hash){"Cart identifier has different content"};return@withTransaction meta.getJSONObject("receipt")}
         // SP-0169: a refused sale whose number the office recorded as spoiled no longer holds the series; only an unresolved refusal blocks.
-        check(rows.none {it.kind=="store.sale" && it.status in setOf("rejected","conflict") && it.rejectionCode!=com.sunpride.van.selling.RefusedReceipt.CODE}) {"Review the refused store sale before recording more"}
+        check(rows.none {it.kind=="store.sale" && it.status in com.sunpride.van.storage.OutboxRules.REFUSED && it.rejectionCode!=com.sunpride.van.selling.RefusedReceipt.CODE}) {"Review the refused store sale before recording more"}
         val shift=checkNotNull(StorePosStore.project(config,rows).shift){"Open a cashier session first"}
         check(claim==null||employeePin==null&&points==0L){"A senior, PWD or other statutory discount cannot be combined with the employee discount or points"}
         val quote=StoreCheckout.quote(config,rows,cart,store.now(),claim)

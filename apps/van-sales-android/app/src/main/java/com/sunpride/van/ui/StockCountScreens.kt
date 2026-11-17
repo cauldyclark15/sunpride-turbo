@@ -70,7 +70,6 @@ import com.sunpride.van.pos.*
             else -> {
                 summary.refusal?.let { Text(it,Modifier.testTag("stock-office-refused"),color = MaterialTheme.colorScheme.error,style = MaterialTheme.typography.bodyLarge) }
                 Text("Count sellable and damaged stock separately. Counts are entered in each product's UOM.",style = MaterialTheme.typography.bodyMedium)
-                if (c.sync.review > 0) Text("Some earlier work needs review. Expected stock excludes refused work; enter what is physically on the truck. The earlier records are kept for your supervisor.",style = MaterialTheme.typography.bodyMedium)
                 c.batchCountPositions.forEach {b->val p=c.products.single {it.productId==b.productId};val key="${b.lotId}:${b.status}"
                     SectionCard("${p.name} · batch ${b.batch}") {
                         Text("${b.status} · ${b.qualityStatus} · expected ${p.displayQuantity(b.quantityBase)} ${p.uomCode}")

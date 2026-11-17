@@ -61,7 +61,6 @@ import com.sunpride.van.storepos.StoreXPreview
                 if(!sessionOpen) Text("Count the cash in the drawer to open. Then you can sell.",style=MaterialTheme.typography.bodyMedium,color=Look.muted)
             }
         }
-        if(state.review>0) SectionCard("Saved work needs office review") { Text("Do not recapture a refused sale. Reconcile it with the office first.") }
         ListRow("Cash drawer & X/Z reports","Cash drop, paid out, X reading and Z reading (supervisor PIN)","store-reports",onClick={c.open(Page.STORE_READS)},glyph=GlyphKind.WALLET)
         ListRow("Cash deposit","Slip photo · bank · Z-read matching","store-deposit",onClick={c.open(Page.STORE_DEPOSIT)},glyph=GlyphKind.RECEIPT)
         // Secondary row, last in the list: never the main button, and it asks first.
@@ -130,7 +129,7 @@ import com.sunpride.van.storepos.StoreXPreview
         onAction={c.closeStoreShift(checkNotNull(minor))},message=c.message) {
         Text(c.storePos.config?.storeName ?: "Store",style=MaterialTheme.typography.titleLarge)
         waitingProblem?.let {Text(it,color=MaterialTheme.colorScheme.error,fontWeight=FontWeight.SemiBold,modifier=Modifier.testTag("store-count-waiting"))}
-        Text("Count the cash physically in the drawer. Do not include e-wallet or card receipts. Your declaration is final; any difference is reviewed by a second person.")
+        Text("Count the cash physically in the drawer. Do not include e-wallet or card receipts. Your declaration is final; any difference is checked by a second person.")
         LabeledField("Cash counted (₱)",amount,{amount=it},"store-count-amount",numeric=true,maxLength=16)
         Text("Saved securely on this phone, even without a network. Sync when connected.")
     }

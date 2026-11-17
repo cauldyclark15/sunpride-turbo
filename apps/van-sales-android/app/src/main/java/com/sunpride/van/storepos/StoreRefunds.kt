@@ -42,14 +42,14 @@ object StoreRefunds {
     private fun objects(a: JSONArray) = (0 until a.length()).map { a.getJSONObject(it) }
 
     /** Refunds this phone saved (not refused by the office). */
-    fun local(rows: List<OutboxRow>): List<JSONObject> = rows.filter { it.kind == KIND && it.status !in setOf("rejected", "conflict") }.map(::payload)
+    fun local(rows: List<OutboxRow>): List<JSONObject> = rows.filter { it.kind == KIND && it.status !in com.sunpride.van.storage.OutboxRules.REFUSED }.map(::payload)
 
     /** SP-0169 POS-026: refunds the office refused. They stay on the receipt card with what the cashier must do, never vanish. */
-    fun refused(rows: List<OutboxRow>): List<Pair<JSONObject, String>> = rows.filter { it.kind == KIND && it.status in setOf("rejected", "conflict") }.map { row ->
+    fun refused(rows: List<OutboxRow>): List<Pair<JSONObject, String>> = rows.filter { it.kind == KIND && it.status in com.sunpride.van.storage.OutboxRules.REFUSED }.map { row ->
         val p = payload(row); val cm = p.optString("creditNumber")
         p to (if (row.rejectionCode == com.sunpride.van.selling.RefusedReceipt.CODE)
-            "The office refused credit memo $cm. Its number is recorded as spoiled. Take the cash back from the customer if you can, otherwise tell your supervisor: the drawer will be short by this amount."
-        else "The office refused credit memo $cm. Tell your supervisor before you refund anything else on this receipt: the drawer will be short by this amount.")
+            "The office cancelled credit memo $cm. Its number is recorded as spoiled. Take the cash back from the customer if you can, otherwise tell the office: the drawer will be short by this amount."
+        else "Credit memo $cm is with the office. Call the office before you refund anything else on this receipt: the drawer will be short by this amount.")
     }
 
     fun context(config: StorePosConfig, rows: List<OutboxRow>, receipt: JSONObject, shiftOpen: Boolean, voided: Boolean): StoreRefundContext {

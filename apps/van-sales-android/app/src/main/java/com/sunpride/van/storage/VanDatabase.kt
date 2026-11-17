@@ -241,12 +241,20 @@ interface VanDao {
 }
 
 @Database(entities = [TripRow::class,LoadLineRow::class,ProductRow::class,CustomerRow::class,BaselineRow::class,MovementRow::class,SettlementRow::class,OutboxRow::class,AckRow::class,SyncMetaRow::class,SequenceCounterRow::class,TransactionIdRow::class,SaleRow::class,SaleLineRow::class,PaymentRow::class,CustomerReturnRow::class,ReturnLineRow::class,ReconciliationRow::class,PriceListLineRow::class,PromotionRow::class,
-    ReceiptPrintRow::class,SaleReceiptRow::class,SaleVoidRow::class,CashReconciliationRow::class,StockReconciliationRow::class,TripCloseRow::class,LocationPingRow::class,HeldCartRow::class], version = 11, exportSchema = true)
+    ReceiptPrintRow::class,SaleReceiptRow::class,SaleVoidRow::class,CashReconciliationRow::class,StockReconciliationRow::class,TripCloseRow::class,LocationPingRow::class,HeldCartRow::class], version = 12, exportSchema = true)
 abstract class VanDatabase : RoomDatabase() {
     abstract fun rows(): VanDao
     /** VAN-017 receipt print history (v3). */
     abstract fun receiptPrints(): ReceiptPrintDao
     companion object {
+        /**
+         * SP-0190: one-time resend after this update. Every refused op is put back to `pending` once, its bytes and
+         * clientRequestId untouched, so the next normal sync sends the identical op and the server decides. A Room
+         * migration runs exactly once per database, which is the persisted "done" mark. No schema change.
+         */
+        val MIGRATION_11_12 = object : androidx.room.migration.Migration(11,12) {
+            override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) { db.execSQL(OutboxRules.RESEND_SQL) }
+        }
         /** IP-HOLD: one new local-only table for parked carts; no existing row or column changes. */
         val MIGRATION_10_11 = object : androidx.room.migration.Migration(10,11) {
             override fun migrate(db: androidx.sqlite.db.SupportSQLiteDatabase) {

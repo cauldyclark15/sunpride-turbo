@@ -296,7 +296,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
             }
             com.sunpride.van.storepos.StoreRefunds.refused(c.storePos.rows).filter {it.first.getString("saleId")==id}.forEach {(m,why)->
                 val rid=m.getString("refundId")
-                Text("Credit memo ${m.optString("creditNumber")} · ${pesos(m.getString("expectedCentavos").toLong())} · refused by the office",fontWeight=FontWeight.SemiBold,modifier=Modifier.testTag("store-credit-memo-refused-$rid"))
+                Text("Credit memo ${m.optString("creditNumber")} · ${pesos(m.getString("expectedCentavos").toLong())} · cancelled by the office",fontWeight=FontWeight.SemiBold,modifier=Modifier.testTag("store-credit-memo-refused-$rid"))
                 Text(why,color=MaterialTheme.colorScheme.error,style=MaterialTheme.typography.bodyMedium)
             }
             if(r.optString("_status")!="voided"){
@@ -436,7 +436,7 @@ private data class CompletedStoreSale(val saleId: String, val receivedMinor: Lon
     var readId by remember(reads.map{it.getString("id")}){mutableStateOf(reads.firstOrNull()?.getString("id")?:"")}
     if(camera){DamageCameraScreen(onCaptured={capture->camera=false;scope.launch{runCatching{c.repository.saveDepositPhoto(capture)}.onSuccess{photo=it;notice="Deposit-slip photo saved securely"}.onFailure{notice="Could not save the photo. Try again."}}},onClose={camera=false},requireLocation=false,title="Deposit slip",instructions="Show the bank, amount and slip reference clearly.");return}
     ScreenFrame("Cash deposit",c::back,action="Save deposit",actionTag="save-store-deposit",onAction={c.saveStoreAction("store.deposit",JSONObject().put("zReadId",readId).put("bank",bank).put("reference",reference).put("amountCentavos",checkNotNull(VanRules.parseMoney(amount)).toString()).put("photoSha256",photo))},enabled=readId.isNotBlank()&&bank.isNotBlank()&&reference.isNotBlank()&&photo!=null&&(VanRules.parseMoney(amount)?:0)>0&&!c.busy,message=c.message?:notice){
-        Text("Match the deposit to one Z-read. Opening float is excluded; a discrepancy goes to independent office review.")
+        Text("Match the deposit to one Z-read. Opening float is excluded; a second person at the office checks any difference.")
         reads.forEach {r->SecondaryButton((if(readId==r.getString("id"))"Selected · " else "")+"Z read ${r.getString("sequence")}",{readId=r.getString("id")})}
         if(reads.isEmpty())Text("Sync the Z-read first to receive its office reference.")
         LabeledField("Bank",bank,{bank=it},"store-deposit-bank",maxLength=100)

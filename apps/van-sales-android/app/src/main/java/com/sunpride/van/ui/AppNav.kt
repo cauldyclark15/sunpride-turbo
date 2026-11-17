@@ -82,10 +82,9 @@ object AppNav {
 /** True while the bottom bar is drawn below the screen (selling lists need no extra room above the system bar then). */
 val LocalNavBarShown = compositionLocalOf { false }
 
-/** The small sync badge: "Synced", "3 waiting", "2 to review". It never covers content; it sits in the title bar. */
+/** The small sync badge: "All sent" or "3 waiting" (SP-0190: never a review count). It never covers content; it sits in the title bar. */
 @Composable fun SyncPill(waiting: Int, review: Int, busy: Boolean, modifier: Modifier = Modifier, onClick: (() -> Unit)? = null) {
     val (text, dot) = when {
-        review > 0 -> "$review to review" to Look.amberDot
         busy -> "Syncing…" to Look.amberDot
         waiting > 0 -> "$waiting waiting" to Look.amberDot
         else -> "All sent" to SunprideTokens.stockGreen
@@ -109,7 +108,7 @@ val LocalNavBarShown = compositionLocalOf { false }
     val store = c.storeMode
     val tabs = AppNav.tabs(store)
     val current = AppNav.tabOf(c.page, store)
-    val needs = c.syncReview > 0
+    val needs = false // SP-0190: refused work is the office's; never a badge for the seller
     val waiting = c.syncWaiting
     Column(modifier.testTag("nav-bar")) {
         Box(Modifier.fillMaxWidth().height(1.dp).background(Look.hairline))

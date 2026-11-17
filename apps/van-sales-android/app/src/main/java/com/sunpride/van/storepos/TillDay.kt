@@ -141,7 +141,7 @@ object Readings {
     /** Cash movements queued on this phone, newest data only: per kind (count, amount). */
     fun movements(rows: List<OutboxRow>, shiftId: String? = null): Map<CashKind, Pair<Int, Long>> {
         val out = linkedMapOf<CashKind, Pair<Int, Long>>()
-        rows.filter { it.kind == "store.cash" && it.status !in setOf("rejected", "conflict", "parked") }.forEach { row ->
+        rows.filter { it.kind == "store.cash" && it.status !in (com.sunpride.van.storage.OutboxRules.REFUSED + "parked") }.forEach { row ->
             val p = JSONObject(row.operationJson).getJSONObject("payload")
             if (shiftId != null && p.optString("shiftId") != shiftId) return@forEach
             val kind = CashKind.of(p.optString("kind")) ?: return@forEach

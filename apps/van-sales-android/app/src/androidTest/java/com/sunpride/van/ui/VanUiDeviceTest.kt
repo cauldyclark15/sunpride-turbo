@@ -670,13 +670,11 @@ class VanUiDeviceTest {
         rule.waitUntil(10_000) { c.sync.savedSales == 1 && c.stock.single { it.productId == juice.productId }.availableBase == before-2 }
         assertEquals(0,c.sync.queued); assertNull(c.sale)
         rule.onNodeWithTag("sale-done").performClick()
-        rule.onNodeWithTag("sync-line").assertTextContains("1 sale saved on this phone",substring = true)
-        // VAN-025: phone, office and SAP answered separately; the sale is on the phone only and not posted to SAP.
-        rule.onNodeWithTag("sync-line").assertTextContains("SAP: ",substring = true)
+        // SP-0190: the seller reads only "All sent" / "Waiting to send (N)" / "Waiting for signal (N)".
+        rule.onNodeWithTag("sync-line").assertTextContains("Waiting to send (1)",substring = true)
         open(Page.MORE); rule.onNodeWithTag("open-sync").performScrollTo().performClick()
         rule.waitUntil(5_000) { c.page == Page.SYNC }
-        rule.onNodeWithTag("health-item-office-0",useUnmergedTree = true).assertTextEquals("Office: Saved on this phone — office upload not available yet")
-        rule.onNodeWithTag("health-item-sap-0",useUnmergedTree = true).assertTextEquals("SAP: Not posted to SAP yet")
+        rule.onNodeWithTag("health-last",useUnmergedTree = true).assertExists()
         captureVanScreenshot(rule,"33-sync-health","sync-health-now")
         rule.onNodeWithTag("back").performClick()
         rule.waitUntil(5_000) { c.page == Page.HOME }

@@ -53,7 +53,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun closeStoreShift(amount: Long) {
         // Only the count page behind the confirmation may close the session.
         if(!countUnlocked) return
-        command("Blind count saved. The office will review any difference.",failure = ::heldAware) {
+        command("Blind count saved. The office checks any difference.",failure = ::heldAware) {
             val held = repository.heldCount(HeldCartRules.SURFACE_STORE)
             if (held > 0) throw HeldCartsBlock(HeldCartRules.closeBlock(held)!!)
             repository.closeStoreShift(amount); storeNavEvent(StoreNavEvent.CloseSaved)
@@ -84,7 +84,8 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     var navHidden by mutableStateOf(false)
     /** Work still waiting to leave this phone, and work the office wants a person to look at; for the small sync badge. */
     val syncWaiting: Int get() = if (storeMode) storePos.queued else sync.queued + sync.sending
-    val syncReview: Int get() = if (storeMode) storePos.review else sync.review
+    /** SP-0190: never shown to the seller; the office keeps refused work. Kept 0 so no screen counts it. */
+    val syncReview: Int get() = 0
     var session by mutableStateOf(SessionState())
         private set
     var enrollment by mutableStateOf<EnrollmentState>(EnrollmentState.SignedOut)
@@ -425,7 +426,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     }
     /** IP-INT3FIX: a cart edit answers the unexplained banner left by an earlier action (it is not about the cart). */
     fun dismissGenericMessage() { if (UserMessages.isGeneric(message)) message = null }
-    fun syncNow() = command("Sync finished. Check the waiting and review counts.",failure = { rememberSyncFailure(syncMessage(it)) }) { repository.syncNow() }
+    fun syncNow() = command("Sync finished.",failure = { rememberSyncFailure(syncMessage(it)) }) { repository.syncNow() }
     // Pending state is read from the store (VanRules.status), never from a stale one-off message.
     fun confirmLoad(lines: List<LoadActual>) = command { repository.confirmLoad(lines) }
     fun startTrip(truck: Boolean, route: Boolean, driver: String, helper: String, odometer: Double?, note: String, openingFloatCentavos: Long = 0L) {

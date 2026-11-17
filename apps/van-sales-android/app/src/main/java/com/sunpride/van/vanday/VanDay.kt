@@ -141,8 +141,9 @@ object VanDaySteps {
             // VAN-083: closed here is not closed at the office; say what the trip still waits for.
             com.sunpride.van.pos.CloseOffice.WAITING_FOR_CASH, com.sunpride.van.pos.CloseOffice.WAITING_TO_SEND ->
                 NextStep(StepKind.WAIT, com.sunpride.van.pos.CloseOfficeRules.title(f.closeOffice), com.sunpride.van.pos.CloseOfficeRules.detail(f.closeOffice), "See the trip close", StepTarget.CLOSE_TRIP)
+            // SP-0190: the office has the close; the seller has nothing to fix.
             com.sunpride.van.pos.CloseOffice.REFUSED ->
-                NextStep(StepKind.SYNC, com.sunpride.van.pos.CloseOfficeRules.title(f.closeOffice), com.sunpride.van.pos.CloseOfficeRules.detail(f.closeOffice), "Sync now", StepTarget.SYNC)
+                NextStep(StepKind.DONE, com.sunpride.van.pos.CloseOfficeRules.title(f.closeOffice), com.sunpride.van.pos.CloseOfficeRules.detail(f.closeOffice), "See the trip close", StepTarget.CLOSE_TRIP)
             else -> NextStep(StepKind.DONE, "Trip closed", "Nothing more to do on this phone.", "See the trip close", StepTarget.CLOSE_TRIP)
         }
         val status = f.tripStatus

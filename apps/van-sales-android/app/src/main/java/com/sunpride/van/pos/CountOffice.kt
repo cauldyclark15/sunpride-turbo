@@ -41,15 +41,15 @@ object CountOfficeRules {
         val what = if (kind == CASH_KIND) "cash count" else "stock count"
         val again = if (kind == CASH_KIND) "Count the cash again." else "Sync, then count the stock again."
         val why = when (code) {
-            "stock_conflict" -> if (kind == CASH_KIND) "the office's expected cash changed after your count (a sale or refund was changed or refused)."
-                else "the office's truck stock changed after your count (for example a damage decision or a refused sale)."
+            "stock_conflict" -> if (kind == CASH_KIND) "the office's expected cash changed after your count (a sale or refund was changed)."
+                else "the office's truck stock changed after your count (for example a damage decision or a cancelled sale)."
             "evidence_pending_review" -> "a damage report was waiting for a supervisor's decision."
-            "idempotency_conflict" -> "the office already has a different count for this trip. Ask your supervisor before counting again."
+            "idempotency_conflict" -> "the office already has a different count for this trip. Call the office before counting again."
             "wrong_date" -> "it was not saved on the trip's day. Check the phone's date and time."
-            "out_of_scope" -> "this trip belongs to another seller or phone. Ask your supervisor."
-            else -> "the office could not accept it."
+            "out_of_scope" -> "this trip belongs to another seller or phone. Call the office."
+            else -> "the office could not use it."
         }
-        return "The office refused your $what: $why" + if (code in setOf("idempotency_conflict", "out_of_scope")) "" else " $again"
+        return "Your $what was not used: $why" + if (code in setOf("idempotency_conflict", "out_of_scope")) "" else " $again"
     }
 
     /** What the seller reads on a saved stock count still waiting at the office. */

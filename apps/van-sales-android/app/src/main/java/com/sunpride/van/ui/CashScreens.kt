@@ -55,7 +55,7 @@ import com.sunpride.van.pos.*
                         style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("cash-float"))
                     Text("${e.cashSales} cash ${if (e.cashSales == 1) "sale" else "sales"} on this phone" +
                         (if (e.voidedSales > 0) " · ${e.voidedSales} voided left out" else ""),style = MaterialTheme.typography.bodyMedium)
-                    if (e.refusedSales > 0) Text("${e.refusedSales} ${if (e.refusedSales == 1) "sale" else "sales"} refused by the office left out · ${PosMoney.format(e.refusedMinor,e.currency)}. Give that cash back to the customer or hand it to your supervisor.",
+                    if (e.refusedSales > 0) Text("${e.refusedSales} ${if (e.refusedSales == 1) "sale" else "sales"} left out by the office · ${PosMoney.format(e.refusedMinor,e.currency)}. Give that cash back to the customer or hand it to the office.",
                         style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("cash-refused"))
                     if (e.otherPhoneSales > 0 || e.otherPhoneMinor != 0L)
                         Text("Includes ${e.otherPhoneSales} cash ${if (e.otherPhoneSales == 1) "sale" else "sales"} from your other phone · ${PosMoney.format(e.otherPhoneMinor,e.currency)}",

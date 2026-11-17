@@ -68,10 +68,10 @@ class VanR6Van6Test {
     // VAN-079: plain reasons, and counting waits while a damage report is unsent or undecided.
     @Test fun countRefusalsAndDamageWaitsArePlain() {
         val stock = CountOfficeRules.refusal(CountOfficeRules.STOCK_KIND, "stock_conflict")
-        assertTrue(stock, stock.startsWith("The office refused your stock count: the office's truck stock changed after your count"))
+        assertTrue(stock, stock.startsWith("Your stock count was not used: the office's truck stock changed after your count"))
         assertTrue(stock.endsWith("Sync, then count the stock again."))
         val cash = CountOfficeRules.refusal(CountOfficeRules.CASH_KIND, "evidence_pending_review")
-        assertEquals("The office refused your cash count: a damage report was waiting for a supervisor's decision. Count the cash again.", cash)
+        assertEquals("Your cash count was not used: a damage report was waiting for a supervisor's decision. Count the cash again.", cash)
         assertFalse(CountOfficeRules.refusal(CountOfficeRules.STOCK_KIND, "weird_code").contains("weird"))
         val records = JSONArray().put(JSONObject().put("status", "approved")).put(JSONObject().put("status", "rejected"))
         assertNull(CountOfficeRules.damageWaiting(records, false))
@@ -91,8 +91,8 @@ class VanR6Van6Test {
 
     // VAN-086: a paused phone says so on Sync & posting, not "Last sync finished".
     @Test fun pausedPhoneSaysSyncIsPaused() {
-        assertTrue(SyncHealth.healthLabel(SyncHealth.PAUSED_HEALTH).startsWith("Sync is paused"))
-        assertEquals("Last sync finished", SyncHealth.healthLabel("synced"))
+        assertTrue(SyncHealth.healthLabel(SyncHealth.PAUSED_HEALTH)!!.startsWith("Sync is paused"))
+        assertEquals(null, SyncHealth.healthLabel("synced")) // SP-0190: the three states say it
     }
 
     // VAN-014: the phone names the office's in-scope load approver; an older server still gives the supervisor.

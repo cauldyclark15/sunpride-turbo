@@ -19,7 +19,7 @@ object StoreCheckout {
     fun availablePoints(config:StorePosConfig,rows:List<OutboxRow>):Long {
         val customer=config.details.optJSONObject("customerLookup")?:return 0
         val key=customer.optString("lookupId");if(key.isBlank())return 0
-        val spent=rows.filter {it.kind=="store.sale"&&it.status !in setOf("rejected","conflict","parked")}.sumOf {row->
+        val spent=rows.filter {it.kind=="store.sale"&&it.status !in (com.sunpride.van.storage.OutboxRules.REFUSED + "parked")}.sumOf {row->
             val p=JSONObject(row.operationJson).getJSONObject("payload")
             if(p.optString("customerPhone")==customer.optString("phone")&&(row.status in setOf("pending","sending")||p.optString("loyaltyLookupId")==key))p.optString("redeemPoints","0").toLong() else 0L
         }

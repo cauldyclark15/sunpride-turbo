@@ -27,7 +27,6 @@ import com.sunpride.van.data.*
         Text("On the truck",style = MaterialTheme.typography.titleMedium,modifier = Modifier.padding(top = 4.dp))
         Text("Available stock includes saved changes on this phone.",style = MaterialTheme.typography.bodyMedium)
         if (c.sync.queued+c.sync.sending > 0) Text("Waiting for sync",Modifier.testTag("stock-pending"))
-        if (c.sync.review > 0) Text("Some changes need review. Ask your supervisor.")
         if (c.tripClosed) Text(VanRules.stockMessage(com.sunpride.van.pos.StockProblem.TRIP_CLOSED),Modifier.testTag("stock-trip-closed"))
         if (c.products.isEmpty()) Text("No truck stock available. Sync and check with your supervisor.")
         c.products.forEachIndexed { index,product ->

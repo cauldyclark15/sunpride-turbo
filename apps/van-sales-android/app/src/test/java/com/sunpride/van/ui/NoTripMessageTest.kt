@@ -12,14 +12,14 @@ class NoTripMessageTest {
     private val full = HandheldInfo("VAN-01","ABC-1234","Juan Dela Cruz","0917 123 4567")
 
     @Test fun namesTheVanTheSupervisorAndTheLastSync() {
-        assertEquals("No trip for today on van ABC-1234. Your supervisor is Juan Dela Cruz (0917 123 4567). Last synced 05:12.",
+        assertEquals("No trip for today on van ABC-1234. Call Juan Dela Cruz (0917 123 4567). Last synced 05:12.",
             NoTripMessage.sentence("No trip",full,at(5,12),at(9,0),zone))
     }
     @Test fun leavesOutWhatTheOfficeHasNotSent() {
-        assertEquals("No trip for today. Ask your supervisor. Not synced yet.",NoTripMessage.sentence("No trip",null,null,at(9,0),zone))
-        assertEquals("No load sheet for today on van VAN-01. Your supervisor is Juan. Last synced 05:12.",
+        assertEquals("No trip for today. Call the office. Not synced yet.",NoTripMessage.sentence("No trip",null,null,at(9,0),zone))
+        assertEquals("No load sheet for today on van VAN-01. Call Juan. Last synced 05:12.",
             NoTripMessage.sentence("No load sheet",HandheldInfo(vehicleCode = "VAN-01",supervisorName = "Juan"),at(5,12),at(9,0),zone))
-        assertEquals("No trip for today. Your supervisor's number is 0917. Last synced 05:12.",
+        assertEquals("No trip for today. Call 0917. Last synced 05:12.",
             NoTripMessage.sentence("No trip",HandheldInfo(supervisorPhone = "0917"),at(5,12),at(9,0),zone))
     }
     @Test fun anOlderSyncShowsItsDate() {

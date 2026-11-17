@@ -164,4 +164,6 @@ data class PushAck(val entityId: String, val movementId: String?, val serverTime
 data class PushResult(val kind: String, val clientRequestId: String, val status: String,
     val ack: PushAck? = null, val code: String? = null,
     /** SP-0169: the office recorded this refused document's number as spoiled. */
-    val spoiledNumber: String? = null)
+    val spoiledNumber: String? = null,
+    /** SP-0190: the office kept a full copy of this refused op (`kept: true`); the phone lets go of it. */
+    val kept: Boolean = false)

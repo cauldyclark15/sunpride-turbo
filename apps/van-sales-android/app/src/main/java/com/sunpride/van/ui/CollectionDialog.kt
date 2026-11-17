@@ -31,7 +31,7 @@ import java.util.UUID
                 Column(Modifier.weight(1f,false).verticalScroll(rememberScrollState()),verticalArrangement=Arrangement.spacedBy(8.dp)) {
                     Text(saved.receipt.customerName)
                     Text("Against invoice ${saved.receipt.receiptNumber}")
-                    Text("The phone checks earlier collections before saving. A rejected upload does not erase cash received; reconcile it with the office before collecting again.",style=MaterialTheme.typography.bodySmall)
+                    Text("The phone checks earlier collections before saving. Cash you received is always kept on record.",style=MaterialTheme.typography.bodySmall)
                     LabeledField("Amount received (₱)",amount,{amount=it},"collection-amount",enabled=!c.busy,maxLength=14,keyboardType=KeyboardType.Decimal)
                     c.paymentMethods.filter {it.kind!=PaymentKind.CREDIT}.forEach { option ->
                         Row {RadioButton(selected=method==option.code,onClick={method=option.code;reference=""},enabled=!c.busy);Text(option.label,Modifier.padding(top=12.dp))}

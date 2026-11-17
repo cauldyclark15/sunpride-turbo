@@ -17,11 +17,18 @@ enum class OfficeState(val label: String) {
     PHONE_ONLY("Saved on this phone — office upload not available yet"),
     WAITING("Waiting to send to the office"),
     SENDING("Sending to the office"),
-    /** Signed-in account or phone needs checking; the work stays on the phone until resolved. */
-    PAUSED("Paused — kept on this phone, ask your supervisor"),
-    RECEIVED("Received by the office"),
-    NEEDS_REVIEW("Office could not accept it — needs review"),
+    /** Signed-in account or phone needs checking; the work stays on the phone and counts as waiting to send. */
+    PAUSED("Waiting to send"),
+    RECEIVED("Sent"),
+    /**
+     * SP-0190: the office answered for good and (with `kept`) holds its own copy. The seller never sees this as a
+     * problem: it is not listed and not counted; the office finishes it.
+     */
+    WITH_OFFICE("Sent"),
 }
+
+/** SP-0190: the only three things a seller is ever told about sending. */
+enum class SimpleSync(val label: String) { ALL_SENT("All sent"), WAITING("Waiting to send"), NO_SIGNAL("Waiting for signal") }
 
 enum class SapState(val label: String) {
     NOT_POSTED("Not posted to SAP yet"),
@@ -62,7 +69,7 @@ object SyncHealth {
     fun office(status: String, held: Boolean): OfficeState = when (status) {
         "parked" -> OfficeState.PHONE_ONLY
         "done" -> OfficeState.RECEIVED
-        "rejected", "conflict" -> OfficeState.NEEDS_REVIEW
+        "rejected", "conflict", com.sunpride.van.storage.OutboxRules.OFFICE -> OfficeState.WITH_OFFICE
         "sending" -> if (held) OfficeState.PAUSED else OfficeState.SENDING
         else -> if (held) OfficeState.PAUSED else OfficeState.WAITING
     }
@@ -84,44 +91,30 @@ object SyncHealth {
     /** Work not yet held by the office: phone-only, waiting, sending and paused. */
     fun onPhoneOnly(s: SyncStatus): Int = s.phoneOnly + s.queued + s.sending + s.held
 
-    private fun plural(n: Int, one: String, many: String) = "$n ${if (n == 1) one else many}"
+    /** SP-0190: everything not yet with the office (parked, waiting, sending, held under an earlier sign-in). */
+    fun waiting(s: SyncStatus): Int = onPhoneOnly(s)
 
-    fun phoneLine(s: SyncStatus): String {
-        val n = onPhoneOnly(s)
-        return if (n == 0 && s.review > 0) "Phone: ${plural(s.review, "item needs", "items need")} review — kept here"
-        else if (n == 0) "Phone: nothing waiting — all work is with the office"
-        else "Phone: ${plural(n, "item", "items")} kept only on this phone"
+    /** All sent / Waiting to send / Waiting for signal. Refused work is never part of this answer. */
+    fun simple(s: SyncStatus): SimpleSync = when {
+        waiting(s) == 0 -> SimpleSync.ALL_SENT
+        s.health == "retry_pending" -> SimpleSync.NO_SIGNAL
+        else -> SimpleSync.WAITING
     }
 
-    fun officeLine(s: SyncStatus, lastSync: String): String =
-        "Office: ${s.received} received · ${s.queued + s.sending} waiting · ${s.review} to review" +
-            (if (s.held > 0) " · ${s.held} paused" else "") + "\nLast sync: $lastSync"
+    /** The one line a seller reads: "All sent", "Waiting to send (3)" or "Waiting for signal (3)". */
+    fun line(s: SyncStatus): String = simple(s).let { if (it == SimpleSync.ALL_SENT) it.label else "${it.label} (${waiting(s)})" }
 
-    fun sapLine(s: SyncStatus): String =
-        if (s.sapPending == 0) "SAP: nothing to post yet" else "SAP: ${s.sapPending} not posted yet"
-
-    /** The Today footer: phone, office and SAP on separate lines, short enough for the 720×1440 handheld. */
-    fun footer(s: SyncStatus, lastSync: String): String = listOfNotNull(
-        phoneLine(s),
-        s.savedSales.takeIf { it > 0 }?.let { "${plural(it, "sale", "sales")} saved on this phone" },
-        s.savedReturns.takeIf { it > 0 }?.let { "${plural(it, "return", "returns")} saved on this phone" },
-        officeLine(s, lastSync),
-        sapLine(s),
-    ).joinToString("\n")
+    /** The Today footer: the same one line plus when work was last sent. */
+    fun footer(s: SyncStatus, lastSync: String): String = "${line(s)}\nLast sent: $lastSync"
 
     /** VAN-086: health recorded when the office paused this phone (device suspended); cleared by the next good sync. */
     const val PAUSED_HEALTH = "paused"
     const val PAUSED_LABEL = "Sync is paused: the office paused this phone. Your work stays here and is sent when the office turns the phone back on."
 
-    /** Health code → plain words for the status screen. Unknown codes never echo raw text. */
-    fun healthLabel(health: String): String = when (health) {
+    /** Extra words only when the seller can act on them; otherwise null (the three states say it all). */
+    fun healthLabel(health: String): String? = when (health) {
         PAUSED_HEALTH -> PAUSED_LABEL
-        "synced" -> "Last sync finished"
-        "retry_pending" -> "Last sync did not finish — it will try again"
-        "held_for_review" -> "Sync paused — ask your supervisor"
-        "update_required" -> "Update the app to sync"
-        "bootstrap_ready" -> "Trip downloaded"
-        "never_synced" -> "Not synced yet"
-        else -> "Sync state unknown"
+        "update_required" -> "Update the app to send your work"
+        else -> null
     }
 }

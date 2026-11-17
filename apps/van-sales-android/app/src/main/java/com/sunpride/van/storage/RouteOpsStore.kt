@@ -97,7 +97,7 @@ class RouteOpsStore(private val store: RoomVanStore) {
         VanBootstrapCodec.objects(policy("returnables").getJSONArray("items")).forEach {item->amounts.getOrPut(item.getString("code")) {JSONObject().put("typeCode",item.getString("code")).put("label",item.getString("label")).put("quantity",JSONObject.NULL)}}
         val baselineAt=dao.meta(s,d)?.lastBootstrapTime?:0
         val acks=dao.ackRows(s,d).associateBy {it.clientRequestId}
-        dao.outboxRows(s,d).filter {it.kind=="returnable.record" && it.status !in setOf("rejected","conflict") && !com.sunpride.van.ledger.StockProjection.reflected(acks[it.clientRequestId]?.serverTime,baselineAt)}.sortedBy {it.createdAt}.forEach {op->
+        dao.outboxRows(s,d).filter {it.kind=="returnable.record" && it.status !in com.sunpride.van.storage.OutboxRules.REFUSED && !com.sunpride.van.ledger.StockProjection.reflected(acks[it.clientRequestId]?.serverTime,baselineAt)}.sortedBy {it.createdAt}.forEach {op->
             val p=JSONObject(op.operationJson).getJSONObject("payload")
             val code=p.getString("typeCode")
             val r=amounts.getOrPut(code) {JSONObject().put("typeCode",code).put("quantity",JSONObject.NULL)}

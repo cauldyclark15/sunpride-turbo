@@ -20,10 +20,10 @@ object NoTripMessage {
         val head = info?.vanLabel?.let { "$what for today on van $it." } ?: "$what for today."
         val name = info?.supervisorName; val phone = info?.supervisorPhone
         val boss = when {
-            name != null && phone != null -> "Your supervisor is $name ($phone)."
-            name != null -> "Your supervisor is $name."
-            phone != null -> "Your supervisor's number is $phone."
-            else -> "Ask your supervisor."
+            name != null && phone != null -> "Call $name ($phone)."
+            name != null -> "Call $name."
+            phone != null -> "Call $phone."
+            else -> "Call the office."
         }
         return "$head $boss ${lastSynced(lastSyncAt,now,zone)}"
     }

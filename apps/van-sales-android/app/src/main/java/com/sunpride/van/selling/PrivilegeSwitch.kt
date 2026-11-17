@@ -27,10 +27,10 @@ object RefusedReceipt {
     fun spoiledNumber(result: org.json.JSONObject): String? =
         result.optJSONObject("spoiled")?.optString("documentNumber")?.takeIf { NUMBER.matches(it) }
     fun message(reference: String?, kind: String? = null): String = if (kind == "store.refund.part")
-        "The office refused credit memo ${reference ?: ""}. Its number is recorded as spoiled, so the next refund can go ahead. Take the refund cash back from the customer if you can; tell your supervisor."
+        "The office cancelled credit memo ${reference ?: ""}. Its number is recorded as spoiled, so the next refund can go ahead. Take the refund cash back from the customer if you can; tell the office."
     // r6van4: say what happened to the goods and the cash too: the phone already put the goods back in truck stock and
     // left the cash out of the expected cash, exactly as the office has them.
-    else "The office refused ${reference ?: "this receipt"}. Its number is recorded as spoiled, so the next sale can go ahead. " +
+    else "The office cancelled ${reference ?: "this receipt"}. Its number is recorded as spoiled, so the next sale can go ahead. " +
         "Its goods are back in your truck stock and its cash is left out of your expected cash. Collect the receipt from the customer; " +
-        "give back their money and take back the goods, or ring the sale again on a new receipt. Tell your supervisor."
+        "give back their money and take back the goods, or ring the sale again on a new receipt. Tell the office."
 }

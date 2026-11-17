@@ -233,7 +233,7 @@ object VanRules {
     /** VAN-024 exception line shown before closing. */
     fun closeExceptionLabel(e: com.sunpride.van.pos.CloseException, currency: String = "PHP"): String = when (e.kind) {
         com.sunpride.van.pos.CloseExceptionKind.UNPRINTED_RECEIPTS -> "${e.amount} ${if (e.amount == 1L) "receipt" else "receipts"} not printed"
-        com.sunpride.van.pos.CloseExceptionKind.OFFICE_REFUSED -> "${e.amount} ${if (e.amount == 1L) "item" else "items"} refused by the office — tell your supervisor"
+        com.sunpride.van.pos.CloseExceptionKind.OFFICE_REFUSED -> "${e.amount} ${if (e.amount == 1L) "item" else "items"} with the office"
         com.sunpride.van.pos.CloseExceptionKind.CASH_DIFFERENCE -> "Cash ${varianceLabel(e.amount,currency)}"
         com.sunpride.van.pos.CloseExceptionKind.STOCK_DIFFERENCE -> "Stock count: ${e.amount} ${if (e.amount == 1L) "line" else "lines"} differed"
     }

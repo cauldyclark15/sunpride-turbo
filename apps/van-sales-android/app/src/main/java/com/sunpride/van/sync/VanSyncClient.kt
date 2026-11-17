@@ -178,7 +178,8 @@ object V2VanCodec {
                 if (it.isNull("movementId")) null else it.getString("movementId"),it.getLong("serverTime")) } else null
             PushResult(op.getString("opType"),op.getString("clientOpId"),if (accepted) "accepted" else if (r.optString("code") == "idempotency_conflict") "conflict" else "rejected",
                 ack,if (accepted) null else r.optString("code").takeIf { Regex("[a-z_]{1,64}").matches(it) } ?: "unsupported_operation",
-                spoiledNumber = if (accepted) null else com.sunpride.van.selling.RefusedReceipt.spoiledNumber(r))
+                spoiledNumber = if (accepted) null else com.sunpride.van.selling.RefusedReceipt.spoiledNumber(r),
+                kept = !accepted && r.optBoolean("kept",false))
         }
     }
     fun snapshot(o: JSONObject, identity: NativeIdentity, now: Long): JSONObject {

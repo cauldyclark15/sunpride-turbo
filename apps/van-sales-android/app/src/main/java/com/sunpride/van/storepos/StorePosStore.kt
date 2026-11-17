@@ -83,7 +83,7 @@ class StorePosStore(private val store: RoomVanStore) {
         fun zClosedToday(config: StorePosConfig,rows: List<OutboxRow>,now: Long): Boolean {
             val zone=java.time.ZoneId.of("Asia/Manila")
             val day=java.time.Instant.ofEpochMilli(now).atZone(zone).toLocalDate().toString()
-            val localZ=onRegister(config,rows).any {it.kind=="store.read" && it.status !in setOf("rejected","conflict","parked") && JSONObject(it.operationJson).getJSONObject("payload").let {p->p.optString("kind")=="z"&&java.time.Instant.ofEpochMilli(p.getLong("deviceTime")).atZone(zone).toLocalDate().toString()==day}}
+            val localZ=onRegister(config,rows).any {it.kind=="store.read" && it.status !in (com.sunpride.van.storage.OutboxRules.REFUSED + "parked") && JSONObject(it.operationJson).getJSONObject("payload").let {p->p.optString("kind")=="z"&&java.time.Instant.ofEpochMilli(p.getLong("deviceTime")).atZone(zone).toLocalDate().toString()==day}}
             val remoteZ=StoreCheckout.objects(config.details.optJSONArray("reads")).any {it.getString("kind")=="z"&&it.getJSONObject("snapshot").getString("date")==day}
             return localZ||remoteZ
         }
@@ -92,12 +92,12 @@ class StorePosStore(private val store: RoomVanStore) {
             val relevant=all.filter {JSONObject(it.operationJson).getJSONObject("payload").optString("modeVersionId")==config?.modeVersionId}
             var shift=config?.shift
             for(row in relevant.filter {it.createdAt>=(config?.shift?.openedAt?:0) && it.createdAt>(config?.details?.optLong("closedThrough",0)?:0)}.sortedWith(compareBy<OutboxRow>{it.createdAt}.thenBy{it.clientRequestId})) {
-                if(row.status in setOf("rejected","conflict","parked")) continue
+                if(row.status in (com.sunpride.van.storage.OutboxRules.REFUSED + "parked")) continue
                 val p=JSONObject(row.operationJson).getJSONObject("payload")
                 if(row.kind=="store.shift.open") shift=CashierShift(p.getString("shiftId"),p.getLong("deviceTime"),row.clientRequestId)
                 else if(row.kind=="store.shift.close" && shift?.shiftId==p.getString("shiftId")) shift=null
             }
-            return StorePosState(config,shift,all.count {it.status in setOf("pending","sending")},all.count {it.status in setOf("rejected","conflict")},rows)
+            return StorePosState(config,shift,all.count {it.status in setOf("pending","sending")},all.count {it.status in com.sunpride.van.storage.OutboxRules.REFUSED},rows)
         }
     }
 }

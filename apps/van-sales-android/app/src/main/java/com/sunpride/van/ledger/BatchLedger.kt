@@ -41,7 +41,7 @@ class BatchLedger(private val store: RoomVanStore) {
         val loads=snapshot.optJSONArray("loadLots")?.let(VanBootstrapCodec::objects)?:emptyList()
         val baselineAt=dao.meta(s,d)?.lastBootstrapTime?:0
         val acks=dao.ackRows(s,d).associateBy { it.clientRequestId }
-        val ops=dao.outboxRows(s,d).filter { it.tripId==t.tripId && it.status !in setOf("rejected","conflict") }.sortedBy { it.createdAt }
+        val ops=dao.outboxRows(s,d).filter { it.tripId==t.tripId && it.status !in com.sunpride.van.storage.OutboxRules.REFUSED }.sortedBy { it.createdAt }
         fun delta(batch: BatchPosition,qty: Long) {
             val key=batch.lotId to batch.status
             val old=amounts[key]?:batch.copy(quantityBase=0)
