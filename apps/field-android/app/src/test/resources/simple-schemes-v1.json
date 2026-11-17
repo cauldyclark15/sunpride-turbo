@@ -1,0 +1,369 @@
+{
+  "at": 1792540800000,
+  "outletId": "00000000-0000-4000-8000-000000000201",
+  "priceListId": "SAMPLE-BOOK",
+  "products": [
+    {
+      "productId": "00000000-0000-4000-8000-000000000101",
+      "code": "SAMPLE-A",
+      "name": "SAMPLE A",
+      "unitPriceMinor": "101"
+    },
+    {
+      "productId": "00000000-0000-4000-8000-000000000102",
+      "code": "SAMPLE-B",
+      "name": "SAMPLE B",
+      "unitPriceMinor": "202"
+    }
+  ],
+  "cases": [
+    {
+      "name": "residual stacking and manual basket",
+      "promotions": [
+        {
+          "promotionId": "bd7aa709-7731-4e27-8465-4dfcf35f62ef",
+          "code": "SAMPLE-EXCLUSIVE",
+          "name": "SAMPLE SAMPLE-EXCLUSIVE",
+          "priceListId": null,
+          "effectiveFrom": 1767225600000,
+          "effectiveTo": null,
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "00000000-0000-4000-8000-000000000101",
+              "uomCode": "EA",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 9000
+          },
+          "engineVersion": 1,
+          "precedence": 30,
+          "stacking": "exclusive",
+          "exclusionGroup": null,
+          "excludes": [],
+          "outletIds": ["00000000-0000-4000-8000-000000000201"]
+        },
+        {
+          "promotionId": "c944f169-6262-4572-bba8-b6cbd1377972",
+          "code": "SAMPLE-P2",
+          "name": "SAMPLE SAMPLE-P2",
+          "priceListId": null,
+          "effectiveFrom": 1767225600000,
+          "effectiveTo": null,
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "00000000-0000-4000-8000-000000000101",
+              "uomCode": "EA",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 1000
+          },
+          "engineVersion": 1,
+          "precedence": 20,
+          "stacking": "stackable",
+          "exclusionGroup": null,
+          "excludes": [],
+          "outletIds": ["00000000-0000-4000-8000-000000000201"]
+        },
+        {
+          "promotionId": "77f3eeb4-1c0a-47a6-bb39-273bc4dfb079",
+          "code": "SAMPLE-P1",
+          "name": "SAMPLE SAMPLE-P1",
+          "priceListId": null,
+          "effectiveFrom": 1767225600000,
+          "effectiveTo": null,
+          "rule": {
+            "kind": "percent_off",
+            "item": {
+              "productId": "00000000-0000-4000-8000-000000000101",
+              "uomCode": "EA",
+              "quantity": 1
+            },
+            "percentOffBasisPoints": 5000
+          },
+          "engineVersion": 1,
+          "precedence": 10,
+          "stacking": "stackable",
+          "exclusionGroup": null,
+          "excludes": [],
+          "outletIds": ["00000000-0000-4000-8000-000000000201"]
+        }
+      ],
+      "basketMinor": 3,
+      "cart": [
+        {
+          "productId": "00000000-0000-4000-8000-000000000101",
+          "quantityBase": "1"
+        }
+      ],
+      "lines": [
+        {
+          "productId": "00000000-0000-4000-8000-000000000101",
+          "uomCode": "EA",
+          "quantityScale": "1",
+          "quantityBase": "1",
+          "paidBase": "1",
+          "freeBase": "0",
+          "unitPriceMinor": "101",
+          "grossMinor": "101",
+          "discountMinor": "59",
+          "totalMinor": "42",
+          "priceListId": "SAMPLE-BOOK",
+          "promotion": {
+            "promotionId": "c944f169-6262-4572-bba8-b6cbd1377972",
+            "code": "SAMPLE-P2",
+            "name": "SAMPLE SAMPLE-P2",
+            "kind": "percent_off"
+          },
+          "schemeDiscountMinor": "56"
+        }
+      ],
+      "expected": [
+        {
+          "productId": "00000000-0000-4000-8000-000000000101",
+          "quantityBase": "1",
+          "paidBase": "1",
+          "freeBase": "0",
+          "unitPriceMinor": "101",
+          "grossMinor": "101",
+          "discountMinor": "59",
+          "totalMinor": "42",
+          "promotion": {
+            "promotionId": "c944f169-6262-4572-bba8-b6cbd1377972",
+            "code": "SAMPLE-P2",
+            "name": "SAMPLE SAMPLE-P2",
+            "kind": "percent_off"
+          }
+        }
+      ]
+    },
+    {
+      "name": "bundle and manual basket",
+      "promotions": [
+        {
+          "promotionId": "8bb4b069-52d6-49ae-9f10-f2433ad2aeeb",
+          "code": "SAMPLE-BUNDLE",
+          "name": "SAMPLE SAMPLE-BUNDLE",
+          "priceListId": null,
+          "effectiveFrom": 1767225600000,
+          "effectiveTo": null,
+          "rule": {
+            "kind": "bundle",
+            "components": [
+              {
+                "productId": "00000000-0000-4000-8000-000000000101",
+                "uomCode": "EA",
+                "quantity": 1
+              },
+              {
+                "productId": "00000000-0000-4000-8000-000000000102",
+                "uomCode": "EA",
+                "quantity": 1
+              }
+            ],
+            "bundlePriceMinor": "200"
+          },
+          "engineVersion": 1,
+          "precedence": 100,
+          "stacking": "exclusive",
+          "exclusionGroup": null,
+          "excludes": [],
+          "outletIds": ["00000000-0000-4000-8000-000000000201"]
+        }
+      ],
+      "basketMinor": 5,
+      "cart": [
+        {
+          "productId": "00000000-0000-4000-8000-000000000101",
+          "quantityBase": "1"
+        },
+        {
+          "productId": "00000000-0000-4000-8000-000000000102",
+          "quantityBase": "1"
+        }
+      ],
+      "lines": [
+        {
+          "productId": "00000000-0000-4000-8000-000000000101",
+          "uomCode": "EA",
+          "quantityScale": "1",
+          "quantityBase": "1",
+          "paidBase": "1",
+          "freeBase": "0",
+          "unitPriceMinor": "101",
+          "grossMinor": "101",
+          "discountMinor": "37",
+          "totalMinor": "64",
+          "priceListId": "SAMPLE-BOOK",
+          "promotion": {
+            "promotionId": "8bb4b069-52d6-49ae-9f10-f2433ad2aeeb",
+            "code": "SAMPLE-BUNDLE",
+            "name": "SAMPLE SAMPLE-BUNDLE",
+            "kind": "bundle"
+          },
+          "schemeDiscountMinor": "35"
+        },
+        {
+          "productId": "00000000-0000-4000-8000-000000000102",
+          "uomCode": "EA",
+          "quantityScale": "1",
+          "quantityBase": "1",
+          "paidBase": "1",
+          "freeBase": "0",
+          "unitPriceMinor": "202",
+          "grossMinor": "202",
+          "discountMinor": "71",
+          "totalMinor": "131",
+          "priceListId": "SAMPLE-BOOK",
+          "promotion": {
+            "promotionId": "8bb4b069-52d6-49ae-9f10-f2433ad2aeeb",
+            "code": "SAMPLE-BUNDLE",
+            "name": "SAMPLE SAMPLE-BUNDLE",
+            "kind": "bundle"
+          },
+          "schemeDiscountMinor": "68"
+        }
+      ],
+      "expected": [
+        {
+          "productId": "00000000-0000-4000-8000-000000000101",
+          "quantityBase": "1",
+          "paidBase": "1",
+          "freeBase": "0",
+          "unitPriceMinor": "101",
+          "grossMinor": "101",
+          "discountMinor": "37",
+          "totalMinor": "64",
+          "promotion": {
+            "promotionId": "8bb4b069-52d6-49ae-9f10-f2433ad2aeeb",
+            "code": "SAMPLE-BUNDLE",
+            "name": "SAMPLE SAMPLE-BUNDLE",
+            "kind": "bundle"
+          }
+        },
+        {
+          "productId": "00000000-0000-4000-8000-000000000102",
+          "quantityBase": "1",
+          "paidBase": "1",
+          "freeBase": "0",
+          "unitPriceMinor": "202",
+          "grossMinor": "202",
+          "discountMinor": "71",
+          "totalMinor": "131",
+          "promotion": {
+            "promotionId": "8bb4b069-52d6-49ae-9f10-f2433ad2aeeb",
+            "code": "SAMPLE-BUNDLE",
+            "name": "SAMPLE SAMPLE-BUNDLE",
+            "kind": "bundle"
+          }
+        }
+      ]
+    },
+    {
+      "name": "free stock item",
+      "promotions": [
+        {
+          "promotionId": "52966af9-bbf3-4f11-b43f-426d7d41eec1",
+          "code": "SAMPLE-GIFT",
+          "name": "SAMPLE SAMPLE-GIFT",
+          "priceListId": null,
+          "effectiveFrom": 1767225600000,
+          "effectiveTo": null,
+          "rule": {
+            "kind": "buy_x_get_y",
+            "buy": {
+              "productId": "00000000-0000-4000-8000-000000000101",
+              "uomCode": "EA",
+              "quantity": 2
+            },
+            "free": {
+              "productId": "00000000-0000-4000-8000-000000000102",
+              "uomCode": "EA",
+              "quantity": 1
+            }
+          },
+          "engineVersion": 1,
+          "precedence": 100,
+          "stacking": "exclusive",
+          "exclusionGroup": null,
+          "excludes": [],
+          "outletIds": ["00000000-0000-4000-8000-000000000201"]
+        }
+      ],
+      "basketMinor": 0,
+      "cart": [
+        {
+          "productId": "00000000-0000-4000-8000-000000000101",
+          "quantityBase": "4"
+        }
+      ],
+      "lines": [
+        {
+          "productId": "00000000-0000-4000-8000-000000000101",
+          "uomCode": "EA",
+          "quantityScale": "1",
+          "quantityBase": "4",
+          "paidBase": "4",
+          "freeBase": "0",
+          "unitPriceMinor": "101",
+          "grossMinor": "404",
+          "discountMinor": "0",
+          "totalMinor": "404",
+          "priceListId": "SAMPLE-BOOK",
+          "promotion": null,
+          "schemeDiscountMinor": "0"
+        },
+        {
+          "productId": "00000000-0000-4000-8000-000000000102",
+          "uomCode": "EA",
+          "quantityScale": "1",
+          "quantityBase": "2",
+          "paidBase": "0",
+          "freeBase": "2",
+          "unitPriceMinor": "202",
+          "grossMinor": "0",
+          "discountMinor": "0",
+          "totalMinor": "0",
+          "priceListId": "SAMPLE-BOOK",
+          "promotion": {
+            "promotionId": "52966af9-bbf3-4f11-b43f-426d7d41eec1",
+            "code": "SAMPLE-GIFT",
+            "name": "SAMPLE SAMPLE-GIFT",
+            "kind": "buy_x_get_y"
+          },
+          "schemeDiscountMinor": "0"
+        }
+      ],
+      "expected": [
+        {
+          "productId": "00000000-0000-4000-8000-000000000101",
+          "quantityBase": "4",
+          "paidBase": "4",
+          "freeBase": "0",
+          "unitPriceMinor": "101",
+          "grossMinor": "404",
+          "discountMinor": "0",
+          "totalMinor": "404",
+          "promotion": null
+        },
+        {
+          "productId": "00000000-0000-4000-8000-000000000102",
+          "quantityBase": "2",
+          "paidBase": "0",
+          "freeBase": "2",
+          "unitPriceMinor": "202",
+          "grossMinor": "0",
+          "discountMinor": "0",
+          "totalMinor": "0",
+          "promotion": {
+            "promotionId": "52966af9-bbf3-4f11-b43f-426d7d41eec1",
+            "code": "SAMPLE-GIFT",
+            "name": "SAMPLE SAMPLE-GIFT",
+            "kind": "buy_x_get_y"
+          }
+        }
+      ]
+    }
+  ]
+}

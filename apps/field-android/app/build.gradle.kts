@@ -50,7 +50,7 @@ android {
         versionName = "0.1.0"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
-    buildFeatures { compose = true; buildConfig = true }
+    buildFeatures { compose = true; buildConfig = true; aidl = true } // SP-0192: Senraise H10 printer service (Sell area)
     flavorDimensions += "environment"
     productFlavors {
         listOf("dev", "staging", "prod").forEach { name ->

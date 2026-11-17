@@ -1,0 +1,3 @@
+# Existing New/Create/Manage literals copied from the Van app (see ButtonLabelLintTest). Only ever remove lines.
+java/com/sunpride/field/sell/ui/SellingCheckout.kt|New sale
+java/com/sunpride/field/sell/ui/TripScreens.kt|New sale

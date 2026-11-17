@@ -23,9 +23,13 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
-/** The five places a seller works from. Every screen of the app belongs to one of them. */
+/**
+ * The places a seller works from. Every screen of the app belongs to one of them. [SELL] (SP-0192) is on the bar only for a
+ * person whose Selling the office switched on; everyone else keeps exactly the five below.
+ */
 enum class FieldTab(val page: String, val label: String, val glyph: GlyphKind, val tag: String) {
     TODAY("home", "Today", GlyphKind.TODAY, "nav-today"),
+    SELL("sell", "Sell", GlyphKind.CASH, "nav-sell"),
     ROUTE("route", "Route", GlyphKind.ROUTE, "nav-route"),
     STORES("customers", "Customers", GlyphKind.STORE, "nav-stores"),
     MESSAGES("messages", "Messages", GlyphKind.CHAT, "nav-messages"),
@@ -33,9 +37,15 @@ enum class FieldTab(val page: String, val label: String, val glyph: GlyphKind, v
 }
 
 object FieldNav {
+    /** SP-0192: the bar's places. Sell (right after Today) only when the office switched Selling on for this person. */
+    fun tabs(selling: Boolean): List<FieldTab> = if (selling) FieldTab.entries else FieldTab.entries - FieldTab.SELL
     /** Largest text scale the bottom bar's labels use; five labels must fit side by side on a 360 dp phone. */
     const val MAX_BAR_LABEL_SCALE = 1.0f
     fun barLabelFontScale(system: Float): Float = minOf(system, MAX_BAR_LABEL_SCALE)
+    /** SP-0192: six places (Sell on) share the same width, so their labels are a little smaller to stay whole. */
+    const val MAX_SIX_TAB_LABEL_SCALE = 0.85f
+    fun barLabelFontScale(system: Float, tabCount: Int): Float =
+        if (tabCount > 5) minOf(system, MAX_SIX_TAB_LABEL_SCALE) else barLabelFontScale(system)
     /** Pages that are the root of a tab: no Back arrow, system Back returns to Today. */
     val tabRoots: Set<String> = FieldTab.entries.map { it.page }.toSet()
 
@@ -55,6 +65,7 @@ object FieldNav {
     /** The tab a page belongs to (drill-down pages keep their parent tab selected). */
     fun tabOf(page: String): FieldTab = when (page) {
         "home" -> FieldTab.TODAY
+        "sell" -> FieldTab.SELL
         "route" -> FieldTab.ROUTE
         "customers", "customer" -> FieldTab.STORES
         "messages" -> FieldTab.MESSAGES
@@ -86,11 +97,12 @@ object FieldNav {
  * the unread count. White like the sheet, with a hairline on top, so it reads as part of the page.
  */
 @Composable
-fun FieldBottomBar(selected: FieldTab, unread: Int, onSelect: (FieldTab) -> Unit, modifier: Modifier = Modifier) {
+fun FieldBottomBar(selected: FieldTab, unread: Int, onSelect: (FieldTab) -> Unit, modifier: Modifier = Modifier,
+    tabs: List<FieldTab> = FieldNav.tabs(selling = false)) {
     val line = Look.hairline
     NavigationBar(modifier.drawBehind { drawLine(line, Offset(0f, 0f), Offset(size.width, 0f), strokeWidth = 1.dp.toPx()) },
         containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp) {
-        FieldTab.entries.forEach { tab ->
+        tabs.forEach { tab ->
             val on = tab == selected
             NavigationBarItem(selected = on, onClick = { onSelect(tab) },
                 modifier = Modifier.testTag(tab.tag),
@@ -107,7 +119,7 @@ fun FieldBottomBar(selected: FieldTab, unread: Int, onSelect: (FieldTab) -> Unit
                     // the bar caps its own label scale so every label stays whole and readable.
                     val density = LocalDensity.current
                     CompositionLocalProvider(LocalDensity provides Density(density.density,
-                        FieldNav.barLabelFontScale(density.fontScale))) {
+                        FieldNav.barLabelFontScale(density.fontScale, tabs.size))) {
                         Text(tab.label, style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                     }
                 },

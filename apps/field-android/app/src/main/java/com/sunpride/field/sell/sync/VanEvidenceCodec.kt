@@ -1,0 +1,31 @@
+package com.sunpride.field.sell.sync
+
+import com.sunpride.field.sell.data.DamageRules
+import com.sunpride.field.device.hex
+import com.sunpride.field.device.sha256
+import com.sunpride.field.sell.evidence.DamagePhotoFiles
+import com.sunpride.field.sell.storage.OutboxRow
+import org.json.JSONObject
+import java.util.Base64
+
+fun damagePhotoSha(row: OutboxRow): String? {
+    if (row.kind !in setOf("truck.damage","call.step","delivery.confirm","store.deposit")) return null
+    val p=JSONObject(row.operationJson).getJSONObject("payload")
+    if (row.kind == "call.step" && p.optString("adapter") != "evidence") return null
+    return p.optString("photoSha256").takeIf { it.isNotEmpty() }
+}
+object VanEvidenceCodec {
+    fun request(deviceId: String, digest: String, jpeg: ByteArray): ByteArray {
+        require(DamageRules.SHA256.matches(digest) && jpeg.size <= 96_000 && DamagePhotoFiles.isJpeg(jpeg) && hex(sha256(jpeg)) == digest)
+        val o = JSONObject().put("type","van.evidence.request").put("contractVersion",1).put("deviceId",deviceId)
+            .put("contentType","image/jpeg").put("sha256",digest).put("dataBase64",Base64.getEncoder().encodeToString(jpeg))
+        VanWireSchema.validate(o)
+        return o.toString().toByteArray(Charsets.UTF_8).also { require(it.size < 128 * 1024) }
+    }
+    fun response(text: String, digest: String) {
+        try {
+            val o = JSONObject(text); VanWireSchema.validate(o)
+            require(o.getString("type") == "van.evidence.response" && o.getString("sha256") == digest && o.getString("status") == "stored")
+        } catch (_: Exception) { throw VanWireFailure() }
+    }
+}

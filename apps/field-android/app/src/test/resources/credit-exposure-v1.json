@@ -1,0 +1,48 @@
+{
+  "at": 1792568822028,
+  "outletId": "149eefd4-fa0b-4114-aabb-08091e89d997",
+  "frames": {
+    "fresh": {
+      "version": 1,
+      "customerCode": "SAMPLE-ACCOUNT",
+      "status": "within",
+      "freshness": "live",
+      "source": "sample",
+      "checkedAt": 1792568822028,
+      "expiresAt": 1792568942028,
+      "limitMinor": "10000",
+      "exposureMinor": "1000",
+      "availableMinor": "5000",
+      "offlineCeilingMinor": "5000",
+      "termsDays": 30
+    },
+    "stale": {
+      "version": 1,
+      "customerCode": "SAMPLE-ACCOUNT",
+      "status": "within",
+      "freshness": "stale",
+      "source": "sample",
+      "checkedAt": 1792568822028,
+      "expiresAt": 1792568942028,
+      "limitMinor": "10000",
+      "exposureMinor": "1000",
+      "availableMinor": null,
+      "offlineCeilingMinor": "5000",
+      "termsDays": 30
+    },
+    "unknown": {
+      "version": 1,
+      "customerCode": "SAMPLE-ACCOUNT",
+      "status": "unknown",
+      "freshness": "unknown",
+      "source": "sap",
+      "checkedAt": null,
+      "expiresAt": null,
+      "limitMinor": null,
+      "exposureMinor": null,
+      "availableMinor": null,
+      "offlineCeilingMinor": "5000",
+      "termsDays": 30
+    }
+  }
+}

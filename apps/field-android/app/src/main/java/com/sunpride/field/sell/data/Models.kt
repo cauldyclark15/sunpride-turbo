@@ -1,0 +1,169 @@
+package com.sunpride.field.sell.data
+
+import java.math.BigDecimal
+
+/** [paymentMethods]: VAN-012 methods the office allows; a cache or server without the list allows cash only. */
+data class VanPolicy(val allowNegativeStock: Boolean = false,
+    val loadDiscrepancyRequiresApproval: Boolean = true, val walkInAllowed: Boolean = false,
+    val loadDiscrepancyReasons: List<String> = emptyList(), val damageReasons: List<String> = emptyList(),
+    val paymentMethods: List<PaymentMethod> = PaymentMethod.CASH_ONLY, val damagePolicy: DamagePolicy? = null,
+    val voidReasons: List<String> = emptyList(), val voidApproval: VoidApproval? = null,
+    val cashReconciliation: CashReconciliationPolicy? = null,
+    val stockReconciliation: StockReconciliationPolicy? = null,
+    val tripClose: TripClosePolicy? = null, val operationsVersion: Int = 0, val fiscalJson:String? = null,val schemesJson:String? = null,
+    /** IP-P0: who and which van this handheld belongs to, for the "No trip" screen. Absent until the office sends it. */
+    val handheld: HandheldInfo? = null,
+    /** IP-HH2: the van day (opt-in `params.vanDay`): the truck this phone belongs to, the crew, the planned load to accept. Null on an older server. */
+    val vanDay: com.sunpride.field.sell.vanday.VanDayInfo? = null,
+    /** IP-HH2: the office's server accepts a sale paid with two tenders (`payment.parts`); until it says so the van offers one tender only. */
+    val splitTender: Boolean = false,
+    /** IP-REFUND: refund reasons, supervisor amount and refunds already made (opt-in `params.refunds`); null on an older server. */
+    val refunds: com.sunpride.field.sell.pos.RefundPolicy? = null,
+    /** IP-SCPWD-CAP: the senior/PWD weekly limit and each card's use this week (opt-in `params.privilegeCap`); null = no limit known. */
+    val privilegeCap: com.sunpride.field.sell.selling.PrivilegeCapInfo? = null,
+    /** SP-0169: the office's Senior/PWD switch for this route or till (opt-in `params.privilegeSwitch`); null = not said (older server). */
+    val privilegeDiscount: Boolean? = null,
+    /** r6van3: the office's decision per held return id (opt-in `params.pickupDecisions`); null on an older server. */
+    val pickupDecisions: Map<String, com.sunpride.field.sell.pos.PickupDecision>? = null)
+/** IP-P0 (SPEC 5.3): the van this handheld is bound to and the supervisor to call; every part is optional. */
+data class HandheldInfo(val vehicleCode: String? = null, val plateNumber: String? = null, val supervisorName: String? = null, val supervisorPhone: String? = null,
+    /** VAN-014: who can decide this trip's load difference (an in-scope approver; null = "your supervisor"). */
+    val loadApproverName: String? = null) {
+    /** "ABC-1234" when the plate is known, else the van code. */
+    val vanLabel: String? get() = plateNumber?.takeIf { it.isNotBlank() } ?: vehicleCode?.takeIf { it.isNotBlank() }
+}
+/**
+ * VAN-024 what must be done before the seller closes the trip on this phone. A policy cached before VAN-024 has
+ * none and then [STRICT] applies: every check on.
+ */
+data class TripClosePolicy(val requireCashCount: Boolean, val requireStockCount: Boolean, val requireUploadsSent: Boolean,
+    val exceptionsNeedReview: Boolean) {
+    companion object { val STRICT = TripClosePolicy(true,true,true,true) }
+}
+data class VoidApproval(val required: Boolean, val thresholdMinor: Long, val key: String?)
+/**
+ * VAN-022 end-of-trip cash count: any difference needs one of [reasons]; when [approvalRequired] a difference of more
+ * than [toleranceMinor] either way also needs a supervisor code checked with the trip [key] (null = not available).
+ * A policy cached before VAN-022 has none, and then every difference needs a code that cannot be checked.
+ */
+data class CashReconciliationPolicy(val approvalRequired: Boolean, val toleranceMinor: Long, val reasons: List<String>, val key: String?)
+/** VAN-023 end-of-trip stock count policy. A missing policy is treated as approval-required fail closed. */
+data class StockReconciliationPolicy(val approvalRequired: Boolean, val reasons: List<String>, val key: String?)
+/** How a payment settles: [CASH] gives change, [OTHER] (check, e-wallet, bank) equals the total, [CREDIT] charges the account. */
+enum class PaymentKind(val wire: String) { CASH("cash"), CREDIT("credit"), OTHER("other");
+    companion object { fun of(wire: String) = entries.single { it.wire == wire } } }
+/** VAN-012: one office-configured payment method; [referenceLabel] names the number to type (e.g. "Check number"). */
+data class PaymentMethod(val code: String, val label: String, val kind: PaymentKind, val referenceRequired: Boolean, val referenceLabel: String?) {
+    companion object {
+        val CASH = PaymentMethod("cash","Cash",PaymentKind.CASH,false,null)
+        val CASH_ONLY = listOf(CASH)
+    }
+}
+/** VAN-012 office credit terms for one customer: days until due and credit available as of the bootstrap, in centavos. */
+data class CustomerCredit(val termsDays: Int, val availableMinor: Long)
+data class Seller(val profileId: String, val name: String)
+data class Vehicle(val vehicleId: String, val vehicleCode: String, val plateNumber: String, val name: String?)
+data class Route(val routeId: String, val code: String, val name: String)
+data class Trip(val tripId: String, val tripNumber: String, val status: String, val serviceDate: String,
+    val vehicle: Vehicle?, val route: Route?, val driverName: String?, val helperName: String?,
+    val truckLocationId: String, val routeSessionId: String?, val startedAt: Long?,
+    val startPending: Boolean = false,
+    /** IP-P0: the cash the seller started the trip with, as the office has it (null from an older server). */
+    val openingFloatCentavos: Long? = null) {
+    val statusLabel: String get() = if (startPending) "Starting… waiting for sync" else status
+}
+data class LoadLine(val lineNumber: Int, val productId: String, val productCode: String,
+    val productName: String, val uomCode: String, val quantityScale: Long, val lotNumber: String?,
+    val expectedBase: Long, val actualBase: Long?, val discrepancyReason: String?,
+    val pendingActualBase: Long? = null, val pendingReason: String? = null)
+data class Load(val loadId: String, val status: String, val lines: List<LoadLine>, val confirmPending: Boolean = false,
+    /** IP-P0: the count the office last saw, and why it sent that count back for a recount (null when it did not). */
+    val confirmRequestId: String? = null, val rejectionNote: String? = null)
+/**
+ * VAN-009: the unit one barcode scans into. [baseQuantity] is the base quantity of ONE scan
+ * (e.g. a 24-piece case = 24 × quantityScale); null when the office has no exact conversion, so
+ * the handheld names the unit but never guesses a quantity.
+ */
+data class BarcodeUnit(val barcode: String, val uomCode: String, val baseQuantity: Long?)
+data class Product(val productId: String, val code: String, val name: String, val uomCode: String,
+    val quantityScale: Long, val barcodes: List<String>, val barcodeUnits: List<BarcodeUnit> = emptyList(),
+    val catalogue: com.sunpride.catalogue.CatalogueDetails? = null,
+    /** IP-HH1: the office's category when the bootstrap carries one (optional); the grid falls back to the first word of the name. */
+    val category: String? = null) {
+    fun displayQuantity(base: Long): String = BigDecimal.valueOf(base).divide(BigDecimal.valueOf(quantityScale),java.math.MathContext.DECIMAL128).stripTrailingZeros().toPlainString()
+}
+/**
+ * Whether the bootstrap explicitly governed a customer's price list.  [LEGACY] means the field was absent
+ * (older snapshots keep the historical "any shipped line" behaviour); [NONE] means it was explicitly null and
+ * this customer must not be sold a governed price; [GOVERNED] carries [Customer.priceListId].
+ */
+enum class CustomerPriceListMode { LEGACY, NONE, GOVERNED }
+data class Customer(val outletId: String, val code: String, val name: String, val address: String?,
+    val sequence: Int?, val source: String, val reason: String? = null, val localOnly: Boolean = false,
+    val credit: CustomerCredit? = null, val priceListId: String? = null,
+    val priceListMode: CustomerPriceListMode = if (priceListId == null) CustomerPriceListMode.LEGACY else CustomerPriceListMode.GOVERNED)
+data class TruckStock(val productId: String, val availableBase: Long, val damagedBase: Long)
+/** A governed price-list line cached from the server bootstrap (minor currency units, ADR-008). */
+data class PriceLine(val priceListId: String, val productId: String, val uomCode: String, val unitPriceMinor: Long,
+    val currency: String, val effectiveFrom: Long, val effectiveTo: Long?, val priceListCode: String? = null)
+
+/** A whole product-UOM quantity used by a governed promotion. */
+data class PromotionUnit(val productId: String, val uomCode: String, val quantity: Int)
+
+/** The three promotion rules supported by the offline handheld. */
+sealed class PromotionRule {
+    data class BuyXGetY(val buy: PromotionUnit, val free: PromotionUnit) : PromotionRule()
+    data class PercentOff(val item: PromotionUnit, val percentOffBasisPoints: Int) : PromotionRule()
+    data class Bundle(val components: List<PromotionUnit>, val bundlePriceMinor: Long) : PromotionRule()
+}
+
+/** A server-governed, effective-dated promotion frozen in the bootstrap. */
+data class Promotion(val promotionId: String, val code: String, val name: String, val priceListId: String?,
+    val effectiveFrom: Long, val effectiveTo: Long?, val rule: PromotionRule,
+    val engineVersion:Int=0,val precedence:Int=100,val stacking:String="exclusive",val exclusionGroup:String?=null,
+    val excludes:List<String> = emptyList(),val outletIds:List<String>?=null) {
+    val kind: String get() = when (rule) {
+        is PromotionRule.BuyXGetY -> "buy_x_get_y"
+        is PromotionRule.PercentOff -> "percent_off"
+        is PromotionRule.Bundle -> "bundle"
+    }
+}
+
+data class VanBootstrap(val serverTime: Long, val serviceDate: String, val seller: Seller, val policy: VanPolicy,
+    val trip: Trip?, val load: Load?, val truckStock: List<TruckStock>, val products: List<Product>, val customers: List<Customer>,
+    val priceLines: List<PriceLine> = emptyList(), val damageRecords: List<DamageRecord> = emptyList(),
+    val promotions: List<Promotion> = emptyList(), val vanOpsJson: String? = null)
+data class LoadActual(val lineNumber: Int, val actualBase: Long, val reason: String? = null)
+/**
+ * [savedSales]: VAN-011 sales committed on this phone whose office upload is not available yet (parked, never sent);
+ * [savedReturns]: VAN-019 customer returns parked the same way.
+ * VAN-025: [phoneOnly] every parked row (sales, voids, returns, cash counts); [received] rows the office acknowledged;
+ * [sapPending] SAP-relevant rows (none is posted to SAP from the van this phase); [items] newest first, bounded.
+ */
+data class SyncStatus(val queued: Int = 0, val sending: Int = 0, val review: Int = 0,
+    val held: Int = 0, val lastSyncTime: Long? = null, val health: String = "never_synced", val savedSales: Int = 0, val savedReturns: Int = 0,
+    val phoneOnly: Int = 0, val received: Int = 0, val sapPending: Int = 0,
+    val items: List<com.sunpride.field.sell.sync.SyncItem> = emptyList())
+/** A completed van sale as saved on this phone (VAN-011). Money is in minor units of [currency]. */
+data class SaleReceiptLine(val lineNumber: Int, val productId: String, val name: String, val uomCode: String,
+    val quantityLabel: String, val unitPriceMinor: Long, val totalMinor: Long, val freeBase: Long = 0L,
+    val discountMinor: Long = 0L, val promotionCode: String? = null, val priceListCode: String? = null,
+    val freeQuantityLabel: String? = null)
+/**
+ * [paymentStatus] is separate from the sale's posting state: `paid` (cash), `awaiting_confirmation` (check, e-wallet,
+ * bank: the office confirms the reference) or `on_account` (credit, due on [dueDate]). The sale itself is saved on
+ * this phone whatever the payment state.
+ */
+data class SaleReceipt(val saleId: String, val receiptNumber: String, val customerName: String, val lines: List<SaleReceiptLine>,
+    val currency: String, val totalMinor: Long, val tenderedMinor: Long, val changeMinor: Long, val createdAt: Long, val replay: Boolean = false,
+    val paymentMethod: String = "cash", val paymentLabel: String = "Cash", val paymentKind: PaymentKind = PaymentKind.CASH,
+    val paymentStatus: String = "paid", val reference: String? = null, val dueDate: String? = null,
+    /** F-108 immutable fiscal/tax/registration snapshot. Null only on legacy operational receipts. */
+    val fiscalJson: String? = null)
+data class PushAck(val entityId: String, val movementId: String?, val serverTime: Long)
+data class PushResult(val kind: String, val clientRequestId: String, val status: String,
+    val ack: PushAck? = null, val code: String? = null,
+    /** SP-0169: the office recorded this refused document's number as spoiled. */
+    val spoiledNumber: String? = null,
+    /** SP-0190: the office kept a full copy of this refused op (`kept: true`); the phone lets go of it. */
+    val kept: Boolean = false)

@@ -1,0 +1,374 @@
+package com.sunpride.field.sell.sync
+
+import com.sunpride.field.sell.data.*
+import org.json.JSONArray
+import org.json.JSONObject
+import org.junit.Assert.*
+import org.junit.Test
+
+class VanBootstrapCodecTest {
+    @Test fun tripStartFactsAreAnExtensionNotAFrozenV1Key() {
+        val o = JSONObject(fixture())
+        o.getJSONObject("policy").put("tripFacts", JSONObject().put("startOdometerKm", 48210))
+        assertNotNull(VanBootstrapCodec.decode(o.toString()))
+        assertEquals(48210.0, com.sunpride.field.sell.pos.TripCloseRules.startFromPolicy(o.getJSONObject("policy"))!!, 0.0)
+    }
+
+    private fun fixture(name: String = "bootstrap-response.json") = com.sunpride.field.sell.VanFixtures.stream(name).bufferedReader().use { it.readText() }
+    private fun jsonValue(value: Any): Any = when (value) {
+        is JSONObject -> value.keys().asSequence().associateWith { jsonValue(value.get(it)) }
+        is JSONArray -> (0 until value.length()).map { jsonValue(value.get(it)) }
+        else -> value
+    }
+    @Test fun frozenBootstrapIncludesTypedTripProductsCustomersAndPolicy() {
+        val b = VanBootstrapCodec.decode(fixture())
+        assertEquals("2026-10-07",b.serviceDate); assertEquals("loading",b.trip!!.status)
+        assertEquals(48L,b.load!!.lines.first().expectedBase); assertNull(b.load.lines.first().actualBase)
+        assertFalse(b.policy.allowNegativeStock); assertTrue(b.policy.walkInAllowed)
+        assertEquals(listOf("4800000000017","14800000000016"),b.products.first().barcodes)
+        assertEquals(listOf(BarcodeUnit("4800000000017","PC",1),BarcodeUnit("14800000000016","CS",24)),b.products.first().barcodeUnits)
+        assertTrue("barcodeUnits is optional",b.products.last().barcodeUnits.isEmpty())
+        assertEquals(3,b.customers.size); assertEquals("unplanned",b.customers.last().source)
+        // VAN-012: office payment methods and per-customer credit terms.
+        assertEquals(listOf("cash","check","gcash","bank_transfer","credit"),b.policy.paymentMethods.map { it.code })
+        assertEquals(PaymentMethod("check","Check",PaymentKind.OTHER,true,"Check number"),b.policy.paymentMethods[1])
+        assertEquals(CustomerCredit(30,500_000),b.customers[0].credit); assertNull(b.customers[1].credit); assertNull(b.customers[2].credit)
+    }
+    @Test fun frozenDamagePolicyHistoryAndEvidenceEnvelopesDecode() {
+        val b = VanBootstrapCodec.decode(fixture())
+        assertEquals(DamagePolicy(listOf("crushed","leaking","spoiled","other"),12,90_000),b.policy.damagePolicy)
+        val record = b.damageRecords.single()
+        assertEquals("recorded",record.status); assertEquals(2L,record.quantityBase); assertNull(record.decisionNote)
+        assertEquals("PC",record.uomCode); assertEquals(1L,record.quantityScale); assertEquals("2 PC",record.quantityLabel)
+        // Release-check counterexample: the product's unit later changes; history keeps the recorded unit.
+        val renewed = JSONObject(fixture())
+        VanBootstrapCodec.objects(renewed.getJSONArray("products")).first().put("uomCode","EACH").put("quantityScale","1000")
+        renewed.getJSONArray("damageRecords").getJSONObject(0).put("uomCode","CASE").put("quantityScale","1000").put("quantityBase","12000")
+        assertEquals("12 CASE",VanBootstrapCodec.decode(renewed.toString()).damageRecords.single().quantityLabel)
+        // A record without its frozen unit is not accepted.
+        val unfrozen = JSONObject(fixture()); unfrozen.getJSONArray("damageRecords").getJSONObject(0).remove("uomCode")
+        assertTrue(runCatching { VanBootstrapCodec.decode(unfrozen.toString()) }.isFailure)
+        val request = JSONObject(fixture("evidence-request.json")); VanWireSchema.validate(request)
+        val jpeg = java.util.Base64.getDecoder().decode(request.getString("dataBase64"))
+        val encoded = VanEvidenceCodec.request(request.getString("deviceId"),request.getString("sha256"),jpeg)
+        assertEquals(request.toString(),JSONObject(String(encoded)).toString())
+        VanEvidenceCodec.response(fixture("evidence-response.json"),request.getString("sha256"))
+    }
+    @Test fun oldBootstrapHasNoDamagePhotoOrApprovalRequirement() {
+        val o = JSONObject(fixture()); o.getJSONObject("policy").remove("damagePolicy"); o.remove("damageRecords")
+        val b = VanBootstrapCodec.decode(o.toString()); assertNull(b.policy.damagePolicy); assertTrue(b.damageRecords.isEmpty())
+    }
+    @Test fun handheldContactsAreOptionalAndStayOutOfTheFrozenValidator() {
+        val o = JSONObject(fixture())
+        assertNull(VanBootstrapCodec.decode(o.toString()).policy.handheld)
+        o.getJSONObject("policy").put("handheld",JSONObject().put("plateNumber","ABC-1234").put("supervisorName","Juan Dela Cruz").put("supervisorPhone","0917 123 4567").put("vehicleCode"," "))
+        val h = VanBootstrapCodec.decode(o.toString()).policy.handheld!!
+        assertEquals("ABC-1234",h.vanLabel); assertEquals("Juan Dela Cruz",h.supervisorName); assertEquals("0917 123 4567",h.supervisorPhone); assertNull(h.vehicleCode)
+    }
+    @Test fun unknownHandheldPartsAreNullNotTheWordNull() {
+        val o = JSONObject(fixture())
+        o.getJSONObject("policy").put("handheld",JSONObject().put("vehicleCode",JSONObject.NULL).put("plateNumber","ABC-1234").put("supervisorName",JSONObject.NULL).put("supervisorPhone",JSONObject.NULL))
+        val h = VanBootstrapCodec.decode(o.toString()).policy.handheld!!
+        assertNull(h.vehicleCode); assertNull(h.supervisorName); assertNull(h.supervisorPhone); assertEquals("ABC-1234",h.plateNumber)
+    }
+    @Test fun customerMasterClassificationRidesCustomersAndStaysOutOfTheFrozenValidator() {
+        // SP-0170 server adds channel + customerMaster to each van customer; a strict frozen copy refused every bootstrap (SP-0169 r5).
+        val o = JSONObject(fixture())
+        VanBootstrapCodec.objects(o.getJSONArray("customers")).forEach {
+            it.put("channel","General Trade").put("customerMaster",JSONObject().put("salesOrgCode","1000").put("distributionChannelCode","10")
+                .put("distributionChannelName","General Trade").put("customerGroup1Code",JSONObject.NULL).put("completeness","complete"))
+        }
+        val b = VanBootstrapCodec.decode(o.toString())
+        assertEquals(3,b.customers.size)
+    }
+    @Test fun productCategoryIsOptionalAndStaysOutOfTheFrozenValidator() {
+        assertNull(VanBootstrapCodec.decode(fixture()).products.first().category)
+        val o = JSONObject(fixture())
+        VanBootstrapCodec.objects(o.getJSONArray("products")).forEach { it.put("category","Juices") }
+        val b = VanBootstrapCodec.decode(o.toString())
+        assertTrue(b.products.all { it.category == "Juices" })
+    }
+    @Test fun vanDayRidesThePolicyAndOlderBundlesHaveNone() {
+        assertNull(VanBootstrapCodec.decode(fixture()).policy.vanDay); assertFalse(VanBootstrapCodec.decode(fixture()).policy.splitTender)
+        val o = JSONObject(fixture())
+        o.getJSONObject("policy").put("vanDay",JSONObject("""{"version":1,"device":{"deviceId":"d1","vehicle":{"vehicleId":"v","vehicleCode":"V-1","plateNumber":"ABC-1234"}},
+            "crew":{"onDevice":null,"members":[]},"roster":null,"tripId":null,"load":null}""")).put("splitTender",true)
+        val p = VanBootstrapCodec.decode(o.toString()).policy
+        assertEquals("ABC-1234",p.vanDay!!.vehicleLabel); assertTrue(p.splitTender)
+        o.getJSONObject("policy").put("vanDay",JSONObject("""{"version":9}"""))
+        assertNull("an unreadable van day is no van day",VanBootstrapCodec.decode(o.toString()).policy.vanDay)
+    }
+    @Test fun tripFloatAndRecountFactsRideTheBundleAndStayOutOfTheFrozenValidator() {
+        val plain = VanBootstrapCodec.decode(fixture())
+        assertNull(plain.trip!!.openingFloatCentavos); assertNull(plain.load!!.confirmRequestId); assertNull(plain.load.rejectionNote)
+        val o = JSONObject(fixture())
+        o.getJSONObject("trip").put("openingFloatCentavos",250_000)
+        o.getJSONObject("load").put("status","planned").put("confirmRequestId","req-1").put("rejectionNote","Recount the second pallet")
+        val b = VanBootstrapCodec.decode(o.toString())
+        assertEquals(250_000L,b.trip!!.openingFloatCentavos)
+        assertEquals("req-1",b.load!!.confirmRequestId); assertEquals("Recount the second pallet",b.load.rejectionNote)
+        o.getJSONObject("load").put("rejectionNote",JSONObject.NULL)
+        assertNull(VanBootstrapCodec.decode(o.toString()).load!!.rejectionNote)
+        o.getJSONObject("trip").put("openingFloatCentavos",10_000_001)
+        assertTrue("a float over the cap is not a bundle we trust",runCatching { VanBootstrapCodec.decode(o.toString()) }.isFailure)
+    }
+    /** SP-0169: the office's Senior/PWD switch rides policy.privilegeDiscount, outside the frozen validator; the option is hidden when off. */
+    @Test fun privilegeSwitchRidesThePolicyAndHidesTheDiscountWhenOff() {
+        val plain = VanBootstrapCodec.decode(fixture()).policy
+        assertNull(plain.privilegeDiscount); assertTrue("older server: still offered", com.sunpride.field.sell.selling.PrivilegeSwitch.offered(plain))
+        val o = JSONObject(fixture())
+        o.getJSONObject("policy").put("privilegeDiscount",JSONObject().put("surface","van").put("enabled",false))
+        val off = VanBootstrapCodec.decode(o.toString()).policy
+        assertEquals(false,off.privilegeDiscount); assertFalse(com.sunpride.field.sell.selling.PrivilegeSwitch.offered(off))
+        o.getJSONObject("policy").put("privilegeDiscount",JSONObject().put("surface","store").put("enabled",true))
+        assertTrue(com.sunpride.field.sell.selling.PrivilegeSwitch.offered(VanBootstrapCodec.decode(o.toString()).policy))
+        // malformed is "not said", never a silent ON or a failed bootstrap
+        o.getJSONObject("policy").put("privilegeDiscount",JSONObject().put("surface","van").put("enabled","no"))
+        assertNull(VanBootstrapCodec.decode(o.toString()).policy.privilegeDiscount)
+    }
+    /** VAN-034: a van-only handheld (no POS mode, so no storePos) gets the weekly limit at policy.privilegeCap, outside the frozen validator. */
+    @Test fun vanOnlyWeeklyLimitRidesThePolicyAndStaysOutOfTheFrozenValidator() {
+        assertNull(VanBootstrapCodec.decode(fixture()).policy.privilegeCap)
+        val o = JSONObject(fixture())
+        o.getJSONObject("policy").put("privilegeCap",JSONObject().put("version",1).put("enabled",true).put("capCentavos","250000").put("confirmed",false)
+            .put("weekStart","2026-11-09").put("weekEndsAt",System.currentTimeMillis() + 86_400_000L).put("asOf",System.currentTimeMillis()).put("complete",true)
+            .put("hashKey","A".repeat(43)).put("used",JSONArray()))
+        val cap = VanBootstrapCodec.decode(o.toString()).policy.privilegeCap
+        assertNotNull(cap); assertEquals(250_000L,cap!!.capMinor)
+    }
+    /** NF-5: the server's per-sale cash rides the handheld trip; the frozen v1 validator must not see it (VAN-075 r3: every bootstrap failed). */
+    @Test fun serverCashRidesTheTripAndStaysOutOfTheFrozenValidator() {
+        val o = JSONObject(fixture())
+        o.getJSONObject("trip").put("openingFloatCentavos",100_000).put(com.sunpride.field.sell.pos.ServerTripCash.FIELD,
+            org.json.JSONArray().put(JSONObject().put("saleId","s1").put("kind","sale").put("amountMinor","50000")))
+        val b = VanBootstrapCodec.decode(o.toString())
+        assertEquals(100_000L,b.trip!!.openingFloatCentavos)
+    }
+    @Test fun wireCopyMatchesCommittedAuthority() {
+        assertEquals(JSONObject(fixture("van-v1.schema.json")).toString(),JSONObject(VanWireSchema.SCHEMA).toString())
+    }
+    @Test fun policyAndCustomersWithoutPaymentFieldsAllowCashOnly() {
+        val o = JSONObject(fixture()); o.getJSONObject("policy").remove("paymentMethods"); o.getJSONArray("customers").getJSONObject(0).remove("credit")
+        val b = VanBootstrapCodec.decode(o.toString())
+        assertEquals(PaymentMethod.CASH_ONLY,b.policy.paymentMethods); assertNull(b.customers[0].credit)
+        assertEquals(PaymentMethod.CASH_ONLY,VanBootstrapCodec.decode(fixture("bootstrap-no-trip-response.json")).policy.paymentMethods)
+    }
+    @Test fun voidPolicyDecodesAndOldCachedPolicyStillWorks() {
+        val b = VanBootstrapCodec.decode(fixture())
+        assertEquals(com.sunpride.field.sell.pos.VoidReasons.ALL.map { it.code },b.policy.voidReasons)
+        assertEquals(VoidApproval(true,0,"6Heg4RirM2SuTt_Pjg5QZwyqg_P-Szkdlxli4UBfz1Y"),b.policy.voidApproval)
+        val o = JSONObject(fixture()).getJSONObject("policy")
+        o.remove("voidReasons"); o.remove("voidApproval")
+        val cached = VanBootstrapCodec.policy(o)
+        assertTrue(cached.voidReasons.isEmpty()); assertNull(cached.voidApproval)
+        val old = VanBootstrapCodec.decode(fixture("bootstrap-no-trip-response.json")).policy
+        assertTrue(old.voidReasons.isEmpty()); assertNull(old.voidApproval)
+        o.put("voidApproval",JSONObject().put("required",true).put("thresholdMinor","9007199254740993").put("key",JSONObject.NULL))
+        assertEquals(VoidApproval(true,9007199254740993L,null),VanBootstrapCodec.policy(o).voidApproval)
+    }
+    @Test fun invalidVoidPolicyIsRejectedByTheMirroredSchema() {
+        val mutations: List<(JSONObject) -> Unit> = listOf(
+            { it.put("voidReasons",org.json.JSONArray()) },
+            { it.put("voidReasons",org.json.JSONArray().put("delete")) },
+            { it.getJSONObject("voidApproval").put("thresholdMinor",0) },
+            { it.getJSONObject("voidApproval").put("key","not-a-key") },
+            { it.getJSONObject("voidApproval").remove("required") })
+        mutations.forEach { mutate -> val o = JSONObject(fixture()); mutate(o.getJSONObject("policy"))
+            assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) } }
+    }
+    @Test fun cashReconciliationPolicyDecodesIsOptionalAndIsValidatedByTheMirroredSchema() {
+        val b = VanBootstrapCodec.decode(fixture())
+        assertEquals(CashReconciliationPolicy(true,5000,com.sunpride.field.sell.pos.CashVarianceReasons.ALL.map { it.code },
+            "PnoIS45xGmCnubWwLVAmPBjjgF-prN3ykOOEvfv5zsY"),b.policy.cashReconciliation)
+        val o = JSONObject(fixture()); o.getJSONObject("policy").remove("cashReconciliation")
+        assertNull(VanBootstrapCodec.decode(o.toString()).policy.cashReconciliation)
+        assertNull(VanBootstrapCodec.decode(fixture("bootstrap-no-trip-response.json")).policy.cashReconciliation)
+        val mutations: List<(JSONObject) -> Unit> = listOf(
+            { it.put("reasons",org.json.JSONArray()) },
+            { it.put("reasons",org.json.JSONArray().put("shrug")) },
+            { it.put("toleranceMinor",5000) },
+            { it.put("key","not-a-key") },
+            { it.remove("approvalRequired") },
+            { it.put("extra",1) })
+        mutations.forEach { mutate -> val bad = JSONObject(fixture()); mutate(bad.getJSONObject("policy").getJSONObject("cashReconciliation"))
+            assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(bad.toString()) } }
+    }
+    @Test fun frozenBootstrapIncludesGovernedPricesAndToleratesAllPromotionRules() {
+        val o = JSONObject(fixture())
+        assertEquals(listOf("buy_x_get_y","percent_off","bundle"),
+            VanBootstrapCodec.objects(o.getJSONArray("promotions")).map { it.getJSONObject("rule").getString("kind") })
+        val b = VanBootstrapCodec.decode(o.toString())
+        assertEquals(listOf(
+            PriceLine("k57plst000000000000000000000002","k57prod0000000000000000000000001","PC",6850,"PHP",1790812800000L,null,"PL-ROUTE-SALES"),
+            PriceLine("k57plst000000000000000000000002","k57prod0000000000000000000000002","PC",4275,"PHP",1790812800000L,null,"PL-ROUTE-SALES")
+        ),b.priceLines)
+    }
+    @Test fun debugFixtureMatchesFrozenFixtureWithAlwaysEffectivePricesAndNoPromotions() {
+        val expected = JSONObject(fixture()).apply { remove("promotions") }
+        VanBootstrapCodec.objects(expected.getJSONArray("priceLines")).forEach { it.put("effectiveFrom",0) }
+        assertEquals(jsonValue(expected),jsonValue(JSONObject(FakeVanBackend.FIXTURE)))
+        val b = VanBootstrapCodec.decode(FakeVanBackend.FIXTURE)
+        assertEquals(listOf(6850L,4275L),b.priceLines.map { it.unitPriceMinor })
+        assertTrue(b.priceLines.all { it.currency == "PHP" && it.effectiveFrom == 0L && it.effectiveTo == null })
+    }
+    @Test fun missingOrEmptyPriceLinesDecodeToEmptyList() {
+        val o = JSONObject(fixture()).apply { remove("priceLines") }
+        assertTrue(VanBootstrapCodec.decode(o.toString()).priceLines.isEmpty())
+        o.put("priceLines",JSONArray())
+        assertTrue(VanBootstrapCodec.decode(o.toString()).priceLines.isEmpty())
+    }
+    @Test fun unknownPriceProductIsRejected() {
+        val o = JSONObject(fixture())
+        o.getJSONArray("priceLines").getJSONObject(0).put("productId","unknown-product")
+        assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) }
+    }
+    @Test fun duplicatePriceListProductIsRejectedEvenForDifferentUnits() {
+        listOf("PC","CS").forEach { uom ->
+            val o = JSONObject(fixture()); val prices = o.getJSONArray("priceLines")
+            prices.put(JSONObject(prices.getJSONObject(0).toString()).put("uomCode",uom))
+            assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) }
+        }
+    }
+    @Test fun stockReconciliationPolicyDecodesAndOldCachedPolicyStillHasNoRule() {
+        val b = VanBootstrapCodec.decode(fixture())
+        assertEquals(StockReconciliationPolicy(true,com.sunpride.field.sell.pos.StockVarianceReasons.ALL.map { it.code },
+            "ftgd8nUKPhvNhRTGW3T2lRGvsHPZ_3xpnUU3FN3kvLA"),b.policy.stockReconciliation)
+        val o = JSONObject(fixture()); o.getJSONObject("policy").remove("stockReconciliation")
+        assertNull(VanBootstrapCodec.decode(o.toString()).policy.stockReconciliation)
+        assertNull(VanBootstrapCodec.decode(fixture("bootstrap-no-trip-response.json")).policy.stockReconciliation)
+        val mutations: List<(JSONObject) -> Unit> = listOf(
+            { it.put("reasons",JSONArray()) },
+            { it.put("reasons",JSONArray().put("unknown")) },
+            { it.put("key","not-a-key") },
+            { it.remove("approvalRequired") },
+            { it.put("extra",1) })
+        mutations.forEach { mutate -> val bad = JSONObject(fixture()); mutate(bad.getJSONObject("policy").getJSONObject("stockReconciliation"))
+            assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(bad.toString()) } }
+    }
+    @Test fun tripClosePolicyDecodesAndAnOldCachedPolicyFallsBackToStrict() {
+        val b = VanBootstrapCodec.decode(fixture())
+        assertEquals(TripClosePolicy(true,true,true,true),b.policy.tripClose)
+        val o = JSONObject(fixture()); o.getJSONObject("policy").getJSONObject("tripClose").put("requireUploadsSent",false)
+        assertEquals(TripClosePolicy(true,true,false,true),VanBootstrapCodec.decode(o.toString()).policy.tripClose)
+        val legacy = JSONObject(fixture()); legacy.getJSONObject("policy").remove("tripClose")
+        val decoded = VanBootstrapCodec.decode(legacy.toString()).policy
+        assertNull(decoded.tripClose); assertEquals(TripClosePolicy.STRICT,com.sunpride.field.sell.pos.TripCloseRules.policy(decoded))
+        val mutations: List<(JSONObject) -> Unit> = listOf({ it.put("requireCashCount","yes") },{ it.remove("exceptionsNeedReview") },{ it.put("extra",true) })
+        mutations.forEach { mutate -> val bad = JSONObject(fixture()); mutate(bad.getJSONObject("policy").getJSONObject("tripClose"))
+            assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(bad.toString()) } }
+    }
+    @Test fun sameProductOnDifferentPriceListsIsValid() {
+        val o = JSONObject(fixture()); val prices = o.getJSONArray("priceLines")
+        prices.put(JSONObject(prices.getJSONObject(0).toString()).put("priceListId","another-list"))
+        assertEquals(3,VanBootstrapCodec.decode(o.toString()).priceLines.size)
+    }
+    @Test fun invalidMinorPricesAreRejected() {
+        listOf("-1","not-a-number","1.5","9223372036854775808","",6850,JSONObject.NULL).forEach { minor ->
+            val o = JSONObject(fixture())
+            o.getJSONArray("priceLines").getJSONObject(0).put("unitPriceMinor",minor)
+            assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) }
+        }
+        val o = JSONObject(fixture())
+        o.getJSONArray("priceLines").getJSONObject(0).put("unitPriceMinor","0")
+        assertEquals(0L,VanBootstrapCodec.decode(o.toString()).priceLines.first().unitPriceMinor)
+    }
+    @Test fun priceEndMustBeNullOrStrictlyAfterStart() {
+        val o = JSONObject(fixture()); val line = o.getJSONArray("priceLines").getJSONObject(0)
+        val from = line.getLong("effectiveFrom")
+        listOf(from,from-1).forEach { to ->
+            line.put("effectiveTo",to)
+            assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) }
+        }
+        line.put("effectiveTo",from+1)
+        assertEquals(from+1,VanBootstrapCodec.decode(o.toString()).priceLines.first().effectiveTo)
+        line.put("effectiveTo",JSONObject.NULL)
+        assertNull(VanBootstrapCodec.decode(o.toString()).priceLines.first().effectiveTo)
+    }
+    @Test fun malformedPricesAndPromotionsStillFailSchemaValidation() {
+        val mutations: List<(JSONObject)->Unit> = listOf(
+            { it.put("priceLines",JSONObject.NULL) },
+            { it.getJSONArray("priceLines").getJSONObject(0).remove("priceListCode") },
+            { it.getJSONArray("priceLines").getJSONObject(0).put("effectiveFrom",-1) },
+            { it.getJSONArray("priceLines").getJSONObject(0).put("extra",true) },
+            { it.put("promotions",JSONObject.NULL) },
+            { it.getJSONArray("promotions").getJSONObject(0).getJSONObject("rule").put("kind","unsupported") },
+            { it.getJSONArray("promotions").getJSONObject(0).getJSONObject("rule").remove("free") },
+            { it.getJSONArray("promotions").getJSONObject(1).getJSONObject("rule").put("percentOffBasisPoints",10001) },
+            { it.getJSONArray("promotions").getJSONObject(1).getJSONObject("rule").put("percentOffBasisPoints",0) },
+            { it.getJSONArray("promotions").getJSONObject(2).getJSONObject("rule").getJSONArray("components").remove(1) }
+        )
+        mutations.forEach { change -> val o = JSONObject(fixture()); change(o); assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) } }
+    }
+    @Test fun customerPriceListPresenceDistinguishesLegacyNoneAndGoverned() {
+        val absent = JSONObject(fixture()).also { it.getJSONArray("customers").getJSONObject(0).remove("priceListId") }
+        assertEquals(CustomerPriceListMode.LEGACY,VanBootstrapCodec.decode(absent.toString()).customers.first().priceListMode)
+        val none = JSONObject(fixture()).also { it.getJSONArray("customers").getJSONObject(0).put("priceListId",JSONObject.NULL) }
+        assertEquals(CustomerPriceListMode.NONE,VanBootstrapCodec.decode(none.toString()).customers.first().priceListMode)
+        val governed = JSONObject(fixture()).also { it.getJSONArray("customers").getJSONObject(0).put("priceListId","k57plst000000000000000000000002") }
+        val customer = VanBootstrapCodec.decode(governed.toString()).customers.first()
+        assertEquals(CustomerPriceListMode.GOVERNED,customer.priceListMode); assertEquals("k57plst000000000000000000000002",customer.priceListId)
+    }
+    @Test fun promotionCrossReferencesAndIdentifiersAreValidated() {
+        val unknownProduct = JSONObject(fixture()).also {
+            it.getJSONArray("promotions").getJSONObject(0).getJSONObject("rule").getJSONObject("buy").put("productId","unknown")
+        }
+        assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(unknownProduct.toString()) }
+        val duplicateId = JSONObject(fixture()).also {
+            it.getJSONArray("promotions").getJSONObject(1).put("promotionId",it.getJSONArray("promotions").getJSONObject(0).getString("promotionId"))
+        }
+        assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(duplicateId.toString()) }
+        val duplicateCode = JSONObject(fixture()).also {
+            it.getJSONArray("promotions").getJSONObject(1).put("code",it.getJSONArray("promotions").getJSONObject(0).getString("code"))
+        }
+        assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(duplicateCode.toString()) }
+    }
+    @Test fun frozenNoTripIsValidEmptyState() {
+        val b = VanBootstrapCodec.decode(fixture("bootstrap-no-trip-response.json")); assertNull(b.trip); assertNull(b.load); assertTrue(b.truckStock.isEmpty()); assertTrue(b.priceLines.isEmpty())
+    }
+    @Test fun strictEnumsTypesMissingNullsBoundsAndExtraFieldsAreRejected() {
+        val mutations: List<(JSONObject)->Unit> = listOf(
+            { it.put("extra",1) }, { it.remove("trip") }, { it.put("contractVersion",2) },
+            { it.getJSONObject("trip").put("status","flying") },
+            { it.getJSONObject("policy").put("allowNegativeStock","false") },
+            { it.getJSONArray("products").getJSONObject(0).put("quantityScale",1) },
+            { it.getJSONArray("products").getJSONObject(0).put("quantityScale","0") },
+            // VAN-009: a unit for a barcode the product does not carry, a duplicate, or a zero/float scan quantity.
+            { it.getJSONArray("products").getJSONObject(0).getJSONArray("barcodeUnits").getJSONObject(1).put("barcode","999") },
+            { it.getJSONArray("products").getJSONObject(0).getJSONArray("barcodeUnits").getJSONObject(1).put("barcode","4800000000017") },
+            { it.getJSONArray("products").getJSONObject(0).getJSONArray("barcodeUnits").getJSONObject(1).put("baseQuantity","0") },
+            { it.getJSONArray("products").getJSONObject(0).getJSONArray("barcodeUnits").getJSONObject(1).put("baseQuantity","2.5") },
+            { it.getJSONObject("load").getJSONArray("lines").getJSONObject(0).remove("actualBase") },
+            { it.getJSONObject("load").getJSONArray("lines").getJSONObject(0).put("expectedBase","9999999999999999999") },
+            { it.getJSONObject("trip").put("serviceDate","2026-10-08") },
+            // VAN-012: unknown kind, duplicate code, empty list, a reference on cash, bad terms or a float credit amount.
+            { it.getJSONObject("policy").getJSONArray("paymentMethods").getJSONObject(1).put("kind","voucher") },
+            { it.getJSONObject("policy").getJSONArray("paymentMethods").getJSONObject(1).put("code","cash") },
+            // NF-R5V-5: an empty list is still refused, but as the named setup gap (see NoPaymentMethodsTest).
+            { it.getJSONObject("policy").getJSONArray("paymentMethods").getJSONObject(0).put("referenceRequired",true) },
+            { it.getJSONArray("customers").getJSONObject(0).getJSONObject("credit").put("termsDays",0) },
+            { it.getJSONArray("customers").getJSONObject(0).getJSONObject("credit").put("termsDays",181) },
+            { it.getJSONArray("customers").getJSONObject(0).getJSONObject("credit").put("availableMinor","10.5") },
+            { it.getJSONObject("policy").getJSONObject("damagePolicy").put("approvalFromUnits",0) },
+            { it.getJSONObject("policy").getJSONObject("damagePolicy").put("approvalFromUnits",1_000_001) },
+            { it.getJSONObject("policy").getJSONObject("damagePolicy").put("photoMaxBytes",96_001) },
+            { it.getJSONObject("policy").getJSONObject("damagePolicy").put("photoRequiredReasons",org.json.JSONArray().put("unknown")) },
+            { it.getJSONArray("damageRecords").getJSONObject(0).put("status","lost") }
+        )
+        mutations.forEach { change -> val o = JSONObject(fixture()); change(o); assertThrows(VanWireFailure::class.java) { VanBootstrapCodec.decode(o.toString()) } }
+    }
+    @Test fun signedNegativeBalanceAndLargeIntegersHaveNoDoubleRounding() {
+        val o = JSONObject(fixture()); val id = o.getJSONArray("products").getJSONObject(0).getString("productId")
+        o.getJSONArray("truckStock").put(JSONObject().put("productId",id).put("availableBase","-9007199254740993").put("damagedBase","9007199254740995"))
+        val b = VanBootstrapCodec.decode(o.toString()); assertEquals(-9007199254740993L,b.truckStock.single().availableBase); assertEquals(9007199254740995L,b.truckStock.single().damagedBase)
+    }
+    @Test fun persistedOperationBytesAreConcatenatedWithoutReserialization() {
+        val op = """{ "kind":"trip.start", "clientRequestId":"10000000-0000-4000-8000-000000000001", "payload":{"tripId":"t","vehicleConfirmed":true,"routeConfirmed":true,"deviceTime":1} }"""
+        val body = String(VanBootstrapCodec.pushRequest("d",listOf(op)))
+        assertTrue(body.contains(op)); assertThrows(IllegalArgumentException::class.java) { VanBootstrapCodec.pushRequest("d",List(21) { op }) }
+    }
+    @Test fun frozenPushResultsAndErrorsDecodeWithoutDisplayingServerMessages() {
+        val text = fixture("push-response.json"); assertTrue(VanBootstrapCodec.pushResults(text).isNotEmpty())
+        val error = VanSyncClient.error(429,"""{"type":"error.response","contractVersion":1,"code":"temporarily_unavailable","message":"secret","retryable":true}""")
+        assertTrue(error.retryable); assertFalse(error.toString().contains("secret"))
+    }
+}

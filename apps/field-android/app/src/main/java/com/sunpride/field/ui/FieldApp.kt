@@ -102,6 +102,9 @@ fun FieldApp(
     biometrics: BiometricGate? = null,
     // SP-0140: the one-time battery/autostart guide for location sharing; null in tests that don't cover it.
     batteryGuide: com.sunpride.field.location.BatteryGuideHost? = null,
+    // SP-0192: builds the Sell area for a person whose Selling is on (tests pass practice data; never called for anyone else).
+    sellHostFactory: (android.content.Context, com.sunpride.field.sell.auth.SellAccess) -> com.sunpride.field.sell.SellHost =
+        { ctx, access -> com.sunpride.field.sell.SellHost.create(ctx, access) },
 ) {
     val visits = FieldFeature.VISITS in features
     // Name typed into an empty customer search, carried into the Add a store form.
@@ -190,7 +193,7 @@ fun FieldApp(
     // CPU and battery on an entry-level phone. The sync pill keeps the 1-second clock.
     val minuteNow by remember { androidx.compose.runtime.derivedStateOf { now / 60_000 * 60_000 } }
     val ready = controller.state is EnrollmentState.Ready
-    val status = controller.today.syncStatus.copy(offline = offline)
+    val fieldStatus = controller.today.syncStatus.copy(offline = offline)
     // FLD-147: the upload worker runs outside the UI; when it finishes, refresh the pill and the Photos card.
     val photoRuns by com.sunpride.field.evidence.EvidenceWork.runs.collectAsState()
     LaunchedEffect(photoRuns) { if (photoRuns > 0 && ready) controller.photosChanged() }
@@ -303,15 +306,32 @@ fun FieldApp(
         if (dayView?.started == true && dayView.locationAllowed) dayAction { h, t -> h.resume(t) }
     }
     val summaryUnread = if (ready) com.sunpride.field.chat.rememberFieldUnread() else 0
+    // SP-0192: the Sell area exists only while the office has Selling on for this person. Nobody else gets its store,
+    // its download, its printer or scanner, or its background sender: none of it is even built.
+    val sellOn = ready && !locked && !controller.mustChangePassword && controller.selling
+    val sellHost = remember(sellOn, backend) {
+        if (sellOn) controller.sellAccess()?.let { access -> sellHostFactory(context, access) } else null
+    }
+    androidx.compose.runtime.DisposableEffect(sellHost) {
+        controller.sellSync = sellHost?.let { host -> { host.repository.syncNow() } }
+        onDispose { if (sellHost != null) controller.sellSync = null; sellHost?.close() }
+    }
+    if (sellHost != null) com.sunpride.field.sell.SellRuntime(sellHost)
+    LaunchedEffect(sellOn) { if (!sellOn && page == "sell") { page = "home"; origin = "home" } }
+    // SP-0192: one sync badge for the whole phone: the Sell area's waiting sales count as "Waiting to send" too.
+    val sellWaiting = sellHost?.controller?.syncWaiting ?: 0
+    val status = fieldStatus.copy(queued = fieldStatus.queued + sellWaiting)
+    val sellFlow = page == "sell" && sellHost?.controller?.let { !com.sunpride.field.sell.ui.AppNav.barVisible(it.page, it.navHidden) } == true
     val imeVisible = rememberImeVisible()
     // The visit screens take over the page the seller was on, exactly as the `when` below picks them.
     val visitOpen = controller.diagnostic != null && visits && ready && page !in FieldNav.pagesAheadOfVisit
-    val barVisible = FieldNav.barVisible(ready, locked, controller.today.partnerMode, visitOpen, page) && !imeVisible
+    val barVisible = FieldNav.barVisible(ready, locked, controller.today.partnerMode, visitOpen, page) && !imeVisible && !sellFlow
     MaterialTheme(colorScheme = if (dark) SunprideTokens.darkColors else SunprideTokens.lightColors,
         shapes = SunprideTokens.shapes, typography = SunprideTokens.typography) {
         Scaffold(contentWindowInsets = WindowInsets.safeDrawing, containerColor = MaterialTheme.colorScheme.background, topBar = {
             // SP-0147: Messages draws its own top bar (title, back, actions), so the app's bar steps aside there.
-            if (com.sunpride.field.chat.FieldChat.appBarVisible(ready, page, chatAtRoot)) {
+            // SP-0192: the Sell area draws its own selling header (title, sync badge), like the Van app's.
+            if (com.sunpride.field.chat.FieldChat.appBarVisible(ready, page, chatAtRoot) && !(page == "sell" && sellHost != null)) {
                 val editStore = { censusEdit = customerId; go("census") }
                 val spec = headerSpec(ready, locked, signedIn = controller.state != EnrollmentState.SignedOut, page = page,
                     visitOpen = visitOpen, controller = controller, routeCode = controller.today.routeCode,
@@ -342,7 +362,7 @@ fun FieldApp(
         }, bottomBar = {
             if (barVisible) FieldBottomBar(FieldNav.tabOf(page), summaryUnread, onSelect = { tab ->
                 if (tab.page != page) { page = tab.page; origin = "home" }
-            })
+            }, tabs = FieldNav.tabs(sellHost != null))
         }) { padding ->
             val modifier = Modifier.padding(padding).consumeWindowInsets(padding)
             pages.SaveableStateProvider("$pagesEpoch:$page") { when {
@@ -418,6 +438,7 @@ fun FieldApp(
                             ?.takeIf { id -> controller.today.customers.any { it.outletId == id } }
                             ?.let { id -> customerId = id; page = "customer"; true } ?: false
                     })
+                ready && page == "sell" && sellHost != null -> com.sunpride.field.sell.SellArea(sellHost, onLeave = { page = "home"; origin = "home" }, modifier = modifier)
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = origin },
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier, now = now)
                 ready && page == "more" -> MoreScreen(modifier = modifier, status = status, now = now,

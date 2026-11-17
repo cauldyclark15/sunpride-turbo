@@ -122,6 +122,10 @@ interface FieldBackend {
     /** Queue the reviewed draft's order after [previousRequestId] and mark it sent, in one transaction. */
     fun submitOrderDraft(draftId: String, previousRequestId: String): OrderDraft = error("No local store")
     val cachedDeviceId: String? get() = null
+    /** SP-0192: the office switched Selling on for this person (last verified sign-in check); the Sell tab shows only then. */
+    fun sellingEnabled(): Boolean = false
+    /** SP-0192: the Field session lent to the Sell area (null in tests and before sign-in). */
+    fun sellAccess(): com.sunpride.field.sell.auth.SellAccess? = null
     /** AND-016: configured photo types (empty → provisional defaults). */
     fun earnedStatements(): List<com.sunpride.field.ui.incentives.EarnedStatement> = error("Connect to view earned statements")
     fun catalogueProducts(): List<com.sunpride.field.storage.CatalogProduct> = emptyList()
@@ -275,7 +279,7 @@ internal fun signOutTeardown(purgeCache: () -> Unit, clearIndex: () -> Unit, aut
 }
 
 class LiveFieldBackend(
-    environment: AppEnvironment,
+    private val environment: AppEnvironment,
     private val vault: SessionVault,
     private val context: Context,
     private val signerLoader: () -> DeviceSigner
@@ -839,6 +843,8 @@ class LiveFieldBackend(
                 // older server carry no name in their employee header, and a delta sync never replaces that header).
                 verifiedMe.getJSONObject("profile").let { p -> prefs.edit().putString("$key.personId", p.optString("id"))
                     .putString("$key.personName", p.optString("name").takeIf { it.isNotBlank() && it != "null" }).apply() }
+                // SP-0192: the office's per-person Selling switch, re-read on every verified sync (off unless the server says true).
+                prefs.edit().putBoolean("$key.selling", com.sunpride.field.sell.SellingFlag.from(verifiedMe)).apply()
                 if(verifiedMe.getJSONObject("profile").getString("role")=="distributor"){
                     check(prefs.edit().putBoolean("$key.partner",true).commit())
                     return dsrToday(deviceId,signer,verifiedMe,expectedKey=key)
@@ -1152,6 +1158,9 @@ class LiveFieldBackend(
     }
     override val cachedDeviceId get() = vault.deviceId
     override val isSignedIn get() = auth.isSignedIn
+    override fun sellingEnabled(): Boolean = auth.isSignedIn && sessionKey()?.let { prefs.getBoolean("$it.selling", false) } == true
+    override fun sellAccess(): com.sunpride.field.sell.auth.SellAccess =
+        com.sunpride.field.sell.FieldSellAccess(environment, auth, vault, signerLoader, ::sessionKey)
     override fun loadSigner() = signerLoader()
     override fun queueMockRefusal(outletId: String) {
         val identity=storedScope() ?: error("No verified local partition")
@@ -1251,6 +1260,14 @@ class LiveFieldBackend(
         else if (state == EnrollmentState.Unregistered) runBlocking { EncryptedFieldDatabase.holdExisting(context) }
         return state
     }
+    companion object {
+        /** SP-0192: the same backend a background worker builds (no Activity, no prompt). */
+        fun forWorker(context: Context): LiveFieldBackend {
+            val app = context.applicationContext
+            return LiveFieldBackend(AppEnvironment(com.sunpride.field.BuildConfig.SUNPRIDE_API_ORIGIN),
+                com.sunpride.field.auth.SessionVaults.app(app), app) { com.sunpride.field.device.KeystoreDeviceKey.loadOrCreate(app) }
+        }
+    }
 }
 
 /** Non-secret key facts shown on the enrollment screen and in diagnostics. */
@@ -1276,7 +1293,7 @@ class FieldController(
     private fun requirePasswordChange() {
         if (!mustChangePassword) ++sessionGeneration // retire in-flight Today/sync reads
         mustChangePassword = true
-        today = TodayData(); retireSuggestedOrder()
+        today = TodayData(); selling = false; retireSuggestedOrder()
         resetPasswordForm()
     }
     var busy by mutableStateOf(false); private set
@@ -1288,6 +1305,12 @@ class FieldController(
     }
     var key by mutableStateOf<DeviceKeyInfo?>(null); private set
     var today by mutableStateOf(TodayData()); private set
+    /** SP-0192: the office switched Selling on for this person: the Sell tab shows. Re-read after every Today load. */
+    var selling by mutableStateOf(false); private set
+    /** SP-0192: the Field session lent to the Sell area (only asked for while [selling]). */
+    fun sellAccess(): com.sunpride.field.sell.auth.SellAccess? = backend.sellAccess()
+    /** SP-0192: the Sell area's own send, run by Sync now after the field sync (set by the Sell area while it is open). */
+    @Volatile var sellSync: (suspend () -> Unit)? = null
     var workforceOpen by mutableStateOf(false); private set
     private var workforceData by mutableStateOf(com.sunpride.field.storage.WorkforceView())
     // Snapshot state, and read BEFORE the guard: a short-circuited read would leave the screen
@@ -1926,7 +1949,8 @@ class FieldController(
         val generation = sessionGeneration
         try {
             val value = withContext(io) { backend.today(ready.deviceId, loaded, sync) }
-            if (generation == sessionGeneration && state == ready) today = value
+            val sells = withContext(io) { backend.sellingEnabled() }
+            if (generation == sessionGeneration && state == ready) { today = value; selling = sells && !value.partnerMode }
         } catch (e: AuthFailure) {
             // FLD-014/171: every path that finds the session ended (Sync now, background sync, a reload) returns to
             // Sign in with the plain reason. Nothing local is cleared: unsent work stays for the same person/office.
@@ -1960,7 +1984,11 @@ class FieldController(
     fun syncNow() = scope.launch(ui) {
         if (busy || mustChangePassword || state !is EnrollmentState.Ready || today.updateRequired) return@launch
         busy = true
-        try { loadToday(sync = true); if (diagnostic != null) refreshDiagnostic() }
+        try {
+            loadToday(sync = true); if (diagnostic != null) refreshDiagnostic()
+            // SP-0192: the Sell area's saved work goes in the same Sync now (its own failures stay in the Sell area).
+            if (selling) sellSync?.let { send -> runCatching { send() } }
+        }
         catch (e: AuthFailure) {
             // FLD-171: a session ended elsewhere (password changed, signed out everywhere) returns to sign-in
             // with the plain reason. Queued work stays in the encrypted store for the same person.
@@ -1973,7 +2001,7 @@ class FieldController(
     }
     /** FLD-014/171: Sign in with the reason; [today] is reset only in memory (the encrypted store is untouched). */
     private fun sessionEnded(e: AuthFailure) {
-        ++sessionGeneration; state = EnrollmentState.SignedOut; today = TodayData(); error = userMessage(e)
+        ++sessionGeneration; state = EnrollmentState.SignedOut; today = TodayData(); selling = false; error = userMessage(e)
         mustChangePassword = false; temporaryPassword = null
         retireSuggestedOrder()
         countUnsent()
@@ -2022,7 +2050,7 @@ class FieldController(
         sessionGeneration++ // retire pending cache/enrollment reads before fallible teardown
         busy = true
         runCatching { withContext(io) { backend.signOut() } }
-        state = EnrollmentState.SignedOut; today = TodayData(); error = null; busy = false
+        state = EnrollmentState.SignedOut; today = TodayData(); selling = false; error = null; busy = false
         mustChangePassword = false; temporaryPassword = null
         team = com.sunpride.field.ui.team.TeamView(); teamDirectOnly = true
         retireSuggestedOrder()

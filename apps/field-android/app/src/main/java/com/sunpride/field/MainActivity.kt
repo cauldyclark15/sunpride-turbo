@@ -43,6 +43,17 @@ class MainActivity : FragmentActivity() {
         }
     }
 
+    // SP-0192 (Sell area only): the built-in printer's "Paper is not ready" alert takes the focus; the printer asks after a job.
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (com.sunpride.field.sell.SellHost.active != null)
+            com.sunpride.field.sell.printing.PrinterAlertWatch.focusChanged(hasFocus, android.os.SystemClock.elapsedRealtime())
+    }
+    /** SP-0192: keyboard-wedge scans are taken here only while a Sell area exists and its selling grid is on screen. */
+    @android.annotation.SuppressLint("RestrictedApi")
+    override fun dispatchKeyEvent(event: android.view.KeyEvent): Boolean =
+        com.sunpride.field.sell.SellHost.active?.scanner?.onKeyEvent(event) == true || super.dispatchKeyEvent(event)
+
     /**
      * DEV debug builds only: write the PUBLIC key (never private material or tokens) to
      * `/sdcard/Android/data/com.sunpride.field.dev/files/device-public-key.txt` for `adb pull`.

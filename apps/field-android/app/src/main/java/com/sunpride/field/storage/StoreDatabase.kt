@@ -234,8 +234,17 @@ interface StoreDao {
     suspend fun ack(account: String, device: String, scope: String, requestId: String): AckRow?
 }
 
-@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class, CallSheetRow::class, CallSheetLineRow::class, EvidencePhotoRow::class, OrderDraftRow::class, CatalogProductRow::class, InventoryAvailabilityRow::class, LocationPingRow::class],
-    version = 10, exportSchema = true)
+/**
+ * SP-0192 v11: the Sell area's tables (`sell_*`, copied from the Van app) join this one encrypted file. The v10 -> v11
+ * migration only creates them; no field row changes. They stay empty on phones whose owner does not sell.
+ */
+@Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class, CallSheetRow::class, CallSheetLineRow::class, EvidencePhotoRow::class, OrderDraftRow::class, CatalogProductRow::class, InventoryAvailabilityRow::class, LocationPingRow::class,
+    com.sunpride.field.sell.storage.TripRow::class, com.sunpride.field.sell.storage.LoadLineRow::class, com.sunpride.field.sell.storage.ProductRow::class, com.sunpride.field.sell.storage.CustomerRow::class, com.sunpride.field.sell.storage.BaselineRow::class, com.sunpride.field.sell.storage.MovementRow::class, com.sunpride.field.sell.storage.SettlementRow::class, com.sunpride.field.sell.storage.OutboxRow::class, com.sunpride.field.sell.storage.AckRow::class, com.sunpride.field.sell.storage.SyncMetaRow::class, com.sunpride.field.sell.storage.SequenceCounterRow::class, com.sunpride.field.sell.storage.TransactionIdRow::class, com.sunpride.field.sell.storage.SaleRow::class, com.sunpride.field.sell.storage.SaleLineRow::class, com.sunpride.field.sell.storage.PaymentRow::class, com.sunpride.field.sell.storage.CustomerReturnRow::class, com.sunpride.field.sell.storage.ReturnLineRow::class, com.sunpride.field.sell.storage.ReconciliationRow::class, com.sunpride.field.sell.storage.PriceListLineRow::class, com.sunpride.field.sell.storage.PromotionRow::class,
+    com.sunpride.field.sell.storage.ReceiptPrintRow::class, com.sunpride.field.sell.storage.SaleReceiptRow::class, com.sunpride.field.sell.storage.SaleVoidRow::class, com.sunpride.field.sell.storage.CashReconciliationRow::class, com.sunpride.field.sell.storage.StockReconciliationRow::class, com.sunpride.field.sell.storage.TripCloseRow::class, com.sunpride.field.sell.storage.LocationPingRow::class, com.sunpride.field.sell.storage.HeldCartRow::class],
+    version = 11, exportSchema = true)
 abstract class StoreDatabase : RoomDatabase() {
     abstract fun rows(): StoreDao
+    /** SP-0192 Sell area (Van app copy). Only selling code calls these. */
+    abstract fun sellRows(): com.sunpride.field.sell.storage.VanDao
+    abstract fun sellPrints(): com.sunpride.field.sell.storage.ReceiptPrintDao
 }

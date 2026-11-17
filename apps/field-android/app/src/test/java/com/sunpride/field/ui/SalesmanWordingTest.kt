@@ -24,6 +24,9 @@ class SalesmanWordingTest {
         base.walk().filter { it.isFile && it.extension == "kt" }.forEach { file ->
             val rel = file.relativeTo(base).path
             if (rel in internal) return@forEach
+            // SP-0192: the Sell area keeps the Van app's owner-tuned selling words and wire codes; its own copy of the
+            // Van wording test (sell/sync/SimpleSyncTest) holds those screens to the same simple-sync rule.
+            if (rel.startsWith("sell/") || rel == "storage/SellMigration.kt") return@forEach
             file.readLines().forEachIndexed { i, line ->
                 val code = line.trimStart()
                 if (code.startsWith("//") || code.startsWith("*")) return@forEachIndexed

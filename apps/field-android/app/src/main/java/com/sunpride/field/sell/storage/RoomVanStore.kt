@@ -1,0 +1,683 @@
+package com.sunpride.field.sell.storage
+
+import androidx.room.withTransaction
+import com.sunpride.field.sell.data.*
+import com.sunpride.field.sell.ledger.StockProjection
+import com.sunpride.field.sell.pos.*
+import com.sunpride.field.sell.sync.VanBootstrapCodec
+import com.sunpride.field.sell.sync.VanWireFailure
+import com.sunpride.field.sell.sync.damagePhotoSha
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.map
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
+
+/** Sales queue on v2. Parked is retained only for pre-v2 evidence, never adopted into a new server scope. */
+const val SALE_KIND = "sale.record"
+const val SALE_VOID_KIND = "sale.void"
+const val SALE_PARKED = "parked"
+
+/** A disagreement between a saved sale and its truck-stock deduction (VAN-018); a healthy phone has none. */
+data class SaleStockIssue(val saleId: String?, val movementId: String?, val code: String)
+/** VAN-012 credit sold here per customer (not yet acknowledged by the office) and `method|REFERENCE` keys already used. */
+data class PaymentFacts(val creditUsedMinor: Map<String,Long> = emptyMap(), val usedReferences: Set<String> = emptySet(),
+    /** IP-SCPWD-CAP: senior/PWD purchase this phone discounted that the bundle cannot include yet, per card key (see `PrivilegeCap.localUsed`). */
+    val capUsedMinor: Map<String,Long> = emptyMap())
+private fun CustomerRow.toCustomer() = Customer(outletId,code,name,address,sequence,source,reason,localOnly,
+    if (creditTermsDays != null && creditAvailableMinor != null) CustomerCredit(creditTermsDays,creditAvailableMinor) else null,
+    priceListId,when (priceListMode) {
+        "none" -> CustomerPriceListMode.NONE
+        "governed" -> CustomerPriceListMode.GOVERNED
+        else -> CustomerPriceListMode.LEGACY
+    })
+
+/** Immutable operation bytes, acknowledgements and movement facts; only acked JPEG files are removed. */
+class RoomVanStore(val db: VanDatabase, override val scope: StoreScope, private val clock: () -> Long = System::currentTimeMillis,
+    val evidence: com.sunpride.field.sell.evidence.DamageEvidence? = null) : com.sunpride.field.sell.sync.VanSyncStore {
+    private val dao = db.sellRows()
+    override fun authorizationEpoch(): Long = authorityEpochs.getOrPut(scope) { java.util.concurrent.atomic.AtomicLong() }.get()
+    companion object {
+        private val authorityEpochs = java.util.concurrent.ConcurrentHashMap<StoreScope,java.util.concurrent.atomic.AtomicLong>()
+        private val deniedScopes = java.util.concurrent.ConcurrentHashMap.newKeySet<StoreScope>()
+        internal fun isDenied(scope: StoreScope): Boolean = scope in deniedScopes
+    }
+    private val s = scope.fullAuthSubject
+    private val d = scope.deviceId
+    internal val capturedStatus: String get() = if (s.startsWith("v2|")) "pending" else SALE_PARKED
+    val trip: Flow<Trip?> = combine(dao.observeTrip(s,d),dao.observeOutbox(s,d)) { rows, ops ->
+        rows.singleOrNull()?.let { r -> VanBootstrapCodec.trip(JSONObject(r.json)).copy(startPending = ops.any { it.tripId == r.tripId && it.kind == "trip.start" && it.status in setOf("pending","sending") }) }
+    }
+    val load: Flow<Load?> = combine(dao.observeTrip(s,d),dao.observeLoadLine(s,d),dao.observeOutbox(s,d)) { trips,lines,ops ->
+        val t = trips.singleOrNull()
+        t?.loadId?.let { id ->
+            val review = runCatching { JSONObject(t.json).optJSONObject("_loadReview") }.getOrNull()
+            val serverConfirm = review?.takeIf { !it.isNull("confirmRequestId") }?.getString("confirmRequestId")
+            val queued = ops.lastOrNull { it.kind == "load.confirm" && it.tripId == t.tripId && it.status in setOf("pending","sending") }
+            // A count the office already has, not yet answered by a bundle, also keeps the button away on a planned load.
+            val waiting = t.loadStatus == "planned" && LoadRecount.waitingForOffice(ops.filter { it.kind == "load.confirm" && it.tripId == t.tripId }.map { ConfirmFact(it.clientRequestId,it.status,it.createdAt) },serverConfirm)
+            val pending = queued?.let { VanBootstrapCodec.objects(JSONObject(it.operationJson).getJSONObject("payload").getJSONArray("lines")).associateBy { it.getInt("lineNumber") } } ?: emptyMap()
+            Load(id,t.loadStatus!!,lines.filter { it.loadId == id }.sortedBy { it.lineNumber }.map { row ->
+                val p = pending[row.lineNumber]
+                VanBootstrapCodec.line(JSONObject(row.json)).copy(pendingActualBase = p?.getString("actualBase")?.toLong(),pendingReason = p?.optString("reason")?.takeIf { it.isNotBlank() })
+            },queued != null || waiting,serverConfirm,review?.takeIf { t.loadStatus == "planned" && !it.isNull("rejectionNote") }?.getString("rejectionNote"))
+        }
+    }
+    // Damage history travels with this trip's existing encrypted JSON row; no Room schema change.
+    val damageRecords: Flow<List<DamageRecord>> = dao.observeTrip(s,d).map { rows ->
+        rows.singleOrNull()?.let { JSONObject(it.json).optJSONArray("_damageRecords")?.let(VanBootstrapCodec::damageRecords) } ?: emptyList()
+    }
+    val policy: Flow<VanPolicy?> = dao.observeSyncMeta(s,d).let { flow -> flow.map { it.singleOrNull()?.policyJson?.let { json -> VanBootstrapCodec.policy(JSONObject(json)) } } }
+    val seller: Flow<Seller?> = dao.observeSyncMeta(s,d).map { it.singleOrNull()?.sellerJson?.let { json -> JSONObject(json).let { o -> Seller(o.getString("profileId"),o.getString("name")) } } }
+    val products: Flow<List<Product>> = dao.observeProduct(s,d).let { flow -> flow.map { rows -> rows.map { VanBootstrapCodec.product(JSONObject(it.json)) } } }
+    val priceLines: Flow<List<PriceLine>> = dao.observePriceListLine(s,d).map { rows -> rows.map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo,it.priceListCode) } }
+    val promotions: Flow<List<Promotion>> = dao.observePromotion(s,d).map { rows -> rows.map { VanBootstrapCodec.promotion(JSONObject(it.json)) } }
+    val customers: Flow<List<Customer>> = dao.observeCustomer(s,d).let { flow -> flow.map { rows -> rows.sortedWith(compareBy<CustomerRow> { it.sequence ?: Int.MAX_VALUE }.thenBy { it.name }).map { it.toCustomer() } } }
+    val syncStatus: Flow<SyncStatus> = combine(dao.observeOutbox(s,d),dao.observeSyncMeta(s,d)) { ops, metas ->
+        val m = metas.singleOrNull(); val held = isDenied(scope) || m != null && !m.authorizes(clock())
+        SyncStatus(if (held) 0 else ops.count { it.status == "pending" },if (held) 0 else ops.count { it.status == "sending" },
+            ops.count { it.status in com.sunpride.field.sell.storage.OutboxRules.REFUSED },if (held) ops.count { it.status in setOf("pending","sending") } else 0,m?.lastSyncTime,m?.health ?: "never_synced",
+            ops.count { it.status == SALE_PARKED && it.kind == SALE_KIND },ops.count { it.status == SALE_PARKED && it.kind == RETURN_KIND },
+            ops.count { it.status == SALE_PARKED },ops.count { it.status == "done" },ops.count { it.kind in com.sunpride.field.sell.sync.SyncHealth.SAP_KINDS },
+            com.sunpride.field.sell.sync.SyncHealth.items(ops.map { com.sunpride.field.sell.sync.OutboxFacts(it.clientRequestId,it.kind,it.status,it.createdAt,it.operationJson,it.rejectionCode) },held))
+    }
+    /** VAN-022: the current trip's cash is counted on this phone (selling and voiding have stopped). */
+    val cashCounted: Flow<Boolean> = combine(dao.observeTrip(s,d),dao.observeCashReconciliation(s,d)) { trips, rows ->
+        trips.singleOrNull()?.let { t -> rows.any { it.tripId == t.tripId } } ?: false
+    }
+    /** VAN-023: the current trip's physical truck stock is counted on this phone (all stock changes have stopped). */
+    val stockCounted: Flow<Boolean> = combine(dao.observeTrip(s,d),dao.observeStockReconciliation(s,d)) { trips, rows ->
+        trips.singleOrNull()?.let { t -> rows.any { it.tripId == t.tripId } } ?: false
+    }
+    /** VAN-024: the current trip is closed on this phone (nothing more is recorded on it). */
+    /** r6van4: truck stock the office will not let leave for a sale (quarantined, held, expired batches). */
+    val heldStock: Flow<Map<String,Long>> = dao.observeTrip(s,d).map { com.sunpride.field.sell.pos.HeldStock.decode(it.singleOrNull()?.json) }
+    val tripClosed: Flow<Boolean> = combine(dao.observeTrip(s,d),dao.observeTripClose(s,d)) { trips, rows ->
+        trips.singleOrNull()?.let { t -> rows.any { it.tripId == t.tripId } } ?: false
+    }
+    /** VAN-083: where this trip's close stands at the office. */
+    val closeOffice: Flow<com.sunpride.field.sell.pos.CloseOffice> = combine(dao.observeTrip(s,d),dao.observeTripClose(s,d),dao.observeOutbox(s,d)) { trips, rows, ops ->
+        val t = trips.singleOrNull()
+        val op = t?.let { trip -> ops.lastOrNull { it.tripId == trip.tripId && it.kind == "trip.close" } }
+        com.sunpride.field.sell.pos.CloseOfficeRules.state(t != null && rows.any { it.tripId == t.tripId },op?.status,op?.rejectionCode,t?.status)
+    }
+    val truckStock: Flow<List<TruckStock>> = combine(dao.observeBaseline(s,d),dao.observeMovement(s,d),dao.observeSettlement(s,d),dao.observeTrip(s,d),dao.observeOutbox(s,d)) { b,m,settled,t,ops ->
+        val trip = t.singleOrNull()?.tripId
+        val refused = refusedOps(ops)
+        if (trip == null) emptyList() else StockProjection.project(b.filter { it.tripId == trip },StockProjection.withoutRefused(m.filter { it.tripId == trip },refused),settled.map { it.movementId }.toSet())
+    }
+    suspend fun stock(): List<TruckStock> {
+        val tripId = dao.trip(s,d)?.tripId ?: return emptyList()
+        val refused = refusedOps(dao.outboxRows(s,d))
+        return StockProjection.project(dao.truckstockbaselineRows(s,d).filter { it.tripId == tripId },StockProjection.withoutRefused(dao.stockmovementRows(s,d).filter { it.tripId == tripId },refused),dao.movementsettlementRows(s,d).map { it.movementId }.toSet())
+    }
+    /**
+     * r6van4: operations the office refused for good. Their stock movements never happened at the office, so they are
+     * left out of the truck stock here too (a refused sale's goods are back on the truck the moment the refusal arrives).
+     * Same rule as the stock count (`StockReconciliationStore`): v2 scopes, whose refusals are final.
+     */
+    internal fun refusedOps(rows: Collection<OutboxRow>): Set<String> = OutboxRules.refused(s,rows)
+    suspend fun canRemove(productId: String, qty: Long): Boolean = db.withTransaction {
+        if (!canSync()) return@withTransaction false
+        val p = dao.meta(s,d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) } ?: return@withTransaction false
+        val trip = dao.trip(s,d) ?: return@withTransaction false
+        if (dao.stockReconciliation(s,d,trip.tripId) != null || dao.tripClose(s,d,trip.tripId) != null) return@withTransaction false
+        dao.productRows(s,d).any { it.productId == productId } && StockProjection.canRemove(stock().firstOrNull { it.productId == productId }?.availableBase ?: 0L,qty,p.allowNegativeStock)
+    }
+    /** The store's clock, for work saved through companion stores (VAN-019 returns). */
+    internal fun now(): Long = clock()
+    private suspend fun writable(): TripRow {
+        check(canSync()) { "Partition held or not bootstrapped" }
+        return checkNotNull(dao.trip(s,d)) { "No trip assigned" }
+    }
+    private fun text(value: String?, max: Int): String? = value?.trim()?.takeIf { it.isNotEmpty() }?.also { require(it.length <= max && it.none(Char::isISOControl)) }
+    private fun withoutV2Fields(op: String): String = JSONObject(op).also { it.optJSONObject("payload")?.remove(com.sunpride.field.sell.pos.OpeningFloat.FIELD) }.toString()
+    private suspend fun enqueue(kind: String, tripId: String, payload: JSONObject, metadataJson: String? = null): OutboxRow {
+        val id = UUID.randomUUID().toString()
+        val at = maxOf(clock(),Math.addExact(dao.latestCreatedAt(s,d) ?: 0L,1L))
+        RouteOpsStore(this).prepare(payload)
+        val op = JSONObject().put("kind",kind).put("clientRequestId",id).put("payload",payload).toString()
+        // The frozen v1 schema predates the v2 `openingFloatCentavos` field: validate everything else, send the field as saved.
+        if (RouteOpsStore(this).version()==0) com.sunpride.field.sell.sync.VanWireSchema.validate(JSONObject(String(VanBootstrapCodec.pushRequest(d,listOf(withoutV2Fields(op))),Charsets.UTF_8)))
+        val row = OutboxRow(s,d,id,tripId,kind,op,at,metadataJson)
+        dao.insertOutbox(row)
+        return row
+    }
+    /** F-211/F-219: resolved MSL and objectives ride the authorized trip snapshot. */
+    suspend fun retailCall(outletId: String): com.sunpride.retail.RetailCall? {
+        if(!canSync())return null
+        val a=dao.trip(s,d)?.let {JSONObject(it.json).optJSONArray("_availability")} ?: return null
+        return (0 until a.length()).map {a.getJSONObject(it)}.firstOrNull {it.getString("outletId")==outletId}
+            ?.let(com.sunpride.retail.RetailAvailability::decode)
+    }
+    suspend fun retailSaved(callKey: String): Boolean = dao.outboxRows(s,d).any { it.kind=="availability.record" && it.status in setOf("pending","sending","done") &&
+        JSONObject(it.operationJson).getJSONObject("payload").getString("callKey")==callKey }
+    /** Checklist and seller decisions share one encrypted transaction; no sale is posted here. */
+    suspend fun saveRetail(call: com.sunpride.retail.RetailCall,callKey: String,answers: List<com.sunpride.retail.ShelfAnswer>,quantities: Map<String,Long>) = db.withTransaction {
+        val t=writable();check(selling(t));check(retailCall(call.outletId)==call);check(!retailSaved(callKey)) {"Availability already saved"}
+        com.sunpride.retail.RetailAvailability.validate(call,answers)
+        require(quantities.keys.all {id->call.lines.any {it.productId==id}} && quantities.values.all {it in 0L..1_000_000_000L})
+        val checkId=UUID.randomUUID().toString();val at=clock()
+        var previous: String? = null
+        suspend fun queue(kind: String,payload: JSONObject) {
+            val request=UUID.randomUUID().toString();val created=maxOf(at,Math.addExact(dao.latestCreatedAt(s,d) ?: 0L,1L))
+            payload.put("deviceTime",at)
+            val op=JSONObject().put("kind",kind).put("clientRequestId",request).put("payload",payload)
+            previous?.let { op.put("dependsOn",JSONArray().put(it)) }
+            dao.insertOutbox(OutboxRow(s,d,request,t.tripId,kind,op.toString(),created,null,capturedStatus))
+            previous=request
+        }
+        queue("availability.record",com.sunpride.retail.RetailAvailability.payload(call,answers,checkId,callKey,at).put("tripId",t.tripId))
+        for(answer in answers.filter {it.state=="absent"}) {
+            val q=quantities[answer.productId] ?: 0L
+            queue("availability.proposal",JSONObject().put("decisionId",UUID.randomUUID().toString()).put("checkId",checkId)
+                .put("productId",answer.productId).put("decision",if(q>0)"accepted" else "dismissed").put("quantityBase",q)
+                .put("orderKey",if(q>0)callKey else JSONObject.NULL))
+        }
+    }
+    suspend fun startTrip(vehicleConfirmed: Boolean, routeConfirmed: Boolean, driverName: String?, helperName: String?, odometerKm: Double?, note: String?,
+        /** IP-P0 (SPEC 6.7): cash the seller starts with, integer centavos 0..10_000_000; wire field `openingFloatCentavos`. */
+        openingFloatCentavos: Long = 0L): String = db.withTransaction {
+        val t = writable(); require(vehicleConfirmed && routeConfirmed)
+        require(openingFloatCentavos in 0..com.sunpride.field.sell.pos.OpeningFloat.MAX_CENTAVOS) { "Opening float must be between ₱0 and ₱100,000" }
+        check(t.status == "loaded") { "Load must be posted before starting" }
+        check(dao.outboxRows(s,d).none { it.tripId == t.tripId && it.kind == "trip.start" && it.status in setOf("pending","sending","done") }) { "Trip already starting" }
+        require(odometerKm == null || odometerKm.isFinite() && odometerKm in 0.0..10_000_000.0)
+        if (RouteOpsStore(this).version()==1) {
+            require(odometerKm!=null) { "Opening odometer is required" }
+            RouteOpsStore(this).requireTemperature("load_out")
+        }
+        val p = JSONObject().put("tripId",t.tripId).put("vehicleConfirmed",true).put("routeConfirmed",true).put("deviceTime",clock())
+        text(driverName,80)?.let { p.put("driverName",it) }; text(helperName,80)?.let { p.put("helperName",it) }
+        odometerKm?.let { p.put("odometerKm",it) }; text(note,300)?.let { p.put("note",it) }
+        p.put(com.sunpride.field.sell.pos.OpeningFloat.FIELD,openingFloatCentavos)
+        enqueue("trip.start",t.tripId,p).clientRequestId
+    }
+    suspend fun confirmLoad(lines: List<LoadActual>): String = db.withTransaction {
+        val t = writable(); check(t.status == "loading" && t.loadStatus == "planned") { "Load cannot be confirmed" }
+        // IP-P0: a count the office sent back for a recount is answered; only an unanswered one blocks a new count.
+        val serverConfirm = JSONObject(t.json).optJSONObject("_loadReview")?.takeIf { !it.isNull("confirmRequestId") }?.getString("confirmRequestId")
+        check(LoadRecount.mayConfirm(dao.outboxRows(s,d).filter { it.tripId == t.tripId && it.kind == "load.confirm" }.map { ConfirmFact(it.clientRequestId,it.status,it.createdAt) },serverConfirm)) { "Your count is already sent to the office" }
+        val sheet = dao.loadlineRows(s,d).filter { it.loadId == t.loadId }
+        require(lines.isNotEmpty() && lines.size == sheet.size && lines.map { it.lineNumber }.toSet() == sheet.map { it.lineNumber }.toSet())
+        val policy = VanBootstrapCodec.policy(JSONObject(dao.meta(s,d)!!.policyJson!!))
+        val inputs = JSONArray()
+        lines.sortedBy { it.lineNumber }.forEach { line ->
+            require(line.actualBase in 0L..999_999_999_999_999_999L)
+            val expected = sheet.single { it.lineNumber == line.lineNumber }.expectedBase
+            require(line.reason == null || line.reason in policy.loadDiscrepancyReasons)
+            require(line.actualBase == expected || line.reason in policy.loadDiscrepancyReasons)
+            inputs.put(JSONObject().put("lineNumber",line.lineNumber).put("actualBase",line.actualBase.toString()).also { line.reason?.let { reason -> it.put("reason",reason) } })
+        }
+        val queued = enqueue("load.confirm",t.tripId,JSONObject().put("tripId",t.tripId).put("loadId",t.loadId).put("lines",inputs).put("deviceTime",clock()),
+            JSONArray(sheet.map { JSONObject().put("lineNumber",it.lineNumber).put("productId",it.productId) }).toString())
+        // F-103/F-123 an exactly scanned load is usable without an office round trip; discrepancies still wait.
+        if (policy.operationsVersion==1 && lines.all { input->sheet.single { it.lineNumber==input.lineNumber }.expectedBase==input.actualBase }) {
+            recordPostedLoad(queued,queued.createdAt,settled=false)
+            dao.insertTrip(t.copy(status="loaded",loadStatus="posted",json=JSONObject(t.json).put("status","loaded").toString()))
+        }
+        queued.clientRequestId
+    }
+    suspend fun recordDamage(productId: String, qty: Long, reason: String, note: String?, photoSha256: String? = null): String = db.withTransaction {
+        val t = writable()
+        if (dao.tripClose(s,d,t.tripId) != null) throw StockRefused(StockProblem.TRIP_CLOSED)
+        if (dao.stockReconciliation(s,d,t.tripId) != null) throw StockRefused(StockProblem.STOCK_COUNTED)
+        check(t.status == "active" || dao.outboxRows(s,d).any { it.tripId == t.tripId && it.kind == "trip.start" && it.status in setOf("pending","sending","done") }) { "Trip not active" }
+        val policy = VanBootstrapCodec.policy(JSONObject(dao.meta(s,d)!!.policyJson!!))
+        require(reason in policy.damageReasons && qty in 1L..999_999_999_999_999_999L)
+        val product = checkNotNull(dao.productRows(s,d).singleOrNull { it.productId == productId })
+        DamageRules.validate(policy.damagePolicy,qty,product.quantityScale,reason,photoSha256)
+        // Refuse missing, oversized or corrupted local evidence before any outbox/stock write.
+        photoSha256?.let { checkNotNull(evidence).read(it,policy.damagePolicy?.photoMaxBytes ?: 90_000) }
+        check(canRemove(productId,qty)) { "Insufficient available truck stock" }
+        val p = JSONObject().put("tripId",t.tripId).put("productId",productId).put("quantityBase",qty.toString()).put("reason",reason).put("deviceTime",clock())
+        text(note,300)?.let { p.put("note",it) }
+        photoSha256?.let { p.put("photoSha256",it) }
+        val row = enqueue("truck.damage",t.tripId,p)
+        dao.insertMovement(MovementRow(s,d,row.clientRequestId+":available",t.tripId,productId,"DAMAGE","available",-qty,reason,row.clientRequestId,row.createdAt))
+        dao.insertMovement(MovementRow(s,d,row.clientRequestId+":damaged",t.tripId,productId,"DAMAGE","damaged",qty,reason,row.clientRequestId,row.createdAt))
+        row.clientRequestId
+    }
+    internal suspend fun recordLocalMovement(type: com.sunpride.field.sell.ledger.MovementType, productId: String,
+        stockStatus: com.sunpride.field.sell.ledger.StockStatus, quantityBase: Long, reason: String?, clientRequestId: String): String = db.withTransaction {
+        // VAN-018: a SALE deduction exists only together with its saved sale, so it is written by [commitSale] alone.
+        require(type !in setOf(com.sunpride.field.sell.ledger.MovementType.LOAD,com.sunpride.field.sell.ledger.MovementType.DAMAGE,com.sunpride.field.sell.ledger.MovementType.SALE,com.sunpride.field.sell.ledger.MovementType.VOID)) {
+            "Load, damage, sale and void use their atomic paths" }
+        require(Regex("^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-4[0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}$").matches(clientRequestId) && quantityBase != 0L)
+        val t = writable()
+        if (dao.tripClose(s,d,t.tripId) != null) throw StockRefused(StockProblem.TRIP_CLOSED)
+        if (dao.stockReconciliation(s,d,t.tripId) != null) throw StockRefused(StockProblem.STOCK_COUNTED)
+        require(dao.productRows(s,d).any { it.productId == productId })
+        if (type == com.sunpride.field.sell.ledger.MovementType.RETURN) require(quantityBase > 0)
+        val id = "$clientRequestId:$productId:${stockStatus.name}:${type.name}"
+        val prior = dao.stockmovementRows(s,d).singleOrNull { it.movementId == id }
+        if (prior != null) {
+            check(prior.tripId == t.tripId && prior.quantityBase == quantityBase && prior.reason == reason) { "Movement replay conflict" }
+        } else {
+            if (stockStatus == com.sunpride.field.sell.ledger.StockStatus.available && quantityBase < 0) check(canRemove(productId,Math.negateExact(quantityBase))) { "Insufficient available truck stock" }
+            dao.insertMovement(MovementRow(s,d,id,t.tripId,productId,type.name,stockStatus.name,quantityBase,reason,clientRequestId,clock()))
+        }
+        id
+    }
+    suspend fun addWalkInCustomer(name: String, reason: String): Customer = db.withTransaction {
+        writable()
+        check(VanBootstrapCodec.policy(JSONObject(dao.meta(s,d)!!.policyJson!!)).walkInAllowed)
+        val n = checkNotNull(text(name,150)); val r = checkNotNull(text(reason,300))
+        val row = CustomerRow(s,d,"local:"+UUID.randomUUID(),"",n,null,null,"walk_in",r,true)
+        dao.insertCustomer(row)
+        Customer(row.outletId,row.code,n,null,null,row.source,r,true)
+    }
+    /** Same rule as damage: the trip is on route, or its start is saved on this phone, and it is not closed here (VAN-024). */
+    private suspend fun selling(t: TripRow): Boolean = dao.tripClose(s,d,t.tripId) == null && (t.status == "active" ||
+        dao.outboxRows(s,d).any { it.tripId == t.tripId && it.kind == "trip.start" && it.status in setOf("pending","sending","done") })
+
+    /** Checkout context read from this scoped partition; inside [commitSale] it is read in the sale's transaction. */
+    suspend fun checkoutContext(): CheckoutContext {
+        val t = dao.trip(s,d); val meta = dao.meta(s,d); val facts = paymentFacts()
+        val counted = t != null && dao.cashReconciliation(s,d,t.tripId) != null
+        val stockCounted = t != null && dao.stockReconciliation(s,d,t.tripId) != null
+        return CheckoutContext(t != null && canSync() && selling(t),
+            dao.customerRows(s,d).map { it.toCustomer() },
+            dao.productRows(s,d).map { VanBootstrapCodec.product(JSONObject(it.json)) }, com.sunpride.field.sell.pos.HeldStock.sellable(stock(),com.sunpride.field.sell.pos.HeldStock.decode(t?.json)),
+            dao.pricelistlineRows(s,d).map { PriceLine(it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo,it.priceListCode) },
+            meta?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) }, clock(), t?.serviceDate,
+            facts.creditUsedMinor, facts.usedReferences, counted,
+            dao.promotionRows(s,d).map { VanBootstrapCodec.promotion(JSONObject(it.json)) }, stockCounted,
+            taxFacts = meta?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)).fiscalJson }?.let { com.sunpride.field.sell.fiscal.FiscalTax.facts(JSONObject(it),clock()) },
+            capRemaining = com.sunpride.field.sell.selling.PrivilegeCap.remainingFn(meta?.policyJson?.let { runCatching { VanBootstrapCodec.policy(JSONObject(it)).privilegeCap }.getOrNull() },facts.capUsedMinor,clock()))
+    }
+
+    /**
+     * VAN-012 payment facts from this partition's saved payments: credit sold per customer whose sale the office has
+     * not acknowledged (it still counts against the bootstrap's available credit), and every recorded reference.
+     */
+    suspend fun paymentFacts(): PaymentFacts {
+        val acked = dao.outboxRows(s,d).filter { it.status == "done" }.map { it.clientRequestId }.toSet()
+        val sales = dao.saleRows(s,d).associateBy { it.saleId }
+        val voided = dao.salevoidRows(s,d).map { it.saleId }.toSet()
+        val credit = mutableMapOf<String,Long>(); val references = mutableSetOf<String>()
+        dao.paymentRows(s,d).forEach { p ->
+            if (p.saleId in voided) return@forEach
+            p.reference?.let { references += PaymentReference.key(p.method,it) }
+            val sale = sales[p.saleId] ?: return@forEach
+            if (p.status == PaymentState.ON_ACCOUNT.wire && sale.idempotencyKey !in acked)
+                credit[sale.customerId] = Math.addExact(credit[sale.customerId] ?: 0L,p.amountMinor ?: 0L)
+        }
+        val cap = dao.meta(s,d)?.policyJson?.let { runCatching { VanBootstrapCodec.policy(JSONObject(it)).privilegeCap }.getOrNull() }
+        val now = clock()
+        val claims = dao.outboxRows(s,d).filter { it.kind == "sale.record" }.mapNotNull { r ->
+            val p = JSONObject(r.operationJson).optJSONObject("payload") ?: return@mapNotNull null
+            if (p.optString("saleId") in voided) return@mapNotNull null
+            p.optJSONObject("discountClaim")?.let { Triple(r.status,r.createdAt,it) }
+        }
+        return PaymentFacts(credit,references,com.sunpride.field.sell.selling.PrivilegeCap.localUsed(cap,now,claims))
+    }
+
+    /**
+     * VAN-011 checkout. ONE Room transaction re-validates the cart against the stored trip, customer, truck stock
+     * and price list, refuses if the total differs from [expectedTotalMinor] (what the seller agreed with the
+     * customer), then writes the receipt number, sale, lines, cash payment, SALE stock movements and the sale's
+     * outbox operation. Any failure leaves nothing behind. The sale is complete on this phone before any upload.
+     *
+     * The van gateway has no sale operation yet, so the outbox row is [SALE_PARKED]: it keeps the frozen
+     * operation bytes, is never sent, and its stock stays deducted. Tapping Complete again with the same
+     * [CheckoutRequest.saleId] returns the saved sale instead of selling twice.
+     */
+    suspend fun commitSale(request: CheckoutRequest, expectedTotalMinor: Long): SaleReceipt = db.withTransaction {
+        dao.saleRows(s,d).singleOrNull { it.saleId == request.saleId }?.let { return@withTransaction savedReceipt(it,request) }
+        request.customerId?.let { check(retailCall(it)==null || retailSaved(request.saleId)) {"Check every MSL line before checkout"} }
+        val context = checkoutContext()
+        val result = CheckoutRules.evaluate(request,context)
+        if (!result.ok) throw CheckoutRefused(result.issues)
+        val quote = checkNotNull(result.quote)
+        if (quote.totalMinor != expectedTotalMinor) throw CheckoutRefused(listOf(CheckoutIssue(CheckoutProblem.PRICES_CHANGED)))
+        val t = writable()
+        val customer = context.customers.single { it.outletId == request.customerId }
+        RouteOpsStore(this).requireTemperature("delivery",customer.outletId)
+        val batchAllocations=quote.lines.associate { it.product.productId to com.sunpride.field.sell.ledger.BatchLedger(this).allocations(it.product.productId,it.quantityBase,context.now) }
+        val fiscal = if (s.startsWith("v2|")) com.sunpride.field.sell.fiscal.FiscalNumbers.issue(db,scope,JSONObject(dao.meta(s,d)!!.policyJson!!),"sales_invoice",context.now) else null
+        val id = fiscal?.let { com.sunpride.field.sell.ids.TransactionIdentity(it.number,UUID.randomUUID().toString()) }
+            ?: com.sunpride.field.sell.ids.TransactionIds(db,scope).issue(t.tripId,t.tripNumber)
+        val at = maxOf(context.now,Math.addExact(dao.latestCreatedAt(s,d) ?: 0L,1L))
+        val pay = quote.payment
+        // Posting state ("saved" on this phone) and payment state are separate columns (VAN-012).
+        dao.insertSale(SaleRow(s,d,request.saleId,t.tripId,id.receiptNumber,id.idempotencyKey,customer.outletId,"saved",quote.totalMinor,at,(quote.split?.other ?: pay).state.wire))
+        quote.lines.forEach { dao.insertSaleLine(SaleLineRow(s,d,request.saleId,it.lineNumber,it.product.productId,it.quantityBase,it.unitPriceMinor,it.totalMinor,it.freeBase,it.discountMinor)) }
+        val split = quote.split
+        if (split != null) split.parts.forEach { part -> dao.insertPayment(PaymentRow(s,d,UUID.randomUUID().toString(),request.saleId,part.method.code,part.amountMinor,at,
+            part.reference,part.state.wire,part.tenderedMinor,part.dueDate)) }
+        else dao.insertPayment(PaymentRow(s,d,UUID.randomUUID().toString(),request.saleId,pay.method.code,pay.amountMinor,at,
+            pay.reference,pay.state.wire,pay.tenderedMinor,pay.dueDate))
+        // VAN-018: deduct every line from available truck stock in this same transaction, then prove the sale and
+        // its deductions agree before commit. Any refusal or mismatch throws and rolls the whole sale back.
+        val allowNegative = checkNotNull(context.policy).allowNegativeStock
+        quote.lines.forEach { deductSale(t.tripId,id.idempotencyKey,it.product.productId,it.quantityBase,at,allowNegative) }
+        check(saleStockIssues(request.saleId).isEmpty()) { "Sale and truck stock disagree" }
+        val customerJson = if (customer.localOnly) JSONObject().put("walkIn",JSONObject().put("name",customer.name).put("reason",customer.reason))
+            else JSONObject().put("outletId",customer.outletId)
+        val payload = JSONObject().put("tripId",t.tripId).put("saleId",request.saleId).put("receiptNumber",id.receiptNumber)
+            .put("customer",customerJson).put("currency",quote.currency).put("totalMinor",quote.totalMinor.toString())
+            .put("lines",JSONArray(quote.lines.map { JSONObject().put("lineNumber",it.lineNumber).put("productId",it.product.productId)
+                .put("quantityBase",it.quantityBase.toString()).put("paidBase",it.paidBase.toString()).put("freeBase",it.freeBase.toString())
+                .apply {if(context.policy?.operationsVersion==1) put("allocations",JSONArray(batchAllocations[it.product.productId].orEmpty().map { a->a.json() }))}
+                .put("unitPriceMinor",it.unitPriceMinor.toString()).put("grossMinor",it.grossMinor.toString()).put("discountMinor",it.discountMinor.toString()).put("totalMinor",it.totalMinor.toString())
+                .put("priceListIds",JSONArray(it.priceListIds)).put("priceSource",it.priceListId?.let { id -> JSONObject().put("priceListId",id).put("priceListCode",it.priceListCode ?: JSONObject.NULL) } ?: JSONObject.NULL)
+                .put("promotion",it.promotion?.let { p -> JSONObject().put("promotionId",p.promotionId).put("code",p.code).put("kind",p.kind) } ?: JSONObject.NULL) }))
+            .put("payment",if (split != null) com.sunpride.field.sell.pos.SplitTenders.paymentJson(quote.totalMinor,split) else JSONObject().put("method",pay.method.code).put("kind",pay.method.kind.wire).put("status",pay.state.wire)
+                .put("amountMinor",pay.amountMinor.toString())
+                .apply { pay.tenderedMinor?.let { put("tenderedMinor",it.toString()).put("changeMinor",pay.changeMinor.toString()) } }
+                .apply { pay.reference?.let { put("reference",it) } }
+                .apply { pay.dueDate?.let { put("dueDate",it) } })
+            .apply { quote.claim?.let { put("discountClaim",it.json("privilegeDiscountMinor","vatRemovedMinor",quote.legal)) } }
+            .put("deviceTime",context.now)
+            .apply{if(pay.method.kind==PaymentKind.CREDIT&&com.sunpride.field.sell.pos.SapCreditExceptions.credit(request,context,quote.totalMinor)!=null)put("sapCreditExceptionId",checkNotNull(com.sunpride.field.sell.pos.SapCreditExceptions.approved(request,context,quote.totalMinor)).getString("id"))}
+            .apply{request.priceOverride?.let{put("priceOverride",com.sunpride.field.sell.pos.SaleAdjustments.json(it.authorization))};if(pay.method.kind==PaymentKind.CREDIT)request.creditOverride?.let{put("creditOverride",com.sunpride.field.sell.pos.SaleAdjustments.json(it))}}
+            .apply { if(s.startsWith("v2|")&&!com.sunpride.field.sell.pos.PromotionEngine.useCanonical(request,context)&&context.governedPromotionsJson==null&&com.sunpride.field.sell.pos.ManualDiscounts.amount(quote.lines)>0L){
+                put("authorityVersion",2).put("overrideId",request.manualDiscount?.requestId?:request.saleId)
+                    .put("discountReason",com.sunpride.field.sell.pos.ManualDiscounts.reason(request.manualDiscount))
+                request.manualDiscount?.approval?.let{put("offlineCode",it)}
+            } }
+            .apply { if(com.sunpride.field.sell.pos.PromotionEngine.useCanonical(request,context)) put("schemeEngineVersion",1) }
+            .apply { fiscal?.let { put("fiscal",JSONObject().put("allocationId",it.allocationId).put("serial",it.serial.toString())) } }
+        val sellingTax=fiscal?.let{if(quote.claim!=null&&quote.legal!=null)com.sunpride.field.sell.fiscal.FiscalTax.snapshotWithDiscount(quote.lines,checkNotNull(context.taxFacts),customer.priceListId)
+            else com.sunpride.field.sell.fiscal.FiscalTax.snapshot(quote.lines,JSONObject(checkNotNull(context.policy?.fiscalJson)),customer.priceListId,context.now)}
+        sellingTax?.let{payload.getJSONObject("fiscal").put("tax",it)}
+        VanCallStore(this@RoomVanStore).bindAdapter(payload,customer.outletId,listOf("order_build","discount","invoice","payment"))
+        RouteOpsStore(this).prepare(payload)
+        val op = JSONObject().put("kind",SALE_KIND).put("clientRequestId",id.idempotencyKey).put("payload",payload).toString()
+        dao.insertOutbox(OutboxRow(s,d,id.idempotencyKey,t.tripId,SALE_KIND,op,at,null,capturedStatus))
+        val receiptFiscal = fiscal?.let { receiptExtras(com.sunpride.field.sell.fiscal.FiscalNumbers.snapshot(it,quote.totalMinor,providedTax=sellingTax),quote.claim,quote.legal,quote.split) }
+        val receipt = if (split != null) SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it) },
+            quote.currency,quote.totalMinor,split.cash.tenderedMinor ?: split.cash.amountMinor,split.cash.changeMinor,at,false,"split","${split.cash.method.label} + ${split.other.method.label}",PaymentKind.OTHER,
+            split.other.state.wire,split.other.reference,split.other.dueDate,receiptFiscal)
+        else SaleReceipt(request.saleId,id.receiptNumber,customer.name,quote.lines.map { receiptLine(it) },
+            quote.currency,quote.totalMinor,quote.tenderedMinor,quote.changeMinor,at,false,pay.method.code,pay.method.label,pay.method.kind,
+            pay.state.wire,pay.reference,pay.dueDate,receiptFiscal)
+        // VAN-017: freeze what this receipt says (and seller/trip/truck) in the same transaction as the sale.
+        db.sellPrints().insertSaleReceipt(SaleReceiptRow(s,d,request.saleId,FrozenReceipts.encode(receipt,currentReceiptHeader(dao,s,d,dao.trip(s,d)))))
+        receipt
+    }
+    /** IP-HH2: the claim and the split tender go on the frozen receipt so the print and every reprint show the discount and payment lines. */
+    private fun receiptExtras(fiscalJson: String, claim: com.sunpride.field.sell.selling.DiscountClaim?, legal: com.sunpride.field.sell.selling.LegalCart?, split: com.sunpride.field.sell.pos.QuotedSplit?): String {
+        if (claim == null && split == null) return fiscalJson
+        val o = JSONObject(fiscalJson)
+        claim?.let { o.put("discountClaim",com.sunpride.field.sell.printing.ReceiptDiscounts.claimJson(it,legal)) }
+        split?.let { o.put("payments",com.sunpride.field.sell.printing.ReceiptDiscounts.paymentsJson(it)) }
+        return o.toString()
+    }
+    /** The original sale, payment, deductions and receipt stay intact. Only compensating facts are appended. */
+    suspend fun voidSale(saleId: String, reasonCode: String?, note: String?, approvalCode: String?): SaleVoidResult = db.withTransaction {
+        if (!canSync()) throw VoidRefused(VoidProblem.HELD)
+        val sale = dao.saleRows(s,d).singleOrNull { it.saleId == saleId } ?: throw VoidRefused(VoidProblem.SALE_NOT_FOUND)
+        if (dao.trip(s,d)?.tripId != sale.tripId) throw VoidRefused(VoidProblem.NOT_THIS_TRIP)
+        if (dao.tripClose(s,d,sale.tripId) != null && dao.saleVoid(s,d,saleId) == null) throw VoidRefused(VoidProblem.TRIP_CLOSED)
+        if (dao.stockReconciliation(s,d,sale.tripId) != null && dao.saleVoid(s,d,saleId) == null) throw VoidRefused(VoidProblem.STOCK_COUNTED)
+        if (dao.cashReconciliation(s,d,sale.tripId) != null && dao.saleVoid(s,d,saleId) == null) throw VoidRefused(VoidProblem.CASH_COUNTED)
+        dao.saleVoid(s,d,saleId)?.let { prior ->
+            if (prior.reasonCode == reasonCode && prior.note == VoidRules.normalizedNote(note))
+                return@withTransaction prior.result(sale.receiptNumber,true)
+            throw VoidRefused(VoidProblem.ALREADY_VOIDED)
+        }
+        check(dao.outboxRows(s,d).none {it.kind=="payment.record" && JSONObject(it.operationJson).getJSONObject("payload").optString("saleId")==saleId}) { "This invoice has a collection; reconcile it with the office before cancellation" }
+        // VAN-019 x VAN-021: goods already returned against this sale are back on the truck; voiding the whole sale
+        // would put them back a second time. The rest goes through a return instead.
+        if (dao.outboxRows(s,d).any { (it.kind == RETURN_KIND || (it.kind == REFUND_KIND && it.status !in com.sunpride.field.sell.storage.OutboxRules.REFUSED)) &&
+                JSONObject(it.operationJson).getJSONObject("payload").optJSONObject("originalSale")?.optString("saleId") == saleId } ||
+            dao.meta(s,d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)).refunds?.made?.any { m -> m.saleId == saleId } } == true)
+            throw VoidRefused(VoidProblem.SALE_HAS_RETURNS)
+        val policy = dao.meta(s,d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)) } ?: VanPolicy()
+        val total = checkNotNull(sale.totalMinor)
+        val authorized = VoidRules.authorize(policy,sale.tripId,sale.receiptNumber,total,reasonCode,note,approvalCode)
+        val voidKey = UUID.randomUUID().toString()
+        val at = maxOf(clock(),Math.addExact(dao.latestCreatedAt(s,d) ?: 0L,1L))
+        val row = SaleVoidRow(s,d,UUID.randomUUID().toString(),saleId,sale.tripId,voidKey,reasonCode!!,authorized.note,
+            authorized.method,authorized.code,at)
+        dao.insertSaleVoid(row)
+        dao.salelineRows(s,d).filter { it.saleId == saleId }.forEach { line ->
+            dao.insertMovement(MovementRow(s,d,voidMovementId(voidKey,line.productId),sale.tripId,line.productId,
+                com.sunpride.field.sell.ledger.MovementType.VOID.name,"available",line.quantityBase,reasonCode,voidKey,at))
+        }
+        val currency = JSONObject(checkNotNull(dao.outbox(s,d,sale.idempotencyKey)).operationJson).getJSONObject("payload").getString("currency")
+        val payload = JSONObject().put("tripId",sale.tripId).put("saleId",saleId).put("receiptNumber",sale.receiptNumber)
+            .put("saleClientRequestId",sale.idempotencyKey).put("totalMinor",total.toString()).put("currency",currency)
+            .put("reasonCode",reasonCode).put("approval",JSONObject().put("method",authorized.method)
+                .apply { authorized.code?.let { put("code",it) } }).put("deviceTime",at)
+            .apply { authorized.note?.let { put("note",it) } }
+        RouteOpsStore(this).prepare(payload)
+        val op = JSONObject().put("kind",SALE_VOID_KIND).put("clientRequestId",voidKey).put("payload",payload).toString()
+        dao.insertOutbox(OutboxRow(s,d,voidKey,sale.tripId,SALE_VOID_KIND,op,at,null,capturedStatus))
+        check(saleStockIssues(saleId).isEmpty()) { "Sale void and truck stock disagree" }
+        row.result(sale.receiptNumber,false)
+    }
+    private fun SaleVoidRow.result(receiptNumber: String, replay: Boolean) =
+        SaleVoidResult(saleId,voidId,receiptNumber,reasonCode,approvalMethod == "supervisor_code",createdAt,replay)
+    private fun voidMovementId(key: String, productId: String) = "$key:$productId:available:VOID"
+
+    /** One SALE movement per sale line; the available-stock check is repeated against the rows already written in this transaction. */
+    private suspend fun deductSale(tripId: String, key: String, productId: String, quantityBase: Long, at: Long, allowNegative: Boolean) {
+        val movementId = saleMovementId(key,productId)
+        check(dao.stockmovementRows(s,d).none { it.movementId == movementId }) { "Sale already deducted" }
+        val available = com.sunpride.field.sell.pos.HeldStock.sellable(stock(),com.sunpride.field.sell.pos.HeldStock.decode(dao.trip(s,d)?.json)).firstOrNull { it.productId == productId }?.availableBase ?: 0L
+        if (!com.sunpride.field.sell.ledger.StockProjection.canRemove(available,quantityBase,allowNegative))
+            throw CheckoutRefused(listOf(CheckoutIssue(CheckoutProblem.INSUFFICIENT_STOCK,productId)))
+        dao.insertMovement(MovementRow(s,d,movementId,tripId,productId,com.sunpride.field.sell.ledger.MovementType.SALE.name,
+            com.sunpride.field.sell.ledger.StockStatus.available.name,Math.negateExact(quantityBase),null,key,at))
+    }
+
+    /**
+     * VAN-018 invariant: every saved sale has exactly one available-stock SALE deduction per line, for the line's
+     * quantity, on the sale's trip and at the sale's time, and no SALE deduction exists without a saved sale.
+     * Empty means the sales and truck stock on this phone agree. [saleId] narrows the check to one sale.
+     */
+    suspend fun saleStockIssues(saleId: String? = null): List<SaleStockIssue> = db.withTransaction {
+        val sales = dao.saleRows(s,d).filter { saleId == null || it.saleId == saleId }
+        val lines = dao.salelineRows(s,d).groupBy { it.saleId }
+        val movements = dao.stockmovementRows(s,d).filter { it.type == com.sunpride.field.sell.ledger.MovementType.SALE.name }
+        val issues = mutableListOf<SaleStockIssue>()
+        sales.forEach { sale ->
+            val saleLines = lines[sale.saleId] ?: emptyList()
+            val expected = saleLines.associate { saleMovementId(sale.idempotencyKey,it.productId) to it.quantityBase }
+            val actual = movements.filter { it.clientRequestId == sale.idempotencyKey }
+            if (saleLines.isEmpty()) issues += SaleStockIssue(sale.saleId,null,"no_lines")
+            if (expected.size != saleLines.size) issues += SaleStockIssue(sale.saleId,null,"duplicate_product")
+            actual.filter { it.movementId !in expected }.forEach { issues += SaleStockIssue(sale.saleId,it.movementId,"unexpected_deduction") }
+            expected.forEach { (movementId, qty) ->
+                val m = actual.singleOrNull { it.movementId == movementId }
+                when {
+                    m == null -> issues += SaleStockIssue(sale.saleId,movementId,"missing_deduction")
+                    m.quantityBase != Math.negateExact(qty) || m.stockStatus != com.sunpride.field.sell.ledger.StockStatus.available.name ||
+                        m.tripId != sale.tripId || m.createdAt != sale.createdAt -> issues += SaleStockIssue(sale.saleId,movementId,"wrong_deduction")
+                }
+            }
+        }
+        if (saleId == null) {
+            val keys = dao.saleRows(s,d).map { it.idempotencyKey }.toSet()
+            movements.filter { it.clientRequestId !in keys }.forEach { issues += SaleStockIssue(null,it.movementId,"deduction_without_sale") }
+        }
+        val voids = dao.salevoidRows(s,d)
+        val reversals = dao.stockmovementRows(s,d).filter { it.type == com.sunpride.field.sell.ledger.MovementType.VOID.name }
+        voids.filter { saleId == null || it.saleId == saleId }.forEach { void ->
+            val sale = sales.singleOrNull { it.saleId == void.saleId }
+            val expected = lines[void.saleId].orEmpty().associate { voidMovementId(void.idempotencyKey,it.productId) to it.quantityBase }
+            val actual = reversals.filter { it.clientRequestId == void.idempotencyKey }
+            if (sale == null || expected.isEmpty()) issues += SaleStockIssue(void.saleId,null,"wrong_reversal")
+            actual.filter { it.movementId !in expected }.forEach { issues += SaleStockIssue(void.saleId,it.movementId,"wrong_reversal") }
+            expected.forEach { (id,qty) ->
+                val m = actual.singleOrNull { it.movementId == id }
+                when {
+                    m == null -> issues += SaleStockIssue(void.saleId,id,"missing_reversal")
+                    m.quantityBase != qty || m.stockStatus != "available" || m.tripId != sale?.tripId ||
+                        void.tripId != sale?.tripId || m.createdAt != void.createdAt -> issues += SaleStockIssue(void.saleId,id,"wrong_reversal")
+                }
+            }
+        }
+        if (saleId == null) {
+            val keys = voids.map { it.idempotencyKey }.toSet()
+            reversals.filter { it.clientRequestId !in keys }.forEach { issues += SaleStockIssue(null,it.movementId,"reversal_without_void") }
+        }
+        issues
+    }
+    private fun saleMovementId(key: String, productId: String) =
+        "$key:$productId:${com.sunpride.field.sell.ledger.StockStatus.available.name}:${com.sunpride.field.sell.ledger.MovementType.SALE.name}"
+
+    private suspend fun savedReceipt(sale: SaleRow, request: CheckoutRequest): SaleReceipt {
+        val lines = dao.salelineRows(s,d).filter { it.saleId == sale.saleId }.sortedBy { it.lineNumber }
+        val savedPaid = lines.filter { (it.quantityBase - (it.freeBase ?: 0L)) > 0L }
+            .associate { it.productId to (it.quantityBase - (it.freeBase ?: 0L)) }
+        val requestedPaid = request.lines.associate { it.productId to it.quantityBase }
+        check(sale.customerId == request.customerId && request.lines.size == requestedPaid.size && savedPaid == requestedPaid) { "Sale replay conflict" }
+        db.sellPrints().saleReceipt(s,d,sale.saleId)?.let { return FrozenReceipts.decode(it.documentJson).first }
+        val op = JSONObject(checkNotNull(dao.outbox(s,d,sale.idempotencyKey)).operationJson).getJSONObject("payload")
+        val payment = op.getJSONObject("payment")
+        // A sale saved before VAN-012 has {"terms":"cash"}; the method, kind and state then are cash/paid.
+        val code = payment.optString("method","cash")
+        val method = (dao.meta(s,d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)).paymentMethods } ?: emptyList())
+            .firstOrNull { it.code == code } ?: PaymentMethod.CASH.takeIf { code == "cash" } ?: PaymentMethod(code,code,PaymentKind.of(payment.optString("kind","other")),false,null)
+        val total = sale.totalMinor!!
+        val tendered = if (payment.has("tenderedMinor")) payment.getString("tenderedMinor").toLong() else total
+        val change = if (payment.has("changeMinor")) payment.getString("changeMinor").toLong() else 0L
+        val products = dao.productRows(s,d).associate { it.productId to VanBootstrapCodec.product(JSONObject(it.json)) }
+        val customer = dao.customerRows(s,d).singleOrNull { it.outletId == sale.customerId }?.name ?: ""
+        return SaleReceipt(sale.saleId,sale.receiptNumber,customer,lines.map { receiptLine(it.lineNumber,checkNotNull(products[it.productId]),it.quantityBase,it.unitPriceMinor!!,it.totalMinor!!,it.freeBase ?: 0L,it.discountMinor ?: 0L) },
+            op.getString("currency"),total,tendered,change,sale.createdAt,true,code,method.label,method.kind,
+            sale.paymentStatus ?: payment.optString("status",PaymentState.PAID.wire),payment.optString("reference").ifEmpty { null },payment.optString("dueDate").ifEmpty { null })
+    }
+    private fun receiptLine(line: QuotedLine) = SaleReceiptLine(line.lineNumber,line.product.productId,line.product.name,line.product.uomCode,
+        line.product.displayQuantity(line.quantityBase),line.unitPriceMinor,line.totalMinor,line.freeBase,line.discountMinor,
+        line.promotion?.code,line.priceListCode,line.freeBase.takeIf { it > 0L }?.let(line.product::displayQuantity))
+    private fun receiptLine(n: Int, p: Product, quantityBase: Long, unit: Long, total: Long, freeBase: Long = 0L,
+        discountMinor: Long = 0L, promotionCode: String? = null, priceListCode: String? = null) =
+        SaleReceiptLine(n,p.productId,p.name,p.uomCode,p.displayQuantity(quantityBase),unit,total,freeBase,discountMinor,promotionCode,priceListCode)
+
+    override suspend fun pending(excluding: Set<String>): List<OutboxRow> = if (!canSync()) emptyList() else
+        com.sunpride.field.sell.sync.VanUploadBatch.select(dao.outboxRows(s,d).filter { it.status == "pending" && it.clientRequestId !in excluding }.sortedWith(compareBy<OutboxRow> { it.createdAt }.thenBy { it.clientRequestId }))
+    override suspend fun canSync(): Boolean = !isDenied(scope) && dao.meta(s,d)?.authorizes(clock()) == true
+    /** SP-0137 live-location pings of this scope. */
+    val locations = LocationPingStore(db,scope,clock)
+    override suspend fun pendingPings(): List<LocationPingRow> = locations.pending()
+    override suspend fun recordPingResults(results: List<Pair<LocationPingRow,com.sunpride.field.sell.location.LocationPingCodec.Result>>) = locations.recordResults(results)
+    override suspend fun prunePings() = locations.prune()
+    override suspend fun cleanupAcknowledgedPhotos(): Unit = db.withTransaction {
+        if (!canSync()) return@withTransaction
+        val rows = dao.outboxRows(s,d)
+        val retained = rows.filter { it.status != "done" }.mapNotNull(::damagePhotoSha).toSet()
+        // The transaction serializes this read/delete with enqueue. Do not repeatedly delete a
+        // newly retaken, unuploaded draft with the same digest as a historical acknowledged photo.
+        rows.filter { it.status == "done" }.mapNotNull(::damagePhotoSha).distinct().filterNot { it in retained }.forEach {
+            if (evidence?.uploaded(it) == true) evidence.delete(it)
+        }
+    }
+    override suspend fun resetSending() = dao.resetSending(s,d)
+    override suspend fun markSending(ids: List<String>) = dao.markSending(s,d,ids)
+    override suspend fun hold() {
+        deniedScopes.add(scope)
+        authorityEpochs.getOrPut(scope) { java.util.concurrent.atomic.AtomicLong() }.incrementAndGet()
+        db.withTransaction { val m = dao.meta(s,d) ?: SyncMetaRow(s,d); dao.insertSyncMeta(m.copy(held=true,health="held_for_review")); dao.resetSending(s,d) }
+    }
+    override suspend fun setHealth(health: String, successTime: Long?) = db.withTransaction {
+        val m = dao.meta(s,d) ?: SyncMetaRow(s,d)
+        dao.insertSyncMeta(m.copy(health=health,lastSyncTime=successTime ?: m.lastSyncTime))
+    }
+    override suspend fun recordResult(row: OutboxRow, result: PushResult) = db.withTransaction {
+        check(result.clientRequestId == row.clientRequestId && result.kind == row.kind)
+        val current = checkNotNull(dao.outbox(s,d,row.clientRequestId))
+        check(row.fullAuthSubject == s && row.deviceId == d && current.kind == row.kind && current.tripId == row.tripId &&
+            current.operationJson == row.operationJson && current.metadataJson == row.metadataJson) { "Immutable operation mismatch" }
+        if (result.status == "accepted") {
+            val a = checkNotNull(result.ack); val ack = AckRow(s,d,row.clientRequestId,a.entityId,a.movementId,a.serverTime)
+            val prior = dao.ack(s,d,row.clientRequestId)
+            if (prior != null) check(prior == ack) else {
+                check(current.status in setOf("pending","sending"))
+                dao.insertAck(ack) // must exist before markDone; same Room transaction
+                if (row.kind == "load.confirm" && a.movementId != null) recordPostedLoad(row,a.serverTime,settled=false)
+            }
+            OutboxRules.acknowledge(current.status,true)
+            dao.markDone(s,d,row.clientRequestId)
+            settle(dao.trip(s,d)?.tripId,dao.meta(s,d)?.lastBootstrapTime)
+        } else if (result.status == "waiting") {
+            // VAN-083: not refused; kept pending with the reason so the phone says what it waits for and retries.
+            dao.markWaiting(s,d,row.clientRequestId,result.code ?: com.sunpride.field.sell.pos.CloseOfficeRules.WAITING_CASH_CODE)
+        } else {
+            require(result.status in OutboxRules.UNKEPT)
+            // SP-0169: a refused receipt whose number the office spoiled is kept with its own code so the seller is told.
+            dao.reject(s,d,row.clientRequestId,OutboxRules.refusedState(result.status,result.kept),if (result.spoiledNumber != null) com.sunpride.field.sell.selling.RefusedReceipt.CODE else result.code ?: "invalid_request")
+            // VAN-079: a refused count is not a count; the seller is told why and counts again (the refused op stays for review).
+            dropRefusedCount(row.kind,row.clientRequestId)
+        }
+    }
+    private suspend fun dropRefusedCount(kind: String, key: String) {
+        if (kind == com.sunpride.field.sell.pos.CountOfficeRules.CASH_KIND) dao.deleteCashReconciliation(s,d,key)
+        if (kind == com.sunpride.field.sell.pos.CountOfficeRules.STOCK_KIND) dao.deleteStockReconciliation(s,d,key)
+    }
+    private suspend fun recordPostedLoad(op: OutboxRow, at: Long, settled: Boolean, serverLines: List<LoadLine>? = null) {
+        val p = JSONObject(op.operationJson).getJSONObject("payload"); val loadId = p.getString("loadId")
+        val sheet = op.metadataJson?.let { VanBootstrapCodec.objects(JSONArray(it)) }
+            ?: dao.loadlineRows(s,d).filter { it.loadId == loadId }.map { JSONObject().put("lineNumber",it.lineNumber).put("productId",it.productId) }
+        val existing = dao.stockmovementRows(s,d).map { it.movementId }.toSet()
+        VanBootstrapCodec.objects(p.getJSONArray("lines")).forEach { input ->
+            val id = "load:$loadId:${input.getInt("lineNumber")}"
+            val line = sheet.singleOrNull { it.getInt("lineNumber") == input.getInt("lineNumber") } ?: throw VanWireFailure()
+            val serverLine = serverLines?.singleOrNull { it.lineNumber == input.getInt("lineNumber") }
+            val quantity = serverLine?.actualBase ?: input.getString("actualBase").toLong()
+            if (id !in existing) dao.insertMovement(MovementRow(s,d,id,op.tripId,line.getString("productId"),"LOAD","available",quantity,serverLine?.discrepancyReason ?: input.optString("reason").takeIf { it.isNotBlank() },op.clientRequestId,at))
+            if (settled && dao.movementsettlementRows(s,d).none { it.movementId == id }) dao.insertSettlement(SettlementRow(s,d,id,at))
+        }
+    }
+    private suspend fun settle(tripId: String?, baselineAt: Long?) {
+        if (tripId == null || baselineAt == null) return
+        val acknowledgements = dao.ackRows(s,d).associateBy { it.clientRequestId }
+        val settled = dao.movementsettlementRows(s,d).map { it.movementId }.toSet()
+        dao.stockmovementRows(s,d).filter { it.tripId == tripId && it.movementId !in settled && StockProjection.reflected(acknowledgements[it.clientRequestId]?.serverTime,baselineAt) }.forEach {
+            dao.insertSettlement(SettlementRow(s,d,it.movementId,baselineAt))
+        }
+    }
+    override suspend fun replaceBootstrap(text: String): VanBootstrap = db.withTransaction {
+        val b = VanBootstrapCodec.decode(text); val o = JSONObject(text)
+        val grant = o.optJSONObject("_v2")
+        if (s.startsWith("v2|")) {
+            check(grant != null && grant.getString("subject") == s && grant.getLong("leaseExpiresAt") > clock())
+            dao.holdOtherScopes(s,d)
+        }
+        val previous = dao.meta(s,d)
+        check(previous?.lastBootstrapTime == null || b.serverTime >= previous.lastBootstrapTime) { "Stale bootstrap" }
+        dao.clearTrip(s,d); dao.clearLoadLine(s,d); dao.clearProduct(s,d); dao.clearServerCustomers(s,d); dao.clearBaseline(s,d)
+        // Prices are part of this authoritative snapshot, including when the feed is omitted.
+        dao.clearPriceListLine(s,d)
+        dao.clearPromotion(s,d)
+        b.trip?.let { t -> dao.insertTrip(TripRow(s,d,t.tripId,t.tripNumber,t.status,t.serviceDate,o.getJSONObject("trip").put("_damageRecords",o.optJSONArray("damageRecords") ?: JSONArray())
+            .put("_availability",grant?.optJSONArray("availability") ?: JSONArray()).put("_vanOps",o.optJSONObject("vanOps")?:JSONObject.NULL).put("_deliveries",grant?.optJSONArray("deliveryDrops") ?: JSONArray()).put("_loadReview",o.optJSONObject("load")?.let { JSONObject().put("confirmRequestId",if (it.isNull("confirmRequestId")) JSONObject.NULL else it.getString("confirmRequestId")).put("rejectionNote",if (it.isNull("rejectionNote")) JSONObject.NULL else it.getString("rejectionNote")) } ?: JSONObject.NULL).put("_callFlows",grant?.optJSONObject("callFlows") ?: JSONObject()).put("_serverCalls",grant?.optJSONArray("callFlowCalls") ?: JSONArray()).toString(),b.load?.loadId,b.load?.status)) }
+        b.load?.let { l -> VanBootstrapCodec.objects(o.getJSONObject("load").getJSONArray("lines")).forEach { line ->
+            val parsed = VanBootstrapCodec.line(line)
+            dao.insertLoadLine(LoadLineRow(s,d,l.loadId,parsed.lineNumber,parsed.productId,parsed.expectedBase,parsed.actualBase,line.toString()))
+        } }
+        VanBootstrapCodec.objects(o.getJSONArray("products")).forEach { product -> val p = VanBootstrapCodec.product(product)
+            dao.insertProduct(ProductRow(s,d,p.productId,p.code,p.name,p.uomCode,p.quantityScale,product.getJSONArray("barcodes").toString(),product.toString())) }
+        b.customers.forEach { dao.insertCustomer(CustomerRow(s,d,it.outletId,it.code,it.name,it.address,it.sequence,it.source,
+            creditTermsDays = it.credit?.termsDays,creditAvailableMinor = it.credit?.availableMinor,
+            priceListId = it.priceListId,priceListMode = when (it.priceListMode) {
+                CustomerPriceListMode.NONE -> "none"
+                CustomerPriceListMode.GOVERNED -> "governed"
+                CustomerPriceListMode.LEGACY -> "legacy"
+            })) }
+        b.priceLines.forEach { dao.insertPriceListLine(PriceListLineRow(s,d,it.priceListId,it.productId,it.uomCode,it.unitPriceMinor,it.currency,it.effectiveFrom,it.effectiveTo,it.priceListCode)) }
+        b.promotions.forEach { dao.insertPromotion(PromotionRow(s,d,it.promotionId,VanBootstrapCodec.promotionJson(it).toString())) }
+        b.trip?.let { t -> b.truckStock.forEach { stock ->
+            dao.insertBaseline(BaselineRow(s,d,t.tripId,stock.productId,"available",stock.availableBase,b.serverTime))
+            dao.insertBaseline(BaselineRow(s,d,t.tripId,stock.productId,"damaged",stock.damagedBase,b.serverTime))
+        } }
+        // A discrepancy ack does NOT imply posted stock. A later posted snapshot is authoritative.
+        if (b.load?.status == "posted") dao.outboxRows(s,d).filter { it.kind == "load.confirm" && it.tripId == b.trip?.tripId }.forEach { op ->
+            val ack = dao.ack(s,d,op.clientRequestId)
+            if (ack != null && b.serverTime > ack.serverTime) recordPostedLoad(op,b.serverTime,settled=true,serverLines=b.load.lines)
+        }
+        settle(b.trip?.tripId,b.serverTime)
+        // VAN-079: counts refused before this build kept their row and could never be counted again.
+        dao.outboxRows(s,d).filter { com.sunpride.field.sell.pos.CountOfficeRules.isCount(it.kind) && it.status in OutboxRules.reviewStatuses }
+            .forEach { dropRefusedCount(it.kind,it.clientRequestId) }
+        dao.insertSyncMeta(SyncMetaRow(s,d,b.serverTime,previous?.lastSyncTime,"bootstrap_ready",b.serviceDate,o.getJSONObject("policy").toString(),false,o.getJSONObject("seller").toString(),
+            grant?.getString("cursor"),grant?.getString("scopeFingerprint"),grant?.getString("epoch"),grant?.getLong("leaseExpiresAt"),grant?.getLong("cacheExpiresAt")))
+        deniedScopes.remove(scope)
+        b
+    }
+}

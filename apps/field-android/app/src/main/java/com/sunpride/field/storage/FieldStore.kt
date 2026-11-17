@@ -233,7 +233,7 @@ object EncryptedFieldDatabase {
         val passphrase = PassphraseVault(context).passphrase()
         return Room.databaseBuilder(context.applicationContext, StoreDatabase::class.java, PassphraseVault.DB_NAME)
             .openHelperFactory(SupportOpenHelperFactory(passphrase))
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10, SellMigration.MIGRATION_10_11)
             .build()
     }
 
@@ -289,6 +289,8 @@ object EncryptedFieldDatabase {
             dao.purgeAvailability(a, d, s)
             dao.purgeDeltas(a, d, s)
             dao.purgePartitionMetadata(a, d, s)
+            // SP-0192: sign-out also holds the Sell area's store (unsent sales stay for the office; nothing more is sent).
+            if (scope == null) db.openHelper.writableDatabase.execSQL("UPDATE sell_sync_meta SET held=1, health='held_for_review'")
         }
         runCatching { db.openHelper.writableDatabase.query("PRAGMA wal_checkpoint(TRUNCATE)").use { it.moveToFirst() } }
     }

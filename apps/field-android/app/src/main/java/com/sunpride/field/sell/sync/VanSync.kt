@@ -1,0 +1,132 @@
+package com.sunpride.field.sell.sync
+
+import com.sunpride.field.sell.auth.AuthFailure
+import com.sunpride.field.sell.storage.RoomVanStore
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.sync.Mutex
+import java.util.concurrent.ConcurrentHashMap
+
+/** Process-wide partition mutex shared by foreground and WorkManager instances. */
+class VanSync(private val store: VanSyncStore, private val gateway: VanGateway, private val clock: () -> Long = System::currentTimeMillis,
+    private val evidence: com.sunpride.field.sell.evidence.DamageEvidence? = (store as? RoomVanStore)?.evidence) {
+    private val mutex = locks.getOrPut(store.scope) { Mutex() }
+    suspend fun syncNow() {
+        if (!mutex.tryLock()) return
+        val epoch = store.authorizationEpoch()
+        fun current() { if (epoch != store.authorizationEpoch()) throw VanSyncFailure("unauthorized",false) }
+        try {
+            store.resetSending() // recover transient markers after process interruption
+            val initial = gateway.bootstrap(); current()
+            val bootstrap = store.replaceBootstrap(initial)
+            store.cleanupAcknowledgedPhotos() // recover a crash after durable ack, before file cleanup
+            val blocked = mutableSetOf<String>()
+            val failedPhotos = mutableSetOf<String>()
+            while (true) {
+                val candidates = store.pending(blocked)
+                if (candidates.isEmpty()) break
+                val pending = mutableListOf<com.sunpride.field.sell.storage.OutboxRow>()
+                for (row in candidates) {
+                    val sha = damagePhotoSha(row)
+                    if (sha != null) {
+                        if (sha in failedPhotos) { blocked += row.clientRequestId; continue }
+                        try {
+                            val photos = checkNotNull(evidence)
+                            if (!photos.uploaded(sha)) {
+                                gateway.evidence(sha,photos.read(sha,bootstrap.policy.damagePolicy?.photoMaxBytes ?: 90_000))
+                                current()
+                                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                                if (!store.canSync()) throw VanSyncFailure("unauthorized",false)
+                                photos.markUploaded(sha) // only a validated 'stored' response permits a marker
+                            }
+                        } catch (e: CancellationException) { throw e }
+                        catch (e: AuthFailure) { throw e }
+                        catch (e: VanSyncFailure) {
+                            if (e.code in setOf("unauthorized","version_unsupported")) throw e
+                            failedPhotos += sha; blocked += row.clientRequestId; continue
+                        } catch (_: Exception) { failedPhotos += sha; blocked += row.clientRequestId; continue }
+                    }
+                    pending += row
+                }
+                if (pending.isEmpty()) continue
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                if (!store.canSync()) throw VanSyncFailure("unauthorized",false)
+                store.markSending(pending.map { it.clientRequestId })
+                try {
+                    val results = gateway.push(pending)
+                    current()
+                    // No response can acknowledge a different request, duplicate or missing item.
+                    if (results.size != pending.size || results.map { it.clientRequestId }.toSet() != pending.map { it.clientRequestId }.toSet()) throw VanWireFailure()
+                    pending.forEach { row ->
+                        kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                        if (!store.canSync()) throw VanSyncFailure("unauthorized",false)
+                        val r = results.single { it.clientRequestId == row.clientRequestId }
+                        store.recordResult(row,r)
+                        if (r.status == "waiting") blocked += row.clientRequestId // VAN-083: sent again next sync
+                        store.cleanupAcknowledgedPhotos()
+                    }
+                } catch (e: VanSyncFailure) {
+                    if (!e.retryable && e.code == "invalid_request") pending.forEach {
+                        store.recordResult(it,com.sunpride.field.sell.data.PushResult(it.kind,it.clientRequestId,"rejected",code="invalid_request"))
+                    } else throw e
+                }
+            }
+            // Pull authoritative post-operation trip/load/balance, then settle acked movements.
+            val final = gateway.bootstrap(); current()
+            store.replaceBootstrap(final)
+            // SP-0137: after the trip's start is acknowledged, so the server accepts the truck's pings.
+            val pingsSent = uploadPings()
+            store.setHealth(if (blocked.isEmpty() && pingsSent) "synced" else "retry_pending",clock())
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: VanSyncFailure) {
+            if (e.code == "unauthorized") store.hold() else store.setHealth(when (e.code) {
+                "version_unsupported" -> "update_required"
+                // VAN-086: the office paused this phone; Sync & posting says so instead of the last good sync.
+                "device_suspended" -> SyncHealth.PAUSED_HEALTH
+                else -> "retry_pending" })
+            throw e
+        } catch (e: AuthFailure) {
+            if (e.kind in setOf(AuthFailure.Kind.SESSION_EXPIRED,AuthFailure.Kind.REFUSED)) store.hold()
+            else store.setHealth(if (e.kind == AuthFailure.Kind.PAUSED) SyncHealth.PAUSED_HEALTH else "retry_pending")
+            throw e
+        } catch (e: Exception) {
+            store.setHealth("retry_pending"); throw e
+        } finally {
+            try { withContext(NonCancellable) { store.resetSending() } }
+            finally { mutex.unlock() }
+        }
+    }
+    /**
+     * Uploads buffered live-location pings in batches. Accepted/duplicate are done, rejected are dropped (never
+     * retried). A transport failure leaves the rest waiting and returns false; it never fails the sales sync.
+     */
+    private suspend fun uploadPings(): Boolean {
+        store.prunePings()
+        repeat(MAX_PING_BATCHES) {
+            kotlinx.coroutines.currentCoroutineContext().ensureActive()
+            // A held partition has nothing to send (pendingPings is empty), exactly like the operations.
+            val batch = if (store.canSync()) store.pendingPings() else emptyList()
+            if (batch.isEmpty()) return true
+            val results = try { gateway.location(batch.map { it.pingJson }) }
+                catch (e: CancellationException) { throw e }
+                catch (e: AuthFailure) { throw e }
+                catch (e: VanSyncFailure) {
+                    if (e.code in setOf("unauthorized","version_unsupported")) throw e
+                    // A batch the server calls malformed would never succeed: drop it rather than retry forever.
+                    if (!e.retryable && e.code == "invalid_request") { store.recordPingResults(batch.map { it to com.sunpride.field.sell.location.LocationPingCodec.Result(it.clientPingId,"rejected","invalid_request") }); return@repeat }
+                    return false
+                }
+                catch (_: VanWireFailure) { return false }
+            if (!store.canSync()) throw VanSyncFailure("unauthorized",false)
+            store.recordPingResults(batch.zip(results))
+        }
+        return store.pendingPings().isEmpty()
+    }
+    companion object {
+        /** Ten batches of 100 = ~16 hours of pings per sync; the rest waits for the next one. */
+        private const val MAX_PING_BATCHES = 10
+        private val locks = ConcurrentHashMap<com.sunpride.field.sell.storage.StoreScope,Mutex>() }
+}

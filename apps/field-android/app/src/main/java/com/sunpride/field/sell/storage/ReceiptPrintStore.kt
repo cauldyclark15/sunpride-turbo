@@ -1,0 +1,218 @@
+package com.sunpride.field.sell.storage
+
+import androidx.room.*
+import com.sunpride.field.sell.data.*
+import com.sunpride.field.sell.pos.PaymentState
+import com.sunpride.field.sell.printing.*
+import com.sunpride.field.sell.sync.VanBootstrapCodec
+import org.json.JSONArray
+import org.json.JSONObject
+import java.util.UUID
+
+/** VAN-017 (v3): every print of a saved sale. Rows are only inserted and finished once, never deleted. */
+@Entity(tableName = "sell_receipt_print", primaryKeys = ["fullAuthSubject", "deviceId", "printId"],
+    indices = [Index(value = ["fullAuthSubject", "deviceId", "saleId"])])
+data class ReceiptPrintRow(val fullAuthSubject: String, val deviceId: String, val printId: String, val saleId: String,
+    val kind: String, val copyNumber: Int, val reason: String?, val outcome: String, val startedAt: Long, val finishedAt: Long? = null)
+
+/**
+ * VAN-017 (v4): the receipt exactly as sold — customer, product names, UOM and quantity labels, payment wording,
+ * seller, trip and truck — frozen in the checkout transaction. Inserted once and never updated, so a later
+ * bootstrap that renames, re-units or removes master data can never change what a reprint says.
+ */
+@Entity(tableName = "sell_sale_receipt", primaryKeys = ["fullAuthSubject", "deviceId", "saleId"])
+data class SaleReceiptRow(val fullAuthSubject: String, val deviceId: String, val saleId: String, val documentJson: String)
+
+/** Wire form of [SaleReceiptRow.documentJson]; amounts are strings so no long ever passes through a double. */
+object FrozenReceipts {
+    const val VERSION = 1
+    fun encode(receipt: SaleReceipt, header: ReceiptHeader): String = JSONObject()
+        .put("version", VERSION)
+        .put("saleId", receipt.saleId).put("receiptNumber", receipt.receiptNumber).put("customerName", receipt.customerName)
+        .put("lines", JSONArray(receipt.lines.map { JSONObject().put("lineNumber", it.lineNumber).put("productId", it.productId)
+            .put("name", it.name).put("uomCode", it.uomCode).put("quantityLabel", it.quantityLabel)
+            .put("unitPriceMinor", it.unitPriceMinor.toString()).put("totalMinor", it.totalMinor.toString())
+            .put("freeBase",it.freeBase.toString()).put("discountMinor",it.discountMinor.toString())
+            .put("promotionCode",it.promotionCode ?: JSONObject.NULL).put("priceListCode",it.priceListCode ?: JSONObject.NULL)
+            .put("freeQuantityLabel",it.freeQuantityLabel ?: JSONObject.NULL) }))
+        .put("currency", receipt.currency).put("totalMinor", receipt.totalMinor.toString())
+        .put("tenderedMinor", receipt.tenderedMinor.toString()).put("changeMinor", receipt.changeMinor.toString())
+        .put("createdAt", receipt.createdAt.toString())
+        .put("paymentMethod", receipt.paymentMethod).put("paymentLabel", receipt.paymentLabel).put("paymentKind", receipt.paymentKind.wire)
+        .put("paymentStatus", receipt.paymentStatus).put("reference", receipt.reference ?: JSONObject.NULL).put("dueDate", receipt.dueDate ?: JSONObject.NULL)
+        .put("fiscal",receipt.fiscalJson?.let { JSONObject(it) } ?: JSONObject.NULL)
+        .put("header", JSONObject().put("sellerName", header.sellerName ?: JSONObject.NULL)
+            .put("tripNumber", header.tripNumber ?: JSONObject.NULL).put("truck", header.truck ?: JSONObject.NULL))
+        .toString()
+
+    /** Always a replayed receipt: a frozen receipt is only read back for a saved sale. */
+    fun decode(json: String): Pair<SaleReceipt, ReceiptHeader> {
+        val o = JSONObject(json)
+        check(o.getInt("version") == VERSION) { "Unknown frozen receipt version" }
+        fun JSONObject.text(k: String): String? = if (!has(k) || isNull(k)) null else getString(k)
+        fun JSONObject.amount(k: String): Long = if (!has(k) || isNull(k)) 0L else getString(k).toLong()
+        val lines = o.getJSONArray("lines").let { a -> (0 until a.length()).map { i -> a.getJSONObject(i) } }.map {
+            SaleReceiptLine(it.getInt("lineNumber"), it.getString("productId"), it.getString("name"), it.getString("uomCode"),
+                it.getString("quantityLabel"), it.getString("unitPriceMinor").toLong(), it.getString("totalMinor").toLong(),
+                it.amount("freeBase"),it.amount("discountMinor"),it.text("promotionCode"),it.text("priceListCode"),it.text("freeQuantityLabel"))
+        }
+        val receipt = SaleReceipt(o.getString("saleId"), o.getString("receiptNumber"), o.getString("customerName"), lines,
+            o.getString("currency"), o.getString("totalMinor").toLong(), o.getString("tenderedMinor").toLong(), o.getString("changeMinor").toLong(),
+            o.getString("createdAt").toLong(), true, o.getString("paymentMethod"), o.getString("paymentLabel"), PaymentKind.of(o.getString("paymentKind")),
+            o.getString("paymentStatus"), o.text("reference"), o.text("dueDate"),o.optJSONObject("fiscal")?.toString())
+        val h = o.getJSONObject("header")
+        return receipt to ReceiptHeader(h.text("sellerName"), h.text("tripNumber"), h.text("truck"))
+    }
+}
+
+/** Seller, trip and truck as the phone holds them now; frozen into [SaleReceiptRow] at checkout. */
+internal suspend fun currentReceiptHeader(dao: VanDao, subject: String, device: String, trip: TripRow?): ReceiptHeader {
+    val seller = dao.meta(subject, device)?.sellerJson?.let { JSONObject(it).optString("name").ifBlank { null } }
+    val parsed = trip?.let { runCatching { VanBootstrapCodec.trip(JSONObject(it.json)) }.getOrNull() }
+    return ReceiptHeader(seller, trip?.tripNumber, parsed?.vehicle?.let { "${it.vehicleCode} ${it.plateNumber}" })
+}
+
+@Dao
+interface ReceiptPrintDao {
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insert(row: ReceiptPrintRow)
+    @Insert(onConflict = OnConflictStrategy.ABORT) suspend fun insertSaleReceipt(row: SaleReceiptRow)
+    @Query("SELECT * FROM sell_sale_receipt WHERE fullAuthSubject=:subject AND deviceId=:device AND saleId=:saleId")
+    suspend fun saleReceipt(subject: String, device: String, saleId: String): SaleReceiptRow?
+    @Query("SELECT * FROM sell_receipt_print WHERE fullAuthSubject=:subject AND deviceId=:device AND saleId=:saleId ORDER BY startedAt,printId")
+    suspend fun forSale(subject: String, device: String, saleId: String): List<ReceiptPrintRow>
+    @Query("SELECT * FROM sell_receipt_print WHERE fullAuthSubject=:subject AND deviceId=:device ORDER BY startedAt,printId")
+    suspend fun all(subject: String, device: String): List<ReceiptPrintRow>
+    /** Only a `started` attempt can be finished, and only once. */
+    @Query("UPDATE sell_receipt_print SET outcome=:outcome,finishedAt=:at WHERE fullAuthSubject=:subject AND deviceId=:device AND printId=:printId AND outcome='started'")
+    suspend fun finish(subject: String, device: String, printId: String, outcome: String, at: Long): Int
+    /** IP-P0: the seller's "Did it print?" answer; only an attempt that was sent (or may have been) can be settled. */
+    @Query("UPDATE sell_receipt_print SET outcome=:outcome,finishedAt=COALESCE(finishedAt,:at) WHERE fullAuthSubject=:subject AND deviceId=:device AND printId=:printId AND outcome IN ('started','printed','maybe_printed')")
+    suspend fun settle(subject: String, device: String, printId: String, outcome: String, at: Long): Int
+}
+
+/** A saved sale on the current trip, for the Receipts list. */
+data class SavedSale(val receipt: SaleReceipt, val prints: List<PrintAttempt>, val void: SaleVoidInfo? = null,
+    /** VAN-046: the seller, trip and truck frozen at checkout, so the on-screen preview shows what the paper prints. */
+    val header: ReceiptHeader? = null) {
+    val isCollection: Boolean get() = receipt.fiscalJson?.let {JSONObject(it).optString("documentType")=="official_receipt"} == true
+    val voidSlipPrinted: Boolean get() = prints.any { it.kind == PrintKind.VOID && it.mayHaveReachedPaper }
+    val voidSlipsLeft: Int get() = maxOf(0,ReprintRules.MAX_REPRINTS+1 - prints.count { it.kind == PrintKind.VOID && it.mayHaveReachedPaper })
+    /** Sent to the printer (not yet necessarily confirmed). Skipped receipts are not printed. */
+    val printed: Boolean get() = prints.any { it.mayHaveReachedPaper }
+    /** The seller said "Yes, printed" at least once; only now is another copy a REPRINT. */
+    val confirmed: Boolean get() = prints.any { it.kind != PrintKind.VOID && it.confirmed }
+    /** Sent, but the seller has not answered "Did it print?" yet. */
+    val needsConfirmation: Boolean get() = void == null && ReprintRules.needsConfirmation(prints)
+    /** The seller skipped it for lack of paper and it never printed: the office sees it as unprinted. */
+    val skipped: Boolean get() = !confirmed && prints.any { it.outcome == PrintOutcome.SKIPPED }
+    val reprintsLeft: Int get() = ReprintRules.remaining(prints)
+}
+
+private fun SaleVoidRow.info() = SaleVoidInfo(reasonCode,createdAt,approvalMethod == "supervisor_code")
+
+internal fun ReceiptPrintRow.attempt() = PrintAttempt(printId, saleId, PrintKind.of(kind), copyNumber, reason, PrintOutcome.of(outcome), startedAt, finishedAt)
+
+/**
+ * The scoped (full auth subject + registered device) print log. Authorization is the store scope itself: only the
+ * signed-in, registered seller's own sales on this phone, on the trip the phone is on now, and never while held.
+ */
+class RoomReceiptPrintLog(private val db: VanDatabase, private val scope: StoreScope, private val clock: () -> Long = System::currentTimeMillis) : ReceiptPrintLog {
+    private val dao = db.sellRows()
+    private val prints = db.sellPrints()
+    private val s = scope.fullAuthSubject
+    private val d = scope.deviceId
+
+    override suspend fun begin(saleId: String, explicit: Boolean, reasonCode: String?): BeginPrint = db.withTransaction {
+        val sale = printableRows().singleOrNull { it.saleId == saleId } ?: return@withTransaction BeginPrint.Refused(PrintRefusal.SALE_NOT_FOUND)
+        if (dao.meta(s, d)?.held != false) return@withTransaction BeginPrint.Refused(PrintRefusal.HELD)
+        val trip = dao.trip(s, d)
+        if (trip?.tripId != sale.tripId) return@withTransaction BeginPrint.Refused(PrintRefusal.NOT_THIS_TRIP)
+        val history = prints.forSale(s, d, saleId).map { it.attempt() }
+        val void = dao.saleVoid(s,d,saleId)?.info()
+        when (val decision = ReprintRules.decide(history, explicit, reasonCode,voided = void != null)) {
+            is PrintDecision.Refused -> BeginPrint.Refused(decision.refusal)
+            is PrintDecision.Print -> {
+                // Strictly increasing per sale, so the history reads in print order even within one millisecond.
+                val at = maxOf(clock(), Math.addExact(history.maxOfOrNull { it.startedAt } ?: 0L, 1L))
+                val row = ReceiptPrintRow(s, d, UUID.randomUUID().toString(), saleId, decision.kind.wire, decision.copyNumber,
+                    decision.reason, PrintOutcome.STARTED.wire, at)
+                prints.insert(row)
+                journal(row,sale,"uncertain")
+                val (receipt, header) = frozen(sale, trip)
+                BeginPrint.Go(row.attempt(), receipt, header, void)
+            }
+        }
+    }
+
+    override suspend fun finish(printId: String, outcome: PrintOutcome) = db.withTransaction {
+        require(outcome != PrintOutcome.STARTED)
+        val row = prints.all(s,d).single { it.printId == printId }
+        val sale = printableRows().single { it.saleId == row.saleId }
+        check(prints.finish(s, d, printId, outcome.wire, clock()) == 1) { "Print already finished" }
+        journal(row,sale,when(outcome) { PrintOutcome.PRINTED -> "printed"; PrintOutcome.NOT_PRINTED -> "not_printed"; else -> "uncertain" })
+    }
+    override suspend fun settle(saleId: String, outcome: PrintOutcome) {
+        require(outcome == PrintOutcome.CONFIRMED || outcome == PrintOutcome.SKIPPED)
+        db.withTransaction {
+            printableRows().singleOrNull { it.saleId == saleId } ?: return@withTransaction
+            val row = prints.forSale(s, d, saleId).filter { it.kind != PrintKind.VOID.wire }.maxByOrNull { it.startedAt } ?: return@withTransaction
+            prints.settle(s, d, row.printId, outcome.wire, clock())
+        }
+    }
+    private suspend fun journal(row: ReceiptPrintRow, sale: SaleRow, outcome: String) {
+        if (!s.startsWith("v2|") || db.sellPrints().saleReceipt(s,d,sale.saleId)?.let { FrozenReceipts.decode(it.documentJson).first.fiscalJson } == null) return
+        val at = maxOf(clock(),Math.addExact(dao.latestCreatedAt(s,d) ?: 0L,1L))
+        val key = UUID.randomUUID().toString()
+        val payload = JSONObject().put(if(sale.status=="collection") "paymentId" else "saleId",sale.saleId).put("tripId",sale.tripId).put("deviceTime",at)
+            .put("kind",if(row.kind == "reprint") "reprint" else "print").put("reason",row.reason ?: "Original print attempt")
+            .put("outcome",outcome).put("printId",row.printId)
+        val op = JSONObject().put("kind","fiscal.print").put("clientRequestId",key).put("payload",payload)
+            .put("dependsOn",JSONArray().put(sale.idempotencyKey))
+        dao.insertOutbox(OutboxRow(s,d,key,sale.tripId,"fiscal.print",op.toString(),at))
+    }
+
+    /** Sales saved on the trip this phone is on now, newest first, with their print history. */
+    suspend fun savedSales(): List<SavedSale> = db.withTransaction {
+        val tripId = dao.trip(s, d)?.tripId ?: return@withTransaction emptyList()
+        val history = prints.all(s, d).groupBy { it.saleId }
+        val voids = dao.salevoidRows(s,d).associateBy { it.saleId }
+        printableRows().filter { it.tripId == tripId }.sortedWith(compareByDescending<SaleRow> { it.createdAt }.thenByDescending { it.receiptNumber })
+            .map { val f = frozen(it, null); SavedSale(f.first, history[it.saleId].orEmpty().map { row -> row.attempt() },voids[it.saleId]?.info(), f.second) }
+    }
+
+    private suspend fun printableRows(): List<SaleRow> = dao.saleRows(s,d) + CollectionStore(RoomVanStore(db,scope,clock)).printableCollections()
+
+    suspend fun history(saleId: String): List<PrintAttempt> = prints.forSale(s, d, saleId).map { it.attempt() }
+
+    /**
+     * The receipt frozen at checkout. Only a sale saved before v4 (development phones) has none; it falls back to a
+     * rebuild from saved rows and the sale's operation bytes, which reads names and units from current master data.
+     */
+    private suspend fun frozen(sale: SaleRow, trip: TripRow?): Pair<SaleReceipt, ReceiptHeader> =
+        prints.saleReceipt(s, d, sale.saleId)?.let { FrozenReceipts.decode(it.documentJson) }
+            ?: (legacyReceipt(sale) to currentReceiptHeader(dao, s, d, trip ?: dao.trip(s, d)))
+
+    private suspend fun legacyReceipt(sale: SaleRow): SaleReceipt {
+        val lines = dao.salelineRows(s, d).filter { it.saleId == sale.saleId }.sortedBy { it.lineNumber }
+        val op = JSONObject(checkNotNull(dao.outbox(s, d, sale.idempotencyKey)).operationJson).getJSONObject("payload")
+        val payment = op.getJSONObject("payment")
+        val code = payment.optString("method", "cash")
+        val method = (dao.meta(s, d)?.policyJson?.let { VanBootstrapCodec.policy(JSONObject(it)).paymentMethods } ?: emptyList())
+            .firstOrNull { it.code == code } ?: PaymentMethod.CASH.takeIf { code == "cash" }
+            ?: PaymentMethod(code, code, PaymentKind.of(payment.optString("kind", "other")), false, null)
+        val total = checkNotNull(sale.totalMinor)
+        val tendered = if (payment.has("tenderedMinor")) payment.getString("tenderedMinor").toLong() else total
+        val change = if (payment.has("changeMinor")) payment.getString("changeMinor").toLong() else 0L
+        val products = dao.productRows(s, d).associate { it.productId to VanBootstrapCodec.product(JSONObject(it.json)) }
+        val customer = dao.customerRows(s, d).singleOrNull { it.outletId == sale.customerId }?.name
+            ?: op.optJSONObject("customer")?.optJSONObject("walkIn")?.optString("name") ?: ""
+        val receiptLines = lines.map { line ->
+            val product = products[line.productId]
+            SaleReceiptLine(line.lineNumber, line.productId, product?.name ?: line.productId, product?.uomCode ?: "",
+                product?.displayQuantity(line.quantityBase) ?: line.quantityBase.toString(), checkNotNull(line.unitPriceMinor), checkNotNull(line.totalMinor))
+        }
+        return SaleReceipt(sale.saleId, sale.receiptNumber, customer, receiptLines, op.getString("currency"), total, tendered, change,
+            sale.createdAt, true, code, method.label, method.kind, sale.paymentStatus ?: payment.optString("status", PaymentState.PAID.wire),
+            payment.optString("reference").ifEmpty { null }, payment.optString("dueDate").ifEmpty { null })
+    }
+}

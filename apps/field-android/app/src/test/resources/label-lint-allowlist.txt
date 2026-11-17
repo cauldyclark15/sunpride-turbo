@@ -2,3 +2,6 @@
 java/com/sunpride/field/census/CensusScreen.kt|New address
 java/com/sunpride/field/ui/ChangePasswordScreen.kt|New password
 java/com/sunpride/field/ui/syncstatus/SyncStatus.kt|New customer
+# SP-0192: the Sell area (copied from the Van app with its owner-tuned words).
+java/com/sunpride/field/sell/ui/SellingCheckout.kt|New sale
+java/com/sunpride/field/sell/ui/TripScreens.kt|New sale

@@ -27,9 +27,24 @@ class FieldNavTest {
     }
 
     @Test fun fiveTabsInDailyOrder() {
-        assertEquals(listOf("Today", "Route", "Customers", "Messages", "More"), FieldTab.entries.map { it.label })
-        assertEquals(listOf("home", "route", "customers", "messages", "more"), FieldTab.entries.map { it.page })
-        assertEquals(5, FieldTab.entries.map { it.tag }.toSet().size)
+        // SP-0192: a person without Selling keeps exactly today's five places.
+        val tabs = FieldNav.tabs(selling = false)
+        assertEquals(listOf("Today", "Route", "Customers", "Messages", "More"), tabs.map { it.label })
+        assertEquals(listOf("home", "route", "customers", "messages", "more"), tabs.map { it.page })
+        assertEquals(5, tabs.map { it.tag }.toSet().size)
+    }
+
+    @Test fun sellTabShowsOnlyWhenSellingIsOn() {
+        assertFalse(FieldTab.SELL in FieldNav.tabs(selling = false))
+        val selling = FieldNav.tabs(selling = true)
+        assertEquals(listOf("Today", "Sell", "Route", "Customers", "Messages", "More"), selling.map { it.label })
+        assertEquals("nav-sell", FieldTab.SELL.tag)
+        assertEquals(FieldTab.SELL, FieldNav.tabOf("sell"))
+        assertTrue("sell" in FieldNav.tabRoots)
+        assertFalse("sell" in FieldNav.noBarPages)
+        // Six labels share the bar, so they are capped a little smaller; five keep today's cap.
+        assertEquals(FieldNav.MAX_SIX_TAB_LABEL_SCALE, FieldNav.barLabelFontScale(2f, 6))
+        assertEquals(FieldNav.MAX_BAR_LABEL_SCALE, FieldNav.barLabelFontScale(2f, 5))
     }
 
     @Test fun everyPageKeepsAParentTab() {

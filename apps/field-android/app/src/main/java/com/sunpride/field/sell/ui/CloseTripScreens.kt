@@ -1,0 +1,128 @@
+package com.sunpride.field.sell.ui
+
+import androidx.compose.foundation.layout.*
+import androidx.compose.material3.*
+import androidx.compose.runtime.*
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.input.KeyboardType
+import com.sunpride.field.sell.pos.*
+import java.time.Instant
+import java.time.ZoneId
+import java.time.format.DateTimeFormatter
+
+/**
+ * VAN-024 Close trip: the checklist read from this phone, the open exceptions to confirm, and an optional end
+ * odometer and note. Close trip is enabled only when nothing blocks and, per policy, the exceptions are confirmed;
+ * the store checks everything again while saving.
+ */
+@Composable fun CloseTripScreen(c: VanController) {
+    val summary = c.closeSummary
+    val saved = summary?.saved
+    val draft = c.closeDraft
+    val policy = TripCloseRules.policy(c.policy)
+    val checklist = summary?.checklist
+    val km = draft.odometer.takeIf { it.isNotBlank() }?.trim()?.toDoubleOrNull()
+    val operational=c.policy?.operationsVersion==1
+    val odometerProblem = VanRules.closeOdometerProblem(draft.odometer,summary?.startOdometerKm,draft.startOdometer,operational)
+    val odometerValid = odometerProblem == null && ((!operational && draft.odometer.isBlank()) || TripCloseRules.validOdometer(km ?: Double.NaN,summary?.startOdometerKm))
+    val noteValid = TripCloseRules.validNote(draft.note)
+    val needsReview = checklist != null && TripCloseRules.needsReview(checklist,policy)
+    val otherwiseReady = summary != null && saved == null && checklist!!.ready && odometerValid && noteValid
+    val ready = otherwiseReady && (!needsReview || draft.reviewed)
+    // VAN-082: without the tick the button stays tappable and says what to do, instead of doing nothing.
+    val tickMessage = VanRules.closeTapMessage(otherwiseReady,needsReview,draft.reviewed)
+    // VAN-082: the screen's own message sits at the top, out of sight once scrolled to the tick; say it next to the button.
+    var tapHint by remember(draft.reviewed) { mutableStateOf<String?>(null) }
+
+    ScreenFrame("Close trip",c::back,
+        action = if (saved != null) "Done" else if (c.busy) "Closing…" else "Close trip",actionTag = "close-trip",
+        enabled = if (saved != null) true else (ready || tickMessage != null) && !c.busy && c.heldOf(com.sunpride.field.sell.pos.HeldCartRules.SURFACE_VAN).isEmpty(),
+        onAction = { if (saved != null) c.back() else if (tickMessage != null) { tapHint = tickMessage; c.say(tickMessage) } else c.closeTrip() },
+        footer = if (saved == null && checklist != null) tapHint ?: "${checklist.blockers.size} to do · ${checklist.exceptions.size} to check" else null,
+        message = c.message) {
+        when {
+            summary == null -> Text("Getting this trip's checks…")
+            saved != null -> SavedClose(saved,operational,c.closeOffice,c::syncForClose,!c.busy)
+            else -> {
+                Text("Trip ${summary.tripNumber}",style = MaterialTheme.typography.titleMedium,modifier = Modifier.testTag("close-trip-number"))
+                // IP-HOLD: carts parked for customers stop the trip closing.
+                LaunchedEffect(Unit) { c.refreshHeld() }
+                val held = c.heldOf(com.sunpride.field.sell.pos.HeldCartRules.SURFACE_VAN)
+                // VAN-055: discarding throws the carts away for good, so it asks first (as the store till close does).
+                var confirmDiscard by remember { mutableStateOf(false) }
+                if (held.isNotEmpty()) SectionCard("Held carts") {
+                    Text(com.sunpride.field.sell.pos.HeldCartRules.closeBlock(held.size, "close the trip")!!,modifier = Modifier.testTag("close-held"))
+                    DangerButton("Discard held ${if (held.size == 1) "cart" else "carts"}",{ confirmDiscard = true },Modifier.testTag("close-discard-held"),!c.busy)
+                }
+                if (confirmDiscard && held.isNotEmpty()) AlertDialog(onDismissRequest = { confirmDiscard = false },
+                    title = { Text("Discard ${held.size} held ${if (held.size == 1) "cart" else "carts"}?") },
+                    text = { Text("They are thrown away. They cannot be brought back.") },
+                    confirmButton = { TextButton({ c.discardAllHeld(com.sunpride.field.sell.pos.HeldCartRules.SURFACE_VAN); confirmDiscard = false },Modifier.heightIn(min = 48.dp).testTag("close-discard-confirm")) {
+                        Text("Discard",color = SunprideTokens.emptyRed,fontWeight = androidx.compose.ui.text.font.FontWeight.ExtraBold) } },
+                    dismissButton = { TextButton({ confirmDiscard = false },Modifier.heightIn(min = 48.dp).testTag("close-discard-cancel")) { Text("Keep them") } })
+                SectionCard("Before you close") {
+                    checklist!!.steps.forEach { step ->
+                        Row(verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                            if (step.done) Glyph(GlyphKind.CHECK,SunprideTokens.stockGreen,22.dp)
+                            else if (step.required) Glyph(GlyphKind.CLOSE,SunprideTokens.emptyRed,22.dp)
+                            else Text("–",style = MaterialTheme.typography.bodyLarge)
+                            Text(VanRules.closeStepLabel(step),style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("close-step-${step.step.name.lowercase()}"))
+                        }
+                    }
+                    val blocked = checklist.blockers.map { it.step }.toSet()
+                    if (CloseStep.CASH_COUNTED in blocked) SecondaryButton("Count cash",{ c.open(Page.CASH) },Modifier.testTag("close-go-cash"),!c.busy)
+                    if (CloseStep.STOCK_COUNTED in blocked) SecondaryButton("Count stock",{ c.open(Page.STOCK_COUNT) },Modifier.testTag("close-go-stock"),!c.busy)
+                    if (CloseStep.UPLOADS_SENT in blocked || CloseStep.PHONE_ACTIVE in blocked) SecondaryButton("Sync now",c::syncForClose,Modifier.testTag("close-sync"),!c.busy)
+                }
+                SectionCard("Check these") {
+                    if (checklist!!.exceptions.isEmpty()) Text("Nothing to check",modifier = Modifier.testTag("close-no-exceptions"))
+                    checklist.exceptions.forEach { e ->
+                        Text(VanRules.closeExceptionLabel(e,c.cashSummary?.expectation?.currency ?: "PHP"),style = MaterialTheme.typography.bodyLarge,
+                            modifier = Modifier.testTag("close-exception-${e.kind.wire}"))
+                    }
+                    if (checklist.exceptions.any { it.kind == CloseExceptionKind.UNPRINTED_RECEIPTS })
+                        SecondaryButton("Open receipts",{ c.open(Page.RECEIPTS) },Modifier.testTag("close-go-receipts"),!c.busy)
+                    if (needsReview) Confirmation(if(operational) "I checked these records and differences. Office sign-off follows after sync." else "I have checked these with my supervisor",draft.reviewed,
+                        { c.editClose(draft.copy(reviewed = it)) },"close-reviewed")
+                    tapHint?.let { Text(it,color = SunprideTokens.emptyRed,style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("close-tick-hint")) }
+                }
+                if(operational) SecondaryButton("Review temperature, unload and local settlement",{c.open(Page.ROUTE_OPS)},Modifier.testTag("close-route-controls"))
+                LabeledField(if(operational) "Closing odometer km (required)" else "End odometer km (optional)",draft.odometer,{ c.editClose(draft.copy(odometer = it)) },"close-odometer",
+                    numeric = true,maxLength = 20,keyboardType = KeyboardType.Decimal,enabled = !c.busy)
+                summary.startOdometerKm?.let { Text("At start: ${VanRules.km(it)} km",style = MaterialTheme.typography.bodyMedium,modifier = Modifier.testTag("close-odometer-start")) }
+                    ?: LabeledField("Start odometer km (at the start of this trip)",draft.startOdometer,{ c.editClose(draft.copy(startOdometer = it)) },"close-odometer-start-input",
+                        numeric = true,maxLength = 20,keyboardType = KeyboardType.Decimal,enabled = !c.busy)
+                if (!odometerValid && draft.odometer.isNotBlank()) Text(odometerProblem ?: "Enter the end odometer in km, not lower than at the start.",
+                    color = SunprideTokens.emptyRed,modifier = Modifier.testTag("close-odometer-invalid"))
+                LabeledField("Note (optional)",draft.note,{ c.editClose(draft.copy(note = it)) },"close-note",enabled = !c.busy,maxLength = 300)
+                Text("After closing, this trip takes no more sales, voids, returns, damage or counts on this phone.",style = MaterialTheme.typography.bodyMedium)
+            }
+        }
+    }
+}
+
+@Composable private fun SavedClose(saved: TripCloseResult,operational: Boolean = false,office: CloseOffice = CloseOffice.ACCEPTED,
+    retry: () -> Unit = {},canRetry: Boolean = true) {
+    // VAN-083: "closed" only once the office accepted; until then say what the trip waits for and offer a retry.
+    SectionCard(CloseOfficeRules.title(office)) {
+        Text(if (office == CloseOffice.ACCEPTED) "Closed on this phone and at the office" else "Closed on this phone",
+            style = MaterialTheme.typography.headlineSmall,modifier = Modifier.testTag("close-saved"))
+        if (office != CloseOffice.ACCEPTED) {
+            Text(CloseOfficeRules.detail(office),style = MaterialTheme.typography.bodyLarge,modifier = Modifier.testTag("close-office-state"))
+            if (office != CloseOffice.REFUSED) SecondaryButton("Try again",retry,Modifier.testTag("close-retry"),canRetry)
+        }
+        Text("Trip ${saved.tripNumber} · ${Instant.ofEpochMilli(saved.createdAt).atZone(ZoneId.systemDefault()).format(DateTimeFormatter.ofPattern("MMM d, h:mm a"))}")
+        Text("${saved.operationCount} ${if (saved.operationCount == 1) "record" else "records"} from this trip saved for the office",
+            modifier = Modifier.testTag("close-saved-records"))
+        saved.endOdometerKm?.let { Text("End odometer: ${VanRules.km(it)} km") }
+        saved.note?.let { Text("Note: $it") }
+    }
+    SectionCard("Checked at close") {
+        if (saved.exceptions.isEmpty()) Text("Nothing to check",modifier = Modifier.testTag("close-saved-no-exceptions"))
+        saved.exceptions.forEach { Text(VanRules.closeExceptionLabel(it)) }
+        if (saved.reviewed) Text(if(operational) "Seller reviewed locally · supervisor sign-off follows after sync" else "Checked with supervisor",modifier = Modifier.testTag("close-saved-reviewed"))
+    }
+    Text("Hand the cash and the truck to the office. Receipts can still be reprinted.",style = MaterialTheme.typography.bodyMedium)
+}
