@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
@@ -178,7 +179,7 @@ fun FieldApp(
         if (page == "team" && controller.state is EnrollmentState.Ready) controller.loadTeam()
     }
     LaunchedEffect(controller, controller.state) {
-        while (controller.state == EnrollmentState.Unregistered) {
+        while (controller.state == EnrollmentState.Unregistered && !controller.mustChangePassword) {
             delay(com.sunpride.field.auth.Enrollment.POLL_INTERVAL_MS)
             controller.checkAgain(quiet = true)
         }
@@ -348,6 +349,12 @@ fun FieldApp(
             pages.SaveableStateProvider("$pagesEpoch:$page") { when {
                 locked -> UnlockScreen(biometrics!!.busy, onUnlock = biometrics::unlock,
                     onPassword = biometrics::usePassword, modifier = modifier)
+                // SP-0186: after an admin reset nothing else shows until the person sets their own password.
+                controller.mustChangePassword -> ChangePasswordScreen(controller.passwordBusy, controller.passwordMessage,
+                    controller.passwordChanged, onChange = { current, next, confirm ->
+                        controller.changePassword(current, next, confirm) { biometrics?.passwordChanged() }
+                    }, onDone = { controller.finishForcedPasswordChange() }, modifier = modifier,
+                    forced = true, initialCurrent = controller.temporaryPassword)
                 controller.state == EnrollmentState.SignedOut -> SignInScreen(environment, controller.busy || controller.companySignInPending,
                     controller.error ?: biometrics?.message,
                     { email, password -> controller.signIn(email, password) { biometrics?.passwordSignedIn(email) } }, modifier,
@@ -616,6 +623,14 @@ private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: Stri
                         EyeGlyph(crossed = showPassword)
                     }
                 })
+            // SP-0186: self-service reset happens on the website; the link uses the app's own server address.
+            com.sunpride.field.auth.PasswordChange.forgotPasswordUrl(environment.apiOrigin)?.let { url ->
+                val context = androidx.compose.ui.platform.LocalContext.current
+                androidx.compose.material3.TextButton(onClick = { openLink(context, url) },
+                    modifier = Modifier.heightIn(min = 48.dp).testTag("forgot-password"), enabled = !busy) {
+                    Text("Forgot password?")
+                }
+            }
             if (error != null) NoticeCard(error, tone = Look.Tone.BAD, textTag = "auth-error")
             // FLD-014/E2E-004: work queued before the office removed this phone stays visible, never silently gone.
             if (unsent > 0) NoticeCard(unsentText(unsent), tone = Look.Tone.WARN, textTag = "unsent-on-phone")

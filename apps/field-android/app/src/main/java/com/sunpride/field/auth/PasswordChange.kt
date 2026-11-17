@@ -16,6 +16,22 @@ class PasswordChangeFailure(val kind: Kind) : Exception(kind.text) {
 
 object PasswordChange {
     const val PATH = "/api/auth/change-password"
+    /** SP-0186 server codes. */
+    const val REQUIRED_CODE = "password_change_required"
+    const val EXPIRED_CODE = "temporary_password_expired"
+    /** SP-0186: the website's Forgot password page, on the same origin the app talks to. */
+    fun forgotPasswordUrl(apiOrigin: String): String? = runCatching {
+        val uri = java.net.URI(apiOrigin.trim())
+        val scheme = uri.scheme?.lowercase()?.takeIf { it == "https" || it == "http" } ?: return null
+        val host = uri.host ?: return null
+        val port = if (uri.port == -1) "" else ":${uri.port}"
+        "$scheme://$host$port/forgot-password"
+    }.getOrNull()
+    /** SP-0186: one process-wide record that this account must set a new password (true) or no longer must (false). */
+    @Volatile var requiredSink: ((Boolean) -> Unit)? = null
+    internal fun notifyRequired(required: Boolean) { runCatching { requiredSink?.invoke(required) } }
+    internal fun errorCode(body: String?): String? =
+        runCatching { org.json.JSONObject(body.orEmpty()).optJSONObject("error")?.optString("code") }.getOrNull()
     const val SUCCESS = "Password changed. Other devices were signed out."
     fun validate(current: String, next: String, confirm: String): PasswordChangeFailure.Kind? = when {
         current.isEmpty() -> PasswordChangeFailure.Kind.CURRENT_REQUIRED

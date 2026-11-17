@@ -48,10 +48,21 @@ class NativeApi(private val environment: AppEnvironment, private val auth: AuthC
                         if (response.code !in 200..299) {
                             if (response.code == 429) throw AuthFailure(AuthFailure.Kind.RATE_LIMITED, AuthFailure.retryAfter(response.body?.string()))
                             if (response.code >= 500) throw AuthFailure(AuthFailure.Kind.SERVER)
+                            // SP-0186: any call refused for a required new password routes to that screen.
+                            if (response.code == 403 && o.optJSONObject("error")?.optString("code") == PasswordChange.REQUIRED_CODE) {
+                                PasswordChange.notifyRequired(true)
+                                throw AuthFailure(AuthFailure.Kind.PASSWORD_CHANGE_REQUIRED)
+                            }
                             throw ServerError(o.optJSONObject("error")?.optString("code"))
                         }
                         if (o.optInt("version") != 2 && path.startsWith("/api/v1/").not())
                             throw AuthFailure(AuthFailure.Kind.SERVER)
+                        if (path == "/api/me") {
+                            // SP-0186: /api/me stays open while a new password is required; it carries the flag.
+                            val mustChange = o.optBoolean("mustChangePassword", false)
+                            PasswordChange.notifyRequired(mustChange)
+                            if (mustChange) throw AuthFailure(AuthFailure.Kind.PASSWORD_CHANGE_REQUIRED)
+                        }
                         if (path == "/api/me" && o.optJSONObject("deviceControl") != null) onDeviceControl?.invoke(o)
                         return o
                     }

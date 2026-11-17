@@ -70,6 +70,10 @@ interface FieldBackend {
     /** FLD-014/E2E-004: unsent work held on this phone, readable while signed out or removed. */
     fun unsentOnPhone(): Int = 0
     fun changePassword(current: String, next: String, confirm: String) { error("Password change unavailable") }
+    /** SP-0186: this account must set a new password before Today or any sync (survives a restart). */
+    fun passwordChangeRequired(): Boolean = false
+    /** SP-0186: told (any thread) when a call finds a new password is required. */
+    fun setPasswordChangeListener(listener: (() -> Unit)?) {}
     fun refreshEnrollment(signer: DeviceSigner): EnrollmentState
     fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData = TodayData()
     fun visitHistory(): List<com.sunpride.field.storage.IntentRow> = emptyList()
@@ -286,7 +290,16 @@ class LiveFieldBackend(
     private val sessionEnd = context.getSharedPreferences("field_session_end", Context.MODE_PRIVATE)
     /** The session is gone: say why and keep every local row (unsent work stays held for the same person/office). */
     private fun sessionEnded(): AuthFailure = sessionEndedFailure(sessionEnd.getBoolean("removed", false))
+    /** SP-0186: only a yes/no flag goes on disk; the temporary password never does. */
+    private val passwordFlag = context.getSharedPreferences("field_password_change", Context.MODE_PRIVATE)
+    @Volatile private var passwordListener: (() -> Unit)? = null
+    override fun passwordChangeRequired() = auth.isSignedIn && passwordFlag.getBoolean("required", false)
+    override fun setPasswordChangeListener(listener: (() -> Unit)?) { passwordListener = listener }
     init {
+        com.sunpride.field.auth.PasswordChange.requiredSink = { required ->
+            if (required != passwordFlag.getBoolean("required", false)) passwordFlag.edit().putBoolean("required", required).commit()
+            if (required) runCatching { passwordListener?.invoke() }
+        }
         // FLD-014: one sink for every AuthClient in the process (chat has its own client). A removal is never
         // downgraded to a plain ended session by a later refusal of the already-wiped session.
         AuthClient.sessionEndedSink = { removed ->
@@ -1220,6 +1233,7 @@ class LiveFieldBackend(
         authSignOut = { auth.signOut() },
     )
         sessionEnd.edit().clear().commit() // a chosen sign-out is not an ended session
+        passwordFlag.edit().clear().commit()
     }
     override fun unsentOnPhone(): Int = runBlocking { EncryptedFieldDatabase.unsentOnPhone(context) }
     override fun endedSessionReason(): String? =
@@ -1254,6 +1268,19 @@ class FieldController(
     private val onKeyLoaded: (DeviceKeyInfo) -> Unit = {}
 ) {
     var state by mutableStateOf<EnrollmentState>(EnrollmentState.SignedOut); private set
+    /** SP-0186: the full Set a new password screen shows (before Today/any sync) while this is true. */
+    var mustChangePassword by mutableStateOf(false); private set
+    /** SP-0186: the temporary password just typed, kept in memory only to prefill the screen; never saved. */
+    var temporaryPassword: String? = null; private set
+    init {
+        backend.setPasswordChangeListener { scope.launch(ui) { if (state != EnrollmentState.SignedOut) requirePasswordChange() } }
+    }
+    private fun requirePasswordChange() {
+        if (!mustChangePassword) ++sessionGeneration // retire in-flight Today/sync reads
+        mustChangePassword = true
+        today = TodayData(); retireSuggestedOrder()
+        resetPasswordForm()
+    }
     var busy by mutableStateOf(false); private set
     var error by mutableStateOf<String?>(null); private set
     /** FLD-014/E2E-004: unsent work kept on this phone, shown on Sign in / Phone removed after the office removed it. */
@@ -1782,6 +1809,14 @@ class FieldController(
             if (signedIn) {
                 val cached = runCatching { withContext(io) { backend.cachedDeviceId } }.getOrNull()
                 if (generation != sessionGeneration) return@launch
+                // SP-0186: a restart mid-flow comes straight back to Set a new password; no Today, no sync.
+                if (runCatching { withContext(io) { backend.passwordChangeRequired() } }.getOrDefault(false)) {
+                    state = cached?.let { EnrollmentState.Ready(it) } ?: EnrollmentState.Unregistered
+                    requirePasswordChange()
+                    launchSettled = true
+                    refresh() // the server check: /api/me clears the flag if it was already done on the website
+                    return@launch
+                }
                 if (cached != null) {
                     state = EnrollmentState.Ready(cached)
                     loadToday(sync = false)
@@ -1821,6 +1856,12 @@ class FieldController(
             if (generation != sessionGeneration) return@launch
             state = EnrollmentState.Unregistered // signed in; device status not yet known
             runCatching { onSignedIn() }
+            if (runCatching { withContext(io) { backend.passwordChangeRequired() } }.getOrDefault(false)) {
+                // SP-0186: the temporary password stays in memory only, to prefill the screen.
+                requirePasswordChange(); temporaryPassword = password
+                busy = false
+                return@launch
+            }
         } catch (e: Exception) {
             error = userMessage(e)
             if (e is AuthFailure && e.removed) countUnsent()
@@ -1864,9 +1905,12 @@ class FieldController(
             if (generation != sessionGeneration) return
             state = enrollment
             error = null
+            if (mustChangePassword && !backend.passwordChangeRequired()) { mustChangePassword = false; temporaryPassword = null }
+            if (mustChangePassword) return
             if (enrollment == EnrollmentState.Removed) countUnsent()
             if (state is EnrollmentState.Ready) loadToday(sync = true)
         } catch (e: AuthFailure) {
+            if (e.kind == AuthFailure.Kind.PASSWORD_CHANGE_REQUIRED) { requirePasswordChange(); return }
             if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) state = EnrollmentState.SignedOut
             error = userMessage(e)
         } catch (e: Exception) {
@@ -1879,6 +1923,7 @@ class FieldController(
 
     private suspend fun loadToday(sync: Boolean) {
         val ready = state as? EnrollmentState.Ready ?: return
+        if (mustChangePassword) return // SP-0186: nothing loads or syncs until the new password is set
         val loaded = ensureKey()
         val generation = sessionGeneration
         try {
@@ -1888,6 +1933,7 @@ class FieldController(
             // FLD-014/171: every path that finds the session ended (Sync now, background sync, a reload) returns to
             // Sign in with the plain reason. Nothing local is cleared: unsent work stays for the same person/office.
             if (e.kind == AuthFailure.Kind.SESSION_EXPIRED && generation == sessionGeneration) sessionEnded(e)
+            if (e.kind == AuthFailure.Kind.PASSWORD_CHANGE_REQUIRED && generation == sessionGeneration) requirePasswordChange()
             throw e
         } finally { checkSuggestedOrderLifetime() }
     }
@@ -1914,13 +1960,14 @@ class FieldController(
         if (state is EnrollmentState.Ready && !busy) runCatching { loadToday(sync = false) }
     }
     fun syncNow() = scope.launch(ui) {
-        if (busy || state !is EnrollmentState.Ready || today.updateRequired) return@launch
+        if (busy || mustChangePassword || state !is EnrollmentState.Ready || today.updateRequired) return@launch
         busy = true
         try { loadToday(sync = true); if (diagnostic != null) refreshDiagnostic() }
         catch (e: AuthFailure) {
             // FLD-171: a session ended elsewhere (password changed, signed out everywhere) returns to sign-in
             // with the plain reason. Queued work stays in the encrypted store for the same person.
             if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) sessionEnded(e)
+            else if (e.kind == AuthFailure.Kind.PASSWORD_CHANGE_REQUIRED) requirePasswordChange()
             else today = today.copy(stale = true, warning = "Sync unavailable — showing saved visits")
         }
         catch (_: Exception) { today = today.copy(stale = true, warning = "Sync unavailable — showing saved visits") }
@@ -1929,6 +1976,7 @@ class FieldController(
     /** FLD-014/171: Sign in with the reason; [today] is reset only in memory (the encrypted store is untouched). */
     private fun sessionEnded(e: AuthFailure) {
         ++sessionGeneration; state = EnrollmentState.SignedOut; today = TodayData(); error = userMessage(e)
+        mustChangePassword = false; temporaryPassword = null
         retireSuggestedOrder()
         countUnsent()
     }
@@ -1953,6 +2001,7 @@ class FieldController(
             onChanged()
             passwordChanged = true
             passwordMessage = com.sunpride.field.auth.PasswordChange.SUCCESS
+            temporaryPassword = null
         } catch (e: com.sunpride.field.auth.PasswordChangeFailure) {
             passwordMessage = e.kind.text
             if (e.kind == com.sunpride.field.auth.PasswordChangeFailure.Kind.LOCAL_SESSION) signOut()
@@ -1964,11 +2013,19 @@ class FieldController(
         finally { passwordBusy = false }
     }
 
+    /** SP-0186: the new password is set; continue to the phone check, Today and sync. */
+    fun finishForcedPasswordChange() = scope.launch(ui) {
+        if (!passwordChanged) return@launch
+        mustChangePassword = false; temporaryPassword = null; resetPasswordForm()
+        refresh()
+    }
+
     fun signOut() = scope.launch(ui) {
         sessionGeneration++ // retire pending cache/enrollment reads before fallible teardown
         busy = true
         runCatching { withContext(io) { backend.signOut() } }
         state = EnrollmentState.SignedOut; today = TodayData(); error = null; busy = false
+        mustChangePassword = false; temporaryPassword = null
         team = com.sunpride.field.ui.team.TeamView(); teamDirectOnly = true
         retireSuggestedOrder()
     }

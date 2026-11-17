@@ -33,9 +33,11 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 
 @Composable
 fun ChangePasswordScreen(busy: Boolean, message: String?, changed: Boolean,
-    onChange: (String, String, String) -> Unit, onDone: () -> Unit, modifier: Modifier = Modifier) {
+    onChange: (String, String, String) -> Unit, onDone: () -> Unit, modifier: Modifier = Modifier,
+    /** SP-0186: the full screen shown after an admin reset, before anything else. */
+    forced: Boolean = false, initialCurrent: String? = null) {
     // Deliberately not rememberSaveable: secrets never enter saved instance state.
-    var current by remember { mutableStateOf("") }
+    var current by remember { mutableStateOf(initialCurrent.orEmpty()) }
     var next by remember { mutableStateOf("") }
     var confirm by remember { mutableStateOf("") }
     var visible by remember { mutableStateOf<Set<String>>(emptySet()) }
@@ -48,11 +50,12 @@ fun ChangePasswordScreen(busy: Boolean, message: String?, changed: Boolean,
     }
     Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("Choose a new password", style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("change-password-title"))
+            Text(if (forced) "Set a new password" else "Choose a new password", style = MaterialTheme.typography.titleMedium, modifier = Modifier.testTag("change-password-title"))
             if (!changed) {
-                Text("Use at least 8 characters. This phone stays signed in. Other devices will need your new password.",
-                    style = MaterialTheme.typography.bodyMedium)
-                for ((id, label, value) in listOf(Triple("current", "Current password", current),
+                Text(if (forced) "Your password was reset. Choose your own password before you continue. Use at least 8 characters."
+                    else "Use at least 8 characters. This phone stays signed in. Other devices will need your new password.",
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("change-password-intro"))
+                for ((id, label, value) in listOf(Triple("current", if (forced) "Temporary password" else "Current password", current),
                     Triple("new", "New password", next), Triple("confirm", "Confirm new password", confirm))) {
                     LabeledField(label, value, {
                         when (id) { "current" -> current = it; "new" -> next = it; else -> confirm = it }
@@ -76,7 +79,8 @@ fun ChangePasswordScreen(busy: Boolean, message: String?, changed: Boolean,
                 style = MaterialTheme.typography.bodyMedium)
         }
         Spacer(Modifier.height(12.dp))
-        PrimaryBottomButton(if (changed) "Done" else if (busy) "Changing password…" else "Change password", {
+        PrimaryBottomButton(if (changed) (if (forced) "Continue" else "Done") else if (busy) "Changing password…"
+            else if (forced) "Set new password" else "Change password", {
             if (changed) onDone() else {
                 val problem = com.sunpride.field.auth.PasswordChange.validate(current, next, confirm)
                 if (problem != null) validation = problem.text else {

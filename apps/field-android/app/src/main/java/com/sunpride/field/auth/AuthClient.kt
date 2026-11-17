@@ -37,10 +37,12 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
     fun deviceKeyId(): String? = signer?.invoke()?.let {
         RequestSigner.bodyDigest(Base64.getDecoder().decode(it.publicKeyBase64))
     }
-    @Synchronized fun signIn(email: String, password: String) {
+    /** SP-0186: returns true when the server says this account must set a new password first. */
+    @Synchronized fun signIn(email: String, password: String): Boolean {
         if (!environment.isReady) throw AuthFailure(AuthFailure.Kind.NOT_CONFIGURED)
         val body = JSONObject().put("version", 2).put("app", NativeApi.APP)
             .put("email", email.trim()).put("password", password)
+            .put("passwordChange", "supported") // SP-0186: this build shows the Set a new password screen
             .put("integrity", com.sunpride.integrity.DeviceIntegrity.report())
         signer?.invoke()?.let { body.put("deviceKey", JSONObject().put("keyId", deviceKeyId())
             .put("publicKeySpki", it.publicKeyBase64)) }
@@ -52,6 +54,9 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
         invalidateAccessToken()
         vault.saveSession(session)
         access = token; refreshAt = expiry - REFRESH_MARGIN_MS
+        val mustChange = o.optBoolean("mustChangePassword", false)
+        PasswordChange.notifyRequired(mustChange)
+        return mustChange
     }
     /** F-007: accept only the install-bound exchange, through the same encrypted session vault. */
     @Synchronized fun acceptCompanySession(o: JSONObject) {
@@ -106,6 +111,7 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
                         invalidateAccessToken(); runCatching { vault.wipe() }
                         throw PasswordChangeFailure(PasswordChangeFailure.Kind.LOCAL_SESSION)
                     }
+                    PasswordChange.notifyRequired(false)
                     return
                 }
             } catch (_: IOException) { throw AuthFailure(AuthFailure.Kind.OFFLINE) }
@@ -129,10 +135,15 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
         return try {
             http.newCall(request).execute().use { r ->
                 when {
-                    signingIn && r.code in setOf(400, 401) -> throw AuthFailure(AuthFailure.Kind.INVALID_CREDENTIALS)
+                    signingIn && r.code in setOf(400, 401) -> {
+                        if (PasswordChange.errorCode(r.body?.string()) == PasswordChange.EXPIRED_CODE)
+                            throw AuthFailure(AuthFailure.Kind.TEMPORARY_PASSWORD_EXPIRED)
+                        throw AuthFailure(AuthFailure.Kind.INVALID_CREDENTIALS)
+                    }
                     // FLD-014/E2E-004: the office revoked this phone; sign-in is refused and says so plainly.
                     signingIn && r.code == 403 -> {
                         val code = runCatching { JSONObject(r.body?.string().orEmpty()).optJSONObject("error")?.optString("code") }.getOrNull()
+                        if (code == PasswordChange.REQUIRED_CODE) throw AuthFailure(AuthFailure.Kind.PASSWORD_CHANGE_REQUIRED)
                         if (code in AuthFailure.REMOVED_CODES) {
                             notifyEnded(true)
                             throw AuthFailure(AuthFailure.Kind.REFUSED, removed = true)
@@ -142,6 +153,11 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
                     !signingIn && r.code in setOf(401, 403) -> {
                         // FLD-014/171: the session is over; only the credential goes. Local work is never touched here.
                         val code = runCatching { JSONObject(r.body?.string().orEmpty()).optJSONObject("error")?.optString("code") }.getOrNull()
+                        // SP-0186: a required new password is not an ended session; the session stays.
+                        if (r.code == 403 && code == PasswordChange.REQUIRED_CODE) {
+                            PasswordChange.notifyRequired(true)
+                            throw AuthFailure(AuthFailure.Kind.PASSWORD_CHANGE_REQUIRED)
+                        }
                         val removed = code in AuthFailure.REMOVED_CODES
                         vault.wipe(); notifyEnded(removed)
                         throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED, removed = removed)

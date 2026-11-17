@@ -19,7 +19,11 @@ class AuthFailure(val kind: Kind, val retryAfterMs: Long? = null, val removed: B
         OFFLINE("You're offline. Check your connection and try again."),
         SESSION_EXPIRED("Your session has ended. Sign in again."),
         SERVER("The server couldn't complete the request. Try again shortly."),
-        NOT_CONFIGURED("This build has no server configured.")
+        NOT_CONFIGURED("This build has no server configured."),
+        // SP-0186: an admin reset the password; the temporary one has run out.
+        TEMPORARY_PASSWORD_EXPIRED("This temporary password has expired. Ask your admin for a new one."),
+        // SP-0186: the account must choose its own password before any work or sync.
+        PASSWORD_CHANGE_REQUIRED("Set a new password before you continue.")
     }
     override fun toString(): String = "AuthFailure($kind)"
     companion object {
