@@ -41,6 +41,61 @@ export async function tripOperationIds(db, tripId) {
         where c.trip_id=${tripId} and e.adapter in ('check_in','stock_check','note','evidence','check_out')
     ) k`;
 }
+/** SP-0191b: every phone that legitimately held the trip: the phone it is on now, both phones of every office
+ * handover, and any phone that applied an accepted operation to this trip (crew actions are written only after the
+ * seller/device check passed, which covers a handover made before the trip started). An unrelated phone is never here.
+ * @param {any} db @param {any} trip @returns {Promise<string[]>} */
+export async function tripDevices(db, trip) {
+  const rows = await db`select d::text as id from (
+      select ${trip.started_device_id}::uuid as d
+      union select (details->>'fromDeviceId')::uuid from van_audit_events where trip_id=${trip.id} and kind='van.trip.handed_over'
+      union select (details->>'toDeviceId')::uuid from van_audit_events where trip_id=${trip.id} and kind='van.trip.handed_over'
+      union select device_id from van_crew_actions where trip_id=${trip.id}
+    ) k where d is not null`;
+  return rows.map((/** @type {any} */ r) => r.id);
+}
+
+/** SP-0191b: check a close manifest against the office's accepted trip operations. A trip handed over to another phone
+ * closes from the new phone, whose list holds only its own operations: operations an EARLIER phone of this trip already
+ * delivered need not be listed again. Every listed operation must be a known trip operation applied from one of the
+ * trip's own phones (any seller of the trip; an unrelated phone's operations never count).
+ * @param {any} db @param {any} trip @param {any[]} operations @param {{id:string}[]} known
+ * @returns {Promise<null|"incomplete"|"unsynced">} */
+export async function manifestGap(db, trip, operations, known) {
+  const devices = await tripDevices(db, trip);
+  const listed = operations.map((/** @type {any} */ o) =>
+    uuid(o.clientRequestId),
+  );
+  const ids = [...new Set([...known.map((r) => r.id), ...listed])].filter(
+    (id) => /^[0-9a-f-]{36}$/i.test(id ?? ""),
+  );
+  /** @type {Map<string, {device:string, type:string}[]>} */ const applied =
+    new Map();
+  if (ids.length && devices.length)
+    for (const r of await db`select client_op_id::text as id,device_id::text as device,op_type from op_receipts
+        where status='applied' and client_op_id = any(${db.array(ids, "UUID")}) and device_id = any(${db.array(devices, "UUID")})`)
+      applied.set(r.id, [
+        ...(applied.get(r.id) ?? []),
+        { device: r.device, type: r.op_type },
+      ]);
+  const manifest = new Set(listed);
+  const knownIds = new Set(known.map((r) => r.id));
+  const earlierPhone = (/** @type {string} */ id) =>
+    (applied.get(id) ?? []).some((r) => r.device !== trip.started_device_id);
+  if (
+    listed.some((id) => !knownIds.has(id)) ||
+    known.some((r) => !manifest.has(r.id) && !earlierPhone(r.id))
+  )
+    return "incomplete";
+  for (const o of operations)
+    if (
+      !(applied.get(uuid(o.clientRequestId)) ?? []).some(
+        (r) => r.type === o.kind,
+      )
+    )
+      return "unsynced";
+  return null;
+}
 /** F-117/F-123 frozen, versioned submission, not a warehouse receipt or supervisor approval.
  * @param {any} db @param {any} trip @param {any} actor @param {any} p
  */
@@ -75,27 +130,21 @@ export async function submitSettlement(db, trip, actor, p) {
   if (!Array.isArray(p.operations) || p.operations.length > 5000)
     throw invalid("Include the trip operation manifest");
   const known = await tripOperationIds(db, trip.id);
-  const manifest = new Set(
-    p.operations.map((/** @type {any} */ o) => uuid(o.clientRequestId)),
-  );
-  if (
-    manifest.size !== p.operations.length ||
-    manifest.size !== known.length ||
-    known.some((/** @type {any} */ r) => !manifest.has(r.id))
-  )
+  const gap =
+    new Set(p.operations.map((/** @type {any} */ o) => uuid(o.clientRequestId)))
+      .size !== p.operations.length
+      ? "incomplete"
+      : await manifestGap(db, trip, p.operations, known);
+  if (gap === "incomplete")
     refuse(
       "Trip manifest must include every accepted operation",
       "dependency_missing",
     );
-  for (const op of p.operations) {
-    const [r] =
-      await db`select op_type from op_receipts where subject=${actor.subject} and device_id=${trip.started_device_id} and client_op_id=${op.clientRequestId} and status='applied'`;
-    if (!r || r.op_type !== op.kind)
-      refuse(
-        "Sync earlier trip operations before submitting to the office",
-        "dependency_missing",
-      );
-  }
+  if (gap === "unsynced")
+    refuse(
+      "Sync earlier trip operations before submitting to the office",
+      "dependency_missing",
+    );
   const expected = await expectedStock(db, trip.id);
   await assertTruckStock(db, trip, expected);
   const [unload] =

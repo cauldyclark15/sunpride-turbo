@@ -81,7 +81,7 @@ import {
   recordRouteEvidence,
   requireTemperature,
 } from "./route-evidence.js";
-import { submitSettlement } from "./settlement.js";
+import { submitSettlement, manifestGap } from "./settlement.js";
 import { vanRefund } from "./refunds.js";
 import { saleLots } from "./lots.js";
 import { validateReturnEvidence } from "./return-evidence.js";
@@ -1619,27 +1619,18 @@ async function closeTrip(db, trip, actor, p, opId) {
     refuse("Include the trip operation manifest", "invalid_request");
   const known =
     await db`select details->>'clientOpId' as id from van_audit_events where trip_id=${trip.id} and details ? 'clientOpId'`;
-  const manifestIds = new Set(
-    p.operations.map((/** @type {any} */ o) => o.clientRequestId),
-  );
-  if (
-    manifestIds.size !== known.length ||
-    known.some((/** @type {any} */ row) => !manifestIds.has(row.id))
-  )
+  // SP-0191b: operations an earlier phone of a handed-over trip delivered need not be on the new phone's list.
+  const gap = await manifestGap(db, trip, p.operations, known);
+  if (gap === "incomplete")
     refuse(
       "Trip manifest must include every accepted trip operation",
       "dependency_missing",
     );
-  for (const o of p.operations) {
-    const id = uuid(o.clientRequestId);
-    const [r] =
-      await db`select op_type from op_receipts where subject=${actor.subject} and device_id=${trip.started_device_id} and client_op_id=${id} and status='applied'`;
-    if (!r || r.op_type !== o.kind)
-      refuse(
-        "Some trip operations have not reached the office",
-        "dependency_missing",
-      );
-  }
+  if (gap === "unsynced")
+    refuse(
+      "Some trip operations have not reached the office",
+      "dependency_missing",
+    );
   if (
     p.endOdometerKm !== undefined &&
     (!Number.isFinite(p.endOdometerKm) ||
