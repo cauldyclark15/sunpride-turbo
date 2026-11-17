@@ -1,4 +1,5 @@
 import { noteWaitingPhone } from "../domains/integrity/waiting-phones.js";
+import { autoApproveSuperadminPhone } from "../domains/integrity/superadmin-phones.js";
 import { tx } from "@sunpride/db/client";
 import {
   nativeControl,
@@ -234,8 +235,7 @@ export function installAuth(router) {
       if (!user || !ok || user.disabled_at) return null;
       // SP-0185: a temporary password. Refusals here create no session and do not count as failures.
       if (user.must_change_password) {
-        if (user.temp_expired)
-          return { refuse: "temporary_password_expired" };
+        if (user.temp_expired) return { refuse: "temporary_password_expired" };
         if (native && body.passwordChange !== "supported")
           return { refuse: "password_change_required" };
       }
@@ -245,6 +245,9 @@ export function installAuth(router) {
         await registerSamplePhone(t, user.id, app, body.deviceKey);
       if (native && deviceKeyId)
         await noteWaitingPhone(t, user.id, app, body.deviceKey);
+      // SP-0193: the system owner's phone is approved at once (no waiting, no admin step); other roles unchanged.
+      if (native && deviceKeyId)
+        await autoApproveSuperadminPhone(t, user.id, app, body.deviceKey);
       const session = await createSession(t, user.id, app, deviceKeyId);
       const access = native ? await createAccess(t, session.id) : null;
       return { user, session, access };
@@ -508,10 +511,22 @@ async function nativeMe(ctx) {
   /** @type {any} */
   let device = null;
   if (keyId) {
-    const rows = await ctx.db`
+    const find = () => ctx.db`
       select id, status, bound_subject, credential_id, app from registered_devices
       where profile_id = ${actor.profileId} and key_id = ${keyId} and app = ${app}
       order by ${deviceRank(ctx.db)}, created_at desc limit 1`;
+    let rows = await find();
+    // SP-0193: a super_admin phone still on "Register phone" (e.g. it was waiting before this change) is approved
+    // on its next check, from the key its own sign-in already proved. Only this session's own key qualifies.
+    if (
+      !rows.length &&
+      actor.role === "super_admin" &&
+      keyId === ctx.session?.deviceKeyId &&
+      (await tx(ctx.db, (t) =>
+        autoApproveSuperadminPhone(t, actor.userId, String(app), { keyId }),
+      ))
+    )
+      rows = await find();
     const d = rows[0];
     if (d)
       device = {
@@ -553,6 +568,8 @@ async function nativeMe(ctx) {
     ),
     handoverRequired:
       !device &&
+      // SP-0193: a super_admin may run several phones; a new one never needs a handover.
+      actor.role !== "super_admin" &&
       Boolean(
         (
           await ctx.db`select 1 from registered_devices where profile_id=${actor.profileId} limit 1`

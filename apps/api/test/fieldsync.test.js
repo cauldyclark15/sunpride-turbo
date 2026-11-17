@@ -244,6 +244,22 @@ describe("FIELDSYNC projections through real core proof/cursor harness", () => {
     expect(body.bundles[0].data.permissions).toContain("visit.record");
     expect(body.bundles[0].data.permissions).toContain("outlet.enrol.propose");
   });
+  test("SP-0193 a super_admin's field phone downloads the field bundle with Selling on (no switch)", async () => {
+    who = await boundDevice(h, profiles, {
+      orgUnitId: f.unit,
+      role: "super_admin",
+    });
+    await h.db`insert into profiles(id,user_id,auth_subject,name,email,role,status,org_unit_id) values (${who.profile.id},${who.userId},${who.userId},'System owner',${who.email},'super_admin','active',${f.unit})`;
+    const { res, body } = await pull();
+    expect(res.status).toBe(200);
+    expect(body.bundles[0].complete).toBe(true);
+    const data = body.bundles[0].data;
+    expect(data.employee.role).toBe("super_admin");
+    expect(data.employee.selling).toBe(true);
+    expect(data.scope.orgUnitIds).toContain(f.unit);
+    expect(data.permissions).toContain("van.operate");
+    expect(data.permissions).toContain("visit.record");
+  });
   test("F-203 signed sync snapshot carries objectives, prior outcome and absent versus unmeasured MSL", async () => {
     const db = h.db,
       previous = manilaDate(midnight(date) - DAY_MS);
@@ -317,7 +333,8 @@ describe("FIELDSYNC projections through real core proof/cursor harness", () => {
     expect(b.offlineLease.expiresAt).toBe(closeAt(date));
     expect(b.data.appConfig.orderCaptureEnabled).toBe(false);
     // NF-4: the Field phone's visit-photo watermark needs the person's name from this header.
-    const [me] = await h.db`select name from profiles where id=${b.data.employee.id}`;
+    const [me] =
+      await h.db`select name from profiles where id=${b.data.employee.id}`;
     expect(me.name).toBeTruthy();
     expect(b.data.employee.name).toBe(me.name);
     expect(Object.keys(b.data).sort()).toEqual(
@@ -678,9 +695,15 @@ describe("location work/consent boundary and retention", () => {
       productive: 1,
       fieldStatus: "done",
     });
-    expect(live.body.trend.at(-1)).toMatchObject({ planned: 1, visited: 1, productive: 1 });
+    expect(live.body.trend.at(-1)).toMatchObject({
+      planned: 1,
+      visited: 1,
+      productive: 1,
+    });
     await h.db`update visit_executions set late_review_status='rejected' where id=${f.visit}`;
-    expect((await api("/api/v1/location/live")).body.positions[0].productive).toBe(0);
+    expect(
+      (await api("/api/v1/location/live")).body.positions[0].productive,
+    ).toBe(0);
   });
   test("map workload includes a planned person before any location ping", async () => {
     const live = await api("/api/v1/location/live");

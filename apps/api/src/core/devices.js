@@ -114,6 +114,9 @@ export async function devicePerson(db, actor, deviceId, opts = {}) {
     throw forbidden("Device scope changed", "scope_withdrawn");
   if (device.bound_subject && device.bound_subject !== actor.subject)
     throw forbidden("Device identity mismatch", "device_unavailable");
+  // SP-0193: an extra phone the server approved for a super_admin lapses if that person stops being super_admin.
+  if (device.superadmin_auto && actor.role !== "super_admin")
+    throw forbidden("Device unavailable", "device_unavailable");
   await requireDeviceIntegrity(db, device);
   return device;
 }

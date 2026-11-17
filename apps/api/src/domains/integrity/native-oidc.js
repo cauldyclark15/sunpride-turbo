@@ -1,6 +1,7 @@
 import { tx } from "@sunpride/db/client";
 import { createAccess, createSession } from "../../core/auth.js";
 import { verifySignature } from "../../core/devices.js";
+import { autoApproveSuperadminPhone } from "./superadmin-phones.js";
 import { forbidden, invalid } from "../../core/errors.js";
 import { loadProfile } from "../../core/hooks.js";
 import { takeOrThrow } from "../../core/rate.js";
@@ -111,6 +112,11 @@ export function installNativeOidc(router) {
         if (!profile || profile.status !== "active") throw forbidden();
         await refuseRevokedPhone(t, user.id, r.app, r.key_id);
         await registerSamplePhone(t, user.id, r.app, {
+          keyId: r.key_id,
+          publicKeySpki: r.public_key_spki,
+        });
+        // SP-0193: company sign-in approves a super_admin's phone at once too.
+        await autoApproveSuperadminPhone(t, user.id, r.app, {
           keyId: r.key_id,
           publicKeySpki: r.public_key_spki,
         });

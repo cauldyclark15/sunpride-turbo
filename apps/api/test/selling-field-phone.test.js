@@ -5,6 +5,9 @@ import {
   boundDevice,
   createUser,
   signedPost,
+  deviceKey,
+  nativeSignIn,
+  bind,
 } from "./harness.js";
 import { actorFor } from "../src/core/context.js";
 import { tx } from "@sunpride/db/client";
@@ -550,4 +553,118 @@ test("the Field app's own /api/me carries profile.selling (what the phone reads 
   }
   // Van app phones and old parsers: no new key at all.
   expect("selling" in (await me(vanSeller)).profile).toBe(false);
+});
+
+test("SP-0193 a super_admin's own Field app phone is approved at sign-in and starts a van trip with no Selling switch", async () => {
+  const email = "owner@example.com";
+  const userId = await createUser(h, email, "correct horse battery");
+  const owner = {
+    userId,
+    email,
+    profile: profiles.set(userId, {
+      role: "super_admin",
+      orgUnitId: unit,
+      name: "System Owner",
+    }),
+  };
+  await persistPerson(owner);
+  const key = await deviceKey();
+  const signIn = await nativeSignIn(
+    h,
+    email,
+    "correct horse battery",
+    "field-android",
+    { keyId: key.keyId, publicKeySpki: key.publicKeySpki },
+  );
+  expect(signIn.res.status).toBe(200);
+  const [device] =
+    await h.db`select d.id,d.status,p.selling from registered_devices d join profiles p on p.id=d.profile_id where d.profile_id=${owner.profile.id}`;
+  expect(device.status).toBe("active");
+  expect(device.selling).toBe(false); // nobody flipped the switch
+  const who = {
+    access: signIn.body.accessToken,
+    deviceId: device.id,
+    key,
+  };
+  expect((await bind(h, who.access, device.id, key)).body.bindingStatus).toBe(
+    "bound",
+  );
+  const me = await h.fetch("/api/me", {
+    headers: {
+      authorization: `Bearer ${who.access}`,
+      "x-app": "field-android",
+      "x-device-key-id": key.keyId,
+    },
+  });
+  expect(/** @type {any} */ (await me.json()).profile.selling).toBe(true);
+  expect(
+    await isSellingDevice(h.db, {
+      app: "field-android",
+      profile_id: owner.profile.id,
+    }),
+  ).toBe(true);
+  // The office lists the owner's Field app phone for a truck.
+  const list = await read("devices");
+  expect(list.body.items.map((/** @type {any} */ d) => d.deviceId)).toContain(
+    device.id,
+  );
+  // His own truck and trip.
+  const truck2 = crypto.randomUUID();
+  await h.db`insert into inventory_locations(id,organization_id,org_unit_id,site_code,code,name,type,active,allows_picking,allows_receiving,allows_sale,allows_production) values(${truck2},'sunpride',${unit},'CEBU','TRUCK2','TRUCK2','truck',true,true,true,true,false)`;
+  await h.db`insert into inventory_balances(product_code,warehouse_code,on_hand,reserved,available,as_of,organization_id,product_id,location_id,physical_base,weighted_average_cost_minor) values('SAMPLE','TRUCK2',0,0,0,now(),'sunpride',${product},${truck2},0,10000)`;
+  const v = await web("vehicles/create", {
+    orgUnitId: unit,
+    vehicleCode: "V2",
+    plateNumber: "SAMPLE2",
+    truckLocationId: truck2,
+    homeLocationId: depot,
+  });
+  expect(v.status, JSON.stringify(v.body)).toBe(200);
+  const planned = await web("trips/plan", {
+    vehicleId: v.body.vehicleId,
+    salespersonProfileId: owner.profile.id,
+    serviceDate: today(),
+  });
+  expect(planned.status, JSON.stringify(planned.body)).toBe(200);
+  const ownLoad = await web("loads/plan", {
+    tripId: planned.body.tripId,
+    lines: [{ productId: product, expectedBase: "12" }],
+  });
+  expect(ownLoad.status, JSON.stringify(ownLoad.body)).toBe(200);
+  /** @param {any} operation */
+  const ownApply = async (operation) => {
+    const r = await signedPost(h, who, "/api/sync/push", {
+      version: 2,
+      app: "field-android",
+      deviceId: device.id,
+      scopeId: unit,
+      operations: [operation],
+    });
+    expect(r.res.status, JSON.stringify(r.body)).toBe(200);
+    expect(r.body.results[0].status, JSON.stringify(r.body)).toBe("applied");
+  };
+  await ownApply(
+    op("load.confirm", {
+      tripId: planned.body.tripId,
+      loadId: ownLoad.body.loadId,
+      lines: [{ lineNumber: 1, actualBase: "12" }],
+    }),
+  );
+  await ownApply(
+    op("trip.start", {
+      tripId: planned.body.tripId,
+      vehicleConfirmed: true,
+      routeConfirmed: true,
+    }),
+  );
+  const [started] =
+    await h.db`select status,started_device_id from van_trips where id=${planned.body.tripId}`;
+  expect(started).toMatchObject({
+    status: "active",
+    started_device_id: device.id,
+  });
+  // No sale was made on the owner's behalf: the trip has no receipts.
+  const [{ n }] =
+    await h.db`select count(*)::int as n from van_sales where trip_id=${planned.body.tripId}`;
+  expect(n).toBe(0);
 });
