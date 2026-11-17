@@ -134,6 +134,33 @@ export function identityHooks(env) {
           await t`update employee_assignments set org_unit_id=${root} where profile_id=${person.id} and org_unit_id is null and effective_to is null`;
         person.org_unit_id = root;
       }
+      // SP-0197: every provisioned profile carries an employee assignment (provisioning and the
+      // bootstrap repair above write one), and the field paths (start-of-day download, visits,
+      // attendance) read the person through it. An owner profile created without one (on its unit,
+      // with no assignment row at all) gets the same assignment once, audited; other roles untouched.
+      if (person.role === "super_admin" && person.org_unit_id) {
+        const [assigned] =
+          await t`select 1 from employee_assignments where profile_id=${person.id} and deleted_at is null limit 1`;
+        if (!assigned) {
+          if (!write) return NEEDS_WRITE;
+          await insert(t, "employee_assignments", {
+            profile_id: person.id,
+            org_unit_id: person.org_unit_id,
+            role: "super_admin",
+            position_id: person.position_id ?? null,
+            effective_from: person.effective_from ?? person.created_at,
+            actor_subject: userId,
+            reason: "owner assignment",
+          });
+          await writeAudit(t, {
+            subject: userId,
+            action: "profile.assignment_repaired",
+            entityType: "profile",
+            entityId: person.id,
+            details: "super_admin",
+          });
+        }
+      }
     }
     person = await personAt(t, person);
     const tree = await topology(t);

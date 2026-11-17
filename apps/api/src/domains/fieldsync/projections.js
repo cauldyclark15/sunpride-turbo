@@ -41,6 +41,10 @@ import { customerMasterSummaries } from "../masters/customers.js";
 import { FIELD_APP, appModeFor, sellingFor } from "../van/selling.js";
 
 /** @typedef {import('../../core/sync.js').ProjectionCtx} ProjectionCtx */
+/** SP-0197: most stores the owner's phone downloads, and the call-sheet lines / assortment items they
+ * may add (leaving headroom under the 5000-row bounds for his own planned and added stores). */
+export const OWNER_OUTLET_CAP = 100;
+export const OWNER_ITEM_BUDGET = 4000;
 
 /** @param {any} ctx @param {string} profileId @param {string} date @param {{from?:string,includeOldOpen?:boolean,organizationId?:string}} [options] */
 export async function authorizedOrders(ctx, profileId, date, options = {}) {
@@ -298,6 +302,37 @@ async function bundleData(ctx) {
         territoryCode: null,
       });
     }
+  // SP-0197: the owner (super_admin) has no route or territory; his Customers list is every active
+  // store by name, up to OWNER_OUTLET_CAP stores and within a call-sheet budget that keeps this
+  // download under its existing size bounds (lines/assortment 5000), so it never ships an unbounded roster.
+  if (!partner && ctx.actor.role === "super_admin") {
+    let lineBudget = OWNER_ITEM_BUDGET,
+      itemBudget = OWNER_ITEM_BUDGET;
+    for (const o of await db`select o.id,o.name,o.code,o.address,
+        (select count(*)::int from call_sheet_account_lines l join call_sheet_accounts a on a.id=l.call_sheet_account_id
+          where a.outlet_id=o.id and a.deleted_at is null and l.deleted_at is null) as lines,
+        (select count(*)::int from outlet_assortment_products ap join outlet_assortments a on a.id=ap.outlet_assortment_id
+          where a.outlet_id=o.id and a.deleted_at is null and ap.deleted_at is null
+            and a.effective_from<=${new Date(ctx.now)} and (a.effective_to is null or a.effective_to>${new Date(ctx.now)})) as items
+      from outlets o
+      where o.organization_id=${ORGANIZATION} and o.deleted_at is null and o.status='active'
+        and (o.enrolment_status is null or o.enrolment_status='approved')
+      order by o.name,o.id limit ${OWNER_OUTLET_CAP}`) {
+      if (outlets.has(o.id)) continue;
+      if (o.lines > lineBudget || o.items > itemBudget) break;
+      lineBudget -= o.lines;
+      itemBudget -= o.items;
+      outlets.set(o.id, {
+        id: o.id,
+        name: o.name,
+        code: o.code,
+        address: o.address,
+        routeId: null,
+        territoryId: null,
+        territoryCode: null,
+      });
+    }
+  }
   // F-211/F-407: off-route shared outlets need the same canonical MSL, not a name-only roster.
   if (retailEnabled) {
     retailContext.availabilityOutletIds = [...outlets.keys()];
