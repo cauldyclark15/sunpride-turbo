@@ -326,7 +326,10 @@ fun FieldApp(
     // A page of a tab this mode hides (the office changed the mode, Switch mode, a link) lands on the mode's Home.
     // Nothing unsent is touched: it stays saved on the phone and keeps sending.
     LaunchedEffect(mode, page, ready) {
-        if (ready) FieldNav.pageForMode(page, mode).let { if (it != page) { page = it; origin = "home" } }
+        if (ready) FieldNav.pageForMode(page, mode).let { if (it != page) {
+            if (page == "workforce") controller.closeWorkforce()
+            page = it; origin = "home"
+        } }
     }
     LaunchedEffect(ready, mode, page, controller.today) {
         if (ready && mode == AppMode.MAPPING && page == "home") controller.refreshMappingSaves()
@@ -459,20 +462,23 @@ fun FieldApp(
                     modifier = PaddingValues(bottom = padding.calculateBottomPadding()).let { Modifier.padding(it).consumeWindowInsets(it) })
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = origin },
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier, now = now)
-                ready && page == "more" -> MoreScreen(modifier = modifier, status = status, now = now,
+                ready && page == "more" -> FieldNav.moreWorkRows(mode, visits, controller.today.supervisor,
+                    FieldFeature.TEAM in features).let { rows -> MoreScreen(modifier = modifier, status = status, now = now,
                     onSync = { go("sync") }, onAccount = { go("account") }, onSupport = { go("support") },
-                    onCatalogue = { go("catalogue") }, onCensus = if (visits) ({ censusName = ""; censusEdit = null; go("census") }) else null,
-                    onWorkforce = { controller.openWorkforce(); go("workforce") },
-                    onJointCall = if (controller.today.supervisor) ({ go("jointcall") }) else null,
-                    onCollections = { go("collections") },
-                    onTeam = if (FieldFeature.TEAM in features && controller.today.supervisor) ({ go("team") }) else null,
-                    onIncentives = { go("incentives") },
+                    onCatalogue = { go("catalogue") },
+                    // SP-0195: Customer mapping keeps only Products, Add customer and Sync in its work rows.
+                    onCensus = if (MoreRow.ADD_CUSTOMER in rows) ({ censusName = ""; censusEdit = null; go("census") }) else null,
+                    onWorkforce = if (MoreRow.ATTENDANCE in rows) ({ controller.openWorkforce(); go("workforce") }) else null,
+                    onJointCall = if (MoreRow.WORK_WITH in rows) ({ go("jointcall") }) else null,
+                    onCollections = if (MoreRow.COLLECTIONS in rows) ({ go("collections") }) else null,
+                    onTeam = if (MoreRow.TEAM in rows) ({ go("team") }) else null,
+                    onIncentives = if (MoreRow.EARNED_STATEMENTS in rows) ({ go("incentives") }) else null,
                     onBatteryGuide = if (batteryGuide != null) ({ go("location-battery") }) else null,
                     onReportIssue = features.reportIssueUrl?.let { url -> { openLink(context, url) } },
                     onSignOut = signOut,
                     // SP-0195: the owner may switch modes on this phone (only when the office allows more than one).
                     modes = controller.appModes.modes, mode = mode,
-                    onSwitchMode = if (controller.appModes.canSwitch) controller::switchMode else null)
+                    onSwitchMode = if (controller.appModes.canSwitch) controller::switchMode else null) }
                 controller.diagnostic != null && visits && ready && controller.photoCaptureOpen ->
                     com.sunpride.field.ui.diagnosticvisit.PhotoCaptureScreen(controller, modifier)
                 controller.diagnostic != null && visits && ready && controller.activityForm != null ->

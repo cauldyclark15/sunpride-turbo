@@ -26,12 +26,12 @@ import com.sunpride.field.ui.syncstatus.SyncStatus
 
 /**
  * More: everything that is not a daily tab, in three plain groups. Each row opens the screen that used to hang off Today
- * or Account, so nothing is lost. Rows whose feature is off for this build or role are simply absent.
+ * or Account, so nothing is lost. Rows whose feature is off for this build, role or App mode (null) are simply absent.
  */
 @Composable
 fun MoreScreen(
     status: SyncStatus, now: Long, onSync: () -> Unit, onAccount: () -> Unit, onSupport: () -> Unit,
-    onCatalogue: () -> Unit, onWorkforce: () -> Unit, onCollections: () -> Unit, onIncentives: () -> Unit,
+    onCatalogue: () -> Unit, onWorkforce: (() -> Unit)?, onCollections: (() -> Unit)?, onIncentives: (() -> Unit)?,
     onSignOut: () -> Unit, modifier: Modifier = Modifier,
     onCensus: (() -> Unit)? = null, onJointCall: (() -> Unit)? = null, onTeam: (() -> Unit)? = null,
     onBatteryGuide: (() -> Unit)? = null, onReportIssue: (() -> Unit)? = null,
@@ -47,16 +47,16 @@ fun MoreScreen(
                 Modifier.testTag("catalogue-open"), onClick = onCatalogue)
             if (onCensus != null) { Rule(); ListRow("Add customer", "Works offline",
                 "shop", Modifier.testTag("census-open"), onClick = onCensus) }
-            Rule(); ListRow("Attendance", "Time in and out, prospects", "clock",
-                Modifier.testTag("workforce-open"), onClick = onWorkforce)
-            Rule(); ListRow("Collections", "Payments to collect", "cash",
-                Modifier.testTag("collections-open"), onClick = onCollections)
+            if (onWorkforce != null) { Rule(); ListRow("Attendance", "Time in and out, prospects", "clock",
+                Modifier.testTag("workforce-open"), onClick = onWorkforce) }
+            if (onCollections != null) { Rule(); ListRow("Collections", "Payments to collect", "cash",
+                Modifier.testTag("collections-open"), onClick = onCollections) }
             if (onJointCall != null) { Rule(); ListRow("Work-With & coaching", "Ride-along visits and coaching notes", "person",
                 Modifier.testTag("jointcall-open"), onClick = onJointCall) }
             if (onTeam != null) { Rule(); ListRow("Your team", "Who is on route today", "team",
                 Modifier.testTag("team-open"), onClick = onTeam) }
-            Rule(); ListRow("Earned statements", "Your results. Needs signal", "list",
-                Modifier.testTag("earned-statements-open"), onClick = onIncentives)
+            if (onIncentives != null) { Rule(); ListRow("Earned statements", "Your results. Needs signal", "list",
+                Modifier.testTag("earned-statements-open"), onClick = onIncentives) }
         }
         Group("This phone") {
             val label = status.label(now)

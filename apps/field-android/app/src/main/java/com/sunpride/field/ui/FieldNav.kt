@@ -78,9 +78,22 @@ object FieldNav {
      * mode's Home instead. Messages and everything under More stay reachable in every mode.
      */
     fun pageForMode(page: String, mode: AppMode): String {
+        if (mode == AppMode.MAPPING && page in mappingHiddenPages) return "home"
         val tab = tabOf(page, mode)
         return if (tab == FieldTab.MORE || tab == FieldTab.MESSAGES || tab in tabs(mode)) page else "home"
     }
+
+    /** SP-0195: More pages Customer mapping hides (Attendance, Collections, Earned statements, Work-With, Your team). */
+    val mappingHiddenPages: Set<String> = setOf("workforce", "collections", "incentives", "jointcall", "team")
+
+    /**
+     * The "Your work" rows More shows, in order. Customer mapping keeps only Products and Add customer; Field visits and
+     * Truck selling are unchanged (Add customer needs Visits, Work-With a supervisor, Your team the Team feature too).
+     */
+    fun moreWorkRows(mode: AppMode, visits: Boolean, supervisor: Boolean, team: Boolean): List<MoreRow> =
+        if (mode == AppMode.MAPPING) listOf(MoreRow.PRODUCTS, MoreRow.ADD_CUSTOMER)
+        else listOfNotNull(MoreRow.PRODUCTS, MoreRow.ADD_CUSTOMER.takeIf { visits }, MoreRow.ATTENDANCE, MoreRow.COLLECTIONS,
+            MoreRow.WORK_WITH.takeIf { supervisor }, MoreRow.TEAM.takeIf { team && supervisor }, MoreRow.EARNED_STATEMENTS)
 
     /**
      * E2E-001: the moment the app becomes ready (sign-in or registration just finished, or a launch) it opens on
@@ -156,3 +169,6 @@ fun rememberImeVisible(): Boolean {
     val density = LocalDensity.current
     return WindowInsets.ime.getBottom(density) > 0
 }
+
+/** SP-0195: the rows of More's "Your work" group. */
+enum class MoreRow { PRODUCTS, ADD_CUSTOMER, ATTENDANCE, COLLECTIONS, WORK_WITH, TEAM, EARNED_STATEMENTS }
