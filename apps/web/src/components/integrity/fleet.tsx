@@ -12,6 +12,8 @@ type Device = {
   person: string;
   status: string;
   app: string;
+  /** SP-0191: a Van POS phone, or a Field app phone whose person has Selling on. */
+  sells?: boolean;
   handover_id: string | null;
   control: {
     id: string;
@@ -190,7 +192,11 @@ export function IntegrityFleet() {
                   </p>
                   <p className="text-sm capitalize">
                     {words(d.status)} ·{" "}
-                    {d.app === "van-android" ? "Van POS" : "Field app"}
+                    {d.app === "van-android"
+                      ? "Van POS"
+                      : d.sells
+                        ? "Field app · sells from truck"
+                        : "Field app"}
                   </p>
                   <p className="text-xs text-muted">
                     {d.assessment

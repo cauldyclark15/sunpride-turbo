@@ -3,7 +3,7 @@ import { outletOwnerUnit } from "../org/scope.js";
 import { sellingBundle } from "./bundle.js";
 import { supervisorDirectory } from "./overrides.js";
 import { forbidden } from "../../core/errors.js";
-import { currentActor, currentDeviceActor } from "../van/access.js";
+import { currentActor, currentStoreDeviceActor } from "../van/access.js";
 import { uuid, refuse, integer, today, dayString } from "../van/model.js";
 
 /** F-R01: always reload persisted mode; proof-time authority is not a durable grant.
@@ -30,7 +30,7 @@ export async function registerFor(
 }
 /** F-R01. @param {any} db @param {any} actor @param {any} device @param {number} at */
 export async function cashierContext(db, actor, device, at) {
-  const fresh = await currentDeviceActor(db, actor, device.id);
+  const fresh = await currentStoreDeviceActor(db, actor, device.id);
   const mode = await modeAt(db, device.id);
   if (mode?.mode !== "store") refuse("This handheld is not in Store mode");
   const r = await registerFor(db, fresh.actor, mode.register_id, "van.operate");

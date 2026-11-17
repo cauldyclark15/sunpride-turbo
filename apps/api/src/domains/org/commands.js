@@ -273,6 +273,32 @@ export async function assignPerson(c, b) {
   return null;
 }
 
+/** SP-0191: Setup > People "Selling" switch. Admin-only (admin.manage, checked by the command wrapper, which also
+ * audits). Only a Sales person can have it on; switching it either way makes their phone refresh (scope_epoch).
+ * @param {Ctx} c @param {Row} b */
+export async function setSelling(c, b) {
+  const target = await access(c, "people", uuid(b.profileId), "admin.manage");
+  const actor = /** @type {NonNullable<Ctx['actor']>} */ (c.actor);
+  if (typeof b.selling !== "boolean") rule("Choose on or off for Selling");
+  if (target.id === actor.profileId)
+    throw new ApiError(
+      "forbidden",
+      403,
+      "Ask another administrator to change your own selling",
+    );
+  if (b.selling && (target.role !== "sales" || target.status !== "active"))
+    rule("Only an active Sales person can sell from the truck");
+  // The wrapper writes the audit row from the reason; give it plain words when none was sent.
+  b.reason = b.reason
+    ? required(b.reason, "Reason")
+    : b.selling
+      ? "Selling switched on"
+      : "Selling switched off";
+  const [row] =
+    await c.db`update profiles set selling=${b.selling},scope_epoch=scope_epoch+1,updated_at=now() where id=${target.id} returning selling`;
+  return { profileId: target.id, selling: row.selling };
+}
+
 /** @param {Ctx} c @param {'invite'|'revoke'} action @param {Row} b */
 export async function invitationCommand(c, action, b) {
   const actor = await requireNationalScope(c, ["admin"]);

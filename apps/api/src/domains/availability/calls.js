@@ -7,6 +7,7 @@ import { canonicalJson, sha256Hex } from "../../core/util.js";
 import { reauthorizeDevice } from "../../core/devices.js";
 import { audit as vanAudit } from "../van/facts.js";
 import { currentActor, tripFor, outletFor } from "../van/access.js";
+import { FIELD_APP, VAN_APP, isSellingDevice } from "../van/selling.js";
 import {
   accessOutlet,
   ownedVisit,
@@ -62,13 +63,28 @@ export async function orderFacts(db, outlets, scope, from, to) {
     20000,
   );
 }
+/** SP-0191: the call path an availability op takes. A Van app phone always takes the van (trip) path; a Field app
+ * phone takes it only for a trip-bound check (its Sell area) and only while its person has Selling on. Everything
+ * else keeps its own app (field visit, web).
+ * @param {any} ctx @param {boolean} tripBound */
+async function callApp(ctx, tripBound) {
+  const app = ctx.app ?? "web";
+  if (
+    app === FIELD_APP &&
+    tripBound &&
+    ctx.device &&
+    (await isSellingDevice(ctx.db, ctx.device))
+  )
+    return VAN_APP;
+  return app;
+}
 /** @param {any} ctx @param {string} outletId @param {string} day */
 export async function authorizeCall(ctx, outletId, day) {
   const { outlet, owner } = await accessOutlet(ctx, outletId, "outlet.read");
   const app = ctx.app ?? "web";
   // SEAM(CALLFLOW): current outlet scope also permits reasoned unplanned calls.
   // record() separately binds evidence to the caller's owned open execution.
-  if (app === "van-android") {
+  if (app === VAN_APP) {
     await outletFor(ctx.db, ctx.actor, outletId);
     const trips =
       await ctx.db`select id from van_trips where salesperson_profile_id=${ctx.actor.profileId} and service_date=${day} and status not in ('cancelled','closed') and deleted_at is null`;
@@ -287,19 +303,20 @@ export async function record(ctx) {
     if (!ctx[DSR_ACCESS]) await currentActor(ctx.db, ctx.actor);
     await reauthorizeDevice(ctx.db, ctx.actor, ctx.device.id);
   }
+  const app = await callApp(ctx, p.tripId !== undefined && p.tripId !== null);
   const [snapshot] =
     await ctx.db`select * from availability_call_snapshots where id=${snapshotId}`;
   if (
     !snapshot ||
     snapshot.profile_id !== ctx.actor.profileId ||
-    snapshot.app !== (ctx.app ?? "web")
+    snapshot.app !== app
   )
     throw forbidden(
       "This checklist belongs to another session",
       "out_of_scope",
     );
   const { owner } = await authorizeCall(
-    ctx,
+    { ...ctx, app },
     snapshot.outlet_id,
     dateOf(snapshot.service_date),
   );
@@ -311,7 +328,7 @@ export async function record(ctx) {
     throw invalid("Checklist date or MSL is unavailable");
   let visit = null,
     trip = null;
-  if (ctx.app === "van-android") {
+  if (app === VAN_APP) {
     trip = await tripFor(
       ctx.db,
       ctx.actor,
@@ -438,7 +455,11 @@ export async function decideProposal(ctx) {
   const [check] =
     await ctx.db`select * from availability_checks where id=${uuid(p.checkId)}`;
   if (!check || check.profile_id !== ctx.actor.profileId) throw forbidden();
-  await authorizeCall(ctx, check.outlet_id, dateOf(check.service_date));
+  await authorizeCall(
+    { ...ctx, app: await callApp(ctx, !!check.trip_id) },
+    check.outlet_id,
+    dateOf(check.service_date),
+  );
   if (
     !check.proposals.some(
       (/** @type {any} */ l) => l.productId === p.productId,

@@ -168,13 +168,13 @@ export async function verifyOnline(c) {
   const supervisorId = uuid(p.supervisorProfileId);
   const kind = choice(p.kind, OVERRIDE_KINDS);
   const refId = String(text(p.refId, 100, true));
-  const { currentDeviceActor } = await import("../van/access.js");
+  const { currentStoreDeviceActor } = await import("../van/access.js");
   const { modeAt, registerFor } = await import("./model.js");
   // IP-INT2FIX: who may even try is checked BEFORE an attempt is counted. A caller that is not an authorised device on a
   // register this supervisor can approve for gets a plain refusal and never touches the supervisor's lockout counter.
   /** @param {any} db */
   const authorise = async (db) => {
-    const fresh = await currentDeviceActor(db, c.actor, uuid(p.deviceId));
+    const fresh = await currentStoreDeviceActor(db, c.actor, uuid(p.deviceId));
     const mode = await modeAt(db, fresh.device.id);
     if (mode?.mode !== "store" || !mode.register_id)
       refuse("This handheld is not in Store mode");

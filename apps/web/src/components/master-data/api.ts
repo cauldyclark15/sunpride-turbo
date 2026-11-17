@@ -33,7 +33,7 @@ export const api = {
       history: "people/history",
       supervisorOptions: "people/supervisor-options",
     },
-    mutations: { assign: "people/assign" },
+    mutations: { assign: "people/assign", selling: "people/selling" },
   },
   teams: {
     queries: {

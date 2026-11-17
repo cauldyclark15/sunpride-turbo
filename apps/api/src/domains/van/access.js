@@ -9,6 +9,7 @@ import { outletOwnerUnit } from "../org/scope.js";
 import { uuid } from "./model.js";
 import { partnerVan } from "./partner.js";
 import { partnerOutlet } from "../partners/boundary.js";
+import { FIELD_APP, VAN_APP, isSellingDevice } from "./selling.js";
 
 /** Lock persisted person independently of the proof snapshot and profile hook. @param {any} db @param {any} actor */
 export async function currentActor(db, actor) {
@@ -43,11 +44,33 @@ export async function currentActor(db, actor) {
     capabilities: new Set(capabilitiesFor(p.role)),
   };
 }
-/** @param {any} db @param {any} actor @param {string} deviceId */
+/** Van paths: a Van app phone, or (SP-0191) a Field app phone whose owner has Selling on.
+ * @param {any} db @param {any} actor @param {string} deviceId */
 export async function currentDeviceActor(db, actor, deviceId) {
   const fresh = await currentActor(db, actor);
   const checked = await reauthorizeDevice(db, fresh, deviceId);
-  if (checked.device.app !== "van-android")
+  if (!(await isSellingDevice(db, checked.device))) {
+    // SP-0191: a Field app phone whose Selling was switched off is refused per operation (never the whole
+    // sync): its field work keeps flowing, and the refused van op is final (not retryable).
+    if (checked.device.app === FIELD_APP)
+      throw new ApiError(
+        "out_of_scope",
+        422,
+        "Your access changed: selling from the truck is switched off for you",
+        false,
+      );
+    throw forbidden("Use a registered van device", "device_unavailable");
+  }
+  await requireCapability({ db, actor: fresh }, "van.operate", fresh.orgUnitId);
+  const partner = await partnerVan(db, fresh);
+  return { ...checked, actor: fresh, partner };
+}
+/** Store POS stays Van-app-only (SP-0191 leaves it untouched): same checks as before the Selling switch.
+ * @param {any} db @param {any} actor @param {string} deviceId */
+export async function currentStoreDeviceActor(db, actor, deviceId) {
+  const fresh = await currentActor(db, actor);
+  const checked = await reauthorizeDevice(db, fresh, deviceId);
+  if (checked.device.app !== VAN_APP)
     throw forbidden("Use a registered van device", "device_unavailable");
   await requireCapability({ db, actor: fresh }, "van.operate", fresh.orgUnitId);
   const partner = await partnerVan(db, fresh);

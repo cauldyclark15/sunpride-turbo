@@ -38,6 +38,7 @@ import {
   uuid,
 } from "./model.js";
 import { customerMasterSummaries } from "../masters/customers.js";
+import { FIELD_APP } from "../van/selling.js";
 
 /** @typedef {import('../../core/sync.js').ProjectionCtx} ProjectionCtx */
 
@@ -750,6 +751,10 @@ async function bundleData(ctx) {
       role: ctx.actor.role,
       orgUnitId: ctx.actor.orgUnitId,
       ...(workforce ? { workforce } : {}),
+      // SP-0191: the Field app shows its Sell area only when this is true (old builds ignore the key).
+      ...(ctx.app === FIELD_APP
+        ? { selling: Boolean(person.selling && ctx.actor.role === "sales") }
+        : {}),
     },
     scope: {
       fingerprint: ctx.scope.fingerprint,

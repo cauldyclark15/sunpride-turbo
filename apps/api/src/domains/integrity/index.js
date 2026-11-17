@@ -32,6 +32,7 @@ import {
 import { takeOrThrow } from "../../core/rate.js";
 import { refusedCheckIn } from "./refused-attempt.js";
 import { installAppReleases } from "./app-releases.js";
+import { sellingDeviceSql } from "../van/selling.js";
 
 /** @param {unknown} value @param {number} max @param {boolean} [trim] */
 const text = (value, max, trim = true) => {
@@ -310,6 +311,7 @@ export function install(router, platform) {
       from fleet_asset_versions f left join profiles p on p.id=f.assigned_profile_id where f.org_unit_id in ${c.db(ids.length ? ids : [null])} and f.effective_from<=now() and (f.effective_to is null or f.effective_to>now()) order by f.asset_tag limit 501`;
     const devices =
       await c.db`select d.id,d.inventory_tag as label,d.app,d.status,d.profile_id,p.name as person,d.org_unit_id,d.last_seen_at,
+      ${sellingDeviceSql(c.db)} as sells,
       (select row_to_json(c) from device_controls c where c.device_id=d.id order by c.created_at desc limit 1) as control,
       (select h.id from device_handovers h where h.from_device_id=d.id and status='reconciling' limit 1) as handover_id,
       (select jsonb_build_object('source',a.source,'rooted',a.rooted,'tampered',a.tampered,'observedAt',a.observed_at,'expiresAt',a.expires_at) from (select distinct on(source) * from device_integrity_assessments where device_id=d.id order by source,observed_at desc,id desc) a order by (a.rooted or a.tampered) desc,a.observed_at desc limit 1) as assessment

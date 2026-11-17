@@ -48,6 +48,7 @@ import {
   verifyCrewPinOnline,
   handoverTrip,
   listRosters,
+  listSellingDevices,
   saveRoster,
   setCrewPin,
   setTripCrew,
@@ -178,6 +179,14 @@ export function install(router, ctx) {
         unitId: c.url.searchParams.get("unitId"),
         day: c.url.searchParams.get("date"),
         vehicleId: c.url.searchParams.get("vehicleId"),
+      }),
+    ),
+  );
+  // SP-0191: phones the office can put on a truck (Van app, and Field app phones of people with Selling on).
+  router.get("/api/v1/van/devices", (/** @type {any} */ c) =>
+    tx(c.db, async (db) =>
+      listSellingDevices(db, await currentActor(db, c.actor), {
+        unitId: c.url.searchParams.get("unitId"),
       }),
     ),
   );

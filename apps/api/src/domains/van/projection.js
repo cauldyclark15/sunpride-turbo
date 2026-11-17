@@ -21,6 +21,7 @@ import { creditRequestsForTrip } from "../integration/credit-exceptions.js";
 import { nativeSchemeContext } from "../tpm/native-context.js";
 import { masterId } from "../integration/replicas.js";
 import { currentDeviceActor, tripFor, outletFor } from "./access.js";
+import { VAN_APP } from "./selling.js";
 import { productFor, stockBearing } from "./facts.js";
 import { eligibleFreeBase } from "../inventory/eligible.js";
 import { catalogueMetadata } from "../masters/catalogue.js";
@@ -458,7 +459,9 @@ export async function bundle(ctx, env) {
       });
     }
     // Current persisted ownership, not a historical customer link, is the authorization key.
-    const configured = await hasConfiguredFlowsForApp(db, ctx.app, ctx.now);
+    // SP-0191: the van bundle is the same for every selling phone (Van app or a Field app with Selling on), so its
+    // call-flow answer is always the Van app's; the Field app's own visits keep using the field bundle.
+    const configured = await hasConfiguredFlowsForApp(db, VAN_APP, ctx.now);
     /** @type {any[]} */ const candidates = complete(
       partner
         ? await db`select o.id,a.sequence,a.route_id from distributor_outlets g join outlets o on o.id=g.outlet_id
@@ -605,7 +608,7 @@ export async function bundle(ctx, env) {
       : [];
     const flowConfigs = await configurationsForApp(
       db,
-      ctx.app,
+      VAN_APP,
       flowOutlets,
       ctx.now,
       { profileId: actor.profileId, deviceId: device.id },
@@ -630,7 +633,7 @@ export async function bundle(ctx, env) {
       db,
       actor,
       device,
-      app: "van-android",
+      app: VAN_APP,
       availabilityHistory: new Map(),
       availabilityOutletIds: customers.map((c) => c.outletId),
     };

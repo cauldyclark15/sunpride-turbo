@@ -313,6 +313,82 @@ describe("people, invitations and teams", () => {
       (await call(`people/history?profileId=${sales.profileId}`, other)).status,
     ).toBe(403);
   });
+  test("SP-0191 an administrator switches Selling per Sales person; audited, phone refreshes, nobody else can", async () => {
+    const before =
+      await h.db`select scope_epoch,selling from profiles where id=${sales.profileId}`;
+    expect(before[0].selling).toBe(false);
+    // The sales person cannot switch their own; a manager (no admin.manage) cannot either.
+    expect(
+      (
+        await call("people/selling", sales, {
+          profileId: sales.profileId,
+          selling: true,
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await call("people/selling", manager, {
+          profileId: sales.profileId,
+          selling: true,
+        })
+      ).status,
+    ).toBe(403);
+    // Only a Sales person can sell; an administrator cannot switch their own.
+    expect(
+      (
+        await call("people/selling", admin, {
+          profileId: manager.profileId,
+          selling: true,
+        })
+      ).status,
+    ).toBe(422);
+    expect(
+      (
+        await call("people/selling", admin, {
+          profileId: admin.profileId,
+          selling: false,
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await call("people/selling", admin, {
+          profileId: sales.profileId,
+          selling: "yes",
+        })
+      ).status,
+    ).toBe(422);
+    const on = await call("people/selling", admin, {
+      profileId: sales.profileId,
+      selling: true,
+    });
+    expect(on.status).toBe(200);
+    expect(on.body).toEqual({ profileId: sales.profileId, selling: true });
+    const after =
+      await h.db`select scope_epoch,selling from profiles where id=${sales.profileId}`;
+    expect(after[0].selling).toBe(true);
+    expect(Number(after[0].scope_epoch)).toBe(
+      Number(before[0].scope_epoch) + 1,
+    );
+    const [log] =
+      await h.db`select action,details from audit_logs where action='people.selling' and entity_id=${sales.profileId} order by created_at desc limit 1`;
+    expect(log.details).toContain("Selling switched on");
+    const list = await call(`people/list?q=Seller`, admin);
+    expect(
+      list.body.page.find((/** @type {any} */ p) => p._id === sales.profileId)
+        .selling,
+    ).toBe(true);
+    const off = await call("people/selling", admin, {
+      profileId: sales.profileId,
+      selling: false,
+    });
+    expect(off.status).toBe(200);
+    const [last] =
+      await h.db`select scope_epoch,selling from profiles where id=${sales.profileId}`;
+    expect(last.selling).toBe(false);
+    expect(Number(last.scope_epoch)).toBe(Number(before[0].scope_epoch) + 2);
+  });
   test("IP-INT2 ask 6: the office keeps a staff phone number on the same assignment screen; bad numbers and non-admins are refused", async () => {
     const b = {
       profileId: sales.profileId,

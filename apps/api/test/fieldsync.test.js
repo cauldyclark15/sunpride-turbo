@@ -617,6 +617,38 @@ describe("location work/consent boundary and retention", () => {
     const [rows] = await h.db`select count(*)::int n from fieldsync_work_days`;
     expect(rows.n).toBe(0);
   });
+  test("SP-0191 the field bundle tells the Field app whether Selling is on; field work keeps flowing while it is", async () => {
+    const off = await pull();
+    expect(off.res.status).toBe(200);
+    expect(off.body.bundles[0].data.employee.selling).toBe(false);
+    const [before] =
+      await h.db`select scope_epoch from profiles where id=${who.profile.id}`;
+    await h.db`update profiles set selling=true,scope_epoch=scope_epoch+1 where id=${who.profile.id}`;
+    const on = await pull();
+    expect(on.res.status).toBe(200);
+    const employee = on.body.bundles[0].data.employee;
+    expect(employee.selling).toBe(true);
+    // Everything an old Field build reads is unchanged: only the one new key is added.
+    expect(Object.keys(employee).sort()).toEqual(
+      Object.keys(off.body.bundles[0].data.employee).sort(),
+    );
+    expect(on.body.bundles[0].data.plannedVisits).toEqual(
+      off.body.bundles[0].data.plannedVisits,
+    );
+    const [after] =
+      await h.db`select scope_epoch from profiles where id=${who.profile.id}`;
+    expect(Number(after.scope_epoch)).toBe(Number(before.scope_epoch) + 1);
+    // An ordinary field op from the same phone (same payload as before) is still applied as a field ping.
+    const r = await push([ping()]);
+    expect(r.body.results[0].status).toBe("applied");
+    const [row] =
+      await h.db`select kind from location_pings where profile_id=${who.profile.id}`;
+    expect(row.kind).toBe("field");
+    // Selling is never effective for anyone but a Sales person, even if the stored flag is on.
+    await h.db`update profiles set role='manager' where id=${who.profile.id}`;
+    const { sellingOn } = await import("../src/domains/van/selling.js");
+    expect(await sellingOn(h.db, who.profile.id)).toBe(false);
+  });
   test("records and replays one UUID without duplicating location rows", async () => {
     const op = ping();
     const first = await push([op]);

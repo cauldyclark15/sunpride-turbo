@@ -65,7 +65,16 @@ export function install(router, ctx) {
       topic === "fiscal" && roleHas(actor?.role, "van.read"),
   );
   ctx.registerOp("fiscal.print", async (/** @type {any} */ c) => {
-    const { actor } = await currentDeviceActor(c.db, c.actor, c.device.id);
+    const { actor } = await currentDeviceActor(
+      c.db,
+      c.actor,
+      c.device.id,
+    ).catch((/** @type {any} */ e) =>
+      // SP-0191: a Field app phone whose Selling is off gets this one op refused, not the whole sync.
+      e?.code === "out_of_scope" && e?.status === 422
+        ? c.reject("out_of_scope")
+        : Promise.reject(e),
+    );
     const sourceType = c.payload.paymentId ? "van_collection" : "van_sale";
     const sourceId = uuid(c.payload.paymentId || c.payload.saleId);
     const [d] =

@@ -6,6 +6,11 @@ import { pinSettings } from "../storepos/security.js";
 import { tripFor } from "./access.js";
 import { audit } from "./facts.js";
 import { date, dayString, refuse, text, today, uuid } from "./model.js";
+import {
+  isSellingDevice,
+  sellingDeviceName,
+  sellingDeviceSql,
+} from "./selling.js";
 
 /**
  * IP-VANDAY: the weekly roster, the crew on a trip, the phone that belongs to the truck and the people who take turns on it.
@@ -232,7 +237,12 @@ export async function bindDevice(db, actor, p) {
   await requireCapability({ db, actor }, "van.manage", vehicle.org_unit_id);
   const [device] =
     await db`select * from registered_devices where id=${uuid(p.deviceId)} for update`;
-  if (!device || device.app !== "van-android" || device.status !== "active")
+  // SP-0191: a Van app phone, or a Field app phone whose owner has Selling on.
+  if (
+    !device ||
+    device.status !== "active" ||
+    !(await isSellingDevice(db, device))
+  )
     refuse("Choose a van phone that is set up and working");
   if (device.org_unit_id)
     await requireCapability({ db, actor }, "van.manage", device.org_unit_id);
@@ -260,6 +270,36 @@ export async function unbindDevice(db, actor, p) {
   await db`update van_device_bindings set released_at=now(),released_by=${actor.subject} where id=${b.id}`;
   await audit(db, null, actor, "van.device.unbound", b.id, { deviceId: b.device_id });
   return { bindingId: b.id };
+}
+
+/** GET van/devices: the phones the office can put on a truck (SP-0191: Van app phones, and Field app phones of people
+ * with Selling on), each named "tag · person" with "(Field app)" so the office can tell them apart.
+ * @param {any} db @param {any} actor @param {{unitId?:string|null}} q */
+export async function listSellingDevices(db, actor, q) {
+  await requireCapability({ db, actor }, "van.read");
+  const scope = await scopeOf(db, actor);
+  const rows =
+    await db`select d.id,d.app,d.inventory_tag as label,p.name as person,d.profile_id as "profileId",d.org_unit_id as "unitId",
+      v.id as "vehicleId",v.vehicle_code as "vehicleCode"
+    from registered_devices d join profiles p on p.id=d.profile_id
+      left join van_device_bindings b on b.device_id=d.id and b.released_at is null
+      left join vehicles v on v.id=b.vehicle_id
+    where d.status='active' and ${sellingDeviceSql(db)} and (${scope.all} or d.org_unit_id in ${db(scope.ids)})
+      and (${q.unitId ?? null}::uuid is null or d.org_unit_id=${q.unitId ?? null}::uuid)
+    order by d.inventory_tag,d.id limit 501`;
+  return {
+    items: rows.slice(0, 500).map((/** @type {any} */ r) => ({
+      deviceId: r.id,
+      app: r.app,
+      name: sellingDeviceName(r),
+      person: r.person,
+      profileId: r.profileId,
+      unitId: r.unitId,
+      vehicleId: r.vehicleId ?? null,
+      vehicleCode: r.vehicleCode ?? null,
+    })),
+    truncated: rows.length > 500,
+  };
 }
 
 /** The truck a phone belongs to now, or null. @param {any} db @param {string} deviceId */
@@ -520,8 +560,9 @@ export async function handoverTrip(db, actor, p) {
   let deviceId = trip.started_device_id;
   if (p.toDeviceId) {
     const [d] =
-      await db`select * from registered_devices where id=${uuid(p.toDeviceId)} and app='van-android' and status='active'`;
-    if (!d) refuse("Choose a van phone that is set up and working");
+      await db`select * from registered_devices where id=${uuid(p.toDeviceId)} and status='active'`;
+    if (!d || !(await isSellingDevice(db, d)))
+      refuse("Choose a van phone that is set up and working");
     if (d.profile_id !== sellerId)
       refuse("The new phone must belong to the person taking over");
     deviceId = d.id;

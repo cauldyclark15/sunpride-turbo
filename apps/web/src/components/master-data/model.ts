@@ -32,6 +32,8 @@ export type Person = Base & {
   phone?: string;
   positionId?: string;
   supervisorSubject?: string;
+  /** SP-0191: sells from the truck in the Field app (only Sales people). */
+  selling?: boolean;
   effectiveFrom?: number;
   updatedAt?: number;
 };
@@ -400,6 +402,7 @@ export type CommandMap = {
     orgUnitId?: string;
   };
   "people/revoke": { invitationId: string };
+  "people/selling": { profileId: string; selling: boolean; reason?: string };
   "org/teams/create": Future & {
     code: string;
     name: string;

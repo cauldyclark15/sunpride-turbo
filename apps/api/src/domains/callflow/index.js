@@ -15,6 +15,7 @@ import {
   date,
 } from "../visits/shared.js";
 import { currentDeviceActor, tripFor, outletFor } from "../van/access.js";
+import { VAN_APP } from "../van/selling.js";
 import { audit as vanAudit } from "../van/facts.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { damagePhoto } from "../van/media.js";
@@ -280,7 +281,9 @@ export async function vanAdapter(ctx, trip, entityId) {
       ? await ctx.db`select id,channel,classification from outlets where id=${sourceOutlet}`
       : [];
     const profile = outlet
-      ? await profileAt(ctx.db, ctx.app, outlet, p.deviceTime)
+      ? // SP-0191: a van sale/return/payment is a van-path op on every selling phone (Van app or Field app with
+        // Selling on), so it resolves the Van app's call-flow profile.
+        await profileAt(ctx.db, VAN_APP, outlet, p.deviceTime)
       : PROFILE_VAN;
     if (await definitionAt(ctx.db, profile, p.deviceTime))
       ctx.reject("invalid_transition");

@@ -4,7 +4,7 @@ import { OpRejected, OP_CODES } from "../../core/sync.js";
 import { hooks, setHooks } from "../../core/hooks.js";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { canonicalJson, sha256Hex } from "../../core/util.js";
-import { currentActor, currentDeviceActor } from "../van/access.js";
+import { currentActor, currentStoreDeviceActor } from "../van/access.js";
 import { scopeFilterForActor, outletOwnerUnit } from "../org/scope.js";
 import { uuid, integer, refuse, text, choice, today } from "../van/model.js";
 import { registerFor, modeAt } from "./model.js";
@@ -28,7 +28,7 @@ export function installExtended(router, platform) {
     ) => {
       if (claim.purpose !== "bank-deposit") return previous(db, actor, claim);
       try {
-        const fresh = await currentDeviceActor(db, actor, claim.deviceId);
+        const fresh = await currentStoreDeviceActor(db, actor, claim.deviceId);
         await registerFor(db, fresh.actor, uuid(claim.ownerId), "van.operate");
         return true;
       } catch {
@@ -151,7 +151,7 @@ export function installExtended(router, platform) {
  * @param {any} c */
 async function switchMode(c) {
   const p = c.body;
-  const fresh = await currentDeviceActor(c.db, c.actor, uuid(p.deviceId));
+  const fresh = await currentStoreDeviceActor(c.db, c.actor, uuid(p.deviceId));
   const [reserved] =
     await c.db`insert into store_pin_attempts(device_id,next_attempt_at) values(${fresh.device.id},now()+interval '30 seconds') on conflict(device_id) do update set next_attempt_at=excluded.next_attempt_at where store_pin_attempts.next_attempt_at<=now() returning device_id`;
   if (!reserved)
@@ -161,7 +161,7 @@ async function switchMode(c) {
       "Wait 30 seconds before another PIN attempt",
     );
   return tx(c.db, async (/** @type {any} */ db) => {
-    const { actor, device } = await currentDeviceActor(
+    const { actor, device } = await currentStoreDeviceActor(
       db,
       c.actor,
       fresh.device.id,

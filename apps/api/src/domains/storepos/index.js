@@ -20,7 +20,7 @@ import {
   dayString,
   openingFloat,
 } from "../van/model.js";
-import { currentActor, currentDeviceActor } from "../van/access.js";
+import { currentActor, currentStoreDeviceActor } from "../van/access.js";
 import {
   cashierContext,
   captureTime,

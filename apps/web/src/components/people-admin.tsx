@@ -14,6 +14,7 @@ import { useSetupParam } from "./master-data/location";
 import { ListPage, cursorRange, type ListColumn } from "./list-page/list-page";
 import { Drawer } from "./cockpit/kit/drawer";
 import { ResetPasswordAction, canResetPassword } from "./people/reset-password";
+import { SellingSwitch } from "./people/selling-switch";
 
 type Person = Doc<"profiles">;
 export type AssignableRole =
@@ -168,6 +169,7 @@ export function PeopleAdmin() {
       : "skip",
   );
   const assign = useMutation(api.people.mutations.assign);
+  const saveSelling = useMutation(api.people.mutations.selling);
   const invite = useMutation(api.domains.profiles.invite);
   const revoke = useMutation(api.domains.profiles.revoke);
   const [historyId, setHistoryId] = useState<Id<"profiles"> | null>(null);
@@ -355,9 +357,14 @@ export function PeopleAdmin() {
       label: "Status",
       text: (row) => row.status,
       render: (row) => (
-        <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
-          {formatStatus(row.status)}
-        </StatusPill>
+        <span className="inline-flex flex-wrap gap-1">
+          <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
+            {formatStatus(row.status)}
+          </StatusPill>
+          {row.selling ? (
+            <StatusPill tone="neutral">Sells from truck</StatusPill>
+          ) : null}
+        </span>
       ),
     },
     {
@@ -554,6 +561,24 @@ export function PeopleAdmin() {
       >
         {selected ? (
           <div className="grid gap-6">
+            <SellingSwitch
+              key={`${selected._id}-selling`}
+              target={{
+                profileId: selected._id,
+                role: selected.role,
+                status: selected.status,
+                selling: selected.selling,
+              }}
+              canManage={canManage}
+              save={async (args) => {
+                await saveSelling(args);
+                setNotice(
+                  args.selling
+                    ? `${selected.name?.trim() || selected.email} can now sell from the truck.`
+                    : `${selected.name?.trim() || selected.email} can no longer sell from the truck.`,
+                );
+              }}
+            />
             <form onSubmit={submit} className="grid gap-3 sm:grid-cols-2">
               <AdminSelectField
                 key={`${selected._id}-unit`}
