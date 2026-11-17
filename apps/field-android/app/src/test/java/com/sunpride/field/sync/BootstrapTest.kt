@@ -223,7 +223,7 @@ class BootstrapTest {
         override suspend fun enqueue(intent: IntentRow, now: Long) = Unit
         override suspend fun pending() = emptyList<Pair<IntentRow, OutboxRow>>()
         override suspend fun recordAck(requestId: String, entityId: String, eventIdsJson: String, serverTime: Long) = Unit
-        override suspend fun recordRejection(requestId: String, code: String) = Unit
+        override suspend fun recordRejection(requestId: String, code: String, kept: Boolean) = Unit
         override suspend fun ack(requestId: String): AckRow? = null
         override suspend fun cursor() = token
         override suspend fun setCursor(cursor: String?) { token = cursor }

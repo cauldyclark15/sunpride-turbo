@@ -99,8 +99,7 @@ fun NextStoreCard(summary: TodaySummary, onOpen: ((VisitDisplay) -> Unit)?, modi
                     style = MaterialTheme.typography.labelMedium)
                 Text(next.visit.outlet, color = Color.White, style = MaterialTheme.typography.titleMedium, maxLines = 1,
                     overflow = TextOverflow.Ellipsis)
-                Text(listOfNotNull("Stop ${next.stop} of ${summary.planned}",
-                    if (next.needsReview) TodaySummary.STATUS_REVIEW else null).joinToString(" · "),
+                Text("Stop ${next.stop} of ${summary.planned}",
                     color = Color.White.copy(alpha = 0.78f), style = MaterialTheme.typography.bodySmall)
             }
             if (onOpen != null) Box(Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(24.dp)).background(Look.gradientEnd)

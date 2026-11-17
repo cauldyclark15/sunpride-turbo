@@ -63,8 +63,8 @@ class ChaosSyncTest {
             persisted.recordAck(requestId, entityId, eventIdsJson, serverTime)
             observe?.invoke(); afterAck?.invoke()
         }
-        override suspend fun recordRejection(requestId: String, code: String) {
-            persisted.recordRejection(requestId, code); observe?.invoke()
+        override suspend fun recordRejection(requestId: String, code: String, kept: Boolean) {
+            persisted.recordRejection(requestId, code, kept); observe?.invoke()
         }
         override suspend fun setCursor(cursor: String?) {
             persisted.setCursor(cursor); metadata = metadata.copy(cursor = cursor); observe?.invoke()
@@ -315,10 +315,12 @@ class ChaosSyncTest {
     private suspend fun assertVisible(store: Store, offline: Boolean = false) {
         val rows = store.history()
         val status = store.status(offline)
-        val unresolved = rows.count { it.second.state != "done" }
-        assertEquals(unresolved, status.queued + status.sending + status.review + status.held)
-        assertEquals(unresolved > 0, status.pending)
-        if (unresolved > 0 || store.metadata.held) assertNotEquals("All synced", status.label(store.clock))
+        // SP-0189: only work that will still be sent counts as waiting; refused/kept rows never show.
+        val waiting = rows.count { it.second.state in setOf("pending", "sending") }
+        assertEquals(waiting, status.queued + status.sending + status.held)
+        assertEquals(waiting > 0, status.pending)
+        if (waiting > 0) assertNotEquals("All sent", status.label(store.clock))
+        else assertEquals("All sent", status.label(store.clock))
     }
     private suspend fun assertDrained(store: Store, server: Server, transport: Transport, original: List<IntentRow>) {
         assertFrozen(store, original)
@@ -507,14 +509,15 @@ class ChaosSyncTest {
         } }
         engine(store, transport).sync()
         assertEquals(setOf("pending", "sending", "review"), observed)
-        assertEquals("Needs review", store.status().label(start)) // FLD-176: refused, nothing waiting
+        assertEquals("All sent", store.status().label(start)) // SP-0189: refused, nothing waiting
         store.holdForReview()
-        assertEquals(6, store.status().held); assertEquals("Held · needs review", store.status().label(start))
+        // Refused rows are not waiting work, even on a held phone.
+        assertEquals(0, store.status().held); assertEquals("All sent", store.status().label(start))
         assertFrozen(store, original)
         val oldScope = OutboxRow(store.identity.account, store.identity.deviceId, "previous-scope", "old", start)
         val projected = SyncStatus.fromRoom(store.metadata.copy(held = false, syncHealth = "synced"), listOf(oldScope))
-        assertEquals(1, projected.held); assertNotEquals("All synced", projected.label(start))
-        assertEquals("All synced", SyncStatus.fromRoom(store.metadata.copy(held = false, syncHealth = "synced"), emptyList()).label(start))
+        assertEquals(1, projected.held); assertEquals("Waiting to send (1)", projected.label(start))
+        assertEquals("All sent", SyncStatus.fromRoom(store.metadata.copy(held = false, syncHealth = "synced"), emptyList()).label(start))
     }
 
     @Test fun expiredLeaseAndStaleCachePreserveQueuedWorkUntilReconnect() = runBlocking {

@@ -62,7 +62,7 @@ object DomainOutbox {
             if(result.optBoolean("retryable"))return@withLock
             when(result.getString("status")){
                 "applied","duplicate"->{val ack=result.getJSONObject("ack");store.recordAck(row.requestId,ack.getString("entityId"),ack.getJSONArray("eventIds").toString(),ack.getLong("serverTime"))}
-                "rejected","conflict","unsupported"->{val code=result.optString("code","review_required");store.recordRejection(row.requestId,code);if(code in setOf("out_of_scope","scope_changed","device_revoked","unauthorized")){store.holdForReview();return@withLock}}
+                "rejected","conflict","unsupported"->{val code=result.optString("code","review_required");store.recordRejection(row.requestId,code,kept=result.optBoolean("kept"));if(code in setOf("out_of_scope","scope_changed","device_revoked","unauthorized")){store.holdForReview();return@withLock}}
                 else->return@withLock
             }
         }

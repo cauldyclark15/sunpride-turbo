@@ -143,7 +143,7 @@ fun FieldApp(
         val changes = try { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { backend?.storeChanges().orEmpty() } }
             catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyList() }
         // The office's decisions (refreshed with each sync, since controller.today changes then): an accepted change
-        // clears the label, a rejected one says "Change not accepted: <reason>" once on its store page.
+        // clears the label, a rejected one says "Change not approved: <reason>" once on its store page.
         val decisions = if (changes.isEmpty()) emptyMap() else try {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { backend?.storeDecisions().orEmpty() } }
             catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { emptyMap() }
@@ -334,8 +334,7 @@ fun FieldApp(
                             verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             val label = status.label(now)
                             StatusPill(label, Modifier.testTag("sync-status"), onClick = { go("sync") },
-                                warning = status.review > 0 || status.held > 0 || label.startsWith("Late") || label.startsWith("Day closed"),
-                                good = label == "All synced")
+                                warning = false, good = label == com.sunpride.field.ui.syncstatus.SyncStatus.ALL_SENT)
                             if (dayView != null) com.sunpride.field.ui.location.LocationIndicator(dayView)
                         }
                     }) else null)
@@ -420,8 +419,7 @@ fun FieldApp(
                             ?.let { id -> customerId = id; page = "customer"; true } ?: false
                     })
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = origin },
-                    onSync = controller::syncNow, busy = controller.busy, modifier = modifier,
-                    onClearReview = { controller.dismissReview(it) })
+                    onSync = controller::syncNow, busy = controller.busy, modifier = modifier, now = now)
                 ready && page == "more" -> MoreScreen(modifier = modifier, status = status, now = now,
                     onSync = { go("sync") }, onAccount = { go("account") }, onSupport = { go("support") },
                     onCatalogue = { go("catalogue") }, onCensus = if (visits) ({ censusName = ""; censusEdit = null; go("census") }) else null,

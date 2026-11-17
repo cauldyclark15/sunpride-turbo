@@ -140,7 +140,7 @@ class CensusRulesTest {
         assertEquals(emptyMap<String, String>(), CensusRules.waitingChanges(listOf(Triple(p, "done", 1000L)), applied, 2000L))
         assertEquals(emptyMap<String, String>(), CensusRules.waitingChanges(listOf(Triple(p, "done", 1000L)), before,
             1000L + CensusRules.CHANGE_WAIT_MS + 1))
-        assertEquals(mapOf(target to "Change needs a look"), CensusRules.waitingChanges(listOf(Triple(p, "review", 1000L)), before, 2000L))
+        assertEquals(mapOf(target to "Change waiting for office"), CensusRules.waitingChanges(listOf(Triple(p, "review", 1000L)), before, 2000L))
         // New-store captures never show as a change.
         assertEquals(emptyMap<String, String>(), CensusRules.waitingChanges(listOf(Triple(payload(), "pending", 1000L)), before, 2000L))
     }
@@ -156,14 +156,14 @@ class CensusRulesTest {
         val rejected = CensusRules.decisions(wire)
         assertEquals(setOf(capture), rejected.keys)
         // Rejected: no longer "waiting"; says why, once.
-        assertEquals(mapOf(target to "Change not accepted: Owner did not confirm"),
+        assertEquals(mapOf(target to "Change not approved: Owner did not confirm"),
             CensusRules.waitingChanges(sent, before, 2000L, rejected))
         assertEquals(setOf(capture), CensusRules.rejectionsToMark(sent, rejected, target, emptySet()))
         assertEquals(emptyMap<String, String>(), CensusRules.waitingChanges(sent, before, 2000L, rejected, setOf(capture)))
         assertEquals(emptySet<String>(), CensusRules.rejectionsToMark(sent, rejected, target, setOf(capture)))
         // No reason given: the plain line.
         val bare = mapOf(capture to CensusRules.Decision(capture, target, false, null))
-        assertEquals(mapOf(target to "Change not accepted"), CensusRules.waitingChanges(sent, before, 2000L, bare))
+        assertEquals(mapOf(target to "Change not approved"), CensusRules.waitingChanges(sent, before, 2000L, bare))
         // Accepted: the waiting label clears even before the store record shows the new name.
         val accepted = CensusRules.decisions(JSONObject().put("items", org.json.JSONArray().put(JSONObject()
             .put("captureId", capture).put("targetOutletId", target).put("decision", "accepted").put("reason", JSONObject.NULL))))
@@ -182,16 +182,16 @@ class CensusRulesTest {
         val sent = listOf(Triple(first, "done", 1000L), Triple(second, "done", 1100L))
         val one = first.getString("captureId"); val two = second.getString("captureId")
         val rejectedOnly = mapOf(one to CensusRules.Decision(one, target, false, "Owner phone not confirmed"))
-        assertEquals(mapOf(target to "Change waiting for office · Change not accepted: Owner phone not confirmed"),
+        assertEquals(mapOf(target to "Change waiting for office · Change not approved: Owner phone not confirmed"),
             CensusRules.waitingChanges(sent, before, 2000L, rejectedOnly))
         val both = rejectedOnly + (two to CensusRules.Decision(two, target, true, null))
-        assertEquals(mapOf(target to "Change not accepted: Owner phone not confirmed"),
+        assertEquals(mapOf(target to "Change not approved: Owner phone not confirmed"),
             CensusRules.waitingChanges(sent, before, 2000L, both))
         assertEquals(setOf(one), CensusRules.rejectionsToMark(sent, both, target, emptySet()))
         // Once seen, it is gone.
         assertEquals(emptyMap<String, String>(), CensusRules.waitingChanges(sent, before, 2000L, both, setOf(one)))
     }
-    /** E2E-008: a saved customer the office rejected reads "Not accepted: <reason>", not "Sent for review". */
+    /** E2E-008: a saved customer the office rejected reads "Not approved by office: <reason>", not "Sent to office". */
     @Test fun `E2E-008 a rejected saved customer says why`() {
         val capture = UUID.randomUUID().toString()
         val wire = JSONObject().put("items", org.json.JSONArray()).put("customers", org.json.JSONArray()
@@ -199,9 +199,9 @@ class CensusRulesTest {
             .put(JSONObject().put("captureId", "x").put("decision", "maybe")))
         val decided = CensusRules.customerDecisions(wire)
         assertEquals(setOf(capture), decided.keys)
-        assertEquals("Not accepted: Duplicate of an existing store",
+        assertEquals("Not approved by office: Duplicate of an existing store",
             CensusRules.savedLabel(CensusRules.Saved("R6F2 Sari-sari", "done", decided[capture])))
-        assertEquals("Sent for review", CensusRules.savedLabel(CensusRules.Saved("R6F2 Sari-sari", "done", null)))
+        assertEquals("Sent to office", CensusRules.savedLabel(CensusRules.Saved("R6F2 Sari-sari", "done", null)))
         assertEquals("Saved on phone", CensusRules.savedLabel(CensusRules.Saved("R6F2 Sari-sari", "pending", decided[capture])))
         assertEquals("Accepted by office", CensusRules.savedLabel(CensusRules.Saved("x", "done",
             CensusRules.CustomerDecision(capture, true, null))))

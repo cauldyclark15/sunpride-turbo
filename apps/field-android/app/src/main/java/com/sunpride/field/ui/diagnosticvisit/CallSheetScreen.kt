@@ -85,7 +85,7 @@ fun CallSheetScreen(sheet: CallSheet, controller: FieldController, modifier: Mod
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Text("Save ${index + 1}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
                                 StatusChip(when (state) {
-                                    "pending" -> "Queued"; "sending" -> "Sending"; "done" -> "Sent"; else -> "Needs review"
+                                    "pending" -> "Queued"; "sending" -> "Sending"; "done" -> "Sent"; else -> "Saved"
                                 }, when (state) { "done" -> Look.Tone.GOOD; "pending", "sending" -> Look.Tone.NEUTRAL; else -> Look.Tone.WARN },
                                     textTag = "call-sheet-status")
                             }

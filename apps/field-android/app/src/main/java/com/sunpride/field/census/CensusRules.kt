@@ -115,7 +115,7 @@ object CensusRules {
     /** Label per store with an Edit store change the office has not applied yet. Queued: "Change waiting for office · Saved on phone".
      * Sent: "Change waiting for office" while the store still differs from the proposal (an approved change arrives
      * with the next sync and clears it, as does an "accepted" decision). A rejected decision clears the waiting label and
-     * says "Change not accepted: <reason>" once. Refused by the server: "Change needs a look". [history] is (payload,
+     * says "Change not approved: <reason>" once. Refused by the server (SP-0189): still "Change waiting for office". [history] is (payload,
      * outbox state, created at), oldest first; the newest change per store wins. */
     fun waitingChanges(history: List<Triple<JSONObject, String, Long>>, stores: Map<String, Current>, now: Long,
         decisions: Map<String, Decision> = emptyMap(), seen: Set<String> = emptySet()): Map<String, String> {
@@ -126,7 +126,7 @@ object CensusRules {
             // Name and address show that the office applied the change even before its decision is fetched.
             val differs = store.name.trim() != p.optString("name").trim() || store.address.trim() != p.optString("address").trim()
             val label = when {
-                state == "review" -> CHANGE_REFUSED
+                com.sunpride.field.storage.OutboxState.refused(state) -> CHANGE_WAITING
                 state != "done" -> CHANGE_ON_PHONE
                 decision?.accepted == true -> null
                 // Rejected: said once on the store page, then gone ([seen] holds the ones already shown).
@@ -137,7 +137,7 @@ object CensusRules {
             if (label == null) out.remove(id) else out[id] = label
         }
         // E2E-101: an office rejection is never hidden by a later change. A newer change (waiting, or already
-        // accepted) used to replace the label, so "Change not accepted: <reason>" was never shown. The newest unseen
+        // accepted) used to replace the label, so "Change not approved: <reason>" was never shown. The newest unseen
         // rejection for the store is shown with whatever the latest change says; the store page then marks it seen.
         val newestRejection = linkedMapOf<String, Decision>()
         history.filter { (p, state, _) -> isChange(p) && state == "done" }.sortedBy { it.third }.forEach { (p, _, _) ->
@@ -188,23 +188,24 @@ object CensusRules {
         }.associateBy { it.captureId }
     }
     /** SP-0176: Edit-store changes get the office's decision too (my-changes `items`), so a decided change never
-     * reads "Sent for review" forever. */
+     * reads "Sent to office" forever. */
     fun changeDecisions(json: JSONObject?): Map<String, CustomerDecision> =
         decisions(json).mapValues { (_, d) -> CustomerDecision(d.captureId, d.accepted, d.reason) }
     fun allDecisions(json: JSONObject?): Map<String, CustomerDecision> = changeDecisions(json) + customerDecisions(json)
     /** The Saved customers row text: the office decision wins once the capture was sent. */
     fun savedLabel(saved: Saved): String = when {
-        saved.state == "review" -> "Needs review"
+        com.sunpride.field.storage.OutboxState.refused(saved.state) -> SENT_TO_OFFICE
         saved.state != "done" -> "Saved on phone"
         saved.decision?.accepted == true -> saved.decision.code?.let { "Approved · $it" } ?: "Accepted by office"
         saved.decision != null -> saved.decision.reason?.let { "$NOT_ACCEPTED: ${it.take(200)}" } ?: NOT_ACCEPTED
-        else -> "Sent for review"
+        else -> SENT_TO_OFFICE
     }
-    const val NOT_ACCEPTED = "Not accepted"
-    const val CHANGE_NOT_ACCEPTED = "Change not accepted"
+    /** SP-0189: a sent (or office-kept) customer; never "review" wording on the salesman's list. */
+    const val SENT_TO_OFFICE = "Sent to office"
+    const val NOT_ACCEPTED = "Not approved by office"
+    const val CHANGE_NOT_ACCEPTED = "Change not approved"
     const val CHANGE_ON_PHONE = "Change waiting for office · Saved on phone"
     const val CHANGE_WAITING = "Change waiting for office"
-    const val CHANGE_REFUSED = "Change needs a look"
     /** A sent change that never shows up (rejected) stops showing as waiting after two weeks. */
     const val CHANGE_WAIT_MS = 14L * 24 * 3600_000
     fun intent(scope: StoreScope, payload: JSONObject, now: Long): IntentRow {

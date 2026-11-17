@@ -41,7 +41,7 @@ enum class OrderStatus(val label: String) {
     // E2E-018: the office's decision, learned on sync. A rejected order is never shown as merely received.
     APPROVED("Approved by office"),
     REJECTED("Rejected by office"),
-    NEEDS_REVIEW("Not accepted · needs review"),
+    NEEDS_REVIEW("Saved"),
     NOT_SENT("Not sent · call ended"),
 }
 

@@ -21,7 +21,7 @@ object WorkforceForms {
             val p=payload(row)
             WorkforceEntry(row.requestId,row.kind,if(row.kind=="workforce.prospect") p.getString("name") else if(row.kind=="workforce.clockIn") "Clock-in" else "Clock-out",p.getLong("capturedAt"),state)
         }.sortedByDescending { it.at }
-        val today=own.filter { day(it.at)==day(at) && it.state !in setOf("review","held") }
+        val today=own.filter { day(it.at)==day(at) && it.state !in setOf("review","office","held") }
         val start=today.firstOrNull { it.kind=="workforce.clockIn" }
         val end=today.firstOrNull { it.kind=="workforce.clockOut" }
         return WorkforceView(policy,own,start?.id?:policy?.clockInRequestId,start?.at?:policy?.clockInAt,end?.at?:policy?.clockOutAt)

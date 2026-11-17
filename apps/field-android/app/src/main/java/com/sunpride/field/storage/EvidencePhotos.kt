@@ -79,7 +79,7 @@ object EvidencePhotos {
         history: List<Pair<IntentRow, String>>) {
         val start = history.firstOrNull { it.first.requestId == checkInRequestId }
         if (start == null || start.first.kind != "visit.checkIn" || start.first.clientVisitId != clientVisitId ||
-            start.second == "review")
+            com.sunpride.field.storage.OutboxState.refused(start.second))
             throw VisitRuleFailure(VisitRuleFailure.Code.CALL_NOT_OPEN)
         if (history.any { it.first.clientVisitId == clientVisitId && it.first.kind == "visit.checkOut" })
             throw VisitRuleFailure(VisitRuleFailure.Code.ALREADY_ENDED)
@@ -102,16 +102,14 @@ object EvidencePhotos {
 
     fun stateLabel(photo: VisitPhoto): String = when (photo.state) {
         "uploaded" -> "Uploaded"
-        "review" -> "Not uploaded · office will review"
+        "review" -> "Saved on phone"
         else -> "Saved on phone · uploads when online"
     }
     /** Short Done-card summary, e.g. "3 photos · 1 waiting to upload". */
     fun summary(photos: List<VisitPhoto>): String? {
         if (photos.isEmpty()) return null
         val waiting = photos.count { it.state == "pending" }
-        val review = photos.count { it.state == "review" }
         return listOfNotNull("${photos.size} photo" + if (photos.size == 1) "" else "s",
-            waiting.takeIf { it > 0 }?.let { "$it waiting to upload" },
-            review.takeIf { it > 0 }?.let { "$it for office review" }).joinToString(" · ")
+            waiting.takeIf { it > 0 }?.let { "$it waiting to upload" }).joinToString(" · ")
     }
 }

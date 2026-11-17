@@ -68,11 +68,11 @@ class VisitSyncTest {
             acks[requestId] = ack
             rows[i] = rows[i].first to rows[i].second.copy(state = "done")
         }
-        override suspend fun recordRejection(requestId: String, code: String) {
+        override suspend fun recordRejection(requestId: String, code: String, kept: Boolean) {
             check(code.isNotBlank())
             val i = rows.indexOfFirst { it.first.requestId == requestId }
             check(i >= 0 && rows[i].second.state in setOf("pending", "sending"))
-            rows[i] = rows[i].first to rows[i].second.copy(state = "review", rejectionCode = code)
+            rows[i] = rows[i].first to rows[i].second.copy(state = if (kept) "office" else "review", rejectionCode = code)
         }
         override suspend fun ack(requestId: String) = acks[requestId]
         override suspend fun cursor() = token
@@ -175,6 +175,26 @@ class VisitSyncTest {
         engine(store2, t2).sync()
         assertEquals(listOf("invalid_plan", "dependency_missing"), store2.rows.map { it.second.rejectionCode })
         assertEquals(1, t2.sent.count { it.first.endsWith("push") })
+    }
+    /** SP-0189: `kept: true` = the office has a copy. The row ends `office`: never waiting, never listed, and its
+     * dependents are still stopped exactly as for any refused Start. Without `kept` (older server) it stays `review`. */
+    @Test fun keptRefusalEndsOfficeAndStillStopsDependents() = runBlocking {
+        for (kept in listOf(true, false)) {
+            val store = Store(); val t = Transport(); val first = enqueue(store, "visit.checkIn")
+            enqueue(store, "visit.activity", first.clientVisitId, first.requestId, first.requestId)
+            t.handler = { path, body -> if (path.endsWith("pull")) 200 to pull() else
+                200 to JSONObject(pushResult(body.getJSONArray("operations"), "rejected", "invalid_request")).also { r ->
+                    if (kept) r.getJSONArray("results").getJSONObject(0).put("kept", true) }.toString() }
+            engine(store, t).sync()
+            assertEquals(listOf(if (kept) "office" else "review", "review"), store.rows.map { it.second.state })
+            assertEquals(listOf("invalid_request", "dependency_missing"), store.rows.map { it.second.rejectionCode })
+            assertEquals(first.requestId, store.rows.first().first.requestId)
+            assertEquals(1, t.sent.count { it.first.endsWith("push") })
+            val status = com.sunpride.field.ui.syncstatus.SyncStatus.fromRoom(
+                com.sunpride.field.storage.PartitionRow(identity.account, identity.deviceId, identity.fingerprint, lastSuccessfulSync = 1),
+                store.rows.map { it.second })
+            assertEquals("All sent", status.label(2))
+        }
     }
     @Test fun fieldDayReasonIsMoreSpecificThanFrozenCode() = runBlocking {
         for (reason in listOf("call_open", "mcp_order", "wrong_date")) {

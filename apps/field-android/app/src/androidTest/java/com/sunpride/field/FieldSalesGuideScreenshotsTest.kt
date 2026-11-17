@@ -137,7 +137,6 @@ class FieldSalesGuideScreenshotsTest {
             return stops.map { visit ->
                 val call = VisitCallRules.related(visit.plannedVisitId, visit.outletId, today, history)
                 visit.copy(status = when {
-                    call.any { it.second == "review" } -> "Needs review"
                     VisitCallRules.closed(call) -> "Done"
                     VisitCallRules.started(call) -> "In progress"
                     else -> visit.status
@@ -252,7 +251,7 @@ class FieldSalesGuideScreenshotsTest {
         launch(backend)
         waitTag("today-title")
         waitTag("route-open")
-        rule.onNodeWithTag("sync-status").assertTextContains("All synced")
+        rule.onNodeWithTag("sync-status").assertTextContains("All sent")
         shot("03-today")
 
         rule.onNodeWithTag("route-open").performClick()
@@ -284,7 +283,7 @@ class FieldSalesGuideScreenshotsTest {
         rule.onNodeWithTag("diagnostic-checkin").performClick()
         rule.waitUntil(10_000) { backend.visitStates().size == 1 }
         waitTag("call-sheet-open")
-        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("sync-status").assertTextContains("Sync before 10 PM") }.isSuccess }
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("sync-status").assertTextContains("Waiting to send", substring = true) }.isSuccess }
         shot("08-visit-in-progress")
 
         rule.onNodeWithTag("call-sheet-open").performScrollTo().performClick()
@@ -372,14 +371,14 @@ class FieldSalesGuideScreenshotsTest {
         rule.onNodeWithTag("visit-back").performClick()
 
         waitTag("today-title")
-        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("sync-status").assertTextContains("Sync before 10 PM") }.isSuccess }
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("sync-status").assertTextContains("Waiting to send", substring = true) }.isSuccess }
         // Stop 1 is Done after End, so Today counts it and Carbon Market is the next store.
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("today-calls").assertTextContains("1 of 3") }.isSuccess }
         rule.onNodeWithTag("today-next-store").assertTextContains("Carbon Market Stall 14", substring = true)
         shot("13-today-waiting")
         rule.onNodeWithTag("sync-status").performClick()
         waitTag("sync-now")
-        rule.onNodeWithText("Waiting").assertExists()
+        rule.onNodeWithTag("sync-state").assertTextContains("Waiting to send", substring = true)
         shot("14-sync-waiting")
     }
 
@@ -389,10 +388,7 @@ class FieldSalesGuideScreenshotsTest {
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("sync-status").assertTextContains(pill) }.isSuccess }
         rule.onNodeWithTag("sync-status").performClick()
         waitTag("sync-now")
-        // Day close on the Sync screen is always a 10 PM Manila close, as the guide says. Wait for the
-        // fixture status: before the first load the empty default status also reads "Day closed".
-        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("day-close-time")
-            .assertTextContains("10:00 PM", substring = true) }.isSuccess }
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("sync-state").assertTextContains(pill) }.isSuccess }
         waitEnabled("sync-now")
         shot(name)
     }
@@ -403,19 +399,15 @@ class FieldSalesGuideScreenshotsTest {
         .let { if (it > System.currentTimeMillis()) it else it + DAY }
     private val previousClose get() = close() - DAY
 
-    @Test fun needsReviewState() = syncState(SyncStatus(review = 1, health = "synced", lastSuccess = now - 600_000,
-        leaseExpiresAt = close(), cacheExpiresAt = close() + DAY,
-        reviewReasons = listOf(SyncStatus.plainReason("mcp_order"))), "Needs review", "15-sync-needs-review")
+    // SP-0189: the Sync page has only three states. Refused and office-kept saves never show.
+    @Test fun allSentState() = syncState(SyncStatus(review = 1, health = "synced", lastSuccess = now - 600_000,
+        leaseExpiresAt = close(), cacheExpiresAt = close() + DAY), "All sent", "15-sync-all-sent")
 
-    @Test fun lateState() = syncState(SyncStatus(queued = 3, health = "synced", lastSuccess = previousClose - 4 * 3_600_000L,
-        leaseExpiresAt = previousClose, cacheExpiresAt = close() + DAY, earliestUnsentCloseAt = previousClose),
-        "Late · held for review", "16-sync-late")
+    @Test fun waitingToSendState() = syncState(SyncStatus(queued = 2, held = 1, health = "held_for_review", lastSuccess = now - 3_600_000,
+        leaseExpiresAt = close(), cacheExpiresAt = close() + DAY), "Waiting to send (3)", "16-sync-waiting-to-send")
 
-    @Test fun heldState() = syncState(SyncStatus(held = 2, health = "held_for_review", lastSuccess = now - 3_600_000,
-        leaseExpiresAt = close(), cacheExpiresAt = close() + DAY), "Held · needs review", "17-sync-held")
-
-    @Test fun dayClosedState() = syncState(SyncStatus(health = "synced", lastSuccess = previousClose - 4 * 3_600_000L,
-        leaseExpiresAt = previousClose, cacheExpiresAt = close() + DAY), "Day closed · sync for access", "18-sync-day-closed")
+    @Test fun waitingForSignalState() = syncState(SyncStatus(queued = 3, offline = true, health = "synced", lastSuccess = now - 3_600_000,
+        leaseExpiresAt = close(), cacheExpiresAt = close() + DAY), "Waiting for signal", "17-sync-waiting-for-signal")
 
     @Test fun phoneRemovedScreen() {
         launch(Backend(EnrollmentState.Removed, status = SyncStatus(queued = 2)))
@@ -468,7 +460,7 @@ class FieldSalesGuideScreenshotsTest {
                 }
             }
         }
-        rule.onNodeWithText("Offline · saved data").assertExists()
+        rule.onNodeWithText("All sent").assertExists()
         shot("21-today-offline")
     }
 }

@@ -511,7 +511,7 @@ class EncryptedFieldStoreTest {
         ready(store())
         val i = intent()
         store().enqueue(i, 100)
-        assertEquals("Sync before 10 PM", store().status().label(100))
+        assertEquals("Waiting to send (1)", store().status().label(100))
         store().markSending(listOf(i.requestId))
         assertEquals(1, store().status().sending)
         db.close(); db = EncryptedFieldDatabase.open(context)
@@ -519,7 +519,7 @@ class EncryptedFieldStoreTest {
         store().resetSending()
         store().recordAck(i.requestId, "server-visit", "[]", 150)
         store().markSyncSuccess(150)
-        assertEquals("All synced", store().status().label(150))
+        assertEquals("All sent", store().status().label(150))
         assertEquals(150L, store().status().lastSuccess)
         Unit
     }

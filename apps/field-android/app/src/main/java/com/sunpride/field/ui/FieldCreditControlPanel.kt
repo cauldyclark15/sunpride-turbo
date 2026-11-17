@@ -76,7 +76,7 @@ import java.util.UUID
                 OutlinedButton({network("status",JSONObject().put("id",row.getString("id"))){answer->message=when(answer.optString("phase")){"approved"->"SAP approved. The office can now confirm the matching order.";"rejected"->"The request was refused. The order remains unconfirmed.";else->"Still awaiting Finance or SAP."};data=null}},enabled=!busy){Text("Check decision")}
             }
             if(requests.size>5)Text("Showing the five most recent of ${requests.size} loaded requests.")
-            if(visible?.optBoolean("truncated")==true)Text("More history exists. Ask the office to review older records; this is not a complete history.")
+            if(visible?.optBoolean("truncated")==true)Text("More history exists. Ask the office for older records; this is not a complete history.")
             Text("Finance approval alone is not credit. SAP's ordinary account limit is unchanged. Requests require a connection; offline order capture stays available.",style=MaterialTheme.typography.bodySmall)
         }
     }}

@@ -81,8 +81,8 @@ class FieldDayStoreTest {
         ready(emptyList())
         val a = start("a", false); store().enqueue(a, at)
         val close = com.sunpride.field.ui.syncstatus.dayClose(day)
-        assertEquals("Sync before 10 PM", store().status().label(close - 1))
-        assertEquals("Late · held for review", store().status().label(close))
+        assertEquals("Waiting to send (1)", store().status().label(close - 1))
+        assertEquals("Waiting to send (1)", store().status().label(close))
         assertEquals(a.serializedOperation, store().pending().single().first.serializedOperation)
         Unit
     }

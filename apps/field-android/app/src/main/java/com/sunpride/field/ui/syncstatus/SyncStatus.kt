@@ -17,64 +17,56 @@ fun closeTime(time: Long?): String = time?.let {
     DateTimeFormatter.ofPattern("MMM d, yyyy hh:mm a", Locale.ENGLISH).format(Instant.ofEpochMilli(it).atZone(manila)) + " · Asia/Manila"
 } ?: "Never"
 
-/** A local Room projection only. Connectivity affects the label, never the durable counts. */
+/**
+ * A local Room projection only. Connectivity affects the label, never the durable counts.
+ * SP-0189: a salesman only ever sees three states: "All sent", "Waiting to send (N)" and "Waiting for signal".
+ * Saves the server refused ([review], internal only) are never listed or counted as waiting; saves the server kept
+ * for the office (outbox state `office`) are not counted at all.
+ */
 data class SyncStatus(
     val queued: Int = 0, val sending: Int = 0, val review: Int = 0, val held: Int = 0,
     val lastSuccess: Long? = null, val leaseExpiresAt: Long? = null,
     val cacheExpiresAt: Long? = null, val health: String = "never_synced",
-    val offline: Boolean = false, val reviewReasons: List<String> = emptyList(),
+    val offline: Boolean = false,
     val earliestUnsentCloseAt: Long? = null,
     /** AND-016 photos saved on the phone and not yet uploaded. Never blocks visit sync or End. */
     val photosWaiting: Int = 0,
-    /** FLD-153: plain words for each kind of held work, so "Held · needs review" always explains itself. */
+    /** FLD-153: internal reasons for held work (SyncWork reads them); never shown to the salesman. */
     val heldReasons: List<String> = emptyList(),
-    /** FLD-176: each refused item the person can read and clear on the phone (never server text). */
-    val reviewItems: List<ReviewItem> = emptyList(),
 ) {
-    /** One refused item: what it was, the plain reason, and the id used to clear it from this phone. */
-    data class ReviewItem(val requestId: String, val what: String, val reason: String)
-    val pending get() = queued + sending + review + held > 0
+    /** Work still on this phone that will be sent: queued, sending, held under an earlier sign-in, photos. */
+    val waiting get() = queued + sending + held + photosWaiting
+    val pending get() = queued + sending + held > 0
     /** FLD-147: the Sync screen counts the same photos the pill does, so they never disagree. */
-    val nothingWaiting get() = queued == 0 && sending == 0 && photosWaiting == 0
+    val nothingWaiting get() = waiting == 0
     fun leaseExpired(now: Long) = leaseExpiresAt == null || now >= leaseExpiresAt
     fun cacheStale(now: Long) = cacheExpiresAt == null || now >= cacheExpiresAt
+    @Suppress("UNUSED_PARAMETER")
     fun label(now: Long): String = when {
-        held > 0 || health == "held_for_review" -> "Held · needs review"
-        // FLD-176: a refused item is not unsent work. Only say "not synced" when something still waits to go.
-        review > 0 -> if (queued > 0 || sending > 0) "Needs review · not synced" else "Needs review"
-        queued > 0 || sending > 0 -> if (now >= (earliestUnsentCloseAt ?: dayCloseFor(now)))
-            "Late · held for review" else if (offline) "Offline · sync before 10 PM" else "Sync before 10 PM"
-        offline -> "Offline · saved data"
-        // E2E-001: a phone that never synced has no day to close yet; say what to do instead.
-        lastSuccess == null && leaseExpiresAt == null -> NEVER_SYNCED
-        leaseExpired(now) -> "Day closed · sync for access"
-        cacheStale(now) -> "Cache stale · not synced"
-        photosWaiting > 0 && health == "synced" -> "Visits synced · photos uploading"
-        health == "synced" && lastSuccess != null -> "All synced"
-        else -> "Sync pending"
+        waiting > 0 && offline -> WAITING_FOR_SIGNAL
+        waiting > 0 -> waitingToSend(waiting)
+        else -> ALL_SENT
     }
 
     companion object {
-        /** E2E-001: the pill before this phone's first sync (registration just finished). */
-        const val NEVER_SYNCED = "Not synced yet · sync to start"
+        const val ALL_SENT = "All sent"
+        const val WAITING_FOR_SIGNAL = "Waiting for signal"
+        fun waitingToSend(n: Int) = "Waiting to send ($n)"
+        /** Every word a salesman may see on the Sync page and pill (SP-0189). */
+        val FORBIDDEN_WORDS = listOf("review", "reconcil", "not accepted", "rejected", "refused", "invalid",
+            "supervisor", "office system", "conflict", "remove from this phone")
         fun fromRoom(partition: PartitionRow?, rows: List<OutboxRow>, offline: Boolean = false,
-            intents: List<IntentRow> = emptyList(), dismissed: Set<String> = emptySet()): SyncStatus {
-            val current = rows.filter { it.scope == partition?.scope }
-            val earlier = rows.count { it.scope != partition?.scope && it.state != "done" }
-            val heldHere = if (partition?.held == true) current.count { it.state != "done" } else 0
+            intents: List<IntentRow> = emptyList(), @Suppress("UNUSED_PARAMETER") dismissed: Set<String> = emptySet()): SyncStatus {
+            val current = rows.filter { it.scope == partition?.scope && it.state != com.sunpride.field.storage.OutboxState.OFFICE }
+            val earlier = rows.count { it.scope != partition?.scope && it.state in setOf("pending", "sending") }
+            val heldHere = if (partition?.held == true) current.count { it.state in setOf("pending", "sending") } else 0
             val held = earlier + heldHere
             val heldReasons = listOfNotNull(
                 HELD_EARLIER.takeIf { earlier > 0 },
                 HELD_ACCESS.takeIf { heldHere > 0 || (partition?.held == true && held == 0) },
             )
-            // FLD-176: a refused item the person has read and cleared no longer counts or shows; nothing
-            // was accepted by the server for it, so there is no work left to send.
-            val active = (if (partition?.held == true) emptyList() else current)
-                .filterNot { it.state == "review" && it.requestId in dismissed }
+            val active = if (partition?.held == true) emptyList() else current
             val byRequest = intents.associateBy { it.requestId }
-            val reviewItems = active.filter { it.state == "review" }.map {
-                ReviewItem(it.requestId, describe(byRequest[it.requestId]?.kind), plainReason(it.rejectionCode, byRequest[it.requestId]?.kind))
-            }
             val starts = intents.filter { it.kind == "visit.checkIn" }.associateBy { it.clientVisitId }
             val earliestClose = active.filter { it.state in setOf("pending", "sending") }.minOfOrNull { row ->
                 val intent = byRequest[row.requestId]
@@ -84,16 +76,16 @@ data class SyncStatus(
                 day?.let { runCatching { dayClose(it) }.getOrNull() } ?: dayCloseFor(row.createdAt)
             }
             return SyncStatus(active.count { it.state == "pending" }, active.count { it.state == "sending" },
-                active.count { it.state == "review" }, held, partition?.lastSuccessfulSync,
+                active.count { it.state == com.sunpride.field.storage.OutboxState.REVIEW }, held, partition?.lastSuccessfulSync,
                 partition?.leaseExpiresAt, partition?.cacheExpiresAt, partition?.syncHealth ?: "never_synced",
-                offline, reviewItems.map { it.reason }, earliestClose,
-                heldReasons = heldReasons, reviewItems = reviewItems)
+                offline, earliestClose, heldReasons = heldReasons)
         }
 
-        const val HELD_EARLIER = "Saved under an earlier sign-in or work area. It stays on this phone and is not sent. Ask your supervisor before clearing this phone."
-        const val HELD_ACCESS = "Your access is being checked. Work stays on this phone and is sent once the office confirms it."
+        /** Internal markers only (SyncWork reads them); the salesman just sees "Waiting to send". */
+        const val HELD_EARLIER = "held:earlier_sign_in"
+        const val HELD_ACCESS = "held:access_check"
 
-        /** Plain name of the refused item's kind. */
+        /** Plain name of a saved item's kind (internal/diagnostic use; the office list uses the same words). */
         fun describe(kind: String?): String = when (kind) {
             "visit.checkIn" -> "Start visit"
             "visit.checkOut" -> "End visit"
@@ -108,10 +100,12 @@ data class SyncStatus(
             "workforce.prospect" -> "Prospect"
             "outlet.census", "outlet.change" -> "Store change"
             "order_intent", "order.intent" -> "Order"
+            "census.capture" -> "New customer"
             else -> "Saved work"
         }
 
         /**
+         * Internal/diagnostic only since SP-0189: never shown on a salesman screen.
          * FLD-153: plain words for EVERY refusal code the field sync can record: the server's closed per-op
          * codes (apps/api/src/core/sync.js OP_CODES, plus the v1 `reason` codes), the v1 result statuses
          * used as a fallback code, and the codes the phone itself records. SyncStatusTest reads OP_CODES
@@ -151,13 +145,8 @@ data class SyncStatus(
             "rebootstrap_visit_changed" to "Visit changed since it was queued",
             "photo_needs_review" to "The visit photo needs review, so this was not sent",
         )
+        /** Internal/diagnostic wording for a refusal code; never shown to the salesman. */
+        fun plainReason(code: String?): String = REASONS[code] ?: "Visit needs administrator review"
 
-        /** FLD-176: a refused End call is not "already ended": the call is still open on the server and blocks the
-         * next Start, so say what to do instead of leaving the person stuck. */
-        const val END_REFUSED = "End call was not accepted, so this call is still open. Open the visit and End call " +
-            "again, choosing a no-order reason if there was no order. If it is refused again, ask your supervisor to close the call"
-        fun plainReason(code: String?, kind: String? = null): String =
-            if (code == "invalid_transition" && kind in setOf("visit.checkOut", "dsr.visit.checkOut")) END_REFUSED
-            else REASONS[code] ?: "Visit needs administrator review"
     }
 }

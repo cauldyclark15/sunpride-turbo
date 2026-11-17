@@ -129,9 +129,8 @@ fun WorkforceScreen(controller: FieldController,location: VisitLocation,modifier
             (message?:controller.error)?.let { NoticeCard(it,tone=Look.Tone.BAD) }
             if(view.entries.isNotEmpty())SectionCard("Saved forms") {
                 Column(Modifier.padding(start=16.dp,end=16.dp,bottom=14.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
-                    view.entries.take(20).forEach { e->Text("${e.title}\n${time(e.at)} · "+when(e.state){"done"->if(e.kind=="workforce.prospect")"Sent for office review" else "Sent";"review","held"->"Needs review — kept on this phone";"sending"->"Sending";else->"Saved on this phone"},Modifier.testTag("workforce-entry"),style=MaterialTheme.typography.bodyMedium) }
+                    view.entries.take(20).forEach { e->Text("${e.title}\n${time(e.at)} · "+when(e.state){"done"->if(e.kind=="workforce.prospect")"Sent to office" else "Sent";"review","office"->"Saved";"held"->"Waiting to send";"sending"->"Sending";else->"Saved on this phone"},Modifier.testTag("workforce-entry"),style=MaterialTheme.typography.bodyMedium) }
                     if(view.entries.size>20)Text("Showing the latest 20 of ${view.entries.size} saved forms.")
-                    if(view.entries.any { it.state in setOf("review","held") })Text("Some review work may exist only on this phone. Ask the office to reconcile before recapturing it.",style=MaterialTheme.typography.bodySmall)
                 }
             }
         }

@@ -235,6 +235,6 @@ class CustomerScreensTest {
         content { CustomerDetailScreen(pena, data, onNavigate = { true }, onDial = { true }, now = now, onEdit = {},
             changeLabel = com.sunpride.field.census.CensusRules.notAccepted("Owner did not confirm")) }
         rule.onNodeWithTag("customer-change-pending", useUnmergedTree = true).assertIsDisplayed()
-            .assertTextContains("Change not accepted: Owner did not confirm")
+            .assertTextContains("Change not approved: Owner did not confirm")
     }
 }

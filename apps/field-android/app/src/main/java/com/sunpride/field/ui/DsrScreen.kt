@@ -52,7 +52,7 @@ import java.util.UUID
   val outlet=outlets.firstOrNull{it.getString("id")==selected}?:return@Column
   val id=outlet.getString("id");Text(outlet.getString("name"),style=MaterialTheme.typography.titleLarge)
   val local=objects(data.optJSONArray("localOperations")).filter{it.getString("kind").startsWith("dsr.")}
-  val accepted=local.filter{it.getString("state") !in setOf("review","held")}
+  val accepted=local.filter{it.getString("state") !in setOf("review","office","held")}
   val closed=accepted.filter{it.getString("kind")=="dsr.visit.checkOut"}.map{it.getString("aggregateId")}.toSet()
   val start=accepted.lastOrNull{it.getString("kind")=="dsr.visit.checkIn"&&it.getJSONObject("payload").getString("outletId")==id&&it.getString("aggregateId") !in closed}
   val remote=objects(data.optJSONArray("visits")).lastOrNull{it.getString("outlet_id")==id&&it.getString("state") in setOf("checked-in","in-progress","arrived")&&it.getString("client_visit_id") !in closed}
@@ -104,7 +104,6 @@ import java.util.UUID
    FieldButton({attempt{val p=JSONObject().put("deviceTime",now).put("location",fix).put("outcome","completed").put("zeroSaleReason",zero).put("shortCallReason",short.trim());CallFlowEngine.location(config,fix,now);val started=start?.getJSONObject("payload")?.getLong("deviceTime")?:java.time.Instant.parse(remote!!.getString("started_at")).toEpochMilli();CallFlowEngine.close(config,done,hasOrder,started,p);send("dsr.visit.checkOut",p)}},enabled=!controller.busy){Text("End call")}
   }
   message?.let{Text(it)}
-  if(local.any{it.getString("state")=="review"})Text("Some retained work needs office reconciliation; it is not synced or safe to recapture blindly.")
   Spacer(Modifier.height(24.dp))
  }
 }

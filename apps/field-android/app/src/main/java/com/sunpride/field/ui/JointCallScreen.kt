@@ -92,7 +92,7 @@ internal fun shortDay(iso:String):String=runCatching{java.time.LocalDate.parse(i
   if(d==null){NoticeCard("Connect to verify today's supervisor assignment before recording. Held or expired forms cannot be edited.",tone=Look.Tone.WARN,glyph=GlyphKind.LOCK);return@Column}
   val sessions=rows(d.optJSONArray("sessions"));val locals=rows(d.optJSONArray("localOperations"))
   for(x in sessions)ChoiceRow("Edit · ${x.getString("traineeName")} · ${shortDay(x.getJSONObject("session").getString("serviceDate"))}",selection==x.getJSONObject("session").getString("id"),{selection=x.getJSONObject("session").getString("id")})
-  Text("${locals.count{it.getString("state") in setOf("pending","sending")}} queued · ${locals.count{it.getString("state") in setOf("review","held")}} need reconciliation",style=MaterialTheme.typography.titleSmall)
+  Text("${locals.count{it.getString("state") in setOf("pending","sending","held")}} waiting to send",style=MaterialTheme.typography.titleSmall)
   val latestLocal=locals.groupBy{it.getString("aggregateId")}.mapNotNull{(_,items)->items.lastOrNull()}.filter{it.getString("state") in setOf("pending","sending")&&!it.getJSONObject("payload").optBoolean("complete")}
   for(row in latestLocal)ChoiceRow("Edit draft · "+shortDay(row.getJSONObject("payload").getString("serviceDate")),selection=="local:"+row.getString("requestId"),{selection="local:"+row.getString("requestId")})
   val chosen=selection?:return@Column

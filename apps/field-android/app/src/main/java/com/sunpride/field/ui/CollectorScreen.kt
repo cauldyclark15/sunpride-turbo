@@ -107,7 +107,7 @@ object CollectorDraft {
   if(d==null){NoticeCard("Connect to verify today's collector assignment. Held or expired data cannot record.",tone=Look.Tone.WARN,glyph=GlyphKind.LOCK);return@Column}
   Text(d.getString("warning"),style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
   val stops=rows(d.optJSONArray("stops"));val local=rows(d.optJSONArray("localOperations"))
-  Text("${stops.size} stops · ${local.count{it.getString("state") in setOf("pending","sending")}} queued · ${local.count{it.getString("state") in setOf("review","held")}} need reconciliation",style=MaterialTheme.typography.titleSmall)
+  Text("${stops.size} stops · ${local.count{it.getString("state") in setOf("pending","sending","held")}} waiting to send",style=MaterialTheme.typography.titleSmall)
   val shown=page.coerceIn(0,maxOf(0,(stops.size-1)/6))
   for(s in stops.drop(shown*6).take(6)){
    ChoiceRow("${s.getInt("sequence")}. ${s.getString("name")} · ${s.getString("reason").replace('_',' ')}",selected==s.getString("customerCode"),{selected=s.getString("customerCode")},enabled=!c.busy)
@@ -145,7 +145,7 @@ object CollectorDraft {
   }
   for(p in rows(s.optJSONArray("promises")))Text("Promise due ${p.getString("promisedOn")} · ₱${BigDecimal.valueOf(p.getLong("amountMinor"),2).toPlainString()} · ${p.getString("note")}")
   FieldButton(c::syncNow,enabled=!c.busy){Text("Sync")}
-  Text("A queued or review capture is not an acknowledged collection. Reconcile it before recapturing. Only the office marks deposits/clearance and SAP owns the balance.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
+  Text("Saved collections are sent by themselves. Only the office marks deposits/clearance and SAP owns the balance.",style=MaterialTheme.typography.bodySmall,color=MaterialTheme.colorScheme.onSurfaceVariant)
   Spacer(Modifier.height(24.dp))
  }
 }

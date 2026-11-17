@@ -140,7 +140,6 @@ class RedesignShotsTest {
             return stops.map { visit ->
                 val call = VisitCallRules.related(visit.plannedVisitId, visit.outletId, today, history)
                 visit.copy(status = when {
-                    call.any { it.second == "review" } -> "Needs review"
                     VisitCallRules.closed(call) -> "Done"
                     VisitCallRules.started(call) -> "In progress"
                     else -> visit.status
@@ -251,7 +250,7 @@ class RedesignShotsTest {
 
     @Test fun b01_today() {
         seed(); launch(Backend()); waitTag("today-title")
-        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("sync-status").assertTextContains("All synced") }.isSuccess }
+        rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("sync-status").assertTextContains("All sent") }.isSuccess }
         shot("03-today"); scrollRoot(); shot("04-today-scrolled"); scrollRoot(); shot("05-today-bottom")
     }
 

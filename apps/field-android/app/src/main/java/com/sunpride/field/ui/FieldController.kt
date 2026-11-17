@@ -146,7 +146,7 @@ interface FieldBackend {
     fun storeChanges(): List<Triple<JSONObject, String, Long>> = emptyList()
     /** The office's decisions on this person's sent store changes: fetched when online, else the copy saved on the phone. */
     fun storeDecisions(): Map<String, com.sunpride.field.census.CensusRules.Decision> = emptyMap()
-    /** Rejected changes whose "Change not accepted" line was already shown on the store page. */
+    /** Rejected changes whose "Change not approved" line was already shown on the store page. */
     fun seenRejections(): Set<String> = emptySet()
     fun markRejectionsSeen(ids: Set<String>) {}
     /** SP-0163 address search and duplicate check via our API proxy; null when there is no live session. */
@@ -943,7 +943,6 @@ class LiveFieldBackend(
             val outlets = outletRows.mapValues { it.value.optString("name", "Outlet") }
             val customers = store.customers().associate { it.id to JSONObject(it.json).optString("code") }
             val visits = store.todaysVisits(day).map { row -> plannedVisitDisplay(row, outletRows, customers) }
-            val dismissed = store.dismissedReviews()
             val history = store.history()
             val decorated = visits.map { visit ->
                 val own = history.filter { (intent, _) ->
@@ -955,7 +954,6 @@ class LiveFieldBackend(
                 val related = history.filter { it.first.clientVisitId in own }
                 val call = related.map { it.first to it.second.state }
                 visit.copy(status = when {
-                    related.any { it.second.state == "review" && it.second.requestId !in dismissed } -> "Needs review"
                     VisitCallRules.closed(call) -> "Done"
                     VisitCallRules.started(call) -> "In progress"
                     else -> visit.status
@@ -973,12 +971,12 @@ class LiveFieldBackend(
             }
             val held = db.rows().heldCount(subject, deviceId)
             val result = TodayData(decorated, store.status().lastSuccess,
-                failed || held > 0 || !store.isLeaseValid(System.currentTimeMillis()) || history.any { it.second.state != "done" && !(it.second.state == "review" && it.second.requestId in dismissed) } ||
+                failed || held > 0 || !store.isLeaseValid(System.currentTimeMillis()) || history.any { it.second.state in setOf("pending", "sending") } ||
                     store.syncHealth() != "synced",
-                warning ?: if (held > 0) "Prior assignment has held visit work — administrator review required"
-                    else if (terminal) "Update required" else null,
+                // SP-0189: held work just counts as "Waiting to send"; no warning for the salesman.
+                warning ?: if (terminal) "Update required" else null,
                 terminal || warning == "Update required",
-                history.count { it.second.state == "review" && it.second.requestId !in dismissed } + held, history.count { it.second.state == "pending" },
+                history.count { it.second.state == com.sunpride.field.storage.OutboxState.REVIEW } + held, history.count { it.second.state == "pending" },
                 outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) },
                 store.status(), directory, tasks,
                 com.sunpride.field.ui.team.TeamRepository.offered(store.employeeRole()),
@@ -1565,7 +1563,7 @@ class FieldController(
             diagnosticCallSheet)
     }
     private fun openCheckIn(visit: VisitDisplay) = relatedCall(visit).lastOrNull { (row, state) ->
-        row.kind == "visit.checkIn" && state != "review"
+        row.kind == "visit.checkIn" && !com.sunpride.field.storage.OutboxState.refused(state)
     }?.first
     /** The visit's purposes: from its own Start once started, else the plan, else the person's choice. */
     fun visitIntents(visit: VisitDisplay): List<String> = openCheckIn(visit)?.let {
@@ -1636,7 +1634,7 @@ class FieldController(
         busy = true; diagnosticError = null
         try {
             refreshDiagnostic() // Re-read before enforcing, never trust a stale screen projection.
-            val checkin = relatedCall(visit).lastOrNull { (row, state) -> row.kind == "visit.checkIn" && state != "review" }
+            val checkin = relatedCall(visit).lastOrNull { (row, state) -> row.kind == "visit.checkIn" && !com.sunpride.field.storage.OutboxState.refused(state) }
                 ?.first ?: throw OrderDraftFailure(OrderDraftFailure.Code.CALL_NOT_OPEN)
             val saved = withContext(io) {
                 backend.saveOrderDraft(orderDraftId, checkin.clientVisitId, checkin.requestId, quantities, units, requestedDeliveryDate)
@@ -1676,7 +1674,7 @@ class FieldController(
             CallSheetPayload.activity(sheet, drafts)
             // The call sheet belongs to the open call: after Start, before End.
             val checkin = relatedCall(visit).lastOrNull { (row, state) ->
-                row.kind == "visit.checkIn" && state != "review"
+                row.kind == "visit.checkIn" && !com.sunpride.field.storage.OutboxState.refused(state)
             }?.first ?: throw VisitRuleFailure(VisitRuleFailure.Code.CALL_NOT_OPEN)
             val related = diagnosticRows.filter { it.first.clientVisitId == checkin.clientVisitId }
             if (related.any { it.first.kind == "visit.checkOut" }) throw VisitRuleFailure(VisitRuleFailure.Code.ALREADY_ENDED)
@@ -1743,7 +1741,7 @@ class FieldController(
         try {
             refreshDiagnostic() // Re-read before enforcing, never trust a stale screen projection.
             val related = relatedCall(visit)
-            val checkin = related.lastOrNull { it.first.kind == "visit.checkIn" && it.second != "review" }?.first
+            val checkin = related.lastOrNull { it.first.kind == "visit.checkIn" && !com.sunpride.field.storage.OutboxState.refused(it.second) }?.first
             if (kind == "visit.checkIn") VisitCallRules.requireStart(visit.plannedVisitId, visit.outletId,
                 serviceDay(), plans(), diagnosticRows, if (diagnosticFlow != null) flowOptions?.optString("sequenceReason") else null)
             if (kind != "visit.checkIn" && checkin == null) throw VisitRuleFailure(VisitRuleFailure.Code.CALL_NOT_OPEN)

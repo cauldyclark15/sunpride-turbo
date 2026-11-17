@@ -90,7 +90,7 @@ class AddStoreSmoothTest {
                 .put("decision", "rejected").put("reason", "Wrong address")))
         val d = CensusRules.allDecisions(wire)
         assertEquals("Approved · SP000002", CensusRules.savedLabel(CensusRules.Saved("Nena", "done", d[newCapture])))
-        assertEquals("Not accepted: Wrong address", CensusRules.savedLabel(CensusRules.Saved("Nena", "done", d[change])))
+        assertEquals("Not approved by office: Wrong address", CensusRules.savedLabel(CensusRules.Saved("Nena", "done", d[change])))
         // A provisional code is never shown as the final code.
         val prov = CensusRules.customerDecisions(JSONObject().put("customers", JSONArray().put(JSONObject()
             .put("captureId", newCapture).put("decision", "accepted").put("code", "PROV-000002"))))

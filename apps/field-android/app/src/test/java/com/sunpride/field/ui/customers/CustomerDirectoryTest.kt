@@ -72,7 +72,7 @@ class CustomerDirectoryTest {
     @Test fun historyIsGroupedByTheCallsOutletNewestFirstWithSendState() {
         val history = directory().first { it.outletId == "o1" }.history
         assertEquals(listOf("Call ended · Not productive (closed)", "Note added", "Call started"), history.map { it.label })
-        assertEquals(listOf("Needs review", "Waiting to send", "Sent"), history.map { it.state })
+        assertEquals(listOf("Saved", "Waiting to send", "Sent"), history.map { it.state })
         assertEquals(listOf("Unplanned call started"), directory().first { it.outletId == "o3" }.history.map { it.label })
         assertTrue(directory().first { it.outletId == "o2" }.history.isEmpty())
     }

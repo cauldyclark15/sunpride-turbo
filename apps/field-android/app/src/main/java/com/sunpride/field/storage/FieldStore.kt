@@ -70,7 +70,8 @@ interface FieldStore {
     suspend fun enqueueWorkforce(intent: IntentRow, photo: EvidencePhotoRow?, now: Long, isCurrent: () -> Boolean = { true }) { error("No workforce store") }
     suspend fun pending(): List<Pair<IntentRow, OutboxRow>>
     suspend fun recordAck(requestId: String, entityId: String, eventIdsJson: String, serverTime: Long)
-    suspend fun recordRejection(requestId: String, code: String)
+    /** [kept]: the server kept a copy for the office (SP-0189), so the row ends `office` instead of `review`. */
+    suspend fun recordRejection(requestId: String, code: String, kept: Boolean = false)
     /**
      * FLD-176: the person read a refused item and cleared it from the phone's To review list. The refused row
      * itself stays (nothing is deleted or re-sent); it only stops counting as work on this phone.
@@ -146,6 +147,19 @@ interface FieldStore {
     fun close() {}
 }
 
+/**
+ * SP-0189: outbox states for a save the server did not apply. `review` = refused (older server, nothing kept);
+ * `office` = refused but the server kept a full copy for the office (`kept: true`), so the phone lets go of it.
+ * Business rules treat both the same (a refused Start still blocks an order on that call); no salesman screen
+ * lists either of them.
+ */
+object OutboxState {
+    const val REVIEW = "review"
+    const val OFFICE = "office"
+    val REFUSED = setOf(REVIEW, OFFICE)
+    fun refused(state: String?): Boolean = state in REFUSED
+}
+
 object EncryptedFieldDatabase {
     val MIGRATION_1_2 = object : Migration(1, 2) {
         override fun migrate(db: SupportSQLiteDatabase) {
@@ -200,12 +214,26 @@ object EncryptedFieldDatabase {
             db.execSQL("CREATE INDEX IF NOT EXISTS `index_location_pings_account_deviceId_scope_recordedAt` ON `location_pings` (`account`, `deviceId`, `scope`, `recordedAt`)")
         }
     }
+    /**
+     * SP-0189: one-time resend after this update. Every save the server refused earlier (state `review`) goes back to
+     * `pending` exactly once, with its requestId and serialized operation untouched, and is sent by the normal sync.
+     * Running as a Room migration is the persisted "done" mark: it can never run twice on the same phone.
+     * The old phone-only "cleared from To review" list goes too; nothing is listed for the salesman any more.
+     */
+    const val RESEND_REFUSED_SQL = "UPDATE outbox SET state='pending', rejectionCode=NULL WHERE state='review'"
+    const val FORGET_DISMISSED_SQL = "DELETE FROM deltas WHERE entity='$DISMISSED_REVIEWS'"
+    val MIGRATION_9_10 = object : Migration(9, 10) {
+        override fun migrate(db: SupportSQLiteDatabase) {
+            db.execSQL(RESEND_REFUSED_SQL)
+            db.execSQL(FORGET_DISMISSED_SQL)
+        }
+    }
     fun open(context: Context): StoreDatabase {
         System.loadLibrary("sqlcipher")
         val passphrase = PassphraseVault(context).passphrase()
         return Room.databaseBuilder(context.applicationContext, StoreDatabase::class.java, PassphraseVault.DB_NAME)
             .openHelperFactory(SupportOpenHelperFactory(passphrase))
-            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9)
+            .addMigrations(MIGRATION_1_2, MIGRATION_2_3, MIGRATION_3_4, MIGRATION_4_5, MIGRATION_5_6, MIGRATION_6_7, MIGRATION_7_8, MIGRATION_8_9, MIGRATION_9_10)
             .build()
     }
 
@@ -526,9 +554,9 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             check(row.state == "done" || dao.markDone(a, d, s, requestId) == 1)
         }
     }
-    override suspend fun recordRejection(requestId: String, code: String) {
+    override suspend fun recordRejection(requestId: String, code: String, kept: Boolean) {
         require(code.isNotBlank())
-        db.withTransaction { check(dao.reject(a, d, s, requestId, code) == 1) }
+        db.withTransaction { check((if (kept) dao.keepForOffice(a, d, s, requestId, code) else dao.reject(a, d, s, requestId, code)) == 1) }
     }
     override suspend fun dismissReview(requestId: String): Boolean = db.withTransaction {
         if (dao.outbox(a, d, s, requestId)?.state != "review") return@withTransaction false
@@ -545,7 +573,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     override suspend fun setCursor(cursor: String?) {
         db.withTransaction {
             val old = metadata()
-            check(cursor == null || !old.held) { "Partition held for review" }
+            check(cursor == null || !old.held) { "Partition held" }
             dao.putPartition(old.copy(cursor = cursor))
         }
     }
@@ -554,7 +582,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
         require(value.isNotBlank())
         db.withTransaction {
             val old = metadata()
-            check(!old.held || value == "held_for_review") { "Partition held for review" }
+            check(!old.held || value == "held_for_review") { "Partition held" }
             dao.putPartition(old.copy(syncHealth = value))
         }
     }

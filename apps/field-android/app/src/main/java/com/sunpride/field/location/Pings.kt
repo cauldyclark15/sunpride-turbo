@@ -62,7 +62,7 @@ object PingCadence {
 object OpenVisit {
     /** Request ID of the open, delivered Start; its ack carries the server visit ID. */
     fun checkInRequestId(history: List<Pair<com.sunpride.field.storage.IntentRow, String>>): String? {
-        val ended = history.filter { it.first.kind == "visit.checkOut" && it.second != "review" }
+        val ended = history.filter { it.first.kind == "visit.checkOut" && !com.sunpride.field.storage.OutboxState.refused(it.second) }
             .map { it.first.clientVisitId }.toSet()
         return history.lastOrNull { (row, state) ->
             row.kind == "visit.checkIn" && state == "done" && row.clientVisitId !in ended

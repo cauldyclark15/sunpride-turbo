@@ -105,9 +105,9 @@ object LocationAssessment {
             val accuracy = "±${capture.fix.accuracyMeters.roundToInt()} m"
             val reasons = reviewReasons(capture.fix, at)
             if (reasons.isEmpty()) LocationNotice("Location recorded · $accuracy", false)
-            else LocationNotice("Location recorded · $accuracy · supervisor will review: ${reasons.joinToString(", ")}", true)
+            else LocationNotice("Location recorded · $accuracy · noted for the office: ${reasons.joinToString(", ")}", true)
         }
-        is LocationCapture.Unavailable -> LocationNotice("Location unavailable · supervisor will review: " + when (capture.reason) {
+        is LocationCapture.Unavailable -> LocationNotice("Location unavailable · noted for the office: " + when (capture.reason) {
             UnavailableReason.PERMISSION_DENIED -> "location permission off"
             UnavailableReason.LOCATION_OFF -> "phone location turned off"
             UnavailableReason.NO_FIX -> "no signal"

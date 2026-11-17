@@ -77,7 +77,7 @@ class TodaySummaryTest {
 
     @Test fun openCallWinsOverAnEarlierUnfinishedStop() {
         // A rejected (review) earlier stop does not hide the call the seller is standing in.
-        val s = TodaySummary.of(TodayData(listOf(visit("A", "Needs review", 0), visit("B", "In progress", 1))))
+        val s = TodaySummary.of(TodayData(listOf(visit("A", "Scheduled", 0), visit("B", "In progress", 1))))
         assertEquals("B", s.next?.visit?.outlet)
     }
 

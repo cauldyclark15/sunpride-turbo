@@ -14,7 +14,7 @@ import kotlin.math.sqrt
 data class PhonePosition(val latitude: Double, val longitude: Double)
 
 enum class StopState(val label: String) {
-    NEXT("Next"), LATER("Later"), IN_PROGRESS("In progress"), DONE("Done"), REVIEW("Needs review")
+    NEXT("Next"), LATER("Later"), IN_PROGRESS("In progress"), DONE("Done")
 }
 
 data class RouteStop(
@@ -58,7 +58,6 @@ object DailyRoutes {
     private fun stateOf(visit: VisitDisplay) = when (visit.status) {
         "Done" -> StopState.DONE
         "In progress" -> StopState.IN_PROGRESS
-        "Needs review" -> StopState.REVIEW
         else -> StopState.LATER
     }
 

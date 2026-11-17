@@ -171,6 +171,26 @@ class StoreMigrationTest {
             db.query("SELECT COUNT(*) FROM location_pings").use { c -> c.moveToFirst(); assertEquals(2, c.getInt(0)) }
         }
     }
+    /** SP-0189: one-time resend. Refused rows go back to pending once, with requestId and operation untouched. */
+    @Test fun v9ToV10ResendsEarlierRefusedSavesOnce() {
+        val name = "migration-resend-v9.db"
+        helper.createDatabase(name, 9).apply {
+            execSQL("INSERT INTO intents (account,deviceId,scope,requestId,clientVisitId,kind,serializedOperation,createdAt) VALUES ('a','d','s','r','v','census.capture','immutable-r',1)")
+            execSQL("INSERT INTO outbox (account,deviceId,scope,requestId,createdAt,state,rejectionCode) VALUES ('a','d','s','r',1,'review','invalid_request')")
+            execSQL("INSERT INTO intents (account,deviceId,scope,requestId,clientVisitId,kind,serializedOperation,createdAt) VALUES ('a','d','s','ok','v','visit.checkIn','immutable-ok',1)")
+            execSQL("INSERT INTO outbox (account,deviceId,scope,requestId,createdAt,state) VALUES ('a','d','s','ok',1,'done')")
+            execSQL("INSERT INTO deltas (account,deviceId,scope,entity,entityId,revision,json,tombstone) VALUES ('a','d','s','$DISMISSED_REVIEWS','all',1,'[\"r\"]',0)")
+            close()
+        }
+        helper.runMigrationsAndValidate(name, 10, true, EncryptedFieldDatabase.MIGRATION_9_10).use { db ->
+            db.query("SELECT requestId,state,rejectionCode,serializedOperation FROM outbox JOIN intents USING (account,deviceId,scope,requestId) ORDER BY requestId").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals("ok", c.getString(0)); assertEquals("done", c.getString(1))
+                assertEquals(true, c.moveToNext()); assertEquals("r", c.getString(0)); assertEquals("pending", c.getString(1))
+                assertEquals(true, c.isNull(2)); assertEquals("immutable-r", c.getString(3))
+            }
+            db.query("SELECT COUNT(*) FROM deltas WHERE entity='$DISMISSED_REVIEWS'").use { c -> c.moveToFirst(); assertEquals(0, c.getInt(0)) }
+        }
+    }
     @Test fun completeV1ToV9ChainValidates() {
         val name = "migration-pings-v1.db"
         helper.createDatabase(name, 1).close()

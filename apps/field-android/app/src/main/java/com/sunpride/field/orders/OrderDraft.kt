@@ -119,7 +119,7 @@ class OrderDraftFailure(val code: Code) : IllegalStateException(code.name) {
         PRICES_CHANGED("Prices or units changed for this account. Check the lines and save again."),
         EMPTY("Add at least one product."),
         INVALID_QUANTITY("Use whole numbers from 1 to 99,999."),
-        HELD("This phone's work is held for review. Sync and ask your administrator."),
+        HELD("This phone is still sending earlier work. Tap Sync now when you have signal."),
         SUBMITTED("This order was sent. It can no longer be changed."),
         OFFLINE_EXPIRED("Today's offline access has ended. Sync to continue."),
     }
@@ -148,7 +148,7 @@ object OrderDraftRules {
         val checkIn = history.firstOrNull { it.first.requestId == checkInRequestId }
             ?: throw OrderDraftFailure(OrderDraftFailure.Code.CALL_NOT_OPEN)
         if (checkIn.first.kind != "visit.checkIn" || checkIn.first.clientVisitId != clientVisitId ||
-            checkIn.second.state == "review") throw OrderDraftFailure(OrderDraftFailure.Code.CALL_NOT_OPEN)
+            com.sunpride.field.storage.OutboxState.refused(checkIn.second.state)) throw OrderDraftFailure(OrderDraftFailure.Code.CALL_NOT_OPEN)
         if (history.any { it.first.clientVisitId == clientVisitId && it.first.kind == "visit.checkOut" })
             throw OrderDraftFailure(OrderDraftFailure.Code.CALL_ENDED)
         return payload(checkIn.first.serializedOperation)

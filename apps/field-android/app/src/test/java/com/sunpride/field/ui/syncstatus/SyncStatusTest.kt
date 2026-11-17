@@ -8,59 +8,73 @@ import org.junit.Test
 class SyncStatusTest {
     private val partition = PartitionRow("account", "device", "scope", activeGeneration = "generation",
         leaseExpiresAt = 2000, cacheExpiresAt = 1500, syncHealth = "synced", lastSuccessfulSync = 1000)
-    private fun row(state: String, scope: String = "scope", code: String? = null) =
-        OutboxRow("account", "device", scope, "$state-$scope", 1, state, code)
+    private fun row(state: String, scope: String = "scope", code: String? = null, id: String = "$state-$scope") =
+        OutboxRow("account", "device", scope, id, 1, state, code)
 
-    // FLD-153: held work always carries a plain reason, never a bare count.
-    @Test fun heldWorkExplainsItselfInPlainWords() {
-        val earlier = SyncStatus.fromRoom(partition, listOf(row("pending", "old-scope")))
-        assertEquals(listOf(SyncStatus.HELD_EARLIER), earlier.heldReasons)
-        val access = SyncStatus.fromRoom(partition.copy(held = true), listOf(row("pending")))
-        assertEquals(1, access.held)
-        assertEquals(listOf(SyncStatus.HELD_ACCESS), access.heldReasons)
+    /** SP-0189: the pill and Sync page only ever say one of three things. */
+    @Test fun onlyThreeStatesEverShow() {
+        val seen = mutableSetOf<String>()
+        val partitions = listOf(null, partition, partition.copy(held = true, syncHealth = "held_for_review"),
+            partition.copy(lastSuccessfulSync = null, leaseExpiresAt = null), partition.copy(syncHealth = "retry_pending"))
+        val rowSets = listOf(emptyList(), listOf(row("pending")), listOf(row("sending")), listOf(row("review", code = "invalid_request")),
+            listOf(row("office", code = "invalid_request")), listOf(row("pending", "old-scope")), listOf(row("done")),
+            listOf(row("pending"), row("review", id = "r"), row("office", id = "o"), row("pending", "old-scope")))
+        for (p in partitions) for (rows in rowSets) for (offline in listOf(false, true)) for (now in listOf(1100L, 2500L, Long.MAX_VALUE - 1))
+            for (photos in listOf(0, 2)) {
+                val label = SyncStatus.fromRoom(p, rows, offline).copy(photosWaiting = photos).label(now)
+                seen += label
+                assertTrue(label, label == SyncStatus.ALL_SENT || label == SyncStatus.WAITING_FOR_SIGNAL ||
+                    Regex("""Waiting to send \(\d+\)""").matches(label))
+                SyncStatus.FORBIDDEN_WORDS.forEach { assertFalse(label, label.lowercase().contains(it)) }
+            }
+        assertTrue(seen.toString(), SyncStatus.ALL_SENT in seen && SyncStatus.WAITING_FOR_SIGNAL in seen &&
+            seen.any { it.startsWith("Waiting to send (") })
+    }
+
+    @Test fun waitingCountsQueuedSendingHeldAndPhotos() {
+        val rows = listOf(row("pending"), row("sending"), row("pending", "old-scope"))
+        val status = SyncStatus.fromRoom(partition, rows).copy(photosWaiting = 2)
+        assertEquals("Waiting to send (5)", status.label(1100))
+        assertEquals("Waiting for signal", status.copy(offline = true).label(1100))
+        assertEquals("All sent", SyncStatus.fromRoom(partition, emptyList()).label(1100))
+        assertEquals("All sent", SyncStatus.fromRoom(partition, emptyList(), offline = true).label(1100))
+        // Items held under an earlier sign-in count as waiting to send.
+        assertEquals("Waiting to send (1)", SyncStatus.fromRoom(partition, listOf(row("pending", "old-scope"))).label(1100))
+        assertEquals("Waiting to send (1)", SyncStatus.fromRoom(partition.copy(held = true), listOf(row("pending"))).label(1100))
+    }
+
+    /** SP-0189: a save the office kept is not shown or counted; an older-server refusal is internal only. */
+    @Test fun refusedAndKeptSavesAreNeverListedOrWaiting() {
+        val kept = SyncStatus.fromRoom(partition, listOf(row("office", code = "invalid_request")))
+        assertEquals(0, kept.review); assertTrue(kept.nothingWaiting); assertFalse(kept.pending)
+        assertEquals("All sent", kept.label(1100))
+        val refused = SyncStatus.fromRoom(partition, listOf(row("review", code = "invalid_request")))
+        assertEquals(1, refused.review); assertTrue(refused.nothingWaiting); assertFalse(refused.pending)
+        assertEquals("All sent", refused.label(1100))
+        val mixed = SyncStatus.fromRoom(partition, listOf(row("review", id = "a"), row("pending", id = "b")))
+        assertEquals("Waiting to send (1)", mixed.label(1100))
+    }
+
+    @Test fun countsAndExpiryAreRoomDerived() {
+        val rows = listOf(row("pending"), row("sending"), row("review", code = "conflict"), row("pending", "old-scope"))
+        val status = SyncStatus.fromRoom(partition, rows)
+        assertEquals(1, status.queued); assertEquals(1, status.sending); assertEquals(1, status.review); assertEquals(1, status.held)
+        assertFalse(status.leaseExpired(1999)); assertTrue(status.leaseExpired(2000))
+        assertTrue(status.cacheStale(1500)); assertFalse(status.cacheStale(1499))
+    }
+
+    @Test fun heldWorkKeepsInternalReasons() {
+        assertEquals(listOf(SyncStatus.HELD_EARLIER), SyncStatus.fromRoom(partition, listOf(row("pending", "old-scope"))).heldReasons)
+        assertEquals(listOf(SyncStatus.HELD_ACCESS), SyncStatus.fromRoom(partition.copy(held = true), listOf(row("pending"))).heldReasons)
         assertTrue(SyncStatus.fromRoom(partition, listOf(row("pending"))).heldReasons.isEmpty())
-        (earlier.heldReasons + access.heldReasons).forEach { assertFalse(it.contains('_')) }
     }
 
-    // E2E-001: right after registration (never synced, 07:15) the pill must not claim the day is closed.
-    @Test fun `E2E-001 never synced phone says sync to start, not day closed`() {
-        val fresh = SyncStatus.fromRoom(null, emptyList())
-        assertEquals(SyncStatus.NEVER_SYNCED, fresh.label(1100))
-        assertFalse(fresh.label(1100).contains("Day closed"))
-        // After a sync whose lease lapsed, the day really is closed.
-        assertEquals("Day closed · sync for access", SyncStatus.fromRoom(partition, emptyList()).label(2500))
-    }
-
-    @Test fun everyUnresolvedStatePreventsAllSynced() {
-        for (state in listOf("pending", "sending", "review")) {
-            val status = SyncStatus.fromRoom(partition, listOf(row(state)))
-            assertNotEquals("All synced", status.label(1100))
-            assertTrue(status.pending)
-        }
-        val held = SyncStatus.fromRoom(partition, listOf(row("pending", "old-scope")))
-        assertEquals(1, held.held)
-        assertNotEquals("All synced", held.label(1100))
-        assertEquals("All synced", SyncStatus.fromRoom(partition, emptyList()).label(1100))
-    }
-
-    @Test fun closeBoundaryAndLateOldServiceDaysUseManilaNotUtc() {
-        val before = java.time.Instant.parse("2026-10-02T13:59:59.999Z").toEpochMilli()
+    @Test fun closeBoundaryUsesManilaNotUtc() {
         val close = java.time.Instant.parse("2026-10-02T14:00:00Z").toEpochMilli()
-        val nextMorning = java.time.Instant.parse("2026-10-03T01:00:00Z").toEpochMilli()
         assertEquals(close, dayClose("2026-10-02"))
-        val pending = SyncStatus(queued = 1, earliestUnsentCloseAt = close)
-        assertEquals("Sync before 10 PM", pending.label(before))
-        assertEquals("Late · held for review", pending.label(close))
-        assertEquals("Late · held for review", pending.label(nextMorning))
-        assertEquals("Held · needs review", pending.copy(held = 1).label(close))
-        assertEquals("Needs review · not synced", pending.copy(review = 1).label(close))
-        // Offline is said out loud, with the deadline kept, so "Sync now" doing nothing is never a mystery.
-        assertEquals("Offline · sync before 10 PM", pending.copy(offline = true).label(before))
-        assertEquals("Late · held for review", pending.copy(offline = true).label(close))
         assertTrue(closeTime(close).contains("10:00 PM · Asia/Manila"))
-        assertEquals("Finish the open call first", SyncStatus.plainReason("call_open"))
-        assertEquals("Visit customers in plan order", SyncStatus.plainReason("mcp_order"))
     }
+
     @Test fun dependentWorkUsesCheckInServiceDayEvenIfEndQueuedNextMorning() {
         val scope = com.sunpride.field.storage.StoreScope("account", "device", "scope")
         val startAt = java.time.Instant.parse("2026-10-02T13:00:00Z").toEpochMilli()
@@ -72,34 +86,15 @@ class SyncStatusTest {
         val status = SyncStatus.fromRoom(partition, listOf(OutboxRow("account", "device", "scope", end.requestId, endAt)),
             intents = listOf(start, end))
         assertEquals(dayClose("2026-10-02"), status.earliestUnsentCloseAt)
-        assertEquals("Late · held for review", status.label(endAt))
-    }
-    @Test fun countsAndExpiryAreRoomDerived() {
-        val rows = listOf(row("pending"), row("sending"), row("review", code = "conflict"), row("pending", "old-scope"))
-        val status = SyncStatus.fromRoom(partition, rows)
-        assertEquals(1, status.queued)
-        assertEquals(1, status.sending)
-        assertEquals(1, status.review)
-        assertEquals(1, status.held)
-        assertEquals(listOf("Server reported a conflict"), status.reviewReasons)
-        assertFalse(status.leaseExpired(1999))
-        assertTrue(status.leaseExpired(2000))
-        assertTrue(status.cacheStale(1500))
-        assertFalse(status.cacheStale(1499))
-        assertEquals("Offline · saved data", SyncStatus.fromRoom(partition, emptyList(), offline = true).label(1100))
-        assertEquals("Visit needs administrator review", SyncStatus.plainReason("name: any private value"))
+        assertEquals("Waiting to send (1)", status.label(endAt))
     }
 
-    /** FLD-147: the pill says photos are uploading, so the Sync screen must not say "Nothing waiting". */
-    @Test fun photosWaitingAreNotNothingWaiting() {
-        val status = SyncStatus(lastSuccess = 1, leaseExpiresAt = Long.MAX_VALUE, cacheExpiresAt = Long.MAX_VALUE,
-            health = "synced", photosWaiting = 1)
-        assertEquals("Visits synced · photos uploading", status.label(10))
-        assertFalse(status.nothingWaiting)
-        assertTrue(status.copy(photosWaiting = 0).nothingWaiting)
+    @Test fun newCustomerHasAName() {
+        assertEquals("New customer", SyncStatus.describe("census.capture"))
+        assertEquals("Order", SyncStatus.describe("order_intent"))
     }
 
-    /** FLD-153: every refusal code the API can return (read from its source) and every phone code has plain words. */
+    /** FLD-153: every refusal code the API can return still has internal plain wording (office list reuses it). */
     @Test fun everyRefusalCodeHasPlainWording() {
         var dir: java.io.File? = java.io.File("").absoluteFile
         while (dir != null && !java.io.File(dir, "apps/api/src/core/sync.js").exists()) dir = dir.parentFile
@@ -112,55 +107,18 @@ class SyncStatusTest {
             com.sunpride.field.sync.VisitCodec.reasons
         val missing = (server + phone).filter { it !in SyncStatus.REASONS }
         assertTrue("codes without plain wording: $missing", missing.isEmpty())
-        SyncStatus.REASONS.values.forEach { assertFalse(it, it.contains('_')) ; assertNotEquals("Visit needs administrator review", it) }
-        // FLD-153 case: Start on a visit the office already marked missed is refused with invalid_plan.
-        assertEquals("This visit was changed or closed by the office (for example marked missed)", SyncStatus.plainReason("invalid_plan"))
-    }
-
-    /** FLD-176 (call f07fa710): a refused End call says the call is still open and what to do, not "already ended". */
-    @Test fun refusedEndCallSaysTheCallIsStillOpen() {
-        val scope = com.sunpride.field.storage.StoreScope("account", "device", "scope")
-        val start = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.checkIn", null, null, null,
-            "p", "o", emptyList(), null, null, null, null, null, 1000)
-        val end = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.checkOut", start.clientVisitId,
-            start.requestId, start.requestId, "p", "o", emptyList(), null, null, "completed", null, null, 2000)
-        val refused = OutboxRow("account", "device", "scope", end.requestId, 2000, "review", "invalid_transition")
-        val item = SyncStatus.fromRoom(partition, listOf(refused), intents = listOf(start, end)).reviewItems.single()
-        assertEquals("End visit", item.what)
-        assertTrue(item.reason, item.reason.startsWith("End call was not accepted, so this call is still open"))
-        assertTrue(item.reason.contains("ask your supervisor to close the call"))
-        // Other steps keep the general wording.
-        assertEquals("This visit was already ended or changed, so this step was not accepted", SyncStatus.plainReason("invalid_transition", "visit.activity"))
-    }
-
-    /** FLD-176: a refused item is viewable with its reason, clearable, and the pill reflects only real pending work. */
-    @Test fun refusedItemsAreListedClearableAndNotUnsentWork() {
-        val scope = com.sunpride.field.storage.StoreScope("account", "device", "scope")
-        val start = com.sunpride.field.ui.diagnosticvisit.VisitIntentFactory.create(scope, "visit.checkIn", null, null, null,
-            "p", "o", emptyList(), null, null, null, null, null, 1000)
-        val refused = OutboxRow("account", "device", "scope", start.requestId, 1000, "review", "invalid_plan")
-        val status = SyncStatus.fromRoom(partition, listOf(refused), intents = listOf(start))
-        assertEquals(1, status.review)
-        assertEquals(listOf(SyncStatus.ReviewItem(start.requestId, "Start visit", SyncStatus.plainReason("invalid_plan"))), status.reviewItems)
-        assertTrue(status.nothingWaiting)
-        assertEquals("Needs review", status.label(1100))
-        assertEquals("Needs review · not synced", status.copy(queued = 1).label(1100))
-        val cleared = SyncStatus.fromRoom(partition, listOf(refused), intents = listOf(start), dismissed = setOf(start.requestId))
-        assertEquals(0, cleared.review)
-        assertTrue(cleared.reviewItems.isEmpty())
-        assertFalse(cleared.pending)
-        assertEquals("All synced", cleared.label(1100))
+        assertEquals("Finish the open call first", SyncStatus.plainReason("call_open"))
     }
 
     /** FLD-122: a hold on this partition is retried by the background sync; earlier-sign-in work is not. */
     @Test fun backgroundSyncRetriesThisPartitionsHoldButNotEarlierWork() {
         val work = com.sunpride.field.sync.work.SyncWork
         val heldHere = SyncStatus.fromRoom(partition.copy(held = true, syncHealth = "held_for_review"), listOf(row("pending")))
-        assertEquals("Held · needs review", heldHere.label(1100))
         assertTrue(work.shouldRun(heldHere))
         assertFalse(work.shouldRun(SyncStatus.fromRoom(partition, listOf(row("pending", "old-scope")))))
         assertTrue(work.shouldRun(SyncStatus.fromRoom(partition, listOf(row("pending")))))
         assertFalse(work.shouldRun(SyncStatus.fromRoom(partition, listOf(row("review", code = "invalid_plan")))))
+        assertFalse(work.shouldRun(SyncStatus.fromRoom(partition, listOf(row("office", code = "invalid_plan")))))
         assertFalse(work.shouldRun(SyncStatus.fromRoom(partition, emptyList())))
     }
 }

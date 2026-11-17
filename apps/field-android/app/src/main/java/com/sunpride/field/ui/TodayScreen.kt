@@ -130,7 +130,6 @@ private fun StopRow(summary: TodaySummary, stop: com.sunpride.field.ui.today.Rou
             ?.replace("Queued", "Waiting"), outcomeLabel(summary, stop), visit.timeSpent)
     val chip: @Composable () -> Unit = {
         when {
-            stop.needsReview -> StatusChip("Needs review", Look.Tone.BAD)
             stop.done -> StatusChip("Done", Look.Tone.GOOD)
             stop.inProgress -> StatusChip("In progress", Look.Tone.ACCENT)
             isNext -> StatusChip("Next", Look.Tone.ACCENT)
@@ -144,7 +143,7 @@ private fun StopRow(summary: TodaySummary, stop: com.sunpride.field.ui.today.Rou
     val shape = SunprideTokens.shapes.large
     Surface(Modifier.fillMaxWidth().then(if (diagnosticEnabled) Modifier.testTag("today-visit") else Modifier), shape = shape, color = MaterialTheme.colorScheme.surface,
         border = BorderStroke(if (isNext || stop.inProgress) 1.5.dp else 1.dp, if (isNext || stop.inProgress) Look.accent else Look.hairline)) {
-        ListRow(visit.outlet, facts.filterNot { it == "Done" || it == "In progress" || it == "Needs review" }.joinToString(" · "),
+        ListRow(visit.outlet, facts.filterNot { it == "Done" || it == "In progress" }.joinToString(" · "),
             "store", Modifier.testTag(if (diagnosticEnabled) "diagnostic-open" else "today-visit"),
             onClick = if (diagnosticEnabled) ({ onVisit(visit) }) else null, tile = stop.stop.toString(),
             trailingContent = chip, leading = leading)

@@ -766,7 +766,7 @@ class DiagnosticVisitTest {
         rule.onNodeWithTag("diagnostic-operation").assertTextContains("Waiting", substring = true)
         // F-024: weak/missing is recorded and flagged; mock refusal has its own OS-provider regression.
         rule.onNodeWithTag("location-review").performScrollTo().assertTextContains(
-            if (missingFix) "Location unavailable · supervisor will review" else "weak signal", substring = true)
+            if (missingFix) "Location unavailable · noted for the office" else "weak signal", substring = true)
         rule.onNodeWithTag("diagnostic-checkout").assertTextContains("End call").assertIsNotEnabled()
         rule.onNodeWithTag("diagnostic-outcome").performScrollTo().performClick()
         rule.waitUntil(10_000) { runCatching { rule.onNodeWithTag("diagnostic-checkout").assertIsEnabled() }.isSuccess }

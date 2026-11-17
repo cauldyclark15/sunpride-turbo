@@ -8,7 +8,7 @@ class RecordingClosed(val held: Boolean) : IllegalStateException(if (held) HELD 
     companion object {
         const val DAY_CLOSED = "Day closed: this phone stopped taking new calls at the 10 PM day close. " +
             "Tap Sync now when you have signal; if Start is still refused, ask the office."
-        const val HELD = "This phone's records are held for office review. Ask the office, then sync."
+        const val HELD = "This phone is still sending earlier work. Tap Sync now when you have signal."
     }
 }
 

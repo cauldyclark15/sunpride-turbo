@@ -138,7 +138,7 @@ class RoomVisitSyncTest {
         assertEquals(intents[0].requestId, gateway.operations[1].getJSONArray("dependsOn").getString(0))
         assertEquals(intents[1].requestId, gateway.operations[2].getJSONArray("dependsOn").getString(0))
         assertEquals(0, store.status().queued + store.status().sending + store.status().review)
-        assertEquals("All synced", store.status().label(150))
+        assertEquals("All sent", store.status().label(150))
         assertTrue(store.pending().isEmpty())
         Unit
     }

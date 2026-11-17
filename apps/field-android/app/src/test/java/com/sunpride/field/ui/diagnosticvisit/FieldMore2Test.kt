@@ -26,7 +26,7 @@ class FieldMore2Test {
         val closed = QueueFailureText.of(RecordingClosed(held = false))
         assertTrue(closed.startsWith("Day closed"))
         assertFalse(closed.contains("required fields"))
-        assertTrue(QueueFailureText.of(RuntimeException(RecordingClosed(held = true))).contains("held for office review"))
+        assertTrue(QueueFailureText.of(RuntimeException(RecordingClosed(held = true))).contains("still sending earlier work"))
         assertEquals(QueueFailureText.GENERIC, QueueFailureText.of(IllegalStateException("boom")))
     }
 

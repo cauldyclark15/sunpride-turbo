@@ -67,7 +67,7 @@ class VisitCompletionTest {
         val noFix = VisitCompletion.result(checkIn.clientVisitId, rules,
             rows + (end("nonproductive", "closed", null, start + 1) to "pending"), null)!!
         assertTrue(noFix.locationReview)
-        assertEquals("End location unavailable · supervisor will review", noFix.location)
+        assertEquals("End location unavailable · noted for the office", noFix.location)
         assertEquals("closed", noFix.reasonCode)
         assertTrue(noFix.officeReview.isEmpty()) // not productive: no forms owed
         val weak = VisitCompletion.result(checkIn.clientVisitId, rules,

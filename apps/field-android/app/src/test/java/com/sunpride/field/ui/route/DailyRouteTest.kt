@@ -34,11 +34,11 @@ class DailyRouteTest {
         assertEquals("A", route.next?.visit?.outlet)
     }
 
-    @Test fun aStopInReviewStillHoldsBackLaterStops() {
-        // Its End was not accepted, so Start on the next store would be refused (MCP order).
-        val route = DailyRoutes.build(listOf(stop("A", 1, "Needs review"), stop("B", 2)), null)
-        assertEquals(listOf(StopState.REVIEW, StopState.LATER), route.stops.map { it.state })
-        assertNull(route.next)
+    @Test fun aStopWhoseEndDidNotGoThroughStaysInProgress() {
+        // SP-0189: no "Needs review" stop any more. A refused End leaves the call open ("In progress"), which still
+        // holds back later stops (MCP order) without any review wording.
+        val route = DailyRoutes.build(listOf(stop("A", 1, "In progress"), stop("B", 2)), null)
+        assertEquals(listOf(StopState.IN_PROGRESS, StopState.LATER), route.stops.map { it.state })
     }
 
     @Test fun allDoneHasNoNext() {

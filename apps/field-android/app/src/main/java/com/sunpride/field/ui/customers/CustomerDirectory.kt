@@ -49,7 +49,7 @@ data class CustomerRecord(
     val callOpen: Boolean = false,
 ) {
     /** The chip on the Stores row: today's planned status, else "In progress" for an open unplanned call. */
-    val visitStatus: String? get() = today?.status?.takeIf { it in setOf("Done", "In progress", "Needs review") }
+    val visitStatus: String? get() = today?.status?.takeIf { it in setOf("Done", "In progress") }
         ?: "In progress".takeIf { callOpen }
     /** Who to ask for and the number Call dials: the store's owner contact, else the account header. */
     val contactName: String? get() = ownerName ?: account?.buyerName
@@ -169,7 +169,6 @@ object CustomerDirectory {
 
     private fun stateLabel(state: String) = when (state) {
         "done" -> "Sent"
-        "review" -> "Needs review"
         "pending", "sending" -> "Waiting to send"
         else -> "Saved"
     }

@@ -124,11 +124,11 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
         rows[index] = rows[index].first to rows[index].second.copy(state = "done")
     }
     override suspend fun ack(requestId: String) = acks[requestId]
-    override suspend fun recordRejection(requestId: String, code: String) {
+    override suspend fun recordRejection(requestId: String, code: String, kept: Boolean) {
         require(code.isNotBlank())
         val index = rows.indexOfFirst { it.first.requestId == requestId }
         check(index >= 0 && rows[index].second.state in setOf("pending", "sending"))
-        rows[index] = rows[index].first to rows[index].second.copy(state = "review", rejectionCode = code)
+        rows[index] = rows[index].first to rows[index].second.copy(state = if (kept) "office" else "review", rejectionCode = code)
     }
     override suspend fun markSending(ids: List<String>) {
         check(ids.all { id -> rows.any { it.first.requestId == id && it.second.state == "pending" } })

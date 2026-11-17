@@ -138,7 +138,7 @@ class EvidenceUploader(private val store: FieldStore, private val scope: StoreSc
             }
             for (photo in store.pendingPhotos()) {
                 val start = calls[photo.checkInRequestId]
-                if (start == null || start.second.state == "review") {
+                if (start == null || com.sunpride.field.storage.OutboxState.refused(start.second.state)) {
                     store.reviewPhoto(photo.localId, if (start == null) "visit_missing" else "visit_rejected")
                     report = report.copy(review = report.review + 1); continue
                 }

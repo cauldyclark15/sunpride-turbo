@@ -208,6 +208,9 @@ interface StoreDao {
     suspend fun markDone(account: String, device: String, scope: String, requestId: String): Int
     @Query("UPDATE outbox SET state='review', rejectionCode=:code WHERE account=:account AND deviceId=:device AND scope=:scope AND requestId=:requestId AND state IN ('pending','sending')")
     suspend fun reject(account: String, device: String, scope: String, requestId: String, code: String): Int
+    /** SP-0189: refused, but the server kept a copy for the office (`kept: true`). */
+    @Query("UPDATE outbox SET state='office', rejectionCode=:code WHERE account=:account AND deviceId=:device AND scope=:scope AND requestId=:requestId AND state IN ('pending','sending')")
+    suspend fun keepForOffice(account: String, device: String, scope: String, requestId: String, code: String): Int
     @Query("UPDATE partitions SET held=1, cursor=NULL, syncHealth='held_for_review'")
     suspend fun holdAllPartitions()
 
@@ -232,7 +235,7 @@ interface StoreDao {
 }
 
 @Database(entities = [SnapshotRow::class, PartitionRow::class, IntentRow::class, OutboxRow::class, AckRow::class, DeltaRow::class, CallSheetRow::class, CallSheetLineRow::class, EvidencePhotoRow::class, OrderDraftRow::class, CatalogProductRow::class, InventoryAvailabilityRow::class, LocationPingRow::class],
-    version = 9, exportSchema = true)
+    version = 10, exportSchema = true)
 abstract class StoreDatabase : RoomDatabase() {
     abstract fun rows(): StoreDao
 }

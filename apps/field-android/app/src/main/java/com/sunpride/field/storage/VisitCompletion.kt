@@ -76,7 +76,7 @@ object VisitCompletion {
         }.filter { it.required && it.status != ActivityRequirement.Status.DONE }.map { it.kind }
         return VisitResult(outcome, reason, recordedInOrder(clientVisitId, rows), officeReview,
             (endedAt - payload(start.first).getLong("deviceTime")).coerceAtLeast(0) / 60_000,
-            if (fix == null) "End location unavailable · supervisor will review" else notice.text.replaceFirst("Location", "End location"),
+            if (fix == null) "End location unavailable · noted for the office" else notice.text.replaceFirst("Location", "End location"),
             notice.review, when (state) { "done" -> "Accepted"; else -> "Waiting to send" })
     }
 

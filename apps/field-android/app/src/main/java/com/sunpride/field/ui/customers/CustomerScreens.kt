@@ -153,7 +153,6 @@ private fun StoreRow(record: CustomerRecord, now: Long, picked: Boolean, clicks:
             when (record.visitStatus) {
                 "Done" -> StatusChip("Done", Look.Tone.GOOD)
                 "In progress" -> StatusChip("In progress", Look.Tone.ACCENT)
-                "Needs review" -> StatusChip("Needs review", Look.Tone.BAD)
             }
             Glyph(GlyphKind.CHEVRON, MaterialTheme.colorScheme.onSurfaceVariant, 20.dp)
         }

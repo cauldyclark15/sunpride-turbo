@@ -235,7 +235,7 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
                     var waiting=false
                     for(i in 0 until deps.length()) if(store.ack(deps.getString(i))==null) {
                         val parent=store.history().find { it.first.requestId==deps.getString(i) }
-                        if(parent==null||parent.second.state=="review")store.recordRejection(intent.requestId,"dependency_missing")
+                        if(parent==null||com.sunpride.field.storage.OutboxState.refused(parent.second.state))store.recordRejection(intent.requestId,"dependency_missing")
                         waiting=true
                     }
                     if(waiting)continue
@@ -254,7 +254,7 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
                     val visitAck = store.ack(checkInId)
                     if (ack == null || visitAck == null) {
                         val dep = store.history().find { it.first.requestId == dependency }
-                        if (dep?.second?.state == "review" || dep == null)
+                        if (com.sunpride.field.storage.OutboxState.refused(dep?.second?.state) || dep == null)
                             store.recordRejection(intent.requestId, "dependency_missing")
                         if (ready.isNotEmpty()) break
                         continue
@@ -281,9 +281,11 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
                         store.recordAck(requestId, ack.getString("entityId"), events.toString(), ack.getLong("serverTime"))
                     }
                     // Additive v1 `reason` (call_open, mcp_order, wrong_date) is more specific than `code`.
+                    // SP-0189: `kept: true` = the server kept a copy for the office; the phone lets go of it.
                     else -> store.recordRejection(requestId,
                         result.optString("reason").takeIf { it in VisitCodec.reasons }
-                            ?: result.optString("code").takeIf { it.isNotBlank() } ?: "unknown_status")
+                            ?: result.optString("code").takeIf { it.isNotBlank() } ?: "unknown_status",
+                        kept = result.optBoolean("kept"))
                 }
             }
         }

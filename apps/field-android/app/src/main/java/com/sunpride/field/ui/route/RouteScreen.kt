@@ -157,8 +157,7 @@ private fun StopCard(stop: RouteStop, expanded: Boolean, onToggle: () -> Unit, o
                         visit.timeSpent.takeIf { stop.state == StopState.DONE }).joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall,
                         fontWeight = if (emphasis) FontWeight.SemiBold else FontWeight.Normal,
-                        color = if (stop.state == StopState.REVIEW) MaterialTheme.colorScheme.error
-                            else if (emphasis) Look.accent else MaterialTheme.colorScheme.onSurfaceVariant)
+                        color = if (emphasis) Look.accent else MaterialTheme.colorScheme.onSurfaceVariant)
                 }
             }
             visit.address?.let { Text(it, style = MaterialTheme.typography.bodySmall, maxLines = if (expanded) 4 else 1,

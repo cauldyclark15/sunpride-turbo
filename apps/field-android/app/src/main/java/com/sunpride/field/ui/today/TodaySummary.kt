@@ -8,7 +8,6 @@ import com.sunpride.field.ui.VisitDisplay
 data class RouteStop(val stop: Int, val visit: VisitDisplay) {
     val done get() = visit.status == TodaySummary.STATUS_DONE
     val inProgress get() = visit.status == TodaySummary.STATUS_IN_PROGRESS
-    val needsReview get() = visit.status == TodaySummary.STATUS_REVIEW
 }
 
 /**
@@ -47,7 +46,6 @@ data class TodaySummary(
     companion object {
         const val STATUS_DONE = "Done"
         const val STATUS_IN_PROGRESS = "In progress"
-        const val STATUS_REVIEW = "Needs review"
 
         /** Same order the visit rules enforce: sequence, then wire list position, then input order. */
         fun of(data: TodayData): TodaySummary = TodaySummary(

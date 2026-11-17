@@ -189,7 +189,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                     val meta = when (item.status) {
                         com.sunpride.field.storage.ActivityRequirement.Status.DONE -> "Recorded"
                         com.sunpride.field.storage.ActivityRequirement.Status.UNAVAILABLE ->
-                            "Not available on this phone" + if (item.required) " · office will review" else ""
+                            "Not available on this phone" + if (item.required) " · noted for the office" else ""
                         else -> if (item.required) "Required" else "Optional"
                     }
                     val open: (() -> Unit)? = when {
@@ -330,7 +330,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                     com.sunpride.field.ui.ValueRow("Activities", review.recorded.takeIf { it.isNotEmpty() }
                         ?.joinToString(", ") { com.sunpride.field.storage.ActivityRules.kindLabel(it) } ?: "None recorded",
                         Modifier.semantics(mergeDescendants = true) {}.testTag("end-review-activities"))
-                    if (review.officeReview.isNotEmpty()) com.sunpride.field.ui.ValueRow("Office will review",
+                    if (review.officeReview.isNotEmpty()) com.sunpride.field.ui.ValueRow("Noted for the office",
                         review.officeReview.joinToString(", ") { com.sunpride.field.storage.ActivityRules.kindLabel(it) },
                         Modifier.semantics(mergeDescendants = true) {}.testTag("end-review-office"))
                     Text("Your location is recorded when you confirm. You can't change this call after it ends.",
@@ -347,7 +347,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         com.sunpride.field.ui.ValueRow("Activities", r.recorded.takeIf { it.isNotEmpty() }
                             ?.joinToString(", ") { com.sunpride.field.storage.ActivityRules.kindLabel(it) } ?: "None recorded",
                             Modifier.semantics(mergeDescendants = true) {}.testTag("result-activities"))
-                        if (r.officeReview.isNotEmpty()) com.sunpride.field.ui.ValueRow("Office will review",
+                        if (r.officeReview.isNotEmpty()) com.sunpride.field.ui.ValueRow("Noted for the office",
                             r.officeReview.joinToString(", ") { com.sunpride.field.storage.ActivityRules.kindLabel(it) },
                             Modifier.semantics(mergeDescendants = true) {}.testTag("result-office"))
                         com.sunpride.field.ui.ValueRow("Sync", r.sync, Modifier.semantics(mergeDescendants = true) {}.testTag("result-sync"))
@@ -396,7 +396,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                             com.sunpride.field.storage.ActivityRules.kindLabel(JSONObject(intent.serializedOperation)
                                 .getJSONObject("payload").getJSONObject("activity").optString("kind"));
                         "visit.checkOut" -> "End call"; else -> "Visit action"
-                    }, when (state) { "pending" -> "Waiting"; "done" -> "Accepted"; else -> "Needs review" },
+                    }, when (state) { "pending", "sending" -> "Waiting"; "done" -> "Sent"; else -> "Saved" },
                         "activity", Modifier.testTag("diagnostic-operation"))
                 }
             }

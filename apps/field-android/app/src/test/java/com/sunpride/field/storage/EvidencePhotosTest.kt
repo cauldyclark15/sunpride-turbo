@@ -70,11 +70,11 @@ class EvidencePhotosTest {
 
     @Test fun statusAndSummaryNeverCallWaitingPhotosAllSynced() {
         val synced = SyncStatus(lastSuccess = 1, leaseExpiresAt = Long.MAX_VALUE, cacheExpiresAt = Long.MAX_VALUE, health = "synced")
-        assertEquals("All synced", synced.label(10))
-        assertEquals("Visits synced · photos uploading", synced.copy(photosWaiting = 2).label(10))
+        assertEquals("All sent", synced.label(10))
+        assertEquals("Waiting to send (2)", synced.copy(photosWaiting = 2).label(10))
         val photos = listOf(VisitPhoto("1", "shelf_display", 1, 1, "uploaded"), VisitPhoto("2", "other", 1, 1, "pending"),
             VisitPhoto("3", "other", 1, 1, "review", "out_of_scope"))
-        assertEquals("3 photos · 1 waiting to upload · 1 for office review", EvidencePhotos.summary(photos))
+        assertEquals("3 photos · 1 waiting to upload", EvidencePhotos.summary(photos))
         assertNull(EvidencePhotos.summary(emptyList()))
         assertEquals("Saved on phone · uploads when online", EvidencePhotos.stateLabel(photos[1]))
         assertEquals("Shelf and display", EvidencePhotos.label("shelf_display", emptyList()))

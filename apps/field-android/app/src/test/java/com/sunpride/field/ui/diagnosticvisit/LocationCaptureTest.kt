@@ -71,8 +71,8 @@ class LocationCaptureTest {
             LocationAssessment.notice(LocationCapture.Captured(fix()), now))
         val flagged = LocationAssessment.notice(LocationCapture.Captured(fix(accuracy = 120.0, age = 90_000, mock = true)), now)
         assertTrue(flagged.review)
-        assertEquals("Location recorded · ±120 m · supervisor will review: mock location detected, weak signal, old fix", flagged.text)
-        assertEquals(LocationNotice("Location unavailable · supervisor will review: location permission off", true),
+        assertEquals("Location recorded · ±120 m · noted for the office: mock location detected, weak signal, old fix", flagged.text)
+        assertEquals(LocationNotice("Location unavailable · noted for the office: location permission off", true),
             LocationAssessment.notice(LocationCapture.Unavailable(UnavailableReason.PERMISSION_DENIED), now))
         assertTrue(LocationAssessment.notice(LocationCapture.Unavailable(UnavailableReason.LOCATION_OFF), now).text
             .endsWith("phone location turned off"))
