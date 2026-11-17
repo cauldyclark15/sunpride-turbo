@@ -34,6 +34,8 @@ object UserMessages {
         "awaiting_approval" to LOAD_DIFFERENCE_SENT,
         "device_not_set_up_for_you" to NOT_SET_UP,
         "device_revoked" to NOT_SET_UP,
+        "password_change_required" to com.sunpride.van.auth.AuthFailure.Kind.PASSWORD_CHANGE_REQUIRED.message,
+        "temporary_password_expired" to com.sunpride.van.auth.AuthFailure.Kind.TEMPORARY_PASSWORD_EXPIRED.message,
         "device_removed" to NOT_SET_UP,
         "device_handover_required" to "Another phone is active for your account. Ask the office to start a controlled handover.",
         "device_integrity_blocked" to "This phone needs an integrity review before it can record work.",

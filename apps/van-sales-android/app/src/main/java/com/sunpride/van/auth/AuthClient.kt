@@ -27,19 +27,39 @@ class AuthClient(
     private var access: String? = null
     private var refreshAt = 0L
     val isSignedIn: Boolean get() = vault.readSession() != null
+    /**
+     * SP-0187: the office reset this password; a new one must be set before any selling or sync.
+     * Memory only: after a restart `/api/me` or any 403 `password_change_required` raises it again.
+     */
+    private val mustChange = kotlinx.coroutines.flow.MutableStateFlow(false)
+    val passwordChangeRequired: kotlinx.coroutines.flow.StateFlow<Boolean> get() = mustChange
+    /** The temporary password just typed at sign-in. Memory only (never disk); cleared once used or on sign-out. */
+    @Volatile private var temporary: String? = null
+    val hasTemporaryPassword: Boolean get() = temporary != null
+    fun markPasswordChangeRequired() { mustChange.value = true }
+    /** True (and the flag raised) when a refusal body is the server's `password_change_required`. */
+    fun notePasswordChangeRefusal(status: Int, body: String?): Boolean {
+        if (status != 403 || errorCode(body) != PASSWORD_CHANGE_REQUIRED) return false
+        markPasswordChangeRequired(); return true
+    }
 
     @Synchronized fun signIn(email: String, password: String) {
         if (!environment.isReady) throw AuthFailure(AuthFailure.Kind.NOT_CONFIGURED)
         val body = JSONObject().put("version",2).put("app",RestDeviceApi.APP).put("email",email.trim()).put("password",password)
+            .put("passwordChange","supported") // SP-0187: this build can show the Set a new password screen
             .put("integrity",com.sunpride.integrity.DeviceIntegrity.report())
         deviceKey()?.let { body.put("deviceKey",it) }
         val request = Request.Builder().url(environment.siteUrl.trimEnd('/')+SIGN_IN).post(body.toString().toRequestBody(JSON_MEDIA)).build()
         val o = call(request) { code, response ->
             when {
-                code == 400 || code == 401 -> throw AuthFailure(AuthFailure.Kind.INVALID_CREDENTIALS)
+                code == 400 || code == 401 -> {
+                    val reason = errorCode(response.body?.string())
+                    throw AuthFailure(if (reason == "temporary_password_expired") AuthFailure.Kind.TEMPORARY_PASSWORD_EXPIRED else AuthFailure.Kind.INVALID_CREDENTIALS)
+                }
                 // FLD-014/E2E-004 parity: the office revoked this phone; the refusal says so plainly (no session is stored).
                 code == 403 -> {
-                    val reason = runCatching { JSONObject(response.body?.string().orEmpty()).optJSONObject("error")?.optString("code") }.getOrNull()
+                    val reason = errorCode(response.body?.string())
+                    if (reason == PASSWORD_CHANGE_REQUIRED) throw AuthFailure(AuthFailure.Kind.PASSWORD_CHANGE_ON_WEB)
                     throw AuthFailure(AuthFailure.Kind.REFUSED, removed = reason == "device_revoked")
                 }
                 code == 429 -> throw AuthFailure(AuthFailure.Kind.RATE_LIMITED)
@@ -52,6 +72,9 @@ class AuthClient(
         val bearer = token(o,"accessToken"); val lifetime = lifetime(o)
         vault.saveSession(session) // validate everything before changing durable credentials
         access = bearer; refreshAt = clock()+lifetime-REFRESH_MARGIN_MS
+        val forced = o.optBoolean("mustChangePassword",false)
+        temporary = if (forced) password else null
+        mustChange.value = forced
     }
     /** F-007: no browser cookie/token is retained; only the install-bound API exchange. */
     @Synchronized fun acceptCompanySession(o: JSONObject) {
@@ -75,6 +98,8 @@ class AuthClient(
             // FLD-014/171: on an ended session only the credential goes; held work stays. Say plainly when the office removed the phone.
             val text = if (code == 401 || code == 403) response.body?.string() else null
             if (code == 403 && AuthFailure.paused(text)) throw AuthFailure(AuthFailure.Kind.PAUSED)
+            // SP-0187: a reset password is not an ended session; keep the session and ask for a new password.
+            if (notePasswordChangeRefusal(code,text)) throw AuthFailure(AuthFailure.Kind.PASSWORD_CHANGE_REQUIRED)
             if (code == 401 || code == 403) {
                 val reason = runCatching { JSONObject(text.orEmpty()).optJSONObject("error")?.optString("code") }.getOrNull()
                 vault.wipe(); throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED, removed = reason in AuthFailure.REMOVED_CODES)
@@ -116,11 +141,16 @@ class AuthClient(
         }) }
         // The server keeps this exact session; other sessions are revoked. Never replace or persist a password.
         invalidateAccessToken()
+        temporary = null; mustChange.value = false
     }
+    /** SP-0187: the forced change; [current] defaults to the temporary password kept in memory since sign-in. */
+    @Synchronized fun setNewPassword(current: String?, next: String, confirm: String) =
+        changePassword(current?.takeIf { it.isNotEmpty() } ?: temporary.orEmpty(),next,confirm)
     @Synchronized fun invalidateAccessToken() { access = null; refreshAt = 0 }
     fun signOut(): Boolean {
         val session = vault.readSession()
         invalidateAccessToken(); vault.wipe() // local lockout precedes any network attempt
+        temporary = null; mustChange.value = false
         return try {
             if (session == null || !environment.isReady) false else {
                 val request = Request.Builder().url(environment.siteUrl.trimEnd('/')+SIGN_OUT).header("Authorization","Bearer $session")
@@ -142,7 +172,15 @@ class AuthClient(
         http.newCall(request).execute().use { handle(it.code,it) }
     } catch (_: IOException) { throw AuthFailure(AuthFailure.Kind.OFFLINE) }
       catch (_: JSONException) { throw AuthFailure(AuthFailure.Kind.SERVER) }
+    private fun errorCode(body: String?): String? = runCatching {
+        val o = JSONObject(body.orEmpty())
+        o.optJSONObject("error")?.optString("code")?.takeIf { it.isNotEmpty() }
+            ?: (o.opt("error") as? String)?.takeIf { it.isNotEmpty() } ?: o.optString("code").takeIf { it.isNotEmpty() }
+    }.getOrNull()
     companion object {
+        const val PASSWORD_CHANGE_REQUIRED = "password_change_required"
+        /** `<web base>/forgot-password`, derived from the configured server origin. */
+        fun forgotPasswordUrl(siteUrl: String): String = siteUrl.trim().trimEnd('/')+"/forgot-password"
         const val SIGN_IN = "/api/auth/sign-in"
         const val REFRESH = "/api/auth/refresh"
         const val SIGN_OUT = "/api/auth/sign-out"

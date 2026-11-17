@@ -41,9 +41,10 @@ import kotlinx.coroutines.delay
         onDispose { lifecycle.removeObserver(observer); scanner.stop() }
     }
     // A suspended timer does not spin or block Compose. Checks stop on leaving this state.
-    LaunchedEffect(controller,controller.enrollment) {
-        while (controller.enrollment == EnrollmentState.Unregistered || controller.enrollment == EnrollmentState.Removed ||
-            controller.session.signedIn && controller.enrollment == EnrollmentState.SignedOut) {
+    LaunchedEffect(controller,controller.enrollment,controller.mustChangePassword) {
+        while (!controller.mustChangePassword) {
+            if (!(controller.enrollment == EnrollmentState.Unregistered || controller.enrollment == EnrollmentState.Removed ||
+            controller.session.signedIn && controller.enrollment == EnrollmentState.SignedOut)) break
             delay(15_000)
             if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) controller.checkAgain()
         }
@@ -61,6 +62,8 @@ import kotlinx.coroutines.delay
         val chatTap = com.sunpride.van.chat.rememberVanChatLaunch()
         when {
             !controller.initialized -> ScreenFrame("Sunpride Van") { Text("Getting your day ready…") }
+            // SP-0187: the office reset this password; nothing else (no Today, no selling, no sync) until a new one is set.
+            controller.session.signedIn && controller.mustChangePassword -> SetNewPasswordScreen(controller)
             // SP-0125: the printer test needs no account, so a new handheld can be checked before setup.
             controller.page == Page.PRINTER && (!controller.session.signedIn || controller.enrollment !is EnrollmentState.Ready) ->
                 PrinterScreen(controller)
@@ -152,6 +155,9 @@ import kotlinx.coroutines.delay
             revealed = showPassword,onToggleReveal = { showPassword = !showPassword })
         com.sunpride.integrity.CompanySignIn(c.environment.siteUrl,"van-android",c.environment.isReady && !c.busy,
             c::companyKey,c::signCompanyMessage,c::updateCompanyWaiting,{ c.companySignIn(it) })
+        // SP-0187: self-service reset on the website; the link comes by email.
+        TextButton({ openLink(context,com.sunpride.van.auth.AuthClient.forgotPasswordUrl(c.environment.siteUrl)) },
+            Modifier.testTag("forgot-password"),enabled = c.environment.isReady) { Text("Forgot password?") }
         ListRow("Test printer & scanner","Check this handheld before signing in","sign-in-printer",onClick = { c.open(Page.PRINTER) })
         c.features.reportIssueUrl?.let { url -> ListRow("Report an issue","Tell the Sunpride team what went wrong","report-issue",onClick = { openLink(context,url) }) }
     }

@@ -52,6 +52,7 @@ class LiveVanTransport(private val environment: AppEnvironment, private val auth
     }
     private fun execute(request: Request): Pair<Int,String> = try {
         http.newCall(request).execute().use { it.code to it.body?.string().orEmpty() }
+            .also { (code,text) -> auth.notePasswordChangeRefusal(code,text) } // SP-0187: opens Set a new password
     } catch (_: IOException) { throw VanSyncFailure("offline",true) }
 }
 
@@ -133,12 +134,14 @@ class VanSyncClient(private val transport: VanTransport, private val signer: Dev
             val mapped = when {
                 // VAN-086: the office paused this phone: say so and keep the work; reinstating the phone resumes sync.
                 status == 403 && code == "device_suspended" -> "device_suspended"
+                // SP-0187: a reset password is not a lost grant: never hold the work, keep it and retry after the change.
+                status == 403 && (code == "password_change_required" || text.contains("\"password_change_required\"")) -> "password_change_required"
                 status == 401 || status == 403 || code in setOf("scope_changed","scope_withdrawn","profile_unavailable","device_unavailable") -> "unauthorized"
                 status == 426 || code == "version_unsupported" -> "version_unsupported"
                 status == 429 || status >= 500 -> "temporarily_unavailable"
                 else -> "invalid_request"
             }
-            return VanSyncFailure(mapped,status >= 500 || status == 429 || o?.optBoolean("retryable") == true)
+            return VanSyncFailure(mapped,status >= 500 || status == 429 || mapped == "password_change_required" || o?.optBoolean("retryable") == true)
         }
     }
 }

@@ -220,6 +220,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         scope = this
         launch { repository.sessionState.collect { session = it; refreshSharing() } }
         launch { repository.enrollmentState.collect { enrollment = it; refreshSharing() } }
+        launch { repository.passwordChangeRequired.collect { mustChangePassword = it } }
         launch { repository.currentTrip.collect { trip = it; refreshSharing() } }
         launch { repository.load.collect { load = it } }
         launch { repository.products.collect { products = it } }
@@ -370,10 +371,23 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     }
     fun signIn(email: String, password: String) = command(failure = { AuthMessages.forFailure(it,AuthMessages.SIGN_IN_FALLBACK) }) {
         repository.signIn(email.trim(),password)
-        if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
+        if (!repository.passwordChangeRequired.value && repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow()
     }
     var companySignInPending by mutableStateOf(false)
         private set
+    /** SP-0187: the office reset this password; only the Set a new password screen shows until it is changed. */
+    var mustChangePassword by mutableStateOf(false)
+        private set
+    /** True when the temporary password from this sign-in is still in memory, so it is not asked for again. */
+    val hasTemporaryPassword: Boolean get() = repository.hasTemporaryPassword
+    fun setNewPassword(current: String?, next: String, confirm: String) = command(failure = {
+        (it as? PasswordChangeFailure)?.problem?.words ?: AuthMessages.forFailure(it,"Could not change your password. Try again shortly.")
+    }) {
+        repository.setNewPassword(current,next,confirm)
+        page = Page.HOME
+        message = "Password changed. Use your new password next time you sign in."
+        if (repository.enrollmentState.value is EnrollmentState.Ready) runCatching { repository.syncNow() }
+    }
     fun updateCompanyWaiting(value: Boolean) { companySignInPending=value }
     fun companyKey(): org.json.JSONObject = repository.companyKey()
     fun replacementCode(): org.json.JSONObject = repository.replacementCode()

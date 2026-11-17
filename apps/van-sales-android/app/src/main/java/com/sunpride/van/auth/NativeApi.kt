@@ -36,12 +36,14 @@ class NativeApi(private val environment: AppEnvironment, private val auth: AuthC
                         val o = runCatching { JSONObject(response.body?.string().orEmpty()) }.getOrNull()
                             ?: throw AuthFailure(AuthFailure.Kind.SERVER)
                         if (response.code == 403 && AuthFailure.paused(o.toString())) throw AuthFailure(AuthFailure.Kind.PAUSED)
+                        if (auth.notePasswordChangeRefusal(response.code,o.toString())) throw AuthFailure(AuthFailure.Kind.PASSWORD_CHANGE_REQUIRED)
                         if (response.code == 403) throw AuthFailure(AuthFailure.Kind.REFUSED)
                         if (!response.isSuccessful) {
                             val code = o.optJSONObject("error")?.optString("code")?.takeIf { Regex("[a-z_]{1,64}").matches(it) }
                             throw NativeApiFailure(code, response.code)
                         }
                         if (!path.startsWith("/api/v1/") && o.optInt("version") != 2) throw AuthFailure(AuthFailure.Kind.SERVER)
+                        if (path == "/api/me" && o.optBoolean("mustChangePassword",false)) auth.markPasswordChangeRequired()
                         if (path == "/api/me" && o.optJSONObject("deviceControl") != null) onDeviceControl?.invoke(o)
                         return o
                     }
@@ -66,6 +68,8 @@ class RestDeviceApi(private val api: NativeApi) : DeviceApi {
     override fun mine(publicKey: String): DeviceRecord? {
         val keyId = hex(sha256(unbase64(publicKey)))
         val o = api.request("/api/me", headers = mapOf("X-App" to APP,"X-Device-Key-Id" to keyId))
+        // SP-0187: nothing past /api/me is allowed until a new password is set; ask for it before registering.
+        if (o.optBoolean("mustChangePassword",false)) throw AuthFailure(AuthFailure.Kind.PASSWORD_CHANGE_REQUIRED)
         if (o.optBoolean("handoverRequired")) throw NativeApiFailure("device_handover_required",409)
         val p = o.getJSONObject("profile"); val s = o.getJSONObject("scope")
         if (!p.getBoolean("active")) throw AuthFailure(AuthFailure.Kind.REFUSED)

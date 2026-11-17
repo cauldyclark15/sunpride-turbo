@@ -22,6 +22,49 @@ import com.sunpride.van.auth.PasswordChange
     }
 }
 
+/**
+ * SP-0187: forced Set a new password after an admin reset. Reuses the change-password rules and request; the current
+ * password is the temporary one typed at sign-in (kept in memory only), asked for again only after a restart.
+ */
+@Composable fun SetNewPasswordScreen(c: VanController) {
+    val askTemporary = !c.hasTemporaryPassword
+    var temporary by remember { mutableStateOf("") }
+    var next by remember { mutableStateOf("") }
+    var confirm by remember { mutableStateOf("") }
+    var eye by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf<String?>(null) }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    DisposableEffect(lifecycle) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_STOP) { eye = false; temporary = ""; next = ""; confirm = "" }
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
+    ScreenFrame("Set a new password",action = if (c.busy) "Saving…" else "Set new password",actionTag = "set-new-password",
+        enabled = !c.busy && (!askTemporary || temporary.isNotEmpty()) && next.isNotEmpty() && confirm.isNotEmpty(),
+        message = error ?: c.message,onAction = {
+            error = if (askTemporary) PasswordChange.problem(temporary,next,confirm)?.words
+                else PasswordChange.problem("\u0000",next,confirm)?.words
+            if (error == null) {
+                val old = temporary.takeIf { askTemporary }; val fresh = next; val again = confirm
+                temporary = ""; next = ""; confirm = ""; eye = false
+                c.setNewPassword(old,fresh,again)
+            }
+        }) {
+        Text("Your password was reset by the office. Choose your own new password to continue. Your saved work stays on this phone.",
+            modifier = Modifier.testTag("set-new-password-intro"))
+        Text("Use 8–128 characters.",style = MaterialTheme.typography.bodyMedium)
+        if (askTemporary) LabeledField("Temporary password",temporary,{ temporary = it; error = null },"temporary-password",password = true,
+            maxLength = 256,enabled = !c.busy,revealed = eye,onToggleReveal = { eye = !eye })
+        LabeledField("New password",next,{ next = it; error = null },"new-password",password = true,
+            maxLength = 128,enabled = !c.busy,revealed = eye,onToggleReveal = { eye = !eye })
+        LabeledField("Confirm new password",confirm,{ confirm = it; error = null },"confirm-password",password = true,
+            maxLength = 128,enabled = !c.busy,revealed = eye,onToggleReveal = { eye = !eye })
+        SecondaryButton("Sign out",c::signOut,Modifier.testTag("set-new-password-sign-out"),!c.busy)
+    }
+}
+
 @Composable fun ChangePasswordScreen(c: VanController) {
     // No saveable state: passwords never enter saved-state, disk, diagnostics or a request retry queue.
     var current by remember { mutableStateOf("") }

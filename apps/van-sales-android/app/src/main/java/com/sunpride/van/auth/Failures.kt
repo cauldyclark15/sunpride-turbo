@@ -27,7 +27,11 @@ class AuthFailure(val kind: Kind, val removed: Boolean = false) :
         /** VAN-086: the office paused this phone; the session and the work on the phone stay until it is reinstated. */
         PAUSED("This phone is paused. Ask your administrator."),
         SERVER("The server couldn't complete the request. Try again shortly."),
-        NOT_CONFIGURED("This build has no server configured.")
+        NOT_CONFIGURED("This build has no server configured."),
+        /** SP-0187: the office reset this password; the Set a new password screen opens. Saved work stays. */
+        PASSWORD_CHANGE_REQUIRED("Set a new password to continue. Your saved work stays on this phone."),
+        TEMPORARY_PASSWORD_EXPIRED("This temporary password has expired. Ask your admin for a new one."),
+        PASSWORD_CHANGE_ON_WEB("Set a new password at sunpride.cauldnclark.com first, then sign in here.")
     }
     override fun toString(): String = "AuthFailure($kind)"
 }

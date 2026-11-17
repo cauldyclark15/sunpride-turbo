@@ -30,6 +30,9 @@ class VanRepository private constructor(private val context: Context, private va
         JSONObject().put("keyId",hex(sha256(key.publicKeySpki))).put("publicKeySpki",key.publicKeyBase64)
     })
     private val api = NativeApi(environment,auth)
+    /** SP-0187: a new password must be set before Today or any sync (memory only; restart re-learns it). */
+    val passwordChangeRequired: kotlinx.coroutines.flow.StateFlow<Boolean> get() = auth.passwordChangeRequired
+    val hasTemporaryPassword: Boolean get() = auth.hasTemporaryPassword
     private val devices = RestDeviceApi(api)
     fun replacementCode(): JSONObject = api.request("/api/v1/integrity/devices/pairing/start",
         com.sunpride.integrity.replacementPairingBody("van-android",companyKey(),loadSigner()::sign))
@@ -372,6 +375,9 @@ class VanRepository private constructor(private val context: Context, private va
             }
             restoredOffline = false
             try { enroll() } catch (e: AuthFailure) {
+                // SP-0187: the office reset the password. Keep the session and every saved item; the Set a new
+                // password screen opens, and registration and sync wait until it is done.
+                if (e.kind == AuthFailure.Kind.PASSWORD_CHANGE_REQUIRED) { current.value?.resetSending(); return@withContext }
                 // VAN-086: a paused phone keeps its saved day on screen (read-only until the office reinstates it).
                 if (e.kind !in setOf(AuthFailure.Kind.OFFLINE,AuthFailure.Kind.PAUSED)) { current.value?.hold(); current.value = null; if (!auth.isSignedIn) session.value = SessionState(); throw e }
                 // Previously verified finite lease, not a new grant. Never unhold retained evidence offline.
@@ -397,7 +403,18 @@ class VanRepository private constructor(private val context: Context, private va
                 }
                 vault.saveSession("debug-fixture-session")
             }
-            session.value = SessionState(true,true); enroll(); Unit
+            session.value = SessionState(true,true)
+            // SP-0187: a temporary password signs in, but nothing past the Set a new password screen runs yet.
+            if (auth.passwordChangeRequired.value) return@withContext
+            enroll(); Unit
+        }
+    }
+    /** SP-0187: the forced change. [current] null = the temporary password typed at sign-in (kept in memory only). */
+    suspend fun setNewPassword(current: String?, newPassword: String, confirm: String): Unit = authLock.withLock {
+        withContext(Dispatchers.IO) {
+            if (stubMode == null) auth.setNewPassword(current,newPassword,confirm)
+            try { enroll() } catch (e: AuthFailure) { if (e.kind !in setOf(AuthFailure.Kind.OFFLINE,AuthFailure.Kind.PAUSED)) throw e }
+            Unit
         }
     }
     fun companyKey(): JSONObject = loadSigner().let { JSONObject().put("keyId",com.sunpride.van.device.RequestSigner.bodyDigest(it.publicKeySpki)).put("publicKeySpki",it.publicKeyBase64) }
@@ -617,6 +634,8 @@ class VanRepository private constructor(private val context: Context, private va
     /** DEBUG practice data only: the fixture store, so device tests can seed the (still empty) price list. */
     internal fun fixtureStore(): RoomVanStore { check(BuildConfig.DEBUG && stubMode != null); return store() }
     suspend fun syncNow(): Unit = authLock.withLock {
+        // SP-0187: no sync until a new password is set; unsent work stays queued on this phone.
+        if (auth.passwordChangeRequired.value) throw AuthFailure(AuthFailure.Kind.PASSWORD_CHANGE_REQUIRED)
         try {
             if (stubMode == null) enroll()
         } catch (e: AuthFailure) {
