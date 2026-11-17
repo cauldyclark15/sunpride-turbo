@@ -135,6 +135,8 @@ async function select(ctx, unitIds, id, open) {
     left join profiles rp on rp.user_id::text = r.resolved_by or rp.auth_subject = r.resolved_by
     where (${id}::uuid is null or r.id = ${id}::uuid)
       and (${!open} or r.resolved_at is null)
+      -- Location pings are kept but never need the office; they would flood the list.
+      and (r.op_type is null or r.op_type not like 'location.%')
       and (${nationwide} or p.org_unit_id::text = any(${ctx.db.array(unitIds ?? [], "TEXT")}))
     order by r.created_at desc
     limit 200`;
