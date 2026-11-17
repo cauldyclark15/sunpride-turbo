@@ -171,7 +171,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         scope = this
         launch { repository.sessionState.collect { session = it; refreshSharing() } }
         launch { repository.enrollmentState.collect { enrollment = it; refreshSharing() } }
-        launch { repository.currentTrip.collect { trip = it; refreshSharing() } }
+        launch { repository.currentTrip.collect { trip = it; followTrip(it?.tripId); refreshSharing() } }
         launch { repository.load.collect { load = it } }
         launch { repository.products.collect { products = it } }
         launch { repository.customers.collect { customers = it } }
@@ -310,7 +310,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         }
     }
     /** Selling switched off or the person signed out: let go of the selling store (held; unsent work stays on this phone). */
-    fun detach() = command { stopSharing(); repository.detach(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null; cashSummary = null; cashDraft = CashDraft(CashReconciliationRules.newReconciliationId()); stockSummary = null; stockDraft = StockDraft(StockReconciliationRules.newCountId()); closeSummary = null; closeDraft = CloseDraft(TripCloseRules.newCloseId()) }
+    fun detach() = command { stopSharing(); repository.detach(); page = Page.HOME; sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null; cashSummary = null; cashDraft = CashDraft(CashReconciliationRules.newReconciliationId()); stockSummary = null; stockDraft = StockDraft(StockReconciliationRules.newCountId()); closeSummary = null; closeDraft = CloseDraft(TripCloseRules.newCloseId()); formsTripId = null }
     /** IP-INT3FIX: a cart edit answers the unexplained banner left by an earlier action (it is not about the cart). */
     fun dismissGenericMessage() { if (UserMessages.isGeneric(message)) message = null }
     fun syncNow() = command("Sync finished.",failure = { rememberSyncFailure(syncMessage(it)) }) { repository.syncNow() }
@@ -900,6 +900,13 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
                 catch (e: StockRefused) { message = VanRules.stockMessage(e.problem); null } catch (_: Exception) { null }
         }
     }
+    /** The trip the Count cash, Count stock and Close trip forms were typed for. */
+    private var formsTripId: String? = null
+    /** SP-0192b: a new trip opens with empty count/close forms and new ids, never the last trip's bills. */
+    private fun followTrip(tripId: String?) {
+        val next = TripForms(formsTripId, cashDraft, stockDraft, closeDraft).follow(tripId)
+        formsTripId = next.tripId; cashDraft = next.cash; stockDraft = next.stock; closeDraft = next.close
+    }
     fun editCash(draft: CashDraft) { cashDraft = draft }
     /** The store recomputes the expected cash and checks the code in the saving transaction; a refusal keeps the draft. */
     fun saveCashCount(expectedMinor: Long) = command {
@@ -976,6 +983,17 @@ data class CashDraft(val reconciliationId: String, val pieces: Map<Long,String> 
 /** VAN-023 Count stock form: decimal quantities are kept as text until parsed against each product scale. */
 data class StockDraft(val reconciliationId: String, val counts: Map<Pair<String,String>,String> = emptyMap(),
     val reasons: Map<Pair<String,String>,String?> = emptyMap(), val note: String = "", val code: String = "",val batchCounts: Map<String,String> = emptyMap())
+/** SP-0192b: the Count cash, Count stock and Close trip forms belong to ONE trip. When the phone moves to another trip
+ * (the next trip of the day, or one handed over from another phone) they start empty with new ids, so the last trip's
+ * counted bills never show on the new count and its count id is never sent again. A trip that briefly reads as none
+ * (null while the phone refreshes) keeps what is typed. */
+data class TripForms(val tripId: String?, val cash: CashDraft, val stock: StockDraft, val close: CloseDraft) {
+    fun follow(next: String?): TripForms = if (next == null || next == tripId) this else fresh(next)
+    companion object {
+        fun fresh(tripId: String?) = TripForms(tripId, CashDraft(CashReconciliationRules.newReconciliationId()),
+            StockDraft(StockReconciliationRules.newCountId()), CloseDraft(TripCloseRules.newCloseId()))
+    }
+}
 /** VAN-024 Close trip form: the seller ticked "I have checked these", end odometer text and note. */
 data class CloseDraft(val closeId: String, val reviewed: Boolean = false, val odometer: String = "", val note: String = "",
     /** VAN-081: typed only when the phone does not know the trip's start reading. */
