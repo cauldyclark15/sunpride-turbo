@@ -555,6 +555,45 @@ test("the Field app's own /api/me carries profile.selling (what the phone reads 
   expect("selling" in (await me(vanSeller)).profile).toBe(false);
 });
 
+test("SP-0194 the Field app's /api/me carries profile.appMode and profile.modes next to selling", async () => {
+  /** @param {any} dev */
+  const me = async (dev) => {
+    const r = await h.fetch("/api/me", {
+      headers: {
+        authorization: `Bearer ${dev.access}`,
+        "x-app": dev.app,
+        "x-device-key-id": dev.key.keyId,
+      },
+    });
+    expect(r.status).toBe(200);
+    return /** @type {any} */ (await r.json()).profile;
+  };
+  const id = seller.profile.id;
+  try {
+    for (const [mode, selling] of /** @type {const} */ ([
+      ["mapping", false],
+      ["visits", false],
+      ["selling", true],
+    ])) {
+      await h.db`update profiles set app_mode=${mode},selling=${selling},scope_epoch=scope_epoch+1 where id=${id}`;
+      const p = await me(seller);
+      expect(p.appMode).toBe(mode);
+      expect(p.modes).toEqual([mode]);
+      expect(p.selling).toBe(selling);
+    }
+    // A stored Truck selling mode for someone who is no longer Sales reads as Field visits, never Sell.
+    await h.db`update profiles set role='viewer' where id=${id}`;
+    const viewer = await me(seller);
+    expect(viewer.appMode).toBe("visits");
+    expect(viewer.selling).toBe(false);
+  } finally {
+    await h.db`update profiles set role='sales',app_mode='mapping',selling=false where id=${id}`;
+  }
+  // Van app phones: no new keys.
+  const van = await me(vanSeller);
+  expect("appMode" in van || "modes" in van).toBe(false);
+});
+
 test("SP-0193 a super_admin's own Field app phone is approved at sign-in and starts a van trip with no Selling switch", async () => {
   const email = "owner@example.com";
   const userId = await createUser(h, email, "correct horse battery");
@@ -596,7 +635,11 @@ test("SP-0193 a super_admin's own Field app phone is approved at sign-in and sta
       "x-device-key-id": key.keyId,
     },
   });
-  expect(/** @type {any} */ (await me.json()).profile.selling).toBe(true);
+  const ownerProfile = /** @type {any} */ (await me.json()).profile;
+  expect(ownerProfile.selling).toBe(true);
+  // SP-0194: the owner may switch between every mode on the phone; appMode is the stored one.
+  expect(ownerProfile.modes).toEqual(["mapping", "visits", "selling"]);
+  expect(ownerProfile.appMode).toBe("mapping");
   expect(
     await isSellingDevice(h.db, {
       app: "field-android",

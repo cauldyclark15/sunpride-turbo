@@ -238,6 +238,8 @@ describe("native D3 flow", () => {
       orgUnitId: profile.orgUnitId,
       active: true,
       selling: false, // SP-0191: Field app sessions only; no profiles row here, so off
+      appMode: "mapping", // SP-0194: the default App mode
+      modes: ["mapping"],
     });
     expect(Object.keys(mb.scope).sort()).toEqual([
       "epoch",

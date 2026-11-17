@@ -256,6 +256,7 @@ describe("FIELDSYNC projections through real core proof/cursor harness", () => {
     const data = body.bundles[0].data;
     expect(data.employee.role).toBe("super_admin");
     expect(data.employee.selling).toBe(true);
+    expect(data.employee.appMode).toBe("mapping"); // stored value; the owner switches on the phone
     expect(data.scope.orgUnitIds).toContain(f.unit);
     expect(data.permissions).toContain("van.operate");
     expect(data.permissions).toContain("visit.record");
@@ -638,13 +639,16 @@ describe("location work/consent boundary and retention", () => {
     const off = await pull();
     expect(off.res.status).toBe(200);
     expect(off.body.bundles[0].data.employee.selling).toBe(false);
+    // SP-0194: the start-of-day download carries the office's App mode (default Customer mapping).
+    expect(off.body.bundles[0].data.employee.appMode).toBe("mapping");
     const [before] =
       await h.db`select scope_epoch from profiles where id=${who.profile.id}`;
-    await h.db`update profiles set selling=true,scope_epoch=scope_epoch+1 where id=${who.profile.id}`;
+    await h.db`update profiles set selling=true,app_mode='selling',scope_epoch=scope_epoch+1 where id=${who.profile.id}`;
     const on = await pull();
     expect(on.res.status).toBe(200);
     const employee = on.body.bundles[0].data.employee;
     expect(employee.selling).toBe(true);
+    expect(employee.appMode).toBe("selling");
     // Everything an old Field build reads is unchanged: only the one new key is added.
     expect(Object.keys(employee).sort()).toEqual(
       Object.keys(off.body.bundles[0].data.employee).sort(),
@@ -665,6 +669,22 @@ describe("location work/consent boundary and retention", () => {
     await h.db`update profiles set role='manager' where id=${who.profile.id}`;
     const { sellingOn } = await import("../src/domains/van/selling.js");
     expect(await sellingOn(h.db, who.profile.id)).toBe(false);
+  });
+  test("SP-0194 the field bundle carries employee.appMode; Field visits stays without Sell", async () => {
+    await h.db`update profiles set role='sales',selling=false,app_mode='visits',scope_epoch=scope_epoch+1 where id=${who.profile.id}`;
+    const visits = await pull();
+    expect(visits.res.status).toBe(200);
+    expect(visits.body.bundles[0].data.employee.appMode).toBe("visits");
+    expect(visits.body.bundles[0].data.employee.selling).toBe(false);
+    // A stored Truck selling mode never shows for someone the Selling rule says does not sell.
+    await h.db`update profiles set role='manager',selling=true,app_mode='selling',scope_epoch=scope_epoch+1 where id=${who.profile.id}`;
+    const { appModeFor } = await import("../src/domains/van/selling.js");
+    expect(
+      appModeFor({ role: "manager", selling: true, app_mode: "selling" }),
+    ).toBe("visits");
+    expect(appModeFor({ role: "sales", app_mode: "nonsense" })).toBe("mapping");
+    expect(appModeFor(null)).toBe("mapping");
+    await h.db`update profiles set role='sales',selling=false,app_mode='mapping',scope_epoch=scope_epoch+1 where id=${who.profile.id}`;
   });
   test("records and replays one UUID without duplicating location rows", async () => {
     const op = ping();

@@ -14,7 +14,7 @@ import { useSetupParam } from "./master-data/location";
 import { ListPage, cursorRange, type ListColumn } from "./list-page/list-page";
 import { Drawer } from "./cockpit/kit/drawer";
 import { ResetPasswordAction, canResetPassword } from "./people/reset-password";
-import { SellingSwitch } from "./people/selling-switch";
+import { AppModeChoice, BulkAppMode, appModePill } from "./people/app-mode";
 
 type Person = Doc<"profiles">;
 export type AssignableRole =
@@ -169,11 +169,13 @@ export function PeopleAdmin() {
       : "skip",
   );
   const assign = useMutation(api.people.mutations.assign);
-  const saveSelling = useMutation(api.people.mutations.selling);
+  const saveAppMode = useMutation(api.people.mutations.appMode);
   const invite = useMutation(api.domains.profiles.invite);
   const revoke = useMutation(api.domains.profiles.revoke);
   const [historyId, setHistoryId] = useState<Id<"profiles"> | null>(null);
   const shownHistory = selectedId ?? historyId;
+  // SP-0194: people picked in the list for "Set app mode" (declared after the history state; tests count null states).
+  const [bulkPeople, setBulkPeople] = useState<Person[] | null>(null);
   const history = useQuery(
     api.people.queries.history,
     shownHistory ? { profileId: shownHistory } : "skip",
@@ -208,6 +210,7 @@ export function PeopleAdmin() {
   const closeEdit = useCallback(() => setSelectedId(null), []);
   const closeHistory = useCallback(() => setHistoryId(null), []);
   const closeAdd = useCallback(() => setAdding(false), []);
+  const closeBulk = useCallback(() => setBulkPeople(null), []);
 
   function openEdit(row: Person) {
     setSelectedId(row._id);
@@ -361,9 +364,7 @@ export function PeopleAdmin() {
           <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
             {formatStatus(row.status)}
           </StatusPill>
-          {row.selling ? (
-            <StatusPill tone="neutral">Sells from truck</StatusPill>
-          ) : null}
+          <StatusPill tone="neutral">{appModePill(row)}</StatusPill>
         </span>
       ),
     },
@@ -545,9 +546,36 @@ export function PeopleAdmin() {
           range={cursorRange(cursors.length, PEOPLE_PAGE_SIZE, result)}
           columns={columns}
           rowKey={(row) => row._id}
+          bulkActions={
+            canManage
+              ? [{ label: "Set app mode", run: (rows) => setBulkPeople(rows) }]
+              : []
+          }
         />
       )}
       {pager(invited ? invitationPage : result)}
+
+      <Drawer open={!!bulkPeople} title="Set app mode" onClose={closeBulk}>
+        {bulkPeople ? (
+          <BulkAppMode
+            people={bulkPeople.map((p) => ({
+              profileId: p._id,
+              name: p.name?.trim() || p.email,
+              role: p.role,
+              status: p.status,
+              appMode: p.appMode,
+              selling: p.selling,
+            }))}
+            save={(args) => saveAppMode(args)}
+            onCancel={closeBulk}
+            onDone={(message) => {
+              setBulkPeople(null);
+              setError("");
+              setNotice(message);
+            }}
+          />
+        ) : null}
+      </Drawer>
 
       <Drawer
         open={!!selected}
@@ -561,21 +589,20 @@ export function PeopleAdmin() {
       >
         {selected ? (
           <div className="grid gap-6">
-            <SellingSwitch
-              key={`${selected._id}-selling`}
+            <AppModeChoice
+              key={`${selected._id}-app-mode`}
               target={{
                 profileId: selected._id,
                 role: selected.role,
                 status: selected.status,
+                appMode: selected.appMode,
                 selling: selected.selling,
               }}
               canManage={canManage}
               save={async (args) => {
-                await saveSelling(args);
+                await saveAppMode(args);
                 setNotice(
-                  args.selling
-                    ? `${selected.name?.trim() || selected.email} can now sell from the truck.`
-                    : `${selected.name?.trim() || selected.email} can no longer sell from the truck.`,
+                  `${selected.name?.trim() || selected.email} now uses ${appModePill({ role: selected.role, appMode: args.mode })}.`,
                 );
               }}
             />

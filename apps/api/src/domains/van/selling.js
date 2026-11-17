@@ -18,12 +18,48 @@ export const FIELD_APP = "field-android";
 export const sellingFor = (p) =>
   Boolean(p && (p.role === "super_admin" || (p.selling && p.role === "sales")));
 
+/** SP-0194: the Field app modes the office picks per person (Setup > People > App mode). `mapping` is the default. */
+export const APP_MODES = /** @type {const} */ ([
+  "mapping",
+  "visits",
+  "selling",
+]);
+
+/** The mode the phone should show for a profile row. A stored `selling` mode only counts while the Selling rule above
+ * says this person sells (a Sales person moved to another role falls back to Field visits, today's app minus Sell);
+ * an unknown value reads as the default. super_admin keeps the stored value (they may switch on the phone).
+ * @param {{app_mode?: unknown, selling?: unknown, role?: unknown}|null|undefined} p
+ * @returns {"mapping"|"visits"|"selling"} */
+export function appModeFor(p) {
+  const stored = APP_MODES.find((m) => m === p?.app_mode) ?? "mapping";
+  if (stored === "selling" && !sellingFor(p)) return "visits";
+  return stored;
+}
+
+/** Modes this person may use on the phone: every mode for super_admin, otherwise just their one mode.
+ * @param {{app_mode?: unknown, selling?: unknown, role?: unknown}|null|undefined} p */
+export const appModesFor = (p) =>
+  p?.role === "super_admin" ? [...APP_MODES] : [appModeFor(p)];
+
 /** Is Selling effective for this person right now? @param {any} db @param {string|null|undefined} profileId */
 export async function sellingOn(db, profileId) {
   if (!profileId) return false;
   const [p] =
     await db`select selling,role from profiles where id=${profileId} and deleted_at is null`;
   return sellingFor(p);
+}
+
+/** SP-0194: what the Field app's `/api/me` profile carries: Selling, App mode and the modes the person may use.
+ * @param {any} db @param {string|null|undefined} profileId */
+export async function fieldAppProfile(db, profileId) {
+  const [p] = profileId
+    ? await db`select selling,role,app_mode from profiles where id=${profileId} and deleted_at is null`
+    : [];
+  return {
+    selling: sellingFor(p),
+    appMode: appModeFor(p),
+    modes: appModesFor(p),
+  };
 }
 
 /** @param {any} db @param {{app?:string, profile_id?:string|null}|null|undefined} device */

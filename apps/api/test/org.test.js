@@ -389,6 +389,200 @@ describe("people, invitations and teams", () => {
     expect(last.selling).toBe(false);
     expect(Number(last.scope_epoch)).toBe(Number(before[0].scope_epoch) + 2);
   });
+  test("SP-0194 an administrator sets each person's App mode (one or many); audited, phone refreshes, rules hold", async () => {
+    const seller2 = await person("Seller Two", "sales", regionA.id);
+    const epoch = async (/** @type {string} */ id) =>
+      (
+        await h.db`select scope_epoch,app_mode,selling from profiles where id=${id}`
+      )[0];
+    const before = await epoch(sales.profileId);
+    // The earlier Selling on/off left this person on Field visits (old switch off = Field visits).
+    expect(before.app_mode).toBe("visits");
+    expect((await epoch(seller2.profileId)).app_mode).toBe("mapping"); // the default
+    const set = (/** @type {any} */ who, /** @type {any} */ body) =>
+      call("people/app-mode", who, body);
+    // Admin only; nobody changes their own; a manager cannot.
+    expect(
+      (await set(sales, { profileId: sales.profileId, mode: "visits" })).status,
+    ).toBe(403);
+    expect(
+      (await set(manager, { profileId: sales.profileId, mode: "visits" }))
+        .status,
+    ).toBe(403);
+    expect(
+      (await set(admin, { profileId: admin.profileId, mode: "visits" })).status,
+    ).toBe(403);
+    // Truck selling only for Sales; the owner already has every mode; unknown modes refused.
+    const notSales = await set(admin, {
+      profileId: manager.profileId,
+      mode: "selling",
+    });
+    expect(notSales.status).toBe(422);
+    expect(
+      (await set(boss, { profileId: boss.profileId, mode: "visits" })).status,
+    ).toBe(403);
+    expect(
+      (await set(admin, { profileId: sales.profileId, mode: "truck" })).status,
+    ).toBe(422);
+    expect((await set(admin, { profileIds: [], mode: "visits" })).status).toBe(
+      422,
+    );
+    expect(
+      (
+        await set(admin, {
+          profileIds: Array.from({ length: 201 }, () => crypto.randomUUID()),
+          mode: "visits",
+        })
+      ).status,
+    ).toBe(422);
+    // Field visits for one person: audited, scope_epoch bumped, selling stays off.
+    const one = await set(admin, {
+      profileId: sales.profileId,
+      mode: "visits",
+    });
+    expect(one.status, JSON.stringify(one.body)).toBe(200);
+    expect(one.body).toEqual({
+      profileId: sales.profileId,
+      appMode: "visits",
+      selling: false,
+    });
+    const afterOne = await epoch(sales.profileId);
+    expect(afterOne.app_mode).toBe("visits");
+    expect(Number(afterOne.scope_epoch)).toBe(Number(before.scope_epoch) + 1);
+    const [log] =
+      await h.db`select details from audit_logs where action='people.app-mode' and entity_id=${sales.profileId} order by created_at desc limit 1`;
+    expect(log.details).toBe("App mode set to Field visits");
+    // Bulk: two Sales people to Truck selling at once; selling follows the mode; one audit row per person.
+    const s2 = await epoch(seller2.profileId);
+    const bulk = await set(admin, {
+      profileIds: [sales.profileId, seller2.profileId],
+      mode: "selling",
+    });
+    expect(bulk.status, JSON.stringify(bulk.body)).toBe(200);
+    expect(bulk.body.people.map((/** @type {any} */ p) => p.appMode)).toEqual([
+      "selling",
+      "selling",
+    ]);
+    for (const [id, was] of [
+      [sales.profileId, afterOne],
+      [seller2.profileId, s2],
+    ]) {
+      const now = await epoch(id);
+      expect(now.app_mode).toBe("selling");
+      expect(now.selling).toBe(true);
+      expect(Number(now.scope_epoch)).toBe(Number(was.scope_epoch) + 1);
+      const [row] =
+        await h.db`select details from audit_logs where action='people.app-mode' and entity_id=${id} order by created_at desc limit 1`;
+      expect(row.details).toBe("App mode set to Truck selling");
+    }
+    // Bulk is all or nothing: one non-Sales person in the list refuses the whole change.
+    const mixed = await set(admin, {
+      profileIds: [seller2.profileId, manager.profileId],
+      mode: "selling",
+    });
+    expect(mixed.status).toBe(422);
+    expect(mixed.body.message ?? JSON.stringify(mixed.body)).toContain(
+      "Only Sales people can use Truck selling",
+    );
+    const dup = await set(admin, {
+      profileIds: [seller2.profileId, seller2.profileId],
+      mode: "visits",
+    });
+    expect(dup.status).toBe(422);
+    // Moving back to Customer mapping turns selling off again.
+    expect(
+      (await set(admin, { profileIds: [seller2.profileId], mode: "mapping" }))
+        .status,
+    ).toBe(200);
+    expect(await epoch(seller2.profileId)).toMatchObject({
+      app_mode: "mapping",
+      selling: false,
+    });
+    // The list shows each person's mode.
+    const list = await call(`people/list?q=Seller`, admin);
+    const row = (/** @type {string} */ id) =>
+      list.body.page.find((/** @type {any} */ p) => p._id === id);
+    expect(row(sales.profileId).appMode).toBe("selling");
+    expect(row(seller2.profileId).appMode).toBe("mapping");
+    // The old Selling switch still works and maps onto the mode.
+    expect(
+      (
+        await call("people/selling", admin, {
+          profileId: sales.profileId,
+          selling: false,
+        })
+      ).status,
+    ).toBe(200);
+    expect(await epoch(sales.profileId)).toMatchObject({
+      app_mode: "visits",
+      selling: false,
+    });
+    expect(
+      (
+        await call("people/selling", admin, {
+          profileId: seller2.profileId,
+          selling: true,
+        })
+      ).status,
+    ).toBe(200);
+    expect(await epoch(seller2.profileId)).toMatchObject({
+      app_mode: "selling",
+      selling: true,
+    });
+    // A Truck selling person moved out of Sales keeps Field visits, never selling.
+    const moved = await call("people/assign", admin, {
+      profileId: seller2.profileId,
+      orgUnitId: regionA.id,
+      role: "viewer",
+      reason: "Moved to the office",
+    });
+    expect(moved.status, JSON.stringify(moved.body)).toBe(200);
+    expect(await epoch(seller2.profileId)).toMatchObject({
+      app_mode: "visits",
+      selling: false,
+    });
+    // Inactive people cannot change.
+    await h.db`update profiles set status='disabled' where id=${seller2.profileId}`;
+    expect(
+      (await set(admin, { profileId: seller2.profileId, mode: "mapping" }))
+        .status,
+    ).toBe(422);
+    await h.db`update profiles set app_mode='mapping',selling=false where id=${sales.profileId}`;
+  });
+  test("SP-0194 migration backfill: Sales with Selling on and the owner get Truck selling; everyone else Customer mapping", async () => {
+    const sql = await Bun.file(
+      new URL(
+        "../../../packages/db/migrations/0833_profile_app_mode.sql",
+        import.meta.url,
+      ),
+    ).text();
+    const seller3 = await person("Seller Three", "sales", regionA.id);
+    /** @type {any} */ let seen;
+    try {
+      await h.db.begin(async (/** @type {any} */ t) => {
+        await t`alter table profiles drop constraint profiles_app_mode_check`;
+        await t`alter table profiles drop column app_mode`;
+        await t`update profiles set selling=true where id in (${seller3.profileId}, ${manager.profileId})`;
+        await t`update profiles set selling=false where id=${sales.profileId}`;
+        await t.unsafe(sql);
+        seen = Object.fromEntries(
+          (
+            await t`select id,app_mode,selling from profiles where id in (${seller3.profileId},${manager.profileId},${sales.profileId},${boss.profileId})`
+          ).map((/** @type {any} */ r) => [r.id, [r.app_mode, r.selling]]),
+        );
+        throw new Error("rollback");
+      });
+    } catch (e) {
+      if (/** @type {Error} */ (e).message !== "rollback") throw e;
+    }
+    expect(seen[seller3.profileId]).toEqual(["selling", true]);
+    expect(seen[sales.profileId]).toEqual(["mapping", false]);
+    expect(seen[manager.profileId]).toEqual(["mapping", false]); // a stale switch on a non-Sales person
+    expect(seen[boss.profileId]).toEqual(["selling", true]);
+    const [kept] =
+      await h.db`select app_mode from profiles where id=${seller3.profileId}`;
+    expect(kept.app_mode).toBe("mapping"); // rolled back to the real schema
+  });
   test("IP-INT2 ask 6: the office keeps a staff phone number on the same assignment screen; bad numbers and non-admins are refused", async () => {
     const b = {
       profileId: sales.profileId,

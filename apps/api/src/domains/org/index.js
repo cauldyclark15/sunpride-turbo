@@ -35,6 +35,7 @@ import { rootUnitId } from "./scope.js";
 import {
   assignPerson,
   setSelling,
+  setAppMode,
   geographyCommand,
   invitationCommand,
   orgCommand,
@@ -435,6 +436,7 @@ export function install(router, platform) {
   command("people/assign", "admin.manage", assignPerson);
   // SP-0191: per-person Selling switch (Setup > People).
   command("people/selling", "admin.manage", setSelling);
+  command("people/app-mode", "admin.manage", setAppMode);
   command("people/invite", "admin.manage", (c, b) =>
     invitationCommand(c, "invite", b),
   );

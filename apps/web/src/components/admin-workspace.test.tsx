@@ -681,20 +681,24 @@ describe("People admin", () => {
     expect(view).not.toContain(">Supervisor</span>");
     expect(view).toContain("Page 1");
   });
-  it("SP-0191 the person's page has the Selling switch, and the list says who sells from the truck", () => {
+  it("SP-0194 the person's page has the App mode choice, and the list shows each person's mode", () => {
     state.values["people/queries:list"] = {
-      page: [{ ...person, selling: true }, manager],
+      page: [{ ...person, appMode: "selling", selling: true }, manager],
       continueCursor: "",
       isDone: true,
     };
     state.selectedOverride = person._id;
     const view = html(createElement(PeopleAdmin));
-    expect(view).toContain("Sells from truck");
-    expect(view).toContain(">Selling<");
+    expect(view).toContain(">Truck selling</span>");
+    expect(view).toContain(">Customer mapping</span>"); // the manager's default
+    expect(view).toContain(">App mode<");
     expect(view).toContain(
-      "Lets this person sell from the truck in the Field app",
+      "Add and update customers. Home is one big Add customer button.",
     );
-    expect(view).toContain('role="switch" aria-checked="true"');
+    expect(view).toContain("Store visits, route and orders.");
+    expect(view).toContain("Sell from the truck and print receipts.");
+    expect(view).toMatch(/checked="" value="selling"/);
+    expect(view).not.toContain('role="switch"');
   });
   it("uses email as the title when a person has no name, without repeating it in metadata", () => {
     state.values["people/queries:list"] = {

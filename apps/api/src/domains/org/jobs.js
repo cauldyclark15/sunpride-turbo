@@ -42,6 +42,12 @@ export function installOrgJobs(platform) {
             org_unit_id: effective.org_unit_id,
             position_id: effective.position_id,
             supervisor_subject: supervisor?.auth_subject,
+            // SP-0194: Truck selling is for Sales people only (same rule as people/assign).
+            ...(effective.role !== "sales" &&
+            effective.role !== "super_admin" &&
+            row.app_mode === "selling"
+              ? { app_mode: "visits", selling: false }
+              : {}),
           });
         }
         await update(t, payload.table, row.id, values);

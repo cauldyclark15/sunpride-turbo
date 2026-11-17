@@ -29,6 +29,7 @@ import {
   topology,
 } from "./scope.js";
 import { access } from "./readers.js";
+import { writeAudit } from "./audit.js";
 
 /** @typedef {import('./model.js').Ctx} Ctx */
 /** @typedef {import('./model.js').Row} Row */
@@ -268,6 +269,10 @@ export async function assignPerson(c, b) {
       position_id: b.positionId ?? target.position_id,
       supervisor_subject: supervisor?.auth_subject,
       effective_from: instant(from),
+      // SP-0194: Truck selling is for Sales people only; someone moved to another role keeps Field visits.
+      ...(role !== "sales" && target.app_mode === "selling"
+        ? { app_mode: "visits", selling: false }
+        : {}),
     });
   await update(c.db, "profiles", target.id, projection);
   return null;
@@ -295,8 +300,80 @@ export async function setSelling(c, b) {
       ? "Selling switched on"
       : "Selling switched off";
   const [row] =
-    await c.db`update profiles set selling=${b.selling},scope_epoch=scope_epoch+1,updated_at=now() where id=${target.id} returning selling`;
+    await c.db`update profiles set selling=${b.selling},app_mode=${b.selling ? "selling" : target.app_mode === "selling" ? "visits" : (target.app_mode ?? "mapping")},scope_epoch=scope_epoch+1,updated_at=now() where id=${target.id} returning selling`;
   return { profileId: target.id, selling: row.selling };
+}
+
+/** SP-0194: plain names of the Field app modes (Setup > People > App mode). */
+export const APP_MODE_LABELS = /** @type {const} */ ({
+  mapping: "Customer mapping",
+  visits: "Field visits",
+  selling: "Truck selling",
+});
+export const APP_MODE_BULK_MAX = 200;
+
+/** SP-0194: Setup > People "App mode" for one person ({profileId, mode}) or many ({profileIds, mode}, up to 200).
+ * Admin-only (admin.manage; the wrapper checks it and audits). Only active people; Truck selling only for Sales;
+ * the owner (super_admin) always has every mode; nobody changes their own. Keeps `selling` = (mode is selling)
+ * for old phone builds and bumps scope_epoch so the phone refreshes. All or nothing.
+ * @param {Ctx} c @param {Row} b */
+export async function setAppMode(c, b) {
+  const actor = /** @type {NonNullable<Ctx['actor']>} */ (c.actor);
+  const mode = /** @type {keyof typeof APP_MODE_LABELS} */ (b.mode);
+  if (!Object.hasOwn(APP_MODE_LABELS, mode))
+    rule("Choose Customer mapping, Field visits or Truck selling");
+  const bulk = b.profileIds !== undefined;
+  if (bulk && b.profileId !== undefined)
+    rule("Choose one person or a list of people");
+  const ids = bulk ? b.profileIds : [b.profileId];
+  if (!Array.isArray(ids) || !ids.length || ids.length > APP_MODE_BULK_MAX)
+    rule(`Choose 1 to ${APP_MODE_BULK_MAX} people`);
+  if (new Set(ids).size !== ids.length) rule("Each person can be chosen once");
+  /** @type {Row[]} */ const targets = [];
+  for (const id of ids)
+    targets.push(await access(c, "people", uuid(id), "admin.manage"));
+  for (const target of targets) {
+    const who = target.name?.trim() || target.email || "this person";
+    if (target.id === actor.profileId)
+      throw new ApiError(
+        "forbidden",
+        403,
+        "Ask another administrator to change your own app mode",
+      );
+    if (target.role === "super_admin")
+      rule(`${who} is the owner and already has every app mode`);
+    if (target.status !== "active")
+      rule(`${who} is not active, so their app mode cannot change`);
+    if (mode === "selling" && target.role !== "sales")
+      rule(`Only Sales people can use Truck selling (${who})`);
+  }
+  const label = APP_MODE_LABELS[mode];
+  b.reason = b.reason
+    ? required(b.reason, "Reason")
+    : bulk
+      ? `App mode set to ${label} for ${targets.length} ${targets.length === 1 ? "person" : "people"}`
+      : `App mode set to ${label}`;
+  /** @type {{profileId: string, appMode: string, selling: boolean}[]} */
+  const people = [];
+  for (const target of targets) {
+    const [row] =
+      await c.db`update profiles set app_mode=${mode},selling=${mode === "selling"},scope_epoch=scope_epoch+1,updated_at=now() where id=${target.id} returning id,app_mode,selling`;
+    // The wrapper audits a single change against the person; a bulk change gets one row per person here too.
+    if (bulk)
+      await writeAudit(c.db, {
+        subject: actor.subject,
+        action: "people.app-mode",
+        entityType: "people",
+        entityId: target.id,
+        details: `App mode set to ${label}`,
+      });
+    people.push({
+      profileId: row.id,
+      appMode: row.app_mode,
+      selling: row.selling,
+    });
+  }
+  return bulk ? { mode, people } : people[0];
 }
 
 /** @param {Ctx} c @param {'invite'|'revoke'} action @param {Row} b */

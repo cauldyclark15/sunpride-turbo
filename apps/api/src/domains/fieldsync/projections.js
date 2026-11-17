@@ -38,7 +38,7 @@ import {
   uuid,
 } from "./model.js";
 import { customerMasterSummaries } from "../masters/customers.js";
-import { FIELD_APP, sellingFor } from "../van/selling.js";
+import { FIELD_APP, appModeFor, sellingFor } from "../van/selling.js";
 
 /** @typedef {import('../../core/sync.js').ProjectionCtx} ProjectionCtx */
 
@@ -755,6 +755,12 @@ async function bundleData(ctx) {
       ...(ctx.app === FIELD_APP
         ? {
             selling: sellingFor({
+              selling: person.selling,
+              role: ctx.actor.role,
+            }),
+            // SP-0194: the office's App mode for this person (mapping|visits|selling); old builds ignore it.
+            appMode: appModeFor({
+              app_mode: person.app_mode,
               selling: person.selling,
               role: ctx.actor.role,
             }),
