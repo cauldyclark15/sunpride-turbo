@@ -191,6 +191,39 @@ class StoreMigrationTest {
             db.query("SELECT COUNT(*) FROM deltas WHERE entity='$DISMISSED_REVIEWS'").use { c -> c.moveToFirst(); assertEquals(0, c.getInt(0)) }
         }
     }
+    /** SP-0192: v10 -> v11 adds the Sell area's empty tables; every field row and every unsent item is kept as it was. */
+    @Test fun v10ToV11KeepsFieldWorkAndAddsEmptySellTables() {
+        val name = "migration-sell-v10.db"
+        helper.createDatabase(name, 10).apply {
+            execSQL("INSERT INTO partitions (account,deviceId,scope,activeGeneration,cursor,syncHealth,held,lastSuccessfulSync) VALUES ('a','d','s','g','cursor','synced',0,123)")
+            execSQL("INSERT INTO snapshots (account,deviceId,scope,generation,kind,entityId,json,serviceDate,snapshotOrder) VALUES ('a','d','s','g','visit','z','{}','2026-11-17',3)")
+            execSQL("INSERT INTO intents (account,deviceId,scope,requestId,clientVisitId,kind,serializedOperation,createdAt) VALUES ('a','d','s','r','v','visit.checkIn','immutable-r',1)")
+            execSQL("INSERT INTO outbox (account,deviceId,scope,requestId,createdAt,state) VALUES ('a','d','s','r',1,'pending')")
+            execSQL("INSERT INTO location_pings (account,deviceId,scope,clientPingId,recordedAt,json) VALUES ('a','d','s','ping',1,'{}')")
+            close()
+        }
+        helper.runMigrationsAndValidate(name, 11, true, SellMigration.MIGRATION_10_11).use { db ->
+            db.query("SELECT cursor,lastSuccessfulSync FROM partitions WHERE scope='s'").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals("cursor", c.getString(0)); assertEquals(123L, c.getLong(1))
+            }
+            db.query("SELECT serializedOperation,state FROM intents JOIN outbox USING (account,deviceId,scope,requestId) WHERE requestId='r'").use { c ->
+                assertEquals(true, c.moveToFirst()); assertEquals("immutable-r", c.getString(0)); assertEquals("pending", c.getString(1))
+            }
+            db.query("SELECT snapshotOrder FROM snapshots WHERE entityId='z'").use { c -> assertEquals(true, c.moveToFirst()); assertEquals(3, c.getInt(0)) }
+            db.query("SELECT COUNT(*) FROM location_pings").use { c -> c.moveToFirst(); assertEquals(1, c.getInt(0)) }
+            for (table in listOf("sell_outbox", "sell_sale", "sell_trip", "sell_sync_meta", "sell_receipt_print"))
+                db.query("SELECT COUNT(*) FROM $table").use { c -> c.moveToFirst(); assertEquals(table, 0, c.getInt(0)) }
+        }
+    }
+    @Test fun completeV1ToV11ChainValidates() {
+        val name = "migration-sell-v1.db"
+        helper.createDatabase(name, 1).close()
+        helper.runMigrationsAndValidate(name, 11, true, EncryptedFieldDatabase.MIGRATION_1_2,
+            EncryptedFieldDatabase.MIGRATION_2_3, EncryptedFieldDatabase.MIGRATION_3_4,
+            EncryptedFieldDatabase.MIGRATION_4_5, EncryptedFieldDatabase.MIGRATION_5_6,
+            EncryptedFieldDatabase.MIGRATION_6_7, EncryptedFieldDatabase.MIGRATION_7_8,
+            EncryptedFieldDatabase.MIGRATION_8_9, EncryptedFieldDatabase.MIGRATION_9_10, SellMigration.MIGRATION_10_11).close()
+    }
     @Test fun completeV1ToV9ChainValidates() {
         val name = "migration-pings-v1.db"
         helper.createDatabase(name, 1).close()

@@ -1,5 +1,7 @@
 package com.sunpride.field.ui
 
+import androidx.compose.foundation.layout.PaddingValues
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -438,7 +440,9 @@ fun FieldApp(
                             ?.takeIf { id -> controller.today.customers.any { it.outletId == id } }
                             ?.let { id -> customerId = id; page = "customer"; true } ?: false
                     })
-                ready && page == "sell" && sellHost != null -> com.sunpride.field.sell.SellArea(sellHost, onLeave = { page = "home"; origin = "home" }, modifier = modifier)
+                // The Sell area's red selling header runs up under the status bar, as in the Van app (it pads itself).
+                ready && page == "sell" && sellHost != null -> com.sunpride.field.sell.SellArea(sellHost, onLeave = { page = "home"; origin = "home" },
+                    modifier = PaddingValues(bottom = padding.calculateBottomPadding()).let { Modifier.padding(it).consumeWindowInsets(it) })
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = origin },
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier, now = now)
                 ready && page == "more" -> MoreScreen(modifier = modifier, status = status, now = now,

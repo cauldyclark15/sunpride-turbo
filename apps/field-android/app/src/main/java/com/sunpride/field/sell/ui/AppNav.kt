@@ -32,7 +32,7 @@ data class NavDest(val id: String, val label: String, val glyph: GlyphKind, val 
 
 /**
  * SP-0192: the Sell area's own places, as plain data so it is unit-tested. The Field app's bottom bar has ONE Sell tab;
- * inside it these five sit in a row under the title (the Van app's Today/Sell/Stock/Receipts/More, same words).
+ * inside it these five sit in a row just above that bar (the Van app's Today/Sell/Stock/Receipts/More; Today is "Trip" here).
  * Every page belongs to exactly one of them, or to none (Payment/Complete: the row and the Field bar both step aside).
  */
 object AppNav {
@@ -101,7 +101,7 @@ object SellSyncWords {
 }
 
 
-/** SP-0192: the Sell area's five places in one row under the title; the selected one is filled. Hidden in the sale flow. */
+/** SP-0192: the Sell area's five places in one row above the Field bar; the selected one is filled. Hidden in the sale flow. */
 @Composable fun SellTabRow(c: VanController, modifier: Modifier = Modifier) {
     val current = AppNav.tabOf(c.page)
     Row(modifier.fillMaxWidth().background(Look.sheet).padding(horizontal = 8.dp, vertical = 6.dp).selectableGroup().testTag("sell-tabs"),
@@ -132,9 +132,13 @@ private fun selectTab(c: VanController, d: NavDest) {
     val imeUp = WindowInsets.isImeVisible
     val show = AppNav.barVisible(c.page, c.navHidden) && !imeUp
     Column(Modifier.fillMaxSize().background(Look.canvas)) {
-        if (show) SellTabRow(c)
         Box(Modifier.weight(1f).fillMaxWidth()) {
             CompositionLocalProvider(LocalNavBarShown provides true) { content() }
+        }
+        // Where the Van app's own bar was: at the bottom, just above the Field app's bar.
+        if (show) {
+            Box(Modifier.fillMaxWidth().height(1.dp).background(Look.hairline))
+            SellTabRow(c)
         }
     }
 }

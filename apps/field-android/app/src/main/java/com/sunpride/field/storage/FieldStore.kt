@@ -268,7 +268,8 @@ object EncryptedFieldDatabase {
     suspend fun unsentOnPhone(context: Context): Int {
         if (!context.databaseList().contains(PassphraseVault.DB_NAME)) return 0
         val db = open(context)
-        return try { db.rows().unsentOnPhone() } finally { db.close() }
+        // SP-0192: unsent sales in the Sell area count as unsent work too.
+        return try { db.rows().unsentOnPhone() + db.sellRows().unsentOnPhone() } finally { db.close() }
     }
 
     suspend fun purgeExisting(context: Context) {

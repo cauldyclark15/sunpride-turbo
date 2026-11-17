@@ -237,6 +237,8 @@ interface VanDao {
     @Query("UPDATE sell_outbox SET status='pending' WHERE fullAuthSubject=:subject AND deviceId=:device AND status='sending'") suspend fun resetSending(subject: String, device: String)
     @Query("UPDATE sell_outbox SET status='done',rejectionCode=NULL WHERE fullAuthSubject=:subject AND deviceId=:device AND clientRequestId=:id AND status IN ('pending','sending') AND EXISTS (SELECT 1 FROM sell_ack WHERE sell_ack.fullAuthSubject=sell_outbox.fullAuthSubject AND sell_ack.deviceId=sell_outbox.deviceId AND sell_ack.clientRequestId=sell_outbox.clientRequestId)") suspend fun markDone(subject: String, device: String, id: String)
     @Query("UPDATE sell_outbox SET status=:status,rejectionCode=:code WHERE fullAuthSubject=:subject AND deviceId=:device AND clientRequestId=:id AND status IN ('pending','sending')") suspend fun reject(subject: String, device: String, id: String, status: String, code: String)
+    /** SP-0192: unsent selling work on this phone, whoever is (not) signed in (the Field sign-in screen counts it too). */
+    @Query("SELECT COUNT(*) FROM sell_outbox WHERE status IN ('pending','sending')") suspend fun unsentOnPhone(): Int
     @Query("SELECT * FROM sell_sequence_counter WHERE fullAuthSubject=:subject AND deviceId=:device AND tripId=:tripId") suspend fun counter(subject: String, device: String, tripId: String): SequenceCounterRow?
 }
 

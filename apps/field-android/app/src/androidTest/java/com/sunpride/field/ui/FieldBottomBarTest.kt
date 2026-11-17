@@ -19,14 +19,20 @@ import org.junit.Test
 class FieldBottomBarTest {
     @get:Rule val rule = createComposeRule()
 
-    @Test fun everyLabelFitsAtTheLargestFontOnANarrowPhone() {
+    @Test fun everyLabelFitsAtTheLargestFontOnANarrowPhone() = fits(FieldNav.tabs(selling = false))
+
+    /** SP-0192: with Sell on, six labels share the same 360 dp and still stay whole at the largest font. */
+    @Test fun sixLabelsWithSellFitAtTheLargestFontOnANarrowPhone() = fits(FieldNav.tabs(selling = true))
+
+    private fun fits(tabs: List<FieldTab>) {
         rule.setContent {
             val d = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(d.density, 2.0f)) {
-                FieldBottomBar(FieldTab.TODAY, unread = 3, onSelect = {}, modifier = Modifier.width(360.dp))
+                FieldBottomBar(FieldTab.TODAY, unread = 3, onSelect = {}, modifier = Modifier.width(360.dp), tabs = tabs)
             }
         }
-        for (tab in FieldTab.entries) {
+        if (FieldTab.SELL !in tabs) rule.onNodeWithTag(FieldTab.SELL.tag).assertDoesNotExist()
+        for (tab in tabs) {
             val node = rule.onNodeWithText(tab.label, useUnmergedTree = true).fetchSemanticsNode()
             val layouts = mutableListOf<TextLayoutResult>()
             node.config[SemanticsActions.GetTextLayoutResult].action?.invoke(layouts)

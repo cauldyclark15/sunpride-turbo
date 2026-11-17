@@ -43,7 +43,7 @@ object FieldNav {
     const val MAX_BAR_LABEL_SCALE = 1.0f
     fun barLabelFontScale(system: Float): Float = minOf(system, MAX_BAR_LABEL_SCALE)
     /** SP-0192: six places (Sell on) share the same width, so their labels are a little smaller to stay whole. */
-    const val MAX_SIX_TAB_LABEL_SCALE = 0.85f
+    const val MAX_SIX_TAB_LABEL_SCALE = 0.8f
     fun barLabelFontScale(system: Float, tabCount: Int): Float =
         if (tabCount > 5) minOf(system, MAX_SIX_TAB_LABEL_SCALE) else barLabelFontScale(system)
     /** Pages that are the root of a tab: no Back arrow, system Back returns to Today. */
