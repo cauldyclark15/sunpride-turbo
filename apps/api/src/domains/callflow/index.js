@@ -202,8 +202,10 @@ async function vanCall(ctx) {
         (/** @type {any} */ a) =>
           a.sequence < target.sequence && !completed.has(a.outlet_id),
       );
+    // SP-0191: a van call is a van-path op on every selling phone, so it resolves the Van app's call-flow profile
+    // (the one van.bundle sent the phone), also when a Field app phone with Selling on sends it.
     const call = await beginCall(
-      { ...ctx, actor },
+      { ...ctx, actor, app: VAN_APP },
       {
         channelProfile: PROFILE_VAN,
         clientCallId: uuid(p.clientCallId),
@@ -600,6 +602,10 @@ export function install(router, installCtx) {
       try {
         return await vanCall(ctx);
       } catch (error) {
+        // SP-0191: a Field app phone whose Selling was switched off gets the same final "access changed" refusal
+        // as its other van ops.
+        if (error instanceof ApiError && error.code === "out_of_scope")
+          return ctx.reject("out_of_scope");
         if (error instanceof ApiError && [400, 409, 422].includes(error.status))
           return ctx.reject("invalid_request");
         throw error;

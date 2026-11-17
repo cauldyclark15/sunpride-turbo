@@ -677,6 +677,71 @@ test("F-107 F-120 F-205 van calls run the same engine through signed API operati
   ]);
 });
 
+test("SP-0191 a Field app phone with Selling on runs van calls on the Van call flow; with Selling off they are refused as final", async () => {
+  const f = await fixture({ app: "field-android" });
+  const trip = crypto.randomUUID(),
+    vehicle = crypto.randomUUID(),
+    truck = crypto.randomUUID(),
+    depot = crypto.randomUUID();
+  for (const [id, type] of [
+    [truck, "truck"],
+    [depot, "warehouse"],
+  ])
+    await h.db`insert into inventory_locations(id,organization_id,org_unit_id,site_code,code,name,type,active,allows_picking,allows_receiving,allows_sale,allows_production)
+      values (${id},'sunpride',${f.unit},'CEBU',${id},'Sample location',${type},true,true,true,true,false)`;
+  await h.db`insert into vehicles(id,organization_id,org_unit_id,vehicle_code,plate_number,truck_location_id,home_location_id,status,created_by)
+    values (${vehicle},'sunpride',${f.unit},${vehicle},'SAMPLE',${truck},${depot},'active','fixture')`;
+  await h.db`insert into van_trips(id,organization_id,org_unit_id,trip_number,vehicle_id,truck_location_id,source_location_id,service_date,salesperson_profile_id,salesperson_subject,status,started_at,started_device_id,created_by)
+ values (${trip},'sunpride',${f.unit},${trip},${vehicle},${truck},${depot},${f.day},${f.d.profile.id},${f.d.userId},'active',now(),${f.d.deviceId},'fixture')`;
+  const route = crypto.randomUUID(),
+    early = new Date(f.now - DAY);
+  await h.db`insert into routes(id,organization_id,code,name,status,effective_from,created_by) values (${route},'sunpride',${route},'Sample route','active',${early},'fixture')`;
+  await h.db`insert into route_territories(route_id,territory_id,effective_from,actor_subject,reason) values (${route},${f.territory},${early},'fixture','Sample route')`;
+  await h.db`update van_trips set route_id=${route} where id=${trip}`;
+  await h.db`update outlet_assignments set route_id=${route},sequence=1 where outlet_id=${f.outlet}`;
+  await h.db`update profiles set selling=true where id=${f.d.profile.id}`;
+  const vanFlow = await configuration(h.db, "van_selling", { id: f.outlet }, f.now);
+  const fieldFlow = await config(f);
+  if (!vanFlow || !fieldFlow) throw new Error("missing flows");
+  expect(vanFlow.definition.id).not.toBe(fieldFlow.definition.id);
+  /** @param {string} definition */
+  const callStart = (definition) =>
+    operation("call.start", {
+      tripId: trip,
+      clientCallId: crypto.randomUUID(),
+      outletId: f.outlet,
+      flowDefinitionId: definition,
+      deviceTime: f.now,
+      location: f.fix,
+    });
+  // The phone's van.bundle carries the Van flow, so that is the one the server must check against (was invalid_plan).
+  const op = callStart(vanFlow.definition.id);
+  const started = (await push(f, op))[0];
+  expect(started.status, JSON.stringify(started)).toBe("applied");
+  const [call] =
+    await h.db`select trip_id,device_id from call_executions where client_call_id=${op.payload.clientCallId}`;
+  expect(call).toMatchObject({ trip_id: trip, device_id: f.d.deviceId });
+  // Selling switched off: the next van call op is refused once and for all with the "access changed" code.
+  await h.db`update profiles set selling=false where id=${f.d.profile.id}`;
+  const refused = (
+    await push(
+      f,
+      operation("call.step", {
+        tripId: trip,
+        clientCallId: crypto.randomUUID(),
+        adapter: "note",
+        note: "after switch-off",
+        deviceTime: f.now + 1,
+      }),
+    )
+  )[0];
+  expect(refused).toMatchObject({
+    status: "rejected",
+    code: "out_of_scope",
+    retryable: false,
+  });
+});
+
 test("F-107 definition grammar supports later channel adapters without executable conditions", () => {
   const steps = [
     {
