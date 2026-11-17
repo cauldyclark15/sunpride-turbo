@@ -1,7 +1,7 @@
 import { domainInstallers } from "../domains/index.js";
 import { enforcePartnerHttp } from "../domains/partners/boundary.js";
 import { installAuth } from "./auth.js";
-import { buildCtx } from "./context.js";
+import { buildCtx, passwordChangeBlocks } from "./context.js";
 import { installDevices } from "./devices.js";
 import { ApiError } from "./errors.js";
 import { registerTopic } from "./hooks.js";
@@ -134,6 +134,12 @@ export function createApp(opts) {
         publish,
         enqueue,
       });
+      if (passwordChangeBlocks(ctx.user, url.pathname))
+        throw new ApiError(
+          "password_change_required",
+          403,
+          "Set a new password first.",
+        );
       await enforcePartnerHttp(ctx);
       const result = await route.handler(ctx);
       /** @type {Response} */

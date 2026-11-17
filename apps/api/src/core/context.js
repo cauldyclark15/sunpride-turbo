@@ -7,7 +7,7 @@ import { sha256Hex } from "./util.js";
  * @typedef {{ userId: string, profileId: string, role: string, orgUnitId: string|null,
  *   capabilities: Set<string>, subject: string, name: string|null, scopeEpoch: string|null }} Actor
  * @typedef {{ id: string, userId: string, app: string, deviceKeyId: string|null, expiresAt: number }} SessionInfo
- * @typedef {{ id: string, email: string }} UserInfo
+ * @typedef {{ id: string, email: string, mustChangePassword?: boolean }} UserInfo
  * @typedef {{ kind: string, key?: string|null, runAt?: Date|number|null, payload?: unknown }} JobSpec
  * @typedef {{
  *   db: Db, actor: Actor|null, req: Request, url: URL, body: any, rawBody: Uint8Array, now: number,
@@ -19,6 +19,16 @@ import { sha256Hex } from "./util.js";
  */
 
 export const SESSION_COOKIE = "sp_session";
+
+/** SP-0185: while a person must set a new password, only these signed-in routes answer
+ * (every `/api/auth/*` route is either public or one of me/change-password/sign-out/refresh). */
+export function passwordChangeBlocks(/** @type {any} */ user, /** @type {string} */ pathname) {
+  return Boolean(
+    user?.mustChangePassword &&
+      pathname !== "/api/me" &&
+      !pathname.startsWith("/api/auth/"),
+  );
+}
 
 /** Native office clients (SP-0165): native session/refresh, but the caller is an office
  * user exactly like a web session — web `/api/me`, web error bodies (with the server's own
@@ -72,7 +82,7 @@ const sessionInfo = (row) => ({
  */
 export async function sessionByToken(db, token) {
   const rows = await db`
-    select s.id as session_id, s.user_id, s.app, s.device_key_id, s.expires_at, s.last_seen_at, u.email
+    select s.id as session_id, s.user_id, s.app, s.device_key_id, s.expires_at, s.last_seen_at, u.email, u.must_change_password
     from sessions s join users u on u.id = s.user_id
     where s.token_hash = ${sha256Hex(token)} and s.revoked_at is null and s.expires_at > now() and u.disabled_at is null`;
   return rows[0] ?? null;
@@ -92,7 +102,7 @@ export async function resolveAuth(db, req) {
   let accessExpiresAt = null;
   if (bearer?.startsWith("spa_")) {
     const rows = await db`
-      select s.id as session_id, s.user_id, s.app, s.device_key_id, s.expires_at, s.last_seen_at, u.email,
+      select s.id as session_id, s.user_id, s.app, s.device_key_id, s.expires_at, s.last_seen_at, u.email, u.must_change_password,
              a.expires_at as access_expires_at
       from access_tokens a join sessions s on s.id = a.session_id join users u on u.id = s.user_id
       where a.token_hash = ${sha256Hex(bearer)} and a.expires_at > now()
@@ -156,7 +166,11 @@ export async function resolveAuth(db, req) {
   )
     await db`update sessions set last_seen_at = now() where id = ${row.session_id}`;
   const session = sessionInfo(row);
-  const user = { id: row.user_id, email: String(row.email) };
+  const user = {
+    id: row.user_id,
+    email: String(row.email),
+    ...(row.must_change_password ? { mustChangePassword: true } : {}),
+  };
   const actor = await actorFor(db, user.id);
   return { user, session, actor, via, accessExpiresAt };
 }

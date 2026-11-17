@@ -32,6 +32,7 @@ import {
 import { reply } from "./router.js";
 import { scopeOf } from "./scope.js";
 import { HEX64_RE, isPlainObject, randomToken, sha256Hex } from "./util.js";
+import { installPasswordReset } from "./password-reset.js";
 
 /** The one row that speaks for a handheld key: a live (active) row beats a newer revoked, suspended or pending one,
  * so an old removed row never overrules the person's current registration. SQL ordering fragment.
@@ -159,6 +160,7 @@ function readDeviceKey(deviceKey) {
 
 /** @param {import('./router.js').Router} router */
 export function installAuth(router) {
+  installPasswordReset(router);
   router.post("/api/auth/sign-up", async (ctx) => {
     const body = ctx.body;
     if (!isPlainObject(body)) throw invalid();
@@ -221,12 +223,21 @@ export function installAuth(router) {
     // old hash cannot create a fresh session after the revocation transaction.
     const signedIn = await tx(ctx.db, async (t) => {
       const [user] =
-        await t`select id, password_hash, disabled_at from users where email = ${email} for update`;
+        await t`select id, password_hash, disabled_at, must_change_password,
+          temp_password_expires_at < now() as temp_expired
+          from users where email = ${email} for update`;
       const ok = await Bun.password.verify(
         /** @type {string} */ (body.password),
         user?.password_hash ?? DUMMY_HASH,
       );
       if (!user || !ok || user.disabled_at) return null;
+      // SP-0185: a temporary password. Refusals here create no session and do not count as failures.
+      if (user.must_change_password) {
+        if (user.temp_expired)
+          return { refuse: "temporary_password_expired" };
+        if (native && body.passwordChange !== "supported")
+          return { refuse: "password_change_required" };
+      }
       if (native && deviceKeyId)
         await refuseRevokedPhone(t, user.id, app, deviceKeyId);
       if (native && deviceKeyId)
@@ -244,7 +255,21 @@ export function installAuth(router) {
         "invalid_credentials",
       );
     }
+    if ("refuse" in signedIn) {
+      if (signedIn.refuse === "temporary_password_expired")
+        throw unauthenticated(
+          "This temporary password has expired. Ask your admin for a new one.",
+          "temporary_password_expired",
+        );
+      throw forbidden(
+        "Set a new password at sunpride.cauldnclark.com first, then sign in here.",
+        "password_change_required",
+      );
+    }
     const { user, session, access } = signedIn;
+    const mustChange = user.must_change_password
+      ? { mustChangePassword: true }
+      : {};
     if (native && deviceKeyId) {
       const profile = await loadProfile(ctx.db, user.id);
       if (profile) {
@@ -265,7 +290,7 @@ export function installAuth(router) {
     }
     if (!native) {
       setSessionCookie(ctx, session.token, SESSION_TTL_MS);
-      return { user: { id: user.id, email } };
+      return { user: { id: user.id, email }, ...mustChange };
     }
     if (!access) throw new Error("Native access credential was not issued");
     return {
@@ -275,6 +300,7 @@ export function installAuth(router) {
       sessionExpiresAt: session.expiresAt,
       accessToken: access.token,
       accessExpiresAt: access.expiresAt,
+      ...mustChange,
     };
   });
 
@@ -393,7 +419,9 @@ export function installAuth(router) {
       const hash = await Bun.password.hash(newPassword, {
         algorithm: "argon2id",
       });
-      await t`update users set password_hash=${hash}, updated_at=now() where id=${user.id}`;
+      // SP-0185: choosing a new password ends the temporary one.
+      await t`update users set password_hash=${hash}, must_change_password=false,
+              temp_password_expires_at=null, updated_at=now() where id=${user.id}`;
       await t`update sessions set revoked_at=now() where user_id=${user.id} and id<>${session.id} and revoked_at is null`;
       await t`delete from access_tokens where session_id in (select id from sessions where user_id=${user.id} and id<>${session.id})`;
       await t`insert into audit_logs(subject,action,entity_type,entity_id) values (${user.id},'auth.password_changed','user',${user.id})`;
@@ -436,6 +464,7 @@ export function installAuth(router) {
     const partner = await partnerContext(ctx.db, ctx.actor);
     return {
       user: ctx.user,
+      mustChangePassword: Boolean(ctx.user.mustChangePassword),
       profile: profile
         ? {
             id: profile.id,
@@ -524,6 +553,7 @@ async function nativeMe(ctx) {
         ).length,
       ),
     device,
+    mustChangePassword: Boolean(ctx.user?.mustChangePassword),
   };
 }
 

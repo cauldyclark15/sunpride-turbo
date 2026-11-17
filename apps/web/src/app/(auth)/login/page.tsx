@@ -9,9 +9,19 @@ export const metadata: Metadata = { title: "Sign in" };
 export default async function LoginPage({
   searchParams,
 }: {
-  searchParams: Promise<{ next?: string }>;
+  searchParams: Promise<{ next?: string; reset?: string }>;
 }) {
-  const { next } = await searchParams;
+  const { next, reset } = await searchParams;
   if (await isAuthenticated()) redirect(safeAuthDestination(next));
-  return <AuthScreen mode="login" next={next} />;
+  return (
+    <AuthScreen
+      mode="login"
+      next={next}
+      notice={
+        reset === "done"
+          ? "Your password was changed. Sign in with your new password."
+          : undefined
+      }
+    />
+  );
 }

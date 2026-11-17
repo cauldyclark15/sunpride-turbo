@@ -13,6 +13,7 @@ import { formatManilaDate } from "../lib/manila-date";
 import { useSetupParam } from "./master-data/location";
 import { ListPage, cursorRange, type ListColumn } from "./list-page/list-page";
 import { Drawer } from "./cockpit/kit/drawer";
+import { ResetPasswordAction, canResetPassword } from "./people/reset-password";
 
 type Person = Doc<"profiles">;
 export type AssignableRole =
@@ -363,28 +364,56 @@ export function PeopleAdmin() {
       key: "edit",
       label: "",
       align: "right",
-      render: (row) =>
-        canEditPerson(row, canManage, permissions?.role) ? (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 whitespace-nowrap"
-            onPress={() => openEdit(row)}
-          >
-            Edit
-          </Button>
-        ) : (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 whitespace-nowrap"
-            onPress={() => setHistoryId(row._id)}
-          >
-            History
-          </Button>
-        ),
+      render: (row) => (
+        <span className="inline-flex justify-end gap-2">
+          {row.authSubject &&
+          canResetPassword(
+            {
+              profileId: row._id,
+              role: row.role,
+              status: row.status,
+              email: row.email,
+            },
+            canManage,
+            permissions?.role,
+            current?._id,
+          ) ? (
+            <ResetPasswordAction
+              target={{
+                profileId: row._id,
+                name: row.name?.trim() ?? "",
+                email: row.email,
+                role: row.role,
+                status: row.status,
+              }}
+            />
+          ) : null}
+          {editOrHistory(row)}
+        </span>
+      ),
     },
   ];
+  function editOrHistory(row: Person) {
+    return canEditPerson(row, canManage, permissions?.role) ? (
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-8 whitespace-nowrap"
+        onPress={() => openEdit(row)}
+      >
+        Edit
+      </Button>
+    ) : (
+      <Button
+        size="sm"
+        variant="outline"
+        className="h-8 whitespace-nowrap"
+        onPress={() => setHistoryId(row._id)}
+      >
+        History
+      </Button>
+    );
+  }
   const invitationColumns: ListColumn<Invitation>[] = [
     {
       key: "name",

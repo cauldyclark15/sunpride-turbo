@@ -13,7 +13,16 @@ import { useSession } from "../lib/auth/session";
 
 type AuthMode = "login" | "register";
 
-export function AuthScreen({ mode, next }: { mode: AuthMode; next?: string }) {
+export function AuthScreen({
+  mode,
+  next,
+  notice,
+}: {
+  mode: AuthMode;
+  next?: string;
+  /** A plain note above the form (e.g. after a password reset). */
+  notice?: string;
+}) {
   const session = useSession();
   const isLoading = session.status === "loading";
   // A refused profile is still signed in: the dashboard gate explains it.
@@ -92,6 +101,14 @@ export function AuthScreen({ mode, next }: { mode: AuthMode; next?: string }) {
             ? "First time here? Choose Create account and use the email address your invitation was sent to."
             : "Use the email address your invitation was sent to, and choose a password of at least 8 characters."}
         </p>
+        {notice ? (
+          <p
+            role="status"
+            className="mt-4 rounded-md bg-success-soft px-3 py-2 text-sm font-medium text-success-soft-foreground"
+          >
+            {notice}
+          </p>
+        ) : null}
         <form onSubmit={submit} className="mt-6 grid gap-4">
           {!isLogin ? (
             <TextField className="grid gap-1.5">
@@ -125,6 +142,14 @@ export function AuthScreen({ mode, next }: { mode: AuthMode; next?: string }) {
               autoComplete={isLogin ? "current-password" : "new-password"}
               required
             />
+            {isLogin ? (
+              <Link
+                href="/forgot-password"
+                className="justify-self-end text-[13px] font-medium text-muted hover:text-foreground"
+              >
+                Forgot password?
+              </Link>
+            ) : null}
           </div>
           {error ? (
             <p

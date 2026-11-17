@@ -5,7 +5,17 @@ import { PasswordInput } from "@sunpride/ui";
 import { useRef, useState, type FormEvent } from "react";
 import { mutate, normalizeError } from "../../lib/api";
 
-export function ChangePassword() {
+/**
+ * `forced` (SP-0185): after an admin reset, the current password is the temporary one and
+ * `onChanged` lets the signed-in shell open once the new password is saved.
+ */
+export function ChangePassword({
+  forced = false,
+  onChanged,
+}: {
+  forced?: boolean;
+  onChanged?: () => void;
+}) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -42,6 +52,7 @@ export function ChangePassword() {
       });
       form.reset();
       setSuccess(true);
+      onChanged?.();
     } catch (cause) {
       const failure = normalizeError(cause);
       setError(failure.message);
@@ -60,10 +71,12 @@ export function ChangePassword() {
         id="change-password-title"
         className="text-lg font-semibold tracking-tight"
       >
-        Change password
+        {forced ? "Set a new password" : "Change password"}
       </h2>
       <p className="mt-2 text-sm text-muted">
-        Choose 8 to 128 characters. Your other devices will be signed out.
+        {forced
+          ? "Your password was reset. Enter the temporary password you were given, then choose your own password (8 to 128 characters)."
+          : "Choose 8 to 128 characters. Your other devices will be signed out."}
       </p>
       <form
         onSubmit={submit}
@@ -72,7 +85,11 @@ export function ChangePassword() {
       >
         {(
           [
-            ["currentPassword", "Current password", "current-password"],
+            [
+              "currentPassword",
+              forced ? "Temporary password" : "Current password",
+              "current-password",
+            ],
             ["newPassword", "New password", "new-password"],
             ["confirmPassword", "Confirm new password", "new-password"],
           ] as const
@@ -110,7 +127,7 @@ export function ChangePassword() {
           isPending={pending}
           className="mt-1 justify-self-start"
         >
-          Change password
+          {forced ? "Set new password" : "Change password"}
         </Button>
       </form>
     </section>

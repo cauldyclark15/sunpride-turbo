@@ -58,6 +58,11 @@ spec:
           envFrom:
             - secretRef: {name: sunpride-app}
             - configMapRef: {name: sunpride-api-env}
+          env:
+            # SP-0185 sign-in emails (reset links, temporary passwords). RESEND_API_KEY comes from sunpride-app.
+            - {name: AUTH_EMAIL_PROVIDER, value: resend}
+            - {name: AUTH_EMAIL_FROM, value: "Sunpride Support <support@cauldnclark.com>"}
+            - {name: PUBLIC_WEB_URL, value: "https://sunpride.cauldnclark.com"}
           ports: [{containerPort: 4320}]
           lifecycle:
             # Keep serving while the ingress stops sending here; SIGTERM then drains in-flight requests.

@@ -28,6 +28,8 @@ export type Me = {
   scope: SessionScope | null;
   permissions: string[];
   device?: unknown;
+  /** SP-0185: an admin reset the password; nothing else opens until a new one is set. */
+  mustChangePassword?: boolean;
 };
 
 export type SessionStatus =
@@ -53,6 +55,7 @@ type RawMe = {
   permissions?: string[];
   capabilities?: string[];
   device?: unknown;
+  mustChangePassword?: boolean;
 };
 
 /**
@@ -79,5 +82,6 @@ export function toMe(raw: RawMe): Me | null {
     scope: raw.scope ?? null,
     permissions: raw.permissions ?? raw.capabilities ?? [],
     device: raw.device,
+    ...(raw.mustChangePassword ? { mustChangePassword: true } : {}),
   };
 }

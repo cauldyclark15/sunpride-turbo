@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, type ReactNode } from "react";
 import { isApiError } from "../lib/api/errors";
 import { useSession } from "../lib/auth/session";
+import { ChangePassword } from "./account/change-password";
 
 /** Profile refusals the API reports for a turned-off person. */
 const TURNED_OFF_CODES = new Set([
@@ -23,7 +24,7 @@ export const accessErrorMessage = (error: unknown) => {
 };
 
 export function AuthGate({ children }: { children: ReactNode }) {
-  const { status, profile, error } = useSession();
+  const { status, profile, error, me, refresh } = useSession();
   const pathname = usePathname();
   const router = useRouter();
 
@@ -54,6 +55,8 @@ export function AuthGate({ children }: { children: ReactNode }) {
       />
     );
   if (!profile) return <LoadingScreen label="Loading…" />;
+  if (me?.mustChangePassword)
+    return <ForcedPasswordChange onChanged={() => void refresh()} />;
   return <>{children}</>;
 }
 
@@ -62,6 +65,31 @@ export function LoadingScreen({ label }: { label: string }) {
     <div className="grid min-h-screen place-items-center bg-background text-sm font-medium text-muted">
       {label}
     </div>
+  );
+}
+
+/** SP-0185: after an admin reset, only this screen shows until a new password is saved. */
+export function ForcedPasswordChange({ onChanged }: { onChanged: () => void }) {
+  const router = useRouter();
+  const session = useSession();
+  async function signOut() {
+    await session.signOut();
+    router.replace("/login");
+    router.refresh();
+  }
+  return (
+    <main className="grid min-h-screen place-items-center bg-background p-5">
+      <div className="grid w-full max-w-md gap-3">
+        <ChangePassword forced onChanged={onChanged} />
+        <button
+          type="button"
+          onClick={() => void signOut()}
+          className="justify-self-center text-sm font-medium text-muted hover:text-foreground"
+        >
+          Sign out
+        </button>
+      </div>
+    </main>
   );
 }
 

@@ -132,6 +132,7 @@ describe("web cookie flow", () => {
     let body = /** @type {any} */ (await me.json());
     expect(body).toEqual({
       user: { id: userId, email: "web@example.com" },
+      mustChangePassword: false,
       profile: null,
       capabilities: [],
     });
@@ -222,6 +223,7 @@ describe("native D3 flow", () => {
       "device",
       "deviceControl",
       "handoverRequired",
+      "mustChangePassword",
       "permissions",
       "profile",
       "scope",
