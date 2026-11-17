@@ -319,7 +319,18 @@ fun FieldApp(
         onDispose { if (sellHost != null) controller.sellSync = null; sellHost?.close() }
     }
     if (sellHost != null) com.sunpride.field.sell.SellRuntime(sellHost)
-    LaunchedEffect(sellOn) { if (!sellOn && page == "sell") { page = "home"; origin = "home" } }
+    // SP-0195: the person's App mode decides the tabs (at most four) and what Home is. Truck selling without a Sell area
+    // (switched off, locked) shows Field visits, so the bar never offers a Sell tab that cannot open.
+    val mode = controller.appMode.let { if (it == AppMode.SELLING && sellHost == null) AppMode.VISITS else it }
+    val modeTabs = FieldNav.tabs(mode)
+    // A page of a tab this mode hides (the office changed the mode, Switch mode, a link) lands on the mode's Home.
+    // Nothing unsent is touched: it stays saved on the phone and keeps sending.
+    LaunchedEffect(mode, page, ready) {
+        if (ready) FieldNav.pageForMode(page, mode).let { if (it != page) { page = it; origin = "home" } }
+    }
+    LaunchedEffect(ready, mode, page, controller.today) {
+        if (ready && mode == AppMode.MAPPING && page == "home") controller.refreshMappingSaves()
+    }
     // SP-0192: one sync badge for the whole phone: the Sell area's waiting sales count as "Waiting to send" too.
     val sellWaiting = sellHost?.controller?.syncWaiting ?: 0
     val status = fieldStatus.copy(queued = fieldStatus.queued + sellWaiting)
@@ -337,7 +348,7 @@ fun FieldApp(
                 val editStore = { censusEdit = customerId; go("census") }
                 val spec = headerSpec(ready, locked, signedIn = controller.state != EnrollmentState.SignedOut, page = page,
                     visitOpen = visitOpen, controller = controller, routeCode = controller.today.routeCode,
-                    editingStore = censusEdit != null).let {
+                    editingStore = censusEdit != null, mode = mode).let {
                     // FLD-207: no header Edit while ANY call is open, not only while the visit screen shows.
                     val callOpen = controller.today.customers.any { c -> c.callOpen || c.today?.status == "In progress" }
                     if (STORE_EDIT_ENABLED && ready && !visitOpen && !callOpen && visits && page == "customer" && customer != null)
@@ -347,6 +358,9 @@ fun FieldApp(
                     onBack = if (spec.back) goBack else null, backTag = spec.backTag,
                     actions = {
                         spec.action?.let { HeaderTextButton(it) }
+                        // SP-0195: Messages left the bottom bar; it opens from here, with the unread count.
+                        if (ready && !locked && !controller.mustChangePassword && !controller.today.partnerMode)
+                            HeaderMessagesButton(summaryUnread, { if (page != "messages") go("messages") })
                         if (controller.state != EnrollmentState.SignedOut && !locked) HeaderRoundButton(GlyphKind.PERSON, "Account",
                             { go("account") }, Modifier.testTag("account-open"))
                     },
@@ -362,9 +376,9 @@ fun FieldApp(
                     }) else null)
             }
         }, bottomBar = {
-            if (barVisible) FieldBottomBar(FieldNav.tabOf(page), summaryUnread, onSelect = { tab ->
+            if (barVisible) FieldBottomBar(FieldNav.tabOf(page, mode), onSelect = { tab ->
                 if (tab.page != page) { page = tab.page; origin = "home" }
-            }, tabs = FieldNav.tabs(sellHost != null))
+            }, tabs = modeTabs)
         }) { padding ->
             val modifier = Modifier.padding(padding).consumeWindowInsets(padding)
             pages.SaveableStateProvider("$pagesEpoch:$page") { when {
@@ -434,7 +448,7 @@ fun FieldApp(
                 }
                 ready && page == "workforce" -> com.sunpride.field.ui.workforce.WorkforceScreen(controller,location,modifier)
                 // SP-0146 v2 messaging: the shared chat module; Back inside it steps back, Back on its list returns here.
-                ready && page == "messages" -> com.sunpride.field.chat.FieldMessages(modifier, chatTap, onClose = { page = "home" }, onAtRoot = { chatAtRoot = it },
+                ready && page == "messages" -> com.sunpride.field.chat.FieldMessages(modifier, chatTap, onClose = { page = FieldNav.pageForMode(origin, mode) }, onAtRoot = { chatAtRoot = it },
                     openHref = { href ->
                         Regex("^/stores/([^/?#]+)").find(href)?.groupValues?.get(1)
                             ?.takeIf { id -> controller.today.customers.any { it.outletId == id } }
@@ -455,7 +469,10 @@ fun FieldApp(
                     onIncentives = { go("incentives") },
                     onBatteryGuide = if (batteryGuide != null) ({ go("location-battery") }) else null,
                     onReportIssue = features.reportIssueUrl?.let { url -> { openLink(context, url) } },
-                    onSignOut = signOut)
+                    onSignOut = signOut,
+                    // SP-0195: the owner may switch modes on this phone (only when the office allows more than one).
+                    modes = controller.appModes.modes, mode = mode,
+                    onSwitchMode = if (controller.appModes.canSwitch) controller::switchMode else null)
                 controller.diagnostic != null && visits && ready && controller.photoCaptureOpen ->
                     com.sunpride.field.ui.diagnosticvisit.PhotoCaptureScreen(controller, modifier)
                 controller.diagnostic != null && visits && ready && controller.activityForm != null ->
@@ -489,11 +506,14 @@ fun FieldApp(
                 ready && page == "team" -> com.sunpride.field.ui.team.TeamScreen(controller.team,
                     controller.teamDirectOnly, controller.teamLoading, minuteNow,
                     onFilter = { controller.loadTeam(it) }, onRefresh = { controller.loadTeam() }, modifier = modifier)
+                // SP-0195: Customer mapping's Home is one big Add customer button and the person's own saves.
+                ready && mode == AppMode.MAPPING -> com.sunpride.field.ui.mapping.MappingHomeScreen(controller.mappingSaves, now,
+                    onAddCustomer = { censusName = ""; censusEdit = null; go("census") }, modifier = modifier)
                 ready -> TodayScreen(controller.today, controller.busy,
                     onSync = controller::syncNow, onSignOut = signOut,
                     onVisit = controller::openDiagnostic, diagnosticEnabled = visits, modifier = modifier, offline = offline,
                     unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features,
-                    onRoute = { page = "route" }, onCustomers = { page = "customers" },
+                    onRoute = if (FieldTab.ROUTE in modeTabs) ({ page = "route" }) else null, onCustomers = { page = "customers" },
                     onTeam = if (FieldFeature.TEAM in features) ({ go("team") }) else null,
                     showTitle = false,
                     onAddStore = if (visits) ({ censusName = ""; censusEdit = null; go("census") }) else null,
@@ -804,7 +824,7 @@ private data class HeaderSpec(val title: String, val subtitle: String? = null, v
     val back: Boolean = false, val backTag: String? = null, val action: HeaderAction? = null)
 
 private fun headerSpec(ready: Boolean, locked: Boolean, signedIn: Boolean, page: String, visitOpen: Boolean,
-    controller: FieldController, routeCode: String?, editingStore: Boolean = false): HeaderSpec = when {
+    controller: FieldController, routeCode: String?, editingStore: Boolean = false, mode: AppMode = AppMode.VISITS): HeaderSpec = when {
     locked || !signedIn -> HeaderSpec("Sunpride Field")
     // A phone still waiting for registration can open Account, Support and Sync, so those keep their own header.
     !ready && page !in setOf("account", "support", "sync", "change-password") -> HeaderSpec("Sunpride Field")
@@ -814,7 +834,9 @@ private fun headerSpec(ready: Boolean, locked: Boolean, signedIn: Boolean, page:
             controller.callSheetOpen) null else "Visit",
         back = true, backTag = "visit-back")
     else -> when (page) {
-        "home" -> HeaderSpec("Today", listOfNotNull(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila")).format(
+        "home" -> if (mode == AppMode.MAPPING) HeaderSpec("Home", java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila")).format(
+            java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d", java.util.Locale.ENGLISH)), "home-title")
+        else HeaderSpec("Today", listOfNotNull(java.time.LocalDate.now(java.time.ZoneId.of("Asia/Manila")).format(
             java.time.format.DateTimeFormatter.ofPattern("EEE, MMM d", java.util.Locale.ENGLISH)),
             routeCode?.let { "Route $it" }).joinToString(" · "), "today-title")
         "route" -> HeaderSpec("Route", titleTag = "route-title")

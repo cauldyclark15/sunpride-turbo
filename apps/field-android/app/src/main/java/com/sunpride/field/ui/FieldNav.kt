@@ -2,7 +2,7 @@ package com.sunpride.field.ui
 
 import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
@@ -11,7 +11,6 @@ import androidx.compose.material3.NavigationBar
 import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.NavigationBarItemDefaults
 import androidx.compose.material3.Text
-import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Badge
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
@@ -19,15 +18,15 @@ import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 
 /**
- * The places a seller works from. Every screen of the app belongs to one of them. [SELL] (SP-0192) is on the bar only for a
- * person whose Selling the office switched on; everyone else keeps exactly the five below.
+ * The places a person works from. Every screen of the app belongs to one of them. SP-0195: the bar shows only the tabs
+ * of the person's App mode ([FieldNav.tabs]), never more than four. [MESSAGES] is never on the bar: Messages opens from
+ * the envelope in the top bar; the entry stays so the Messages page still has a home.
  */
 enum class FieldTab(val page: String, val label: String, val glyph: GlyphKind, val tag: String) {
+    HOME("home", "Home", GlyphKind.TODAY, "nav-home"),
     TODAY("home", "Today", GlyphKind.TODAY, "nav-today"),
     SELL("sell", "Sell", GlyphKind.CASH, "nav-sell"),
     ROUTE("route", "Route", GlyphKind.ROUTE, "nav-route"),
@@ -37,15 +36,17 @@ enum class FieldTab(val page: String, val label: String, val glyph: GlyphKind, v
 }
 
 object FieldNav {
-    /** SP-0192: the bar's places. Sell (right after Today) only when the office switched Selling on for this person. */
-    fun tabs(selling: Boolean): List<FieldTab> = if (selling) FieldTab.entries else FieldTab.entries - FieldTab.SELL
-    /** Largest text scale the bottom bar's labels use; five labels must fit side by side on a 360 dp phone. */
+    /** SP-0195: the most tabs any mode shows; labels stay at their normal size. */
+    const val MAX_TABS = 4
+    /** SP-0195: the bar's places for each App mode (Customer mapping, Field visits, Truck selling). */
+    fun tabs(mode: AppMode): List<FieldTab> = when (mode) {
+        AppMode.MAPPING -> listOf(FieldTab.HOME, FieldTab.STORES, FieldTab.MORE)
+        AppMode.VISITS -> listOf(FieldTab.TODAY, FieldTab.ROUTE, FieldTab.STORES, FieldTab.MORE)
+        AppMode.SELLING -> listOf(FieldTab.TODAY, FieldTab.SELL, FieldTab.STORES, FieldTab.MORE)
+    }
+    /** Largest text scale the bottom bar's labels use; four labels fit side by side on a 360 dp phone. */
     const val MAX_BAR_LABEL_SCALE = 1.0f
     fun barLabelFontScale(system: Float): Float = minOf(system, MAX_BAR_LABEL_SCALE)
-    /** SP-0192: six places (Sell on) share the same width, so their labels are a little smaller to stay whole. */
-    const val MAX_SIX_TAB_LABEL_SCALE = 0.8f
-    fun barLabelFontScale(system: Float, tabCount: Int): Float =
-        if (tabCount > 5) minOf(system, MAX_SIX_TAB_LABEL_SCALE) else barLabelFontScale(system)
     /** Pages that are the root of a tab: no Back arrow, system Back returns to Today. */
     val tabRoots: Set<String> = FieldTab.entries.map { it.page }.toSet()
 
@@ -63,13 +64,22 @@ object FieldNav {
         "sync", "more")
 
     /** The tab a page belongs to (drill-down pages keep their parent tab selected). */
-    fun tabOf(page: String): FieldTab = when (page) {
-        "home" -> FieldTab.TODAY
+    fun tabOf(page: String, mode: AppMode = AppMode.VISITS): FieldTab = when (page) {
+        "home" -> if (mode == AppMode.MAPPING) FieldTab.HOME else FieldTab.TODAY
         "sell" -> FieldTab.SELL
         "route" -> FieldTab.ROUTE
         "customers", "customer" -> FieldTab.STORES
         "messages" -> FieldTab.MESSAGES
         else -> FieldTab.MORE
+    }
+
+    /**
+     * SP-0195: a page whose tab this mode hides (a link, a notification, or the office just changed the mode) opens the
+     * mode's Home instead. Messages and everything under More stay reachable in every mode.
+     */
+    fun pageForMode(page: String, mode: AppMode): String {
+        val tab = tabOf(page, mode)
+        return if (tab == FieldTab.MORE || tab == FieldTab.MESSAGES || tab in tabs(mode)) page else "home"
     }
 
     /**
@@ -93,33 +103,26 @@ object FieldNav {
 }
 
 /**
- * Material 3 navigation bar, 5 labelled destinations. The selected one gets the pale red pill and red icon; Messages carries
- * the unread count. White like the sheet, with a hairline on top, so it reads as part of the page.
+ * Material 3 navigation bar: the mode's three or four labelled places. The selected one gets the pale red pill and red
+ * icon. White like the sheet, with a hairline on top, so it reads as part of the page.
  */
 @Composable
-fun FieldBottomBar(selected: FieldTab, unread: Int, onSelect: (FieldTab) -> Unit, modifier: Modifier = Modifier,
-    tabs: List<FieldTab> = FieldNav.tabs(selling = false)) {
+fun FieldBottomBar(selected: FieldTab, onSelect: (FieldTab) -> Unit, modifier: Modifier = Modifier,
+    tabs: List<FieldTab> = FieldNav.tabs(AppMode.VISITS)) {
     val line = Look.hairline
     NavigationBar(modifier.drawBehind { drawLine(line, Offset(0f, 0f), Offset(size.width, 0f), strokeWidth = 1.dp.toPx()) },
         containerColor = MaterialTheme.colorScheme.background, tonalElevation = 0.dp) {
-        tabs.forEach { tab ->
+        tabs.take(FieldNav.MAX_TABS).forEach { tab ->
             val on = tab == selected
             NavigationBarItem(selected = on, onClick = { onSelect(tab) },
                 modifier = Modifier.testTag(tab.tag),
-                icon = {
-                    val glyph = @Composable { Glyph(tab.glyph, if (on) Look.onTint else Look.muted, 24.dp) }
-                    if (tab == FieldTab.MESSAGES && unread > 0) BadgedBox(badge = {
-                        Badge(containerColor = Look.accent, contentColor = Look.onAccent,
-                            modifier = Modifier.testTag("nav-messages-badge")) { Text(if (unread > 99) "99+" else "$unread") }
-                    }, modifier = Modifier.semantics { contentDescription = "Messages, $unread unread" }) { glyph() }
-                    else glyph()
-                },
+                icon = { Glyph(tab.glyph, if (on) Look.onTint else Look.muted, 24.dp) },
                 label = {
-                    // FLD-173: at the phone's largest font the five labels would clip ("Toda", "Mess");
-                    // the bar caps its own label scale so every label stays whole and readable.
+                    // FLD-173: at the phone's largest font the labels would clip; the bar caps its own label scale
+                    // so every label stays whole and readable.
                     val density = LocalDensity.current
                     CompositionLocalProvider(LocalDensity provides Density(density.density,
-                        FieldNav.barLabelFontScale(density.fontScale, tabs.size))) {
+                        FieldNav.barLabelFontScale(density.fontScale))) {
                         Text(tab.label, style = MaterialTheme.typography.labelMedium, maxLines = 1, softWrap = false)
                     }
                 },
@@ -127,6 +130,22 @@ fun FieldBottomBar(selected: FieldTab, unread: Int, onSelect: (FieldTab) -> Unit
                 colors = NavigationBarItemDefaults.colors(
                     selectedIconColor = Look.onTint, selectedTextColor = MaterialTheme.colorScheme.onSurface,
                     indicatorColor = Look.tint, unselectedIconColor = Look.muted, unselectedTextColor = Look.muted))
+        }
+    }
+}
+
+/**
+ * SP-0195: Messages in the red top bar, next to Account: the envelope with the unread count on it. Opens the Messages page.
+ */
+@Composable
+fun HeaderMessagesButton(unread: Int, onClick: () -> Unit, modifier: Modifier = Modifier) {
+    val description = if (unread > 0) "Messages, $unread unread" else "Messages"
+    Box(modifier) {
+        HeaderRoundButton(GlyphKind.CHAT, description, onClick, Modifier.testTag("messages-open"))
+        if (unread > 0) Badge(containerColor = androidx.compose.ui.graphics.Color.White, contentColor = Look.accent,
+            modifier = Modifier.align(androidx.compose.ui.Alignment.TopEnd).padding(top = 2.dp, end = 2.dp)
+                .testTag("messages-badge")) {
+            Text(if (unread > 99) "99+" else "$unread", style = MaterialTheme.typography.labelSmall)
         }
     }
 }

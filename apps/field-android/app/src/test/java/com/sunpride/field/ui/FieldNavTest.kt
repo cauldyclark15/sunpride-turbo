@@ -26,25 +26,44 @@ class FieldNavTest {
         assertEquals("home", FieldNav.pageOnReady(wasReady = true, ready = true, page = FieldNav.pageWhileWaiting("customers")))
     }
 
-    @Test fun fiveTabsInDailyOrder() {
-        // SP-0192: a person without Selling keeps exactly today's five places.
-        val tabs = FieldNav.tabs(selling = false)
-        assertEquals(listOf("Today", "Route", "Customers", "Messages", "More"), tabs.map { it.label })
-        assertEquals(listOf("home", "route", "customers", "messages", "more"), tabs.map { it.page })
-        assertEquals(5, tabs.map { it.tag }.toSet().size)
-    }
-
-    @Test fun sellTabShowsOnlyWhenSellingIsOn() {
-        assertFalse(FieldTab.SELL in FieldNav.tabs(selling = false))
-        val selling = FieldNav.tabs(selling = true)
-        assertEquals(listOf("Today", "Sell", "Route", "Customers", "Messages", "More"), selling.map { it.label })
-        assertEquals("nav-sell", FieldTab.SELL.tag)
+    // SP-0195: each App mode shows only its own places, never more than four, with Messages off the bar.
+    @Test fun tabsPerModeNeverMoreThanFour() {
+        assertEquals(listOf("Home", "Customers", "More"), FieldNav.tabs(AppMode.MAPPING).map { it.label })
+        assertEquals(listOf("Today", "Route", "Customers", "More"), FieldNav.tabs(AppMode.VISITS).map { it.label })
+        assertEquals(listOf("Today", "Sell", "Customers", "More"), FieldNav.tabs(AppMode.SELLING).map { it.label })
+        for (mode in AppMode.entries) {
+            val tabs = FieldNav.tabs(mode)
+            assertTrue(mode.name, tabs.size <= FieldNav.MAX_TABS)
+            assertFalse("Messages is a top-bar icon, never a tab", FieldTab.MESSAGES in tabs)
+            assertEquals(tabs.size, tabs.map { it.tag }.toSet().size)
+            assertEquals("every mode's first tab is its Home", "home", tabs.first().page)
+        }
+        assertFalse(FieldTab.SELL in FieldNav.tabs(AppMode.VISITS))
+        assertFalse(FieldTab.SELL in FieldNav.tabs(AppMode.MAPPING))
         assertEquals(FieldTab.SELL, FieldNav.tabOf("sell"))
         assertTrue("sell" in FieldNav.tabRoots)
         assertFalse("sell" in FieldNav.noBarPages)
-        // Six labels share the bar, so they are capped a little smaller; five keep today's cap.
-        assertEquals(FieldNav.MAX_SIX_TAB_LABEL_SCALE, FieldNav.barLabelFontScale(2f, 6))
-        assertEquals(FieldNav.MAX_BAR_LABEL_SCALE, FieldNav.barLabelFontScale(2f, 5))
+        // Four labels or fewer keep the normal size (the old six-tab shrink is gone).
+        assertEquals(FieldNav.MAX_BAR_LABEL_SCALE, FieldNav.barLabelFontScale(2f))
+        assertEquals(0.9f, FieldNav.barLabelFontScale(0.9f))
+    }
+
+    @Test fun homeIsTheMappingHomeInMappingModeAndTodayElsewhere() {
+        assertEquals(FieldTab.HOME, FieldNav.tabOf("home", AppMode.MAPPING))
+        assertEquals(FieldTab.TODAY, FieldNav.tabOf("home", AppMode.VISITS))
+        assertEquals(FieldTab.TODAY, FieldNav.tabOf("home", AppMode.SELLING))
+    }
+
+    // SP-0195: a link, notification or mode change to a page of a hidden tab lands on that mode's Home.
+    @Test fun hiddenTabPagesOpenTheModesHome() {
+        assertEquals("home", FieldNav.pageForMode("route", AppMode.MAPPING))
+        assertEquals("home", FieldNav.pageForMode("sell", AppMode.MAPPING))
+        assertEquals("home", FieldNav.pageForMode("sell", AppMode.VISITS))
+        assertEquals("home", FieldNav.pageForMode("route", AppMode.SELLING))
+        assertEquals("route", FieldNav.pageForMode("route", AppMode.VISITS))
+        assertEquals("sell", FieldNav.pageForMode("sell", AppMode.SELLING))
+        for (mode in AppMode.entries) for (page in listOf("home", "customers", "customer", "messages", "more", "account", "sync",
+            "census", "catalogue", "support")) assertEquals("$mode $page", page, FieldNav.pageForMode(page, mode))
     }
 
     @Test fun everyPageKeepsAParentTab() {

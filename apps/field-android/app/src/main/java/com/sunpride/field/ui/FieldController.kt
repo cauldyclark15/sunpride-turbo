@@ -124,6 +124,13 @@ interface FieldBackend {
     val cachedDeviceId: String? get() = null
     /** SP-0192: the office switched Selling on for this person (last verified sign-in check); the Sell tab shows only then. */
     fun sellingEnabled(): Boolean = false
+    /** SP-0195: the office's App mode for this person (last verified check); an older server falls back on Selling. */
+    fun appModes(): AppModes = AppModes.fallback(sellingEnabled())
+    /** SP-0195: the owner's own Switch mode choice on this phone (it only changes what the phone shows); null = none. */
+    fun appModeChoice(): AppMode? = null
+    fun saveAppModeChoice(mode: AppMode?) {}
+    /** SP-0195: this person's Add customer saves on this phone, for the Customer mapping Home (counted locally). */
+    fun mappingSaves(): List<com.sunpride.field.ui.mapping.MappingSave> = emptyList()
     /** SP-0192: the Field session lent to the Sell area (null in tests and before sign-in). */
     fun sellAccess(): com.sunpride.field.sell.auth.SellAccess? = null
     /** AND-016: configured photo types (empty → provisional defaults). */
@@ -849,6 +856,8 @@ class LiveFieldBackend(
                 // look for Sell work below; people who never sold do no selling database work.
                 if (sellingNow || prefs.getBoolean("$key.selling", false)) prefs.edit().putBoolean("$key.sellEverOn", true).apply()
                 prefs.edit().putBoolean("$key.selling", sellingNow).apply()
+                // SP-0195: the office's App mode (and, for the owner, the modes to switch between), kept for offline launches.
+                prefs.edit().putString("$key.appModes", AppModes.from(verifiedMe).encode()).apply()
                 if(verifiedMe.getJSONObject("profile").getString("role")=="distributor"){
                     check(prefs.edit().putBoolean("$key.partner",true).commit())
                     return dsrToday(deviceId,signer,verifiedMe,expectedKey=key)
@@ -1166,6 +1175,40 @@ class LiveFieldBackend(
     override val cachedDeviceId get() = vault.deviceId
     override val isSignedIn get() = auth.isSignedIn
     override fun sellingEnabled(): Boolean = auth.isSignedIn && sessionKey()?.let { prefs.getBoolean("$it.selling", false) } == true
+    override fun appModes(): AppModes =
+        AppModes.decode(if (auth.isSignedIn) sessionKey()?.let { prefs.getString("$it.appModes", null) } else null, sellingEnabled())
+    /** The owner's choice is remembered per person on this phone, across sign-ins. */
+    private fun modeChoiceKey(): String? = sessionKey()?.let { prefs.getString("$it.personId", null) }
+        ?.takeIf { it.isNotBlank() }?.let { "modeChoice.$it" }
+    override fun appModeChoice(): AppMode? = modeChoiceKey()?.let { AppMode.fromWire(prefs.getString(it, null)) }
+    override fun saveAppModeChoice(mode: AppMode?) {
+        val key = modeChoiceKey() ?: return
+        prefs.edit().apply { if (mode == null) remove(key) else putString(key, mode.wire) }.apply()
+    }
+    override fun mappingSaves(): List<com.sunpride.field.ui.mapping.MappingSave> = if (storedScope() == null) emptyList() else withStore { store ->
+        val rows = store.history().filter { it.first.kind == com.sunpride.field.census.CensusRules.KIND }.mapNotNull { (intent, outbox) ->
+            val p = runCatching { JSONObject(intent.serializedOperation).getJSONObject("payload") }.getOrNull() ?: return@mapNotNull null
+            if (com.sunpride.field.census.CensusRules.isChange(p)) return@mapNotNull null
+            Triple(p, outbox.state, intent.createdAt)
+        }
+        // Barangay names only for the newest five, from the geography already on this phone (never downloaded here).
+        val newest = rows.sortedByDescending { it.third }.take(5).map { it.first }.toSet()
+        val barangays = HashMap<String, Map<String, String>>()
+        suspend fun barangay(customer: JSONObject?): String? {
+            val province = customer?.optString("provinceCode")?.takeIf { it.isNotBlank() } ?: return null
+            val code = customer.optString("barangayCode").takeIf { it.isNotBlank() } ?: return null
+            val names = barangays.getOrPut(province) {
+                store.localCache(GEOGRAPHY, "brgy:$province")?.takeUnless { it.tombstone }?.json?.let { text ->
+                    runCatching { com.sunpride.field.census.CustomerCapture.Geography.barangays(JSONObject(text)) }.getOrNull()
+                }.orEmpty().associate { it.code to it.name }
+            }
+            return names[code]
+        }
+        rows.map { (p, state, at) ->
+            com.sunpride.field.ui.mapping.MappingSave(p.optString("name"), if (p in newest) barangay(p.optJSONObject("customer")) else null,
+                sent = state == "done" || com.sunpride.field.storage.OutboxState.refused(state), savedAt = at)
+        }
+    }
     override fun sellAccess(): com.sunpride.field.sell.auth.SellAccess =
         com.sunpride.field.sell.FieldSellAccess(environment, auth, vault, signerLoader, ::sessionKey)
     /** SP-0192: Selling is off; Sell work still saved on this phone goes to the office once (refused there as final). */
@@ -1306,7 +1349,7 @@ class FieldController(
     private fun requirePasswordChange() {
         if (!mustChangePassword) ++sessionGeneration // retire in-flight Today/sync reads
         mustChangePassword = true
-        today = TodayData(); selling = false; retireSuggestedOrder()
+        today = TodayData(); selling = false; sellsNow = false; appModes = AppModes(AppMode.VISITS); modeChoice = null; mappingSaves = emptyList(); retireSuggestedOrder()
         resetPasswordForm()
     }
     var busy by mutableStateOf(false); private set
@@ -1320,6 +1363,27 @@ class FieldController(
     var today by mutableStateOf(TodayData()); private set
     /** SP-0192: the office switched Selling on for this person: the Sell tab shows. Re-read after every Today load. */
     var selling by mutableStateOf(false); private set
+    /** SP-0195: the office's App mode for this person (and, for the owner, the modes to switch between). */
+    var appModes by mutableStateOf(AppModes(AppMode.VISITS)); private set
+    /** SP-0195: the owner's Switch mode choice on this phone (UI only). */
+    var modeChoice by mutableStateOf<AppMode?>(null); private set
+    private var sellsNow = false
+    /** SP-0195: the mode the phone shows: its tabs, its Home, and whether any Sell work runs. */
+    val appMode: AppMode get() = appModes.effective(modeChoice, sellsNow)
+    /** SP-0195: the owner's Switch mode (More). Kept on this phone; only changes what the phone shows. */
+    fun switchMode(mode: AppMode) {
+        if (mode !in appModes.modes) return
+        modeChoice = if (mode == appModes.mode) null else mode
+        selling = sellsNow && appMode == AppMode.SELLING
+        val keep = modeChoice
+        scope.launch(io) { runCatching { backend.saveAppModeChoice(keep) } }
+    }
+    /** SP-0195: Add customer saves on this phone for the Customer mapping Home (re-read after a save or a sync). */
+    var mappingSaves by mutableStateOf<List<com.sunpride.field.ui.mapping.MappingSave>>(emptyList()); private set
+    fun refreshMappingSaves() = scope.launch(ui) {
+        val got = runCatching { withContext(io) { backend.mappingSaves() } }.getOrNull() ?: return@launch
+        if (state is EnrollmentState.Ready) mappingSaves = got
+    }
     /** SP-0192: the Field session lent to the Sell area (only asked for while [selling]). */
     fun sellAccess(): com.sunpride.field.sell.auth.SellAccess? = backend.sellAccess()
     /** SP-0192: the Sell area's own send, run by Sync now after the field sync (set by the Sell area while it is open). */
@@ -1963,7 +2027,13 @@ class FieldController(
         try {
             val value = withContext(io) { backend.today(ready.deviceId, loaded, sync) }
             val sells = withContext(io) { backend.sellingEnabled() }
-            if (generation == sessionGeneration && state == ready) { today = value; selling = sells && !value.partnerMode }
+            val modes = withContext(io) { runCatching { backend.appModes() }.getOrDefault(AppModes.fallback(sells)) }
+            val choice = withContext(io) { runCatching { backend.appModeChoice() }.getOrNull() }
+            if (generation == sessionGeneration && state == ready) {
+                today = value; appModes = modes; modeChoice = choice; sellsNow = sells && !value.partnerMode
+                // SP-0195: Sell work runs only in Truck selling (SP-0192: and only with the office's Selling switch).
+                selling = sellsNow && appMode == AppMode.SELLING
+            }
         } catch (e: AuthFailure) {
             // FLD-014/171: every path that finds the session ended (Sync now, background sync, a reload) returns to
             // Sign in with the plain reason. Nothing local is cleared: unsent work stays for the same person/office.
@@ -2014,7 +2084,7 @@ class FieldController(
     }
     /** FLD-014/171: Sign in with the reason; [today] is reset only in memory (the encrypted store is untouched). */
     private fun sessionEnded(e: AuthFailure) {
-        ++sessionGeneration; state = EnrollmentState.SignedOut; today = TodayData(); selling = false; error = userMessage(e)
+        ++sessionGeneration; state = EnrollmentState.SignedOut; today = TodayData(); selling = false; sellsNow = false; appModes = AppModes(AppMode.VISITS); modeChoice = null; mappingSaves = emptyList(); error = userMessage(e)
         mustChangePassword = false; temporaryPassword = null
         retireSuggestedOrder()
         countUnsent()
@@ -2063,7 +2133,7 @@ class FieldController(
         sessionGeneration++ // retire pending cache/enrollment reads before fallible teardown
         busy = true
         runCatching { withContext(io) { backend.signOut() } }
-        state = EnrollmentState.SignedOut; today = TodayData(); selling = false; error = null; busy = false
+        state = EnrollmentState.SignedOut; today = TodayData(); selling = false; sellsNow = false; appModes = AppModes(AppMode.VISITS); modeChoice = null; mappingSaves = emptyList(); error = null; busy = false
         mustChangePassword = false; temporaryPassword = null
         team = com.sunpride.field.ui.team.TeamView(); teamDirectOnly = true
         retireSuggestedOrder()

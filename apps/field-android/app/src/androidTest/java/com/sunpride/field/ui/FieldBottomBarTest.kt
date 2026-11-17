@@ -15,23 +15,23 @@ import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
 
-/** FLD-173: at the phone's largest font the bottom bar keeps all five labels whole. */
+/** FLD-173 / SP-0195: at the phone's largest font the bottom bar keeps every label of every App mode whole. */
 class FieldBottomBarTest {
     @get:Rule val rule = createComposeRule()
 
-    @Test fun everyLabelFitsAtTheLargestFontOnANarrowPhone() = fits(FieldNav.tabs(selling = false))
-
-    /** SP-0192: with Sell on, six labels share the same 360 dp and still stay whole at the largest font. */
-    @Test fun sixLabelsWithSellFitAtTheLargestFontOnANarrowPhone() = fits(FieldNav.tabs(selling = true))
+    @Test fun mappingLabelsFitAtTheLargestFontOnANarrowPhone() = fits(FieldNav.tabs(AppMode.MAPPING))
+    @Test fun visitsLabelsFitAtTheLargestFontOnANarrowPhone() = fits(FieldNav.tabs(AppMode.VISITS))
+    @Test fun sellingLabelsFitAtTheLargestFontOnANarrowPhone() = fits(FieldNav.tabs(AppMode.SELLING))
 
     private fun fits(tabs: List<FieldTab>) {
         rule.setContent {
             val d = LocalDensity.current
             CompositionLocalProvider(LocalDensity provides Density(d.density, 2.0f)) {
-                FieldBottomBar(FieldTab.TODAY, unread = 3, onSelect = {}, modifier = Modifier.width(360.dp), tabs = tabs)
+                FieldBottomBar(tabs.first(), onSelect = {}, modifier = Modifier.width(360.dp), tabs = tabs)
             }
         }
         if (FieldTab.SELL !in tabs) rule.onNodeWithTag(FieldTab.SELL.tag).assertDoesNotExist()
+        rule.onNodeWithTag(FieldTab.MESSAGES.tag).assertDoesNotExist()
         for (tab in tabs) {
             val node = rule.onNodeWithText(tab.label, useUnmergedTree = true).fetchSemanticsNode()
             val layouts = mutableListOf<TextLayoutResult>()
