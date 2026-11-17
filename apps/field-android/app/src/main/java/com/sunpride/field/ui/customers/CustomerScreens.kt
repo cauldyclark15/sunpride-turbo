@@ -62,12 +62,17 @@ import com.sunpride.field.ui.route.DailyRoutes
  */
 @Composable
 fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Modifier = Modifier,
-    offline: Boolean = false, now: Long = System.currentTimeMillis(), onAddStore: ((String) -> Unit)? = null) {
+    offline: Boolean = false, now: Long = System.currentTimeMillis(), onAddStore: ((String) -> Unit)? = null,
+    /** SP-0196 Customer mapping: no route or visit items (no today's-route filter, no visit chips or days). */
+    mapping: Boolean = false,
+    /** SP-0196: this phone's new customers still waiting for the office (Customer mapping only). */
+    waiting: List<com.sunpride.field.ui.mapping.MappingSave> = emptyList()) {
     var query by rememberSaveable { mutableStateOf("") }
     var onlyToday by rememberSaveable { mutableStateOf(false) }
     val found = remember(data.customers, query) { CustomerDirectory.search(data.customers, query) }
-    val todayCount = remember(data.customers) { data.customers.count { it.today != null } }
-    val results = if (onlyToday) found.filter { it.today != null } else found
+    val todayCount = remember(data.customers, mapping) { if (mapping) 0 else data.customers.count { it.today != null } }
+    val results = if (onlyToday && !mapping) found.filter { it.today != null } else found
+    val pending = remember(waiting, query, mapping) { if (mapping) com.sunpride.field.ui.mapping.MappingHome.waiting(waiting, query) else emptyList() }
     // Long-press a store to pick it. No bulk action exists for field stores yet, so the bar only counts and cancels.
     val selection = com.sunpride.field.ui.rememberSelection<String>()
     // SP-0140: a lazy list, so a scope with hundreds of outlets composes only the rows on screen.
@@ -92,6 +97,14 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
                 FilterPill("On today's route", onlyToday, { onlyToday = true }, count = todayCount)
             }
         }
+        // SP-0196: a mapper finds the stores they just added here, before the office approves them.
+        if (pending.isNotEmpty()) {
+            item(key = "waiting-title") {
+                Text("Waiting for approval (${pending.size})", style = MaterialTheme.typography.titleSmall,
+                    modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp).testTag("customer-waiting-title"))
+            }
+            items(pending, key = { "waiting-${it.savedAt}-${it.name}" }) { save -> WaitingRow(save) }
+        }
         item(key = "count") {
             Text(listOfNotNull(
                 when {
@@ -111,7 +124,8 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
                     Modifier.testTag("customer-empty"))
             }
             results.isEmpty() -> item(key = "no-match") {
-                Text(if (query.isBlank()) "No customers on today's route. Choose All."
+                Text(if (query.isBlank() && !mapping) "No customers on today's route. Choose All."
+                    else if (query.isBlank()) "No customers on this phone."
                     else "No customer matches \"${query.trim()}\".",
                     style = MaterialTheme.typography.bodyMedium, modifier = Modifier.padding(4.dp).testTag("customer-no-match"))
                 // SP-0163: a search that finds nothing offers to add the store.
@@ -120,7 +134,7 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
             }
             else -> items(results, key = { it.outletId }) { record ->
                 StoreRow(record, now, record.outletId in selection,
-                    Modifier.selectableRow(selection, record.outletId) { onOpen(record.outletId) })
+                    Modifier.selectableRow(selection, record.outletId) { onOpen(record.outletId) }, mapping)
             }
         }
     }
@@ -129,9 +143,9 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
 }
 
 @Composable
-private fun StoreRow(record: CustomerRecord, now: Long, picked: Boolean, clicks: Modifier) {
-    val visit = record.today
-    val emphasis = (visit != null && visit.status != "Done") || record.callOpen
+private fun StoreRow(record: CustomerRecord, now: Long, picked: Boolean, clicks: Modifier, mapping: Boolean = false) {
+    val visit = record.today.takeUnless { mapping }
+    val emphasis = (visit != null && visit.status != "Done") || (record.callOpen && !mapping)
     Surface(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp)
             .clip(SunprideTokens.shapes.large).then(clicks).testTag("customer-result")
             .semantics { selected = picked },
@@ -143,14 +157,14 @@ private fun StoreRow(record: CustomerRecord, now: Long, picked: Boolean, clicks:
             IconTile(record.name.trim().take(1).uppercase(), emphasis)
             Column(Modifier.weight(1f)) {
                 Text(record.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                resultMeta(record, now, withAddress = false).takeIf { it.isNotEmpty() }?.let {
+                resultMeta(record, now, withAddress = false, route = !mapping).takeIf { it.isNotEmpty() }?.let {
                     Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                         maxLines = 1, overflow = TextOverflow.Ellipsis)
                 }
                 record.address?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
-            when (record.visitStatus) {
+            if (!mapping) when (record.visitStatus) {
                 "Done" -> StatusChip("Done", Look.Tone.GOOD)
                 "In progress" -> StatusChip("In progress", Look.Tone.ACCENT)
             }
@@ -159,9 +173,32 @@ private fun StoreRow(record: CustomerRecord, now: Long, picked: Boolean, clicks:
     }
 }
 
-private fun resultMeta(record: CustomerRecord, now: Long, withAddress: Boolean = true): String = listOfNotNull(
+/** SP-0196: one of this phone's new customers waiting for the office (not openable yet: it has no customer page). */
+@Composable
+private fun WaitingRow(save: com.sunpride.field.ui.mapping.MappingSave) {
+    Surface(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).testTag("customer-waiting"),
+        shape = SunprideTokens.shapes.large, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, Look.hairline)) {
+        androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 16.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            IconTile(save.name.trim().take(1).uppercase(), false)
+            Column(Modifier.weight(1f)) {
+                Text(save.name, style = MaterialTheme.typography.titleSmall, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                listOfNotNull(save.owner, save.barangay).joinToString(" · ").takeIf { it.isNotEmpty() }?.let {
+                    Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            }
+            // The group title already says "Waiting for approval"; only the other states get a chip (room for the name).
+            com.sunpride.field.ui.mapping.MappingHome.waitingLabel(save).takeIf { save.accepted == false || !save.sent }?.let {
+                StatusChip(it, if (save.accepted == false) Look.Tone.WARN else Look.Tone.NEUTRAL)
+            }
+        }
+    }
+}
+
+private fun resultMeta(record: CustomerRecord, now: Long, withAddress: Boolean = true, route: Boolean = true): String = listOfNotNull(
     record.outletCode, record.customerCode?.takeIf { it != record.outletCode },
-    record.today?.let { "Today" } ?: record.planned.firstOrNull()?.let { CustomerDirectory.dayLabel(it.serviceDate, now) },
+    if (!route) null else record.today?.let { "Today" } ?: record.planned.firstOrNull()?.let { CustomerDirectory.dayLabel(it.serviceDate, now) },
     record.address.takeIf { withAddress },
 ).joinToString(" · ")
 

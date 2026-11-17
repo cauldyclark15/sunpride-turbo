@@ -61,9 +61,10 @@ import java.util.Base64
 @Composable
 fun CensusScreen(backend: FieldBackend?, location: VisitLocation, onBack: () -> Unit, modifier: Modifier = Modifier,
     stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null, initialName: String = "",
-    editing: CustomerRecord? = null, onChangeSaved: (() -> Unit)? = null, onQueued: (() -> Unit)? = null) =
+    editing: CustomerRecord? = null, onChangeSaved: (() -> Unit)? = null, onQueued: (() -> Unit)? = null,
+    draftHolder: CustomerDraftHolder = remember { CustomerDraftHolder() }) =
     CensusScreenForTest(backend, location, onBack, modifier, stores, onOpenStore, photoForTest = null, initialName = initialName,
-        editing = editing, onChangeSaved = onChangeSaved, onQueued = onQueued)
+        editing = editing, onChangeSaved = onChangeSaved, onQueued = onQueued, draftHolder = draftHolder)
 
 /** Tests only: [photoForTest] starts with a storefront photo (emulators have no working camera). Release code
  * calls [CensusScreen], which always passes null; lint's VisibleForTests check blocks other production callers. */
@@ -74,7 +75,9 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     stores: List<CustomerRecord> = emptyList(), onOpenStore: ((String) -> Unit)? = null, photoForTest: ByteArray? = null,
     initialName: String = "", editing: CustomerRecord? = null, onChangeSaved: (() -> Unit)? = null,
     /** FLD-075: a saved customer is waiting work; the app re-reads its outbox status so the pill and Sync count it. */
-    onQueued: (() -> Unit)? = null) {
+    onQueued: (() -> Unit)? = null,
+    /** SP-0196: the open Add customer form lives here (above the screen), so rebuilding the screen never loses it. */
+    draftHolder: CustomerDraftHolder = remember { CustomerDraftHolder() }) {
     // Edit store sends a change request for this store (never a new store); the office approves it first.
     val edit = editing != null && com.sunpride.field.ui.STORE_EDIT_ENABLED
     val current = remember(editing) { editing?.let { CensusRules.Current(it.name, (it.address ?: it.account?.address).orEmpty(),
@@ -91,6 +94,9 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     // E2E-010: keyed by the store, so the form fills from the customer even when the record arrives after the
     // first frame (it otherwise kept the empty first values: name, owner and phone had to be retyped).
     val editKey = editing?.outletId
+    val keep = draftHolder
+    // SP-0196: a rebuilt screen starts from the form kept above it, never from an older phone copy.
+    val held = if (edit) null else keep.draft
     var name by rememberSaveable(editKey) { mutableStateOf((editing?.name ?: initialName).take(80)) }
     var address by rememberSaveable(editKey) { mutableStateOf(editing?.let { it.address ?: it.account?.address }.orEmpty()) }
     var owner by rememberSaveable(editKey) { mutableStateOf(editing?.contactName.orEmpty()) }
@@ -98,8 +104,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     var batch by rememberSaveable { mutableStateOf("") }; var channel by rememberSaveable { mutableStateOf("") }
     var subchannel by rememberSaveable { mutableStateOf("") }; var estimatedClass by rememberSaveable { mutableStateOf("D") }
     var landmark by rememberSaveable { mutableStateOf("") }
-    var mode by rememberSaveable { mutableStateOf("") } // "", "gps", "places"
-    var fix by remember { mutableStateOf<JSONObject?>(null) }; var jpeg by remember { mutableStateOf(photoForTest) }
+    var mode by rememberSaveable { mutableStateOf(if (held?.fix != null) "gps" else "") } // "", "gps", "places"
+    var fix by remember { mutableStateOf<JSONObject?>(held?.fix) }; var jpeg by remember { mutableStateOf(held?.photo ?: photoForTest) }
     var lastFix by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var reverse by remember { mutableStateOf<CensusPlaces.Address?>(null) }
     var autoAddress by remember { mutableStateOf<String?>(null) }
@@ -113,14 +119,15 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     var pending by remember { mutableStateOf<JSONObject?>(null) }
     // SP-0170 Add customer: the client's fields; reference lists from the census setup, geography kept on the phone.
     val setup = remember(config) { CustomerCapture.setup(config) }
-    var form by remember { mutableStateOf(CustomerCapture.Form(customerName = initialName.take(200))) }
+    var form by remember { mutableStateOf(held?.form?.let { if (it.customerName.isBlank()) it.copy(customerName = initialName.take(200)) else it }
+        ?: CustomerCapture.Form(customerName = initialName.take(200))) }
     var geography by remember { mutableStateOf<CustomerCapture.Geography?>(null) }
     var geoNote by remember { mutableStateOf<String?>(null) }
     var formErrors by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
     // SP-0176: the unsaved form is kept on the phone (Back, app restart) until saved or discarded.
-    var draftLoaded by remember { mutableStateOf(false) }
-    var draftRestored by remember { mutableStateOf(false) }
-    var savedNotice by remember { mutableStateOf<String?>(null) }
+    var draftLoaded by remember { mutableStateOf(!edit && keep.loaded) }
+    var draftRestored by remember { mutableStateOf(held != null && !held.isEmpty()) }
+    var savedNotice by keep::savedNotice
     val keyRequesters = remember { mutableMapOf<String, BringIntoViewRequester>() }
     fun requester(key: String) = keyRequesters.getOrPut(key) { BringIntoViewRequester() }
     // Live test 2026-11-09: Save must never look like it does nothing.
@@ -138,7 +145,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     LaunchedEffect(backend) {
         try {
             config = withContext(Dispatchers.IO) { backend?.censusConfig() }
-            if (!edit && backend != null && !draftLoaded) {
+            // The phone copy only matters when nothing is kept above the screen (the app was closed since).
+            if (!edit && backend != null && !draftLoaded && !keep.loaded) {
                 val kept = CustomerCapture.parseDraft(runCatching { withContext(Dispatchers.IO) { backend.customerDraft() } }.getOrNull())
                 if (kept != null && !kept.isEmpty()) {
                     form = kept.form.let { if (it.customerName.isBlank()) it.copy(customerName = initialName.take(200)) else it }
@@ -156,17 +164,28 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     // SP-0176: keep the draft on every change (debounced), and once more when the screen closes.
     val latestDraft by rememberUpdatedState(CustomerCapture.Draft(form, fix, jpeg))
     val draftAllowed by rememberUpdatedState(draftLoaded && !edit && savedNotice == null)
+    // SP-0196: every change is kept above the screen at once; the phone copy follows (numbered, newest wins).
+    SideEffect { if (draftAllowed) keep.keep(CustomerCapture.Draft(form, fix, jpeg)) }
+    fun persistDraft(d: CustomerCapture.Draft?, ticket: Long) {
+        val b = backend ?: return
+        keep.persist(ticket) { b.saveCustomerDraft(if (d == null || d.isEmpty()) null else CustomerCapture.draftJson(d)) }
+    }
     LaunchedEffect(form, fix, jpeg, draftLoaded) {
         if (!draftAllowed || backend == null) return@LaunchedEffect
         delay(400)
-        val d = latestDraft
-        runCatching { withContext(Dispatchers.IO) { backend.saveCustomerDraft(if (d.isEmpty()) null else CustomerCapture.draftJson(d)) } }
+        val d = latestDraft; val ticket = keep.ticket()
+        runCatching { withContext(Dispatchers.IO) { persistDraft(d, ticket) } }
     }
     DisposableEffect(backend) {
         onDispose {
-            if (draftAllowed && backend != null) { val d = latestDraft
-                Thread { runCatching { backend.saveCustomerDraft(if (d.isEmpty()) null else CustomerCapture.draftJson(d)) } }.start() }
+            if (draftAllowed && backend != null) { val d = latestDraft; keep.keep(d); val ticket = keep.ticket()
+                Thread { runCatching { persistDraft(d, ticket) } }.start() }
         }
+    }
+    /** Saved or discarded: nothing is kept above the screen, and the phone copy is cleared after any older write. */
+    fun dropDraft() {
+        keep.clear(); val ticket = keep.ticket()
+        scope.launch { runCatching { withContext(Dispatchers.IO) { persistDraft(null, ticket) } } }
     }
     // Sales Organization defaults from the agent's assignment once the setup is known.
     LaunchedEffect(setup) { if (setup != null && form.salesOrgCode.isEmpty()) form = CustomerCapture.start(setup, form.customerName).let { form.copy(salesOrgCode = it.salesOrgCode) } }
@@ -280,10 +299,9 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                     onChangeSaved?.invoke()
                     return@launch
                 }
-                runCatching { withContext(Dispatchers.IO) { backendNow.saveCustomerDraft(null) } }
                 message = "Customer saved on this phone. The CDM reviews and verifies it after sync."
                 savedNotice = if (isOnline(context)) SAVED_ONLINE else SAVED_OFFLINE
-                reset(); draftRestored = false
+                reset(); draftRestored = false; dropDraft()
             } catch (e: Exception) {
                 message = if (e is IllegalArgumentException) e.message ?: "Complete every field." else "Could not save. Check your offline recording access and retry."
                 saveNote = message
@@ -368,7 +386,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                     busy = false; queue(draft); return@launch
                 }
                 val loc = draft.getJSONObject("location")
-                val dupName = if (edit) name else form.customerName; val dupPhone = if (edit) phone else form.mobileNo
+                val dupName = if (edit) name else CustomerCapture.storeName(form); val dupPhone = if (edit) phone else form.mobileNo
                 val query = DuplicateRules.Store("", dupName, dupPhone, loc.getDouble("latitude"), loc.getDouble("longitude"), draft.optString("placeId").ifEmpty { null })
                 val local = DuplicateRules.find(query, stores.map { DuplicateRules.Store(it.outletId, it.name, null, it.latitude, it.longitude, address = it.address) })
                 val server = places?.let { api -> withTimeoutOrNull(5_000) { withContext(Dispatchers.IO) {
@@ -484,16 +502,18 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             if (history.isNotEmpty()) SectionCard("Saved customers") {
                 Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                     history.takeLast(20).reversed().forEach { saved ->
-                        Text("${saved.name} · ${CensusRules.savedLabel(saved)}",
-                            style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("census-saved"))
+                        Column(Modifier.fillMaxWidth().testTag("census-saved")) {
+                            Text("${saved.name} · ${CensusRules.savedLabel(saved)}", style = MaterialTheme.typography.bodyMedium)
+                            saved.owner?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                        }
                     }
                 }
             }
         }
         ActionBar {
             if (!edit && draftLoaded && !CustomerCapture.Draft(form, fix, jpeg).isEmpty())
-                TextButton({ reset(); draftRestored = false; message = "Started again. The unsaved store was discarded."
-                    scope.launch { runCatching { withContext(Dispatchers.IO) { backend?.saveCustomerDraft(null) } } } },
+                TextButton({ reset(); draftRestored = false; message = "Started again. The unsaved customer was discarded."
+                    dropDraft() },
                     Modifier.fillMaxWidth().testTag("census-discard"), enabled = !busy) { Text("Discard and start again") }
             val note = saveNote ?: if (marked.isNotEmpty()) CensusRules.missingSummary(marked.size)
                 else if (customerMarks.isNotEmpty()) CensusRules.missingSummary(customerMarks.size) else null
@@ -505,7 +525,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     savedNotice?.let { text ->
         AlertDialog(onDismissRequest = { savedNotice = null; onBack() },
             confirmButton = { TextButton({ savedNotice = null; onBack() }, Modifier.testTag("census-saved-ok")) { Text("OK") } },
-            title = { Text(if (text == SAVED_ONLINE) "Store saved" else "Saved on this phone") },
+            title = { Text("Customer saved") },
             text = { Text(text, modifier = Modifier.testTag("census-saved-notice")) }, modifier = Modifier.testTag("census-saved-dialog"))
     }
     moved?.let { m -> SafeBottomSheet(onDismissRequest = { moved = null }, Modifier.testTag("census-moved")) {
@@ -541,9 +561,9 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             }, Modifier.fillMaxWidth().testTag("census-dup-different"))
     }
 }
-internal const val SAVED_ONLINE = "Store saved — sent to the office for approval."
-internal const val SAVED_OFFLINE = "Saved on this phone — will send when online."
-internal const val DRAFT_KEPT = "Your unsaved store was kept. Continue where you left off, or tap Discard and start again."
+internal const val SAVED_ONLINE = "Customer saved. Sent to the office for approval."
+internal const val SAVED_OFFLINE = "Saved. It will send when you have signal."
+internal const val DRAFT_KEPT = "Your unsaved customer was kept. Continue where you left off, or tap Discard and start again."
 private fun isOnline(context: android.content.Context): Boolean = runCatching {
     val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
     val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false
@@ -642,14 +662,14 @@ private fun KeyMark(key: String, marks: Map<String, String>, requester: (String)
 private fun CmText(key: String, value: String, onChange: (String) -> Unit, marks: Map<String, String>,
     requester: (String) -> BringIntoViewRequester, max: Int, keyboard: androidx.compose.ui.text.input.KeyboardType =
         androidx.compose.ui.text.input.KeyboardType.Text, hint: String? = null, enabled: Boolean = true,
-    normalizeOnBlur: Boolean = true) {
+    normalizeOnBlur: Boolean = true, normalize: (String) -> String = { CustomerCapture.normalizeText(key, it) }) {
     var wasFocused by remember(key) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(4.dp)) {
         FieldTextField(value, { onChange(it.take(max)) }, label = { Text(CustomerCapture.formLabel(key)) }, singleLine = true,
             isError = key in marks, placeholder = hint?.let { h -> { Text(h) } }, enabled = enabled,
             modifier = Modifier.fillMaxWidth().testTag("customer-$key").onFocusChanged { state ->
                 if (wasFocused && !state.isFocused && enabled && normalizeOnBlur) {
-                    val normalized = CustomerCapture.normalizeText(key, value)
+                    val normalized = normalize(value)
                     if (normalized != value) onChange(normalized)
                 }
                 wasFocused = state.isFocused
@@ -680,9 +700,11 @@ private fun CustomerSections(setup: CustomerCapture.Setup?, geography: CustomerC
             CmText("registeredName", form.registeredName, { onChange(form.copy(registeredName = it)) }, marks, requester, 200)
             CmText("tradeName", form.tradeName, { onChange(form.copy(tradeName = it)) }, marks, requester, 200)
             CmText("customerName", form.customerName, { onChange(form.copy(customerName = it)) }, marks, requester, 200)
-            CmText("customerAddress", form.detail("customerAddress").takeIf { it.isNotBlank() } ?: CustomerCapture.address(form, geography),
-                { onChange(form.withDetail("customerAddress", it)) }, marks, requester, 500,
-                hint = "Built from the location below; editable", normalizeOnBlur = form.detail("customerAddress").isNotBlank())
+            // SP-0196: the built address shows until the agent edits the field; then only their text (never refilled).
+            CmText("customerAddress", CustomerCapture.addressField(form, geography),
+                { onChange(CustomerCapture.withAddressTyped(form, it)) }, marks, requester, 500,
+                hint = "Built from the location below; editable", normalizeOnBlur = form.addressEdited && form.detail("customerAddress").isNotBlank(),
+                normalize = { CustomerCapture.normalizeAddress(form, geography, it) })
             CmText("email", form.email, { onChange(form.copy(email = it)) }, marks, requester, 200,
                 androidx.compose.ui.text.input.KeyboardType.Email)
             CmText("mobileNo", form.mobileNo, { onChange(form.copy(mobileNo = it)) }, marks, requester, 20, phone, "09XXXXXXXXX")

@@ -568,7 +568,9 @@ class LiveFieldBackend(
             com.sunpride.field.census.CensusRules.allDecisions(myChanges(store))
         rows.map {
             val p = JSONObject(it.first.serializedOperation).getJSONObject("payload")
-            com.sunpride.field.census.CensusRules.Saved(p.getString("name"), it.second.state, decided[p.optString("captureId")])
+            // SP-0196: the store (Registered Name) first; the owner as a second line.
+            val (store, owner) = com.sunpride.field.census.CustomerCapture.savedNames(p)
+            com.sunpride.field.census.CensusRules.Saved(store, it.second.state, decided[p.optString("captureId")], owner)
         }
     }
     /** GET my-changes when online (saved on the phone), else the saved copy. */
@@ -1087,10 +1089,11 @@ class LiveFieldBackend(
             }
         } finally { store.close() }
     }
-    /** Verified scope the suggested-order lifetime belongs to; any change (A → B, or back to A) retires it. */
-    private var suggestionScope: StoreScope? = null
-    private fun observeSuggestionScope(scope: StoreScope?) = synchronized(this) {
-        if (scope != suggestionScope) { suggestionScope = scope; retireSuggestions() }
+    /** Verified scope the suggested-order lifetime belongs to; any change (A → B, or back to A) retires it.
+     * SP-0196: tracked per process like the lifetime itself, so a background sync's own backend no longer retires it
+     * on its first look at the same scope (that re-keyed the open Add customer form after every sync). */
+    private fun observeSuggestionScope(scope: StoreScope?) {
+        if (SuggestionScope.changed(scope)) retireSuggestions()
     }
     private fun retireSuggestions() {
         com.sunpride.field.sync.DomainOutbox.retire()
@@ -1191,6 +1194,9 @@ class LiveFieldBackend(
             if (com.sunpride.field.census.CensusRules.isChange(p)) return@mapNotNull null
             Triple(p, outbox.state, intent.createdAt)
         }
+        // The office's decisions already saved on this phone (no network here): approved stores leave the waiting list.
+        val decided = com.sunpride.field.census.CensusRules.customerDecisions(
+            store.localCache(STORE_CHANGES, "decisions")?.takeUnless { it.tombstone }?.json?.let { runCatching { JSONObject(it) }.getOrNull() })
         // Barangay names only for the newest five, from the geography already on this phone (never downloaded here).
         val newest = rows.sortedByDescending { it.third }.take(5).map { it.first }.toSet()
         val barangays = HashMap<String, Map<String, String>>()
@@ -1205,8 +1211,11 @@ class LiveFieldBackend(
             return names[code]
         }
         rows.map { (p, state, at) ->
-            com.sunpride.field.ui.mapping.MappingSave(p.optString("name"), if (p in newest) barangay(p.optJSONObject("customer")) else null,
-                sent = state == "done" || com.sunpride.field.storage.OutboxState.refused(state), savedAt = at)
+            // SP-0196: listed by the store (Registered Name), the owner (Customer Name) underneath.
+            val (store, owner) = com.sunpride.field.census.CustomerCapture.savedNames(p)
+            com.sunpride.field.ui.mapping.MappingSave(store, if (p in newest) barangay(p.optJSONObject("customer")) else null,
+                sent = state == "done" || com.sunpride.field.storage.OutboxState.refused(state), savedAt = at,
+                owner = owner, accepted = decided[p.optString("captureId")]?.accepted)
         }
     }
     override fun sellAccess(): com.sunpride.field.sell.auth.SellAccess =

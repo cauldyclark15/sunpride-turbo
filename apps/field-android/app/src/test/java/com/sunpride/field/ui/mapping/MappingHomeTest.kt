@@ -30,4 +30,17 @@ class MappingHomeTest {
         assertEquals("Waiting to send", MappingHome.stateLabel(recent[0]))
         assertEquals("Sent", MappingHome.stateLabel(recent[1]))
     }
+
+    // SP-0196: the Customers tab in Customer mapping lists this phone's stores still waiting for the office.
+    @Test fun waitingListsUnapprovedStoresNewestFirstAndSearches() {
+        val saves = listOf(MappingSave("Aling Nena Sari-Sari Store", "Lahug", true, 3L, owner = "Nena Reyes"),
+            MappingSave("Mang Ben Variety Store", "Camputhaw", false, 2L, owner = "Benjamin Cruz"),
+            MappingSave("Approved Store", null, true, 4L, accepted = true),
+            MappingSave("Refused Store", null, true, 1L, accepted = false))
+        assertEquals(listOf("Aling Nena Sari-Sari Store", "Mang Ben Variety Store", "Refused Store"), MappingHome.waiting(saves, "").map { it.name })
+        assertEquals(listOf("Mang Ben Variety Store"), MappingHome.waiting(saves, "benjamin").map { it.name })
+        assertEquals(listOf("Aling Nena Sari-Sari Store"), MappingHome.waiting(saves, "lahug store").map { it.name })
+        assertEquals(listOf("Waiting for approval", "Waiting to send", "Not approved"),
+            MappingHome.waiting(saves, "").map(MappingHome::waitingLabel))
+    }
 }

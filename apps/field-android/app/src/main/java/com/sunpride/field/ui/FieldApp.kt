@@ -178,7 +178,9 @@ fun FieldApp(
     }
     val signOut = { controller.signOut(); biometrics?.signedOut(); page = "home"; Unit }
     // Whatever ends the session (sign-out, expiry, removal), the next person starts on a clean sign-in screen.
-    LaunchedEffect(controller.state) { if (controller.state == EnrollmentState.SignedOut) { page = "home"; pagesEpoch++ } }
+    // SP-0196: the open Add customer form lives above its screen for the whole session (see CustomerDraftHolder).
+    val censusDraft = remember(backend) { com.sunpride.field.census.CustomerDraftHolder() }
+    LaunchedEffect(controller.state) { if (controller.state == EnrollmentState.SignedOut) { page = "home"; pagesEpoch++; censusDraft.reset() } }
     // AND-020: each visit to the Team page asks the server again (saved copy when offline).
     LaunchedEffect(controller, page, controller.state) {
         if (page == "team" && controller.state is EnrollmentState.Ready) controller.loadTeam()
@@ -332,7 +334,7 @@ fun FieldApp(
         } }
     }
     LaunchedEffect(ready, mode, page, controller.today) {
-        if (ready && mode == AppMode.MAPPING && page == "home") controller.refreshMappingSaves()
+        if (ready && mode == AppMode.MAPPING && (page == "home" || page == "customers")) controller.refreshMappingSaves()
     }
     // SP-0192: one sync badge for the whole phone: the Sell area's waiting sales count as "Waiting to send" too.
     val sellWaiting = sellHost?.controller?.syncWaiting ?: 0
@@ -447,7 +449,7 @@ fun FieldApp(
                         initialName = censusName,
                         editing = censusEdit?.let { id -> controller.today.customers.firstOrNull { it.outletId == id } },
                         onChangeSaved = { censusEdit = null; storeChangesTick++; page = "customer" },
-                        onQueued = { controller.refreshCache() })
+                        onQueued = { controller.refreshCache() }, draftHolder = censusDraft)
                 }
                 ready && page == "workforce" -> com.sunpride.field.ui.workforce.WorkforceScreen(controller,location,modifier)
                 // SP-0146 v2 messaging: the shared chat module; Back inside it steps back, Back on its list returns here.
@@ -498,7 +500,8 @@ fun FieldApp(
                     onAddVisit = if (visits && FieldFeature.UNPLANNED_VISITS in features) ({ page = "customers" }) else null)
                 ready && page == "customers" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,
-                    onAddStore = if (visits) ({ typed -> censusName = typed; censusEdit = null; go("census") }) else null)
+                    onAddStore = if (visits) ({ typed -> censusName = typed; censusEdit = null; go("census") }) else null,
+                    mapping = mode == AppMode.MAPPING, waiting = if (mode == AppMode.MAPPING) controller.mappingSaves else emptyList())
                 ready && page == "customer" && customer != null -> com.sunpride.field.ui.customers.CustomerDetailScreen(
                     customer, controller.today, onNavigate = { uri -> openMaps(context, uri) },
                     onDial = { uri -> openDialer(context, uri) }, modifier = modifier,
@@ -508,7 +511,8 @@ fun FieldApp(
                     changeLabel = storeChanges[customer.outletId])
                 ready && page == "customer" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,
-                    onAddStore = if (visits) ({ typed -> censusName = typed; censusEdit = null; go("census") }) else null)
+                    onAddStore = if (visits) ({ typed -> censusName = typed; censusEdit = null; go("census") }) else null,
+                    mapping = mode == AppMode.MAPPING, waiting = if (mode == AppMode.MAPPING) controller.mappingSaves else emptyList())
                 ready && page == "team" -> com.sunpride.field.ui.team.TeamScreen(controller.team,
                     controller.teamDirectOnly, controller.teamLoading, minuteNow,
                     onFilter = { controller.loadTeam(it) }, onRefresh = { controller.loadTeam() }, modifier = modifier)

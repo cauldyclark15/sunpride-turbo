@@ -35,8 +35,11 @@ import java.time.Instant
 import java.time.ZoneId
 import java.time.temporal.TemporalAdjusters
 
-/** SP-0195: one Add customer save on this phone (the outbox row of a new-customer capture, never an Edit request). */
-data class MappingSave(val name: String, val barangay: String?, val sent: Boolean, val savedAt: Long)
+/** SP-0195: one Add customer save on this phone (the outbox row of a new-customer capture, never an Edit request).
+ * SP-0196: [name] is the store (Registered Name), [owner] the Customer Name when it differs; [accepted] is the office's
+ * decision once this phone has it (null = still waiting). */
+data class MappingSave(val name: String, val barangay: String?, val sent: Boolean, val savedAt: Long,
+    val owner: String? = null, val accepted: Boolean? = null)
 
 /** SP-0195 Customer mapping Home: counted from the phone's own saves, so it works offline. */
 object MappingHome {
@@ -56,6 +59,21 @@ object MappingHome {
     fun recent(saves: List<MappingSave>): List<MappingSave> = saves.sortedByDescending { it.savedAt }.take(5)
 
     fun stateLabel(save: MappingSave): String = if (save.sent) "Sent" else "Waiting to send"
+
+    /** SP-0196: this phone's new customers the office has not approved yet (newest first), matching [query] by store
+     * name, owner or barangay, for the Customers tab in Customer mapping. */
+    fun waiting(saves: List<MappingSave>, query: String): List<MappingSave> {
+        val words = query.trim().lowercase().split(Regex("\\s+")).filter { it.isNotEmpty() }
+        return saves.filter { it.accepted != true }.filter { s ->
+            val text = listOfNotNull(s.name, s.owner, s.barangay).joinToString(" ").lowercase()
+            words.all { text.contains(it) }
+        }.sortedByDescending { it.savedAt }
+    }
+    fun waitingLabel(save: MappingSave): String = when {
+        save.accepted == false -> "Not approved"
+        !save.sent -> "Waiting to send"
+        else -> "Waiting for approval"
+    }
 }
 
 /**
@@ -112,6 +130,8 @@ private fun RecentRow(save: MappingSave, modifier: Modifier = Modifier) {
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
         Column(Modifier.weight(1f)) {
             Text(save.name, style = MaterialTheme.typography.bodyLarge, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            save.owner?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Look.muted, maxLines = 1,
+                overflow = TextOverflow.Ellipsis) }
             save.barangay?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = Look.muted, maxLines = 1,
                 overflow = TextOverflow.Ellipsis) }
         }

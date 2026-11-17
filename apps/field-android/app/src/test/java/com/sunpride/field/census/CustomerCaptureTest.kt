@@ -141,7 +141,9 @@ class CustomerCaptureTest {
             "street1", "postalCode", "salesOrgCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code",
             "customerGroupCode", "typeOfBusiness", "customerAddress", "countryCode", "taxClassificationCode", "salesOfficeCode",
             "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode", "shipTos").sorted(), c.keys().asSequence().toList().sorted())
-        assertEquals("Aling Nena Store", p.getString("name")); assertEquals("Nena Cruz", p.getString("ownerName"))
+        // SP-0196: `name` is the store (Registered Name); both CDM names stay as entered in the customer object.
+        assertEquals("Aling Nena Store Inc.", p.getString("name")); assertEquals("Nena Cruz", p.getString("ownerName"))
+        assertEquals("Aling Nena Store Inc.", c.getString("registeredName")); assertEquals("Aling Nena Store", c.getString("customerName"))
         assertEquals("0917 555 0101", p.getString("ownerPhone")); assertEquals("gps", p.getString("locationSource"))
         for (old in listOf("channelId", "subchannelId", "estimatedClass", "batchId", "kind")) assertFalse(old, p.has(old))
         CensusRules.validate(p) // routes to CustomerCapture.validate
@@ -285,7 +287,8 @@ class CustomerCaptureTest {
         val intent = CensusRules.intent(StoreScope("account", "device", "scope"), p, 5000L)
         val saved = JSONObject(intent.serializedOperation).getJSONObject("payload")
         val c = saved.getJSONObject("customer")
-        assertEquals("Aling Nena Store", saved.getString("name"))
+        assertEquals("Aling Nena Store Inc.", saved.getString("name"))
+        assertEquals("Aling Nena Store", c.getString("customerName"))
         assertEquals("Nena Cruz", saved.getString("ownerName"))
         assertEquals("Aling Nena Store Inc.", c.getString("registeredName"))
         assertEquals("Nena's", c.getString("tradeName"))
@@ -306,5 +309,50 @@ class CustomerCaptureTest {
         assertTrue(refused(JSONObject(ok.toString()).also { it.getJSONObject("location").put("accuracyMeters", 80.0) }))
         assertTrue(refused(JSONObject(ok.toString()).also { it.getJSONObject("location").put("mockSignal", true) }))
         assertFalse(refused(ok))
+    }
+
+    // SP-0196 (fails on the old code: the outlet/list name was the owner's Customer Name).
+    @Test fun savedCustomersAreNamedByTheStoreWithTheOwnerUnderneath() {
+        val f = complete().copy(registeredName = "Aling Nena Sari-Sari Store", customerName = "Nena Reyes")
+        val p = CustomerCapture.payload(UUID.randomUUID().toString(), f, geography, 5000L, fix, jpeg)
+        assertEquals("Aling Nena Sari-Sari Store", p.getString("name"))
+        assertEquals("Nena Reyes", p.getJSONObject("customer").getString("customerName"))
+        assertEquals("Aling Nena Sari-Sari Store" to "Nena Reyes", CustomerCapture.savedNames(p))
+        // A save queued by an older build (owner sent as `name`) still lists the store first.
+        val old = JSONObject(p.toString()).put("name", "Nena Reyes")
+        assertEquals("Aling Nena Sari-Sari Store" to "Nena Reyes", CustomerCapture.savedNames(old))
+        // No Registered Name (very old saves): the name that was sent; the owner line is not repeated.
+        val bare = JSONObject().put("name", "Nena Reyes").put("customer", JSONObject().put("customerName", "Nena Reyes"))
+        assertEquals("Nena Reyes" to null, CustomerCapture.savedNames(bare))
+        assertEquals("Aling Nena Sari-Sari Store", CustomerCapture.storeName(f))
+        assertEquals("Nena Reyes", CustomerCapture.storeName(f.copy(registeredName = " ")))
+    }
+
+    // SP-0196 problem 3: the suggestion follows the pickers only until the agent edits the field.
+    @Test fun customerAddressIsSuggestedUntilEditedAndNeverRefilledOrAppended() {
+        val picked = CustomerCapture.Form(regionCode = "0700000000", provinceCode = "0702200000", municipalityCode = "0730600000")
+        assertEquals("City of Cebu, Cebu", CustomerCapture.addressField(picked, geography))
+        // Clearing it keeps it clear (the old field showed the suggestion again at once).
+        val cleared = CustomerCapture.withAddressTyped(picked, "")
+        assertEquals("", CustomerCapture.addressField(cleared, geography))
+        assertEquals("", CustomerCapture.addressField(cleared.copy(barangayCode = "0730600003", houseNo = "12"), geography))
+        // Typing after clearing is only what was typed (the old field appended it to the suggestion).
+        val typed = CustomerCapture.withAddressTyped(cleared, "123 Rizal Street, Lahug, Cebu City")
+        assertEquals("123 Rizal Street, Lahug, Cebu City", CustomerCapture.addressField(typed, geography))
+        // A cleared field still sends the built address (the office needs one); the field stays as left.
+        assertEquals("City of Cebu, Cebu 6000", CustomerCapture.address(cleared.copy(postalCode = "6000"), geography))
+        // The edit survives the draft; drafts kept before SP-0196 count a typed address as edited.
+        val back = CustomerCapture.parseDraft(CustomerCapture.draftJson(CustomerCapture.Draft(cleared, null, null)))!!.form
+        assertTrue(back.addressEdited); assertEquals("", CustomerCapture.addressField(back, geography))
+        val legacy = JSONObject(CustomerCapture.draftJson(CustomerCapture.Draft(typed, null, null))).apply { remove("addressEdited") }
+        assertTrue(CustomerCapture.parseDraft(legacy.toString())!!.form.addressEdited)
+    }
+
+    // SP-0196 (fails on the old code, which sent "City Of Cebu"): picked place names keep their official spelling.
+    @Test fun typedAddressKeepsOfficialPlaceNames() {
+        val f = complete().let { CustomerCapture.withAddressTyped(it, "12 gorordo ave, apas, CITY OF CEBU, cebu") }
+        assertEquals("12 Gorordo Ave, Apas, City of Cebu, Cebu", CustomerCapture.address(f, geography))
+        assertEquals("12 Gorordo Ave, Apas, City of Cebu, Cebu",
+            CustomerCapture.payload(UUID.randomUUID().toString(), f, geography, 5000L, fix, jpeg).getString("address"))
     }
 }

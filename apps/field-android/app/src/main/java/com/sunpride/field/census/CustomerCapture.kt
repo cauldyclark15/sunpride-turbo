@@ -109,6 +109,9 @@ object CustomerCapture {
         val details: Map<String, String> = emptyMap(),
         val sameAsCustomer: Boolean = true, val shipToParty: String = "", val shipToAddress: String = "",
         val shipToMobileNo: String = "", val shipToEmail: String = "",
+        /** SP-0196: the agent typed in (or cleared) Customer Address. Until then the field shows the address built from
+         * the location pickers; afterwards it shows exactly what was typed and is never refilled or appended to. */
+        val addressEdited: Boolean = false,
     ) {
         fun detail(key: String): String = details[key] ?: if (key == "countryCode") "PH" else ""
         fun withDetail(key: String, value: String) = copy(details = details + (key to value))
@@ -156,6 +159,7 @@ object CustomerCapture {
             .put("details", JSONObject(d.form.details)).put("sameAsCustomer", d.form.sameAsCustomer)
             .put("shipToParty", d.form.shipToParty).put("shipToAddress", d.form.shipToAddress)
             .put("shipToMobileNo", d.form.shipToMobileNo).put("shipToEmail", d.form.shipToEmail)
+            .put("addressEdited", d.form.addressEdited)
         d.fix?.let { o.put("fix", JSONObject(it.toString())) }
         d.photo?.let { o.put("photo", java.util.Base64.getEncoder().encodeToString(it)) }
         return o.toString()
@@ -174,6 +178,8 @@ object CustomerCapture {
                 .associate { it.key to d.optString(it.key, "") } }.orEmpty(),
             sameAsCustomer = o.optBoolean("sameAsCustomer", true), shipToParty = o.optString("shipToParty"),
             shipToAddress = o.optString("shipToAddress"), shipToMobileNo = o.optString("shipToMobileNo"), shipToEmail = o.optString("shipToEmail"))
+            // Drafts kept before SP-0196 have no flag: a typed address counts as edited.
+            .let { f -> f.copy(addressEdited = o.optBoolean("addressEdited", f.detail("customerAddress").isNotBlank())) }
         Draft(form, o.optJSONObject("fix"), o.optString("photo").takeIf { it.isNotEmpty() }?.let { java.util.Base64.getDecoder().decode(it) })
     }.getOrNull()
 
@@ -181,12 +187,37 @@ object CustomerCapture {
     fun start(setup: Setup?, customerName: String = ""): Form = Form(customerName = customerName.take(200),
         salesOrgCode = setup?.salesOrgCode?.takeIf { code -> setup.options("sales_organization").any { it.code == code } }.orEmpty())
 
-    /** Customer Address: normalize typed parts, preserving official geography labels. */
-    fun address(f: Form, g: Geography?): String = normalizeText("customerAddress", f.detail("customerAddress").trim()).ifEmpty {
+    /** Customer Address: normalize typed parts, preserving official geography labels. A cleared field still sends the
+     * address built from the location pickers (the server needs one), but the field itself stays as the agent left it. */
+    fun address(f: Form, g: Geography?): String = normalizeAddress(f, g, f.detail("customerAddress").trim()).ifEmpty { builtAddress(f, g) }
+    /** The address built from the location pickers and street fields. */
+    fun builtAddress(f: Form, g: Geography?): String =
         CustomerMaster.formatAddress(normalizeText("roomStallNo", f.roomStallNo), normalizeText("floor", f.floor),
             normalizeText("houseNo", f.houseNo), normalizeText("street1", f.street1), normalizeText("street2", f.street2),
             g?.barangay(f.municipalityCode, f.barangayCode)?.name, g?.municipality(f.municipalityCode)?.name,
             g?.province(f.provinceCode)?.name, f.postalCode).orEmpty()
+    /** SP-0196: what the Customer Address field shows: the built suggestion until the agent edits it, then only
+     * their own text (cleared stays cleared; typing never appends to a suggestion that is no longer shown). */
+    fun addressField(f: Form, g: Geography?): String = if (f.addressEdited) f.detail("customerAddress") else builtAddress(f, g)
+    fun withAddressTyped(f: Form, text: String): Form = f.withDetail("customerAddress", text).copy(addressEdited = true)
+    /** Title-case typed address text like the web, then put the picked place names back in their official spelling
+     * ("City Of Cebu" -> "City of Cebu"). */
+    fun normalizeAddress(f: Form, g: Geography?, text: String): String {
+        var out = normalizeText("customerAddress", text)
+        val official = listOfNotNull(g?.barangay(f.municipalityCode, f.barangayCode)?.name, g?.municipality(f.municipalityCode)?.name,
+            g?.province(f.provinceCode)?.name, g?.region(f.regionCode)?.name).filter { it.isNotBlank() }.sortedByDescending { it.length }
+        for (name in official) out = out.replace(Regex(Regex.escape(name), RegexOption.IGNORE_CASE), Regex.escapeReplacement(name))
+        return out
+    }
+    /** SP-0196: the store's name for lists and the outlet: Registered Name (the store), else Customer Name. */
+    fun storeName(f: Form): String = normalizeText("registeredName", f.registeredName.trim()).ifEmpty { normalizeText("customerName", f.customerName.trim()) }
+    /** The store name and owner of a saved Add customer payload (older saves sent the owner as `name`). */
+    fun savedNames(p: JSONObject): Pair<String, String?> {
+        val c = p.optJSONObject("customer")
+        val registered = c?.optString("registeredName").orEmpty().trim()
+        val owner = c?.optString("customerName").orEmpty().trim().takeIf { it.isNotEmpty() }
+        val store = registered.ifEmpty { p.optString("name").trim() }.ifEmpty { owner.orEmpty() }
+        return store to owner?.takeIf { !it.equals(store, ignoreCase = true) }
     }
 
     data class Option(val code: String, val label: String)
@@ -283,7 +314,8 @@ object CustomerCapture {
     fun payload(captureId: String, f: Form, g: Geography?, deviceTime: Long, gpsFix: JSONObject, photo: String,
         acknowledged: List<String> = emptyList()): JSONObject {
         val customer = customer(f, g)
-        val name = customer.optString("customerName").trim()
+        // SP-0196: `name` is the store (Registered Name); the customer object keeps both names as entered.
+        val name = customer.optString("registeredName").trim().ifEmpty { customer.optString("customerName").trim() }
         val p = JSONObject().put("captureId", captureId).put("name", name)
             .put("address", customer.optString("customerAddress").ifEmpty { name })
             .put("ownerName", normalizeText("contactPerson", f.contactPerson.trim())).put("ownerPhone", f.mobileNo.trim()).put("deviceTime", deviceTime)
@@ -299,7 +331,7 @@ object CustomerCapture {
         val c = p.getJSONObject("customer")
         val allowed = CustomerMaster.CUSTOMER_FIELDS.map { it.key }.toSet() + "shipTos"
         c.keys().forEach { k -> require(k in allowed) { "Unknown customer field $k." } }
-        require(p.getString("name").trim().length in 1..200) { "Customer Name is required." }
+        require(p.getString("name").trim().length in 1..200) { "Registered Name is required." }
         require(p.getString("address").trim().length in 1..500) { "Customer Address is required." }
         require(p.getString("ownerName").trim().length in 1..150) { "Contact Person is required." }
         val input = HashMap<String, Any?>(); c.keys().forEach { input[it] = if (c.isNull(it)) null else c.get(it) }

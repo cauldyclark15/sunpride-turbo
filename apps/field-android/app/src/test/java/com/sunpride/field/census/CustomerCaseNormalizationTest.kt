@@ -73,7 +73,7 @@ class CustomerCaseNormalizationTest {
         )) assertEquals(key, expected, c.getString(key))
         for (field in CustomerMaster.CUSTOMER_FIELDS.filter { it.adp })
             assertEquals(field.key, if (field.key.endsWith("Code") || field.key == "clusterNo") "mIXed TEXT" else "Mixed Text", c.getString(field.key))
-        assertEquals(c.getString("customerName"), p.getString("name"))
+        assertEquals(c.getString("registeredName"), p.getString("name")) // SP-0196: the store
         assertEquals("Juan O'Neil", p.getString("ownerName"))
         assertEquals(f.mobileNo, p.getString("ownerPhone"))
         assertEquals("ALING ROSA STORE INC.", f.registeredName) // no mutation of a draft or queued operation
