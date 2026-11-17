@@ -272,6 +272,13 @@ object EncryptedFieldDatabase {
         return try { db.rows().unsentOnPhone() + db.sellRows().unsentOnPhone() } finally { db.close() }
     }
 
+    /** SP-0192: Sell work saved on this phone and not yet answered by the office. */
+    suspend fun sellUnsent(context: Context): Int {
+        if (!context.databaseList().contains(PassphraseVault.DB_NAME)) return 0
+        val db = open(context)
+        return try { db.sellRows().unsentOnPhone() } finally { db.close() }
+    }
+
     suspend fun purgeExisting(context: Context) {
         if (!context.databaseList().contains(PassphraseVault.DB_NAME)) return
         val db = open(context)

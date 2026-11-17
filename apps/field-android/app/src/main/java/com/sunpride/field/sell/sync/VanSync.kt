@@ -13,6 +13,34 @@ import java.util.concurrent.ConcurrentHashMap
 class VanSync(private val store: VanSyncStore, private val gateway: VanGateway, private val clock: () -> Long = System::currentTimeMillis,
     private val evidence: com.sunpride.field.sell.evidence.DamageEvidence? = (store as? RoomVanStore)?.evidence) {
     private val mutex = locks.getOrPut(store.scope) { Mutex() }
+    /**
+     * SP-0192: the office switched Selling off while Sell work was still saved on this phone. The office no longer
+     * serves this phone the van bundle, so [syncNow] (bundle first) would stop before sending anything and the work
+     * would wait unseen. This sends the saved operations once, without the bundle: the office refuses each one as
+     * final (out_of_scope, recorded on its side) and the refusal is kept here, so nothing is sent again.
+     */
+    suspend fun sendAfterSellingOff() {
+        if (!mutex.tryLock()) return
+        val epoch = store.authorizationEpoch()
+        try {
+            store.resetSending()
+            val seen = mutableSetOf<String>()
+            while (true) {
+                val pending = store.pending(seen)
+                if (pending.isEmpty()) break
+                kotlinx.coroutines.currentCoroutineContext().ensureActive()
+                if (!store.canSync()) throw VanSyncFailure("unauthorized",false)
+                store.markSending(pending.map { it.clientRequestId })
+                val results = gateway.push(pending)
+                if (epoch != store.authorizationEpoch()) throw VanSyncFailure("unauthorized",false)
+                if (results.size != pending.size || results.map { it.clientRequestId }.toSet() != pending.map { it.clientRequestId }.toSet()) throw VanWireFailure()
+                pending.forEach { row -> store.recordResult(row,results.single { it.clientRequestId == row.clientRequestId }); seen += row.clientRequestId }
+            }
+        } finally {
+            try { withContext(NonCancellable) { store.resetSending() } }
+            finally { mutex.unlock() }
+        }
+    }
     suspend fun syncNow() {
         if (!mutex.tryLock()) return
         val epoch = store.authorizationEpoch()

@@ -844,7 +844,11 @@ class LiveFieldBackend(
                 verifiedMe.getJSONObject("profile").let { p -> prefs.edit().putString("$key.personId", p.optString("id"))
                     .putString("$key.personName", p.optString("name").takeIf { it.isNotBlank() && it != "null" }).apply() }
                 // SP-0192: the office's per-person Selling switch, re-read on every verified sync (off unless the server says true).
-                prefs.edit().putBoolean("$key.selling", com.sunpride.field.sell.SellingFlag.from(verifiedMe)).apply()
+                val sellingNow = com.sunpride.field.sell.SellingFlag.from(verifiedMe)
+                // Remember that Sell was ever on for this session (now or at the last check), so only former sellers
+                // look for Sell work below; people who never sold do no selling database work.
+                if (sellingNow || prefs.getBoolean("$key.selling", false)) prefs.edit().putBoolean("$key.sellEverOn", true).apply()
+                prefs.edit().putBoolean("$key.selling", sellingNow).apply()
                 if(verifiedMe.getJSONObject("profile").getString("role")=="distributor"){
                     check(prefs.edit().putBoolean("$key.partner",true).commit())
                     return dsrToday(deviceId,signer,verifiedMe,expectedKey=key)
@@ -898,6 +902,9 @@ class LiveFieldBackend(
                     try { runBlocking { scoped.syncHealth() } } finally { scoped.close() }
                 }
                 failed = health != "synced"
+                // SP-0192: the office switched Selling off while Sell work was still saved here. Send it once (no van
+                // bundle) so the office refuses it as final instead of it waiting unseen; never fails the Field sync.
+                if (!sellingNow && prefs.getBoolean("$key.sellEverOn", false)) runCatching { sendSellAfterSwitchOff() }
                 if(!failed) runCatching {sapMasters(true)} // F-004: independent authorized master cursor, no parallel selling book.
                 com.sunpride.field.diagnostics.SafeLog.event(context, if (failed) "sync_retry" else "sync_complete")
                 prefs.edit().putBoolean("$key.failed", failed).apply()
@@ -1161,6 +1168,12 @@ class LiveFieldBackend(
     override fun sellingEnabled(): Boolean = auth.isSignedIn && sessionKey()?.let { prefs.getBoolean("$it.selling", false) } == true
     override fun sellAccess(): com.sunpride.field.sell.auth.SellAccess =
         com.sunpride.field.sell.FieldSellAccess(environment, auth, vault, signerLoader, ::sessionKey)
+    /** SP-0192: Selling is off; Sell work still saved on this phone goes to the office once (refused there as final). */
+    private fun sendSellAfterSwitchOff() {
+        if (runBlocking { EncryptedFieldDatabase.sellUnsent(context) } == 0) return
+        val repository = com.sunpride.field.sell.data.VanRepository.forWorker(context, sellAccess(), false)
+        try { runBlocking { repository.restoreSession(); repository.sendAfterSellingOff() } } finally { repository.close() }
+    }
     override fun loadSigner() = signerLoader()
     override fun queueMockRefusal(outletId: String) {
         val identity=storedScope() ?: error("No verified local partition")

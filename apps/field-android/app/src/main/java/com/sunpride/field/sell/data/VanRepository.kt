@@ -418,6 +418,13 @@ class VanRepository private constructor(private val context: Context, private va
         }
         finally { if (st.pending().isNotEmpty()) schedule() }
     }
+    /** SP-0192: Selling is off for this person: send the Sell work still saved here once, without the van bundle
+     * (the office refuses it as final; see [com.sunpride.field.sell.sync.VanSync.sendAfterSellingOff]). */
+    suspend fun sendAfterSellingOff(): Unit = authLock.withLock {
+        if (stubMode != null || enroll() !is EnrollmentState.Ready) return@withLock
+        val st = store()
+        com.sunpride.field.sell.sync.VanSync(st,checkNotNull(gateway),evidence=st.evidence).sendAfterSellingOff()
+    }
     /** VAN-083: the trip close is still waiting for the office to confirm the cash (the worker tries again later). */
     suspend fun closeWaitsForOffice(): Boolean = closeOffice.first() == com.sunpride.field.sell.pos.CloseOffice.WAITING_FOR_CASH
     /** Scope owned by the repository; never construct this from a UI-selected identity. */

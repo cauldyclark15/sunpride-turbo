@@ -51,6 +51,18 @@ class VanSyncTest {
         }
         val sync=VanSync(store,backend); sync.syncNow(); sync.syncNow(); assertEquals(1,calls); assertEquals(setOf("rejected","conflict"),store.rows.values.map { it.status }.toSet()); Unit
     }
+    @Test fun sellingOffSendsSavedWorkOnceWithoutTheBundleAndKeepsTheFinalRefusal() = runBlocking {
+        // SP-0192: the office no longer serves the van bundle once Selling is off; saved work is still sent (all of it,
+        // past one 20-row page), the office's final out_of_scope refusal is kept, and a second pass sends nothing.
+        val store=Store().apply { repeat(25) { enqueue(it) } }; var calls=0; val sizes=mutableListOf<Int>()
+        val backend=object : VanGateway {
+            override suspend fun bootstrap(): String = throw VanSyncFailure("out_of_scope",false)
+            override suspend fun push(operations: List<OutboxRow>): List<PushResult> { calls++; sizes+=operations.size; return operations.map { PushResult(it.kind,it.clientRequestId,"rejected",code="out_of_scope") } }
+        }
+        val sync=VanSync(store,backend); sync.sendAfterSellingOff(); sync.sendAfterSellingOff()
+        assertEquals(listOf(20,5),sizes); assertEquals(2,calls); assertTrue(store.rows.values.all { it.status=="rejected" })
+        assertFalse(store.events.contains("bootstrap")); Unit
+    }
     @Test fun cancelledPushLeavesPendingAndKeepsAlreadyDurableAcks() = runBlocking {
         val store=Store().apply { enqueue(1) }
         val backend=object : VanGateway { override suspend fun bootstrap()=fixture(); override suspend fun push(operations: List<OutboxRow>): List<PushResult> { throw CancellationException() } }
