@@ -39,9 +39,13 @@ export async function invoiceForSale(db, actor, trip, p, receipt, deviceId) {
   if (!p.fiscal)
     refuse("Download an authorized Sales Invoice range before selling");
   const [r] =
-    await db`select r.*,a.registration_snapshot from fiscal_allocations a join fiscal_series s on s.id=a.series_id join fiscal_registrations r on r.id=s.registration_id where a.id=${uuid(p.fiscal.allocationId)}`;
+    await db`select r.*,a.registration_snapshot,a.device_id as allocation_device_id from fiscal_allocations a join fiscal_series s on s.id=a.series_id join fiscal_registrations r on r.id=s.registration_id where a.id=${uuid(p.fiscal.allocationId)}`;
   if (!r || r.org_unit_id !== trip.org_unit_id)
     refuse("Fiscal range belongs to another branch");
+  // F-019: another handheld's range is refused before any tax work, so the refusal never depends on tax setup.
+  // issueDocument repeats the full device + profile check under row lock.
+  if (r.allocation_device_id !== deviceId)
+    refuse("Fiscal range is not allocated to this handheld");
   /** @type {any} */
   let tax;
   if (receipt.discountClaim) {
