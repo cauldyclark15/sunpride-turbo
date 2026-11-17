@@ -5,6 +5,7 @@
  * the browser for instant feedback, saves through /api/v1/customers, and — for approvers —
  * approves a prospect (server `complete` check, errors shown next to each field) or deactivates.
  */
+import { FieldIncompleteNote } from "./field-incomplete";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, mutate, useApi } from "../../lib/api";
@@ -674,12 +675,20 @@ export function CustomerEditorView({
           <span className="text-muted">
             {customer.completeness === "complete"
               ? "All required fields filled"
-              : "Incomplete (draft)"}
+              : customer.fieldMissing?.length
+                ? "Incomplete — from field app"
+                : "Incomplete (draft)"}
           </span>
           {readOnly && !canEdit ? (
             <span className="text-muted">· Read only</span>
           ) : null}
         </div>
+      ) : null}
+      {customer?.fieldMissing?.length ? (
+        <FieldIncompleteNote
+          missing={customer.fieldMissing}
+          submitted={customer.fieldSubmitted}
+        />
       ) : null}
       {customer && awaitsApproval(customer) ? (
         <p

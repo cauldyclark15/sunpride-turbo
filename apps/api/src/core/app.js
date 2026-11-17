@@ -7,6 +7,7 @@ import { ApiError } from "./errors.js";
 import { registerTopic } from "./hooks.js";
 import { createScheduler, enqueue, registerJob } from "./jobs.js";
 import { installMedia } from "./media.js";
+import { installOpRefusals } from "./op-refusals.js";
 import { createRealtime, publish } from "./realtime.js";
 import {
   MAX_JSON_BYTES,
@@ -37,6 +38,7 @@ export function createApp(opts) {
   installDevices(router);
   installSync(router);
   installMedia(router);
+  installOpRefusals(router);
 
   const realtime = createRealtime({ db, url: opts.dbUrl });
   const scheduler = createScheduler({

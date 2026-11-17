@@ -398,6 +398,7 @@ describe("Admin workspace sections", () => {
       "Call flows",
       "Field masters",
       "Phones",
+      "Phone saves",
     ])
       expect(view).toContain(`>${title}</button>`);
     expect(view).not.toContain(">Invitations<");

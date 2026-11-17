@@ -174,6 +174,29 @@ export async function resolveGeography(db, v) {
   return { region, province, municipality, barangay, postalCodes };
 }
 
+/** SP-0188: clear one failing value (`key` or `shipTos[i].key`) so a field save can be kept.
+ * @param {Record<string, any>} merged @param {string} path */
+function dropValue(merged, path) {
+  const m = /^shipTos\[(\d+)\]\.(\w+)$/.exec(path);
+  if (m) {
+    const s = merged.shipTos?.[Number(m[1])];
+    if (s && typeof s === "object") s[/** @type {string} */ (m[2])] = null;
+    return;
+  }
+  if (path === "coordinates") {
+    merged.latitude = null;
+    merged.longitude = null;
+    return;
+  }
+  if (path !== "customerName") merged[path] = null;
+}
+
+/** @param {any} v */
+const asJsonValue = (v) =>
+  v == null ? null : typeof v === "string" ? JSON.parse(v) : v;
+/** @param {unknown} v */
+const text = (v) => (typeof v === "string" ? v.trim() : "");
+
 /** @param {Record<string, any>} errorsHolder @returns {never} */
 function invalid(errorsHolder) {
   throw new ApiError(
@@ -209,6 +232,9 @@ export async function readCustomer(db, id) {
     status: o.status,
     completeness: o.completeness ?? "draft",
     enrolmentStatus: o.enrolment_status ?? null,
+    // SP-0188: a field app save the office must finish, with what the agent typed.
+    fieldMissing: asJsonValue(o.field_missing),
+    fieldSubmitted: asJsonValue(o.field_submitted),
     customerName: o.name,
     customerAddress: o.address ?? null,
     addressCustom: o.address_custom ?? false,
@@ -374,8 +400,9 @@ export async function derive(db, merged, input, existing) {
 }
 
 /**
- * Create (no `outletId`) or update a customer. Office saves allow drafts; field captures
- * require every required field, ship-to and applicable ADP detail for direct CDM review.
+ * Create (no `outletId`) or update a customer. Office saves allow drafts; field captures are
+ * checked at the field level and, when incomplete (SP-0188), kept as a draft with the agent's
+ * submitted values and the missing fields so the office can finish it in the same CDM review.
  * Stores full completeness separately. Returns the customer id.
  * @param {any} c @param {Record<string, any>} b @param {{outletId?:string, fieldCapture?:boolean}} [opts]
  */
@@ -395,7 +422,9 @@ export async function saveCustomer(c, b, opts = {}) {
         "status",
       ].includes(k),
   );
-  if (unknown.length)
+  // SP-0188: a phone save is never refused for its content. Unknown keys (older or newer
+  // app builds) are dropped from the record but kept in the agent's submitted copy.
+  if (unknown.length && !opts.fieldCapture)
     throw new ApiError("invalid_request", 400, `Unknown field: ${unknown[0]}`);
   const existing = opts.outletId
     ? await readCustomer(c.db, opts.outletId)
@@ -424,11 +453,61 @@ export async function saveCustomer(c, b, opts = {}) {
   // Add customer) when that person is on the Sales Partner list. The office can change it.
   if (!hadProfile && !merged.salesPartnerCode)
     merged.salesPartnerCode = await defaultSalesPartner(c, lists);
-  const draft = validateCustomer(merged, {
+  let draft = validateCustomer(merged, {
     level: opts.fieldCapture ? "field" : "draft",
     lists,
     geography: geo,
   });
+  /** SP-0188: what the field app left incomplete (null = nothing). @type {any[]|null} */
+  let fieldMissing = null;
+  /** @type {Record<string, any>|null} */ let fieldSubmitted = null;
+  if (!draft.ok && opts.fieldCapture) {
+    // Keep the salesman's save like an office draft: drop only values that fail a format or
+    // list check, keep everything else, and mark it incomplete for the office to finish.
+    fieldMissing = draft.errors.map((e) => ({
+      field: e.field,
+      label: e.label,
+      message: e.message,
+    }));
+    fieldSubmitted = JSON.parse(JSON.stringify(input));
+    for (let pass = 0; pass < 6; pass++) {
+      const loose = validateCustomer(merged, {
+        level: "draft",
+        lists,
+        geography: await derive(c.db, merged, input, existing),
+      });
+      if (loose.ok) break;
+      for (const e of loose.errors) dropValue(merged, e.field);
+    }
+    draft = validateCustomer(merged, {
+      level: "draft",
+      lists,
+      geography: await derive(c.db, merged, input, existing),
+    });
+    if (!draft.ok) {
+      merged.customerName =
+        text(merged.customerName).slice(0, 200) || "New customer (no name)";
+      draft = validateCustomer(merged, {
+        level: "draft",
+        lists,
+        geography: await derive(c.db, merged, input, existing),
+      });
+    }
+  } else if (!opts.fieldCapture && existing?.fieldMissing) {
+    // The office finishing a field customer clears the flag once the field level is met.
+    const field = validateCustomer(merged, {
+      level: "field",
+      lists,
+      geography: geo,
+    });
+    fieldMissing = field.ok
+      ? null
+      : field.errors.map((e) => ({
+          field: e.field,
+          label: e.label,
+          message: e.message,
+        }));
+  }
   if (!draft.ok) invalid(draft);
   const complete = validateCustomer(merged, {
     level: "complete",
@@ -543,6 +622,11 @@ export async function saveCustomer(c, b, opts = {}) {
   );
   row.customer_group_name = nameOf("customer_group", {}, v.customerGroupCode);
   row.country_code = v.countryCode ?? "PH";
+  if (opts.fieldCapture) {
+    row.field_missing = fieldMissing ? JSON.stringify(fieldMissing) : null;
+    row.field_submitted = fieldSubmitted ? JSON.stringify(fieldSubmitted) : null;
+  } else if (existing?.fieldMissing)
+    row.field_missing = fieldMissing ? JSON.stringify(fieldMissing) : null;
   for (const k of Object.keys(row)) if (row[k] === undefined) delete row[k];
   const cols = Object.keys(row);
   await c.db.unsafe(
@@ -712,7 +796,7 @@ export async function listCustomers(c) {
     throw new ApiError("invalid_request", 400, "Choose a valid date.");
   const nationwide = unitIds === null;
   const rows =
-    await c.db`select x.*,count(*) over() as total_count from (select o.id,o.code,o.name,o.address,o.status,o.enrolment_status,p.completeness,p.registered_name,
+    await c.db`select x.*,count(*) over() as total_count from (select o.id,o.code,o.name,o.address,o.status,o.enrolment_status,p.completeness,p.registered_name,p.field_missing,
       (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end) as list_status,
       count(*) over() as n_all,count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='prospect') over() as n_prospect,
       count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='active') over() as n_active,count(*) filter (where o.status='inactive') over() as n_inactive,
@@ -825,6 +909,7 @@ export async function listCustomers(c) {
       status: r.status,
       enrolmentStatus: r.enrolment_status ?? null,
       completeness: r.completeness ?? "draft",
+      fieldMissing: asJsonValue(r.field_missing),
       salesOrgCode: r.sales_org_code ?? null,
       salesOfficeCode: r.sales_office_code ?? null,
       distributionChannelCode: r.distribution_channel_code ?? null,

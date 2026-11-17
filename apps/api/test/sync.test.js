@@ -138,6 +138,8 @@ describe("push engine", () => {
       code: "idempotency_conflict",
       retryable: false,
       ack: null,
+      // SP-0188: the refused second copy is kept for the office.
+      kept: true,
     });
     const receipts =
       await h.db`select count(*)::int as n from op_receipts where client_op_id = ${first.clientOpId}`;

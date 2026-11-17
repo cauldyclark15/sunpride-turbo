@@ -10,6 +10,7 @@ import { PeopleAdmin } from "./people-admin";
 import { TeamsAdmin } from "./teams-admin";
 import { IntegrityFleet } from "./integrity/fleet";
 import { DevicesAdmin } from "./devices-admin";
+import { PhoneSavesAdmin } from "./people/phone-saves";
 import { CallFlowAdmin } from "./callflow-admin";
 import { MastersWorkspace } from "./spec-masters/workspace";
 import { FiscalWorkspace } from "./fiscal/fiscal-workspace";
@@ -24,6 +25,7 @@ const groups = [
       ["people", "People"],
       ["teams", "Teams"],
       ["devices", "Phones"],
+      ["phone-saves", "Phone saves"],
     ],
   ],
   [
@@ -167,6 +169,8 @@ export function AdminWorkspace() {
           <FiscalWorkspace />
         ) : activeTab === "fleet" ? (
           <IntegrityFleet />
+        ) : activeTab === "phone-saves" ? (
+          <PhoneSavesAdmin />
         ) : activeTab === "availability" ? (
           <AvailabilityEditor />
         ) : (

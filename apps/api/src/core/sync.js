@@ -400,6 +400,36 @@ async function applyOne(ctx, op, deviceId) {
   }
 }
 
+/**
+ * SP-0188: store a full copy of a permanently refused op (as sent) for the office, in its own
+ * transaction outside the rolled-back business one. One row per (subject, device, clientOpId):
+ * a resend never duplicates it. Returns true only when the row is committed (new or already kept).
+ * Ops carry no secrets; request headers are never stored.
+ * @param {import('./context.js').Ctx} ctx @param {Actor} actor @param {any} device @param {unknown} op @param {string} code
+ */
+export async function keepRefusal(ctx, actor, device, op, code) {
+  try {
+    const o = isPlainObject(op) ? op : null;
+    const clientOpId =
+      o && typeof o.clientOpId === "string" && o.clientOpId.length <= 100
+        ? o.clientOpId
+        : `sha256:${sha256Hex(canonicalJson(op ?? null))}`;
+    const opType =
+      o && typeof o.opType === "string" ? o.opType.slice(0, 64) : null;
+    await tx(ctx.db, async (/** @type {any} */ t) => {
+      await t`
+        insert into op_refusals (subject, profile_id, device_id, app, client_op_id, op_type, code, payload)
+        values (${actor.subject}, ${actor.profileId ?? null}, ${device.id}, ${device.app}, ${clientOpId},
+          ${opType}, ${code}, ${op ?? null})
+        on conflict (subject, device_id, client_op_id) do nothing`;
+    });
+    return true;
+  } catch (err) {
+    console.error("keeping a refused op failed", String(/** @type {any} */ (err)?.message ?? err));
+    return false;
+  }
+}
+
 /** @param {import('./context.js').Ctx} ctx */
 async function push(ctx) {
   ctx.v2 = true;
@@ -425,14 +455,20 @@ async function push(ctx) {
   const scope = await scopeOf(ctx.db, actor);
   if (body.scopeId !== scope.id)
     throw conflict("Your scope changed", "scope_changed");
-  /** @type {Array<ReturnType<typeof result>>} */
+  /** @type {Array<ReturnType<typeof result> & {kept?: boolean}>} */
   const results = [];
   for (const op of body.operations) {
-    if (!validOperation(op)) {
-      results.push(result(op, "rejected", "invalid_request", null));
-      continue;
-    }
-    results.push(await applyOne(ctx, op, device.id));
+    const r = validOperation(op)
+      ? await applyOne(ctx, op, device.id)
+      : result(op, "rejected", "invalid_request", null);
+    // SP-0188: a permanent refusal is kept for the office before the phone is answered.
+    if (r.status === "rejected" && !r.retryable && r.code)
+      results.push(
+        (await keepRefusal(ctx, actor, device, op, r.code))
+          ? { ...r, kept: true }
+          : r,
+      );
+    else results.push(r);
   }
   // F-221: outside rolled-back business transactions, but never let malformed clean requests dilute the rate.
   await observePush(

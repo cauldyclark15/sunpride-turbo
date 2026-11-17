@@ -446,10 +446,17 @@ export async function createBatch(ctx, p) {
   await ctx.db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${actor.userId},'F-011.census.batch','census',${batch.id},'Census batch created')`;
   return { id: batch.id };
 }
+/** First non-blank string, trimmed and cut to `max`. @param {number} max @param {...unknown} values */
+function firstText(max, ...values) {
+  for (const v of values)
+    if (typeof v === "string" && v.trim()) return v.trim().slice(0, max);
+  return null;
+}
 /** SP-0170 "Add customer": the same census.capture op, with the client's `customer` object
  * (contract §6). It goes through the existing enrolment writer (provisional code, pending pin,
  * pending enrolment) and saves the agent's entire customer profile for CDM review (SP-0184).
- * Every required customer field is checked by the shared field-level writer before saving.
+ * Every required customer field is checked by the shared field-level writer; an incomplete
+ * save is kept as an incomplete customer for the office (SP-0188), never refused.
  * Old payloads (no `customer`) keep the census review path unchanged.
  * @param {any} ctx @param {any} actor @param {any} p */
 async function captureCustomer(ctx, actor, p) {
@@ -461,16 +468,20 @@ async function captureCustomer(ctx, actor, p) {
     rule("Enter the customer details.");
   const id = uuid(p.captureId);
   const at = integer(p.deviceTime, ctx.now - 7 * 86400000, ctx.now + 120000);
-  const name = required(p.customer.customerName, "Customer Name", 200);
+  // SP-0188: never refuse a salesman's save for blanks. Pre-SP-0183 builds sent the name at
+  // the top level (`name`) and fewer customer fields; the office finishes what is missing.
+  const name = firstText(200, p.customer.customerName, p.name) ?? "New customer (no name)";
   const [previous] =
     await ctx.db`select id,outlet_id from outlet_enrolments where proposed_by=${actor.subject} and client_request_id=${id}`;
   if (previous) return { entityId: previous.outlet_id, eventIds: [] };
-  const address = required(p.address, "Customer Address", 500);
-  const contactName = required(p.ownerName, "Contact Person", 150);
-  const contactPhone =
-    typeof p.ownerPhone === "string" && p.ownerPhone.trim()
-      ? required(p.ownerPhone, "Mobile No.", 40)
-      : null;
+  const ship0 = Array.isArray(p.customer.shipTos) ? p.customer.shipTos[0] : null;
+  const address =
+    firstText(500, p.address, p.customer.customerAddress, p.formattedAddress) ??
+    "Not given";
+  const contactName =
+    firstText(100, p.ownerName, p.customer.contactPerson, ship0?.contactPerson) ??
+    "Not given";
+  const contactPhone = firstText(40, p.ownerPhone, p.customer.mobileNo);
   const { l } = readLocation(p, at);
   const bytes = readJpeg(p.photoJpegBase64);
   const file = await storeJpeg(ctx, id, bytes, actor);

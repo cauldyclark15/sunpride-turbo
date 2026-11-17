@@ -403,60 +403,36 @@ test("SP-0184 agents submit complete profiles directly for manager review, appro
   }
 });
 
-// SP-0183: bypass the phone's form and submit signed operations to the real lane API.
-async function businessCounts() {
-  return (
-    await h.db`select
-    (select count(*)::int from outlets) outlets,
-    (select count(*)::int from outlet_enrolments) enrolments,
-    (select count(*)::int from customer_profiles) profiles,
-    (select count(*)::int from customer_ship_tos) ship_tos,
-    (select count(*)::int from outlet_pins) pins,
-    (select count(*)::int from outlet_contacts) contacts,
-    (select count(*)::int from files) files,
-    (select count(*)::int from customers) accounting_customers`
-  )[0];
-}
-
-test("SP-0183 missing agent fields are rejected with no customer, enrolment or evidence rows saved", async () => {
-  // This matrix has its own device, below the unchanged 60-challenge budget.
-  const validationRep = await fieldRep();
-  const before = await businessCounts();
+test("SP-0188 missing agent fields are kept as an incomplete customer for the office, never refused", async () => {
+  const keepRep = await fieldRep();
   for (const key of [
     "registeredName",
-    "customerName",
     "mobileNo",
     "regionCode",
-    "provinceCode",
-    "municipalityCode",
-    "barangayCode",
     "postalCode",
-    "salesOrgCode",
     "distributionChannelCode",
-    "customerGroup1Code",
-    "customerGroup2Code",
     "customerGroupCode",
     "typeOfBusiness",
   ]) {
-    for (const blank of [undefined, null, "", " "]) {
+    for (const blank of [undefined, null, " "]) {
       const p = capture();
       const customer = { ...p.customer, [key]: blank };
       if (blank === undefined) delete customer[key];
-      const refused = await validationRep.push({ ...p, customer });
-      expect(refused).toMatchObject({
-        status: "rejected",
-        code: "invalid_request",
-      });
-      expect(await businessCounts()).toEqual(before);
+      const r = await keepRep.push({ ...p, customer });
+      expect(r).toMatchObject({ status: "applied" });
+      const c = await readCustomer(h.db, r.ack.entityId);
+      expect(c.completeness).toBe("draft");
+      expect(c.enrolmentStatus).toBe("provisional");
+      expect(c.fieldMissing.map((/** @type {any} */ m) => m.field)).toContain(
+        key === "regionCode" ? "regionCode" : key,
+      );
+      expect(c.fieldSubmitted.customerName).toBe("Aling Nena Store");
     }
   }
-  const p = capture({ ownerName: " " });
-  expect(await validationRep.push(p)).toMatchObject({
-    status: "rejected",
-    code: "invalid_request",
-  });
-  expect(await businessCounts()).toEqual(before);
-}, 60000);
+  // A blank top-level contact is kept too.
+  const r = await keepRep.push(capture({ ownerName: " " }));
+  expect(r.status).toBe("applied");
+}, 120000);
 
 test("SP-0183 a valid Services customer needs no groups or optional fields; SP-0184 has no office completion", async () => {
   const p = capture();
@@ -474,61 +450,81 @@ test("SP-0183 a valid Services customer needs no groups or optional fields; SP-0
   });
 });
 
-test("SP-0184 former office requirements and nested ship-to nulls cannot bypass signed server validation", async () => {
-  const validationRep = await fieldRep();
-  const before = await businessCounts();
-  for (const key of [
-    "taxClassificationCode",
-    "salesOfficeCode",
-    "paymentTermsCode",
-    "pricingProcedureCode",
-    "deliveringPlantCode",
-  ]) {
-    for (const blank of [undefined, null, "", " "]) {
-      const p = capture();
-      const customer = { ...p.customer, [key]: blank };
-      if (blank === undefined) delete customer[key];
-      expect(await validationRep.push({ ...p, customer })).toMatchObject({
-        status: "rejected",
-        code: "invalid_request",
-      });
-      expect(await businessCounts()).toEqual(before);
-    }
-  }
-  for (const key of [
-    "shipToParty",
-    "shipToAddress",
-    "contactPerson",
-    "mobileNo",
-  ]) {
-    for (const blank of [undefined, null, "", " "]) {
-      const p = capture();
-      const ship = {
+test("SP-0188 a value that fails a format or list check is dropped from the record and kept in the agent's copy", async () => {
+  const p = capture();
+  p.customer = {
+    ...p.customer,
+    customerGroup1Code: "NOPE",
+    mobileNo: "12345",
+    shipTos: [
+      {
         sameAsCustomer: false,
         shipToParty: "Sample Warehouse",
         shipToAddress: "99 Delivery Road",
         contactPerson: "Sample Receiver",
-        mobileNo: "09175550202",
-        [key]: blank,
-      };
-      if (blank === undefined) delete ship[key];
-      expect(
-        await validationRep.push({
-          ...p,
-          customer: { ...p.customer, shipTos: [ship] },
-        }),
-      ).toMatchObject({ status: "rejected", code: "invalid_request" });
-      expect(await businessCounts()).toEqual(before);
-    }
-  }
-}, 60000);
-
-test("an invalid customer is refused, the old census payload still works", async () => {
-  const bad = capture({
-    customer: { ...capture().customer, customerGroup1Code: "NOPE" },
+        mobileNo: "not a phone",
+      },
+    ],
+  };
+  const r = await rep.push(p);
+  expect(r.status).toBe("applied");
+  const c = await readCustomer(h.db, r.ack.entityId);
+  expect(c).toMatchObject({
+    completeness: "draft",
+    customerGroup1Code: null,
+    mobileNo: null,
+    registeredName: "Aling Nena Store Inc.",
+    distributionChannelCode: "41",
   });
-  const r = await rep.push(bad);
-  expect(r.status).not.toBe("applied");
+  expect(c.shipTos[0]).toMatchObject({
+    shipToParty: "Sample Warehouse",
+    mobileNo: null,
+  });
+  expect(c.fieldSubmitted).toMatchObject({
+    customerGroup1Code: "NOPE",
+    mobileNo: "12345",
+  });
+  expect(c.fieldSubmitted.shipTos[0].mobileNo).toBe("not a phone");
+  const missing = c.fieldMissing.map((/** @type {any} */ m) => m.field);
+  expect(missing).toContain("customerGroup1Code");
+  expect(missing).toContain("mobileNo");
+});
+
+test("SP-0188 a pre-SP-0183 payload (name at the top level, few customer fields) is applied once as incomplete", async () => {
+  const p = capture();
+  // Older Field builds: `name` on the capture, a short customer object, an extra key.
+  p.customer = { tradeName: "Nena's", salesOrgCode: "1000", oldBuildKey: "x" };
+  const opId = crypto.randomUUID();
+  const first = await rep.push(p, opId);
+  expect(first.status).toBe("applied");
+  const c = await readCustomer(h.db, first.ack.entityId);
+  expect(c).toMatchObject({
+    customerName: "Aling Nena Store",
+    tradeName: "Nena's",
+    completeness: "draft",
+    enrolmentStatus: "provisional",
+    pinStatus: "pending",
+  });
+  expect(c.fieldSubmitted).toMatchObject({ oldBuildKey: "x" });
+  expect(c.fieldMissing.length).toBeGreaterThan(3);
+  // The office list shows it as incomplete from the field app.
+  const [enrol] =
+    await h.db`select status from outlet_enrolments where client_request_id=${p.captureId}`;
+  expect(enrol.status).toBe("pending");
+  // Resent: duplicate, no second customer.
+  const again = await rep.push(p, opId);
+  expect(again.status).toBe("duplicate");
+  const [n] =
+    await h.db`select count(*)::int n from outlet_enrolments where client_request_id=${p.captureId}`;
+  expect(n.n).toBe(1);
+  // Same capture under a new op id (phone retried after a lost answer): still one customer.
+  expect((await rep.push(p)).status).toBe("applied");
+  const [m] =
+    await h.db`select count(*)::int n from outlet_enrolments where client_request_id=${p.captureId}`;
+  expect(m.n).toBe(1);
+});
+
+test("the old census payload (no customer) still works", async () => {
   const config = (await rep.get("/api/v1/masters/census-config")).body;
   const sub = config.subchannels[0];
   const old = capture({ channelId: sub.data.channelId, subchannelId: sub.id });

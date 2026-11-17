@@ -563,7 +563,14 @@ export async function enrolmentCommand(c, action, b) {
     // SP-0170 field capture: an optional `customer` object carries the client's fields; its
     // Distribution Channel stands in for the old free-text channel.
     if (b.customer && typeof b.customer === "object" && !b.channel)
-      b = { ...b, channel: b.customer.distributionChannelCode };
+      b = {
+        ...b,
+        channel:
+          typeof b.customer.distributionChannelCode === "string" &&
+          b.customer.distributionChannelCode.trim()
+            ? b.customer.distributionChannelCode
+            : undefined,
+      };
     let unit = actor.orgUnitId;
     if (b.territoryId) {
       await access(c, "territories", uuid(b.territoryId), "territory.read");
@@ -601,7 +608,9 @@ export async function enrolmentCommand(c, action, b) {
     for (const id of photos) await evidence(c, id);
     if (b.cisStorageId) await evidence(c, b.cisStorageId);
     required(b.address, "Address", 500);
-    required(b.channel, "Channel", 100);
+    // SP-0188: a field customer may come without a Distribution Channel; the office adds it.
+    if (!(b.customer && typeof b.customer === "object"))
+      required(b.channel, "Channel", 100);
     required(b.contactName, "Contact name", 100);
     const provisionalCode = await allocate(c, "provisional");
     const outlet = await insert(c.db, "outlets", {

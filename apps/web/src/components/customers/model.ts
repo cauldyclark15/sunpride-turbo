@@ -63,7 +63,14 @@ export type Customer = Record<string, unknown> & {
   custodianOrgUnitId: string | null;
   /** WEB-059: who proposed the pending field enrolment (null when none is pending). */
   proposedByProfileId?: string | null;
+  /** SP-0188: a field app save the office must finish (null/absent when nothing is missing). */
+  fieldMissing?: FieldMissing[] | null;
+  /** SP-0188: what the agent typed on the phone, including values that were not kept. */
+  fieldSubmitted?: Record<string, unknown> | null;
 };
+
+/** SP-0188: one field the phone left blank or that failed a check. */
+export type FieldMissing = { field: string; label: string; message: string };
 
 export type CustomerRow = {
   id: string;
@@ -87,6 +94,8 @@ export type CustomerRow = {
   municipalityName: string | null;
   barangayName: string | null;
   territoryName: string | null;
+  /** SP-0188: fields a field app save left for the office (older servers omit it). */
+  fieldMissing?: FieldMissing[] | null;
   /** SP-0175 "who added what" (older servers omit these). */
   addedById?: string | null;
   addedByName?: string | null;

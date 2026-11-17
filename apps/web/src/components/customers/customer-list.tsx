@@ -13,6 +13,7 @@ import {
   type ListFilter,
 } from "../list-page/list-page";
 import { inputClass } from "./customer-form";
+import { fieldMissingLabels } from "./field-incomplete";
 import { formatDate } from "../../lib/format";
 
 /** Manila calendar day of an epoch ms. */
@@ -157,7 +158,14 @@ export function customerColumns(
             />
             {statusLabel(r)}
           </span>
-          {r.completeness === "draft" ? (
+          {r.fieldMissing?.length ? (
+            <span
+              className="text-[12px] font-medium text-[#a15c07]"
+              title={fieldMissingLabels(r.fieldMissing).join(", ")}
+            >
+              Incomplete — from field app
+            </span>
+          ) : r.completeness === "draft" ? (
             <span className="text-[12px] text-muted">Incomplete</span>
           ) : null}
         </span>
