@@ -237,6 +237,7 @@ describe("native D3 flow", () => {
       role: "sales",
       orgUnitId: profile.orgUnitId,
       active: true,
+      selling: false, // SP-0191: Field app sessions only; no profiles row here, so off
     });
     expect(Object.keys(mb.scope).sort()).toEqual([
       "epoch",

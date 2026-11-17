@@ -33,6 +33,7 @@ import { reply } from "./router.js";
 import { scopeOf } from "./scope.js";
 import { HEX64_RE, isPlainObject, randomToken, sha256Hex } from "./util.js";
 import { installPasswordReset } from "./password-reset.js";
+import { FIELD_APP, sellingOn } from "../domains/van/selling.js";
 
 /** The one row that speaks for a handheld key: a live (active) row beats a newer revoked, suspended or pending one,
  * so an old removed row never overrules the person's current registration. SQL ordering fragment.
@@ -536,6 +537,11 @@ async function nativeMe(ctx) {
       role: actor.role,
       orgUnitId: actor.orgUnitId,
       active: true,
+      // SP-0191: the Field app reads Selling here at sign-in/refresh (sell/SellingFlag.kt); same rule as the
+      // field bundle's `employee.selling`. Only Field app sessions get the key; JSON parsers ignore it elsewhere.
+      ...(app === FIELD_APP
+        ? { selling: await sellingOn(ctx.db, actor.profileId) }
+        : {}),
     },
     scope,
     permissions: capabilitiesFor(actor.role),

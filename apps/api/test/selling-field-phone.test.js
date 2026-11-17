@@ -521,3 +521,33 @@ test("Selling switched off again: the next van op from that Field app phone is r
   );
   expect(fieldVan.device.app).toBe("field-android");
 });
+
+test("the Field app's own /api/me carries profile.selling (what the phone reads at sign-in/refresh); the Van app's does not", async () => {
+  /** @param {any} dev */
+  const me = async (dev) => {
+    const r = await h.fetch("/api/me", {
+      headers: {
+        authorization: `Bearer ${dev.access}`,
+        "x-app": dev.app,
+        "x-device-key-id": dev.key.keyId,
+      },
+    });
+    expect(r.status).toBe(200);
+    return /** @type {any} */ (await r.json());
+  };
+  await setSelling(false);
+  expect((await me(seller)).profile.selling).toBe(false);
+  await setSelling(true);
+  const on = await me(seller);
+  expect(on.profile.selling).toBe(true);
+  expect(on.selling).toBeUndefined(); // only inside profile
+  // Same rule as the field bundle: a non-sales role never sells, even with the stored flag on.
+  await h.db`update profiles set role='viewer' where id=${seller.profile.id}`;
+  try {
+    expect((await me(seller)).profile.selling).toBe(false);
+  } finally {
+    await h.db`update profiles set role='sales' where id=${seller.profile.id}`;
+  }
+  // Van app phones and old parsers: no new key at all.
+  expect("selling" in (await me(vanSeller)).profile).toBe(false);
+});
