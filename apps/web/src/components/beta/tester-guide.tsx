@@ -2,6 +2,7 @@ import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { AppLinkList } from "../app-links/app-links";
+import { GuidesLink } from "../guides/guides-page";
 
 const PAGES_TO_TEST: readonly (readonly [string, string])[] = [
   ["Home", "Today's totals: products, customers, low stock, open orders."],
@@ -124,6 +125,13 @@ export function TesterGuide() {
             Drive folder only if Google Play does not work.
           </p>
           <AppLinkList />
+        </Section>
+
+        <Section title="5. Guides">
+          <p>
+            Step-by-step guides and PDFs for salesmen, managers and the
+            office: <GuidesLink className="font-medium text-accent" />
+          </p>
         </Section>
 
         <footer className="flex flex-wrap gap-4 border-t border-separator pt-5 text-sm">
