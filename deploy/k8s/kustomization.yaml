@@ -13,6 +13,6 @@ resources:
   - 70-backup.yaml
 images:
   - {name: cauldyclark15/sunpride-api, newTag: "0b7bebd008"}
-  - {name: cauldyclark15/sunpride-web, newTag: "f37e84ef40"}
+  - {name: cauldyclark15/sunpride-web, newTag: "0dd18b3890"}
   - {name: cauldyclark15/sunpride-sap-mock, newTag: "42c3ee65a2"}
   - {name: cauldyclark15/sunpride-docs, newTag: "42c3ee65a2"}
