@@ -20,6 +20,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.semantics.LiveRegionMode
+import androidx.compose.ui.semantics.liveRegion
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
 import com.sunpride.field.diagnostics.SupportInfo
 import com.sunpride.field.ui.PrimaryBottomButton
@@ -39,7 +42,8 @@ fun manilaTime(time: Long?): String = time?.let { stamp.format(Instant.ofEpochMi
  */
 @Composable
 fun SyncDetails(status: SyncStatus, onDismiss: () -> Unit, onSync: () -> Unit = {},
-    busy: Boolean = false, modifier: Modifier = Modifier, now: Long = System.currentTimeMillis()) {
+    busy: Boolean = false, modifier: Modifier = Modifier, now: Long = System.currentTimeMillis(),
+    message: String? = null) {
     Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -47,6 +51,10 @@ fun SyncDetails(status: SyncStatus, onDismiss: () -> Unit, onSync: () -> Unit = 
                 Text(status.label(now), Modifier.padding(horizontal = 16.dp, vertical = 12.dp).testTag("sync-state"),
                     style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 ValueRow("Last sent", manilaTime(status.lastSuccess), Modifier.testTag("sync-last-sent"))
+            }
+            (if (busy) SyncFeedback.RUNNING else message)?.let { feedback ->
+                Text(feedback, style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.testTag("sync-feedback").semantics { liveRegion = LiveRegionMode.Polite })
             }
             if (!status.nothingWaiting) Text(if (status.offline) "Your work is saved on this phone. It is sent " +
                 "by itself when the phone has signal." else "Your work is saved on this phone and is being sent.",

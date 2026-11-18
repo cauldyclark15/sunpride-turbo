@@ -34,6 +34,8 @@ class VisitSyncTest {
         val deltas = mutableMapOf<String, DeltaRow>()
         var token: String? = "old"; var health = "synced"; var held = false; var expired = false
         var visits: List<SnapshotItem> = emptyList(); var outlets: List<SnapshotItem> = emptyList()
+        var workforceCurrent = true
+        override suspend fun workforceSnapshotCurrent() = workforceCurrent && !held
         override suspend fun stage(snapshot: ScopedSnapshot) = "g"
         override suspend fun swap(generation: String, cursor: String, leaseExpiresAt: Long, cacheExpiresAt: Long, releaseHeld: Boolean) {
             token = cursor; if (releaseHeld) { held = false; health = "synced" }
@@ -127,6 +129,92 @@ class VisitSyncTest {
         runBlocking { store.enqueue(row, 1) }
         return row
     }
+    /** SP-0198: exercise the same orchestration used by LiveFieldBackend, not just VisitSync in isolation. */
+    @Test fun freshDownloadAndRecoveredHoldSendSavedWorkInTheSameAttempt() = runBlocking {
+        for (held in listOf(false, true)) {
+            val store = Store(); val transport = Transport(); val saved = enqueue(store, "visit.checkIn")
+            if (held) store.holdForReview() else store.token = null
+            var downloads = 0
+            transport.handler = { path, body ->
+                assertFalse("only verified same-scope bootstrap releases the hold", store.held)
+                if (path.endsWith("push")) 200 to pushResult(body.getJSONArray("operations")) else 200 to pull()
+            }
+            val response = JSONObject(fixture("bootstrap-response.json"))
+                .put("page", 1).put("nextPageCursor", JSONObject.NULL).put("syncCursor", "fresh")
+            response.getJSONObject("scope").put("fingerprint", identity.fingerprint)
+            val bootstrapTransport = object : BootstrapTransport {
+                override fun token(refresh: Boolean) = "test-only"
+                override fun challenge(deviceId: String) = UUID.randomUUID().toString() to 1790380860000L
+                override fun post(body: ByteArray, headers: Map<String, String>, bearer: String) = 200 to response.toString()
+            }
+            val session = FieldSyncSession(identity.account, identity.deviceId, { store }, {
+                downloads++
+                // Real decoder/stage/swap path, with only the network and encrypted-store boundary replaced.
+                BootstrapClient(bootstrapTransport, Signer(), identity.deviceId, { store }, { 0L })
+                    .fetch(subject = identity.account).fingerprint
+            }, SignedVisitGateway(transport, Signer(), identity.deviceId, { 0L }))
+            assertEquals(identity, session.sync(identity))
+            assertEquals(1, downloads)
+            assertEquals("done", store.history().single().second.state)
+            assertEquals(saved.serializedOperation, store.history().single().first.serializedOperation)
+            assertEquals(saved.requestId, store.acks.keys.single())
+            assertEquals(1, transport.sent.count { it.first.endsWith("push") })
+        }
+    }
+
+    @Test fun expiredWorkforceDownloadAlsoSendsInTheSameAttempt() = runBlocking {
+        val store = Store(); val transport = Transport(); enqueue(store, "visit.checkIn")
+        store.workforceCurrent = false
+        var downloads = 0
+        transport.handler = { path, body -> if (path.endsWith("push")) 200 to pushResult(body.getJSONArray("operations")) else 200 to pull() }
+        FieldSyncSession(identity.account, identity.deviceId, { store }, {
+            downloads++; store.workforceCurrent = true; identity.fingerprint
+        }, SignedVisitGateway(transport, Signer(), identity.deviceId, { 0L })).sync(identity)
+        assertEquals(1, downloads)
+        assertEquals("done", store.history().single().second.state)
+    }
+
+    @Test fun reusableDownloadDoesNotDownloadAgainAndStillSends() = runBlocking {
+        val store = Store(); val transport = Transport(); enqueue(store, "visit.checkIn")
+        transport.handler = { path, body -> if (path.endsWith("push")) 200 to pushResult(body.getJSONArray("operations")) else 200 to pull() }
+        FieldSyncSession(identity.account, identity.deviceId, { store }, { error("unnecessary download") },
+            SignedVisitGateway(transport, Signer(), identity.deviceId, { 0L })).sync(identity)
+        assertEquals("done", store.history().single().second.state)
+    }
+
+    @Test fun failedFreshDownloadKeepsEverySavedByteAndMakesNoSend() = runBlocking {
+        val store = Store(); val transport = Transport(); val saved = enqueue(store, "visit.checkIn")
+        store.holdForReview()
+        val failure = BootstrapFailure(BootstrapFailure.Kind.OFFLINE)
+        try {
+            FieldSyncSession(identity.account, identity.deviceId, { store }, { throw failure },
+                SignedVisitGateway(transport, Signer(), identity.deviceId, { 0L })).sync(identity)
+            fail("download must fail")
+        } catch (e: BootstrapFailure) { assertSame(failure, e) }
+        assertTrue(store.held)
+        assertEquals("pending", store.history().single().second.state)
+        assertEquals(saved, store.history().single().first)
+        assertTrue(transport.sent.isEmpty())
+    }
+
+    @Test fun changedScopeSendsOnlyItsOwnWorkAndNeverAdoptsEarlierWork() = runBlocking {
+        val old = Store(); val next = Store(); val transport = Transport()
+        val saved = enqueue(old, "visit.checkIn"); old.holdForReview()
+        val changed = identity.copy(fingerprint = "new-scope")
+        transport.handler = { path, _ ->
+            assertTrue("earlier work must never be pushed", path.endsWith("pull"))
+            200 to pull()
+        }
+        val result = FieldSyncSession(identity.account, identity.deviceId,
+            { if (it == identity) old else { assertEquals(changed, it); next } }, { changed.fingerprint },
+            SignedVisitGateway(transport, Signer(), identity.deviceId, { 0L })).sync(identity)
+        assertEquals(changed, result)
+        assertTrue(old.held)
+        assertEquals(saved, old.history().single().first)
+        assertEquals("pending", old.history().single().second.state)
+        assertTrue(old.acks.isEmpty())
+    }
+
     @Test fun alreadyQueuedWorkPushesAfterDayCloseThenRenewsAccessWithoutDropping() = runBlocking {
         val store = Store(); val transport = Transport(); val queued = enqueue(store, "visit.checkIn")
         store.expired = true

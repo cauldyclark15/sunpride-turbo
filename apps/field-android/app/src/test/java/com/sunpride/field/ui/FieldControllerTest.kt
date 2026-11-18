@@ -89,6 +89,112 @@ class FieldControllerTest {
         assertTrue("a pre-load read must be invalidated by the load", reads.any { it in writes })
     }
 
+    private fun synced() = TodayData(lastSynced = 150, stale = false,
+        syncStatus = com.sunpride.field.ui.syncstatus.SyncStatus(lastSuccess = 150, health = "synced"))
+
+    @Test fun syncNowShowsProgressAndAnUnchangedSuccessfulResult() = run { c, b, _ ->
+        b.results += { EnrollmentState.Ready("dev1") }
+        b.todayResult = synced()
+        c.signIn("a@example.test", "fake").join()
+        b.todaySyncs.clear()
+        b.todayAction = {
+            assertTrue(c.busy)
+            assertEquals(com.sunpride.field.ui.syncstatus.SyncFeedback.RUNNING, c.syncMessage)
+            synced()
+        }
+        repeat(2) {
+            c.syncNow().join()
+            assertFalse(c.busy)
+            assertEquals(com.sunpride.field.ui.syncstatus.SyncFeedback.UPDATED, c.syncMessage)
+        }
+        assertEquals(listOf(true, true), b.todaySyncs)
+    }
+
+    @Test fun secondSyncTapWhileTheFirstIsWaitingDoesNotSendAgain() = runBlocking {
+        java.util.concurrent.Executors.newSingleThreadExecutor().asCoroutineDispatcher().use { ui ->
+            val b = FakeBackend()
+            val c = FieldController(b, this, Dispatchers.IO, ui)
+            b.results += { EnrollmentState.Ready("dev1") }
+            b.todayResult = synced()
+            c.signIn("a@example.test", "fake").join()
+            b.todaySyncs.clear()
+            val entered = java.util.concurrent.CountDownLatch(1)
+            val release = java.util.concurrent.CountDownLatch(1)
+            b.todayAction = {
+                entered.countDown()
+                check(release.await(5, java.util.concurrent.TimeUnit.SECONDS))
+                synced()
+            }
+            val first = c.syncNow()
+            try {
+                kotlinx.coroutines.withContext(Dispatchers.IO) { check(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)) }
+                assertTrue(c.busy)
+                assertEquals(com.sunpride.field.ui.syncstatus.SyncFeedback.RUNNING, c.syncMessage)
+                c.syncNow().join()
+                assertEquals(listOf(true), b.todaySyncs)
+            } finally { release.countDown(); first.join() }
+            assertFalse(c.busy)
+            assertEquals(com.sunpride.field.ui.syncstatus.SyncFeedback.UPDATED, c.syncMessage)
+        }
+    }
+
+    @Test fun syncFailureIsVisibleKeepsSavedWorkAndCanRetry() = run { c, b, _ ->
+        b.results += { EnrollmentState.Ready("dev1") }
+        b.todayResult = synced()
+        c.signIn("a@example.test", "fake").join()
+        b.todayAction = { throw java.io.IOException("private transport details") }
+        c.syncNow().join()
+        assertFalse(c.busy)
+        assertEquals(com.sunpride.field.ui.syncstatus.SyncFeedback.UNAVAILABLE, c.syncMessage)
+        assertEquals(0, b.signOuts)
+        assertEquals(EnrollmentState.Ready("dev1"), c.state)
+        b.todayAction = { synced() }
+        c.syncNow().join()
+        assertEquals(com.sunpride.field.ui.syncstatus.SyncFeedback.UPDATED, c.syncMessage)
+    }
+
+    @Test fun swallowedSyncFailureAndFirstDownloadFailureNeverSayUpToDate() = run { c, b, _ ->
+        b.results += { EnrollmentState.Ready("dev1") }
+        c.signIn("a@example.test", "fake").join()
+        for (failed in listOf(TodayData(), synced().copy(warning = "private details"),
+            synced().copy(syncStatus = com.sunpride.field.ui.syncstatus.SyncStatus(health = "retry_pending")),
+            synced().copy(syncStatus = com.sunpride.field.ui.syncstatus.SyncStatus(health = "held_for_review")))) {
+            b.todayResult = failed
+            c.syncNow().join()
+            assertEquals(com.sunpride.field.ui.syncstatus.SyncFeedback.UNAVAILABLE, c.syncMessage)
+        }
+    }
+
+    @Test fun successfulSyncWithWaitingWorkDoesNotClaimEverythingSent() = run { c, b, _ ->
+        b.results += { EnrollmentState.Ready("dev1") }
+        c.signIn("a@example.test", "fake").join()
+        b.todayResult = synced().copy(stale = true,
+            syncStatus = com.sunpride.field.ui.syncstatus.SyncStatus(queued = 1, health = "synced", lastSuccess = 150))
+        c.syncNow().join()
+        assertEquals(com.sunpride.field.ui.syncstatus.SyncFeedback.WAITING, c.syncMessage)
+    }
+
+    @Test fun updateRequiredExplainsWhySyncCannotRunInsteadOfIgnoringTheTap() = run { c, b, _ ->
+        b.results += { EnrollmentState.Ready("dev1") }
+        b.todayResult = TodayData(updateRequired = true)
+        c.signIn("a@example.test", "fake").join()
+        b.todaySyncs.clear()
+        c.syncNow().join()
+        assertTrue(b.todaySyncs.isEmpty())
+        assertEquals(com.sunpride.field.ui.syncstatus.SyncFeedback.UPDATE, c.syncMessage)
+        assertFalse(c.busy)
+    }
+
+    @Test fun signOutClearsThePreviousSyncResult() = run { c, b, _ ->
+        b.results += { EnrollmentState.Ready("dev1") }
+        b.todayResult = synced()
+        c.signIn("a@example.test", "fake").join()
+        c.syncNow().join()
+        assertEquals(com.sunpride.field.ui.syncstatus.SyncFeedback.UPDATED, c.syncMessage)
+        c.signOut().join()
+        assertNull(c.syncMessage)
+    }
+
     @Test fun delayedTodayCannotRepopulateTheScreenAfterRealControllerSignOut() = runBlocking {
         val b = FakeBackend()
         val c = FieldController(b, this, Dispatchers.IO, EmptyCoroutineContext)

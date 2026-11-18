@@ -463,7 +463,8 @@ fun FieldApp(
                 ready && page == "sell" && sellHost != null -> com.sunpride.field.sell.SellArea(sellHost, onLeave = { page = "home"; origin = "home" },
                     modifier = PaddingValues(bottom = padding.calculateBottomPadding()).let { Modifier.padding(it).consumeWindowInsets(it) })
                 ready && page == "sync" -> SyncDetails(status, onDismiss = { page = origin },
-                    onSync = controller::syncNow, busy = controller.busy, modifier = modifier, now = now)
+                    onSync = controller::syncNow, busy = controller.busy, modifier = modifier, now = now,
+                    message = controller.syncMessage)
                 ready && page == "more" -> FieldNav.moreWorkRows(mode, visits, controller.today.supervisor,
                     FieldFeature.TEAM in features).let { rows -> MoreScreen(modifier = modifier, status = status, now = now,
                     onSync = { go("sync") }, onAccount = { go("account") }, onSupport = { go("support") },

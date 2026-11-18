@@ -867,38 +867,25 @@ class LiveFieldBackend(
                 prefs.edit().putBoolean("$key.partner",false).apply()
                 val authenticated = "v2:${environmentOrigin}|${verifiedMe.getJSONObject("profile").getString("subject")}"
                 val existing = storedScope()?.takeIf { it.account == authenticated && it.deviceId == deviceId }
-                val existingCursor = existing?.let { scope ->
-                    val scoped = EncryptedFieldDatabase.store(context, scope)
-                    try { runBlocking { if(scoped.workforceSnapshotCurrent()) scoped.cursor() else null } } finally { scoped.close() }
-                }
-                if (existing != null && existingCursor != null) {
-                    val scoped = EncryptedFieldDatabase.store(context, existing)
-                    try {
-                        val gateway = com.sunpride.field.sync.SignedVisitGateway(visitTransport, signer, deviceId)
-                        runBlocking {
-                            com.sunpride.field.sync.VisitSync(gateway, scoped, existing, bootstrap = {
-                                val page = BootstrapClient(syncTransport, signer, deviceId,
-                                    { fp -> EncryptedFieldDatabase.store(context, StoreScope(authenticated, deviceId, fp)) })
-                                    .fetch(subject = authenticated)
-                                if (page.fingerprint != existing.fingerprint) {
-                                    // Old partition stays held; new verified scope cannot adopt its operations.
-                                    prefs.edit().putString("$key.scope", page.fingerprint).apply()
-                                    fingerprint = page.fingerprint
-                                    retireSuggestions()
-                                }
-                            }).sync()
+                runBlocking {
+                    com.sunpride.field.sync.FieldSyncSession(authenticated, deviceId,
+                        stores = { scope -> EncryptedFieldDatabase.store(context, scope) },
+                        bootstrap = {
+                            val page = BootstrapClient(syncTransport, signer, deviceId,
+                                { fp -> EncryptedFieldDatabase.store(context, StoreScope(authenticated, deviceId, fp)) })
+                                .fetch(subject = authenticated)
+                            if (fingerprint != page.fingerprint) retireSuggestions()
+                            subject = authenticated; fingerprint = page.fingerprint
+                            prefs.edit().putString("$key.subject", subject).putString("$key.scope", fingerprint)
+                                .putString("$key.device", deviceId).apply()
+                            page.fingerprint
+                        },
+                        gateway = com.sunpride.field.sync.SignedVisitGateway(visitTransport, signer, deviceId),
+                        afterSync = { scoped ->
                             val done=scoped.history().filter { com.sunpride.field.storage.WorkforceForms.isForm(it.first.kind)&&it.second.state=="done" }
                             if(done.any { scoped.visitPhotos(it.first.clientVisitId).any { p->p.photoType in com.sunpride.field.storage.WorkforceForms.PHOTO_TYPES } })
                                 com.sunpride.field.evidence.EvidenceWork.enqueue(context)
-                        }
-                    } finally { scoped.close() }
-                } else {
-                    val p = BootstrapClient(syncTransport, signer, deviceId,
-                        { fp -> EncryptedFieldDatabase.store(context, StoreScope(authenticated, deviceId, fp)) })
-                        .fetch(subject = authenticated)
-                    subject = authenticated; fingerprint = p.fingerprint
-                    prefs.edit().putString("$key.subject", subject).putString("$key.scope", fingerprint)
-                        .putString("$key.device", deviceId).apply()
+                        }).sync(existing)
                 }
                 val healthScope = storedScope()
                 if(healthScope!=null&&healthScope.fingerprint==verifiedMe.getJSONObject("scope").getString("fingerprint")) {
@@ -1358,6 +1345,7 @@ class FieldController(
     private fun requirePasswordChange() {
         if (!mustChangePassword) ++sessionGeneration // retire in-flight Today/sync reads
         mustChangePassword = true
+        busy = false; syncMessage = null
         today = TodayData(); selling = false; sellsNow = false; appModes = AppModes(AppMode.VISITS); modeChoice = null; mappingSaves = emptyList(); retireSuggestedOrder()
         resetPasswordForm()
     }
@@ -1370,6 +1358,8 @@ class FieldController(
     }
     var key by mutableStateOf<DeviceKeyInfo?>(null); private set
     var today by mutableStateOf(TodayData()); private set
+    /** SP-0198: every manual sync has visible progress and a result, including unchanged data and failures. */
+    var syncMessage by mutableStateOf<String?>(null); private set
     /** SP-0192: the office switched Selling on for this person: the Sell tab shows. Re-read after every Today load. */
     var selling by mutableStateOf(false); private set
     /** SP-0195: the office's App mode for this person (and, for the owner, the modes to switch between). */
@@ -1957,7 +1947,7 @@ class FieldController(
     /** [onSignedIn] runs on the UI context once the password sign-in succeeded (SP-0128 biometric offer). */
     fun signIn(email: String, password: String, onSignedIn: () -> Unit = {}) = scope.launch(ui) {
         val generation = ++sessionGeneration
-        busy = true; error = null
+        busy = true; error = null; syncMessage = null
         try {
             withContext(io) { backend.signIn(email, password) }
             if (generation != sessionGeneration) return@launch
@@ -1991,7 +1981,7 @@ class FieldController(
     fun sapMasterLifetime(): String? = backend.sapMasterLifetime()
     fun appUpdates(): com.sunpride.integrity.AppUpdateClient? = backend.appUpdates()
     fun companySignIn(tokens: JSONObject) = scope.launch(ui) {
-        ++sessionGeneration; busy=true; error=null
+        ++sessionGeneration; busy=true; error=null; syncMessage=null
         try { withContext(io) { backend.companySignIn(tokens) }; state=EnrollmentState.Unregistered }
         catch(e: Exception) { error=userMessage(e); return@launch }
         finally { busy=false; companySignInPending=false }
@@ -2074,26 +2064,47 @@ class FieldController(
         if (state is EnrollmentState.Ready && !busy) runCatching { loadToday(sync = false) }
     }
     fun syncNow() = scope.launch(ui) {
-        if (busy || mustChangePassword || state !is EnrollmentState.Ready || today.updateRequired) return@launch
-        busy = true
+        if (busy || mustChangePassword || state !is EnrollmentState.Ready) return@launch
+        if (today.updateRequired) { syncMessage = com.sunpride.field.ui.syncstatus.SyncFeedback.UPDATE; return@launch }
+        val generation = sessionGeneration
+        busy = true; syncMessage = com.sunpride.field.ui.syncstatus.SyncFeedback.RUNNING
         try {
-            loadToday(sync = true); if (diagnostic != null) refreshDiagnostic()
+            loadToday(sync = true)
+            if (generation != sessionGeneration || state !is EnrollmentState.Ready) return@launch
+            if (diagnostic != null) refreshDiagnostic()
             // SP-0192: the Sell area's saved work goes in the same Sync now (its own failures stay in the Sell area).
-            if (selling) sellSync?.let { send -> runCatching { send() } }
+            var sellFailed = false
+            if (selling) sellSync?.let { send ->
+                try { send() }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (_: Exception) { sellFailed = true }
+            }
+            if (generation == sessionGeneration && state is EnrollmentState.Ready)
+                syncMessage = com.sunpride.field.ui.syncstatus.SyncFeedback.result(today, sellFailed)
         }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
         catch (e: AuthFailure) {
-            // FLD-171: a session ended elsewhere (password changed, signed out everywhere) returns to sign-in
-            // with the plain reason. Queued work stays in the encrypted store for the same person.
+            if (generation != sessionGeneration) return@launch
+            // FLD-171: a session ended elsewhere returns to sign-in; queued work stays encrypted.
             if (e.kind == AuthFailure.Kind.SESSION_EXPIRED) sessionEnded(e)
             else if (e.kind == AuthFailure.Kind.PASSWORD_CHANGE_REQUIRED) requirePasswordChange()
-            else today = today.copy(stale = true, warning = "Sync unavailable — showing saved visits")
+            else {
+                today = today.copy(stale = true, warning = "Sync unavailable — showing saved visits")
+                syncMessage = com.sunpride.field.ui.syncstatus.SyncFeedback.UNAVAILABLE
+            }
         }
-        catch (_: Exception) { today = today.copy(stale = true, warning = "Sync unavailable — showing saved visits") }
-        finally { busy = false }
+        catch (_: Exception) {
+            if (generation == sessionGeneration) {
+                today = today.copy(stale = true, warning = "Sync unavailable — showing saved visits")
+                syncMessage = com.sunpride.field.ui.syncstatus.SyncFeedback.UNAVAILABLE
+            }
+        }
+        finally { if (generation == sessionGeneration) busy = false }
     }
     /** FLD-014/171: Sign in with the reason; [today] is reset only in memory (the encrypted store is untouched). */
     private fun sessionEnded(e: AuthFailure) {
         ++sessionGeneration; state = EnrollmentState.SignedOut; today = TodayData(); selling = false; sellsNow = false; appModes = AppModes(AppMode.VISITS); modeChoice = null; mappingSaves = emptyList(); error = userMessage(e)
+        busy = false; syncMessage = null
         mustChangePassword = false; temporaryPassword = null
         retireSuggestedOrder()
         countUnsent()
@@ -2140,7 +2151,7 @@ class FieldController(
 
     fun signOut() = scope.launch(ui) {
         sessionGeneration++ // retire pending cache/enrollment reads before fallible teardown
-        busy = true
+        busy = true; syncMessage = null
         runCatching { withContext(io) { backend.signOut() } }
         state = EnrollmentState.SignedOut; today = TodayData(); selling = false; sellsNow = false; appModes = AppModes(AppMode.VISITS); modeChoice = null; mappingSaves = emptyList(); error = null; busy = false
         mustChangePassword = false; temporaryPassword = null
