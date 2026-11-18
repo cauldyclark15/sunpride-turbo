@@ -436,6 +436,21 @@ describe("People list", () => {
   const admin = () => {
     state.values["domains/profiles:current"] = { role: "admin" };
   };
+  it("SP-0200 shows the Share the Field app card above the list with both copyable links", () => {
+    admin();
+    const view = html(createElement(PeopleAdmin));
+    const card = view.indexOf('data-testid="share-field-app"');
+    expect(card).toBeGreaterThan(-1);
+    expect(card).toBeLessThan(view.indexOf('data-testid="list-table"'));
+    expect(view).toContain(
+      'href="https://play.google.com/apps/internaltest/4701513704454726563"',
+    );
+    expect(view).toContain(
+      'href="https://drive.google.com/drive/folders/181uAAjyMxw08WoDKSGaumrTPPZvQA282"',
+    );
+    expect(view).toContain('aria-label="Copy Google Play link"');
+    expect(view).toContain('aria-label="Copy Google Drive link"');
+  });
   it("WEB-177 shows the 'Showing x–y' count line like every other list", () => {
     admin();
     const view = html(createElement(PeopleAdmin));

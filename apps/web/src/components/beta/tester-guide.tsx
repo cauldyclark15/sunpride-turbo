@@ -1,6 +1,7 @@
 import Image from "next/image";
 import Link from "next/link";
 import type { ReactNode } from "react";
+import { AppLinkList } from "../app-links/app-links";
 
 const PAGES_TO_TEST: readonly (readonly [string, string])[] = [
   ["Home", "Today's totals: products, customers, low stock, open orders."],
@@ -37,10 +38,10 @@ function Section({ title, children }: { title: string; children: ReactNode }) {
 }
 
 /**
- * Beta release (SP-0123): one-page guide for Sunpride's testers. `apkUrl` comes from
- * `NEXT_PUBLIC_BETA_APK_URL`; the download section is hidden when it is empty.
+ * Beta release (SP-0123): one-page guide for Sunpride's testers. The Field app links
+ * (SP-0200) are fixed in `config/app-links` and always shown.
  */
-export function TesterGuide({ apkUrl }: { apkUrl: string | null }) {
+export function TesterGuide() {
   return (
     <main className="min-h-screen bg-background p-5">
       <article className="mx-auto grid w-full max-w-[720px] gap-5 rounded-2xl border border-border bg-surface p-6 sm:p-8">
@@ -117,25 +118,13 @@ export function TesterGuide({ apkUrl }: { apkUrl: string | null }) {
           </ol>
         </Section>
 
-        {apkUrl ? (
-          <Section title="4. Android apps">
-            <p>
-              Open this link on your Android phone, download the app, and allow
-              the installation when the phone asks. The iPhone app is not part
-              of this test.
-            </p>
-            <p>
-              <a
-                href={apkUrl}
-                className="font-medium text-accent"
-                rel="noopener noreferrer"
-                target="_blank"
-              >
-                Download the Android apps
-              </a>
-            </p>
-          </Section>
-        ) : null}
+        <Section title="4. Field app on Android">
+          <p>
+            Open the Google Play link on your Android phone. Use the Google
+            Drive folder only if Google Play does not work.
+          </p>
+          <AppLinkList />
+        </Section>
 
         <footer className="flex flex-wrap gap-4 border-t border-separator pt-5 text-sm">
           <Link href="/dashboard" className="font-medium text-accent">

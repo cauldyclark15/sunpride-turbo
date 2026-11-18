@@ -15,7 +15,6 @@
       "dependsOn": ["^build"],
       "inputs": ["$TURBO_DEFAULT$", ".env*"],
       "env": [
-        "NEXT_PUBLIC_BETA_APK_URL",
         "NEXT_PUBLIC_BETA_ENABLE",
         "NEXT_PUBLIC_GOOGLE_MAPS_KEY",
         "NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID",

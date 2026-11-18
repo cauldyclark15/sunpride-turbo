@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BETA_HIDDEN_FEATURES,
-  betaApkUrl,
   isBetaFeatureOn,
   isModuleHiddenForBeta,
   reportedFromDescription,
@@ -46,18 +45,6 @@ describe("beta feature list", () => {
     for (const feature of Object.keys(BETA_HIDDEN_FEATURES))
       expect(doc, feature).toContain(`\`${feature}\``);
     expect(doc).toContain("NEXT_PUBLIC_BETA_ENABLE");
-    expect(doc).toContain("NEXT_PUBLIC_BETA_APK_URL");
-  });
-});
-
-describe("Android download link", () => {
-  it("is hidden when empty or not a web link", () => {
-    vi.stubEnv("NEXT_PUBLIC_BETA_APK_URL", "");
-    expect(betaApkUrl()).toBeNull();
-    vi.stubEnv("NEXT_PUBLIC_BETA_APK_URL", "javascript:alert(1)");
-    expect(betaApkUrl()).toBeNull();
-    vi.stubEnv("NEXT_PUBLIC_BETA_APK_URL", " https://drive.example/apks ");
-    expect(betaApkUrl()).toBe("https://drive.example/apks");
   });
 });
 

@@ -50,10 +50,10 @@ NEXT_PUBLIC_BETA_ENABLE=integration,sap-status bun run build   # from apps/web
 - **Report an issue** in that strip on every page: opens a new issue with `Page: <path>`
   already in the description.
 - **Help for testers** (`/help`, linked from the Beta strip, the sign-in page and access messages): sign-in steps,
-  what to test, how to report an issue with a screenshot, and the Android download.
-- **Android download link**: set `NEXT_PUBLIC_BETA_APK_URL` to the shared folder or file link
-  (http/https only). When empty, the download section on `/help` is hidden. The iPhone app is
-  not part of this release.
+  what to test, how to report an issue with a screenshot, and the Field app links.
+- **Field app links** (Google Play test link and the Google Drive backup folder) are fixed in
+  `apps/web/src/config/app-links.ts` and shown with Open and Copy buttons on `/help` and in
+  Setup > People. The iPhone app is not part of this release.
 
 ## Issue tracker access
 

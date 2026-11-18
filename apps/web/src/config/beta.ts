@@ -55,12 +55,6 @@ export function isModuleHiddenForBeta(slug: string): boolean {
   return !isBetaFeatureOn(feature);
 }
 
-/** Where to download the Android apps. Empty hides the download section. */
-export function betaApkUrl(): string | null {
-  const url = (process.env.NEXT_PUBLIC_BETA_APK_URL ?? "").trim();
-  return /^https?:\/\//i.test(url) ? url : null;
-}
-
 const MAX_FROM_LENGTH = 300;
 
 /** A same-site page path only; anything else (absolute URLs, `//host`) is dropped. */

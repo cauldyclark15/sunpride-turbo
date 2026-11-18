@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { AreaPendingNotice, BetaBar, needsAreaAssignment } from "./beta-bar";
 import { TesterGuide } from "./tester-guide";
+import { FIELD_APP_LINKS } from "../../config/app-links";
 
 vi.mock("@sunpride/ui", () => ({
   StatusPill: ({ children }: { children: React.ReactNode }) =>
@@ -58,7 +59,7 @@ describe("area assignment message", () => {
 describe("tester guide", () => {
   it("explains signing in, what to test and how to report, with no codes", () => {
     const html = renderToStaticMarkup(
-      createElement(TesterGuide, { apkUrl: null }),
+      createElement(TesterGuide),
     );
     for (const text of [
       "Getting started for testers",
@@ -70,15 +71,20 @@ describe("tester guide", () => {
       "Approvals",
     ])
       expect(html).toContain(text);
-    expect(html).not.toContain("Android apps");
     expect(html).not.toMatch(/SP-\d|ADR|PWA/);
   });
 
-  it("shows the Android download only when a link is configured", () => {
-    const html = renderToStaticMarkup(
-      createElement(TesterGuide, { apkUrl: "https://drive.example/apks" }),
-    );
-    expect(html).toContain("Android apps");
-    expect(html).toContain('href="https://drive.example/apks"');
+  it("always shows the Field app section with both links and no Van or plural apps", () => {
+    const html = renderToStaticMarkup(createElement(TesterGuide));
+    const start = html.indexOf("4. Field app on Android");
+    expect(start).toBeGreaterThan(-1);
+    const section = html.slice(start, html.indexOf("<footer", start));
+    for (const link of FIELD_APP_LINKS) {
+      expect(section).toContain(`href="${link.url}"`);
+      expect(section).toContain(`aria-label="Copy ${link.name} link"`);
+    }
+    const text = section.replace(/<[^>]*>/g, " ").replace(/https:\/\/\S+/g, " ");
+    expect(text).not.toMatch(/\bVan\b/i);
+    expect(text).not.toMatch(/\bapps\b/i);
   });
 });

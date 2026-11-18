@@ -15,6 +15,7 @@ import { ListPage, cursorRange, type ListColumn } from "./list-page/list-page";
 import { Drawer } from "./cockpit/kit/drawer";
 import { ResetPasswordAction, canResetPassword } from "./people/reset-password";
 import { AppModeChoice, BulkAppMode, appModePill } from "./people/app-mode";
+import { ShareFieldAppCard } from "./app-links/app-links";
 
 type Person = Doc<"profiles">;
 export type AssignableRole =
@@ -519,6 +520,7 @@ export function PeopleAdmin() {
   return (
     <div className="grid gap-4">
       <h2 className="text-[20px] font-semibold text-foreground">People</h2>
+      <ShareFieldAppCard />
       {notice ? (
         <p role="status" className="text-sm text-success">
           {notice}
