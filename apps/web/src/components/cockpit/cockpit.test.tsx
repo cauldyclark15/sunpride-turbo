@@ -498,6 +498,33 @@ describe("drawers", () => {
     expect(onClose).toHaveBeenCalledOnce();
   });
 
+  it.each([false, true])(
+    "keeps long drawer content in a bounded scroll area (wide=%s)",
+    (wide) => {
+      const out = html(
+        <Drawer open wide={wide} title="Edit person" onClose={() => {}}>
+          <p>Form fields</p>
+          <section aria-label="Assignment history">History</section>
+        </Drawer>,
+      );
+      expect(out).toMatch(/<header class="[^"]*\bshrink-0\b/);
+      const bodyClasses = out
+        .match(/<\/header><div class="([^"]+)"/)?.[1]
+        ?.split(/\s+/);
+      expect(bodyClasses).toEqual(
+        expect.arrayContaining([
+          "min-h-0",
+          "flex-1",
+          "overflow-y-auto",
+          "overscroll-contain",
+        ]),
+      );
+      expect(bodyClasses).not.toContain("sm:flex-none");
+      expect(out).toContain("Form fields");
+      expect(out).toContain('aria-label="Assignment history"');
+    },
+  );
+
   it("an open drawer has a close button", () => {
     const out = html(
       <Drawer open title="Over credit limit" onClose={() => {}}>

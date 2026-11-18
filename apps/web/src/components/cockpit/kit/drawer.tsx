@@ -54,7 +54,7 @@ export function Drawer({
         aria-label={title}
         className={`relative flex h-[100dvh] w-full flex-col overflow-hidden border-border bg-surface shadow-xl sm:h-auto sm:rounded-l-2xl sm:border ${wide ? "sm:w-[min(720px,100vw)]" : "sm:w-[440px]"}`}
       >
-        <header className="flex items-center justify-between gap-3 border-b border-separator px-5 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:py-4">
+        <header className="flex shrink-0 items-center justify-between gap-3 border-b border-separator px-5 pb-3 pt-[max(0.75rem,env(safe-area-inset-top))] sm:py-4">
           <h2 className="text-[15px] font-semibold text-foreground">{title}</h2>
           <button
             ref={closeRef}
@@ -65,7 +65,7 @@ export function Drawer({
             Close
           </button>
         </header>
-        <div className="flex-1 overflow-y-auto overscroll-contain px-5 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))] sm:flex-none">
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-5 pt-4 pb-[max(1rem,env(safe-area-inset-bottom))]">
           {children}
         </div>
       </aside>
