@@ -217,6 +217,7 @@ export function isWebModuleSlug(slug: string): boolean {
     slug === "account" ||
     slug === "distributor" ||
     slug === "messages" ||
+    slug === "guides" ||
     slug === "operations" ||
     isWorkspaceSlug(slug) ||
     isOwnerSlug(slug) ||
@@ -286,6 +287,8 @@ const tailItems: WorkspaceNavGroup["items"] = [
   { id: "work", label: "Work", href: "/orders", icon: "board" },
   { id: "messages", label: "Messages", href: "/messages", icon: "comment" },
   { id: "issues", label: "Issues", href: "/issues", icon: "issues" },
+  // SP-0201: every how-to and PDF guide, for every signed-in role.
+  { id: "guides", label: "Guides", href: "/guides", icon: "document" },
   { id: "setup", label: "Setup", href: "/admin", icon: "admin" },
 ];
 
@@ -307,6 +310,7 @@ export function primaryIdFor(pathname: string): string {
   if (OPERATIONS_SEGMENTS.has(segment)) return "operations";
   if (segment === "issues") return "issues";
   if (segment === "messages") return "messages";
+  if (segment === "guides") return "guides";
   for (const [group, tabs] of Object.entries(moduleTabs))
     if (tabs.some((tab) => tab.href === `/${segment}`)) return group;
   return "today";

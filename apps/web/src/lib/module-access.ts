@@ -281,6 +281,8 @@ export function canAccessWebModule(
     return (ISSUE_PANEL_ROLES["issues.read"] as readonly string[]).includes(
       role,
     );
+  // SP-0201: the Guides page is for every internal role (the files themselves are public).
+  if (slug === "guides") return (APP_ROLES as readonly string[]).includes(role);
   // Messaging has its own `/messages` route rather than a `[module]` slug.
   if (slug === "messages")
     return (MESSAGING_ROLES as readonly string[]).includes(role);

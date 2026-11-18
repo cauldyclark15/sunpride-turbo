@@ -40,8 +40,8 @@ export default function nextConfig(phase: string): NextConfig {
     async headers() {
       return [
         {
-          // The guides are a static site that is updated in place: always revalidate.
-          source: "/guides/:path*",
+          // SP-0201: the published guides (PDFs) are rebuilt in place under the same name: always revalidate.
+          source: "/docs/:path*",
           headers: [{ key: "Cache-Control", value: "no-cache" }],
         },
         {
@@ -77,10 +77,10 @@ export default function nextConfig(phase: string): NextConfig {
           destination: "/kickoff/index.html",
           permanent: false,
         },
-        // User guides: a static site in public/guides, outside the sign-in gate.
+        // SP-0201: the old static guide site (public/guides) is retired; its address opens the Guides page.
         {
-          source: "/guides",
-          destination: "/guides/index.html",
+          source: "/guides/index.html",
+          destination: "/guides",
           permanent: false,
         },
         // System flow diagrams: a static page in public/flow, outside the sign-in gate.
