@@ -14,6 +14,9 @@ import { TalkSheet } from "./talk-sheet";
 import { TeamExecution } from "./team-execution";
 import { MyTeam } from "./report-depth";
 import { WorkWith } from "./work-with";
+import { useOptionalRole } from "../../lib/auth/session";
+import { SignIns } from "./sign-ins";
+import { SIGN_IN_ROLES } from "./sign-ins-model";
 
 const ActivityMap = dynamic(
   () => import("./activity-map").then((m) => m.ActivityMap),
@@ -27,7 +30,8 @@ type SupervisionTab =
   | "workwith"
   | "talk"
   | "productivity"
-  | "perdiem";
+  | "perdiem"
+  | "signins";
 const TABS: [SupervisionTab, string][] = [
   ["team", "Team"],
   ["exceptions", "Exceptions"],
@@ -50,6 +54,10 @@ function useNow() {
 
 export function SupervisionWorkspace() {
   const now = useNow();
+  const role = useOptionalRole();
+  const tabs: [SupervisionTab, string][] = SIGN_IN_ROLES.includes(role ?? "")
+    ? [...TABS, ["signins", "Sign-ins"]]
+    : TABS;
   const [pickedTab, setTab] = useState<SupervisionTab>("team");
   const [pickedDate, setServiceDate] = useState(() => manilaToday());
   const params = new URLSearchParams(useReportSearch());
@@ -63,15 +71,20 @@ export function SupervisionWorkspace() {
   const setDirectOnly = (v: boolean) =>
     replaceReportSearch({ direct: v ? "1" : null });
   const requested = params.get("tab");
-  const tab = TABS.some(([id]) => id === requested)
+  const tab = tabs.some(([id]) => id === requested)
     ? (requested as SupervisionTab)
-    : pickedTab;
+    : tabs.some(([id]) => id === pickedTab)
+      ? pickedTab
+      : "team";
   const linkedDate = params.get("date");
   const serviceDate =
     linkedDate && /^\d{4}-\d{2}-\d{2}$/.test(linkedDate)
       ? linkedDate
       : pickedDate;
-  const options = useReport("supervision.team.options", { serviceDate });
+  const options = useReport(
+    "supervision.team.options",
+    tab === "signins" ? "skip" : { serviceDate },
+  );
   const filters: SupervisionFilters = {
     serviceDate,
     ...(orgUnitId
@@ -84,7 +97,7 @@ export function SupervisionWorkspace() {
   return (
     <div className="grid gap-4">
       <UnderlineTabs
-        items={TABS}
+        items={tabs}
         activeId={tab}
         onChange={(id) => {
           setTab(id);
@@ -110,7 +123,7 @@ export function SupervisionWorkspace() {
             />
           </FormField>
         </div>
-        {options && options.units.length > 1 && (
+        {tab !== "signins" && options && options.units.length > 1 && (
           <div className="w-[220px] max-w-full">
             <FormField label="Unit">
               <select
@@ -131,7 +144,7 @@ export function SupervisionWorkspace() {
             </FormField>
           </div>
         )}
-        {options && options.channels.length > 0 && (
+        {tab !== "signins" && options && options.channels.length > 0 && (
           <div className="w-[200px] max-w-full">
             <FormField label="Channel">
               <select
@@ -150,18 +163,22 @@ export function SupervisionWorkspace() {
             </FormField>
           </div>
         )}
-        <label className="flex h-10 items-center gap-2 text-[13px] text-foreground">
-          <input
-            type="checkbox"
-            checked={directOnly}
-            onChange={(event) => setDirectOnly(event.target.checked)}
-          />
-          My team only
-        </label>
+        {tab !== "signins" && (
+          <label className="flex h-10 items-center gap-2 text-[13px] text-foreground">
+            <input
+              type="checkbox"
+              checked={directOnly}
+              onChange={(event) => setDirectOnly(event.target.checked)}
+            />
+            My team only
+          </label>
+        )}
       </div>
       <div role="tabpanel">
         <PanelErrorBoundary key={key} label={`Supervision ${tab}`}>
-          {tab === "team" ? (
+          {tab === "signins" ? (
+            <SignIns date={serviceDate} />
+          ) : tab === "team" ? (
             <>
               <MyTeam filters={filters} />
               <TeamExecution filters={filters} now={now} />

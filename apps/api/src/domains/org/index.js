@@ -56,6 +56,7 @@ import { readEvidence } from "./evidence.js";
 import { enqueue } from "../../core/jobs.js";
 import { installOrgJobs } from "./jobs.js";
 import { sendInvitation } from "./invitation-email.js";
+import { signIns } from "./sign-ins.js";
 
 /** @typedef {import('./model.js').Ctx} Ctx */
 /** @typedef {import('./model.js').Row} Row */
@@ -292,6 +293,12 @@ export function install(router, platform) {
       sapOwnsPrices: c.env?.SAP_MODE != null,
     };
   });
+  read("people/sign-ins", (c, p) =>
+    tx(c.db, async (db) => {
+      await db`set transaction isolation level repeatable read read only`;
+      return signIns({ ...c, db }, p);
+    }),
+  );
   for (const kind of [
     "people",
     "teams",
