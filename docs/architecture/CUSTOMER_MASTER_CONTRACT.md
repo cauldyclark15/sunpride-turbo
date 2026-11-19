@@ -100,8 +100,15 @@ sameAsCustomer }]`, one or more. `sameAsCustomer: true` copies Customer Name, Cu
 
 ## 2. Levels and conditional rules
 
-- `draft` (office saves): only Customer Name is required; whatever is filled must be valid
-  (formats, list membership, dependencies).
+- `draft` (incomplete field capture recovery): only Customer Name is required; whatever is
+  filled must be valid (formats, list membership, dependencies). This is not an office Save
+  option. SP-0188 field captures can still be kept for office completion.
+- Office create and update require `complete` validation (SP-0213), including edits to existing
+  prospects and active customers. Missing required fields return `422 validation_failed` with
+  field messages before any customer, accounting, pin, audit or request receipt is written.
+  Unsent update keys keep their stored value; required values cannot be cleared. Optional
+  fields remain optional; Country still defaults to PH and copied ship-to/address derivation
+  still applies. A newly saved complete customer remains a prospect until approved.
 - `field` (new-customer enrolment, SP-0183/0184): every required field in the full sheet,
   including Tax Classification, Country, Sales Office, Payment Arrangement, Delivering Plant,
   at least one complete ship-to, and the conditional Channel 40 ADP block. The agent supplies
@@ -109,7 +116,7 @@ sameAsCustomer }]`, one or more. `sameAsCustomer: true` copies Customer Name, Cu
   Android Save/outbox boundary and the shared server writer; missing offline lists do not
   waive them. Optional fields remain optional. A complete profile still has a pending enrolment
   and needs scoped CDM review and verification before approval or rejection.
-- `complete` (approval/activation and uploads): every field marked required in the sheet, with:
+- `complete` (office saves, approval/activation and uploads): every field marked required in the sheet, with:
   - **Customer Grp 1** required only when the Distribution Channel has Grp 1 values (not 50 Services).
   - **Customer Grp 2** required only when the chosen Grp 1 has Grp 2 values (not Food Service 20,
     Corporate 80, Services 50); sending one where none apply is `not_applicable`.

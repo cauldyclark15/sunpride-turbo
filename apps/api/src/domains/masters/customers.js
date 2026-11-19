@@ -400,8 +400,8 @@ export async function derive(db, merged, input, existing) {
 }
 
 /**
- * Create (no `outletId`) or update a customer. Office saves allow drafts; field captures are
- * checked at the field level and, when incomplete (SP-0188), kept as a draft with the agent's
+ * Create (no `outletId`) or update a customer. Office saves require every applicable required
+ * field (SP-0213). Field captures, when incomplete (SP-0188), are kept as a draft with the agent's
  * submitted values and the missing fields so the office can finish it in the same CDM review.
  * Stores full completeness separately. Returns the customer id.
  * @param {any} c @param {Record<string, any>} b @param {{outletId?:string, fieldCapture?:boolean}} [opts]
@@ -454,7 +454,7 @@ export async function saveCustomer(c, b, opts = {}) {
   if (!hadProfile && !merged.salesPartnerCode)
     merged.salesPartnerCode = await defaultSalesPartner(c, lists);
   let draft = validateCustomer(merged, {
-    level: opts.fieldCapture ? "field" : "draft",
+    level: opts.fieldCapture ? "field" : "complete",
     lists,
     geography: geo,
   });
@@ -462,7 +462,7 @@ export async function saveCustomer(c, b, opts = {}) {
   let fieldMissing = null;
   /** @type {Record<string, any>|null} */ let fieldSubmitted = null;
   if (!draft.ok && opts.fieldCapture) {
-    // Keep the salesman's save like an office draft: drop only values that fail a format or
+    // Keep the salesman's save as a field draft: drop only values that fail a format or
     // list check, keep everything else, and mark it incomplete for the office to finish.
     fieldMissing = draft.errors.map((e) => ({
       field: e.field,

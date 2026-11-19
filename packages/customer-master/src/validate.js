@@ -170,9 +170,9 @@ export function applicability(index, c) {
 }
 
 /**
- * Validate a customer at `draft` (office saves: formats, list membership and dependencies of
- * whatever is filled; only Customer Name required), `field` (the full agent enrollment,
- * including ship-to and conditional ADP), or `complete` (approval/uploads).
+ * Validate a customer at `draft` (incomplete field capture recovery: formats, list membership
+ * and dependencies of whatever is filled; only Customer Name required), `field` (the full agent
+ * enrollment, including ship-to and conditional ADP), or `complete` (office saves/approval/uploads).
  * @param {Record<string, any>} input
  * @param {{level?:Level, lists:ReferenceRow[]|ReferenceIndex, geography?:ResolvedGeography|null}} ctx
  * @returns {{ok:boolean, level:Level, errors:CustomerError[], value:Record<string, any>}}

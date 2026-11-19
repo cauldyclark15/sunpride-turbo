@@ -60,6 +60,7 @@ async function call(role, method, path, body, key) {
 const customer = (over = {}) => ({
   registeredName: "Tindahan ni Aling Rosa Inc.",
   customerName: "Aling Rosa Store",
+  contactPerson: "Rosa",
   mobileNo: "+639171234567",
   email: "Rosa@Example.PH",
   tin: "123456789",
@@ -431,6 +432,100 @@ describe("SP-0170 customer writer", () => {
       await h.db`select count(*)::int n from customers where code like 'CM-ROSA%' or name like 'Aling Rosa%'`;
     expect(n).toBe(1);
   });
+  test("SP-0213 missing office details refuse create/update without changing saved records", async () => {
+    const counts = async () =>
+      (
+        await h.db`select
+      (select count(*)::int from outlets) outlets,
+      (select count(*)::int from customer_profiles) profiles,
+      (select count(*)::int from customer_ship_tos) ship_tos,
+      (select count(*)::int from customers) accounting,
+      (select count(*)::int from outlet_customer_links) links,
+      (select count(*)::int from outlet_pins) pins,
+      (select count(*)::int from audit_logs) audits,
+      (select count(*)::int from master_command_receipts) receipts`
+      )[0];
+    const before = await counts();
+    // Empty, explicit cleared values and whitespace must not bypass any section.
+    const cases = [
+      { registeredName: null },
+      { mobileNo: "" },
+      { taxClassificationCode: "   " },
+      { regionCode: null },
+      { postalCode: "" },
+      { salesOfficeCode: null },
+      { customerGroup2Code: " " },
+      { paymentTermsCode: "" },
+      { deliveringPlantCode: null },
+      { latitude: null, longitude: null },
+      { shipTos: [{ sameAsCustomer: true, contactPerson: "  " }] },
+    ];
+    const saved = await readCustomer(h.db, id);
+    for (const missing of cases) {
+      const create = await call(
+        "admin",
+        "POST",
+        "/api/v1/customers",
+        {
+          custodianOrgUnitId: UNIT,
+          customer: customer(missing),
+        },
+        crypto.randomUUID(),
+      );
+      expect(create.status, JSON.stringify(missing)).toBe(422);
+      expect(create.body.error.code).toBe("validation_failed");
+      const update = await call(
+        "admin",
+        "PUT",
+        `/api/v1/customers/${id}`,
+        {
+          customer: missing,
+        },
+        crypto.randomUUID(),
+      );
+      expect(update.status, JSON.stringify(missing)).toBe(422);
+      expect(update.body.error.code).toBe("validation_failed");
+    }
+    expect(await readCustomer(h.db, id)).toEqual(saved);
+    expect(await counts()).toEqual(before);
+    // Existing incomplete profiles remain readable, but office edits must finish them.
+    await h.db`update customer_profiles set registered_name=null,completeness='draft' where outlet_id=${id}`;
+    const incomplete = await readCustomer(h.db, id);
+    const unfinished = await call("admin", "PUT", `/api/v1/customers/${id}`, {
+      customer: { tradeName: "Changed without completing" },
+    });
+    expect(unfinished.status).toBe(422);
+    expect(
+      (await call("manager", "POST", `/api/v1/customers/${id}/approve`, {}))
+        .status,
+    ).toBe(422);
+    expect(await readCustomer(h.db, id)).toEqual(incomplete);
+    const finished = await call("admin", "PUT", `/api/v1/customers/${id}`, {
+      customer: { registeredName: saved.registeredName },
+    });
+    expect(finished.status).toBe(200);
+    expect(finished.body.completeness).toBe("complete");
+    // Active records cannot be made incomplete either; omitted fields still stay stored.
+    expect(
+      (await call("manager", "POST", `/api/v1/customers/${id}/approve`, {}))
+        .status,
+    ).toBe(200);
+    const active = await readCustomer(h.db, id);
+    const refused = await call("admin", "PUT", `/api/v1/customers/${id}`, {
+      customer: { registeredName: "  " },
+    });
+    expect(refused.status).toBe(422);
+    expect(await readCustomer(h.db, id)).toEqual(active);
+    const edited = await call("admin", "PUT", `/api/v1/customers/${id}`, {
+      customer: { tradeName: null, email: "", creditLimit: null },
+    });
+    expect(edited.status).toBe(200);
+    expect(edited.body).toMatchObject({
+      status: "active",
+      completeness: "complete",
+      registeredName: active.registeredName,
+    });
+  });
   test("dependent-list and format errors use the client's labels", async () => {
     const r = await call("admin", "POST", "/api/v1/customers", {
       custodianOrgUnitId: UNIT,
@@ -457,51 +552,38 @@ describe("SP-0170 customer writer", () => {
       "Sales Office:not_for_sales_org",
     ]);
   });
-  test("draft saves; approval requires complete; then activates", async () => {
+  test("office saves require complete; a complete prospect can then be approved", async () => {
     const draft = await call("admin", "POST", "/api/v1/customers", {
       custodianOrgUnitId: UNIT,
       customer: { customerName: "Field draft store" },
     });
-    if (draft.status !== 200) console.log(JSON.stringify(draft.body));
-    expect(draft.status).toBe(200);
-    expect(draft.body).toMatchObject({
-      status: "prospect",
-      completeness: "draft",
-    });
-    expect((await accounting(draft.body.id))[0].code).toBe(draft.body.code);
-    const refused = await call(
-      "manager",
-      "POST",
-      `/api/v1/customers/${draft.body.id}/approve`,
-      { reason: "check" },
-    );
-    expect(refused.status).toBe(422);
-    const labels = refused.body.error.details.errors.map(
+    expect(draft.status).toBe(422);
+    const labels = draft.body.error.details.errors.map(
       (/** @type {any} */ e) => e.label,
     );
     expect(labels).toContain("Registered Name");
     expect(labels).toContain("Terms of payment");
     expect(labels).toContain("Geographical Coordinates");
-    const filled = await call(
-      "admin",
-      "PUT",
-      `/api/v1/customers/${draft.body.id}`,
-      {
-        customer: customer({
-          customerName: "Field draft store",
-          distributionChannelCode: "20",
-          customerGroup1Code: "FRT",
-          customerGroup2Code: null,
-          shipTos: [{ sameAsCustomer: true, contactPerson: "Owner" }],
-        }),
-      },
-    );
+    const filled = await call("admin", "POST", "/api/v1/customers", {
+      custodianOrgUnitId: UNIT,
+      customer: customer({
+        customerName: "Field draft store",
+        distributionChannelCode: "20",
+        customerGroup1Code: "FRT",
+        customerGroup2Code: null,
+        shipTos: [{ sameAsCustomer: true, contactPerson: "Owner" }],
+      }),
+    });
     expect(filled.status).toBe(200);
-    expect(filled.body.completeness).toBe("complete");
+    expect(filled.body).toMatchObject({
+      completeness: "complete",
+      status: "prospect",
+    });
+    expect((await accounting(filled.body.id))[0].code).toBe(filled.body.code);
     const ok = await call(
       "manager",
       "POST",
-      `/api/v1/customers/${draft.body.id}/approve`,
+      `/api/v1/customers/${filled.body.id}/approve`,
       { reason: "Complete" },
     );
     expect(ok.status).toBe(200);
@@ -516,16 +598,9 @@ describe("SP-0170 customer writer", () => {
         customerGroup2Code: "DSS",
       }),
     });
-    expect(missing.status).toBe(200);
-    expect(missing.body.completeness).toBe("draft");
-    const refused = await call(
-      "manager",
-      "POST",
-      `/api/v1/customers/${missing.body.id}/approve`,
-      {},
-    );
+    expect(missing.status).toBe(422);
     expect(
-      refused.body.error.details.errors.map((/** @type {any} */ e) => e.label),
+      missing.body.error.details.errors.map((/** @type {any} */ e) => e.label),
     ).toContain("Cluster #");
   });
   test("deactivate takes the accounting customer with it", async () => {
@@ -564,8 +639,9 @@ describe("SP-0170 customer writer", () => {
           customerName: "Aling Nena Sari-Sari Store",
           registeredName: "Nena Dela Paz",
           mobileNo: "09185550199",
-          latitude: undefined,
-          longitude: undefined,
+          // Keep a distinct valid pin so duplicate assertions still isolate name/phone.
+          latitude: 10.5,
+          longitude: 124.1,
         }),
         reason: "SP-0175 search",
       },

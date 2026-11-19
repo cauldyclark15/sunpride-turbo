@@ -215,10 +215,7 @@ function EditorBody({
     setDraft(next);
     // Re-check only the fields already flagged, so the highlight clears as people fix them.
     if (Object.keys(errors).length) {
-      const level = (customer ? awaitsApproval(customer) : false)
-        ? "complete"
-        : "draft";
-      const now = checkDraft(index, next, level);
+      const now = checkDraft(index, next, "complete");
       setErrors((prev) => {
         const out: FieldErrors = {};
         for (const k of Object.keys(prev)) if (now[k]) out[k] = now[k];
@@ -369,7 +366,7 @@ function EditorBody({
   const matches = !customer && dupName.length >= 2 ? candidates : [];
 
   async function save(): Promise<Customer | null> {
-    const local = checkDraft(index, draft, "draft");
+    const local = checkDraft(index, draft, "complete");
     if (Object.keys(local).length) {
       setErrors(local);
       setMessage({
