@@ -3,7 +3,7 @@ import { formatStatus } from "../lib/format";
 
 import { Button, Input } from "@heroui/react";
 import { api } from "./master-data/api";
-import type { Doc, Id } from "./master-data/model";
+import type { Doc, Id, Invitation } from "./master-data/model";
 import { FormField, Pager, StatusPill } from "@sunpride/ui";
 import { useMutation, useQuery } from "./master-data/api";
 import type { FunctionArgs } from "./master-data/api";
@@ -16,6 +16,10 @@ import { Drawer } from "./cockpit/kit/drawer";
 import { ResetPasswordAction, canResetPassword } from "./people/reset-password";
 import { AppModeChoice, BulkAppMode, appModePill } from "./people/app-mode";
 import { ShareFieldAppCard } from "./app-links/app-links";
+import {
+  invitationEmailLabel,
+  invitationEmailNotice,
+} from "./people/invitation-email";
 
 type Person = Doc<"profiles">;
 export type AssignableRole =
@@ -80,14 +84,6 @@ function setParams(values: Record<string, string | null>) {
   window.history.replaceState(null, "", url);
   window.dispatchEvent(new Event("popstate"));
 }
-
-type Invitation = {
-  _id: Id<"accessInvitations">;
-  email: string;
-  name?: string;
-  role: string;
-  status: string;
-};
 
 const readableError = (error: unknown) =>
   error instanceof Error ? error.message : "Could not save. Try again.";
@@ -172,6 +168,7 @@ export function PeopleAdmin() {
   const assign = useMutation(api.people.mutations.assign);
   const saveAppMode = useMutation(api.people.mutations.appMode);
   const invite = useMutation(api.domains.profiles.invite);
+  const resendInvitation = useMutation(api.domains.profiles.resendInvitation);
   const revoke = useMutation(api.domains.profiles.revoke);
   const [historyId, setHistoryId] = useState<Id<"profiles"> | null>(null);
   const shownHistory = selectedId ?? historyId;
@@ -252,7 +249,7 @@ export function PeopleAdmin() {
     const email = String(data.get("email") ?? "");
     const name = String(data.get("name") ?? "").trim();
     try {
-      await invite({
+      const delivery = await invite({
         email,
         role,
         ...(name ? { name } : {}),
@@ -263,7 +260,28 @@ export function PeopleAdmin() {
       setRole("viewer");
       setPositionId("");
       setOrgUnitId("");
-      setNotice(`${name || email} added.`);
+      setNotice(
+        `${name || email} added.${delivery.emailState === "accepted" ? ` ${invitationEmailNotice(delivery.emailState)}` : ""}`,
+      );
+      if (delivery.emailState !== "accepted")
+        setError(invitationEmailNotice(delivery.emailState));
+    } catch (cause) {
+      setError(readableError(cause));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function resendEmail(invitationId: string) {
+    if (!canAdd || pending) return;
+    setPending(true);
+    setError("");
+    setNotice("");
+    try {
+      const delivery = await resendInvitation({ invitationId });
+      if (delivery.emailState === "accepted")
+        setNotice(invitationEmailNotice(delivery.emailState));
+      else setError(invitationEmailNotice(delivery.emailState));
     } catch (cause) {
       setError(readableError(cause));
     } finally {
@@ -467,19 +485,40 @@ export function PeopleAdmin() {
       ),
     },
     {
+      key: "email",
+      label: "Invitation email",
+      text: (row) => invitationEmailLabel(row.emailState),
+      render: (row) => invitationEmailLabel(row.emailState),
+    },
+    {
       key: "remove",
       label: "",
       align: "right",
       render: (row) =>
         row.role === "super_admin" || row.status === "revoked" ? null : (
-          <Button
-            size="sm"
-            variant="outline"
-            className="h-8 whitespace-nowrap"
-            onPress={() => void removeInvitation(row._id)}
-          >
-            Remove
-          </Button>
+          <span className="inline-flex justify-end gap-2">
+            {row.status === "pending" &&
+            (row.role !== "admin" || current?.role === "super_admin") ? (
+              <Button
+                size="sm"
+                variant="outline"
+                className="h-8 whitespace-nowrap"
+                isDisabled={pending}
+                onPress={() => void resendEmail(row._id)}
+              >
+                Resend email
+              </Button>
+            ) : null}
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 whitespace-nowrap"
+              isDisabled={pending}
+              onPress={() => void removeInvitation(row._id)}
+            >
+              Remove
+            </Button>
+          </span>
         ),
     },
   ];
@@ -772,6 +811,10 @@ export function PeopleAdmin() {
       <Drawer open={adding !== false} title="Add person" onClose={closeAdd}>
         {adding !== false && current ? (
           <form onSubmit={submitAdd} className="grid gap-4">
+            <p className="text-sm text-muted">
+              Saving sends an invitation with account instructions. Salespeople
+              and sales managers also receive the Field app links.
+            </p>
             <FormField label="Full name">
               <Input
                 name="name"

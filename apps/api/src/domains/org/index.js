@@ -55,6 +55,7 @@ import { setupHealth } from "./setup.js";
 import { readEvidence } from "./evidence.js";
 import { enqueue } from "../../core/jobs.js";
 import { installOrgJobs } from "./jobs.js";
+import { sendInvitation } from "./invitation-email.js";
 
 /** @typedef {import('./model.js').Ctx} Ctx */
 /** @typedef {import('./model.js').Row} Row */
@@ -253,10 +254,13 @@ export function install(router, platform) {
           );
         throw error;
       });
+      // Send only after access is committed; a provider failure must not undo the person.
+      const invitationDelivery =
+        path === "people/invite" ? await sendInvitation(c, result.value) : null;
       // "me": role, scope or status may have changed for someone signed in (web session refetch).
       for (const topic of ["org", "people", "outlets", "catalog", "me"])
         await c.publish(topic);
-      return result?.value ?? null;
+      return invitationDelivery ?? result?.value ?? null;
     });
 
   read("org/tree", orgTree);
@@ -440,6 +444,11 @@ export function install(router, platform) {
   command("people/invite", "admin.manage", (c, b) =>
     invitationCommand(c, "invite", b),
   );
+  router.post("/api/v1/people/resend-invitation", async (c) => {
+    const result = await sendInvitation(c, c.body?.invitationId, true);
+    await c.publish("people");
+    return result;
+  });
   command("people/revoke", "admin.manage", (c, b) =>
     invitationCommand(c, "revoke", b),
   );

@@ -454,6 +454,8 @@ export async function invitationCommand(c, action, b) {
     status: person ? "accepted" : "pending",
     invited_by: actor.subject,
     invited_at: new Date(c.now),
+    email_state: "not_sent",
+    email_attempted_at: null,
     profile_id: person?.id,
     accepted_at: person ? new Date(c.now) : null,
   };

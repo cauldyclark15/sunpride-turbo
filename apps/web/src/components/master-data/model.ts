@@ -156,6 +156,8 @@ export type Invitation = Base & {
   orgUnitId?: string;
   positionId?: string;
   status: "pending" | "accepted" | "revoked";
+  emailState?: InvitationEmailState;
+  emailAttemptedAt?: number;
 };
 export type Device = {
   deviceId: string;
@@ -404,6 +406,7 @@ export type CommandMap = {
     orgUnitId?: string;
   };
   "people/revoke": { invitationId: string };
+  "people/resend-invitation": { invitationId: string };
   "people/selling": { profileId: string; selling: boolean; reason?: string };
   "people/app-mode":
     | {
@@ -534,5 +537,15 @@ export type CommandMap = {
   };
 };
 export type CommandArgs<P extends keyof CommandMap> = CommandMap[P];
-export type CommandResult<P extends keyof CommandMap> =
-  P extends "outlets/enrolment/decide" ? { code: string } : unknown;
+export type InvitationEmailState =
+  "not_sent" | "accepted" | "failed" | "dev_sink";
+export type InvitationDelivery = {
+  invitationId: string;
+  emailState: InvitationEmailState;
+};
+export type CommandResult<P extends keyof CommandMap> = P extends
+  "people/invite" | "people/resend-invitation"
+  ? InvitationDelivery
+  : P extends "outlets/enrolment/decide"
+    ? { code: string }
+    : unknown;

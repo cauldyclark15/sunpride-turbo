@@ -14,6 +14,7 @@ export const api = {
       current: "people/current",
       listInvitations: "people/invitations/list",
       invite: "people/invite",
+      resendInvitation: "people/resend-invitation",
       revoke: "people/revoke",
     },
     masterData: { customers: "catalog/customers/list" },

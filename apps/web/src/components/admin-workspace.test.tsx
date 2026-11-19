@@ -527,6 +527,42 @@ describe("People list", () => {
         ?.args,
     ).toBe("skip");
   });
+  it("SP-0206 shows delivery state and Resend email only for waiting invitations", () => {
+    admin();
+    state.params = { section: "people", filter: "invited" };
+    state.values["domains/profiles:listInvitations"] = {
+      page: [
+        {
+          _id: "waiting",
+          email: "waiting@example.test",
+          role: "sales",
+          status: "pending",
+          emailState: "failed",
+        },
+        {
+          _id: "joined",
+          email: "joined@example.test",
+          role: "sales",
+          status: "accepted",
+          emailState: "accepted",
+        },
+        {
+          _id: "removed",
+          email: "removed@example.test",
+          role: "sales",
+          status: "revoked",
+          emailState: "not_sent",
+        },
+      ],
+      continueCursor: "",
+      isDone: true,
+    };
+    const view = html(createElement(PeopleAdmin));
+    expect(view).toContain("Email could not be sent");
+    expect(view).toContain("Email accepted for sending");
+    expect(view).toContain("Not emailed yet");
+    expect(view.match(/>Resend email<\/button>/g)).toHaveLength(1);
+  });
   it("hides the Invited filter from people who cannot add", () => {
     state.params = { section: "people", filter: "invited" };
     const view = html(createElement(PeopleAdmin));

@@ -74,7 +74,8 @@ export async function startHarness(opts = {}) {
     schedulerPollMs: 50,
   });
   const server = await app.start({
-    port: opts.port ?? 0,
+    // Fixed port for isolated issue work; run test files serially when this is set.
+    port: opts.port ?? Number(process.env.SP_TEST_PORT ?? 0),
     hostname: "127.0.0.1",
     listen: opts.listen ?? false,
     schedule: opts.schedule ?? false,

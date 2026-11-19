@@ -5,7 +5,7 @@ import { appendFile } from "node:fs/promises";
  * turning this on never starts TPM/analytics alerts. The message text carries a secret: it is never
  * written to a table, log, audit row or error. Deliveries record recipient, kind, provider id, state.
  *
- * @typedef {{ to: string, kind: 'reset_link'|'temporary_password', subject: string, text: string }} AuthMail
+ * @typedef {{ to: string, kind: 'reset_link'|'temporary_password'|'invitation', subject: string, text: string }} AuthMail
  * @typedef {(mail: AuthMail, env: Record<string,string|undefined>) => Promise<{ providerId: string|null }>} AuthMailSender
  */
 
@@ -85,6 +85,14 @@ async function devSinkSender(mail, env) {
  * @returns {Promise<boolean>} true when the provider accepted it (or the dev sink took it)
  */
 export async function sendAuthMail(db, env, mail) {
+  return (await sendAuthMailResult(db, env, mail)) !== "failed";
+}
+
+/** Delivery state, not inbox delivery. Keep the dev sink distinct from a real send.
+ * @param {any} db @param {Record<string,string|undefined>} env @param {AuthMail} mail
+ * @returns {Promise<'dev_sink'|'accepted'|'failed'>}
+ */
+export async function sendAuthMailResult(db, env, mail) {
   const provider = override ? "test" : authEmailProvider(env);
   const sender =
     override ?? (provider === "resend" ? resendSender : devSinkSender);
@@ -103,7 +111,7 @@ export async function sendAuthMail(db, env, mail) {
   } catch {
     // Recording is best effort; the reset itself already happened.
   }
-  return state !== "failed";
+  return state;
 }
 
 /** @param {string} link */

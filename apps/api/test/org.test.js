@@ -638,10 +638,14 @@ describe("people, invitations and teams", () => {
     const result = await call("people/invite", boss, b);
     expect(result.status).toBe(200);
     expect(
-      (await call("people/revoke", boss, { invitationId: result.body })).status,
+      (
+        await call("people/revoke", boss, {
+          invitationId: result.body.invitationId,
+        })
+      ).status,
     ).toBe(200);
     const [r] =
-      await h.db`select status from access_invitations where id=${result.body}`;
+      await h.db`select status from access_invitations where id=${result.body.invitationId}`;
     expect(r.status).toBe("revoked");
   });
   test("WEB-152: Add person refuses a duplicate waiting invitation and a person who already has access, in words", async () => {
@@ -677,7 +681,11 @@ describe("people, invitations and teams", () => {
     expect(still.role).toBe(active.role);
     // A revoked invitation may be sent again.
     expect(
-      (await call("people/revoke", boss, { invitationId: first.body })).status,
+      (
+        await call("people/revoke", boss, {
+          invitationId: first.body.invitationId,
+        })
+      ).status,
     ).toBe(200);
     expect((await call("people/invite", boss, b)).status).toBe(200);
   });
