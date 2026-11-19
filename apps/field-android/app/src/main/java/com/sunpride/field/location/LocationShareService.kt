@@ -52,7 +52,7 @@ object LocationShare {
     fun permissions(context: Context): LocationPermissions {
         fun granted(p: String) = ContextCompat.checkSelfPermission(context, p) == PackageManager.PERMISSION_GRANTED
         val location = granted(Manifest.permission.ACCESS_FINE_LOCATION) || granted(Manifest.permission.ACCESS_COARSE_LOCATION)
-        return LocationPermissions(location, location && granted(Manifest.permission.ACCESS_BACKGROUND_LOCATION))
+        return LocationPermissions(location)
     }
 
     /** The phone's work day for whoever is signed in (resolved through the backend's verified partition). */

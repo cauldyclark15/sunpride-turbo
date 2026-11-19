@@ -1,20 +1,17 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
     xmlns:tools="http://schemas.android.com/tools">
     <uses-permission android:name="android.permission.INTERNET" />
-    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_FINE_LOCATION" />
     <uses-permission android:name="android.permission.ACCESS_COARSE_LOCATION" />
-    <!-- SP-0136 live map: work-day location sharing in a foreground service with an ongoing notification.
-         Background location is optional (explained on its own screen); it lets Android restart sharing
-         if it stopped the service while the app was closed. -->
-    <uses-permission android:name="android.permission.ACCESS_BACKGROUND_LOCATION" />
+    <!-- SP-0136 live map: work-day location sharing in a foreground service (type location) with an ongoing
+         notification, started from Start day while the app is open. SP-0207: that needs only while-in-use
+         location, so ACCESS_BACKGROUND_LOCATION is not requested (Google Play policy). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
-    <!-- SP-0140: the one-time battery guide asks Android to stop restricting the app, so cheap phones'
-         battery savers (Xiaomi first) do not stop work-day location sharing. Side-loaded work app. -->
-    <uses-permission android:name="android.permission.REQUEST_IGNORE_BATTERY_OPTIMIZATIONS" />
+    <!-- SP-0207: no REQUEST_INSTALL_PACKAGES (updates come from Google Play) and no
+         REQUEST_IGNORE_BATTERY_OPTIMIZATIONS (the battery guide opens the settings screens instead). -->
     <!-- AND-016 visit photos. Optional hardware: the rest of the app works on a phone without a camera. -->
     <uses-permission android:name="android.permission.CAMERA" />
     <uses-feature android:name="android.hardware.camera.any" android:required="false" />
@@ -34,10 +31,6 @@
         android:allowBackup="false" android:fullBackupContent="@xml/backup_rules"
         android:dataExtractionRules="@xml/data_extraction_rules" android:supportsRtl="true"
         tools:targetApi="31">
-        <provider android:name="androidx.core.content.FileProvider" android:authorities="${applicationId}.updates"
-            android:exported="false" android:grantUriPermissions="true">
-            <meta-data android:name="android.support.FILE_PROVIDER_PATHS" android:resource="@xml/app_update_paths" />
-        </provider>
         <!-- SP-0146 messaging: camera photos to send, and received files handed to a viewer app. Cache folders only. -->
         <provider android:name="com.sunpride.chat.ChatFileProvider" android:authorities="${applicationId}.chat"
             android:exported="false" android:grantUriPermissions="true">

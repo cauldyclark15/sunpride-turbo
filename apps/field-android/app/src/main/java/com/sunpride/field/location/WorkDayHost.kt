@@ -13,7 +13,6 @@ data class WorkDayView(
     /** Started AND location permission is on: the phone is recording pings now. */
     val sharing: Boolean = false,
     val locationAllowed: Boolean = false,
-    val backgroundAllowed: Boolean = false,
     val withinHours: Boolean = true,
     val startedAt: Long? = null,
     val endReason: EndReason? = null,
@@ -47,7 +46,8 @@ interface LocationService {
 }
 
 /** Phone permission state, read fresh each time (the person can change it in Settings at any moment). */
-data class LocationPermissions(val location: Boolean, val background: Boolean)
+/** SP-0207: while-in-use location only; the foreground service needs no background-location permission. */
+data class LocationPermissions(val location: Boolean)
 
 /**
  * The work-day rules bound to one person's persisted state. Consent and the day are keyed by a hash
@@ -74,7 +74,7 @@ class WorkDay(private val prefs: WorkDayPrefs, private val account: () -> String
         val started = state.started && WorkHours.within(now)
         return WorkDayView(available = true, consented = consented(), started = started,
             sharing = started && consented() && perms.location, locationAllowed = perms.location,
-            backgroundAllowed = perms.background, withinHours = WorkHours.within(now),
+            withinHours = WorkHours.within(now),
             startedAt = state.startedAt.takeIf { started }, endReason = state.endReason)
     }
 

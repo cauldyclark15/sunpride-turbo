@@ -99,16 +99,22 @@ fun LocationConsentScreen(onAgree: () -> Unit, onDecline: () -> Unit, modifier: 
             verticalArrangement = Arrangement.spacedBy(16.dp)) {
             Text("Share your location during work", style = MaterialTheme.typography.headlineMedium,
                 modifier = Modifier.testTag("location-consent-title"))
-            ConsentSection("What we collect", "Your phone's position, how accurate it is, your speed and direction, " +
+            ConsentSection("Why", "Sunpride uses it to track your route and store visits during the work day, " +
+                "and to show your supervisor where the team is on the live map.")
+            ConsentSection("What we collect", "Your phone's location (even when the app is closed or not in use, " +
+                "while sharing is on): its position, how accurate it is, your speed and direction, " +
                 "the battery level, the time, and whether the position came from a fake-location app.")
             ConsentSection("When", "Only during your work day: from Start day or your first visit, until you tap " +
                 "End day, sign out, or the 10 PM daily close. Never outside 5 AM to 10 PM, and never on days you " +
-                "don't start. A notification stays on screen the whole time sharing is on.")
-            ConsentSection("Who sees it", "Your supervisors and managers in your area see it on the Sunpride live map; " +
-                "office analysts can view it but not change it. It is not shared outside Sunpride.")
+                "don't start. A notification stays on screen the whole time sharing is on, and sharing stops when the " +
+                "work day ends.")
+            ConsentSection("Who sees it", "Sunpride's office and your managers: supervisors and managers in your area see it on the " +
+                "Sunpride live map; office staff can view it but not change it. It is not shared outside Sunpride.")
             ConsentSection("How long", "Positions are kept for 90 days, then deleted automatically.")
             ConsentSection("Your choice", "If you don't agree, or you turn location off, the app keeps working. " +
                 "Your supervisor's map shows you as location off. You can change this later in your phone's Settings.")
+            Text("Next, Android will ask you to allow location while using the app. Tap I agree to continue.",
+                style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("location-consent-next"))
             Text("Under the Data Privacy Act of 2012 you may ask Sunpride to see or correct your location records.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
         }
@@ -124,28 +130,6 @@ private fun ConsentSection(title: String, body: String) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(title, style = MaterialTheme.typography.titleSmall)
         Text(body, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-    }
-}
-
-/** Android 10+: "Allow all the time" is optional and explained before Android's own Settings page. */
-@Composable
-fun BackgroundLocationScreen(onOpenSettings: () -> Unit, onSkip: () -> Unit, modifier: Modifier = Modifier) {
-    Column(modifier.fillMaxSize().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
-        Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(bottom = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)) {
-            Text("Keep sharing when the app is closed", style = MaterialTheme.typography.headlineMedium,
-                modifier = Modifier.testTag("location-background-title"))
-            Text("Sharing already works while the Sunpride notification is showing. If Android closes the app " +
-                "to save memory, \"Allow all the time\" lets sharing continue until your day ends.",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-            Text("On the next screen choose Location → Allow all the time. The same work-day limits apply: " +
-                "nothing is shared before Start day, after End day or sign-out, or after 10 PM.",
-                style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
-        }
-        Spacer(Modifier.height(12.dp))
-        SecondaryButton("Not now", onSkip, Modifier.fillMaxWidth().testTag("location-background-skip"))
-        Spacer(Modifier.height(8.dp))
-        PrimaryBottomButton("Open settings", onOpenSettings, Modifier.testTag("location-background-settings"))
     }
 }
 

@@ -114,7 +114,7 @@ class BatteryGuideDeviceTest {
 
     @Test fun firstStartDayShowsTheGuideOnceAboveTheNavigationBar() {
         val service = StubService()
-        val day = WorkDay(MapPrefs(), { "issuer|ana" }, { LocationPermissions(true, true) }, service)
+        val day = WorkDay(MapPrefs(), { "issuer|ana" }, { LocationPermissions(true) }, service)
         day.consent(System.currentTimeMillis() + shift)
         val guide = FakeGuide(unrestricted = false)
         open(day, guide)
@@ -144,7 +144,7 @@ class BatteryGuideDeviceTest {
 
     @Test fun todayOffersTheGuideWhileTheBatterySaverCanStillStopSharing() {
         val now = System.currentTimeMillis() + shift
-        val day = WorkDay(MapPrefs(), { "issuer|ana" }, { LocationPermissions(true, false) }, StubService())
+        val day = WorkDay(MapPrefs(), { "issuer|ana" }, { LocationPermissions(true) }, StubService())
         day.consent(now); day.startDay(now)
         val guide = FakeGuide(unrestricted = false, shown = true)
         open(day, guide, dark = true)

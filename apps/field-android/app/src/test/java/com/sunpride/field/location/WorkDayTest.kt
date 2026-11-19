@@ -75,7 +75,7 @@ class WorkDayTest {
     @Test fun hostNeedsConsentAndPermissionAndStopsOnEndDayAndSignOut() {
         val prefs = MapPrefs(); val service = Service()
         var account: String? = "https://issuer|ana"
-        var perms = LocationPermissions(location = true, background = false)
+        var perms = LocationPermissions(location = true)
         val day = WorkDay(prefs, { account }, { perms }, service)
         val t = at(8, 8)
         assertTrue(day.view(t).available); assertFalse(day.view(t).consented)
@@ -90,10 +90,10 @@ class WorkDayTest {
         assertEquals("Location sharing on", com.sunpride.field.ui.location.WorkDayCopy.indicator(day.view(t)))
 
         // Permission revoked in Settings: the day still runs but the phone says "Location off".
-        perms = LocationPermissions(location = false, background = false)
+        perms = LocationPermissions(location = false)
         assertTrue(day.view(t).started); assertFalse(day.view(t).sharing); assertFalse(day.tracking(t))
         assertEquals("Location off", com.sunpride.field.ui.location.WorkDayCopy.indicator(day.view(t)))
-        perms = LocationPermissions(location = true, background = true)
+        perms = LocationPermissions(location = true)
 
         day.endDay(at(8, 17))
         assertFalse(service.running); assertFalse(day.view(at(8, 17)).started)
@@ -116,7 +116,7 @@ class WorkDayTest {
 
     @Test fun resumeOnlyRestartsARunningDayAndNeverAfterTheClose() {
         val service = Service()
-        val day = WorkDay(MapPrefs(), { "acct" }, { LocationPermissions(true, false) }, service)
+        val day = WorkDay(MapPrefs(), { "acct" }, { LocationPermissions(true) }, service)
         day.resume(at(8, 8)); assertEquals(0, service.starts)
         day.consent(at(8, 8)); day.startDay(at(8, 8)); assertEquals(1, service.starts)
         day.resume(at(8, 9)); assertEquals(2, service.starts)

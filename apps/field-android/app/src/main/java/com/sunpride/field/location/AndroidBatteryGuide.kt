@@ -1,6 +1,5 @@
 package com.sunpride.field.location
 
-import android.annotation.SuppressLint
 import android.content.ActivityNotFoundException
 import android.content.ComponentName
 import android.content.Context
@@ -15,6 +14,18 @@ import android.provider.Settings
  * (the brand's own page first, then Android's, then the app's details page, which always exists).
  * Call [view]/[shown]/[markShown] off the main thread (SharedPreferences first read hits storage).
  */
+/**
+ * SP-0207 (Google Play policy): the Android pages the battery guide may open, in order. Only settings screens that
+ * need no permission — never Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS (which needs
+ * REQUEST_IGNORE_BATTERY_OPTIMIZATIONS). The app's details page always exists, so it is last.
+ */
+object BatterySettings {
+    fun actions(unrestricted: Boolean): List<String> = buildList {
+        if (!unrestricted) add(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+        add(Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
+    }
+}
+
 class AndroidBatteryGuide(context: Context) : BatteryGuideHost {
     private val app = context.applicationContext
     private val prefs by lazy { app.getSharedPreferences("battery_guide", Context.MODE_PRIVATE) }
@@ -35,8 +46,10 @@ class AndroidBatteryGuide(context: Context) : BatteryGuideHost {
             "com.miui.powerkeeper", "com.miui.powerkeeper.ui.HiddenAppsConfigActivity"))
             .putExtra("package_name", app.packageName)
             .putExtra("package_label", app.applicationInfo.loadLabel(app.packageManager).toString()))
-        if (!unrestricted()) add(requestIgnore())
-        add(details())
+        // SP-0207: the settings LIST, never the direct exemption request (no REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).
+        BatterySettings.actions(unrestricted()).forEach { action ->
+            add(if (action == Settings.ACTION_APPLICATION_DETAILS_SETTINGS) details() else Intent(action))
+        }
     })
 
     /** Opens the brand's Autostart list (the person switches Sunpride Field on there). */
@@ -45,8 +58,6 @@ class AndroidBatteryGuide(context: Context) : BatteryGuideHost {
         add(details())
     })
 
-    @SuppressLint("BatteryLife") // A work tool whose location sharing must survive the day; side-loaded, not on Play.
-    private fun requestIgnore() = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:${app.packageName}"))
     private fun details() = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:${app.packageName}"))
 
     private fun open(activity: Context, intents: List<Intent>): Boolean = intents.any { intent ->

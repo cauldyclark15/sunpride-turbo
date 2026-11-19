@@ -62,7 +62,6 @@ interface FieldBackend {
     fun creditControl(action:String,args:JSONObject):JSONObject {error("Connect to check credit control")}
     fun queueDomain(kind:String,payload:JSONObject,aggregate:String,dependencies:List<String>):String {error("Connect to refresh this form")}
     fun domainForms(kind:String,refresh:Boolean):JSONObject? = null
-    fun appUpdates(): com.sunpride.integrity.AppUpdateClient? = null
     fun queueMockRefusal(outletId: String) { error("Integrity attempt storage unavailable") }
     fun signOut()
     /** FLD-014/171: the plain reason the server last ended this phone's session, until the next sign-in. */
@@ -1254,7 +1253,6 @@ class LiveFieldBackend(
         check(before==sapMasterLifetime()){"The account changed"};return result
     }
     override fun sapMasterLifetime(): String? = if(auth.isSignedIn) "${sessionKey()}|${storedScope()}|$authorizationEpoch" else null
-    override fun appUpdates() = com.sunpride.integrity.AppUpdateClient(context,environmentOrigin,token={refresh->auth.accessToken(refresh)})
     override fun signIn(email: String, password: String) {
         auth.signIn(email, password)
         sessionEnd.edit().remove("removed").commit()
@@ -1979,7 +1977,6 @@ class FieldController(
     fun domainForms(kind:String,refresh:Boolean):JSONObject?=backend.domainForms(kind,refresh)
     fun sapMasters(refresh: Boolean): JSONObject? = backend.sapMasters(refresh)
     fun sapMasterLifetime(): String? = backend.sapMasterLifetime()
-    fun appUpdates(): com.sunpride.integrity.AppUpdateClient? = backend.appUpdates()
     fun companySignIn(tokens: JSONObject) = scope.launch(ui) {
         ++sessionGeneration; busy=true; error=null; syncMessage=null
         try { withContext(io) { backend.companySignIn(tokens) }; state=EnrollmentState.Unregistered }

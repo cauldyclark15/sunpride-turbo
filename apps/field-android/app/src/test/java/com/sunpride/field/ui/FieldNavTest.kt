@@ -80,7 +80,7 @@ class FieldNavTest {
             FieldNav.barVisible(ready, locked, partner, visit, page)
         for (page in listOf("home", "route", "customers", "customer", "messages", "more", "account", "sync", "support", "catalogue", "team"))
             assertTrue(page, bar(page))
-        for (page in listOf("change-password", "census", "workforce", "jointcall", "collections", "location-consent", "location-background",
+        for (page in listOf("change-password", "census", "workforce", "jointcall", "collections", "location-consent",
             "location-battery")) assertFalse(page, bar(page))
         assertFalse("inside a visit", bar("home", visit = true))
         assertFalse("partner mode", bar("home", partner = true))

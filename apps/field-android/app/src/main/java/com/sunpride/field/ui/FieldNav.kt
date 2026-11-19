@@ -51,16 +51,16 @@ object FieldNav {
     val tabRoots: Set<String> = FieldTab.entries.map { it.page }.toSet()
 
     /** Pages that are forms or one-time steps: the bar steps aside so it cannot pull the seller out mid-entry. */
-    val noBarPages: Set<String> = setOf("change-password", "location-consent", "location-background", "location-battery",
+    val noBarPages: Set<String> = setOf("change-password", "location-consent", "location-battery",
         "census", "workforce", "jointcall", "collections")
 
     /** Pages reached from somewhere else (Account, Sync, a tool): Back returns to the page they opened from. */
     val overlayPages: Set<String> = setOf("account", "sync", "support", "change-password", "incentives", "catalogue", "census",
-        "team", "workforce", "jointcall", "collections", "location-consent", "location-background", "location-battery")
+        "team", "workforce", "jointcall", "collections", "location-consent", "location-battery")
 
     /** Pages FieldApp shows even while a visit is open (they come before the visit screens in its `when`). */
     val pagesAheadOfVisit: Set<String> = setOf("account", "incentives", "change-password", "support", "location-consent",
-        "location-background", "location-battery", "collections", "jointcall", "catalogue", "census", "workforce", "messages",
+        "location-battery", "collections", "jointcall", "catalogue", "census", "workforce", "messages",
         "sync", "more")
 
     /** The tab a page belongs to (drill-down pages keep their parent tab selected). */

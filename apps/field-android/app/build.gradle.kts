@@ -1,4 +1,15 @@
 import java.util.Properties
+import javax.inject.Inject
+
+/** SP-0207: the shared Android integrity sources minus the in-app APK updater (not allowed on Google Play). */
+abstract class FieldIntegritySources : DefaultTask() {
+    @get:InputDirectory abstract val from: DirectoryProperty
+    @get:OutputDirectory abstract val into: DirectoryProperty
+    @get:Inject abstract val files: FileSystemOperations
+    @TaskAction fun copy() {
+        files.sync { from(this@FieldIntegritySources.from); into(this@FieldIntegritySources.into); exclude("**/integrity/AppUpdate*.kt") }
+    }
+}
 
 plugins {
     alias(libs.plugins.android.application)
@@ -146,7 +157,9 @@ android {
     // F-007/F-024 opt-in physical proof: throwaway local-only account, never release assets.
     System.getenv("SUNPRIDE_INTEGRITY_FIELD_PROOF_DIR")?.let { sourceSets.getByName("androidTest").assets.srcDir(it) }
     // F-312/F-024: one integrity implementation shared by both Android products.
-    sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/android-integrity/src/main/java"))
+    // SP-0207 (Google Play policy): the Field app never downloads or installs APKs; updates come from Play.
+    // The shared in-app updater (integrity/AppUpdate*.kt) stays for the van app only and is not even compiled
+    // here: the shared sources are copied without it (see fieldIntegritySources below).
     sourceSets.getByName("androidTest").java.srcDir(rootProject.file("../../packages/android-integrity/src/androidTest/java"))
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
@@ -199,4 +212,12 @@ configurations.matching { it.name.contains("AndroidTest", ignoreCase = true) }.c
     resolutionStrategy.force("org.jetbrains.kotlinx:kotlinx-serialization-core:${libs.versions.serialization.get()}")
     resolutionStrategy.force("org.jetbrains.kotlinx:kotlinx-serialization-json:${libs.versions.serialization.get()}")
     resolutionStrategy.force("org.jetbrains.kotlinx:kotlinx-serialization-json-jvm:${libs.versions.serialization.get()}")
+}
+
+val fieldIntegritySources = tasks.register<FieldIntegritySources>("fieldIntegritySources") {
+    from.set(rootProject.layout.projectDirectory.dir("../../packages/android-integrity/src/main/java"))
+    into.set(layout.buildDirectory.dir("generated/field-integrity"))
+}
+androidComponents.onVariants { variant ->
+    variant.sources.java?.addGeneratedSourceDirectory(fieldIntegritySources, FieldIntegritySources::into)
 }

@@ -157,7 +157,7 @@ class LiveLocationDeviceTest {
 
     @Test fun startDayAsksForConsentFirstAndTheConsentScreenClearsTheNavigationBar() {
         val service = StubService()
-        val day = WorkDay(MapPrefs(), { "issuer|ana" }, { LocationPermissions(true, false) }, service)
+        val day = WorkDay(MapPrefs(), { "issuer|ana" }, { LocationPermissions(true) }, service)
         today(day)
         rule.onNodeWithTag("work-day-status").assertTextContains("Location sharing", substring = true)
         rule.onNodeWithTag("location-indicator").assertDoesNotExist()
@@ -177,14 +177,14 @@ class LiveLocationDeviceTest {
     }
 
     @Test fun startDayIsDisabledAfterTheTenPmClose() {
-        val day = WorkDay(MapPrefs(), { "issuer|ana" }, { LocationPermissions(true, false) }, StubService())
+        val day = WorkDay(MapPrefs(), { "issuer|ana" }, { LocationPermissions(true) }, StubService())
         today(day, hour = 23)
         rule.onNodeWithTag("work-day-start").assertIsNotEnabled()
         rule.onNodeWithTag("work-day-status").assertTextContains("5 AM until the 10 PM close", substring = true)
     }
 
     @Test fun consentScreenInDarkTheme() {
-        val day = WorkDay(MapPrefs(), { "issuer|ana" }, { LocationPermissions(true, false) }, StubService())
+        val day = WorkDay(MapPrefs(), { "issuer|ana" }, { LocationPermissions(true) }, StubService())
         today(day, dark = true)
         rule.onNodeWithTag("work-day-start").performClick()
         rule.waitUntil(5_000) { exists("location-consent-title") }
@@ -196,7 +196,7 @@ class LiveLocationDeviceTest {
     @Test fun sharingShowsTheIndicatorAndEndDayStopsIt() {
         val now = clock()
         val service = StubService()
-        val day = WorkDay(MapPrefs(), { "issuer|ana" }, { LocationPermissions(true, false) }, service)
+        val day = WorkDay(MapPrefs(), { "issuer|ana" }, { LocationPermissions(true) }, service)
         day.consent(now); day.startDay(now)
         assertTrue(service.running)
         today(day)
@@ -214,7 +214,7 @@ class LiveLocationDeviceTest {
     @Test fun deniedLocationKeepsTheAppWorkingAndSaysLocationOff() {
         val now = clock()
         val service = StubService()
-        val day = WorkDay(MapPrefs(), { "issuer|ana" }, { LocationPermissions(false, false) }, service)
+        val day = WorkDay(MapPrefs(), { "issuer|ana" }, { LocationPermissions(false) }, service)
         day.consent(now); day.startDay(now)
         assertFalse("no permission: the service is never started", service.running)
         today(day)

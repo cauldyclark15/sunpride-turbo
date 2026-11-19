@@ -264,16 +264,13 @@ fun FieldApp(
             after()
         }
     }
-    val backgroundLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()) { afterLocationSetup(); dayAction { h, t -> h.resume(t) } }
     val locationLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()) {
         askedLocation = true
         // The day starts either way: without permission the card and indicator say "Location off".
         dayAction(after = {
             val perms = com.sunpride.field.location.LocationShare.permissions(context)
-            if (perms.location && !perms.background && Build.VERSION.SDK_INT >= 29) page = "location-background"
-            else if (perms.location) afterLocationSetup() else page = "home"
+            if (perms.location) afterLocationSetup() else page = "home"
         }) { h, t -> h.startDay(t) }
     }
     val requestLocation = { locationLauncher.launch(com.sunpride.field.ui.location.LocationPermissionRequest.permissions()) }
@@ -413,7 +410,14 @@ fun FieldApp(
                     sapContent = {
                         FieldCreditControlPanel(controller::creditControl,controller::sapMasterLifetime)
                         com.sunpride.catalogue.SapMasterCopy(controller::sapMasters,controller::sapMasterLifetime)
-                        com.sunpride.integrity.AppUpdatePanel(controller::appUpdates,controller::sapMasterLifetime)
+                        // SP-0207: updates come from Google Play only (no in-app APK download or install).
+                        SecondaryButton("Check for updates on Google Play", {
+                            val (market, web) = PlayStoreUpdate.uris(context.packageName)
+                            try {
+                                context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, market.toUri())
+                                    .setPackage(PlayStoreUpdate.PLAY_PACKAGE).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
+                            } catch (_: android.content.ActivityNotFoundException) { openLink(context, web) }
+                        }, Modifier.fillMaxWidth().testTag("app-updates"))
                     })
                 ready && page == "incentives" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
                     com.sunpride.field.ui.incentives.EarnedStatementsScreen(backend, { page = origin }, modifier)
@@ -426,9 +430,6 @@ fun FieldApp(
                 ready && page == "location-consent" -> com.sunpride.field.ui.location.LocationConsentScreen(
                     onAgree = { dayAction(after = requestLocation) { h, t -> h.consent(t) } },
                     onDecline = { page = origin }, modifier = modifier)
-                ready && page == "location-background" -> com.sunpride.field.ui.location.BackgroundLocationScreen(
-                    onOpenSettings = { backgroundLauncher.launch(android.Manifest.permission.ACCESS_BACKGROUND_LOCATION) },
-                    onSkip = { afterLocationSetup() }, modifier = modifier)
                 ready && page == "location-battery" && batteryGuide != null && guideView != null -> {
                     LaunchedEffect(Unit) {
                         runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { batteryGuide.markShown() } }
@@ -532,10 +533,11 @@ fun FieldApp(
                         dayView?.let { view ->
                         com.sunpride.field.ui.location.WorkDayCard(view, dayBusy,
                             onStart = {
-                                when {
-                                    !view.consented -> go("location-consent")
-                                    !view.locationAllowed -> requestLocation()
-                                    else -> dayAction(after = { afterLocationSetup() }) { h, t -> h.startDay(t) }
+                                // SP-0207: the prominent disclosure always comes before Android's location prompt.
+                                when (com.sunpride.field.location.LocationDisclosureGate.onStart(view.consented, view.locationAllowed)) {
+                                    com.sunpride.field.location.LocationStep.DISCLOSURE -> go("location-consent")
+                                    com.sunpride.field.location.LocationStep.SYSTEM_PROMPT -> requestLocation()
+                                    com.sunpride.field.location.LocationStep.START -> dayAction(after = { afterLocationSetup() }) { h, t -> h.startDay(t) }
                                 }
                             },
                             onKeepSharing = guideView?.takeIf {
@@ -543,7 +545,8 @@ fun FieldApp(
                             }?.let { { go("location-battery") } },
                             onEnd = { dayAction { h, t -> h.endDay(t) } },
                             onAllowLocation = {
-                                if (!askedLocation) requestLocation()
+                                if (!view.consented) go("location-consent")
+                                else if (!askedLocation) requestLocation()
                                 else openLink(context, "package:${context.packageName}",
                                     android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)
                             })
@@ -866,7 +869,7 @@ private fun headerSpec(ready: Boolean, locked: Boolean, signedIn: Boolean, page:
         "collections" -> HeaderSpec("Collector", back = true, backTag = "account-back")
         "catalogue" -> HeaderSpec("Products", back = true, backTag = "account-back")
         "incentives" -> HeaderSpec("Earned statements", back = true, backTag = "account-back")
-        "location-consent", "location-background" -> HeaderSpec("Location sharing", back = true, backTag = "account-back")
+        "location-consent" -> HeaderSpec("Location sharing", back = true, backTag = "account-back")
         "location-battery" -> HeaderSpec("Keep sharing on", back = true, backTag = "account-back")
         else -> HeaderSpec("Sunpride Field")
     }
