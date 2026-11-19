@@ -211,6 +211,30 @@ export async function list(c, kind, p) {
       if (p.unassigned === "true") where += ` and (${owner}) is null`;
       if (p.supervisorUnits)
         where += ` and t.status='active' and (${owner}) in (select value::uuid from jsonb_array_elements_text(${bind(JSON.stringify(p.supervisorUnits))}::text::jsonb))`;
+      if (p.territoryId) {
+        const territoryId = uuid(p.territoryId);
+        await access(c, "territories", territoryId, "territory.manage");
+        const at = p.asOf ?? c.now;
+        instant(at);
+        const territoryOwner =
+          p.asOf === undefined
+            ? await ownerNowOrNext(c, territoryId)
+            : await territoryOwnerUnit(c.db, territoryId, at);
+        if (territoryOwner)
+          await requireCapability(c, "territory.manage", territoryOwner);
+        const eligibleUnits = territoryOwner
+          ? await subtree(c.db, territoryOwner, at)
+          : [];
+        let eligibleOwner = owner;
+        if (p.asOf !== undefined) {
+          const date = bind(instant(at));
+          joins += ` left join lateral (select ea.* from employee_assignments ea where ea.profile_id=t.id and ea.deleted_at is null and ea.effective_from<=${date}::timestamptz and (ea.effective_to is null or ea.effective_to>${date}::timestamptz) order by effective_from desc limit 1) effective_person on true`;
+          eligibleOwner = `case when effective_person.id is not null then effective_person.org_unit_id when exists(select 1 from employee_assignments old where old.profile_id=t.id and old.deleted_at is null and old.effective_from<=${date}::timestamptz) then null else t.org_unit_id end`;
+        }
+        // Match the assignment writer's owner hierarchy, before paging rather than
+        // filtering the first company-wide page in the browser. Current scope still gates above.
+        where += ` and t.status='active' and (${eligibleOwner}) in (select value::uuid from jsonb_array_elements_text(${bind(JSON.stringify(eligibleUnits))}::text::jsonb))`;
+      }
       break;
     }
     case "teams":
@@ -298,7 +322,10 @@ export async function list(c, kind, p) {
   );
   const enriched = [];
   for (const row of rows) {
-    if (kind === "people") enriched.push(await personAt(c.db, row));
+    if (kind === "people")
+      enriched.push(
+        await personAt(c.db, row, p.territoryId ? p.asOf : undefined),
+      );
     else if (kind === "outlets") enriched.push(await enrichOutlet(c.db, row));
     else if (kind === "products") enriched.push(await enrichProduct(c.db, row));
     else if (kind === "customers") {

@@ -15,15 +15,24 @@ const state = vi.hoisted(() => ({
   action: "" as string,
   error: "" as string,
   nullIndex: 0,
+  emptyIndex: 0,
+  effectiveDate: "",
   mode: "territory" as "territory" | "route",
   noSalesperson: false,
   assigned: {} as Record<string, unknown[]>,
+  personOptions: undefined as unknown,
 }));
 vi.mock("./master-data/api", async (original) => ({
   ...(await original<typeof import("./master-data/api")>()),
   useQuery: (ref: unknown, args: unknown) => {
     const name = getFunctionName(ref as never);
     state.calls.push({ name, args });
+    if (
+      name === "people/queries:list" &&
+      args !== "skip" &&
+      (args as { territoryId?: string }).territoryId
+    )
+      return state.personOptions;
     if (
       name === "territories/queries:salespeopleAt" &&
       args !== "skip" &&
@@ -51,7 +60,12 @@ vi.mock("react", async (original) => {
           return [state.action, vi.fn()];
         if (state.selection) return [state.selection, vi.fn()];
       }
-      if (initial === "" && state.error) return [state.error, vi.fn()];
+      if (initial === "") {
+        state.emptyIndex++;
+        if (state.emptyIndex === 3 && state.effectiveDate)
+          return [state.effectiveDate, vi.fn()];
+        if (state.error) return [state.error, vi.fn()];
+      }
       return [
         typeof initial === "function" ? (initial as () => unknown)() : initial,
         vi.fn(),
@@ -115,6 +129,7 @@ const route = {
 };
 const render = (node: React.ReactNode) => {
   state.nullIndex = 0;
+  state.emptyIndex = 0;
   return renderToStaticMarkup(node);
 };
 beforeEach(() => {
@@ -124,6 +139,8 @@ beforeEach(() => {
   state.calls = [];
   state.noSalesperson = false;
   state.assigned = {};
+  state.personOptions = undefined;
+  state.effectiveDate = "";
   state.mode = "territory";
   state.values = {
     "lib/capabilities:currentPermissions": {
@@ -161,6 +178,94 @@ beforeEach(() => {
   };
 });
 describe("unmounted territory and route administration", () => {
+  it("uses territory-filtered people rather than the company-wide first page for assignment", () => {
+    state.selection = territory._id;
+    state.action = "assign";
+    state.values["lib/capabilities:currentPermissions"] = {
+      capabilities: ["territory.read", "territory.manage"],
+      scopeUnitIds: ["unit", "sibling", "child"],
+    };
+    state.values["people/queries:list"] = {
+      page: [
+        {
+          _id: "outsider",
+          name: "Sibling salesperson",
+          status: "active",
+          orgUnitId: "sibling",
+        },
+      ],
+      continueCursor: "outsider",
+      isDone: false,
+    };
+    state.personOptions = {
+      page: [
+        { _id: "seller", name: "Owner salesperson" },
+        { _id: "child-seller", name: "Child unit salesperson" },
+      ],
+      continueCursor: "child-seller",
+      isDone: false,
+    };
+    const html = render(createElement(TerritoryAdmin));
+    const options = html.match(
+      /<select[^>]*name="profileId"[^>]*>[\s\S]*?<\/select>/,
+    )?.[0];
+    expect(options).toContain("Owner salesperson");
+    expect(options).toContain("Child unit salesperson");
+    expect(options).not.toContain("Sibling salesperson");
+    expect(html).toContain("Search salespeople");
+    expect(html).toContain("Salespeople pages");
+    expect(state.calls).toContainEqual({
+      name: "people/queries:list",
+      args: {
+        territoryId: territory._id,
+        paginationOpts: { numItems: 50, cursor: null },
+      },
+    });
+  });
+  it("filters at the selected Manila effective date with only one required date control", () => {
+    state.selection = territory._id;
+    state.action = "assign";
+    state.effectiveDate = "2099-01-02";
+    const html = render(createElement(TerritoryAdmin));
+    expect(state.calls).toContainEqual({
+      name: "people/queries:list",
+      args: {
+        territoryId: territory._id,
+        asOf: Date.parse("2099-01-01T16:00:00Z"),
+        paginationOpts: { numItems: 50, cursor: null },
+      },
+    });
+    expect(html.match(/name="effectiveDate"/g)).toHaveLength(1);
+    const date = html.match(/<input[^>]*name="effectiveDate"[^>]*>/)?.[0];
+    expect(date).toContain('type="date"');
+    expect(date).toContain('required=""');
+    expect(date).toContain('value="2099-01-02"');
+  });
+  it("keeps the assignment picker empty while loading or when the owning unit has no active people", () => {
+    state.selection = territory._id;
+    state.action = "assign";
+    const loading = render(createElement(TerritoryAdmin));
+    expect(loading).toContain("Loading salespeople…");
+    expect(loading).toMatch(
+      /<select[^>]*name="profileId"[^>]*required=""[^>]*aria-busy="true"/,
+    );
+    state.personOptions = { page: [], continueCursor: "", isDone: true };
+    const empty = render(createElement(TerritoryAdmin));
+    expect(empty).toContain(
+      "No active people found in this territory’s owning unit.",
+    );
+    expect(empty).not.toContain("Loading salespeople…");
+    expect(empty).toMatch(
+      /<select[^>]*name="profileId"[^>]*required=""[^>]*><option value="" selected="">Select person<\/option><\/select>/,
+    );
+  });
+  it("does not fetch assignment options outside the Add salesperson form", () => {
+    render(createElement(TerritoryAdmin));
+    expect(state.calls).not.toContainEqual({
+      name: "people/queries:list",
+      args: expect.objectContaining({ territoryId: expect.any(String) }),
+    });
+  });
   it.each(["create", "edit"])(
     "renders outlined text fields in the territory %s form without changing required fields",
     (action) => {

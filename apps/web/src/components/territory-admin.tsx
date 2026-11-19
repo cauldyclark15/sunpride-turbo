@@ -17,6 +17,7 @@ import { useState, type FormEvent } from "react";
 import {
   formatManilaDate,
   futureManilaDateToUtcMs,
+  manilaDateToUtcMs,
   todayOrFutureManilaDateToUtcMs,
 } from "../lib/manila-date";
 import { SetupSearch } from "./master-data/setup-health";
@@ -151,6 +152,79 @@ function TerritoryListRow({
         }
       />
     </li>
+  );
+}
+
+function TerritorySalespersonField({ territoryId }: { territoryId: string }) {
+  const [search, setSearch] = useState<string | undefined>(undefined);
+  const [effectiveDate, setEffectiveDate] = useState("");
+  const [cursors, setCursors] = useState<(string | null)[]>([null]);
+  let asOf: number | undefined;
+  try {
+    asOf = effectiveDate ? manilaDateToUtcMs(effectiveDate) : undefined;
+  } catch {
+    // Partial date input is not a valid filter or a submittable date yet.
+  }
+  const people = useQuery(api.people.queries.list, {
+    territoryId,
+    ...(asOf === undefined ? {} : { asOf }),
+    ...(search ? { q: search } : {}),
+    paginationOpts: { numItems: 50, cursor: cursors.at(-1) ?? null },
+  });
+  return (
+    <div className="grid gap-2 sm:col-span-2">
+      <FormField label="Effective date">
+        <input
+          type="date"
+          name="effectiveDate"
+          required
+          value={effectiveDate}
+          onChange={(event) => {
+            setEffectiveDate(event.target.value);
+            setCursors([null]);
+          }}
+        />
+      </FormField>
+      <SetupSearch
+        label="Search salespeople"
+        value={search ?? ""}
+        onChange={(value) => {
+          setSearch(value);
+          setCursors([null]);
+        }}
+      />
+      <FormField label="Salesperson">
+        <select
+          key={`${effectiveDate}:${search ?? ""}:${cursors.at(-1) ?? ""}`}
+          name="profileId"
+          required
+          aria-busy={!people}
+          defaultValue=""
+        >
+          <option value="">Select person</option>
+          {people?.page.map((person) => (
+            <option key={person._id} value={person._id}>
+              {person.name}
+            </option>
+          ))}
+        </select>
+      </FormField>
+      {!people ? (
+        <p>Loading salespeople…</p>
+      ) : !people.page.length ? (
+        <p>No active people found in this territory’s owning unit.</p>
+      ) : null}
+      <Pager
+        page={cursors.length}
+        canPrevious={cursors.length > 1}
+        canNext={!!people && !people.isDone}
+        onPrevious={() => setCursors((old) => old.slice(0, -1))}
+        onNext={() =>
+          people && setCursors((old) => [...old, people.continueCursor])
+        }
+        label="Salespeople pages"
+      />
+    </div>
   );
 }
 
@@ -440,24 +514,11 @@ export function TerritoryAdmin() {
                       </select>
                     </FormField>
                   )}
-                  {action === "assign" && (
-                    <FormField label="Salesperson">
-                      <select name="profileId" required>
-                        <option value="">Select person</option>
-                        {people?.page
-                          .filter(
-                            (p) =>
-                              p.status === "active" &&
-                              p.orgUnitId &&
-                              permissions?.scopeUnitIds.includes(p.orgUnitId),
-                          )
-                          .map((p) => (
-                            <option key={p._id} value={p._id}>
-                              {p.name}
-                            </option>
-                          ))}
-                      </select>
-                    </FormField>
+                  {action === "assign" && selected && (
+                    <TerritorySalespersonField
+                      key={selected}
+                      territoryId={selected}
+                    />
                   )}
                   {action === "end" && (
                     <FormField label="Assignment">
@@ -474,7 +535,7 @@ export function TerritoryAdmin() {
                       </select>
                     </FormField>
                   )}
-                  {action !== "edit" && (
+                  {action !== "edit" && action !== "assign" && (
                     <FormField label="Effective date">
                       <input type="date" name="effectiveDate" required />
                     </FormField>
