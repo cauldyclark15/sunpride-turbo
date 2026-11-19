@@ -5,6 +5,8 @@ import { phoneCode } from "./waiting-phones.js";
 /** Handheld apps whose phones a super_admin registers by signing in (never the office iPhone app). */
 const APPS = ["field-android", "van-android", "field-ios"];
 export const SUPERADMIN_AUTO_REASON = "superadmin_auto_approval";
+/** SP-0209: reason for a store-review account (profiles.phone_auto_approve, set only by create-play-reviewer.js). */
+export const REVIEW_AUTO_REASON = "review_account_auto_approval";
 
 /**
  * SP-0193: the system owner (role super_admin) never waits on "Register phone". The first sign-in on a phone — or,
@@ -21,18 +23,17 @@ export async function autoApproveSuperadminPhone(t, userId, app, key) {
   if (!APPS.includes(app) || typeof key?.keyId !== "string") return null;
   const keyId = key.keyId;
   const profile = await loadProfile(t, userId);
-  if (
-    !profile ||
-    profile.role !== "super_admin" ||
-    profile.status !== "active" ||
-    !profile.orgUnitId
-  )
+  if (!profile || profile.status !== "active" || !profile.orgUnitId)
     return null;
   const [stored] =
-    await t`select id,role,status,org_unit_id from profiles where id=${profile.id} and deleted_at is null`;
+    await t`select id,role,status,org_unit_id,phone_auto_approve from profiles where id=${profile.id} and deleted_at is null`;
+  // SP-0209: a store-review account flagged by create-play-reviewer.js is treated like the owner here.
+  const review =
+    stored?.phone_auto_approve === true && stored.role !== "super_admin";
   if (
     !stored ||
-    stored.role !== "super_admin" ||
+    (profile.role !== "super_admin" && !review) ||
+    stored.role !== profile.role ||
     stored.status !== "active" ||
     stored.org_unit_id !== profile.orgUnitId
   )
@@ -63,7 +64,7 @@ export async function autoApproveSuperadminPhone(t, userId, app, key) {
   } catch {
     return null;
   }
-  const tag = `Owner phone ${phoneCode(keyId)}${app === "field-android" ? "" : ` (${app})`}`;
+  const tag = `${review ? "Review" : "Owner"} phone ${phoneCode(keyId)}${app === "field-android" ? "" : ` (${app})`}`;
   const [device] =
     await t`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id,status,superadmin_auto)
     values(${profile.id},${app},${app === "field-ios" ? "ios" : "android"},${tag},${spki},${keyId},${profile.orgUnitId},'active',true)
@@ -77,8 +78,10 @@ export async function autoApproveSuperadminPhone(t, userId, app, key) {
       {
         app,
         request: waiting?.id ?? null,
-        reason: SUPERADMIN_AUTO_REASON,
-        note: "superadmin auto-approval",
+        reason: review ? REVIEW_AUTO_REASON : SUPERADMIN_AUTO_REASON,
+        note: review
+          ? "store-review account auto-approval"
+          : "superadmin auto-approval",
       },
     )})`;
   return device.id;

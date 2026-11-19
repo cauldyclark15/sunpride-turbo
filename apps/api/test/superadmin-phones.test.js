@@ -267,3 +267,44 @@ test("SP-0193 an auto-approved phone lapses if its owner stops being super_admin
     await h.close();
   }
 });
+
+test("SP-0209 a store-review sales account (phone_auto_approve) registers fresh phones on sign-in; unflagged sales still wait; clearing the flag lapses them", async () => {
+  const { h, person, phone, me } = await setup();
+  try {
+    const reviewer = await person("play-review@example.test", "sales");
+    const plain = await person("plain-sales@example.test", "sales");
+    await h.db`update profiles set phone_auto_approve=true where id=${reviewer.profile.id}`;
+    const first = await phone(reviewer.email);
+    const second = await phone(reviewer.email);
+    const rows =
+      await h.db`select id,key_id,status,superadmin_auto,inventory_tag from registered_devices where profile_id=${reviewer.profile.id} order by created_at`;
+    expect(rows.map((/** @type {any} */ r) => [r.key_id, r.status])).toEqual([
+      [first.key.keyId, "active"],
+      [second.key.keyId, "active"],
+    ]);
+    expect(rows[0].inventory_tag.startsWith("Review phone")).toBe(true);
+    const [log] =
+      await h.db`select subject,details from audit_logs where action='device.registered_from_waiting' and entity_id=${rows[0].id}`;
+    expect(log.subject).toBe(reviewer.userId);
+    expect(JSON.parse(log.details).reason).toBe("review_account_auto_approval");
+    const mine = await me(first);
+    expect(mine.device).toMatchObject({ status: "active" });
+    expect(mine.handoverRequired).toBe(false);
+    const bound = await bind(h, first.access, rows[0].id, first.key);
+    expect(bound.body.bindingStatus).toBe("bound");
+    // An ordinary sales person is unchanged: no device row, phone waits for the office.
+    const waiting = await phone(plain.email);
+    expect(
+      (
+        await h.db`select 1 from registered_devices where profile_id=${plain.profile.id}`
+      ).length,
+    ).toBe(0);
+    expect((await me(waiting)).device).toBeNull();
+    // The office clears the flag: the auto-approved phones lapse.
+    await h.db`update profiles set phone_auto_approve=false where id=${reviewer.profile.id}`;
+    const lapsed = await bind(h, second.access, rows[1].id, second.key);
+    expect(lapsed.res.status).toBe(403);
+  } finally {
+    await h.close();
+  }
+});

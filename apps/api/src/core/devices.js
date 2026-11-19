@@ -115,7 +115,14 @@ export async function devicePerson(db, actor, deviceId, opts = {}) {
   if (device.bound_subject && device.bound_subject !== actor.subject)
     throw forbidden("Device identity mismatch", "device_unavailable");
   // SP-0193: an extra phone the server approved for a super_admin lapses if that person stops being super_admin.
-  if (device.superadmin_auto && actor.role !== "super_admin")
+  // SP-0209: or, for a store-review account, if the office clears its phone_auto_approve flag.
+  if (
+    device.superadmin_auto &&
+    actor.role !== "super_admin" &&
+    !(
+      await db`select 1 from profiles where id=${actor.profileId} and phone_auto_approve and deleted_at is null`
+    ).length
+  )
     throw forbidden("Device unavailable", "device_unavailable");
   await requireDeviceIntegrity(db, device);
   return device;
@@ -226,7 +233,8 @@ export async function verifyDeviceProof(ctx) {
   await refund(ctx.db, subjectKey);
   // IP-SCPWD-CAP: a build from beta.32 says what it is; older builds never send these, so nothing is overwritten with a guess.
   const codeText = h.get("x-app-version-code");
-  const code = codeText && /^[1-9]\d{0,5}$/.test(codeText) ? Number(codeText) : null;
+  const code =
+    codeText && /^[1-9]\d{0,5}$/.test(codeText) ? Number(codeText) : null;
   const name = h.get("x-app-version-name");
   const cleanName =
     code !== null && name && /^[0-9A-Za-z._+-]{1,40}$/.test(name) ? name : null;
