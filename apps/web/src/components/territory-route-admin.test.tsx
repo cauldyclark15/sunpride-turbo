@@ -1,10 +1,12 @@
 import React, { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { fixtureName as getFunctionName } from "./master-data/fixtures";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { Id } from "./master-data/model";
 import { TerritoryAdmin, performTerritoryAction } from "./territory-admin";
 import { RouteAdmin, performRouteAction } from "./route-admin";
+
+afterEach(() => vi.restoreAllMocks());
 
 const state = vi.hoisted(() => ({
   values: {} as Record<string, unknown>,
@@ -372,6 +374,69 @@ describe("unmounted territory and route administration", () => {
       effectiveFrom,
       reason: "Reuse",
     });
+  });
+  it("accepts today's territory start without changing other actions or end-date rules", async () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-19T04:00:00Z"));
+    const actions = {
+      create: vi.fn(),
+      edit: vi.fn(),
+      transferOwner: vi.fn(),
+      assignSalesperson: vi.fn(),
+      endSalespersonAssignment: vi.fn(),
+      deactivate: vi.fn(),
+    };
+    const values = {
+      code: "TODAY",
+      name: "Today's territory",
+      channel: "General trade",
+      orgUnitId: "unit",
+      effectiveDate: "2026-11-19",
+      endDate: "2026-11-20",
+      reason: "Starts today",
+    };
+    await performTerritoryAction("create", form(values), actions);
+    expect(actions.create).toHaveBeenCalledWith({
+      code: "TODAY",
+      name: "Today's territory",
+      channel: "General trade",
+      boundaryGeoJson: undefined,
+      orgUnitId: "unit",
+      effectiveFrom: Date.parse("2026-11-18T16:00:00Z"),
+      effectiveTo: Date.parse("2026-11-19T16:00:00Z"),
+      reason: "Starts today",
+    });
+    actions.create.mockClear();
+    await expect(
+      performTerritoryAction(
+        "create",
+        form({ ...values, effectiveDate: "2026-11-18" }),
+        actions,
+      ),
+    ).rejects.toThrow("Choose today or a future effective date.");
+    await expect(
+      performTerritoryAction(
+        "create",
+        form({ ...values, effectiveDate: "2026-02-30" }),
+        actions,
+      ),
+    ).rejects.toThrow("Invalid date");
+    await expect(
+      performTerritoryAction(
+        "create",
+        form({ ...values, endDate: "2026-11-19" }),
+        actions,
+      ),
+    ).rejects.toThrow("Choose a future effective date.");
+    expect(actions.create).not.toHaveBeenCalled();
+    for (const action of ["transfer", "assign", "end", "deactivate"] as const) {
+      await expect(
+        performTerritoryAction(action, form(values), actions, territory._id),
+      ).rejects.toThrow("Choose a future effective date.");
+    }
+    expect(actions.transferOwner).not.toHaveBeenCalled();
+    expect(actions.assignSalesperson).not.toHaveBeenCalled();
+    expect(actions.endSalespersonAssignment).not.toHaveBeenCalled();
+    expect(actions.deactivate).not.toHaveBeenCalled();
   });
   it("sends territory create and transfer with owner unit, reason and future date; propagates errors", async () => {
     const actions = {

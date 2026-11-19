@@ -14,7 +14,11 @@ import type { Doc, Id } from "./master-data/model";
 import { useMutation, useQuery } from "./master-data/api";
 import type { FunctionArgs } from "./master-data/api";
 import { useState, type FormEvent } from "react";
-import { formatManilaDate, futureManilaDateToUtcMs } from "../lib/manila-date";
+import {
+  formatManilaDate,
+  futureManilaDateToUtcMs,
+  todayOrFutureManilaDateToUtcMs,
+} from "../lib/manila-date";
 import { SetupSearch } from "./master-data/setup-health";
 import { Drawer } from "./cockpit/kit/drawer";
 
@@ -60,7 +64,10 @@ export async function performTerritoryAction(
       reason,
     });
   }
-  const date = futureManilaDateToUtcMs(get("effectiveDate"));
+  const date =
+    action === "create"
+      ? todayOrFutureManilaDateToUtcMs(get("effectiveDate"))
+      : futureManilaDateToUtcMs(get("effectiveDate"));
   if (action === "create")
     return mutations.create({
       code: get("code"),

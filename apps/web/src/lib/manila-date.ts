@@ -24,6 +24,17 @@ export function formatManilaDate(value: number): string {
   }).format(value);
 }
 
+/** New territories may start today, but never on a previous Manila business day. */
+export function todayOrFutureManilaDateToUtcMs(value: string): number {
+  const instant = manilaDateToUtcMs(value);
+  const today = manilaDateToUtcMs(
+    new Date(Date.now() + MANILA_OFFSET_MS).toISOString().slice(0, 10),
+  );
+  if (instant < today)
+    throw new Error("Choose today or a future effective date.");
+  return instant;
+}
+
 export function futureManilaDateToUtcMs(value: string): number {
   const instant = manilaDateToUtcMs(value);
   if (instant <= Date.now()) throw new Error("Choose a future effective date.");

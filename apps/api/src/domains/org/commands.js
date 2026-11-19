@@ -4,6 +4,7 @@ import {
   ASSIGNABLE_ROLES,
 } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
+import { manilaBusinessDate } from "../../core/docnum.js";
 import {
   activeAt,
   code,
@@ -670,7 +671,13 @@ export async function geographyCommand(c, kind, action, b) {
       : b.effectiveFrom;
   const actor = await requireCapability(c, cap);
   const reason = required(b.reason, "Reason");
-  if (!["edit"].includes(action)) instant(from, c.now);
+  if (!isRoute && action === "create") {
+    // Date-only territory starts include today in Manila, not earlier days.
+    instant(from);
+    const today = Date.parse(`${manilaBusinessDate(c.now)}T00:00:00+08:00`);
+    if (from < today)
+      rule("Choose today or a future effective date.", "not_prospective");
+  } else if (action !== "edit") instant(from, c.now);
   const territoryId = isRoute ? b.territoryId : null;
   if (action === "create" || action === "duplicateTemplate") {
     if (isRoute) {
