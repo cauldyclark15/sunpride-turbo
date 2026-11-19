@@ -73,14 +73,14 @@ export function PrivacyPolicy() {
         <Section title="What we collect">
           <ul className="grid list-disc gap-1 pl-5">
             <li>
-              <strong>Your account:</strong> your name, work email, phone
-              number (if the office adds it), your role and team, and your
-              password (stored only as a secure hash).
+              <strong>Your account:</strong> your name, work email, phone number
+              (if the office adds it), your role and team, and your password
+              (stored only as a secure hash).
             </li>
             <li>
               <strong>Your phone:</strong> when you register a phone, the app
-              creates its own random device ID and security key. We do not
-              read your IMEI, SIM, contacts or other apps.
+              creates its own random device ID and security key. We do not read
+              your IMEI, SIM, contacts or other apps.
             </li>
             <li>
               <strong>Location:</strong> your precise location, only while
@@ -120,11 +120,11 @@ export function PrivacyPolicy() {
 
         <Section title="Why we use it">
           <p>
-            Only to run Sunpride&apos;s sales operation: signing you in,
-            keeping your phone secure, mapping customers, planning and
-            checking store visits, recording sales and collections, printing
-            receipts, keeping stock correct, messaging within the team, and
-            reports for Sunpride&apos;s managers and office.
+            Only to run Sunpride&apos;s sales operation: signing you in, keeping
+            your phone secure, mapping customers, planning and checking store
+            visits, recording sales and collections, printing receipts, keeping
+            stock correct, messaging within the team, and reports for
+            Sunpride&apos;s managers and office.
           </p>
         </Section>
 
@@ -145,19 +145,19 @@ export function PrivacyPolicy() {
           <p>
             Location history is deleted automatically after 90 days. Sales,
             collection and stock records are business and tax records and are
-            kept for as long as Sunpride must keep them by law. Account
-            details are kept while you work with Sunpride and removed or
-            anonymised on request when no longer needed.
+            kept for as long as Sunpride must keep them by law. Account details
+            are kept while you work with Sunpride and removed or anonymised on
+            request when no longer needed.
           </p>
         </Section>
 
         <Section title="How we protect it">
           <p>
-            All data travels over encrypted HTTPS connections. On the phone,
-            the app&apos;s database and sign-in details are encrypted and are
-            not included in phone backups. Each phone is registered to your
-            account and the office can block a phone at any time; the website
-            and the app require your password.
+            All data travels over encrypted HTTPS connections. On the phone, the
+            app&apos;s database and sign-in details are encrypted and are not
+            included in phone backups. Each phone is registered to your account
+            and the office can block a phone at any time; the website and the
+            app require your password.
           </p>
         </Section>
 
@@ -169,25 +169,24 @@ export function PrivacyPolicy() {
             Sunpride account. We reply within 30 days.
           </p>
           <p>
-            Your Sunpride administrator can also deactivate your account at
-            any time, which stops all access straight away. Uninstalling the
-            app removes everything stored on that phone. Some sales and
-            collection records may have to be kept for legal reasons; we will
-            tell you which.
+            Your Sunpride administrator can also deactivate your account at any
+            time, which stops all access straight away. Uninstalling the app
+            removes everything stored on that phone. Some sales and collection
+            records may have to be kept for legal reasons; we will tell you
+            which.
           </p>
         </Section>
 
         <Section title="Children">
           <p>
-            The app and website are work tools for adults and are not meant
-            for anyone under 18.
+            The app and website are work tools for adults and are not meant for
+            anyone under 18.
           </p>
         </Section>
 
         <Section title="Changes">
           <p>
-            If this policy changes, we update this page and the date at the
-            top.
+            If this policy changes, we update this page and the date at the top.
           </p>
         </Section>
 

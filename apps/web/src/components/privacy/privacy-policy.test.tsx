@@ -16,7 +16,8 @@ describe("privacy policy (SP-0208)", () => {
       "How we protect it",
       "Children",
       "Changes",
-    ]) expect(html).toContain(heading);
+    ])
+      expect(html).toContain(heading);
     expect(html).toContain("Last updated");
     expect(html).toContain(`mailto:${PRIVACY_CONTACT}`);
     expect(html).toContain("Cauld &amp; Clark IT Solutions");
@@ -30,7 +31,8 @@ describe("privacy policy (SP-0208)", () => {
   });
 
   it("is linked from the help page", () => {
-    expect(renderToStaticMarkup(createElement(TesterGuide))).toContain('href="/privacy"');
+    expect(renderToStaticMarkup(createElement(TesterGuide))).toContain(
+      'href="/privacy"',
+    );
   });
-
 });
