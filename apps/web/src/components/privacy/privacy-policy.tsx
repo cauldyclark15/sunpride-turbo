@@ -155,8 +155,9 @@ export function PrivacyPolicy() {
           <p>
             All data travels over encrypted HTTPS connections. On the phone,
             the app&apos;s database and sign-in details are encrypted and are
-            not included in phone backups. Each phone must be approved by the
-            office, and access to the website requires a password.
+            not included in phone backups. Each phone is registered to your
+            account and the office can block a phone at any time; the website
+            and the app require your password.
           </p>
         </Section>
 
