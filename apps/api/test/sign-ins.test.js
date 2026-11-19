@@ -46,7 +46,10 @@ async function report(actor = f.owner, filters = { date: DAY }) {
   return { status: res.status, body: /** @type {any} */ (await res.json()) };
 }
 beforeAll(async () => {
-  h = await startHarness({ installers: [install], port: 5000 });
+  h = await startHarness({
+    installers: [install],
+    port: Number(process.env.SP_TEST_PORT ?? 5000),
+  });
   f.root = await ensureRoot(h.db);
   await h.db`update org_units set effective_from='2020-01-01' where id=${f.root}`;
   for (const [code, parent] of [
