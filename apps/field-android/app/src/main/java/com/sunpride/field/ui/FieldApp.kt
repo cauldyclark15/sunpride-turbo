@@ -603,6 +603,16 @@ private fun openLink(context: Context, url: String, action: String = android.con
     true
 } catch (_: android.content.ActivityNotFoundException) { false }
 
+/** SP-0207 (Google Play): the privacy policy, reachable from the sign-in screen and Account. No browser: a short notice. */
+@Composable
+internal fun PrivacyPolicyLink(modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    TextButton(onClick = {
+        if (!openLink(context, PrivacyPolicy.URL))
+            android.widget.Toast.makeText(context, "No browser on this phone. Open ${PrivacyPolicy.URL}", android.widget.Toast.LENGTH_LONG).show()
+    }, modifier = modifier.heightIn(min = 48.dp)) { Text("Privacy policy") }
+}
+
 /** Hands a `tel:` URI to the dialer (the user presses call; no CALL_PHONE permission). */
 private fun openDialer(context: Context, uri: String): Boolean = try {
     context.startActivity(android.content.Intent(android.content.Intent.ACTION_DIAL, uri.toUri())
@@ -688,6 +698,7 @@ private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: Stri
                     Text("Forgot password?")
                 }
             }
+            PrivacyPolicyLink(Modifier.testTag("sign-in-privacy-policy"))
             if (error != null) NoticeCard(error, tone = Look.Tone.BAD, textTag = "auth-error")
             // FLD-014/E2E-004: work queued before the office removed this phone stays visible, never silently gone.
             if (unsent > 0) NoticeCard(unsentText(unsent), tone = Look.Tone.WARN, textTag = "unsent-on-phone")
@@ -789,6 +800,7 @@ fun AccountScreen(key: DeviceKeyInfo?, onSignOut: () -> Unit, onBack: () -> Unit
                 if (onReportIssue != null) ListRow("Report an issue", "Tell the Sunpride team what went wrong", "chat",
                     Modifier.testTag("report-issue"), onClick = onReportIssue)
                 ListRow("Support info", "App version and counts to share with the team", "info", Modifier.testTag("support-info"), onClick = onSupport)
+                PrivacyPolicyLink(Modifier.testTag("account-privacy-policy"))
             }
             SectionCard("This phone") {
                 ValueRow("Model", if (Build.MODEL.startsWith("sdk_")) "Android emulator" else Build.MODEL, Modifier.testTag("device-info"))

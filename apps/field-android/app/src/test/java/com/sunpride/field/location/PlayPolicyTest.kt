@@ -32,6 +32,17 @@ class PlayPolicyTest {
         assertEquals("com.android.vending", PlayStoreUpdate.PLAY_PACKAGE)
     }
 
+    @Test fun privacyPolicyLinkIsOnSignInAndAccount() {
+        assertEquals("https://sunpride.cauldnclark.com/privacy", com.sunpride.field.ui.PrivacyPolicy.URL)
+        val app = File("src/main/java/com/sunpride/field/ui/FieldApp.kt").readText()
+        val link = app.substringAfter("internal fun PrivacyPolicyLink").substringBefore("\n}\n")
+        assertTrue(link.contains("openLink(context, PrivacyPolicy.URL)"))
+        val signIn = app.substringAfter("private fun SignInScreen").substringBefore("\nfun EnrollmentScreen")
+        assertTrue(signIn.contains("PrivacyPolicyLink(Modifier.testTag(\"sign-in-privacy-policy\"))"))
+        val account = app.substringAfter("SectionCard(\"Support\")").substringBefore("SectionCard(\"This phone\")")
+        assertTrue(account.contains("PrivacyPolicyLink(Modifier.testTag(\"account-privacy-policy\"))"))
+    }
+
     @Test fun manifestAsksForNoRestrictedPermissionAndNoInstallPath() {
         val manifest = File("src/main/AndroidManifest.xml").readText()
         for (removed in listOf("REQUEST_INSTALL_PACKAGES", "REQUEST_IGNORE_BATTERY_OPTIMIZATIONS", "ACCESS_BACKGROUND_LOCATION"))
