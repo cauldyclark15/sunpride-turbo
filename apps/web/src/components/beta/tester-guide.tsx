@@ -141,6 +141,9 @@ export function TesterGuide() {
           <Link href="/issues/new" className="font-medium text-muted">
             Report an issue
           </Link>
+          <Link href="/privacy" className="font-medium text-muted">
+            Privacy policy
+          </Link>
         </footer>
       </article>
     </main>

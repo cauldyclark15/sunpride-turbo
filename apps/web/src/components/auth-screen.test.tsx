@@ -98,6 +98,11 @@ afterEach(() => {
 });
 
 describe("AuthScreen on the Bun API", () => {
+  it("links the public privacy policy from the sign-in footer (SP-0208)", () => {
+    const { markup } = render("login");
+    expect(markup).toContain('href="/privacy"');
+  });
+
   it("renders the same sign-in screen with the eye button", () => {
     const { markup } = render("login");
     expect(markup).toContain("Sign in");

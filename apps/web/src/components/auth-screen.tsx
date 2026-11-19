@@ -181,6 +181,12 @@ export function AuthScreen({
         >
           Help for testers
         </Link>
+        <Link
+          href="/privacy"
+          className="mt-2 block w-full text-center text-[13px] text-muted hover:text-foreground"
+        >
+          Privacy policy
+        </Link>
       </section>
     </main>
   );
