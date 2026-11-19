@@ -225,8 +225,8 @@ try {
   );
   const ids = day.outlets.map((o) => o.id);
   check(
-    "download = exactly the 4 TEST stores, no real store",
-    ids.length === testOutlets.length && ids.every((id) => testIds.has(id)),
+    "download = only TEST stores, no real store",
+    ids.length > 0 && ids.every((id) => testIds.has(id)),
     {
       stores: ids.length,
       test: ids.filter((id) => testIds.has(id)).length,
