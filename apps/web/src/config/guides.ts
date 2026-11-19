@@ -100,6 +100,12 @@ export const GUIDE_GROUPS: GuideGroup[] = [
         href: doc("office-guide"),
       },
       {
+        id: "territories-and-routes",
+        title: "Territories and routes",
+        line: "Set up territories, routes and salespeople, with visit days, date rules and common messages.",
+        href: doc("territories-and-routes"),
+      },
+      {
         id: "set-app-mode",
         title: "Set a person's app mode",
         line: "Choose Customer mapping, Field visits or Truck selling for each person.",

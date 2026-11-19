@@ -64,6 +64,31 @@ describe("Guides page (SP-0201)", () => {
       expect(titles).toContain(want);
   });
 
+  it("lists Territories and routes under For the office with its stable PDF link (SP-0212)", () => {
+    const office = GUIDE_GROUPS.find((group) => group.id === "office");
+    expect(
+      office?.guides.find((guide) => guide.id === "territories-and-routes"),
+    ).toEqual({
+      id: "territories-and-routes",
+      title: "Territories and routes",
+      line: "Set up territories, routes and salespeople, with visit days, date rules and common messages.",
+      href: "/docs/sunpride-territories-and-routes.pdf",
+    });
+    expect(
+      GUIDE_GROUPS.filter((group) => group.id !== "office").flatMap((group) =>
+        group.guides.filter((guide) => guide.id === "territories-and-routes"),
+      ),
+    ).toEqual([]);
+    const officeHtml = html.slice(html.indexOf('id="office"'));
+    expect(officeHtml).toContain(
+      'href="/docs/sunpride-territories-and-routes.pdf" target="_blank" rel="noopener"',
+    );
+    expect(officeHtml).toContain(
+      'download="sunpride-territories-and-routes.pdf"',
+    );
+    expect(officeHtml).toContain('data-testid="copy-territories-and-routes"');
+  });
+
   it("every file exists in public/ as a real PDF with a stable, URL-friendly name", () => {
     expect(GUIDE_FILES.length).toBeGreaterThan(5);
     for (const href of GUIDE_FILES) {
