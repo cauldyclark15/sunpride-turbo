@@ -83,11 +83,16 @@ export function PrivacyPolicy() {
               your IMEI, SIM, contacts or other apps.
             </li>
             <li>
-              <strong>Location:</strong> your precise location, only while
-              location sharing is turned on for your working day (and when you
-              pin a customer on the map or check in at a store). Sharing can
-              continue in the background with a visible notification until you
-              turn it off.
+              <strong>Location:</strong> only if you agree on the app&apos;s
+              location screen. Then, during your work day only (from Start day
+              or your first visit until End day, sign-out or 10 PM, never
+              outside 5 AM to 10 PM), the app records your phone&apos;s precise
+              position, its accuracy, speed and direction, the battery level,
+              the time, and whether a fake-location app is in use. This can
+              continue in the background, and a notification shows the whole
+              time. Your position is also saved when you pin a customer on the
+              map or check in at a store. If you say no, the rest of the app
+              keeps working.
             </li>
             <li>
               <strong>Customers and stores:</strong> the store and customer
@@ -131,9 +136,11 @@ export function PrivacyPolicy() {
         <Section title="Who can see it">
           <p>
             Sunpride&apos;s office staff and your managers, according to their
-            role. Cauld &amp; Clark IT Solutions can access the system to run
-            and support it, and the system runs on servers rented from hosting
-            providers who store it for us.
+            role. Your supervisors and managers see your location on
+            Sunpride&apos;s live map while sharing is on. Cauld &amp; Clark IT
+            Solutions can access the system to run and support it, and the
+            system runs on servers rented from hosting providers who store it
+            for us.
           </p>
           <p>
             We do not sell your data. We do not share it with advertisers or
@@ -165,8 +172,9 @@ export function PrivacyPolicy() {
           <p>
             You can turn location sharing off at any time in the app. You can
             ask to see, correct or delete your personal data, or to delete your
-            account, by emailing {mail} with your name and the email of your
-            Sunpride account. We reply within 30 days.
+            account, under the Data Privacy Act of 2012, by emailing {mail} with
+            your name and the email of your Sunpride account. We reply within 30
+            days.
           </p>
           <p>
             Your Sunpride administrator can also deactivate your account at any
