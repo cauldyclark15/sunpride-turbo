@@ -57,7 +57,8 @@ vi.mock("react", async (original) => {
     },
   };
 });
-vi.mock("@heroui/react", () => ({
+vi.mock("@heroui/react", async (original) => ({
+  ...(await original<typeof import("@heroui/react")>()),
   Button: ({
     children,
     isDisabled,
@@ -78,7 +79,6 @@ vi.mock("@heroui/react", () => ({
       children,
     );
   },
-  Input: (props: Record<string, unknown>) => createElement("input", props),
 }));
 const form = (values: Record<string, string | string[]>) =>
   ({
@@ -159,6 +159,35 @@ beforeEach(() => {
   };
 });
 describe("unmounted territory and route administration", () => {
+  it.each(["create", "edit"])(
+    "renders outlined text fields in the territory %s form without changing required fields",
+    (action) => {
+      state.action = action;
+      if (action === "edit") state.selection = territory._id;
+      const html = render(createElement(TerritoryAdmin));
+      const fields = [...html.matchAll(/<input\b[^>]*>/g)].map(([tag]) => tag);
+      for (const name of action === "create"
+        ? ["code", "name", "channel"]
+        : ["name", "channel"]) {
+        const field = fields.find((tag) => tag.includes(`name="${name}"`));
+        expect(field).toBeDefined();
+        // Use the real HeroUI input: its default style removes the native border.
+        expect(field).toContain('data-slot="input"');
+        expect(field).toMatch(/class="[^"]*\bborder border-border\b/);
+        if (name === "channel") expect(field).not.toContain('required=""');
+        else expect(field).toContain('required=""');
+      }
+      expect(html).toContain('name="boundaryGeoJson"');
+      expect(html).toContain('name="reason" required=""');
+      if (action === "create") {
+        expect(html).toContain('name="orgUnitId" required=""');
+        expect(html).toContain('type="date" required="" name="effectiveDate"');
+        expect(html).toContain('type="date" name="endDate"');
+      } else {
+        expect(html).toContain('value="Metro territory"');
+      }
+    },
+  );
   it("filters each listed territory by its own current salesperson assignment", () => {
     const empty = {
       ...territory,

@@ -377,13 +377,18 @@ export function TerritoryAdmin() {
                     <>
                       {action === "create" && (
                         <FormField label="Code">
-                          <Input name="code" required />
+                          <Input
+                            name="code"
+                            required
+                            className="border border-border"
+                          />
                         </FormField>
                       )}
                       <FormField label="Name">
                         <Input
                           name="name"
                           required
+                          className="border border-border"
                           defaultValue={
                             action === "edit" ? detail?.territory.name : ""
                           }
@@ -392,6 +397,7 @@ export function TerritoryAdmin() {
                       <FormField label="Channel">
                         <Input
                           name="channel"
+                          className="border border-border"
                           defaultValue={
                             action === "edit" ? detail?.territory.channel : ""
                           }
