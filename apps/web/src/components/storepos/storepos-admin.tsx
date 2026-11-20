@@ -207,8 +207,8 @@ export function StorePosAdmin({ deviceId }: { deviceId: string }) {
       />
       {registers.length === 0 && (
         <p role="status" className="text-sm text-muted">
-          No register in this handheld&apos;s unit yet. Add one below at a store
-          in the same unit.
+          No register in this handheld&apos;s branch yet. Add one below at a
+          store in the same branch.
         </p>
       )}
       {selectedRegister && (

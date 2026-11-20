@@ -110,6 +110,10 @@ describe("F-R01 Store cashier setup and blind review", () => {
     expect(view).toContain("Save POS mode");
     expect(view).toContain("sales, split tender, receipts and daily closing");
     expect(view).toContain("Allow manager-PIN mode switching");
+    expect(view).toContain(
+      "No register in this handheld&#x27;s branch yet. Add one below at a store in the same branch.",
+    );
+    expect(view).not.toContain("same unit");
     expect(
       html(createElement(StorePosAdmin, { deviceId: "field-phone" })),
     ).toBe("");

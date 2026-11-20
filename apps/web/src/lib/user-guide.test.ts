@@ -54,6 +54,28 @@ const computedLabels: Record<string, string> = {
 };
 
 describe("supervisor/admin user guide", () => {
+  it("SP-0217 uses the office organization labels without changing measurement wording", () => {
+    for (const label of [
+      "Branch",
+      "Owning branch",
+      "No branch",
+      "Company",
+      "Region",
+      "Type",
+      "Add below",
+    ])
+      expect(guide).toContain(`**${label}**`);
+    for (const oldLabel of [
+      "**Unit**",
+      "**Owning unit**",
+      "**Unit type**",
+      "**Add unit below**",
+      "Organization units",
+      "Pick a unit.",
+    ])
+      expect(guide).not.toContain(oldLabel);
+  });
+
   it("documents the issue's required topics", () => {
     // QSR-017: MCP planning, approvals, territory/route management, monitoring, exceptions.
     expect(guide).toMatch(/## \d+\. Master Coverage Plan \(MCP\)/);

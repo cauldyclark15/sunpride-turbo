@@ -135,7 +135,7 @@ export async function tripDetail(db, actor, tripId) {
     tripNumber: trip.trip_number,
     date: dayString(trip.service_date),
     unitId: trip.org_unit_id,
-    unit: master?.unit_name ?? "Former unit",
+    unit: master?.unit_name ?? "Former branch",
     truck: master?.truck_name ?? master?.vehicle_code ?? "Former truck",
     plateNumber: master?.plate_number ?? "",
     seller: master?.seller ?? "Former seller",

@@ -32,7 +32,7 @@ Salespeople use the field app on their own phones; that app has its own guide.
 7. Coverage views: calendar, map, route, workload, deadlines, export
 8. Plan exceptions (before approval)
 9. New-store approvals
-10. Organization units, people and teams
+10. Organization, people and teams
 11. Territories and routes
 12. Outlets, GPS pins and route order
 13. Phones: suspend, reinstate, revoke, lost phone
@@ -48,19 +48,19 @@ Salespeople use the field app on their own phones; that app has its own guide.
 
 Every person has one app role. The role decides what they can do. Their position (job
 title, e.g. KAS, RDS, DS) is separate and decides their call targets and routine. Their
-organization unit decides whose data they see: a person only sees their own unit and the
-units under it.
+branch decides whose data they see: a person only sees their own branch and the
+branches under it.
 
 | Role on screen    | Who it is for           | Main things they can do                                                              |
 | ----------------- | ----------------------- | ------------------------------------------------------------------------------------ |
-| **Super admin**   | System owner            | Everything, across all units. Cannot approve their own work.                         |
-| **Administrator** | National / regional IT  | Users, units, teams, territories, routes, outlets, phones. Cannot approve MCPs.      |
+| **Super admin**   | System owner            | Everything, across all branches. Cannot approve their own work.                         |
+| **Administrator** | National / regional IT  | Users, branches, teams, territories, routes, outlets, phones. Cannot approve MCPs.      |
 | **Operations**    | Sales admin             | Routes, outlets, outlet assignments, imports, outside-call POs.                      |
 | **Sales manager** | Supervisor or manager   | Approves MCPs, new stores and field exceptions; verifies pins; coaches; Supervision. |
 | **Approver**      | Order approver          | Approves sales orders.                                                               |
 | **Sales**         | Salesperson (KAS, RDS…) | Writes their own MCP; runs the day on the phone; reads set-up data only.             |
 | **Analyst**       | Head office reporting   | Reads everything, changes nothing.                                                   |
-| **Viewer**        | Read-only user          | Reads their own unit, changes nothing.                                               |
+| **Viewer**        | Read-only user          | Reads their own branch, changes nothing.                                               |
 
 Who may approve or decide:
 
@@ -99,7 +99,7 @@ Supervisor's week:
 
 Administrator's routine:
 
-1. Invite new people, then assign their unit, role, position and supervisor.
+1. Invite new people, then assign their branch, role, position and supervisor.
 2. Keep territories, routes and outlet assignments current, with future effective dates.
 3. Suspend or revoke phones when they are lost, replaced or the person leaves.
 
@@ -110,7 +110,7 @@ in which order, plus non-visit activities such as Work-With. Money follows the a
 plan: per diem is checked against it (Client rule).
 
 Who can write a plan: the salesperson for themselves, or a Sales manager, Administrator or
-Super admin for someone in their units.
+Super admin for someone in their branches.
 
 Deadline (Client rule): submit in the last 7 days of the month before; approval is due by
 the end of day 7 of the plan month. Late plans are flagged, not refused.
@@ -270,7 +270,7 @@ To record an away period:
 4. Click **Add away period**. Backdated or overlapping periods are refused.
 5. To come back early, click **End** on the period.
 
-The supervisor, their manager or a people administrator of their unit can record it. If no
+The supervisor, their manager or a people administrator of their branch can record it. If no
 supervisor is recorded for the salesperson, the screen says
 **No direct supervisor recorded; any MCP approver in scope may approve.**
 
@@ -393,11 +393,11 @@ You cannot approve a customer you captured yourself; another approver must do it
 To stop serving a customer, open it and click **Deactivate**, give a reason and click
 **Confirm deactivate**.
 
-## 10. Organization units, people and teams
+## 10. Organization, people and teams
 
 For Administrators and Super admins: open **Admin** (`/admin`).
 
-Changes to units, teams, territories, routes and assignments are effective-dated: you pick
+Changes to the organization, teams, territories, routes and assignments are effective-dated: you pick
 a future **Effective date**, and the change starts at midnight (Manila) that day. History is
 kept. Name edits apply at once.
 
@@ -405,22 +405,23 @@ kept. Name edits apply at once.
 
 1. Open Admin › **People** and click **Add person** (top right).
 2. Enter **Full name** and **Email**.
-3. Choose the **Role** and, if known, the **Position** (or **No position**) and **Unit**.
+3. Choose the **Role** and, if known, the **Position** (or **No position**) and **Branch**.
 4. Click **Save**.
 
 Only a Super admin can add an **Administrator**. Adding and removing people need a national
 administrator or the Super admin.
 
-A new person with no unit cannot use unit screens until one is set (next step).
+A new person with no branch cannot use branch screens until one is set (next step).
+Use **No branch** to find people who still need an assignment.
 
 To stop someone's access: pick the **Invited** filter, find the person and click **Remove**.
 This also disables their login. To stop only one phone, use section 13 instead.
 
-### 10.2 Edit a person's unit, role, position and supervisor
+### 10.2 Edit a person's branch, role, position and supervisor
 
 1. Open Admin › **People** and search by name, email or code.
 2. Click **Edit** on the person's row.
-3. Choose the **Unit**, **Role** and **Position**.
+3. Choose the **Branch**, **Role** and **Position**.
 4. Find their **Supervisor** (use **Search supervisors** if needed).
 5. Enter the **Employee code** if it is empty. It cannot be changed once set.
 6. Enter a **Reason** and click **Save**. Past changes are listed under the form.
@@ -428,22 +429,22 @@ This also disables their login. To stop only one phone, use section 13 instead.
 The supervisor must be above the person in the hierarchy. The supervisor you choose here is
 the one who approves the person's MCP.
 
-### 10.3 Organization units
+### 10.3 Organization
 
-1. Open Admin › **Organization**.
-2. To add a unit: click **Add unit below** on the parent, enter **Code** and **Name**, choose
-   the **Unit type**, set the **Effective date**, enter a **Reason**, click **Save**.
-3. To move a unit: click **Move**, choose where to **Move under**, set the date and reason,
+1. Open Admin › **Organization**. Rows show their type: **Company**, **Region** or **Branch**.
+2. To add an entry: click **Add below** on the parent, enter **Code** and **Name**, choose
+   the **Type**, set the **Effective date**, enter a **Reason**, click **Save**.
+3. To move an entry: click **Move**, choose where to **Move under**, set the date and reason,
    click **Save**.
 4. To rename or close: click **Edit** or **Remove**, then **Save**.
 5. Use **As of** to see the tree on another date. Clear it before editing.
 
-A unit with active units under it cannot be removed.
+An organization entry with active children cannot be removed.
 
 ### 10.4 Teams
 
 1. Open Admin › **Teams** and click **Add team**.
-2. Enter **Code**, **Name**, choose the **Unit**, set the **Effective date** and **Reason**,
+2. Enter **Code**, **Name**, choose the **Branch**, set the **Effective date** and **Reason**,
    click **Save**.
 3. Click **Edit** on the team, then **Add member**, choose the **Person**, set the date and
    reason, click **Save**.
@@ -460,13 +461,13 @@ Field › Coverage › **Setup**.
 
 1. Open Admin › **Territories** and click **Add territory**.
 2. Enter **Code**, **Name**, optionally **Channel**.
-3. Choose the **Owning unit**.
+3. Choose the **Owning branch**.
 4. Set the **Effective date** (and an **End date** only if it has a planned end).
 5. Enter the **Reason (required)** and click **Save**.
 
 Click **Edit** on a territory to see it, then:
 
-- **Move to another unit** changes the owning unit from a date. See **Ownership history**.
+- **Move to another branch** changes the owning branch from a date. See **Ownership history**.
 - **Add salesperson** gives it a primary **Salesperson** from a date. **Remove** ends one.
 - **Edit territory** changes the name, channel or boundary at once; **Remove territory**
   closes it from a date.
@@ -551,7 +552,7 @@ starts. Future assignments appear from their start date.
 
 ## 13. Phones: suspend, reinstate, revoke, lost phone
 
-For Administrators and Super admins of the person's unit. Salespeople use their own phones
+For Administrators and Super admins of the person's branch. Salespeople use their own phones
 (Client rule). One person can have only one active phone.
 
 1. Open Admin › **Phones**.
@@ -580,13 +581,13 @@ Lost phone:
 5. If the phone is found, **Reinstate phone**. If not, or the person gets a new phone,
    **Revoke phone** (permanent) before the new phone is enrolled.
 
-A revoked phone can never be reinstated. A person who moved unit needs the old phone
+A revoked phone can never be reinstated. A person who moved branch needs the old phone
 revoked and a new enrolment.
 
 ## 14. Watching the field day (Supervision)
 
 Open Field › Supervision (`/supervision`). For Sales managers, Administrators, Super
-admins, Analysts and Viewers. Choose the **Date**, and if shown the **Unit** and
+admins, Analysts and Viewers. Choose the **Date**, and if shown the **Branch** and
 **Channel**. Tick **My team only** to see only your direct reports.
 
 ### 14.1 Team
@@ -629,7 +630,7 @@ Stop labels: **Not visited**, **In call**, **Productive**, **Nonproductive**, **
 plus **Unplanned** and **No pin**. Lines join visited stores in check-in order; they are not
 live GPS tracking. If the map fails, **Map unavailable. List below.** — use the list.
 
-If a notice like "First … shown. Pick a unit." appears, narrow the filters: you are not
+If a notice like "First … shown. Pick a branch." appears, narrow the filters: you are not
 seeing everyone.
 
 ## 15. Field exceptions: deciding location evidence
@@ -719,7 +720,7 @@ review.
   visits; nobody types it. **Export CSV** or **Print / Save PDF**.
 - Field › **Call sheets**: find the account (or enter the **Outlet code**), click **Open**,
   then **Month sheet** and the **Month**. **Export CSV** or **Print / Save PDF**.
-- Field › **DAR / ROAR**: click **Team submissions**, choose **Week ending**, **Unit** and
+- Field › **DAR / ROAR**: click **Team submissions**, choose **Week ending**, **Branch** and
   **Report**. **Filed**, **Late** and **Missing this week** summarise the week; click a
   person's day to see their calls and what they filed. Reports are due daily by 10:00 PM
   (Client rule). Statuses: **Submitted**, **Late**, **Due 10 PM**, **Missing**,
@@ -748,7 +749,7 @@ PO under Commercial › **Outside-call POs**, and the salesperson records the ac
 
 | You see / problem                                     | Do this                                                                      |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------- |
-| A new person sees nothing after signing in            | Assign their unit in Admin › **People** (section 10.2).                      |
+| A new person sees nothing after signing in            | Assign their branch in Admin › **People** (section 10.2).                      |
 | **Review** tab is missing                             | Only Sales managers and Super admins approve plans.                          |
 | Approve is disabled on a plan                         | You prepared or submitted it, it is your own, or it has blocking exceptions. |
 | Revise the approved coverage plan first               | Revise the MCP that uses that store/route, then make the change.             |
@@ -756,7 +757,7 @@ PO under Commercial › **Outside-call POs**, and the salesperson records the ac
 | A store is missing from the coverage map              | It has no verified pin. Propose and verify one (section 12.2).               |
 | Imported visits do not show as ticks in the plan grid | Check them in **Calendar** or **Dated slots**; see section 20.               |
 | A phone cannot sync after being found                 | It may be revoked (permanent). Enrol it again as a new phone.                |
-| A list says only the first part is shown              | Narrow the **Unit** or other filters.                                        |
+| A list says only the first part is shown              | Narrow the **Branch** or other filters.                                        |
 
 ## 20. Not in the system yet / open client questions
 
@@ -767,8 +768,8 @@ Not built yet in the web app (as of this guide):
   the development team.
 - Person assignments in Admin › **People** take effect immediately; there is no future date
   there.
-- A national Administrator does not see newly invited people with no unit in
-  **People**; ask the Super admin to assign their first unit.
+- A national Administrator does not see newly invited people with no branch in
+  **People**; ask the Super admin to assign their first branch.
 - Phone remote wipe is not available.
 - Plans imported from a sheet may not show as ticks in the **Outlet / day** grid; check them
   in **Calendar** before editing.
