@@ -32,6 +32,7 @@ export function CustomerGroupsAdmin() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [linkReason, setLinkReason] = useState("");
   const groups = useQuery(
     "customer-groups/list",
     canRead
@@ -68,7 +69,7 @@ export function CustomerGroupsAdmin() {
           ? { customerGroupId: editing._id }
           : { code: String(form.get("code") ?? "") }),
         name: String(form.get("name") ?? ""),
-        reason: "Customer group saved in Setup",
+        reason: String(form.get("reason") ?? ""),
       });
       setShowForm(false);
       setNotice(
@@ -82,6 +83,10 @@ export function CustomerGroupsAdmin() {
   }
   async function linkStores(remove = false) {
     if (!chosen.length || busy || !canManage || (!remove && !selected)) return;
+    if (!linkReason.trim()) {
+      setError("Enter the reason for changing these store links.");
+      return;
+    }
     setBusy(true);
     setError("");
     setNotice("");
@@ -89,11 +94,10 @@ export function CustomerGroupsAdmin() {
       await link({
         outletIds: chosen,
         ...(!remove && selected ? { customerGroupId: selected._id } : {}),
-        reason: remove
-          ? "Store group removed in Setup"
-          : "Stores linked to customer group in Setup",
+        reason: linkReason.trim(),
       });
       setChosen([]);
+      setLinkReason("");
       setNotice(
         remove
           ? "Selected stores removed from their groups. Location coverage applies unless manually assigned."
@@ -146,6 +150,9 @@ export function CustomerGroupsAdmin() {
                     maxLength={200}
                     defaultValue={editing?.name}
                   />
+                </FormField>
+                <FormField label="Reason for this change">
+                  <input name="reason" required maxLength={500} />
                 </FormField>
                 <div className="flex gap-2">
                   <button className={button} disabled={busy}>
@@ -317,6 +324,14 @@ export function CustomerGroupsAdmin() {
             {canManage && (
               <div className="flex flex-wrap gap-2">
                 <p>{chosen.length} stores selected (up to 100)</p>
+                <FormField label="Reason for changing store links">
+                  <input
+                    value={linkReason}
+                    onChange={(e) => setLinkReason(e.target.value)}
+                    maxLength={500}
+                    required
+                  />
+                </FormField>
                 <button
                   className={button}
                   disabled={

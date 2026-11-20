@@ -5,6 +5,7 @@ import {
 import { access } from "./readers.js";
 import { code, dto, paging, page, required, rule, uuid } from "./model.js";
 import { assertUnlocked } from "./commands.js";
+import { logReferenceChange } from "../masters/reference-log.js";
 
 /** @typedef {import('./model.js').Ctx} Ctx */
 /** @typedef {import('./model.js').Row} Row */
@@ -108,6 +109,7 @@ export async function saveCoverage(c, id, b) {
       desired.push({ [column]: value });
     }
   }
+  const previousRows = await coverageRows(c, id);
   const old =
     await c.db`select municipality_code,barangay_code,customer_group_id from territory_coverage where territory_id=${id}`;
   const keys = (/** @type {any[]} */ rows) =>
@@ -139,6 +141,22 @@ export async function saveCoverage(c, id, b) {
   await c.db`select refresh_all_territory_coverage()`;
   for (const row of affected)
     await access(c, "outlets", row.id, "territory.manage");
+  const describe = (/** @type {any[]} */ rows) =>
+    rows.map((r) => ({
+      name: r.name,
+      municipalityCode: r.municipalityCode ?? null,
+      barangayCode: r.barangayCode ?? null,
+      customerGroupId: r.customerGroupId ?? null,
+    }));
+  await logReferenceChange(
+    c,
+    "territory",
+    id,
+    territory.name,
+    { type: territory.territory_type, coverage: describe(previousRows) },
+    { type, coverage: describe(await coverageRows(c, id)) },
+    b.reason,
+  );
 }
 
 /** @param {Ctx} c @param {Row} p */
@@ -154,15 +172,28 @@ export async function listCustomerGroups(c, p) {
 export async function saveCustomerGroup(c, b) {
   await requireNationalScope(c, ["admin"]);
   const name = required(b.name, "Name", 200);
-  required(b.reason, "Reason");
-  if (b.customerGroupId) {
-    const [group] =
-      await c.db`update customer_groups set name=${name},updated_at=now() where id=${uuid(b.customerGroupId)} and deleted_at is null returning id`;
-    if (!group) rule("Customer group not found.");
-    return group.id;
-  }
-  const [group] =
-    await c.db`insert into customer_groups(code,name) values(${code(b.code)},${name}) returning id`;
+  const reason = required(b.reason, "Reason", 500);
+  const [before] = b.customerGroupId
+    ? await c.db`select id,code,name from customer_groups where id=${uuid(b.customerGroupId)} and deleted_at is null`
+    : [];
+  if (b.customerGroupId && !before) rule("Customer group not found.");
+  const key = before?.code ?? code(b.code);
+  const [duplicate] =
+    await c.db`select id from customer_groups where (code=${key} or (deleted_at is null and lower(name)=lower(${name}))) and (${before?.id ?? null}::uuid is null or id<>${before?.id ?? null})`;
+  if (duplicate) rule("That customer group code or name already exists.");
+  if (before?.name === name) return before.id;
+  const [group] = before
+    ? await c.db`update customer_groups set name=${name},updated_at=now() where id=${before.id} returning id,code,name`
+    : await c.db`insert into customer_groups(code,name) values(${key},${name}) returning id,code,name`;
+  await logReferenceChange(
+    c,
+    "customer_group",
+    group.id,
+    name,
+    before ? { code: before.code, name: before.name } : null,
+    { code: group.code, name: group.name },
+    reason,
+  );
   return group.id;
 }
 
@@ -177,11 +208,28 @@ export async function linkCustomerGroup(c, b) {
       await c.db`select id from customer_groups where id=${groupId} and deleted_at is null`;
     if (!group) rule("Customer group not found.");
   }
-  required(b.reason, "Reason");
+  const reason = required(b.reason, "Reason", 500);
   for (const id of ids) {
-    await access(c, "outlets", uuid(id), "territory.manage");
+    const store = await access(c, "outlets", uuid(id), "territory.manage");
     await assertUnlocked(c, [id], [], c.now);
+    if ((store.customer_group_id ?? null) === groupId) continue;
+    const describe = async (/** @type {string|null} */ group) =>
+      group
+        ? (
+            await c.db`select code,name from customer_groups where id=${group}`
+          )[0]
+        : null;
+    const before = await describe(store.customer_group_id);
     await c.db`update outlets set customer_group_id=${groupId} where id=${id}`;
+    await logReferenceChange(
+      c,
+      "group_store",
+      id,
+      `${store.code} · ${store.name}`,
+      before,
+      await describe(groupId),
+      reason,
+    );
   }
   return ids.length;
 }

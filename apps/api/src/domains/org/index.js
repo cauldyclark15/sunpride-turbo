@@ -107,6 +107,8 @@ export function install(router, platform) {
         const actor = c.user ? await actorFor(t, c.user.id) : null;
         const current = { ...c, db: t, actor, now: Date.now() };
         await requireCapability(current, cap);
+        if (path.startsWith("customer-groups/"))
+          await requireNationalScope(current, ["admin"]);
         if (
           path.startsWith("catalog/") ||
           path === "people/invite" ||

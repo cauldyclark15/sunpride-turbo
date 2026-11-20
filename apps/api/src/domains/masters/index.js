@@ -1,4 +1,12 @@
 import { tx } from "@sunpride/db/client";
+import { referenceLog } from "./reference-log.js";
+import {
+  channelSetup,
+  saveChannel,
+  placeSetup,
+  savePlace,
+} from "./reference-maintenance.js";
+import { ORG_LOCK } from "../org/identity.js";
 import { catalogueImage, catalogueSetup, saveCatalogue } from "./catalogue.js";
 import { uploadCatalogueImage } from "./catalogue-images.js";
 import {
@@ -70,6 +78,9 @@ export function install(router, platform) {
       throw e;
     }
   });
+  router.get("/api/v1/masters/reference-log", referenceLog);
+  router.get("/api/v1/masters/channels", channelSetup);
+  router.get("/api/v1/masters/places", placeSetup);
   router.get("/api/v1/masters/catalogue-images/:id", catalogueImage);
   router.get("/api/v1/masters/catalogue", catalogueSetup);
   router.get("/api/v1/masters/taxonomy-migration", taxonomyMigrationPreview);
@@ -114,6 +125,11 @@ export function install(router, platform) {
       const result = await tx(ctx.db, async (db) => {
         const c = { ...ctx, db, actor: await currentActor(db, ctx.actor) };
         const actor = await requireCapability(c, capability);
+        if (name.startsWith("reference/")) {
+          await requireNationalScope(c, ["admin"]);
+          await db`select pg_advisory_xact_lock(${ORG_LOCK})`;
+          await db`select set_config('sunpride.actor',${actor.userId},true)`;
+        }
         if (
           name.startsWith("catalogue/") ||
           name.startsWith("taxonomy-migration/")
@@ -178,6 +194,8 @@ export function install(router, platform) {
     "masterdata.manage",
     assignLegacyTaxonomy,
   );
+  command("reference/channel-save", "masterdata.manage", saveChannel);
+  command("reference/place-save", "masterdata.manage", savePlace);
   command("catalogue/image", "masterdata.manage", uploadCatalogueImage);
   command("catalogue/save", "masterdata.manage", saveCatalogue);
   command("definitions/save", "masterdata.manage", saveDefinition);

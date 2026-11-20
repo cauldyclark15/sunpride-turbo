@@ -6,6 +6,7 @@ import { Button } from "@heroui/react";
 import { CensusReview, OutletClassification } from "./review";
 import { CatalogueEditor } from "./catalogue-editor";
 import { TaxonomyMigration } from "./taxonomy-migration";
+import { ReferenceMasters } from "./reference-masters";
 import { Card, Notice } from "@sunpride/ui";
 import { mutate, useApi, useLive } from "../../lib/api";
 import { usePermissions } from "../../lib/auth";
@@ -72,6 +73,9 @@ const named = (rows: Master[] = []) =>
 
 /** F-009/F-010/F-013/F-014/F-017/F-305 maintenance within the existing admin shell. */
 export function MastersWorkspace() {
+  return <ReferenceMasters other={<LegacyMastersWorkspace />} />;
+}
+function LegacyMastersWorkspace() {
   const session = usePermissions(),
     canManage = session.can("masterdata.manage");
   const [kind, setKind] = useState<MasterKind>("geography"),
