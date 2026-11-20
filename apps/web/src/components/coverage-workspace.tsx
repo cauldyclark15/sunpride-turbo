@@ -178,7 +178,8 @@ export function SalesForcePanels() {
   );
   const profile = useCoverageQuery(api.domains.profiles.current, {});
   const url = useUrlState();
-  const coverageTab = (url.params.get("tab") ?? "plans") as CoverageTab;
+  const coverageTab = (url.params.get("tab") ??
+    (permissions?.role === "sales" ? "plan" : "plans")) as CoverageTab;
   const setCoverageTab = (tab: CoverageTab) =>
     url.set({
       tab: tab === "plans" ? null : tab,
@@ -278,7 +279,7 @@ export function SalesForcePanels() {
     coverageTab !== "standards";
   const coverageTabs: [CoverageTab, string][] = [
     ["plans", "Plans"],
-    ["plan", "Plan"],
+    ["plan", permissions.role === "sales" ? "My plan" : "Plan"],
     ["pjp", "Journey plans"],
     ["territories", "Territory rebalancing"],
     ["productive", "Productive call rules"],

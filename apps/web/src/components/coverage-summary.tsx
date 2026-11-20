@@ -274,7 +274,7 @@ export function CoverageStandardsReview({ review }: { review: Review }) {
           <ul>
             {review.frequencyGaps.map((r) => (
               <li key={r.outletId}>
-                {r.name}: {r.planned} planned / {r.expected} cadence visits
+                {r.name}: {r.planned} planned / {r.expected} required visits
               </li>
             ))}
           </ul>
@@ -282,8 +282,8 @@ export function CoverageStandardsReview({ review }: { review: Review }) {
           <p>No frequency gaps.</p>
         )}
         <p className="text-xs text-muted">
-          Cadence counts are advisory. Review the calendar and adjust dates
-          before approval.
+          Customer visit requirements are set by the office. Shortfalls are
+          advisory; review the calendar and adjust dates before approval.
         </p>
       </div>
     </section>

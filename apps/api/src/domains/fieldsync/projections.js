@@ -225,6 +225,17 @@ async function bundleData(ctx) {
   };
   const outlets = new Map();
   const routeRows = new Map();
+  // The day's MCP route wins over weekday templates. Future days have their own
+  // route identity in the agenda; they must not make today's header ambiguous.
+  const daily = planned.find(
+    (/** @type {any} */ p) =>
+      dateOf(p.service_date) === date && p.approved_snapshot?.dailyRouteId,
+  )?.approved_snapshot;
+  if (daily)
+    routeRows.set(daily.dailyRouteId, {
+      id: daily.dailyRouteId,
+      code: `${daily.dailyRouteCode} · ${date}`,
+    });
   for (const p of planned) {
     const s = p.approved_snapshot;
     if (!s || s.outletId !== p.outlet_id || typeof s.outletName !== "string")
@@ -239,7 +250,7 @@ async function bundleData(ctx) {
     outlets.set(p.outlet_id, {
       id: p.outlet_id,
       name: s.outletName,
-      routeId: s.routeId ?? null,
+      routeId: daily?.dailyRouteId ?? s.routeId ?? null,
       code: s.outletCode ?? null,
       customerId: s.customerId ?? null,
       address: currentOutlet?.address ?? null,
@@ -256,7 +267,7 @@ async function bundleData(ctx) {
         date,
       );
     }
-    if (s.routeId && s.routeCode)
+    if (!daily && s.routeId && s.routeCode)
       routeRows.set(s.routeId, { id: s.routeId, code: s.routeCode });
   }
   // F-205: cache the assigned territory universe, not only planned stops, for genuinely off-route calls.

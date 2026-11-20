@@ -24,6 +24,7 @@ import { deadlinePlan, deadlineState, mcpDeadlines } from "./deadlines.js";
 import { routinesAt, snapshotSlot } from "./workflow.js";
 import { verifySignature } from "./activation.js";
 import { eligibleOutlets, routeProjection } from "./roster.js";
+import { frequencyWarnings, weeklyWindow } from "./monthly-routes.js";
 /** @param {any} ctx @param {string} month */
 export async function summary(ctx, month) {
   monthBounds(month);
@@ -211,6 +212,9 @@ export async function projection(ctx, p) {
       territoryCode: snap?.territoryCode ?? territory?.code,
       routeId,
       routeCode: snap?.routeCode ?? route?.code,
+      dailyRouteCode: snap?.dailyRouteCode
+        ? `Route ${snap.dailyRouteCode} · ${s.serviceDate}`
+        : undefined,
       sequence: s.sequence,
       planStatus: p.status,
       visitStatus: v?.status,
@@ -248,40 +252,24 @@ export async function reviewStandard(ctx, p) {
       ? (standard.daily_calls_target ?? null)
       : null,
   }));
-  const roster = await planRows(db, p.id);
-  const frequencyGaps = [];
-  for (const o of roster.outlets) {
-    const count = rows.filter((r) => r.outletId === o.outlet_id).length;
-    const expected =
-      o.frequency === "custom"
-        ? o.custom_local_dates.length
-        : o.frequency === "monthly"
-          ? 1
-          : o.frequency === "biweekly"
-            ? 2
-            : Math.ceil(days.length / 7);
-    if (count < expected) {
-      const [outlet] =
-        await db`select name from outlets where id=${o.outlet_id}`;
-      frequencyGaps.push({
-        outletId: o.outlet_id,
-        name: outlet.name,
-        expected,
-        planned: count,
-      });
-    }
-  }
+  const frequencyRequirements = await frequencyWarnings(ctx, p);
+  const frequencyGaps = frequencyRequirements.filter(
+    (r) => r.planned < r.expected,
+  );
   const routes = [
     ...new Set(
       rows
         .filter((r) => r.kind === "outlet_visit")
-        .map((r) => r.routeCode ?? "No route"),
+        .map((r) => r.dailyRouteCode ?? r.routeCode ?? "Created at approval"),
     ),
   ].map((code) => ({
     code,
     stores: new Set(
       rows
-        .filter((r) => (r.routeCode ?? "No route") === code)
+        .filter(
+          (r) =>
+            (r.dailyRouteCode ?? r.routeCode ?? "Created at approval") === code,
+        )
         .map((r) => r.outletId),
     ).size,
   }));
@@ -323,6 +311,52 @@ export async function read(ctx, action, b) {
             /** @param {any} r */ (r) => r.id,
           )
         : await hooks.scopeUnitIds(db, actor),
+    };
+  }
+  if (action === "weekly") {
+    const id = b.assigneeProfileId ?? ctx.actor.profileId;
+    const a = await employeeAt(db, id, ctx.now);
+    const actor = await requireCapability(ctx, "mcp.read", a.org_unit_id);
+    if (actor.role === "sales" && actor.profileId !== id)
+      fail("Sales may access only own plan");
+    const window = weeklyWindow(ctx.now);
+    const candidates = bounded(
+      await db`select * from coverage_plans where assignee_profile_id=${id} and deleted_at is null and effective_from<${new Date(localDate(window.weekEnd) + 86400000)} and coalesce(active_through,effective_to)>${new Date(localDate(window.weekStart))} order by version desc`,
+    );
+    const plans = [];
+    for (const p of candidates) {
+      await access(ctx, p);
+      const [review] =
+        await db`select content_hash from coverage_week_reviews where plan_id=${p.id} and week_start=${window.weekStart}`;
+      plans.push({
+        planId: p.id,
+        month: p.local_month,
+        version: p.version,
+        status: p.status,
+        fromDate: manilaDate(+new Date(p.effective_from)),
+        toDate: manilaDate(+new Date(p.active_through ?? p.effective_to) - 1),
+        reviewed: !!p.content_hash && review?.content_hash === p.content_hash,
+      });
+    }
+    const missingDates = [];
+    const needed = new Set();
+    for (let i = 0; i < 7; i++) {
+      const date = manilaDate(localDate(window.weekStart) + i * 86400000);
+      const current = plans
+        .filter(
+          (p) =>
+            ["approved", "active", "superseded"].includes(p.status) &&
+            p.fromDate <= date &&
+            p.toDate >= date,
+        )
+        .sort((a, b) => b.version - a.version)[0];
+      if (current) needed.add(current.planId);
+      else missingDates.push(date);
+    }
+    return {
+      ...window,
+      missingDates,
+      plans: plans.map((p) => ({ ...p, needed: needed.has(p.planId) })),
     };
   }
   if (action === "profile") {
@@ -512,6 +546,10 @@ export async function read(ctx, action, b) {
       servedTerritoryIds: servedTerritories.map(
         /** @param {any} r */ (r) => r.territory_id,
       ),
+      dailyRoutes: dto(
+        await db`select * from coverage_daily_routes where plan_id=${p.id} order by service_date`,
+      ),
+      frequencyRequirements: await frequencyWarnings(ctx, p),
       notices: problem ? [problem] : [],
       signatureValid: !problem,
       warnings: review.daily
@@ -697,7 +735,6 @@ export async function read(ctx, action, b) {
       }
       if (live.outlet.status !== "active")
         add("inactive_outlet", "blocking", "Outlet is inactive");
-      if (!o.route_id) add("territory_only", "advisory", "Outlet has no route");
       if (
         live.assignment?.territory_id !== o.territory_id ||
         (live.assignment?.route_id ?? null) !== (o.route_id ?? null)

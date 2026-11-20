@@ -26,6 +26,7 @@ import {
 } from "../lib/mcp-deadlines";
 import { SupervisorAwayPanel } from "./coverage-deadlines";
 import { CoverageStandardsReview } from "./coverage-summary";
+import { DailyPlanRoutes } from "./monthly-plan-routes";
 import { manilaDateToUtcMs } from "../lib/manila-date";
 
 type Mode = "review" | "visits" | "history";
@@ -93,6 +94,8 @@ const ACTION_LABELS: Record<string, string> = {
   "plan.applyToDraft": "Routine applied to the draft",
   "plan.saveOutlets": "Outlets saved",
   "plan.saveSlots": "Visit days saved",
+  "plan.saveDraft": "Customer visits saved",
+  "plan.weekReviewed": "Coming week reviewed",
   "plan.setAssignment": "Assignment saved",
   "plan.submit": "Submitted for approval",
   "plan.returnPlan": "Returned to draft",
@@ -107,7 +110,10 @@ const ACTION_LABELS: Record<string, string> = {
 export function historyActionLabel(action: string): string {
   if (ACTION_LABELS[action]) return ACTION_LABELS[action];
   const tail = action.split(".").pop() ?? action;
-  const words = tail.replace(/([a-z])([A-Z])/g, "$1 $2").replace(/[_-]+/g, " ").toLowerCase();
+  const words = tail
+    .replace(/([a-z])([A-Z])/g, "$1 $2")
+    .replace(/[_-]+/g, " ")
+    .toLowerCase();
   return words.charAt(0).toUpperCase() + words.slice(1);
 }
 
@@ -173,10 +179,8 @@ function PlanHistory({ planId }: { planId: Id<"coveragePlans"> }) {
               key={event._id}
               className="rounded border border-border p-2 text-sm"
             >
-              <strong>
-                {historyActionLabel(event.action)}
-              </strong>{" "}
-              · {actorName} · {stamp(event.createdAt)}
+              <strong>{historyActionLabel(event.action)}</strong> · {actorName}{" "}
+              · {stamp(event.createdAt)}
               <p>Version {event.planVersion}</p>
               {event.reason && (
                 <p>
@@ -272,7 +276,7 @@ function PlannedVisits({
             <ListRow
               icon={<WorkspaceIcon name="field" />}
               title={visit.approvedSnapshot.outletName}
-              meta={`${formatDate(visit.serviceDate)} · ${visit.approvedSnapshot.outletCode} · ${visit.approvedSnapshot.routeCode ?? "No route"} · stop ${visit.approvedSnapshot.sequence ?? "—"}`}
+              meta={`${formatDate(visit.serviceDate)} · ${visit.approvedSnapshot.outletCode} · ${visit.approvedSnapshot.dailyRouteCode ?? visit.approvedSnapshot.routeCode ?? "Legacy route not recorded"} · stop ${visit.approvedSnapshot.sequence ?? "—"}`}
               value={
                 <StatusPill
                   tone={visit.status === "planned" ? "success" : "neutral"}
@@ -340,7 +344,12 @@ function SlotRow({
             (frozen?.customerId || current?.customerLink?.customerId
               ? "Linked account"
               : "Prospect / unlinked")}{" "}
-          · route {frozen?.routeCode ?? route?.route.code ?? "No route"} · stop{" "}
+          · route{" "}
+          {frozen?.dailyRouteCode ??
+            frozen?.routeCode ??
+            route?.route.code ??
+            "Created at approval"}{" "}
+          · stop{" "}
           {frozen?.sequence ?? current?.assignment?.sequence ?? slot.sequence}
         </p>
       )}
@@ -515,6 +524,7 @@ function SelectedPlan({
           </p>
         )}
         {detail.review && <CoverageStandardsReview review={detail.review} />}
+        <DailyPlanRoutes detail={detail} />
         {route && (
           <ApprovalRouteNotice
             view={route}

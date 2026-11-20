@@ -53,6 +53,9 @@ export type OutletInput = {
   visitWindow?: string;
 };
 export type Snapshot = {
+  dailyRouteId?: string;
+  dailyRouteCode?: string;
+  dailyRouteDate?: string;
   outletId: string;
   outletCode: string;
   outletName: string;
@@ -224,7 +227,36 @@ export type Review = {
   visited: number;
   productive: number;
 };
+export type WeeklyReview = {
+  weekStart: string;
+  weekEnd: string;
+  dueDate: string;
+  dueAt: number;
+  reminder: boolean;
+  overdue: boolean;
+  missingDates?: string[];
+  plans: {
+    needed?: boolean;
+    planId: string;
+    month: string;
+    version: number;
+    status: string;
+    fromDate: string;
+    toDate: string;
+    reviewed: boolean;
+  }[];
+};
 export type Detail = {
+  dailyRoutes?: { _id: string; serviceDate: string; code: string }[];
+  frequencyRequirements?: {
+    outletId: string;
+    name: string;
+    expected: number;
+    planned: number;
+    requirement: string;
+  }[];
+  servedRouteIds?: string[];
+  servedTerritoryIds?: string[];
   plan: Plan;
   outlets: DocMap["coveragePlanOutlets"][];
   slots: Slot[];
@@ -422,6 +454,11 @@ export const api = {
         "list",
       ),
       detail: cp<PlanArgs, Detail>("detail"),
+      weekly: e<{ assigneeProfileId: string }, WeeklyReview>(
+        "coverage/plans:weekly",
+        "weekly",
+      ),
+      reviewWeek: cp<PlanArgs & { weekStart: string }, Plan>("reviewWeek"),
       create: cp<{ assigneeProfileId: string; localMonth: string }, Plan>(
         "create",
       ),
@@ -433,6 +470,14 @@ export const api = {
         "saveOutlets",
       ),
       saveSlots: cp<PlanArgs & { slots: SlotInput[] }, Plan>("saveSlots"),
+      saveDraft: cp<
+        PlanArgs & {
+          outlets: OutletInput[];
+          slots: SlotInput[];
+          submit?: boolean;
+        },
+        Plan
+      >("saveDraft"),
       setAssignment: cp<
         PlanArgs & {
           effectiveFrom: number;

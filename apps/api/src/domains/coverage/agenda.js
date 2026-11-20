@@ -105,7 +105,9 @@ export async function agendaForPlans(ctx, planned) {
       await ctx.db`select service_date,outcome,reason_code from visit_executions where outlet_id=${p.outlet_id} and assignee_profile_id=${ctx.actor.profileId} and org_unit_id=${ctx.actor.orgUnitId} and service_date<${date}::date and state in ('checked-out','completed') and deleted_at is null order by service_date desc,ended_at desc,id desc limit 1`;
     values.set(key, {
       asOfDate: date,
-      beat: p.approved_snapshot?.routeCode ?? null,
+      beat: p.approved_snapshot?.dailyRouteCode
+        ? `Route ${p.approved_snapshot.dailyRouteCode} · ${date}`
+        : (p.approved_snapshot?.routeCode ?? null),
       planVersion: p.plan_version,
       objectives: p.required_objectives ?? [],
       lastVisit: last

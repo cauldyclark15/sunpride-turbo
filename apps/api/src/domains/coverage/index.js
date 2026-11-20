@@ -45,6 +45,7 @@ const reads = [
   "people",
   "plans/list",
   "plans/detail",
+  "weekly",
   "discovery/list",
   "discovery/attribution",
   "calendar/status",
@@ -65,8 +66,10 @@ const reads = [
 const commands = [
   "plans/create",
   "plans/createRevision",
+  "plans/reviewWeek",
   "plans/saveOutlets",
   "plans/saveSlots",
+  "plans/saveDraft",
   "plans/setAssignment",
   "plans/submit",
   "plans/returnPlan",

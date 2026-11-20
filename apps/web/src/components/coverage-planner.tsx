@@ -10,6 +10,11 @@ import type { FunctionArgs, FunctionReturnType } from "./coverage-model";
 import { useEffect, useState } from "react";
 import { CoverageGrid } from "./coverage-grid";
 import {
+  DailyPlanRoutes,
+  WeeklyPlanReview,
+  planningFrequencyGaps,
+} from "./monthly-plan-routes";
+import {
   currentManilaDate,
   currentManilaMonth,
   manilaInstantDate,
@@ -92,6 +97,21 @@ export function saveCoverageAssignment(
   if (effectiveTo <= effectiveFrom)
     throw new Error("End date must follow start date");
   return save({ planId, effectiveFrom, effectiveTo, reason: reason.trim() });
+}
+
+/** One write preserves grid edits through save/submit and query refreshes. */
+export async function saveCoverageDraft(
+  planId: Id<"coveragePlans">,
+  outlets: Outlet[],
+  slots: Slot[],
+  submit: boolean,
+  save: (
+    args: FunctionArgs<typeof api.coverage.plans.saveDraft>,
+  ) => Promise<unknown>,
+) {
+  await saveCoverageOutlets(planId, outlets, async () => {});
+  await saveCoverageSlots(planId, slots, async () => {});
+  return save({ planId, outlets, slots, submit });
 }
 
 export function submitCoveragePlan(
@@ -329,6 +349,16 @@ export function CoveragePlanner({
                 </Button>
               )}
             </div>
+            {assignee && (
+              <WeeklyPlanReview
+                personId={assignee}
+                isSelf={assignee === self}
+                onOpen={(p) => {
+                  setMonth(p.localMonth);
+                  setSelected(p._id);
+                }}
+              />
+            )}
             <div className="flex flex-wrap gap-2" aria-label="Plan versions">
               {plans?.map((plan) => (
                 <button
@@ -423,6 +453,7 @@ export function CoveragePlanner({
                       </button>
                     </div>
                   )}
+                  <DailyPlanRoutes detail={detail} />
                   <PlanEditor
                     key={`${detail.plan._id}:${detail.plan.contentRevision}:${detail.plan.status}`}
                     detail={detail}
@@ -456,9 +487,10 @@ export function assigneeServes(
   row: { routeId?: string | null; territoryId: string },
 ) {
   if (!detail.servedRouteIds || !detail.servedTerritoryIds) return true;
-  return row.routeId
-    ? detail.servedRouteIds.includes(row.routeId)
-    : detail.servedTerritoryIds.includes(row.territoryId);
+  return (
+    detail.servedTerritoryIds.includes(row.territoryId) ||
+    (!!row.routeId && detail.servedRouteIds.includes(row.routeId))
+  );
 }
 
 export type PlanEditorMessage = {
@@ -539,11 +571,9 @@ export function PlanEditor({
       ? { paginationOpts: { numItems: 100, cursor: outletCursor } }
       : "skip",
   );
-  const saveOutlets = useCoverageMutation(api.coverage.plans.saveOutlets);
+  const saveDraft = useCoverageMutation(api.coverage.plans.saveDraft);
   const setAssignment = useCoverageMutation(api.coverage.plans.setAssignment);
-  const saveSlots = useCoverageMutation(api.coverage.plans.saveSlots);
   const apply = useCoverageMutation(api.coverage.routines.applyToDraft);
-  const submit = useCoverageMutation(api.coverage.plans.submit);
   const routine = useCoverageQuery(api.coverage.routines.listForPosition, {
     planId: plan._id,
   });
@@ -595,7 +625,10 @@ export function PlanEditor({
         !outlets.some((o) => o.outletId === row.outletId) &&
         (!routeId || row.routeId === routeId) &&
         assigneeServes(
-          detail as { servedRouteIds?: string[]; servedTerritoryIds?: string[] },
+          detail as {
+            servedRouteIds?: string[];
+            servedTerritoryIds?: string[];
+          },
           row,
         ),
     ) ?? [];
@@ -626,6 +659,7 @@ export function PlanEditor({
       setBusy(false);
     }
   }
+  const frequencyGaps = planningFrequencyGaps(detail, slots as Detail["slots"]);
   const inWindow = (date: string) => {
     const ms = manilaDateToUtcMs(date);
     if (ms < plan.effectiveFrom || ms >= plan.effectiveTo)
@@ -645,6 +679,28 @@ export function PlanEditor({
           <ul className="list-inside list-disc">
             {detail.notices.map((n, i) => (
               <li key={`${i}:${n}`}>{n}</li>
+            ))}
+          </ul>
+        </aside>
+      )}
+      {!!frequencyGaps.length && (
+        <aside
+          role="status"
+          aria-label="Required customer visits"
+          className="rounded border border-warning p-3"
+        >
+          <strong>Customers below their required visit frequency</strong>
+          <p>
+            These are office requirements for the whole month, including earlier
+            approved days. Add the missing visits or discuss the shortfall with
+            your manager.
+          </p>
+          <ul>
+            {frequencyGaps.map((r) => (
+              <li key={r.outletId}>
+                {r.name}: {r.planned} of {r.expected} visits planned ·{" "}
+                {r.requirement}
+              </li>
             ))}
           </ul>
         </aside>
@@ -955,7 +1011,17 @@ export function PlanEditor({
                   ...(o.anchorLocalDate ? [o.anchorLocalDate] : []),
                 ])
                   inWindow(date);
-              await saveCoverageOutlets(plan._id, outlets, saveOutlets);
+              await saveCoverageDraft(
+                plan._id,
+                outlets,
+                slots.filter(
+                  (s) =>
+                    !s.outletId ||
+                    outlets.some((o) => o.outletId === s.outletId),
+                ),
+                false,
+                saveDraft,
+              );
             })
           }
         >
@@ -1143,7 +1209,17 @@ export function PlanEditor({
             onClick={() =>
               void run("Dated slots saved.", async () => {
                 slots.forEach((s) => inWindow(s.serviceDate));
-                await saveCoverageSlots(plan._id, slots, saveSlots);
+                await saveCoverageDraft(
+                  plan._id,
+                  outlets,
+                  slots.filter(
+                    (s) =>
+                      !s.outletId ||
+                      outlets.some((o) => o.outletId === s.outletId),
+                  ),
+                  false,
+                  saveDraft,
+                );
               })
             }
           >
@@ -1155,7 +1231,17 @@ export function PlanEditor({
             disabled={busy}
             onClick={() =>
               void run("Submitted for independent approval.", () =>
-                submitCoveragePlan(plan._id, submit),
+                saveCoverageDraft(
+                  plan._id,
+                  outlets,
+                  slots.filter(
+                    (s) =>
+                      !s.outletId ||
+                      outlets.some((o) => o.outletId === s.outletId),
+                  ),
+                  true,
+                  saveDraft,
+                ),
               )
             }
           >

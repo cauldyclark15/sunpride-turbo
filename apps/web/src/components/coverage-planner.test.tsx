@@ -12,6 +12,7 @@ import {
   saveCoverageAssignment,
   saveCoverageOutlets,
   saveCoverageSlots,
+  saveCoverageDraft,
   submitCoveragePlan,
 } from "./coverage-planner";
 
@@ -414,6 +415,18 @@ describe("planner mutation payloads", () => {
       saveCoverageAssignment(plan._id, "2026-10-05", "2026-10-06", " ", save),
     ).toThrow(/reason/);
   });
+  it("saves the visible customer roster and dated visits in the same submission", async () => {
+    const d = detail();
+    const save = vi.fn(async () => null);
+    await saveCoverageDraft(plan._id, d.outlets, d.slots, true, save);
+    expect(save).toHaveBeenCalledTimes(1);
+    expect(save).toHaveBeenCalledWith({
+      planId: plan._id,
+      outlets: d.outlets,
+      slots: d.slots,
+      submit: true,
+    });
+  });
   it("submits the selected plan and requires a nonblank reason to revise", async () => {
     const submit = vi.fn(async () => null);
     await submitCoveragePlan(plan._id, submit);
@@ -436,12 +449,21 @@ describe("planner mutation payloads", () => {
 
 describe("WEB-118 outlet picker offers only the assignee's outlets", () => {
   const served = { servedRouteIds: ["r5"], servedTerritoryIds: ["t1"] };
-  it("keeps outlets on the assignee's routes and drops other routes", () => {
-    expect(assigneeServes(served, { routeId: "r5", territoryId: "t9" })).toBe(true);
-    expect(assigneeServes(served, { routeId: "r4", territoryId: "t1" })).toBe(false);
+  it("keeps assigned territories even with an old weekday route; legacy route membership remains readable", () => {
+    expect(assigneeServes(served, { routeId: "r5", territoryId: "t9" })).toBe(
+      true,
+    );
+    expect(assigneeServes(served, { routeId: "r4", territoryId: "t1" })).toBe(
+      true,
+    );
+    expect(assigneeServes(served, { routeId: "r4", territoryId: "t9" })).toBe(
+      false,
+    );
   });
   it("routeless outlets need a territory the assignee serves", () => {
-    expect(assigneeServes(served, { routeId: null, territoryId: "t1" })).toBe(true);
+    expect(assigneeServes(served, { routeId: null, territoryId: "t1" })).toBe(
+      true,
+    );
     expect(assigneeServes(served, { territoryId: "t2" })).toBe(false);
   });
 });

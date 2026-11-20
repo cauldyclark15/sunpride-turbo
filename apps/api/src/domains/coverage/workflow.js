@@ -21,6 +21,7 @@ import {
   uuid,
 } from "./model.js";
 import { approvalCapacity } from "./approval.js";
+import { dateRoutes, weeklyWindow } from "./monthly-routes.js";
 
 /** @param {any} v @returns {string} */
 export function canonical(v) {
@@ -62,9 +63,12 @@ function texts(a = []) {
  */
 export async function assigneeCovers(db, p, o, instant) {
   const at = new Date(instant);
-  const rows = o.routeId
-    ? await db`select 1 from route_salespeople where route_id=${o.routeId} and profile_id=${p.assignee_profile_id} and deleted_at is null and effective_from<=${at} and (effective_to is null or effective_to>${at}) limit 1`
-    : await db`select 1 from territory_salespeople where territory_id=${o.territoryId} and profile_id=${p.assignee_profile_id} and deleted_at is null and effective_from<=${at} and (effective_to is null or effective_to>${at}) limit 1`;
+  const rows =
+    await db`select 1 from territory_salespeople where territory_id=${o.territoryId} and profile_id=${p.assignee_profile_id} and deleted_at is null and effective_from<=${at} and (effective_to is null or effective_to>${at}) limit 1`;
+  if (!rows.length && o.routeId)
+    rows.push(
+      ...(await db`select 1 from route_salespeople where route_id=${o.routeId} and profile_id=${p.assignee_profile_id} and deleted_at is null and effective_from<=${at} and (effective_to is null or effective_to>${at}) limit 1`),
+    );
   if (!rows.length)
     fail(
       o.routeId
@@ -234,7 +238,7 @@ export async function snapshotSlot(ctx, p, s, cap = "mcp.approve") {
       await db`select * from route_territories where route_id=${s.route_id} and territory_id=${a.territory_id} and deleted_at is null and effective_from<=${instant} and (effective_to is null or effective_to>${instant})`;
     [rp] =
       await db`select * from route_salespeople where route_id=${s.route_id} and profile_id=${p.assignee_profile_id} and deleted_at is null and effective_from<=${instant} and (effective_to is null or effective_to>${instant})`;
-    if (!route || !rt || !rp)
+    if (!route || !rt || (!tp && !rp))
       fail("Route not active or assigned to assignee on service date");
   } else if (!tp) fail("Territory not assigned to assignee on service date");
   const [link] =
@@ -317,6 +321,28 @@ export async function workflow(ctx, action, b) {
       ? "mcp.approve"
       : "mcp.plan",
   );
+  if (action === "reviewWeek") {
+    if (!["approved", "active", "superseded"].includes(p.status))
+      fail("Approve changes before confirming the weekly review");
+    if (ctx.actor.profileId !== p.assignee_profile_id)
+      fail("Only the salesman can confirm their weekly review");
+    if (!p.signed_content || digest(p.signed_content) !== p.content_hash)
+      fail("Approved plan content changed; prepare a revision");
+    const { weekStart, weekEnd } = weeklyWindow(ctx.now);
+    const [pending] =
+      await db`select id from coverage_plans where based_on_plan_id=${p.id} and status in ('draft','submitted') and deleted_at is null and effective_from<${new Date(localDate(weekEnd) + DAY)} limit 1`;
+    if (pending)
+      fail("Approve the pending changes before confirming the weekly review");
+    if (
+      b.weekStart !== weekStart ||
+      localDate(weekEnd) < +new Date(p.effective_from) ||
+      localDate(weekStart) >= +new Date(p.active_through ?? p.effective_to)
+    )
+      fail("Choose the coming week's approved plan");
+    await db`insert into coverage_week_reviews(plan_id,week_start,content_hash,reviewed_by,reviewed_at) values (${p.id},${weekStart},${p.content_hash},${ctx.actor.subject},${new Date(ctx.now)}) on conflict(plan_id,week_start) do update set content_hash=excluded.content_hash,reviewed_by=excluded.reviewed_by,reviewed_at=excluded.reviewed_at`;
+    await audit(ctx, p, "plan.weekReviewed", {}, { weekStart });
+    return dto(p);
+  }
   if (action === "createRevision") {
     if (!["approved", "active"].includes(p.status))
       fail("Revision requires approved or active plan");
@@ -355,14 +381,30 @@ export async function workflow(ctx, action, b) {
   }
   if (
     p.pjp_source &&
-    ["saveOutlets", "saveSlots", "setAssignment", "applyToDraft"].includes(
-      action,
-    )
+    [
+      "saveOutlets",
+      "saveSlots",
+      "saveDraft",
+      "setAssignment",
+      "applyToDraft",
+    ].includes(action)
   )
     fail(
       "Generated journey plans are immutable; revise the template and simulate again",
     );
-  if (action === "saveOutlets") await saveOutlets(ctx, p, b.outlets);
+  if (action === "saveDraft") {
+    if (b.submit !== undefined && typeof b.submit !== "boolean")
+      fail("Choose whether to submit the plan");
+    await saveOutlets(ctx, p, b.outlets);
+    await saveSlots(ctx, p, b.slots);
+    if (b.submit) {
+      const rows = await planRows(db, p.id);
+      if (!rows.assignments.length)
+        fail("Primary coverage assignment required");
+      if (!rows.slots.length) fail("Plan needs dated slots before submitting");
+      await db`update coverage_plans set status='submitted',submitted_by=${ctx.actor.subject},submitted_at=${new Date(ctx.now)} where id=${p.id}`;
+    }
+  } else if (action === "saveOutlets") await saveOutlets(ctx, p, b.outlets);
   else if (action === "saveSlots") await saveSlots(ctx, p, b.slots);
   else if (action === "setAssignment") {
     draft(p);
@@ -472,7 +514,7 @@ export async function workflow(ctx, action, b) {
     // WEB-118 (SP-0169 r6web5): say what is missing and who fixes it.
     if (!rows.assignments.length)
       fail(
-        "This plan has no assignment period saved. Return it to the planner: on the Plan tab they press \"Save assignment\" and submit it again.",
+        'This plan has no assignment period saved. Return it to the planner: on the Plan tab they press "Save assignment" and submit it again.',
       );
     if (
       rows.assignments.length !== 1 ||
@@ -491,7 +533,7 @@ export async function workflow(ctx, action, b) {
       overlaps.some(
         /** @param {any} x */ (x) =>
           x.id !== p.based_on_plan_id ||
-          +new Date(x.effective_from) >= +new Date(p.effective_from),
+          +new Date(x.effective_from) > +new Date(p.effective_from),
       )
     )
       fail(
@@ -530,6 +572,7 @@ export async function workflow(ctx, action, b) {
         approvedSnapshot: await snapshotSlot(ctx, p, s),
       });
     }
+    await dateRoutes(db, p, snapshots);
     const signed = {
       plan: {
         id: p.id,
