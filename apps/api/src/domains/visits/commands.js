@@ -211,7 +211,8 @@ export async function checkIn(ctx) {
 export const dateString = (value) => new Date(value).toISOString().slice(0, 10);
 /** @param {any} ctx @param {any} a */
 async function validateActivity(ctx, a) {
-  if (!a || !ACTIVITY_KINDS.includes(a.kind)) reject();
+  if (!a || (!ACTIVITY_KINDS.includes(a.kind) && a.kind !== "planned_activity"))
+    reject();
   if (a.kind === "note") text(a.text, 2000);
   if (a.kind === "merchandising") {
     if (
@@ -302,6 +303,26 @@ export async function activity(ctx) {
   validTime(p.deviceTime, ctx.now);
   const visit = await ownedVisit(ctx, p.visitId);
   await validateActivity(ctx, p.activity);
+  if (p.activity.kind === "planned_activity") {
+    const a = p.activity;
+    uuid(a.activityId);
+    if (typeof a.done !== "boolean" || p.deviceTime < ms(visit.started_at))
+      reject();
+    const [planned] = visit.planned_visit_id
+      ? await ctx.db`select approved_snapshot from planned_visits where id=${visit.planned_visit_id}`
+      : [];
+    const task = planned?.approved_snapshot?.storeWork?.activities?.find(
+      (/** @type {any} */ t) => t.activityId === a.activityId,
+    );
+    if (!task) reject("invalid_plan");
+    // Names and plan authority are server-owned, never accepted from the phone.
+    p.activity = {
+      kind: "planned_activity",
+      activityId: task.activityId,
+      name: task.name,
+      done: a.done,
+    };
+  }
   // F-310 F-318: execution-only calls cannot sell, or replace a governed campaign checklist with a legacy flag.
   if (["order_intent", "promotion"].includes(p.activity.kind)) {
     const call = await ownedCall(ctx, { visitId: visit.id });

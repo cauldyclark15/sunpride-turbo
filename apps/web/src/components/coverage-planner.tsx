@@ -1,4 +1,6 @@
 "use client";
+
+import { StopWorkPlanner } from "./store-work";
 import { formatStatus } from "../lib/format";
 
 import { Button } from "@heroui/react";
@@ -151,6 +153,7 @@ const inputOutlet = (row: Doc<"coveragePlanOutlets">): Outlet => ({
   ...(row.visitWindow ? { visitWindow: row.visitWindow } : {}),
 });
 const inputSlot = (row: Doc<"coveragePlanSlots">): Slot => ({
+  ...(row.storeWork ? { storeWork: row.storeWork } : {}),
   slotKey: row.slotKey,
   serviceDate: row.serviceDate,
   kind: row.kind,
@@ -1056,6 +1059,12 @@ export function PlanEditor({
             ms < plan.effectiveTo
           );
         }}
+      />
+      <StopWorkPlanner
+        slots={slots}
+        onChange={setSlots}
+        readOnly={!editable}
+        nameFor={named}
       />
       <h3 className="font-semibold">
         Non-visit activities (including DS Work-With)

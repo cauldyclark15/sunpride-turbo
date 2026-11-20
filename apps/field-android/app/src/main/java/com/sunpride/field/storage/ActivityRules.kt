@@ -34,6 +34,7 @@ object ActivityRules {
     fun kindLabel(kind: String) = when (kind) {
         "call_sheet" -> "Call sheet"; "merchandising" -> "Merchandising"; "inventory_check" -> "Inventory check"
         "price_check" -> "Price check"; "promotion" -> "Promotion check"; "note" -> "Note"
+        "planned_activity" -> "Planned store activity"
         "order_intent" -> "Order"; else -> "Other activity"
     }
 
@@ -102,7 +103,7 @@ object ActivityRules {
 
 /** Transactional enqueue checks for structured activities and the End-vs-rules guard. */
 object ActivityQueueRules {
-    private val FORMS = setOf("merchandising", "promotion", "inventory_check", "price_check")
+    private val FORMS = setOf("merchandising", "promotion", "inventory_check", "price_check", "planned_activity")
     suspend fun validate(store: FieldStore, intent: IntentRow) {
         if (intent.kind != "visit.activity" && intent.kind != "visit.checkOut") return
         val payload = runCatching { JSONObject(intent.serializedOperation).optJSONObject("payload") }.getOrNull() ?: return
@@ -122,6 +123,12 @@ object ActivityQueueRules {
         val sheet = store.callSheet(outletId)
         if (intent.kind == "visit.activity") {
             com.sunpride.field.ui.diagnosticvisit.ActivityForms.validate(activity ?: error("Missing activity"), sheet)
+            if (activity.getString("kind") == "planned_activity") {
+                val plannedId = JSONObject(checkIn.serializedOperation).getJSONObject("payload").optString("plannedVisitId")
+                val planned = store.plannedVisits().singleOrNull { it.id == plannedId } ?: error("Planned stop required")
+                val work = StoreWork.decode(JSONObject(planned.json).optJSONObject("agenda")?.optJSONObject("storeWork"))
+                require(work.activities.any { it.activityId == activity.getString("activityId") }) { "Activity is not on this stop" }
+            }
             return
         }
         ActivityRules.requireForEnd(intent.clientVisitId, payload.optString("outcome"), store.activityRules(),

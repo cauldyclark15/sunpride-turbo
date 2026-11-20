@@ -22,6 +22,7 @@ import {
 } from "./model.js";
 import { approvalCapacity } from "./approval.js";
 import { dateRoutes, weeklyWindow } from "./monthly-routes.js";
+import { resolveStoreWork } from "./store-work.js";
 
 /** @param {any} v @returns {string} */
 export function canonical(v) {
@@ -144,14 +145,20 @@ async function saveOutlets(ctx, p, outlets) {
   for (const id of new Set(outlets.map((o) => o.territoryId)))
     await db`insert into coverage_plan_territories(coverage_plan_id,ordinal,territory_id) values (${p.id},${ordinal++},${id})`;
 }
-/** @param {any} ctx @param {any} p @param {any[]} slots */
-async function saveSlots(ctx, p, slots) {
+/** @param {any} ctx @param {any} p @param {any[]} slots @param {any[]} [inherited] */
+async function saveSlots(ctx, p, slots, inherited = []) {
   draft(p);
   if (!Array.isArray(slots)) fail("Plan slots must be an array");
   bounded(slots, "Plan slots", PLAN_ROW_LIMIT);
   if (slots.some((s) => !s || typeof s !== "object" || Array.isArray(s)))
     fail("Invalid slot row");
   const db = ctx.db;
+  const previous = new Map(
+    [...(await planRows(db, p.id)).slots, ...inherited].map((row) => [
+      row.slot_key,
+      row,
+    ]),
+  );
   if (new Set(slots.map((s) => s.slotKey)).size !== slots.length)
     fail("Duplicate slot keys");
   for (const s of slots) {
@@ -178,12 +185,24 @@ async function saveSlots(ctx, p, slots) {
     if (s.outletId) await outletAt(ctx, s.outletId, ctx.now, "mcp.plan");
     else required(s.activityKind, "Activity");
     if (s.routeId != null) uuid(s.routeId);
+    const previousSlot = previous.get(s.slotKey);
+    const existingWork =
+      previousSlot && previousSlot.outlet_id === s.outletId
+        ? previousSlot.store_work
+        : undefined;
+    // Unchanged saved work, including approved work copied into a revision, keeps its names even after retirement.
+    s.storeWork =
+      existingWork && canonical(existingWork) === canonical(s.storeWork)
+        ? existingWork
+        : await resolveStoreWork(db, s.storeWork);
+    if (s.kind !== "outlet_visit" && s.storeWork.activities.length)
+      fail("Store activities belong to a customer stop");
   }
   // Draft rows have never been published; signed rows are never edited.
   await db`delete from coverage_plan_slots where plan_id=${p.id}`;
   for (const s of slots)
-    await db`insert into coverage_plan_slots(slot_key,plan_id,assignee_profile_id,service_date,kind,outlet_id,route_id,activity_kind,named_truck_ref,required_objectives,intents,sequence,expected_duration_minutes,content_revision,updated_by)
-  values (${s.slotKey},${p.id},${p.assignee_profile_id},${s.serviceDate},${s.kind},${s.outletId ?? null},${s.routeId ?? null},${s.activityKind ?? null},${s.namedTruckRef ?? null},${db.array(s.requiredObjectives ?? [], "TEXT")},${db.array(s.intents ?? [], "TEXT")},${s.sequence},${s.expectedDurationMinutes},${p.content_revision + 1},${ctx.actor.subject})`;
+    await db`insert into coverage_plan_slots(slot_key,plan_id,assignee_profile_id,service_date,kind,outlet_id,route_id,activity_kind,named_truck_ref,required_objectives,intents,sequence,expected_duration_minutes,content_revision,updated_by,store_work)
+  values (${s.slotKey},${p.id},${p.assignee_profile_id},${s.serviceDate},${s.kind},${s.outletId ?? null},${s.routeId ?? null},${s.activityKind ?? null},${s.namedTruckRef ?? null},${db.array(s.requiredObjectives ?? [], "TEXT")},${db.array(s.intents ?? [], "TEXT")},${s.sequence},${s.expectedDurationMinutes},${p.content_revision + 1},${ctx.actor.subject},${s.storeWork})`;
 }
 /** @param {any} ctx @param {any} p @param {any} s @param {string} [cap] */
 export async function snapshotSlot(ctx, p, s, cap = "mcp.approve") {
@@ -266,6 +285,7 @@ export async function snapshotSlot(ctx, p, s, cap = "mcp.approve") {
     sequence: s.sequence,
     activityKind: s.activity_kind ?? "outlet_visit",
     approvedAssigneeProfileId: p.assignee_profile_id,
+    storeWork: s.store_work ?? { activities: [] },
   };
 }
 /** @param {any} db @param {string} positionId @param {number} at */
@@ -376,6 +396,7 @@ export async function workflow(ctx, action, b) {
         .filter(
           (s) => localDate(s.serviceDate) >= +new Date(next.effective_from),
         ),
+      old.slots,
     );
     return dto(next);
   }

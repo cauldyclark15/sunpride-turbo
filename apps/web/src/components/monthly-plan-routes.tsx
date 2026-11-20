@@ -49,6 +49,22 @@ export function DailyPlanRoutes({ detail }: { detail: Detail }) {
                 <li key={s._id ?? s.slotKey}>
                   {s.approvedSnapshot?.outletName ?? "Customer"} · stop{" "}
                   {s.sequence}
+                  {s.approvedSnapshot?.storeWork?.routineName && (
+                    <p>{s.approvedSnapshot.storeWork.routineName}</p>
+                  )}
+                  <ul>
+                    {s.approvedSnapshot?.storeWork?.activities.map((a) => (
+                      <li key={a.activityId}>
+                        {a.name} ·{" "}
+                        {detail.storeWorkResults?.find(
+                          (r) =>
+                            r.slotId === s._id && r.activityId === a.activityId,
+                        )?.done
+                          ? "Marked done by salesman"
+                          : "Not marked done"}
+                      </li>
+                    ))}
+                  </ul>
                 </li>
               ))}
           </ol>

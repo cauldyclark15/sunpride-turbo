@@ -36,6 +36,7 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
         staged.keys.retainAll(setOf(generation))
     }
     override suspend fun todaysVisits(day: String) = active?.visits?.filter { it.serviceDate == day } ?: emptyList()
+    override suspend fun plannedVisits() = active?.visits ?: emptyList()
     override suspend fun outlets() = active?.outlets ?: emptyList()
     override suspend fun callSheet(outletId: String) = active?.callSheets?.singleOrNull { it.outletId == outletId }
     override suspend fun catalog() = active?.productCatalog?.sortedWith(compareBy({ it.code }, { it.id })) ?: emptyList()

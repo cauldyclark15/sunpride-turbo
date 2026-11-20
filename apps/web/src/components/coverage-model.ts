@@ -52,7 +52,15 @@ export type OutletInput = {
   requiredObjectives: string[];
   visitWindow?: string;
 };
+export type StoreWork = {
+  routineId?: string;
+  routineName?: string;
+  routineActivityIds?: string[];
+  activityIds?: string[];
+  activities: { activityId: string; name: string }[];
+};
 export type Snapshot = {
+  storeWork?: StoreWork;
   dailyRouteId?: string;
   dailyRouteCode?: string;
   dailyRouteDate?: string;
@@ -70,6 +78,7 @@ export type Snapshot = {
   orgUnitId?: string;
 };
 export type SlotInput = {
+  storeWork?: StoreWork;
   slotKey: string;
   serviceDate: string;
   kind: "outlet_visit" | "non_visit";
@@ -247,6 +256,12 @@ export type WeeklyReview = {
   }[];
 };
 export type Detail = {
+  storeWorkResults?: {
+    slotId: string;
+    activityId: string;
+    done: boolean;
+    recordedAt: number;
+  }[];
   dailyRoutes?: { _id: string; serviceDate: string; code: string }[];
   frequencyRequirements?: {
     outletId: string;

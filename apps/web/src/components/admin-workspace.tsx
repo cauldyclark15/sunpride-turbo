@@ -18,6 +18,7 @@ import { FiscalWorkspace } from "./fiscal/fiscal-workspace";
 import { SetupHealth } from "./master-data/setup-health";
 import { useSetupParam } from "./master-data/location";
 import { AvailabilityEditor } from "./availability/editor";
+import { StoreWorkAdmin } from "./store-work";
 
 const groups = [
   [
@@ -43,6 +44,7 @@ const groups = [
   [
     "Field work",
     [
+      ["store-work", "Activities and routines"],
       ["callflow", "Call flows"],
       ["field-masters", "Field masters"],
       ["availability", "Trade Marketing"],
@@ -165,6 +167,8 @@ export function AdminWorkspace() {
           <OutletAdmin />
         ) : activeTab === "assignments" ? (
           <OutletAssignments />
+        ) : activeTab === "store-work" ? (
+          <StoreWorkAdmin />
         ) : activeTab === "callflow" ? (
           <CallFlowAdmin />
         ) : activeTab === "field-masters" ? (

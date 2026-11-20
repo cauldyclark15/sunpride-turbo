@@ -22,6 +22,7 @@ import {
 import { approvalView } from "./approval.js";
 import { deadlinePlan, deadlineState, mcpDeadlines } from "./deadlines.js";
 import { routinesAt, snapshotSlot } from "./workflow.js";
+import { storeWorkResults } from "./store-work.js";
 import { verifySignature } from "./activation.js";
 import { eligibleOutlets, routeProjection } from "./roster.js";
 import { frequencyWarnings, weeklyWindow } from "./monthly-routes.js";
@@ -574,6 +575,9 @@ export async function read(ctx, action, b) {
         ),
       })),
       slots: rows.slots.map(civil),
+      storeWorkResults: (await storeWorkResults(ctx, p.id)).filter(
+        (/** @type {any} */ r) => rows.slots.some((s) => s.id === r.slotId),
+      ),
       assignments: dto(rows.assignments),
       dailyCallsTarget: standard?.daily_calls_target ?? null,
       standardSource: standard?.source_ref ?? null,

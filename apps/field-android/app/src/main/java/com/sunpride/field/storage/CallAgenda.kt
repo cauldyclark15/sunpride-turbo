@@ -11,6 +11,7 @@ data class CallAgenda(
     val lastVisit: String?, val arLabel: String, val arSource: String,
     val mslKnown: Boolean, val mslVersion: String?, val mslAsOf: String?,
     val gaps: List<String>, val unmeasured: Int, val required: Int?,
+    val storeWork: StoreWork = StoreWork(),
 ) {
     companion object {
         fun decode(o: JSONObject): CallAgenda {
@@ -56,7 +57,7 @@ data class CallAgenda(
             require(rawVersion.toDouble().isFinite() && rawVersion.toDouble() == rawVersion.toLong().toDouble() && rawVersion.toLong() in 1..Int.MAX_VALUE.toLong())
             val version = rawVersion.toInt()
             return CallAgenda(text(o,"beat",true), version, objectives, last, arLabel,
-                text(ar,"source")!!, known, text(msl,"version",true), text(msl,"asOfDate",true), gaps, unmeasured, required)
+                text(ar,"source")!!, known, text(msl,"version",true), text(msl,"asOfDate",true), gaps, unmeasured, required, StoreWork.decode(o.optJSONObject("storeWork")))
         }
     }
 }

@@ -73,6 +73,11 @@ object ActivityForms {
         }
         fun text(key: String) = activity.get(key) as? String ?: throw IllegalArgumentException("Invalid $key")
         when (activity.optString("kind")) {
+            "planned_activity" -> {
+                keys(setOf("kind", "activityId", "done"), setOf("kind", "activityId", "done"))
+                require(activity.get("done") is Boolean)
+                com.sunpride.field.storage.StoreWork.activity(text("activityId"), activity.getBoolean("done"))
+            }
             "merchandising" -> {
                 keys(setOf("kind", "displayCondition", "actionTaken"), setOf("kind", "displayCondition"))
                 merchandising(text("displayCondition"), if (activity.has("actionTaken")) text("actionTaken") else "")

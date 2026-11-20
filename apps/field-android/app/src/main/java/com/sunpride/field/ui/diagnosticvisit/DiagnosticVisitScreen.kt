@@ -167,6 +167,20 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         Modifier.fillMaxWidth().testTag("short-call-reason"))
                 }
             }
+            visit.agenda?.storeWork?.takeIf { it.activities.isNotEmpty() }?.let { work ->
+                SectionCard(work.routineName?.let { "Planned activities · $it" } ?: "Planned activities") {
+                    Text("Tick only what you actually did. Cash, orders and stock still need their own forms.", Modifier.padding(16.dp), style = MaterialTheme.typography.bodySmall)
+                    work.activities.forEach { task ->
+                        val (done, label) = com.sunpride.field.storage.StoreWork.state(task, related)
+                        Row(Modifier.fillMaxWidth().padding(horizontal = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                            androidx.compose.material3.Checkbox(checked = done, onCheckedChange = { value ->
+                                controller.queueActivity(com.sunpride.field.storage.StoreWork.activity(task.activityId, value))
+                            }, enabled = checkedIn && !checkedOut && !controller.busy, modifier = Modifier.testTag("store-activity-${task.activityId}"))
+                            Column(Modifier.weight(1f).padding(4.dp)) { Text(task.name); Text(label, style = MaterialTheme.typography.bodySmall) }
+                        }
+                    }
+                }
+            }
             // AND-013: the visit's purposes drive which activity forms the backend rules require.
             if (checkedIn || visit.plannedVisitId != null) {
                 if (intents.isNotEmpty()) Text("Purpose · " + intents.joinToString(", ") {

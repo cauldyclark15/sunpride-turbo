@@ -252,7 +252,8 @@ data class TodayData(val visits: List<VisitDisplay> = emptyList(), val lastSynce
                      /** Today's sales vs target from the daily sales report (live or saved). */
                      val sales: com.sunpride.field.ui.today.DaySalesView = com.sunpride.field.ui.today.DaySalesView(),
                       val targets:com.sunpride.catalogue.TargetProgressView=com.sunpride.catalogue.TargetProgressView(),
-                     val partnerMode:Boolean=false,val partner:JSONObject?=null)
+                     val partnerMode:Boolean=false,val partner:JSONObject?=null,
+                     val tomorrow: List<VisitDisplay> = emptyList())
 
 private const val TEAM_CACHE = "local.team"
 private const val SALES_CACHE = "local.daysales"
@@ -990,7 +991,8 @@ class LiveFieldBackend(
                 outlets.map { (id, name) -> VisitDisplay(name, "Unplanned", "Reason required", id) },
                 store.status(), directory, tasks,
                 com.sunpride.field.ui.team.TeamRepository.offered(store.employeeRole()),
-                routeCode = store.routeCode(), sales = daySales(store, day, sync),targets=targetProgress(store,day,sync))
+                routeCode = store.routeCode(), sales = daySales(store, day, sync),targets=targetProgress(store,day,sync),
+                tomorrow = store.todaysVisits(LocalDate.parse(day).plusDays(1).toString()).map { row -> plannedVisitDisplay(row,outletRows,customers) })
             if (scheduleRemainder && sync && result.syncStatus.queued + result.syncStatus.sending > 0 &&
                 result.syncStatus.held == 0 && result.syncStatus.health != "held_for_review")
                 com.sunpride.field.sync.work.SyncWork.enqueue(context)

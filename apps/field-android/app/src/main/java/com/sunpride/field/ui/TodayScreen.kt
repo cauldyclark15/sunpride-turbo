@@ -77,6 +77,11 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
                     GlyphKind.TODAY, Modifier.testTag("today-empty"))
                 summary.stops.forEach { stop -> StopRow(summary, stop, diagnosticEnabled, onVisit) }
             }
+            if (data.tomorrow.isNotEmpty()) SectionCard("Tomorrow · prepare for these stops", Modifier.testTag("tomorrow-stops")) {
+                data.tomorrow.forEach { visit -> ListRow(visit.outlet,
+                    visit.agenda?.storeWork?.activities?.joinToString(", ") { it.name }?.takeIf { it.isNotBlank() } ?: "No store activities planned",
+                    "store") }
+            }
             if (onTeam != null && data.supervisor) LookCard {
                 ListRow("Your team today", "Coverage and exceptions for your direct reports", "team",
                     Modifier.testTag("team-open"), onClick = onTeam)
@@ -127,7 +132,8 @@ private fun StopRow(summary: TodaySummary, stop: com.sunpride.field.ui.today.Rou
     val isNext = summary.next?.stop == stop.stop
     val facts = listOfNotNull(visit.planned.takeUnless { it == "Planned" || it == "Scheduled" || it.isBlank() },
         visit.status.takeUnless { it == "Planned" || it == "Scheduled" || it == "Pending" || it.isBlank() }
-            ?.replace("Queued", "Waiting"), outcomeLabel(summary, stop), visit.timeSpent)
+            ?.replace("Queued", "Waiting"), outcomeLabel(summary, stop), visit.timeSpent,
+        visit.agenda?.storeWork?.activities?.joinToString(", ") { it.name }?.takeIf { it.isNotBlank() })
     val chip: @Composable () -> Unit = {
         when {
             stop.done -> StatusChip("Done", Look.Tone.GOOD)

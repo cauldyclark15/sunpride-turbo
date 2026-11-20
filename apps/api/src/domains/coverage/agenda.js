@@ -103,6 +103,11 @@ export async function agendaForPlans(ctx, planned) {
     await outletAt(ctx, p.outlet_id, ctx.now, "visit.record");
     const [last] =
       await ctx.db`select service_date,outcome,reason_code from visit_executions where outlet_id=${p.outlet_id} and assignee_profile_id=${ctx.actor.profileId} and org_unit_id=${ctx.actor.orgUnitId} and service_date<${date}::date and state in ('checked-out','completed') and deleted_at is null order by service_date desc,ended_at desc,id desc limit 1`;
+    const work = p.approved_snapshot?.storeWork ?? { activities: [] };
+    const recorded = work.activities.length
+      ? await ctx.db`select distinct on (a.activity->>'activityId') a.activity from visit_activities a join visit_executions v on v.id=a.visit_id where v.planned_visit_id=${p.id} and v.assignee_profile_id=${ctx.actor.profileId} and v.deleted_at is null and a.deleted_at is null and a.activity_kind='planned_activity' order by a.activity->>'activityId',a.server_time desc,a.change_seq desc,a.id desc limit 51`
+      : [];
+    if (recorded.length > 50) fail("Too many recorded store activities");
     values.set(key, {
       asOfDate: date,
       beat: p.approved_snapshot?.dailyRouteCode
@@ -110,6 +115,21 @@ export async function agendaForPlans(ctx, planned) {
         : (p.approved_snapshot?.routeCode ?? null),
       planVersion: p.plan_version,
       objectives: p.required_objectives ?? [],
+      ...(p.approved_snapshot?.storeWork
+        ? {
+            storeWork: {
+              ...work,
+              activities: work.activities.map((/** @type {any} */ task) => ({
+                ...task,
+                done:
+                  recorded.find(
+                    (/** @type {any} */ r) =>
+                      r.activity.activityId === task.activityId,
+                  )?.activity.done ?? false,
+              })),
+            },
+          }
+        : {}),
       lastVisit: last
         ? {
             date:
