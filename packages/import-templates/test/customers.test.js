@@ -445,6 +445,33 @@ describe("SP-0170 values", () => {
         .errors,
     ).toEqual([]);
   });
+  test("SP-0220 accepts address punctuation without changing the uploaded addresses", () => {
+    for (const address of [
+      "Blk 5, Lot 3. Brgy. Guadalupe",
+      "#5-A / Lot 3. Brgy. Guadalupe, Cebu",
+    ]) {
+      const row = {
+        rowNumber: 2,
+        values: {
+          ...EXAMPLE,
+          street1: address,
+          customerAddress: address,
+          "shipTo.shipToAddress": address,
+        },
+      };
+      const result = validateCustomerRows([row], index);
+      expect(result.errors).toEqual([]);
+      const item = result.items.get(2);
+      expect(item).toBeDefined();
+      if (!item) throw new Error("Expected a valid address row");
+      const input = writerInput(item, row, index, null);
+      expect(input).toMatchObject({
+        street1: address,
+        customerAddress: address,
+      });
+      expect(input.shipTos[0].shipToAddress).toBe(address);
+    }
+  });
   test("updates send only filled cells; the first ship-to keeps blank cells, others stay", () => {
     const row = {
       rowNumber: 2,

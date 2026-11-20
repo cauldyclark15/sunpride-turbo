@@ -2,7 +2,13 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { CustomerEditor, CustomerEditorView } from "./customer-editor";
-import { emptyDraft, toPayload, type Customer, type Draft } from "./model";
+import {
+  emptyDraft,
+  setField,
+  toPayload,
+  type Customer,
+  type Draft,
+} from "./model";
 
 type ViewProps = Parameters<typeof CustomerEditorView>[0];
 const state = vi.hoisted(() => ({
@@ -235,6 +241,52 @@ describe("SP-0214 Street 1 on customer enrollment", () => {
         floor: null,
         roomStallNo: null,
       });
+    },
+  );
+});
+
+describe("SP-0220 address edits", () => {
+  it.each(["prospect", "active"] as const)(
+    "saves normal punctuation when editing a %s without removing Customer Address",
+    async (status) => {
+      state.customer = customer(complete(), status);
+      state.mutate.mockImplementation(async (_path, body) => ({
+        ...state.customer,
+        ...body.customer,
+        addressCustom: true,
+      }));
+      for (const address of [
+        "Blk 5, Lot 3. Brgy. Guadalupe",
+        "#5-A / Lot 3. Brgy. Guadalupe, Cebu",
+      ]) {
+        render();
+        let draft = setField(view().draft, "street1", address);
+        draft = setField(draft, "customerAddress", address);
+        view().onChange(draft);
+        const edited = render();
+        for (const key of ["street1", "customerAddress"]) {
+          const input = edited.match(
+            new RegExp(`<input[^>]*id="cm-${key}"[^>]*>`),
+          )?.[0];
+          expect(input).toContain(`value="${address}"`);
+          expect(input).not.toContain("pattern=");
+        }
+        await view().onSave?.();
+        const saved = render();
+        expect(view().errors).toEqual({});
+        expect(saved).toContain("Saved.");
+        const [path, body, options] = state.mutate.mock.calls.at(-1)!;
+        expect(path).toBe("/api/v1/customers/customer");
+        expect(options.method).toBe("PUT");
+        expect(body.customer).toMatchObject({
+          street1: address,
+          customerAddress: address,
+        });
+        expect(body.customer.shipTos[0].shipToAddress).toBe(address);
+        expect(view().draft.values.street1).toBe(address);
+        expect(view().draft.values.customerAddress).toBe(address);
+      }
+      expect(state.mutate).toHaveBeenCalledTimes(2);
     },
   );
 });

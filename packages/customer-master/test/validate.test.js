@@ -202,6 +202,36 @@ describe("SP-0214 Street 1", () => {
   });
 });
 
+describe("SP-0220 normal address punctuation", () => {
+  for (const level of /** @type {const} */ (["field", "complete"])) {
+    test(`${level} preserves punctuation in customer, street and delivery addresses`, () => {
+      for (const address of [
+        "Blk 5, Lot 3. Brgy. Guadalupe",
+        "#5-A / Lot 3. Brgy. Guadalupe, Cebu",
+      ]) {
+        const input = complete({
+          customerAddress: address,
+          street1: address,
+          street2: address,
+        });
+        input.shipTos[0].shipToAddress = address;
+        const result = validateCustomer(input, {
+          level,
+          lists,
+          geography: cebu,
+        });
+        expect(result.errors).toEqual([]);
+        expect(result.value).toMatchObject({
+          customerAddress: address,
+          street1: address,
+          street2: address,
+        });
+        expect(result.value.shipTos[0].shipToAddress).toBe(address);
+      }
+    });
+  }
+});
+
 describe("conditional required fields (rules 5, 6)", () => {
   test("a complete record passes", () => {
     const r = validateCustomer(complete(), { lists, geography: cebu });
