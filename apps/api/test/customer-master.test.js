@@ -452,6 +452,9 @@ describe("SP-0170 customer writer", () => {
       { mobileNo: "" },
       { taxClassificationCode: "   " },
       { regionCode: null },
+      { street1: null },
+      { street1: "" },
+      { street1: " \t " },
       { postalCode: "" },
       { salesOfficeCode: null },
       { customerGroup2Code: " " },
@@ -460,6 +463,23 @@ describe("SP-0170 customer writer", () => {
       { latitude: null, longitude: null },
       { shipTos: [{ sameAsCustomer: true, contactPerson: "  " }] },
     ];
+    // SP-0214: a custom address does not substitute for an omitted Street 1.
+    const withoutStreet = customer({
+      customerAddress: "Custom customer address",
+      street1: undefined,
+    });
+    const omitted = await call("admin", "POST", "/api/v1/customers", {
+      custodianOrgUnitId: UNIT,
+      customer: withoutStreet,
+    });
+    expect(omitted.status).toBe(422);
+    expect(omitted.body.error.details.errors).toContainEqual(
+      expect.objectContaining({
+        field: "street1",
+        code: "required",
+        message: "Street 1 is required.",
+      }),
+    );
     const saved = await readCustomer(h.db, id);
     for (const missing of cases) {
       const create = await call(
@@ -489,19 +509,25 @@ describe("SP-0170 customer writer", () => {
     expect(await readCustomer(h.db, id)).toEqual(saved);
     expect(await counts()).toEqual(before);
     // Existing incomplete profiles remain readable, but office edits must finish them.
-    await h.db`update customer_profiles set registered_name=null,completeness='draft' where outlet_id=${id}`;
+    await h.db`update customer_profiles set registered_name=null,street1=null,completeness='draft' where outlet_id=${id}`;
     const incomplete = await readCustomer(h.db, id);
     const unfinished = await call("admin", "PUT", `/api/v1/customers/${id}`, {
       customer: { tradeName: "Changed without completing" },
     });
     expect(unfinished.status).toBe(422);
-    expect(
-      (await call("manager", "POST", `/api/v1/customers/${id}/approve`, {}))
-        .status,
-    ).toBe(422);
+    const approval = await call(
+      "manager",
+      "POST",
+      `/api/v1/customers/${id}/approve`,
+      {},
+    );
+    expect(approval.status).toBe(422);
+    expect(approval.body.error.details.errors).toContainEqual(
+      expect.objectContaining({ field: "street1", code: "required" }),
+    );
     expect(await readCustomer(h.db, id)).toEqual(incomplete);
     const finished = await call("admin", "PUT", `/api/v1/customers/${id}`, {
-      customer: { registeredName: saved.registeredName },
+      customer: { registeredName: saved.registeredName, street1: saved.street1 },
     });
     expect(finished.status).toBe(200);
     expect(finished.body.completeness).toBe("complete");
@@ -812,6 +838,7 @@ describe("SP-0170 customer writer", () => {
           provinceCode: "0702200000",
           municipalityCode: "0730600000",
           barangayCode: "0730600003",
+          street1: "Gorordo Ave",
           postalCode: "6000",
         },
       },
@@ -823,7 +850,7 @@ describe("SP-0170 customer writer", () => {
     expect(draft).toMatchObject({
       completeness: "complete",
       distributionChannelName: "Route Sales",
-      customerAddress: "Apas, City of Cebu, Cebu 6000",
+      customerAddress: "Gorordo Ave, Apas, City of Cebu, Cebu 6000",
       legacyChannel: "41",
     });
     expect(draft.shipTos).toEqual([
@@ -968,6 +995,7 @@ describe("SP-0170 customer writer", () => {
           provinceCode: "0702200000",
           municipalityCode: "0730600000",
           barangayCode: "0730600003",
+          street1: "Gorordo Ave",
           postalCode: "6000",
         },
       },

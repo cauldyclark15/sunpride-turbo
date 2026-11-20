@@ -33,6 +33,7 @@ const required = [
   "provinceCode",
   "municipalityCode",
   "barangayCode",
+  "street1",
   "postalCode",
   "salesOrgCode",
   "distributionChannelCode",

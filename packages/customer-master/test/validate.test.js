@@ -50,6 +50,7 @@ const complete = (over = {}) => ({
   provinceCode: "0702200000",
   municipalityCode: "0730600000",
   barangayCode: "0730600003",
+  street1: "Gorordo Ave",
   postalCode: "6000",
   latitude: 10.33,
   longitude: 123.9,
@@ -78,12 +79,12 @@ const codes = (r) =>
   r.errors.map((/** @type {any} */ e) => `${e.field}:${e.code}`).sort();
 
 describe("client field list", () => {
-  test("51 fields in the sheet's order, sections and labels", () => {
+  test("51 fields in the sheet's order, with the SP-0214 Street 1 requirement", () => {
     expect(FIELDS.map((f) => [f.section, f.label, f.required])).toEqual(
       json.fields.map((/** @type {any} */ f) => [
         f.section,
         f.field,
-        f.required,
+        f.field === "Street 1" ? true : f.required,
       ]),
     );
     expect([...SECTIONS]).toEqual([
@@ -164,6 +165,40 @@ describe("dependent lists per sales organization (rule 8)", () => {
       "customerGroupCode:invalid_option",
       "paymentTermsCode:invalid_option",
     ]);
+  });
+});
+
+describe("SP-0214 Street 1", () => {
+  for (const level of /** @type {const} */ (["field", "complete"])) {
+    test(`${level} requires Street 1 even with a custom Customer Address`, () => {
+      for (const street1 of [undefined, null, "", " \t "]) {
+        const r = validateCustomer(complete({ street1 }), {
+          level,
+          lists,
+          geography: cebu,
+        });
+        expect(codes(r)).toEqual(["street1:required"]);
+        expect(r.errors[0].message).toBe("Street 1 is required.");
+      }
+      const r = validateCustomer(complete({ street1: "  Gorordo Ave  " }), {
+        level,
+        lists,
+        geography: cebu,
+      });
+      expect(r.errors).toEqual([]);
+      expect(r.value.street1).toBe("Gorordo Ave");
+      for (const key of ["houseNo", "street2", "floor", "roomStallNo"])
+        expect(r.value[key]).toBeNull();
+    });
+  }
+  test("incomplete field recovery can still retain a draft without Street 1", () => {
+    expect(
+      validateCustomer(complete({ street1: "" }), {
+        level: "draft",
+        lists,
+        geography: cebu,
+      }).errors,
+    ).toEqual([]);
   });
 });
 

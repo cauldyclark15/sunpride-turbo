@@ -45,6 +45,7 @@ const good = {
   provinceCode: "0702200000",
   municipalityCode: "0730600000",
   barangayCode: "0730600003",
+  street1: "Gorordo Ave",
   postalCode: "6000",
   latitude: 10.3312,
   longitude: 123.9056,

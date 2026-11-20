@@ -115,6 +115,7 @@ function complete(): Draft {
     provinceCode: "0702200000",
     municipalityCode: "0730600000",
     barangayCode: "0730600003",
+    street1: "Gorordo Ave",
     postalCode: "6000",
     salesOrgCode: "1000",
     salesOfficeCode: "100",
@@ -164,6 +165,44 @@ beforeEach(() => {
   state.customer = null;
   state.view = null;
   state.mutate.mockReset().mockResolvedValue(customer(complete()));
+});
+
+describe("SP-0214 Street 1 on customer enrollment", () => {
+  it.each(["new", "prospect", "active"] as const)(
+    "marks Street 1 required and blocks a %s customer until it is filled",
+    async (status) => {
+      if (status !== "new") state.customer = customer(complete(), status);
+      const initial = render();
+      expect(initial).toMatch(
+        /<label[^>]*for="cm-street1"[^>]*>Street 1<span[^>]*title="Required"[^>]*> \*<\/span><\/label>/,
+      );
+      for (const blank of [undefined, "", " \t "]) {
+        const draft = complete();
+        if (blank === undefined) delete draft.values.street1;
+        else draft.values.street1 = blank;
+        view().onChange(draft);
+        render();
+        await view().onSave?.();
+        const html = render();
+        expect(state.mutate).not.toHaveBeenCalled();
+        expect(view().errors).toEqual({ street1: "Street 1 is required." });
+        expect(html).toContain('aria-describedby="cm-street1-error"');
+        expect(html).toContain("Street 1 is required.");
+      }
+      view().onChange(complete());
+      render();
+      expect(view().errors.street1).toBeUndefined();
+      await view().onSave?.();
+      expect(state.mutate).toHaveBeenCalledTimes(1);
+      expect(state.mutate.mock.calls[0]![1].customer).toMatchObject({
+        street1: "Gorordo Ave",
+        street2: null,
+        houseNo: null,
+        floor: null,
+        roomStallNo: null,
+      });
+    },
+  );
 });
 
 describe("SP-0213 customer Save required fields", () => {

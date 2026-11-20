@@ -409,6 +409,7 @@ test("SP-0188 missing agent fields are kept as an incomplete customer for the of
     "registeredName",
     "mobileNo",
     "regionCode",
+    "street1",
     "postalCode",
     "distributionChannelCode",
     "customerGroupCode",

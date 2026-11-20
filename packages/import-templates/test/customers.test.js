@@ -51,7 +51,7 @@ function grid(ws, from = 1) {
 }
 
 describe("SP-0170 template = the client's Customer Information template", () => {
-  test("Customer Code + every field of the 'source' tab, same order, labels, required flags and remarks", () => {
+  test("Customer Code + every source field, with the SP-0214 Street 1 requirement", () => {
     const sections = new Set([
       "Customer General Information",
       "Customer Location",
@@ -68,7 +68,12 @@ describe("SP-0170 template = the client's Customer Information template", () => 
     )) {
       const [label, req, remark] = r;
       if (!label || sections.has(label)) continue;
-      sheet.push({ label, required: req === "Y", remark: remark ?? "" });
+      // SP-0214 supersedes the original sheet's optional Street 1 flag.
+      sheet.push({
+        label,
+        required: label === "Street 1" || req === "Y",
+        remark: remark ?? "",
+      });
     }
     expect(sheet.length).toBe(51);
     expect(CUSTOMER_HEADERS[0]).toBe("Customer Code");
@@ -357,6 +362,28 @@ describe("SP-0170 values", () => {
         "Delivering Plant:not_for_sales_org",
       ]),
     );
+  });
+  test("SP-0214 marks Street 1 required and refuses blank uploads even with Customer Address", () => {
+    expect(CUSTOMER_COLUMNS.find((c) => c.key === "street1")?.required).toBe(
+      true,
+    );
+    for (const street1 of ["", " \t "]) {
+      const r = validateCustomerRows(
+        [{ rowNumber: 2, values: { ...EXAMPLE, street1 } }],
+        index,
+      );
+      expect(r.errors).toContainEqual(
+        expect.objectContaining({
+          column: "street1",
+          code: "required",
+          message: "Street 1 is required.",
+        }),
+      );
+    }
+    expect(
+      validateCustomerRows([{ rowNumber: 2, values: { ...EXAMPLE } }], index)
+        .errors,
+    ).toEqual([]);
   });
   test("updates send only filled cells; the first ship-to keeps blank cells, others stay", () => {
     const row = {

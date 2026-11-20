@@ -37,7 +37,7 @@ Dropdowns show `optionLabel(row)` = "Description (Code)", e.g. "General Trade (3
 | 13  | Customer Location            | Municipality               | `municipalityCode`        | yes                                    | geo                         |
 | 14  | Customer Location            | Barangay                   | `barangayCode`            | yes                                    | geo                         |
 | 15  | Customer Location            | House No.                  | `houseNo`                 | no                                     | text                        |
-| 16  | Customer Location            | Street 1                   | `street1`                 | no                                     | text                        |
+| 16  | Customer Location            | Street 1                   | `street1`                 | yes                                    | text                        |
 | 17  | Customer Location            | Street 2                   | `street2`                 | no                                     | text                        |
 | 18  | Customer Location            | Floor                      | `floor`                   | no                                     | text                        |
 | 19  | Customer Location            | Room No. / Stall No.       | `roomStallNo`             | no                                     | text                        |
@@ -81,6 +81,10 @@ office may change it (`PUT` with top-level `code`) until the accounting customer
 
 Notes:
 
+- SP-0214 makes Street 1 required for enrollment (`field` and `complete`), superseding the
+  original workbook's optional flag. House No., Street 2, Floor and Room No. / Stall No.
+  remain optional. A custom Customer Address does not replace Street 1. Incomplete field
+  capture recovery remains available (SP-0188), but approval requires Street 1.
 - `customerAddress` (Customer Address) is generated from the location parts with
   `formatAddress` — `Room/Stall, Floor, House No. Street 1, Street 2, Barangay, Municipality,
 Province Postal Code` — unless the user types one (then `addressCustom: true`). Sending

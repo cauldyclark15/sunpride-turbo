@@ -115,7 +115,7 @@ class CustomerCaptureTest {
         assertEquals(listOf("barangayCode", "postalCode"), missing(bohol))
         assertEquals(listOf("barangayCode"), missing(complete().copy(barangayCode = "")))
         val blank = CustomerCapture.missing(CustomerCapture.Form(), setup, geography, hasFix = false, hasPhoto = false)
-        assertEquals(listOf("registeredName", "customerName", "mobileNo", "taxClassificationCode", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "postalCode", "coordinates",
+        assertEquals(listOf("registeredName", "customerName", "mobileNo", "taxClassificationCode", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "street1", "postalCode", "coordinates",
             "salesOrgCode", "salesOfficeCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code", "customerGroupCode", "typeOfBusiness",
             "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode", "contactPerson", "photo"), blank.map { it.key })
         assertEquals("Registered Name is required.", blank.first().message)
@@ -223,7 +223,7 @@ class CustomerCaptureTest {
 
     @Test fun everyRequiredAgentFieldBlocksSaveIncludingWhitespaceAndMissingOfflineLists() {
         val required = listOf("registeredName", "customerName", "mobileNo", "regionCode", "provinceCode", "municipalityCode",
-            "barangayCode", "postalCode", "salesOrgCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code",
+            "barangayCode", "street1", "postalCode", "salesOrgCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code",
             "customerGroupCode", "typeOfBusiness", "contactPerson")
         for (key in required) for (blank in listOf("", " \t ")) {
             val draft = JSONObject(CustomerCapture.draftJson(CustomerCapture.Draft(complete(), fix, null)))
@@ -235,12 +235,14 @@ class CustomerCaptureTest {
             CustomerCapture.Geography.parse(pack), true, true).any { it.key == "barangayCode" })
         assertEquals("Registered Name *", CustomerCapture.formLabel("registeredName"))
         assertEquals("Trade Name", CustomerCapture.formLabel("tradeName"))
+        assertEquals("Street 1 *", CustomerCapture.formLabel("street1"))
+        assertEquals("Street 2", CustomerCapture.formLabel("street2"))
     }
 
     @Test fun outboxCannotQueueAnIncompleteCustomerEvenWithoutTheScreenCheck() {
         val ok = CustomerCapture.payload(UUID.randomUUID().toString(), complete(), geography, 5000L, fix, jpeg)
         for (key in listOf("registeredName", "customerName", "customerAddress", "mobileNo", "regionCode", "provinceCode",
-            "municipalityCode", "barangayCode", "postalCode", "salesOrgCode", "distributionChannelCode", "customerGroupCode", "typeOfBusiness", "countryCode", "taxClassificationCode",
+            "municipalityCode", "barangayCode", "street1", "postalCode", "salesOrgCode", "distributionChannelCode", "customerGroupCode", "typeOfBusiness", "countryCode", "taxClassificationCode",
             "salesOfficeCode", "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode")) {
             for (blank in listOf(null, JSONObject.NULL, "", " \t ")) {
                 val p = JSONObject(ok.toString())
