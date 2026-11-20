@@ -551,7 +551,12 @@ export async function workflow(ctx, action, b) {
             ? date.slice(0, 10)
             : date.toISOString().slice(0, 10),
         );
-        if (at < +new Date(p.effective_from) || at >= +new Date(p.effective_to))
+        // Cadence defaults describe the month, including a revision's retained
+        // prefix. Only the actual dated slots below create this version's work.
+        const from = p.based_on_plan_id
+          ? monthBounds(p.local_month).from
+          : +new Date(p.effective_from);
+        if (at < from || at >= +new Date(p.effective_to))
           fail("Cadence date outside plan");
       }
     }

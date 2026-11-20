@@ -250,7 +250,9 @@ async function bundleData(ctx) {
     outlets.set(p.outlet_id, {
       id: p.outlet_id,
       name: s.outletName,
-      routeId: daily?.dailyRouteId ?? s.routeId ?? null,
+      // Keep the assignment identity stable for cached customer/order associations.
+      // The dated MCP route belongs to the day header and each visit's agenda.
+      routeId: s.routeId ?? null,
       code: s.outletCode ?? null,
       customerId: s.customerId ?? null,
       address: currentOutlet?.address ?? null,
@@ -267,7 +269,13 @@ async function bundleData(ctx) {
         date,
       );
     }
-    if (!daily && s.routeId && s.routeCode)
+    if (
+      !daily &&
+      !s.dailyRouteId &&
+      dateOf(p.service_date) === date &&
+      s.routeId &&
+      s.routeCode
+    )
       routeRows.set(s.routeId, { id: s.routeId, code: s.routeCode });
   }
   // F-205: cache the assigned territory universe, not only planned stops, for genuinely off-route calls.

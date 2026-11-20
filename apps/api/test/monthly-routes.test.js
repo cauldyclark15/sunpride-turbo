@@ -247,26 +247,28 @@ test("real signed Field download gets MCP stops, today's dated header and each d
   expect(
     (await bind(h, tokens.accessToken, deviceId, key)).body.bindingStatus,
   ).toBe("bound");
-  const { res, body } = await signedPost(
-    h,
-    { access: tokens.accessToken, deviceId, key },
-    "/api/sync/pull",
-    {
-      version: 2,
-      app: "field-android",
-      deviceId,
-      since: null,
-      pageCursor: null,
-      scopes: [
-        {
-          scopeId: unit.id,
-          projection: "field.bundle",
-          params: { dayFrom: date },
-        },
-      ],
-      limit: 100,
-    },
-  );
+  const download = () =>
+    signedPost(
+      h,
+      { access: tokens.accessToken, deviceId, key },
+      "/api/sync/pull",
+      {
+        version: 2,
+        app: "field-android",
+        deviceId,
+        since: null,
+        pageCursor: null,
+        scopes: [
+          {
+            scopeId: unit.id,
+            projection: "field.bundle",
+            params: { dayFrom: date },
+          },
+        ],
+        limit: 100,
+      },
+    );
+  const { res, body } = await download();
   expect({
     status: res.status,
     error: res.status === 200 ? null : body,
@@ -280,8 +282,28 @@ test("real signed Field download gets MCP stops, today's dated header and each d
   expect(
     data.outlets.find((/** @type {any} */ o) => o.id === stores[0].id).name,
   ).toBe("Sample store 0");
-  if (data.plannedVisits.length > 2)
+  expect(
+    data.outlets.find((/** @type {any} */ o) => o.id === stores[0].id).routeId,
+  ).toBe(legacy.id);
+  expect(
+    data.outlets.find((/** @type {any} */ o) => o.id === stores[1].id).routeId,
+  ).toBeNull();
+  if (data.plannedVisits.length > 2) {
     expect(data.plannedVisits[2].agenda.beat).not.toContain("Route 001");
+    // Future stops stay available, but cannot supply today's route on a day off.
+    await h.db`update planned_visits set status='cancelled' where plan_id=${plan._id} and service_date=${date}::date`;
+    try {
+      const fence = await download();
+      expect(fence.res.status).toBe(409);
+      expect(fence.body.error.code).toBe("rebootstrap_required");
+      const futureOnly = await download();
+      expect(futureOnly.res.status).toBe(200);
+      expect(futureOnly.body.bundles[0].data.plannedVisits).toHaveLength(1);
+      expect(futureOnly.body.bundles[0].data.route).toBeNull();
+    } finally {
+      await h.db`update planned_visits set status='planned' where plan_id=${plan._id} and service_date=${date}::date`;
+    }
+  }
 });
 
 test("weekly revisions need re-approval, retain earlier route history and count retained month prefixes", async () => {
@@ -297,7 +319,18 @@ test("weekly revisions need re-approval, retain earlier route history and count 
   await run(
     sales,
     "plans/saveOutlets",
-    { planId: p._id, outlets: roster() },
+    {
+      planId: p._id,
+      outlets: roster().map((o, i) =>
+        i === 0
+          ? {
+              ...o,
+              frequency: "custom",
+              customLocalDates: ["2030-11-08", week.weekStart],
+            }
+          : o,
+      ),
+    },
     clock,
   );
   await run(
