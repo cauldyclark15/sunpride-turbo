@@ -1023,6 +1023,21 @@ describe("Phones admin", () => {
       args: { paginationOpts: { numItems: 25, cursor: null } },
     });
   });
+  it("keeps the phone list full-width and long codes available without wrapping", () => {
+    const inventoryTag = "SAMPLE-PHONE-" + "0123456789abcdef".repeat(8);
+    state.values["mobile/devices:list"] = {
+      page: [{ ...device, inventoryTag }],
+      continueCursor: "",
+      isDone: true,
+    };
+    const view = html(createElement(DevicesAdmin));
+    expect(view).toContain('class="grid min-w-0 grid-cols-1 gap-4"');
+    expect(view).not.toContain("xl:grid-cols");
+    expect(view).toContain(`title="${inventoryTag}"`);
+    expect(view).toContain(`aria-label="Copy phone code ${inventoryTag}"`);
+    expect(view).toContain("min-w-0 flex-1 truncate font-mono text-sm");
+    expect(view).toContain("Phone pages");
+  });
   it("shows what reached the server, what did not, and the audit history", () => {
     state.selectedOverride = deviceId;
     state.values["mobile/devices:list"] = {

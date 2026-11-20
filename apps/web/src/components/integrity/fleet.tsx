@@ -5,6 +5,7 @@ import { formatDateTime } from "../../lib/format";
 import { usePermissions } from "../../lib/auth";
 import { CompanyIdentity } from "./identity";
 import { AppReleases } from "./app-releases";
+import { PhoneCode } from "../phone-code";
 
 type Device = {
   id: string;
@@ -557,13 +558,14 @@ export function WaitingPhones() {
             key={w.id}
             className="flex flex-wrap items-start justify-between gap-3 border-t border-border pt-3"
           >
-            <div>
+            <div className="min-w-0 flex-1 basis-64">
               <p className="font-medium">
                 {w.person} · {appName(w.app)}
               </p>
-              <p className="text-sm">
-                Phone code <span className="font-mono">{w.phoneCode}</span>
-              </p>
+              <div className="mt-1 max-w-sm">
+                <p className="text-xs text-muted">Phone code</p>
+                <PhoneCode value={w.phoneCode} />
+              </div>
               <p className="text-xs text-muted">Asked {when(w.requestedAt)}</p>
             </div>
             <div className="flex flex-wrap gap-2">

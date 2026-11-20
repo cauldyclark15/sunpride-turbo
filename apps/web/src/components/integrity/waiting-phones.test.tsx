@@ -46,6 +46,14 @@ it("SP-0174 Setup > Phones lists phones waiting to be registered with Register a
   );
 });
 
+it("keeps waiting phone codes on one line with the full value on hover and Copy", () => {
+  const html = renderToStaticMarkup(createElement(WaitingPhones));
+  expect(html).toContain('title="AB12 CD34 EF56 7890"');
+  expect(html).toContain('aria-label="Copy phone code AB12 CD34 EF56 7890"');
+  expect(html).toContain("min-w-0 flex-1 truncate font-mono text-sm");
+  expect(html).toContain("min-w-0 flex-1 basis-64");
+});
+
 it("SP-0178 Register refreshes Setup > Phones (the setup device list), not only the waiting list", () => {
   expect(WAITING_PHONE_INVALIDATE).toEqual(
     expect.arrayContaining([["integrity"], ["setup"]]),

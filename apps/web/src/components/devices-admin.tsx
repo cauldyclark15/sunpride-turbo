@@ -20,6 +20,7 @@ import { AdminSelectField } from "./org-admin";
 import { SetupSearch } from "./master-data/setup-health";
 import { StorePosAdmin } from "./storepos/storepos-admin";
 import { WaitingPhones } from "./integrity/fleet";
+import { PhoneCode } from "./phone-code";
 
 export type DeviceAction = "suspend" | "revoke" | "reinstate";
 type DeviceStatus = "active" | "suspended" | "revoked";
@@ -236,12 +237,15 @@ export function DevicesAdmin() {
       key: "phone",
       label: "Phone",
       render: (row) => (
-        <span className="block">
-          <span className="block font-mono text-sm">{row.inventoryTag}</span>
-          <span className="block text-xs text-muted">
+        <div className="min-w-40 max-w-64">
+          <PhoneCode value={row.inventoryTag} />
+          <span
+            className="mt-1 block truncate text-xs text-muted"
+            title={`${row.platform} · ${row.model}`}
+          >
             {row.platform} · {row.model}
           </span>
-        </span>
+        </div>
       ),
     },
     {
@@ -290,7 +294,7 @@ export function DevicesAdmin() {
   return (
     <div className="grid gap-4">
       <WaitingPhones />
-      <div className="grid gap-4 xl:grid-cols-[minmax(0,1fr)_400px]">
+      <div className="grid min-w-0 grid-cols-1 gap-4">
         <Card
           label="Phones"
           icon={<WorkspaceIcon name="mobile" />}
@@ -353,11 +357,12 @@ export function DevicesAdmin() {
           report === undefined || !device ? (
             <Card label="Phone">Loading phone…</Card>
           ) : (
-            <Card label={`Phone ${device.inventoryTag}`}>
+            <Card label="Phone details">
               <aside
                 aria-label="Phone detail"
                 className="grid min-w-0 grid-cols-1 gap-4"
               >
+                <PhoneCode value={device.inventoryTag} />
                 <p className="text-[13px] text-muted">
                   {device.employeeName ?? "Unassigned"} · {device.platform}{" "}
                   {device.osVersion} · app {device.appVersion}
