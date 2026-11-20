@@ -2,6 +2,7 @@ import { tx } from "@sunpride/db/client";
 import { ORG_LOCK } from "./identity.js";
 import { activeAt, get, history, ms, update } from "./model.js";
 import { personAt } from "./scope.js";
+import { appModeRoleChange } from "../van/selling.js";
 
 /** Materialized columns serve direct-table readers; authorization always reads effective edges.
  * @param {any} platform
@@ -42,12 +43,7 @@ export function installOrgJobs(platform) {
             org_unit_id: effective.org_unit_id,
             position_id: effective.position_id,
             supervisor_subject: supervisor?.auth_subject,
-            // SP-0194: Truck selling is for Sales people only (same rule as people/assign).
-            ...(effective.role !== "sales" &&
-            effective.role !== "super_admin" &&
-            row.app_mode === "selling"
-              ? { app_mode: "visits", selling: false }
-              : {}),
+            ...appModeRoleChange(row, effective.role),
           });
         }
         await update(t, payload.table, row.id, values);

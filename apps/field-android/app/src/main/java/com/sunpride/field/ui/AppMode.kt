@@ -19,10 +19,10 @@ enum class AppMode(val wire: String, val label: String, val line: String) {
 
 /**
  * The office's App mode for this person ([mode]) and the modes they may switch between on the phone ([modes]; more than
- * one only for the owner). Read from the Field app's own `/api/me`.
+ * one when the office enabled several). Read from the Field app's own `/api/me`.
  */
 data class AppModes(val mode: AppMode, val modes: List<AppMode> = listOf(mode)) {
-    /** The owner's Switch mode shows only when there is something to switch to. */
+    /** Switch mode shows only when there is something to switch to. */
     val canSwitch: Boolean get() = modes.size > 1
 
     /**

@@ -1166,7 +1166,7 @@ class LiveFieldBackend(
     override fun sellingEnabled(): Boolean = auth.isSignedIn && sessionKey()?.let { prefs.getBoolean("$it.selling", false) } == true
     override fun appModes(): AppModes =
         AppModes.decode(if (auth.isSignedIn) sessionKey()?.let { prefs.getString("$it.appModes", null) } else null, sellingEnabled())
-    /** The owner's choice is remembered per person on this phone, across sign-ins. */
+    /** The choice is remembered per person on this phone, across sign-ins. */
     private fun modeChoiceKey(): String? = sessionKey()?.let { prefs.getString("$it.personId", null) }
         ?.takeIf { it.isNotBlank() }?.let { "modeChoice.$it" }
     override fun appModeChoice(): AppMode? = modeChoiceKey()?.let { AppMode.fromWire(prefs.getString(it, null)) }
@@ -1344,7 +1344,7 @@ class FieldController(
         if (!mustChangePassword) ++sessionGeneration // retire in-flight Today/sync reads
         mustChangePassword = true
         busy = false; syncMessage = null
-        today = TodayData(); selling = false; sellsNow = false; appModes = AppModes(AppMode.VISITS); modeChoice = null; mappingSaves = emptyList(); retireSuggestedOrder()
+        today = TodayData(); selling = false; sellsNow = false; appModes = AppModes(AppMode.VISITS); modeChoice = null; modeChoiceConfirmed = false; mappingSaves = emptyList(); retireSuggestedOrder()
         resetPasswordForm()
     }
     var busy by mutableStateOf(false); private set
@@ -1362,18 +1362,23 @@ class FieldController(
     var selling by mutableStateOf(false); private set
     /** SP-0195: the office's App mode for this person (and, for the owner, the modes to switch between). */
     var appModes by mutableStateOf(AppModes(AppMode.VISITS)); private set
-    /** SP-0195: the owner's Switch mode choice on this phone (UI only). */
+    /** Last chosen enabled mode, kept per person on this phone. */
     var modeChoice by mutableStateOf<AppMode?>(null); private set
     private var sellsNow = false
+    private var modeChoiceVersion = 0L
+    private var modeChoiceConfirmed by mutableStateOf(false)
     /** SP-0195: the mode the phone shows: its tabs, its Home, and whether any Sell work runs. */
     val appMode: AppMode get() = appModes.effective(modeChoice, sellsNow)
-    /** SP-0195: the owner's Switch mode (More). Kept on this phone; only changes what the phone shows. */
+    /** Sign-in offers the remembered choice; removed choices ask again. Single-mode people continue unchanged. */
+    val needsModeChoice: Boolean get() = appModes.canSwitch && (!modeChoiceConfirmed || modeChoice !in appModes.modes)
+    /** More > Switch mode. No work is deleted; SharedPreferences applies disk writes asynchronously. */
     fun switchMode(mode: AppMode) {
-        if (mode !in appModes.modes) return
-        modeChoice = if (mode == appModes.mode) null else mode
+        if (state !is EnrollmentState.Ready || mode !in appModes.modes) return
+        ++modeChoiceVersion
+        modeChoiceConfirmed = true
+        modeChoice = mode
         selling = sellsNow && appMode == AppMode.SELLING
-        val keep = modeChoice
-        scope.launch(io) { runCatching { backend.saveAppModeChoice(keep) } }
+        runCatching { backend.saveAppModeChoice(mode) }
     }
     /** SP-0195: Add customer saves on this phone for the Customer mapping Home (re-read after a save or a sync). */
     var mappingSaves by mutableStateOf<List<com.sunpride.field.ui.mapping.MappingSave>>(emptyList()); private set
@@ -2020,13 +2025,16 @@ class FieldController(
         if (mustChangePassword) return // SP-0186: nothing loads or syncs until the new password is set
         val loaded = ensureKey()
         val generation = sessionGeneration
+        val choiceVersion = modeChoiceVersion
         try {
             val value = withContext(io) { backend.today(ready.deviceId, loaded, sync) }
             val sells = withContext(io) { backend.sellingEnabled() }
             val modes = withContext(io) { runCatching { backend.appModes() }.getOrDefault(AppModes.fallback(sells)) }
             val choice = withContext(io) { runCatching { backend.appModeChoice() }.getOrNull() }
             if (generation == sessionGeneration && state == ready) {
-                today = value; appModes = modes; modeChoice = choice; sellsNow = sells && !value.partnerMode
+                today = value; appModes = modes
+                modeChoice = (if (choiceVersion == modeChoiceVersion) choice else modeChoice)?.takeIf { it in modes.modes }
+                sellsNow = sells && !value.partnerMode
                 // SP-0195: Sell work runs only in Truck selling (SP-0192: and only with the office's Selling switch).
                 selling = sellsNow && appMode == AppMode.SELLING
             }
@@ -2100,7 +2108,7 @@ class FieldController(
     }
     /** FLD-014/171: Sign in with the reason; [today] is reset only in memory (the encrypted store is untouched). */
     private fun sessionEnded(e: AuthFailure) {
-        ++sessionGeneration; state = EnrollmentState.SignedOut; today = TodayData(); selling = false; sellsNow = false; appModes = AppModes(AppMode.VISITS); modeChoice = null; mappingSaves = emptyList(); error = userMessage(e)
+        ++sessionGeneration; state = EnrollmentState.SignedOut; today = TodayData(); selling = false; sellsNow = false; appModes = AppModes(AppMode.VISITS); modeChoice = null; modeChoiceConfirmed = false; mappingSaves = emptyList(); error = userMessage(e)
         busy = false; syncMessage = null
         mustChangePassword = false; temporaryPassword = null
         retireSuggestedOrder()
@@ -2150,7 +2158,7 @@ class FieldController(
         sessionGeneration++ // retire pending cache/enrollment reads before fallible teardown
         busy = true; syncMessage = null
         runCatching { withContext(io) { backend.signOut() } }
-        state = EnrollmentState.SignedOut; today = TodayData(); selling = false; sellsNow = false; appModes = AppModes(AppMode.VISITS); modeChoice = null; mappingSaves = emptyList(); error = null; busy = false
+        state = EnrollmentState.SignedOut; today = TodayData(); selling = false; sellsNow = false; appModes = AppModes(AppMode.VISITS); modeChoice = null; modeChoiceConfirmed = false; mappingSaves = emptyList(); error = null; busy = false
         mustChangePassword = false; temporaryPassword = null
         team = com.sunpride.field.ui.team.TeamView(); teamDirectOnly = true
         retireSuggestedOrder()

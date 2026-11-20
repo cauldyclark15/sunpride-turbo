@@ -581,6 +581,11 @@ test("SP-0194 the Field app's /api/me carries profile.appMode and profile.modes 
       expect(p.modes).toEqual([mode]);
       expect(p.selling).toBe(selling);
     }
+    // SP-0219: a regular Sales person receives every office-enabled mode in the real signed-in response.
+    await h.db`update profiles set app_modes=array['visits','selling'],scope_epoch=scope_epoch+1 where id=${id}`;
+    const multi = await me(seller);
+    expect(multi.modes).toEqual(["visits", "selling"]);
+    expect(multi.selling).toBe(true);
     // A stored Truck selling mode for someone who is no longer Sales reads as Field visits, never Sell.
     await h.db`update profiles set role='viewer' where id=${id}`;
     const viewer = await me(seller);

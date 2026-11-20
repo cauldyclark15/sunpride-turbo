@@ -25,21 +25,42 @@ export const APP_MODES = /** @type {const} */ ([
   "selling",
 ]);
 
-/** The mode the phone should show for a profile row. A stored `selling` mode only counts while the Selling rule above
- * says this person sells (a Sales person moved to another role falls back to Field visits, today's app minus Sell);
- * an unknown value reads as the default. super_admin keeps the stored value (they may switch on the phone).
- * @param {{app_mode?: unknown, selling?: unknown, role?: unknown}|null|undefined} p
- * @returns {"mapping"|"visits"|"selling"} */
-export function appModeFor(p) {
-  const stored = APP_MODES.find((m) => m === p?.app_mode) ?? "mapping";
-  if (stored === "selling" && !sellingFor(p)) return "visits";
-  return stored;
+/** Enabled modes, in menu order. Selling remains Sales-only (the owner keeps all modes).
+ * @param {{app_mode?: unknown, app_modes?: unknown, selling?: unknown, role?: unknown}|null|undefined} p
+ * @returns {("mapping"|"visits"|"selling")[]} */
+export function appModesFor(p) {
+  if (p?.role === "super_admin") return [...APP_MODES];
+  const stored = Array.isArray(p?.app_modes)
+    ? p.app_modes
+    : [p?.app_mode ?? "mapping"];
+  const modes = APP_MODES.filter(
+    (m) => stored.includes(m) && (m !== "selling" || sellingFor(p)),
+  );
+  return modes.length
+    ? modes
+    : [stored.includes("selling") ? "visits" : "mapping"];
 }
 
-/** Modes this person may use on the phone: every mode for super_admin, otherwise just their one mode.
- * @param {{app_mode?: unknown, selling?: unknown, role?: unknown}|null|undefined} p */
-export const appModesFor = (p) =>
-  p?.role === "super_admin" ? [...APP_MODES] : [appModeFor(p)];
+/** Legacy default, constrained to the person's currently enabled modes.
+ * @param {{app_mode?: unknown, app_modes?: unknown, selling?: unknown, role?: unknown}|null|undefined} p
+ * @returns {"mapping"|"visits"|"selling"} */
+export function appModeFor(p) {
+  const modes = appModesFor(p);
+  return modes.find((m) => m === p?.app_mode) ?? modes[0];
+}
+
+/** Remove Truck selling on an effective role change, preserving every other enabled mode.
+ * @param {{app_mode?: unknown, app_modes?: unknown, selling?: unknown, role?: unknown}} p
+ * @param {string} role */
+export function appModeRoleChange(p, role) {
+  if (role === "sales" || role === "super_admin") return {};
+  const modes = appModesFor({ ...p, role });
+  return {
+    app_modes: modes,
+    app_mode: appModeFor({ ...p, role }),
+    selling: false,
+  };
+}
 
 /** Is Selling effective for this person right now? @param {any} db @param {string|null|undefined} profileId */
 export async function sellingOn(db, profileId) {
@@ -53,7 +74,7 @@ export async function sellingOn(db, profileId) {
  * @param {any} db @param {string|null|undefined} profileId */
 export async function fieldAppProfile(db, profileId) {
   const [p] = profileId
-    ? await db`select selling,role,app_mode from profiles where id=${profileId} and deleted_at is null`
+    ? await db`select selling,role,app_mode,app_modes from profiles where id=${profileId} and deleted_at is null`
     : [];
   return {
     selling: sellingFor(p),

@@ -21,6 +21,7 @@ class AppModeControllerTest {
         var selling = false
         var modes: AppModes? = null
         var choice: AppMode? = null
+        var onChoiceRead: (() -> Unit)? = null
         var saves = listOf<MappingSave>()
         override val isSignedIn get() = signedIn
         override fun loadSigner(): DeviceSigner = JcaDeviceSigner(CryptoVectors.privateKey, CryptoVectors.publicKey, KeyProtection.STRONGBOX)
@@ -30,7 +31,7 @@ class AppModeControllerTest {
         override fun today(deviceId: String, signer: DeviceSigner, sync: Boolean) = TodayData(lastSynced = 1, stale = false)
         override fun sellingEnabled() = selling
         override fun appModes(): AppModes = modes ?: super.appModes()
-        override fun appModeChoice() = choice
+        override fun appModeChoice(): AppMode? { val got = choice; onChoiceRead?.invoke(); return got }
         override fun saveAppModeChoice(mode: AppMode?) { choice = mode }
         override fun mappingSaves() = saves
     }
@@ -79,7 +80,7 @@ class AppModeControllerTest {
         assertEquals("the choice survives a refresh", AppMode.MAPPING, c.appMode)
         c.switchMode(AppMode.SELLING)
         assertTrue(c.selling)
-        assertEquals("back on the office's mode: nothing remembered", null, b.choice)
+        assertEquals("the default choice is remembered too", AppMode.SELLING, b.choice)
     }
 
     @Test fun aSalesmanCannotSwitchToAModeTheOfficeDidNotGive() = run { c, b ->
@@ -88,6 +89,48 @@ class AppModeControllerTest {
         c.switchMode(AppMode.SELLING)
         assertEquals(AppMode.MAPPING, c.appMode)
         assertEquals(null, b.choice)
+    }
+
+    @Test fun multipleModesOfferTheRememberedDefaultAfterSignIn() = run { c, b ->
+        b.selling = true; b.modes = AppModes(AppMode.VISITS, listOf(AppMode.VISITS, AppMode.SELLING))
+        c.signIn("a@example.test", "fake").join()
+        assertTrue(c.needsModeChoice)
+        c.switchMode(AppMode.VISITS)
+        assertFalse(c.needsModeChoice)
+        assertEquals(AppMode.VISITS, b.choice)
+        c.signOut().join()
+        c.signIn("a@example.test", "fake").join()
+        assertEquals(AppMode.VISITS, c.appMode)
+        assertTrue("sign-in offers the remembered choice", c.needsModeChoice)
+        c.switchMode(AppMode.SELLING)
+        assertFalse(c.needsModeChoice)
+        assertTrue(c.selling)
+        c.syncNow().join()
+        assertEquals(AppMode.SELLING, c.appMode)
+        b.selling = false; b.modes = AppModes(AppMode.MAPPING, listOf(AppMode.MAPPING, AppMode.VISITS))
+        c.syncNow().join()
+        assertTrue("removed choice asks again", c.needsModeChoice)
+        assertFalse(c.selling)
+        assertEquals(AppMode.MAPPING, c.appMode)
+        c.switchMode(AppMode.SELLING)
+        assertEquals(AppMode.MAPPING, c.appMode)
+    }
+
+    @Test fun aRefreshCannotUndoANewerChoice() = run { c, b ->
+        b.selling = true; b.modes = AppModes(AppMode.VISITS, listOf(AppMode.VISITS, AppMode.SELLING))
+        b.choice = AppMode.VISITS
+        c.signIn("a@example.test", "fake").join()
+        b.onChoiceRead = { b.onChoiceRead = null; c.switchMode(AppMode.SELLING) }
+        c.syncNow().join()
+        assertEquals(AppMode.SELLING, c.appMode)
+        assertEquals(AppMode.SELLING, b.choice)
+        assertTrue(c.selling)
+    }
+
+    @Test fun singleModeDoesNotAskForAChoice() = run { c, b ->
+        b.modes = AppModes(AppMode.MAPPING)
+        c.signIn("a@example.test", "fake").join()
+        assertFalse(c.needsModeChoice)
     }
 
     @Test fun mappingHomeReadsTheSavesOnThisPhoneAndSignOutClearsThem() = run { c, b ->

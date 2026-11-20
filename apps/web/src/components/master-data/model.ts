@@ -32,10 +32,11 @@ export type Person = Base & {
   phone?: string;
   positionId?: string;
   supervisorSubject?: string;
-  /** SP-0191: sells from the truck in the Field app (only Sales people). Kept equal to appMode === "selling". */
+  /** Sells from the truck in the Field app (Sales only); true when Truck selling is enabled. */
   selling?: boolean;
   /** SP-0194: the Field app mode the office picked (Customer mapping is the default). */
   appMode?: "mapping" | "visits" | "selling";
+  appModes?: ("mapping" | "visits" | "selling")[];
   effectiveFrom?: number;
   updatedAt?: number;
 };
@@ -448,17 +449,11 @@ export type CommandMap = {
   "people/revoke": { invitationId: string };
   "people/resend-invitation": { invitationId: string };
   "people/selling": { profileId: string; selling: boolean; reason?: string };
-  "people/app-mode":
-    | {
-        profileId: string;
-        mode: "mapping" | "visits" | "selling";
-        reason?: string;
-      }
-    | {
-        profileIds: string[];
-        mode: "mapping" | "visits" | "selling";
-        reason?: string;
-      };
+  "people/app-mode": ({ profileId: string } | { profileIds: string[] }) &
+    (
+      | { modes: ("mapping" | "visits" | "selling")[] }
+      | { mode: "mapping" | "visits" | "selling" }
+    ) & { reason?: string };
   "org/teams/create": Future & {
     code: string;
     name: string;

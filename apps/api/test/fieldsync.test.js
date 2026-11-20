@@ -676,6 +676,14 @@ describe("location work/consent boundary and retention", () => {
     expect(visits.res.status).toBe(200);
     expect(visits.body.bundles[0].data.employee.appMode).toBe("visits");
     expect(visits.body.bundles[0].data.employee.selling).toBe(false);
+    await h.db`update profiles set app_modes=array['visits','selling'],scope_epoch=scope_epoch+1 where id=${who.profile.id}`;
+    const multi = await pull();
+    expect(multi.res.status).toBe(200);
+    expect(multi.body.bundles[0].data.employee.modes).toEqual([
+      "visits",
+      "selling",
+    ]);
+    expect(multi.body.bundles[0].data.employee.selling).toBe(true);
     // A stored Truck selling mode never shows for someone the Selling rule says does not sell.
     await h.db`update profiles set role='manager',selling=true,app_mode='selling',scope_epoch=scope_epoch+1 where id=${who.profile.id}`;
     const { appModeFor } = await import("../src/domains/van/selling.js");

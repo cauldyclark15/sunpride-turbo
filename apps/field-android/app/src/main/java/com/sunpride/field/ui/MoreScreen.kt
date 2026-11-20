@@ -94,11 +94,12 @@ private fun Group(title: String, content: @Composable () -> Unit) {
 @Composable
 private fun Rule() = HorizontalDivider(Modifier.padding(start = 68.dp), color = Look.hairline.copy(alpha = 0.7f))
 
-/** SP-0195: the owner picks which mode this phone shows. Only the screens change; nothing is sent to the office. */
+/** Choose only from the office-enabled modes. Initial choice cannot be dismissed without picking. */
 @Composable
-private fun SwitchModeDialog(modes: List<AppMode>, current: AppMode?, onPick: (AppMode) -> Unit, onDismiss: () -> Unit) {
+internal fun SwitchModeDialog(modes: List<AppMode>, current: AppMode?, onPick: (AppMode) -> Unit, onDismiss: () -> Unit,
+    required: Boolean = false) {
     androidx.compose.material3.AlertDialog(onDismissRequest = onDismiss, modifier = Modifier.testTag("switch-mode-dialog"),
-        title = { Text("Switch mode", style = MaterialTheme.typography.titleMedium) },
+        title = { Text(if (required) "Choose app mode" else "Switch mode", style = MaterialTheme.typography.titleMedium) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                 modes.forEach { m ->
@@ -107,6 +108,6 @@ private fun SwitchModeDialog(modes: List<AppMode>, current: AppMode?, onPick: (A
                 }
             }
         },
-        confirmButton = { androidx.compose.material3.TextButton(onClick = onDismiss,
+        confirmButton = { if (!required) androidx.compose.material3.TextButton(onClick = onDismiss,
             modifier = Modifier.testTag("switch-mode-cancel")) { Text("Cancel") } })
 }

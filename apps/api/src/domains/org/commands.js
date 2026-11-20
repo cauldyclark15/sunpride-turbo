@@ -32,6 +32,7 @@ import {
 } from "./scope.js";
 import { access } from "./readers.js";
 import { writeAudit } from "./audit.js";
+import { APP_MODES, appModesFor, appModeRoleChange } from "../van/selling.js";
 
 /** @typedef {import('./model.js').Ctx} Ctx */
 /** @typedef {import('./model.js').Row} Row */
@@ -273,10 +274,7 @@ export async function assignPerson(c, b) {
       position_id: b.positionId ?? target.position_id,
       supervisor_subject: supervisor?.auth_subject,
       effective_from: instant(from),
-      // SP-0194: Truck selling is for Sales people only; someone moved to another role keeps Field visits.
-      ...(role !== "sales" && target.app_mode === "selling"
-        ? { app_mode: "visits", selling: false }
-        : {}),
+      ...appModeRoleChange(target, role),
     });
   await update(c.db, "profiles", target.id, projection);
   return null;
@@ -303,8 +301,21 @@ export async function setSelling(c, b) {
     : b.selling
       ? "Selling switched on"
       : "Selling switched off";
+  const previous = appModesFor(target);
+  const modes = b.selling
+    ? previous.length === 1
+      ? [/** @type {const} */ ("selling")]
+      : APP_MODES.filter((m) => m === "selling" || previous.includes(m))
+    : previous.filter((m) => m !== "selling");
+  if (!modes.length) modes.push("visits");
+  const mode =
+    b.selling && previous.length === 1
+      ? "selling"
+      : modes.includes(target.app_mode)
+        ? target.app_mode
+        : modes[0];
   const [row] =
-    await c.db`update profiles set selling=${b.selling},app_mode=${b.selling ? "selling" : target.app_mode === "selling" ? "visits" : (target.app_mode ?? "mapping")},scope_epoch=scope_epoch+1,updated_at=now() where id=${target.id} returning selling`;
+    await c.db`update profiles set selling=${b.selling},app_mode=${mode},app_modes=${c.db.array(modes, "TEXT")},scope_epoch=scope_epoch+1,updated_at=now() where id=${target.id} returning selling`;
   return { profileId: target.id, selling: row.selling };
 }
 
@@ -316,16 +327,27 @@ export const APP_MODE_LABELS = /** @type {const} */ ({
 });
 export const APP_MODE_BULK_MAX = 200;
 
-/** SP-0194: Setup > People "App mode" for one person ({profileId, mode}) or many ({profileIds, mode}, up to 200).
- * Admin-only (admin.manage; the wrapper checks it and audits). Only active people; Truck selling only for Sales;
- * the owner (super_admin) always has every mode; nobody changes their own. Keeps `selling` = (mode is selling)
- * for old phone builds and bumps scope_epoch so the phone refreshes. All or nothing.
+/** Setup > People "App mode": a nonempty modes set for one person or up to 200 people.
+ * Legacy {mode} requests still replace the set with a single mode. Admin-only, active people only;
+ * Truck selling is Sales-only; the owner keeps every mode; nobody changes their own permissions.
+ * Keeps Selling aligned with the enabled set and bumps scope_epoch. All or nothing.
  * @param {Ctx} c @param {Row} b */
 export async function setAppMode(c, b) {
   const actor = /** @type {NonNullable<Ctx['actor']>} */ (c.actor);
-  const mode = /** @type {keyof typeof APP_MODE_LABELS} */ (b.mode);
-  if (!Object.hasOwn(APP_MODE_LABELS, mode))
-    rule("Choose Customer mapping, Field visits or Truck selling");
+  if (b.modes !== undefined && b.mode !== undefined)
+    rule("Choose modes or a single mode, not both");
+  const requested = b.modes === undefined ? [b.mode] : b.modes;
+  if (
+    !Array.isArray(requested) ||
+    !requested.length ||
+    requested.length > APP_MODES.length ||
+    requested.some((m) => !APP_MODES.includes(m)) ||
+    new Set(requested).size !== requested.length
+  )
+    rule(
+      "Choose one or more of Customer mapping, Field visits or Truck selling",
+    );
+  const modes = APP_MODES.filter((m) => requested.includes(m));
   const bulk = b.profileIds !== undefined;
   if (bulk && b.profileId !== undefined)
     rule("Choose one person or a list of people");
@@ -348,20 +370,21 @@ export async function setAppMode(c, b) {
       rule(`${who} is the owner and already has every app mode`);
     if (target.status !== "active")
       rule(`${who} is not active, so their app mode cannot change`);
-    if (mode === "selling" && target.role !== "sales")
+    if (modes.includes("selling") && target.role !== "sales")
       rule(`Only Sales people can use Truck selling (${who})`);
   }
-  const label = APP_MODE_LABELS[mode];
+  const label = modes.map((m) => APP_MODE_LABELS[m]).join(", ");
   b.reason = b.reason
     ? required(b.reason, "Reason")
     : bulk
       ? `App mode set to ${label} for ${targets.length} ${targets.length === 1 ? "person" : "people"}`
       : `App mode set to ${label}`;
-  /** @type {{profileId: string, appMode: string, selling: boolean}[]} */
+  /** @type {{profileId: string, appMode: string, appModes: string[], selling: boolean}[]} */
   const people = [];
   for (const target of targets) {
+    const mode = modes.includes(target.app_mode) ? target.app_mode : modes[0];
     const [row] =
-      await c.db`update profiles set app_mode=${mode},selling=${mode === "selling"},scope_epoch=scope_epoch+1,updated_at=now() where id=${target.id} returning id,app_mode,selling`;
+      await c.db`update profiles set app_mode=${mode},app_modes=${c.db.array(modes, "TEXT")},selling=${modes.includes("selling")},scope_epoch=scope_epoch+1,updated_at=now() where id=${target.id} returning id,app_mode,app_modes,selling`;
     // The wrapper audits a single change against the person; a bulk change gets one row per person here too.
     if (bulk)
       await writeAudit(c.db, {
@@ -374,10 +397,13 @@ export async function setAppMode(c, b) {
     people.push({
       profileId: row.id,
       appMode: row.app_mode,
+      appModes: row.app_modes,
       selling: row.selling,
     });
   }
-  return bulk ? { mode, people } : people[0];
+  return bulk
+    ? { ...(b.modes === undefined ? { mode: b.mode } : {}), modes, people }
+    : people[0];
 }
 
 /** @param {Ctx} c @param {'invite'|'revoke'} action @param {Row} b */

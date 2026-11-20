@@ -605,6 +605,7 @@ export function PeopleAdmin() {
               role: p.role,
               status: p.status,
               appMode: p.appMode,
+              appModes: p.appModes,
               selling: p.selling,
             }))}
             save={(args) => saveAppMode(args)}
@@ -637,13 +638,14 @@ export function PeopleAdmin() {
                 role: selected.role,
                 status: selected.status,
                 appMode: selected.appMode,
+                appModes: selected.appModes,
                 selling: selected.selling,
               }}
               canManage={canManage}
               save={async (args) => {
                 await saveAppMode(args);
                 setNotice(
-                  `${selected.name?.trim() || selected.email} now uses ${appModePill({ role: selected.role, appMode: args.mode })}.`,
+                  `${selected.name?.trim() || selected.email} now uses ${appModePill({ role: selected.role, appModes: args.modes })}.`,
                 );
               }}
             />

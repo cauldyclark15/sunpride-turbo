@@ -343,6 +343,9 @@ fun FieldApp(
     val barVisible = FieldNav.barVisible(ready, locked, controller.today.partnerMode, visitOpen, page) && !imeVisible && !sellFlow
     MaterialTheme(colorScheme = if (dark) SunprideTokens.darkColors else SunprideTokens.lightColors,
         shapes = SunprideTokens.shapes, typography = SunprideTokens.typography) {
+        if (ready && !locked && !controller.mustChangePassword && !controller.today.partnerMode && controller.needsModeChoice)
+            SwitchModeDialog(controller.appModes.modes, controller.appMode, onPick = controller::switchMode,
+                onDismiss = {}, required = true)
         Scaffold(contentWindowInsets = WindowInsets.safeDrawing, containerColor = MaterialTheme.colorScheme.background, topBar = {
             // SP-0147: Messages draws its own top bar (title, back, actions), so the app's bar steps aside there.
             // SP-0192: the Sell area draws its own selling header (title, sync badge), like the Van app's.

@@ -444,6 +444,7 @@ describe("people, invitations and teams", () => {
     expect(one.body).toEqual({
       profileId: sales.profileId,
       appMode: "visits",
+      appModes: ["visits"],
       selling: false,
     });
     const afterOne = await epoch(sales.profileId);
@@ -549,6 +550,137 @@ describe("people, invitations and teams", () => {
     ).toBe(422);
     await h.db`update profiles set app_mode='mapping',selling=false where id=${sales.profileId}`;
   });
+  test("SP-0219 enabled sets persist for one or many people; invalid or unauthorized bulk changes write nothing", async () => {
+    const a = await person("Multi Seller A", "sales", regionA.id);
+    const b = await person("Multi Seller B", "sales", regionA.id);
+    const read = async () =>
+      await h.db`select id,app_mode,app_modes,selling,scope_epoch from profiles where id in (${a.profileId},${b.profileId}) order by id`;
+    const set = (/** @type {any} */ body, who = admin) =>
+      call("people/app-mode", who, body);
+    const before = await read();
+    const result = await set({
+      profileIds: [a.profileId, b.profileId],
+      modes: ["selling", "visits"],
+    });
+    expect(result.status, JSON.stringify(result.body)).toBe(200);
+    expect(result.body.modes).toEqual(["visits", "selling"]);
+    for (const row of await read()) {
+      expect(row.app_modes).toEqual(["visits", "selling"]);
+      expect(row.app_mode).toBe("visits");
+      expect(row.selling).toBe(true);
+      expect(Number(row.scope_epoch)).toBe(
+        Number(
+          before.find((/** @type {any} */ p) => p.id === row.id).scope_epoch,
+        ) + 1,
+      );
+    }
+    const listed = await call("people/list?q=Multi Seller", admin);
+    expect(listed.body.page).toHaveLength(2);
+    expect(
+      listed.body.page.every(
+        (/** @type {any} */ p) =>
+          JSON.stringify(p.appModes) === JSON.stringify(["visits", "selling"]),
+      ),
+    ).toBe(true);
+    const saved = await read();
+    for (const modes of [[], ["visits", "visits"], ["truck"], "visits", null])
+      expect((await set({ profileId: a.profileId, modes })).status).toBe(422);
+    expect(
+      (
+        await set({
+          profileId: a.profileId,
+          mode: "visits",
+          modes: ["mapping"],
+        })
+      ).status,
+    ).toBe(422);
+    expect(
+      (
+        await set({
+          profileIds: [a.profileId, manager.profileId],
+          modes: ["visits", "selling"],
+        })
+      ).status,
+    ).toBe(422);
+    expect(
+      (
+        await set({
+          profileIds: [a.profileId, other.profileId],
+          modes: ["mapping", "visits"],
+        })
+      ).status,
+    ).toBe(403);
+    expect(
+      (
+        await set(
+          { profileId: a.profileId, modes: ["mapping", "visits"] },
+          manager,
+        )
+      ).status,
+    ).toBe(403);
+    expect(await read()).toEqual(saved);
+    const [audit] =
+      await h.db`select details from audit_logs where action='people.app-mode' and entity_id=${a.profileId} order by created_at desc limit 1`;
+    expect(audit.details).toContain("Field visits, Truck selling");
+    expect(
+      (
+        await set({
+          profileId: a.profileId,
+          modes: ["mapping", "visits", "selling"],
+        })
+      ).status,
+    ).toBe(200);
+    expect(
+      (
+        await call("people/assign", admin, {
+          profileId: a.profileId,
+          orgUnitId: regionA.id,
+          role: "viewer",
+          reason: "Office work",
+        })
+      ).status,
+    ).toBe(200);
+    const removed = (await read()).find(
+      (/** @type {any} */ p) => p.id === a.profileId,
+    );
+    expect(removed.app_modes).toEqual(["mapping", "visits"]);
+    expect(removed.selling).toBe(false);
+    // The old single-mode request still replaces the set.
+    expect(
+      (await set({ profileId: b.profileId, mode: "mapping" })).status,
+    ).toBe(200);
+    expect(
+      (await read()).find((/** @type {any} */ p) => p.id === b.profileId)
+        .app_modes,
+    ).toEqual(["mapping"]);
+  });
+  test("SP-0219 migration preserves existing single modes and new people keep mapping", async () => {
+    const sql = await Bun.file(
+      new URL(
+        "../../../packages/db/migrations/0835_profile_app_modes.sql",
+        import.meta.url,
+      ),
+    ).text();
+    const existing = await person("Existing mode", "sales", regionA.id);
+    await h.db`update profiles set app_mode='visits' where id=${existing.profileId}`;
+    try {
+      await h.db.begin(async (/** @type {any} */ t) => {
+        await t`drop trigger profiles_sync_app_modes on profiles`;
+        await t`drop function sync_profile_app_modes()`;
+        await t`alter table profiles drop column app_modes`;
+        await t.unsafe(sql);
+        const [row] =
+          await t`select app_mode,app_modes from profiles where id=${existing.profileId}`;
+        expect(row).toEqual({ app_mode: "visits", app_modes: ["visits"] });
+        const [fresh] =
+          await t`insert into profiles(auth_subject,name,email,role,status) values('new-mode','New','new-mode@test.invalid','sales','active') returning app_mode,app_modes`;
+        expect(fresh).toEqual({ app_mode: "mapping", app_modes: ["mapping"] });
+        throw new Error("rollback");
+      });
+    } catch (e) {
+      if (/** @type {Error} */ (e).message !== "rollback") throw e;
+    }
+  });
   test("SP-0194 migration backfill: Sales with Selling on and the owner get Truck selling; everyone else Customer mapping", async () => {
     const sql = await Bun.file(
       new URL(
@@ -560,6 +692,8 @@ describe("people, invitations and teams", () => {
     /** @type {any} */ let seen;
     try {
       await h.db.begin(async (/** @type {any} */ t) => {
+        await t`drop trigger profiles_sync_app_modes on profiles`;
+        await t`alter table profiles drop constraint profiles_app_modes_check`;
         await t`alter table profiles drop constraint profiles_app_mode_check`;
         await t`alter table profiles drop column app_mode`;
         await t`update profiles set selling=true where id in (${seller3.profileId}, ${manager.profileId})`;

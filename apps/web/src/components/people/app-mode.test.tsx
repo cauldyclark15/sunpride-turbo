@@ -10,6 +10,8 @@ import {
   appModePill,
   canPickAppMode,
   currentAppMode,
+  currentAppModes,
+  toggleAppMode,
 } from "./app-mode";
 
 /** SP-0194: Setup > People "App mode" (Customer mapping, Field visits, Truck selling). */
@@ -33,8 +35,26 @@ describe("App mode", () => {
       expect(view).toContain(mode.line);
     }
     expect(view).toMatch(/checked="" value="mapping"/);
-    expect(view).not.toContain('disabled=""');
+    expect(view).toContain('type="checkbox"');
     expect(view).not.toContain(SELLING_SALES_ONLY);
+  });
+  it("shows every enabled mode as a checkbox and lists both labels", () => {
+    const target = {
+      ...sales,
+      appMode: "visits",
+      appModes: ["visits", "selling"],
+    };
+    const view = html(
+      createElement(AppModeChoice, { target, canManage: true, save: vi.fn() }),
+    );
+    expect(view.match(/type="checkbox"/g)).toHaveLength(3);
+    expect(view).toMatch(/checked="" value="visits"/);
+    expect(view).toMatch(/checked="" value="selling"/);
+    expect(appModePill(target)).toBe("Field visits, Truck selling");
+    expect(currentAppModes({ ...target, role: "manager" })).toEqual(["visits"]);
+    expect(toggleAppMode(["visits"], "selling")).toEqual(["visits", "selling"]);
+    expect(toggleAppMode(["visits", "selling"], "visits")).toEqual(["selling"]);
+    expect(toggleAppMode(["visits"], "visits")).toEqual([]);
   });
   it("Truck selling is only for Sales people, and says why", () => {
     const view = html(
@@ -114,7 +134,7 @@ describe("Set app mode for many people", () => {
         onCancel: vi.fn(),
       }),
     );
-    expect(view).toContain("Pick the app mode for 3 people.");
+    expect(view).toContain("Pick one or more app modes for 3 people.");
     expect(view).toContain("1 person left out");
     expect(view).toContain(">Save<");
     expect(view).toContain(">Cancel<");

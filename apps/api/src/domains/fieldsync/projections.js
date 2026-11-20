@@ -38,7 +38,12 @@ import {
   uuid,
 } from "./model.js";
 import { customerMasterSummaries } from "../masters/customers.js";
-import { FIELD_APP, appModeFor, sellingFor } from "../van/selling.js";
+import {
+  FIELD_APP,
+  appModeFor,
+  appModesFor,
+  sellingFor,
+} from "../van/selling.js";
 
 /** @typedef {import('../../core/sync.js').ProjectionCtx} ProjectionCtx */
 /** SP-0197: most stores the owner's phone downloads, and the call-sheet lines / assortment items they
@@ -796,9 +801,11 @@ async function bundleData(ctx) {
             // SP-0194: the office's App mode for this person (mapping|visits|selling); old builds ignore it.
             appMode: appModeFor({
               app_mode: person.app_mode,
+              app_modes: person.app_modes,
               selling: person.selling,
               role: ctx.actor.role,
             }),
+            modes: appModesFor({ ...person, role: ctx.actor.role }),
           }
         : {}),
     },

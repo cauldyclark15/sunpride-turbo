@@ -35,6 +35,7 @@ export type AppModeTarget = {
   role: string;
   status: string;
   appMode?: string;
+  appModes?: string[];
   selling?: boolean;
 };
 
@@ -53,10 +54,30 @@ export function currentAppMode(
     : stored;
 }
 
-/** The small list pill: the owner has every mode. */
+/** Enabled modes, preserving old single-mode people. */
+export function currentAppModes(
+  p: Pick<AppModeTarget, "role" | "appMode" | "appModes" | "selling">,
+): AppMode[] {
+  if (p.role === "super_admin") return APP_MODES.map((m) => m.value);
+  const modes = APP_MODES.filter(
+    (m) =>
+      p.appModes?.includes(m.value) &&
+      (m.value !== "selling" || p.role === "sales"),
+  ).map((m) => m.value);
+  return modes.length ? modes : [currentAppMode(p)];
+}
+export const toggleAppMode = (modes: AppMode[], mode: AppMode) =>
+  APP_MODES.filter((m) =>
+    m.value === mode ? !modes.includes(mode) : modes.includes(m.value),
+  ).map((m) => m.value);
+
+/** The small list pill lists every enabled mode. */
 export const appModePill = (
-  p: Pick<AppModeTarget, "role" | "appMode" | "selling">,
-) => (p.role === "super_admin" ? OWNER_MODES : appModeLabel(currentAppMode(p)));
+  p: Pick<AppModeTarget, "role" | "appMode" | "appModes" | "selling">,
+) =>
+  p.role === "super_admin"
+    ? OWNER_MODES
+    : currentAppModes(p).map(appModeLabel).join(", ");
 
 /** Can this mode be picked for this person? Truck selling only for Sales; only active people change. */
 export function canPickAppMode(
@@ -76,7 +97,7 @@ function ModeRows({
   onPick,
 }: {
   name: string;
-  value: AppMode | null;
+  value: AppMode[];
   disabled: (mode: AppMode) => boolean;
   onPick: (mode: AppMode) => void;
 }) {
@@ -84,14 +105,14 @@ function ModeRows({
     <div className="grid gap-2">
       {APP_MODES.map((mode) => {
         const off = disabled(mode.value);
-        const on = value === mode.value;
+        const on = value.includes(mode.value);
         return (
           <label
             key={mode.value}
             className={`flex items-start gap-3 rounded-lg border p-3 ${on ? "border-foreground" : "border-border"} ${off ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:bg-default-soft"}`}
           >
             <input
-              type="radio"
+              type="checkbox"
               name={name}
               value={mode.value}
               checked={on}
@@ -112,7 +133,7 @@ function ModeRows({
   );
 }
 
-/** One person's App mode on their page. Picking a row saves it. */
+/** One person's enabled modes; Save applies the complete checkbox selection. */
 export function AppModeChoice({
   target,
   canManage,
@@ -120,22 +141,20 @@ export function AppModeChoice({
 }: {
   target: AppModeTarget;
   canManage: boolean;
-  save: (args: { profileId: string; mode: AppMode }) => Promise<unknown>;
+  save: (args: { profileId: string; modes: AppMode[] }) => Promise<unknown>;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
-  const [shown, setShown] = useState<AppMode | null>(null);
+  const [shown, setShown] = useState<AppMode[] | null>(null);
   const owner = target.role === "super_admin";
-  const value = shown ?? currentAppMode(target);
-  async function pick(mode: AppMode) {
-    if (pending || mode === value) return;
+  const value = shown ?? currentAppModes(target);
+  async function submit() {
+    if (pending || !value.length || !canManage) return;
     setPending(true);
     setError("");
-    setShown(mode);
     try {
-      await save({ profileId: target.profileId, mode });
+      await save({ profileId: target.profileId, modes: value });
     } catch (cause) {
-      setShown(null);
       setError(
         cause instanceof Error ? cause.message : "Could not save. Try again.",
       );
@@ -158,8 +177,25 @@ export function AppModeChoice({
             disabled={(mode) =>
               pending || !canPickAppMode(target, mode, canManage)
             }
-            onPick={(mode) => void pick(mode)}
+            onPick={(mode) => setShown(toggleAppMode(value, mode))}
           />
+          <p className="text-xs text-muted">
+            Choose one or more modes. They can switch between these on the
+            phone.
+          </p>
+          <button
+            type="button"
+            disabled={
+              pending ||
+              !value.length ||
+              !canManage ||
+              target.status !== "active"
+            }
+            onClick={() => void submit()}
+            className="h-10 rounded-xl bg-foreground px-4 text-sm font-semibold text-background disabled:opacity-50"
+          >
+            {pending ? "Saving…" : "Save app modes"}
+          </button>
           {target.role !== "sales" ? (
             <span className="text-xs text-muted">{SELLING_SALES_ONLY}</span>
           ) : null}
@@ -182,11 +218,11 @@ export function BulkAppMode({
   onCancel,
 }: {
   people: (AppModeTarget & { name: string })[];
-  save: (args: { profileIds: string[]; mode: AppMode }) => Promise<unknown>;
+  save: (args: { profileIds: string[]; modes: AppMode[] }) => Promise<unknown>;
   onDone: (message: string) => void;
   onCancel: () => void;
 }) {
-  const [mode, setMode] = useState<AppMode | null>(null);
+  const [modes, setModes] = useState<AppMode[]>([]);
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
   const changeable = people.filter(
@@ -195,19 +231,21 @@ export function BulkAppMode({
   const skipped = people.length - changeable.length;
   const notSales = changeable.filter((p) => p.role !== "sales").length;
   const blocked =
-    !mode ||
+    !modes.length ||
     pending ||
     !changeable.length ||
     changeable.length > APP_MODE_BULK_MAX ||
-    (mode === "selling" && notSales > 0);
+    (modes.includes("selling") && notSales > 0);
   const count = (n: number) => `${n} ${n === 1 ? "person" : "people"}`;
   async function submit() {
-    if (blocked || !mode) return;
+    if (blocked) return;
     setPending(true);
     setError("");
     try {
-      await save({ profileIds: changeable.map((p) => p.profileId), mode });
-      onDone(`${count(changeable.length)} now on ${appModeLabel(mode)}.`);
+      await save({ profileIds: changeable.map((p) => p.profileId), modes });
+      onDone(
+        `${count(changeable.length)} can now use ${modes.map(appModeLabel).join(", ")}.`,
+      );
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Could not save. Try again.",
@@ -219,7 +257,8 @@ export function BulkAppMode({
   return (
     <section aria-label="Set app mode" className="grid gap-3">
       <p className="text-sm text-foreground">
-        Pick the app mode for {count(changeable.length)}.
+        Pick one or more app modes for {count(changeable.length)}. These replace
+        their current modes.
       </p>
       {skipped ? (
         <p className="text-xs text-muted">
@@ -229,11 +268,11 @@ export function BulkAppMode({
       ) : null}
       <ModeRows
         name="bulk-app-mode"
-        value={mode}
+        value={modes}
         disabled={() => pending}
-        onPick={setMode}
+        onPick={(mode) => setModes(toggleAppMode(modes, mode))}
       />
-      {mode === "selling" && notSales ? (
+      {modes.includes("selling") && notSales ? (
         <p role="alert" className="text-sm text-danger">
           {SELLING_SALES_ONLY} {count(notSales)} picked{" "}
           {notSales === 1 ? "is" : "are"} not Sales.
