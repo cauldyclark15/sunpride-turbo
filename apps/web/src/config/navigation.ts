@@ -257,7 +257,6 @@ const moduleTabs: Record<string, WorkspaceModuleTab[]> = {
   setup: [
     { id: "admin", label: "Admin", href: "/admin" },
     { id: "master-data", label: "Master data", href: "/master-data" },
-    { id: "pricing", label: "Prices", href: "/pricing" },
     {
       id: "trade-promotions",
       label: "Trade Marketing",
@@ -285,6 +284,8 @@ const tailItems: WorkspaceNavGroup["items"] = [
     icon: "field",
   },
   { id: "work", label: "Work", href: "/orders", icon: "board" },
+  // SP-0216: price-list work must be reachable directly, not hidden under Setup.
+  { id: "pricing", label: "Prices", href: "/pricing", icon: "commercial" },
   { id: "messages", label: "Messages", href: "/messages", icon: "comment" },
   { id: "issues", label: "Issues", href: "/issues", icon: "issues" },
   // SP-0201: every how-to and PDF guide, for every signed-in role.
@@ -307,6 +308,7 @@ export function primaryIdFor(pathname: string): string {
   if (isOwnerSlug(segment)) return segment;
   if (segment === "live-map") return "live-map";
   if (segment === "supervision") return "field-team";
+  if (segment === "pricing") return "pricing";
   if (OPERATIONS_SEGMENTS.has(segment)) return "operations";
   if (segment === "issues") return "issues";
   if (segment === "messages") return "messages";

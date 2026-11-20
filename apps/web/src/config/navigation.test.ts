@@ -12,7 +12,7 @@ import {
   primaryIdFor,
   visibleOperationsSubs,
 } from "./navigation";
-import { phoneTitleFor } from "./phone-tabs";
+import { phoneTabsFor, phoneTitleFor } from "./phone-tabs";
 
 const navFor = (role: string, pathname = "/today") =>
   getWebNavigation(pathname, (slug) => canAccessWebModule(slug, role));
@@ -107,6 +107,36 @@ describe("v2 navigation", () => {
       canAccessWebModule(slug, "super_admin"),
     ).navGroups.flatMap((group) => group.items);
     expect(none.find((item) => item.id === "decide")?.badge).toBeUndefined();
+  });
+
+  it.each([...APP_ROLES, "distributor", "unknown", ""])(
+    "SP-0216: %s sees a direct Prices link only when allowed to open it",
+    (role) => {
+      for (const path of ["/today", "/master-data", "/pricing"]) {
+        const items = navFor(role, path).navGroups.flatMap((g) => g.items);
+        const prices = items.filter((item) => item.href === "/pricing");
+        expect(prices, `${role} on ${path}`).toHaveLength(
+          canAccessWebModule("pricing", role) ? 1 : 0,
+        );
+        if (prices.length)
+          expect(prices[0]).toMatchObject({ id: "pricing", label: "Prices" });
+      }
+    },
+  );
+
+  it("SP-0216: Prices is its own active page, not a hidden Setup tab", () => {
+    const nav = navFor("operations", "/pricing");
+    expect(nav.activePrimaryId).toBe("pricing");
+    expect(nav.moduleTabs).toEqual([]);
+    expect(navFor("operations", "/master-data").moduleTabs).not.toEqual(
+      expect.arrayContaining([expect.objectContaining({ href: "/pricing" })]),
+    );
+    expect(phoneTitleFor("/pricing")).toBe("Prices");
+    const phone = phoneTabsFor("operations", nav.navGroups);
+    expect(phone.more.filter((item) => item.href === "/pricing")).toEqual([
+      expect.objectContaining({ label: "Prices" }),
+    ]);
+    expect(phone.tabs.some((item) => item.href === "/pricing")).toBe(false);
   });
 
   it("keeps the old Home and Reports as redirects", () => {
@@ -208,9 +238,14 @@ describe("Operations: verbs first (IP-NAV)", () => {
       ).toBe(true);
     }
     const reachable = new Set<string>();
-    for (const path of ["/orders", "/admin", "/operations/stock"])
-      for (const tab of getWebNavigation(path, () => true).moduleTabs)
+    for (const path of ["/orders", "/admin", "/operations/stock"]) {
+      const nav = getWebNavigation(path, () => true);
+      for (const group of nav.navGroups)
+        for (const item of group.items)
+          reachable.add(item.href.slice(1).split("?")[0]!);
+      for (const tab of nav.moduleTabs)
         reachable.add(tab.href.slice(1).split("?")[0]!);
+    }
     for (const section of OPERATIONS_SECTIONS)
       for (const sub of section.subs)
         reachable.add(sub.href.slice(1).split("?")[0]!);

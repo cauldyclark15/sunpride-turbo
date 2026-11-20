@@ -179,6 +179,7 @@ describe("phone bottom tabs", () => {
     expect(phoneTitleFor("/today")).toBe("Today");
     expect(phoneTitleFor("/customers/customer")).toBe("Customers");
     expect(phoneTitleFor("/orders")).toBe("Orders");
+    expect(phoneTitleFor("/pricing")).toBe("Prices");
     expect(phoneTitleFor("/account")).toBe("Account");
   });
 });

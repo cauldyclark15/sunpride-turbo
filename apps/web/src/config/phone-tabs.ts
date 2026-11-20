@@ -64,6 +64,7 @@ const OTHER_TITLES: Record<string, string> = {
   account: "Account",
   issues: "Issues",
   messages: "Messages",
+  pricing: "Prices",
   "live-map": "Live map",
   help: "Help",
 };
