@@ -24,6 +24,7 @@ export async function setupHealth(c) {
       from profiles p left join lateral(select a.* from employee_assignments a where a.profile_id=p.id and a.deleted_at is null and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now()) limit 1) ea on true
       where p.deleted_at is null and p.status='active'
     ) select
+    (select count(*)::int from visible_outlets o where o.customer_group_id is null and not exists(select 1 from customer_profiles p where p.outlet_id=o.id and p.deleted_at is null and (p.municipality_code is not null or p.barangay_code is not null))) as coverage,
     (select count(*)::int from people_units p where p.unit_id is null and ${national}) as people,
     (select count(*)::int from visible_outlets o where not exists(select 1 from outlet_assignments a where a.outlet_id=o.id and a.route_id is not null and a.deleted_at is null and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now()))) as outlets,
     (select count(*)::int from visible_routes r where not exists(select 1 from route_salespeople s where s.route_id=r.id and s.deleted_at is null and s.effective_from<=now() and (s.effective_to is null or s.effective_to>now()))) as routes,
@@ -59,6 +60,12 @@ export async function setupHealth(c) {
       "Stores without a verified pin",
       "outlets",
       "/admin?section=outlets&unverified=true",
+    ],
+    [
+      "coverage",
+      "Stores without a place or customer group",
+      "outlets",
+      "/admin?section=customer-groups&missingCoverage=true",
     ],
   ];
   return {

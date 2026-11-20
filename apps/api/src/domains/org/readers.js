@@ -3,6 +3,7 @@ import {
   requireNationalScope,
 } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
+import { coverageRows } from "./territory-coverage.js";
 import {
   activeAt,
   dto,
@@ -266,6 +267,11 @@ export async function list(c, kind, p) {
       if (actor.role === "sales")
         where += ` and (assignment.id is null or exists(select 1 from territory_salespeople sp where sp.territory_id=assignment.territory_id and sp.profile_id=${bind(actor.profileId)} and ${effective("sp")}))`;
       if (p.unassigned === "true") where += " and assignment.route_id is null";
+      if (p.missingCoverage === "true")
+        where +=
+          " and t.customer_group_id is null and not exists(select 1 from customer_profiles cp where cp.outlet_id=t.id and cp.deleted_at is null and (cp.municipality_code is not null or cp.barangay_code is not null))";
+      if (p.customerGroupId)
+        where += ` and t.customer_group_id=${bind(uuid(p.customerGroupId))}`;
       if (p.unverified === "true")
         where += ` and not exists(select 1 from outlet_pins pin where pin.outlet_id=t.id and pin.status='verified' and ${effective("pin")})`;
       if (p.territoryId)
@@ -439,6 +445,7 @@ export async function detail(c, kind, p) {
   if (kind === "territories")
     return {
       territory: dto(row),
+      coverage: await coverageRows(c, id),
       owner: dto(
         (await history(c.db, "territory_ownerships", "territory_id", id)).find(
           (r) => activeAt(r, at),

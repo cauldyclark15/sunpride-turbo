@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { OrgAdmin } from "./org-admin";
 import { TerritoryAdmin } from "./territory-admin";
+import { CustomerGroupsAdmin } from "./customer-groups-admin";
 import { RouteAdmin } from "./route-admin";
 import { OutletAdmin } from "./outlet-admin";
 import { OutletAssignments } from "./outlet-assignments";
@@ -33,6 +34,7 @@ const groups = [
     [
       ["organization", "Organization"],
       ["territories", "Territories"],
+      ["customer-groups", "Customer groups"],
       ["routes", "Routes"],
       ["outlets", "Customers"],
       ["assignments", "Assignments"],
@@ -155,6 +157,8 @@ export function AdminWorkspace() {
           <TeamsAdmin />
         ) : activeTab === "territories" ? (
           <TerritoryAdmin />
+        ) : activeTab === "customer-groups" ? (
+          <CustomerGroupsAdmin />
         ) : activeTab === "routes" ? (
           <RouteAdmin />
         ) : activeTab === "outlets" ? (

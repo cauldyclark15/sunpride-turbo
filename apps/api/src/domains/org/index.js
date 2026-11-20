@@ -52,6 +52,12 @@ import { currentStandards, foundation, setStandard } from "./standards.js";
 import { deviceCommand, deviceReport, registerDevice } from "./devices.js";
 import { supervisorOptions, roster, notifications } from "./extra-readers.js";
 import { setupHealth } from "./setup.js";
+import {
+  coveragePlaces,
+  listCustomerGroups,
+  saveCustomerGroup,
+  linkCustomerGroup,
+} from "./territory-coverage.js";
 import { readEvidence } from "./evidence.js";
 import { enqueue } from "../../core/jobs.js";
 import { installOrgJobs } from "./jobs.js";
@@ -272,6 +278,10 @@ export function install(router, platform) {
     return rows.map(dto);
   });
   read("org/setup-health", setupHealth);
+  read("territories/places", coveragePlaces);
+  read("customer-groups/list", listCustomerGroups);
+  command("customer-groups/save", "territory.manage", saveCustomerGroup);
+  command("customer-groups/link-stores", "territory.manage", linkCustomerGroup);
   read("outlets/evidence", readEvidence);
   read("people/current", async (c) => {
     await requireCapability(c, "org.read");

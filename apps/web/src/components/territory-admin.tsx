@@ -22,6 +22,11 @@ import {
 } from "../lib/manila-date";
 import { SetupSearch } from "./master-data/setup-health";
 import { Drawer } from "./cockpit/kit/drawer";
+import {
+  TerritoryCoverageFields,
+  TerritoryStores,
+  readCoverageForm,
+} from "./territory-coverage-fields";
 
 type Action = "create" | "edit" | "transfer" | "assign" | "end" | "deactivate";
 type Mutations = {
@@ -59,6 +64,7 @@ export async function performTerritoryAction(
     if (!territoryId) throw new Error("Select a territory");
     return mutations.edit({
       territoryId,
+      ...readCoverageForm(data),
       name: get("name"),
       channel: get("channel") || undefined,
       boundaryGeoJson: get("boundaryGeoJson") || undefined,
@@ -72,6 +78,7 @@ export async function performTerritoryAction(
   if (action === "create")
     return mutations.create({
       code: get("code"),
+      ...readCoverageForm(data),
       name: get("name"),
       orgUnitId: get("orgUnitId") as Id<"orgUnits">,
       channel: get("channel") || undefined,
@@ -139,7 +146,7 @@ function TerritoryListRow({
       <ListRow
         icon={<WorkspaceIcon name="field" />}
         title={row.name}
-        meta={`${row.code} · ${formatManilaDate(row.effectiveFrom)} · ${salesperson}`}
+        meta={`${row.code} · ${row.territoryType === "customer_group" ? "Customer group" : "Location"} · ${formatManilaDate(row.effectiveFrom)} · ${salesperson}`}
         value={
           <StatusPill tone={row.status === "active" ? "success" : "neutral"}>
             {formatStatus(row.status)}
@@ -323,7 +330,7 @@ export function TerritoryAdmin() {
         ) : null
       }
     >
-      <div className="grid gap-4">
+      <div className="grid min-w-0 grid-cols-1 gap-4">
         {!canRead ? (
           <p>Territory access required.</p>
         ) : (
@@ -378,7 +385,7 @@ export function TerritoryAdmin() {
               label="Territories pages"
             />
             {detail ? (
-              <aside className="grid gap-2 rounded border p-3">
+              <aside className="grid min-w-0 grid-cols-1 gap-2 break-words rounded border p-3">
                 <h3>
                   {detail.territory.name} · {detail.territory.code}
                 </h3>
@@ -399,6 +406,30 @@ export function TerritoryAdmin() {
                     ? "Advisory polygon"
                     : "None"}
                 </p>
+                <p>
+                  Territory type:{" "}
+                  {detail.territory.territoryType === "customer_group"
+                    ? "Customer group"
+                    : "Location"}
+                </p>
+                <h4>Covered places or groups</h4>
+                {detail.coverage?.length ? (
+                  <ul>
+                    {detail.coverage.map((row) => (
+                      <li key={row._id}>
+                        {[row.name, row.municipalityName, row.provinceName]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </li>
+                    ))}
+                  </ul>
+                ) : (
+                  <p>
+                    No places or groups selected. Existing manual assignments
+                    still apply.
+                  </p>
+                )}
+                {selected && <TerritoryStores territoryId={selected} />}
                 <h4>Ownership history</h4>
                 <ol>
                   {history?.map((row) => (
@@ -428,7 +459,7 @@ export function TerritoryAdmin() {
                     </li>
                   ))}
                 </ul>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                   {(["edit", "transfer", "assign", "deactivate"] as const).map(
                     (choice) => (
                       <Button
@@ -475,6 +506,12 @@ export function TerritoryAdmin() {
                           }
                         />
                       </FormField>
+                      {canManage && (
+                        <TerritoryCoverageFields
+                          key={`${action}:${selected ?? "new"}`}
+                          initial={action === "edit" ? detail : undefined}
+                        />
+                      )}
                       <FormField label="Channel">
                         <Input
                           name="channel"

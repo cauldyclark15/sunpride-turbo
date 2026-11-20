@@ -1062,7 +1062,7 @@ describe("setup queues, enrollment and current-scope history", () => {
   test("setup health counts reconcile with scoped fix lists and retain unknown prior comparisons", async () => {
     const health = await call("org/setup-health");
     expect(health.status).toBe(200);
-    expect(health.body.items).toHaveLength(5);
+    expect(health.body.items).toHaveLength(6);
     const pending = await call("outlets/pins/queue");
     expect(pending.status).toBe(200);
     const unverified = await call("outlets/list?unverified=true&limit=100");

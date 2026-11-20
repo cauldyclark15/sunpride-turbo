@@ -45,12 +45,28 @@ export type Position = Base & {
   category: string;
   active: boolean;
 };
+export type Coverage = Base & {
+  municipalityCode?: string;
+  barangayCode?: string;
+  customerGroupId?: string;
+  name: string;
+  municipalityName?: string;
+  provinceName?: string;
+};
+export type CoverageInput = {
+  territoryType?: "location" | "customer_group";
+  municipalityCodes?: string[];
+  barangayCodes?: string[];
+  customerGroupIds?: string[];
+};
+export type CustomerGroup = Base & { code: string; name: string };
 export type Territory = Base &
   Window & {
     code: string;
     name: string;
     channel?: string;
     boundaryGeoJson?: string;
+    territoryType?: "location" | "customer_group";
     status: "active" | "inactive";
   };
 export type Route = Base &
@@ -118,6 +134,7 @@ export type Outlet = Base & {
   visitFrequencyDays?: number;
   visitWindow?: string;
   territoryName?: string;
+  customerGroupId?: string;
   territoryCode?: string;
   routeName?: string;
   routeCode?: string;
@@ -288,7 +305,21 @@ export type ReadMap = {
   };
   "org/teams/member-history": History[];
   "territories/list": Page<Territory>;
-  "territories/detail": { territory: Territory; owner: History | null };
+  "territories/detail": {
+    territory: Territory;
+    owner: History | null;
+    coverage?: Coverage[];
+  };
+  "territories/places": {
+    options: {
+      code: string;
+      name: string;
+      municipalityName?: string;
+      provinceName?: string;
+    }[];
+    hasMore: boolean;
+  };
+  "customer-groups/list": Page<CustomerGroup>;
   "territories/salespeople-at": History[];
   "territories/ownership-history": History[];
   "territories/routes/list": Page<Route>;
@@ -427,20 +458,31 @@ export type CommandMap = {
   "org/teams/addMember": Future & { teamId: string; profileId: string };
   "org/teams/removeMember": End & { teamId: string; profileId: string };
   "org/teams/deactivate": End & { teamId: string };
-  "territories/create": Future & {
-    code: string;
+  "customer-groups/save": Reason & {
+    customerGroupId?: string;
+    code?: string;
     name: string;
-    orgUnitId: string;
-    channel?: string;
-    boundaryGeoJson?: string;
-    effectiveTo?: number;
   };
-  "territories/edit": Reason & {
-    territoryId: string;
-    name: string;
-    channel?: string;
-    boundaryGeoJson?: string;
+  "customer-groups/link-stores": Reason & {
+    customerGroupId?: string;
+    outletIds: string[];
   };
+  "territories/create": Future &
+    CoverageInput & {
+      code: string;
+      name: string;
+      orgUnitId: string;
+      channel?: string;
+      boundaryGeoJson?: string;
+      effectiveTo?: number;
+    };
+  "territories/edit": Reason &
+    CoverageInput & {
+      territoryId: string;
+      name: string;
+      channel?: string;
+      boundaryGeoJson?: string;
+    };
   "territories/transferOwner": Future & {
     territoryId: string;
     orgUnitId: string;

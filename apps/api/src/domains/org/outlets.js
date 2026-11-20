@@ -378,8 +378,11 @@ export async function assignmentCommand(c, action, b) {
         ms(r.effective_from) !== ms(r.effective_to),
     );
     if (
-      pending.length > 1 ||
-      pending.some((r) => ms(r.effective_from) <= c.now)
+      pending.filter((r) => r.assignment_source !== "automatic").length > 1 ||
+      pending.some(
+        (r) =>
+          r.assignment_source !== "automatic" && ms(r.effective_from) <= c.now,
+      )
     )
       rule("Overlapping or future outlet assignment");
     for (const prior of rows.filter(

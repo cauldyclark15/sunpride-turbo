@@ -1,3 +1,4 @@
+import { saveCoverage } from "./territory-coverage.js";
 import {
   requireCapability,
   requireNationalScope,
@@ -737,6 +738,7 @@ export async function geographyCommand(c, kind, action, b) {
       actor_subject: actor.subject,
       reason,
     });
+    if (!isRoute) await saveCoverage(c, row.id, b);
     return row.id;
   }
   const id = uuid(isRoute ? b.routeId : b.territoryId);
@@ -766,6 +768,7 @@ export async function geographyCommand(c, kind, action, b) {
         boundary_geo_json: b.boundaryGeoJson ?? row.boundary_geo_json,
       });
     await update(c.db, table, id, values);
+    if (!isRoute) await saveCoverage(c, id, b);
     return null;
   }
   if (!activeAt(row, from) || row.status !== "active")
