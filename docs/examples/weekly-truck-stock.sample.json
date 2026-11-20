@@ -1,0 +1,26 @@
+{
+  "reference": "SAMPLE-REQUEST-NOT-REAL",
+  "approvedPlanReference": "SAMPLE-PLAN-NOT-VERIFIED",
+  "weekStart": "2026-11-23",
+  "salesman": "Sample salesman — invented for arithmetic proof",
+  "truck": "Sample truck",
+  "issuingDepot": "Sample depot",
+  "sapOrderReference": "SAMPLE-SO-NOT-REAL",
+  "lines": [
+    {
+      "productCode": "SAMPLE-001",
+      "productName": "Sample product — not Sunpride master data",
+      "uom": "PC",
+      "decimalPlaces": 0,
+      "requestedBase": 100,
+      "servedBase": 80,
+      "posSoldBase": 50,
+      "countedBase": 30,
+      "referenceUnitPriceMinor": 2500,
+      "posNetSalesMinor": 125000,
+      "batch": "",
+      "expiry": "",
+      "reason": "For discussion only — no approved reason list"
+    }
+  ]
+}

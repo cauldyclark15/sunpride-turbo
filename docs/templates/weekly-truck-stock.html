@@ -1,0 +1,604 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Weekly truck stock — preparation worksheets</title>
+    <style>
+      @page {
+        size: A4 landscape;
+        margin: 12mm;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        font:
+          12px/1.45 Arial,
+          sans-serif;
+        color: #17212b;
+        margin: 0;
+        background: #e9edf0;
+      }
+      .sheet {
+        width: 273mm;
+        margin: 16px auto;
+        padding: 12mm;
+        background: white;
+        break-after: page;
+      }
+      .sheet:last-child {
+        break-after: auto;
+      }
+      h1 {
+        font-size: 23px;
+        margin: 10px 0;
+      }
+      p {
+        margin: 10px 0;
+      }
+      .warning {
+        font-weight: bold;
+        border: 2px solid #7b3e00;
+        padding: 8px;
+        color: #6b3500;
+      }
+      dl {
+        display: grid;
+        grid-template-columns: repeat(4, 1fr);
+        gap: 8px;
+        margin: 16px 0;
+      }
+      dt {
+        color: #495867;
+        font-size: 10px;
+      }
+      dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+        font-size: 10px;
+      }
+      th,
+      td {
+        border: 1px solid #9ba5ae;
+        padding: 7px 4px;
+        text-align: left;
+        vertical-align: top;
+        overflow-wrap: anywhere;
+      }
+      th {
+        background: #edf1f4;
+      }
+      thead {
+        display: table-header-group;
+      }
+      tr {
+        break-inside: avoid;
+      }
+      td.blank {
+        height: 34px;
+      }
+      .signatures {
+        margin-top: 25px;
+        line-height: 2.2;
+      }
+      footer {
+        border-top: 1px solid #9ba5ae;
+        margin-top: 20px;
+        padding-top: 6px;
+        font-size: 10px;
+        color: #495867;
+      }
+      @media print {
+        body {
+          background: white;
+        }
+        .sheet {
+          width: auto;
+          margin: 0;
+          padding: 0;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <section class="sheet">
+      <p class="warning">
+        WORKSHEET ONLY · PENDING SUNPRIDE CONFIRMATION · NOT A STOCK POSTING OR
+        CASH SETTLEMENT
+      </p>
+      <h1>1. Weekly stock request</h1>
+      <p>
+        After plan approval: the sales encoder uses this request to create the
+        SAP sales order. A plan reference written here is not proof that the
+        plan has been approved.
+      </p>
+      <dl>
+        <div>
+          <dt>Request reference</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Approved plan reference</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Week starting Monday</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Salesman</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Truck</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Issuing depot / plant</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>SAP sales order</dt>
+          <dd>________________</dd>
+        </div>
+      </dl>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Product code</th>
+            <th scope="col">Product</th>
+            <th scope="col">Unit</th>
+            <th scope="col">Batch / expiry</th>
+            <th scope="col">Requested</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="signatures">
+        Requested by: __________________ Date: __________ · Plan checked by:
+        __________________ · Encoder: __________________
+      </p>
+      <footer>
+        SP-0227 · Client meeting, 20 November 2026 · This is a preparation form,
+        not an approved operating rule.
+      </footer>
+    </section>
+    <section class="sheet">
+      <p class="warning">
+        WORKSHEET ONLY · PENDING SUNPRIDE CONFIRMATION · NOT A STOCK POSTING OR
+        CASH SETTLEMENT
+      </p>
+      <h1>2. Monday loading — quantity actually served</h1>
+      <p>
+        Record actual stock received next to requested stock. Do not treat the
+        requested quantity as received. Keep the issuing depot and SAP sales
+        order reference with the stock-in record.
+      </p>
+      <dl>
+        <div>
+          <dt>Request reference</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Approved plan reference</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Week starting Monday</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Salesman</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Truck</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Issuing depot / plant</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>SAP sales order</dt>
+          <dd>________________</dd>
+        </div>
+      </dl>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Product code</th>
+            <th scope="col">Product</th>
+            <th scope="col">Unit</th>
+            <th scope="col">Batch / expiry</th>
+            <th scope="col">Requested</th>
+            <th scope="col">Actually served</th>
+            <th scope="col">Requested − served</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+        </tbody>
+      </table>
+      <p class="signatures">
+        Served by: __________________ · Received by: __________________
+        Date/time: __________________ · Stock-in reference: __________________
+      </p>
+      <footer>
+        SP-0227 · Client meeting, 20 November 2026 · This is a preparation form,
+        not an approved operating rule.
+      </footer>
+    </section>
+    <section class="sheet">
+      <p class="warning">
+        WORKSHEET ONLY · PENDING SUNPRIDE CONFIRMATION · NOT A STOCK POSTING OR
+        CASH SETTLEMENT
+      </p>
+      <h1>3. Saturday weekly count and return</h1>
+      <p>
+        Count at the depot or plant that issued the stock. POS quantity is net
+        of returns and voids for this same week and request; it is a
+        cross-check, not a physical count. Reasons are free text for discussion;
+        no reason list has been approved.
+      </p>
+      <dl>
+        <div>
+          <dt>Request reference</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Approved plan reference</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Week starting Monday</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Salesman</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Truck</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Issuing depot / plant</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>SAP sales order</dt>
+          <dd>________________</dd>
+        </div>
+      </dl>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Product code</th>
+            <th scope="col">Product</th>
+            <th scope="col">Unit</th>
+            <th scope="col">Batch / expiry</th>
+            <th scope="col">Requested</th>
+            <th scope="col">Served</th>
+            <th scope="col">Net POS sold</th>
+            <th scope="col">Counted remainder</th>
+            <th scope="col">Served − counted − POS sold</th>
+            <th scope="col">Reason / condition</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>Return destination (same issuing depot / plant): ________________</p>
+      <p>
+        Return received quantity, batch, condition and storage status:
+        _______________________________________________________
+      </p>
+      <p>
+        Do not automatically receive expired or damaged goods into saleable
+        stock. Confirm the reason and disposition before posting. The next week
+        uses a new stock request.
+      </p>
+      <p class="signatures">
+        Counted by: __________________ · Witnessed by: __________________ · Cold
+        storage received by: __________________ · Stock-out / receipt
+        references: __________________
+      </p>
+      <footer>
+        SP-0227 · Client meeting, 20 November 2026 · This is a preparation form,
+        not an approved operating rule.
+      </footer>
+    </section>
+    <section class="sheet">
+      <p class="warning">
+        WORKSHEET ONLY · PENDING SUNPRIDE CONFIRMATION · NOT A STOCK POSTING OR
+        CASH SETTLEMENT
+      </p>
+      <h1>4. Cashier comparison — basis not confirmed</h1>
+      <p>
+        NOT PAYABLE. Sunpride must confirm requested versus actually served as
+        the cashier basis when loading is partial. Both alternatives are shown
+        only for comparison; no amount is selected. A supplied reference price
+        is not a confirmed cashier valuation rule.
+      </p>
+      <dl>
+        <div>
+          <dt>Request reference</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Approved plan reference</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Week starting Monday</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Salesman</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Truck</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>Issuing depot / plant</dt>
+          <dd>________________</dd>
+        </div>
+        <div>
+          <dt>SAP sales order</dt>
+          <dd>________________</dd>
+        </div>
+      </dl>
+      <table>
+        <thead>
+          <tr>
+            <th scope="col">Product code</th>
+            <th scope="col">Product</th>
+            <th scope="col">Unit</th>
+            <th scope="col">Batch / expiry</th>
+            <th scope="col">Requested − counted</th>
+            <th scope="col">Served − counted</th>
+            <th scope="col">Reference price / unit</th>
+            <th scope="col">Requested basis amount</th>
+            <th scope="col">Served basis amount</th>
+            <th scope="col">Net POS sales</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+          <tr>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+            <td class="blank">&nbsp;</td>
+          </tr>
+        </tbody>
+      </table>
+      <p>
+        Amounts are unavailable when counts or price are missing, the result is
+        negative, or centavos require a rounding rule. Negative quantity
+        differences require investigation, not automatic write-off. Never total
+        mixed product quantities.
+      </p>
+      <p>
+        Net POS sales can differ because of pricing, discounts, returns, voids,
+        credit and taxes. This comparison is not proof of cash collected or
+        remitted; reconcile those separately.
+      </p>
+      <p>
+        Confirmed cashier basis and valuation rule:
+        ______________________________ · Confirmed by / date:
+        ______________________________
+      </p>
+      <p class="signatures">
+        Prepared by: __________________ · Cashier reviewed by:
+        __________________ · Differences investigated by: __________________
+      </p>
+      <footer>
+        SP-0227 · Client meeting, 20 November 2026 · This is a preparation form,
+        not an approved operating rule.
+      </footer>
+    </section>
+  </body>
+</html>
