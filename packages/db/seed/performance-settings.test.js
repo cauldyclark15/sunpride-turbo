@@ -4,12 +4,16 @@ import { migrate } from "../src/migrate.js";
 import { seedDemo } from "./index.js";
 import { ident } from "./store.js";
 
+const LANE = process.env.SP_LANE ?? "core";
+if (!/^[a-z0-9_]+$/.test(LANE)) throw new Error("Invalid SP_LANE");
 /** @type {import('../src/client.js').Db} */ let db;
 /** @type {import('../src/client.js').Db} */ let admin;
 let database = "";
 beforeAll(async () => {
   const base = (
-    await Bun.file(`${process.env.HOME}/.sunpride-keys/pg-lane-core-url`).text()
+    await Bun.file(
+      `${process.env.HOME}/.sunpride-keys/pg-lane-${LANE}-url`,
+    ).text()
   ).trim();
   const url = new URL(base);
   admin = createDb(base, { max: 1 });

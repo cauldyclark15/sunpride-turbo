@@ -130,6 +130,13 @@ async function authorizeCounts(...people) {
     await h.db`insert into fiscal_authority_rules(org_unit_id,kind,role,channel,min_centavos,max_centavos,self_limit_centavos,approver_roles,offline_allowed,effective_from,sample) values(${unit},'stock','manager','*',0,100000000,0,${["approver"]},false,'2026-01-01',true)`;
   }
 }
+/** F-124: manual adjustments also pass the shared fiscal matrix, which re-reads PERSISTED people and needs a
+ * stock band for the requester's role. Persist the people and give that role an approver-only band.
+ * @param {any} requester @param {any} decider */
+async function authorizeAdjustment(requester, decider) {
+  await authorizeCounts(requester, decider);
+  await h.db`insert into fiscal_authority_rules(org_unit_id,kind,role,channel,min_centavos,max_centavos,self_limit_centavos,approver_roles,offline_allowed,effective_from,sample) select ${unit},'stock',${requester.role},'*',0,100000000,0,${["approver"]},false,'2026-01-01',true where not exists (select 1 from fiscal_authority_rules where org_unit_id=${unit} and kind='stock' and role=${requester.role})`;
+}
 /** A stock-in line that carries a cost, so the count can be valued. @param {any} p @param {number} qty @param {string} to @param {number} [cost] */
 const costed = (p, qty, to, cost = 100) => {
   const base = input(p, qty, null, to);
@@ -415,7 +422,9 @@ describe("receipts, transfers, reservations and quality", () => {
     expect(first.status).toBe(200);
     const again = await post(" r5a-dr-0001 ", "r5a  supplier");
     expect(again.status).toBe(422);
-    expect(JSON.stringify(again.body)).toContain("was already received here as RCV-");
+    expect(JSON.stringify(again.body)).toContain(
+      "was already received here as RCV-",
+    );
     // Another supplier's paper may carry the same number; a new number posts.
     expect((await post("R5A-DR-0001", "Other Supplier")).status).toBe(200);
     expect((await post("R5A-DR-0002")).status).toBe(200);
@@ -659,6 +668,7 @@ describe("blind counts and adjustment separation", () => {
   it("manual adjustments require inventory.approve, never the requester, even for super admin", async () => {
     const p = await product(),
       root = await person("super_admin");
+    await authorizeAdjustment(root, approver);
     await receipt(p, 10);
     const r = await command(root, "adjustments/request", {
       reasonCode: "damage",
@@ -746,6 +756,7 @@ describe("inventory lifecycle counterexamples", () => {
       await h.db`select physical_base,inventory_value_minor from inventory_balances where product_id=${p.id} and location_id=${depot}`;
     expect(Object.values(b).map(Number)).toEqual([0, 0]);
     const simple = await product();
+    await authorizeAdjustment(admin, approver);
     await receipt(simple, 10);
     const request = await command(admin, "adjustments/request", {
       reasonCode: "damage",

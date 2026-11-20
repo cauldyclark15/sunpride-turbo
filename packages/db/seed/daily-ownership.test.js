@@ -5,6 +5,8 @@ import { seedDemo } from "./index.js";
 import { advanceDemo, guardBalances } from "./daily.js";
 import { at, BATCH, ident, rowId } from "./store.js";
 
+const LANE = process.env.SP_LANE ?? "core";
+if (!/^[a-z0-9_]+$/.test(LANE)) throw new Error("Invalid SP_LANE");
 /** @type {import('../src/client.js').Db} */ let db;
 /** @type {import('../src/client.js').Db} */ let admin;
 let database = "";
@@ -16,7 +18,9 @@ const day = "2026-10-20";
 beforeAll(async () => {
   setSystemTime(new Date(at(day, 720)));
   const base = (
-    await Bun.file(`${process.env.HOME}/.sunpride-keys/pg-lane-core-url`).text()
+    await Bun.file(
+      `${process.env.HOME}/.sunpride-keys/pg-lane-${LANE}-url`,
+    ).text()
   ).trim();
   const u = new URL(base);
   admin = createDb(base, { max: 1 });

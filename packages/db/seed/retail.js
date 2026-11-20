@@ -62,7 +62,7 @@ export async function ensureRetailSamples(db, from = Date.now()) {
     const products =
       await t`select p.* from products p join sample_data_rows s on s.row_id=p.id::text and s.table_name='products' and s.batch=${BATCH} where p.active and p.deleted_at is null order by p.code limit 3`;
     const stores =
-      await t`select o.* from outlets o join sample_data_rows s on s.row_id=o.id::text and s.table_name='outlets' and s.batch=${BATCH} where o.status='active' and o.deleted_at is null order by o.code limit 3`;
+      await t`select o.* from outlets o join sample_data_rows s on s.row_id=o.id::text and s.table_name='outlets' and s.batch=${BATCH} where o.status='active' and o.deleted_at is null order by s.key limit 3`;
     const cold = await master(
       "cold_policy",
       "SAMPLE-FROZEN",

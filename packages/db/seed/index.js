@@ -1,5 +1,13 @@
 import { tx } from "../src/client.js";
-import { BATCH, Dataset, at, persist, rowId, todayManila } from "./store.js";
+import {
+  BATCH,
+  Dataset,
+  at,
+  backfillSampleCustomers,
+  persist,
+  rowId,
+  todayManila,
+} from "./store.js";
 import { company } from "./company.js";
 import { stockBook } from "./stock.js";
 import { execution } from "./execution.js";
@@ -193,6 +201,14 @@ export async function seedDemo(
   });
   await seedVanOps(db);
   // SP-0170: every sample store gets the client's customer shape (idempotent SQL from 0823).
-  await db`select customer_master_backfill('system:sample-seed')`;
-  return result;
+  await backfillSampleCustomers(db);
+  // The backfill's audit row is demo-owned too: report every marker.
+  const counts =
+    await db`select table_name,count(*)::int as n from sample_data_rows where batch=${BATCH} group by table_name`;
+  return {
+    ...result,
+    rows: Object.fromEntries(
+      counts.map((/** @type {any} */ r) => [r.table_name, r.n]),
+    ),
+  };
 }

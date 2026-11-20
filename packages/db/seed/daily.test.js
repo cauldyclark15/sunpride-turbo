@@ -37,7 +37,9 @@ if (!/^[a-z0-9_]+$/.test(lane)) throw new Error("Invalid SP_LANE");
 beforeAll(async () => {
   setSystemTime(new Date(at(today, 12 * 60)));
   const base = (
-    await Bun.file(`${process.env.HOME}/.sunpride-keys/pg-lane-${lane}-url`).text()
+    await Bun.file(
+      `${process.env.HOME}/.sunpride-keys/pg-lane-${lane}-url`,
+    ).text()
   ).trim();
   admin = createDb(base, { max: 1 });
   name = `sunpride_lane_${lane}_t${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
@@ -91,9 +93,19 @@ afterAll(async () => {
   } finally {
     try {
       if (name && admin) {
-        await admin.unsafe(
-          `drop database if exists ${ident(name)} with(force)`,
-        );
+        // WITH (FORCE) cannot end an autovacuum worker (superuser-owned) that
+        // started on this heavily written scratch DB (seen running 35-75s); wait it out.
+        for (let attempt = 1; ; attempt++)
+          try {
+            await admin.unsafe(
+              `drop database if exists ${ident(name)} with(force)`,
+            );
+            break;
+          } catch (e) {
+            if (/** @type {any} */ (e).errno !== "42501" || attempt >= 100)
+              throw e;
+            await Bun.sleep(1000);
+          }
         expect(
           (await admin`select 1 from pg_database where datname=${name}`).length,
         ).toBe(0);

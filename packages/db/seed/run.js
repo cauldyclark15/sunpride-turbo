@@ -14,6 +14,7 @@ import { seedProductiveSpec } from "./productive-spec.js";
 import { seedWorkforceSpec } from "./workforce-spec.js";
 import { seedDormancySpec } from "./dormancy-spec.js";
 import { loadPhGeography } from "../src/ph-geography.js";
+import { backfillSampleCustomers } from "./store.js";
 
 const args = process.argv.slice(2);
 let reset = false;
@@ -68,7 +69,7 @@ if (
     // SP-0170: PSGC geography for the customer master, then the customer shape for any sample
     // store the optional seeds above added.
     const geography = reset ? null : await loadPhGeography(db);
-    if (!reset) await db`select customer_master_backfill('system:sample-seed')`;
+    if (!reset) await backfillSampleCustomers(db);
     const distributorSamples = distributors
       ? await seedDistributors(db, { anchorDate: options.anchorDate })
       : null;

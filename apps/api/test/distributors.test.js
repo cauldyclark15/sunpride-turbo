@@ -1118,8 +1118,15 @@ describe("W4 health, reconciliation and shared-engine seams", () => {
   test("F-408 van adapter exposes only owned vans and refuses to pretend settlement is integrated", async () => {
     const x = await get(alice, "van-context");
     expect(x.body.engine).toBe("van");
-    expect(x.body.vans.map((/** @type {any} */ v) => v.id)).toEqual([van]);
+    // Since F-408/F-307 vans are configured consignment vehicles (arrangements),
+    // not partner stock locations: a 'van'-kind location is never presented as a
+    // van, and with no arrangement the adapter stays not-ready.
+    expect(van).not.toBe("");
+    expect(x.body.vans.map((/** @type {any} */ v) => v.id)).not.toContain(van);
+    expect(x.body.vans).toEqual([]);
+    expect(x.body.arrangements).toEqual([]);
     expect(x.body.ready).toBe(false);
+    expect(x.body.seam).toBe("VANOPS");
   });
 });
 

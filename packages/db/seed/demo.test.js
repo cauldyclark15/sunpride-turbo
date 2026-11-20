@@ -25,6 +25,8 @@ let dbUrl = "",
 /** @type {any} */
 let first;
 let seedMs = 0;
+/** Rows migrations themselves write (e.g. 0820's reference-load audit row): reset must return to exactly these. @type {Record<string,number>} */
+const baseline = {};
 const sentinel = crypto.randomUUID();
 
 beforeAll(async () => {
@@ -43,6 +45,10 @@ beforeAll(async () => {
   await migrate(db);
   await db`insert into users (id,email,password_hash) values (${sentinel},'not-sample@example.test','not-a-login-hash')`;
   await db`insert into sample_data_rows(batch,table_name,row_id,key) values('other-sample-batch','users',${sentinel},'other-user')`;
+  for (const r of await db`select table_name from information_schema.tables where table_schema='public' and table_type='BASE TABLE'`)
+    baseline[r.table_name] = await number(
+      `select count(*) as n from ${ident(r.table_name)}`,
+    );
   const started = performance.now();
   first = await seedDemo(db, { anchorDate: ANCHOR });
   seedMs = performance.now() - started;
@@ -697,7 +703,7 @@ describe("90-day Sunpride demo", () => {
     ).toBe(0);
     for (const table of Object.keys(first.rows))
       expect(await number(`select count(*) as n from ${ident(table)}`)).toBe(
-        table === "users" ? 1 : 0,
+        baseline[table] ?? 0,
       );
     expect(
       await number("select count(*) as n from users where id=$1", [sentinel]),
@@ -740,7 +746,9 @@ describe("90-day Sunpride demo", () => {
       ),
     ).toBe(0);
     expect((await resetDemo(db)).deleted).toBe(0);
-  }, 180_000);
+    // Measured idle 2026-11-20: CLI reset 81s + reseed 47s + reset 76s = 206s; the
+    // 180s budget was never reached while the audit-row baseline bug failed first.
+  }, 300_000);
 });
 
 test("calendar options reject malformed dates, impossible dates and unbounded history", () => {

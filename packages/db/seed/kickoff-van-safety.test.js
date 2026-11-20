@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { seedDemo } from "./index.js";
 import { copyTrialRow } from "./trial-wiring.js";
 import { rowId } from "./store.js";
@@ -27,6 +27,11 @@ import {
  * Fiscal ranges cannot be deleted through the product (guard trigger), so this disposable DB truncates its fiscal tables
  * between scenarios; nothing of the sort exists in the helper.
  */
+// Every refusal fingerprints all of TABLES (hundreds of thousands of seeded
+// sample_data_rows) before and after: one snap() takes ~1.5s on an idle Mac, so
+// a test with four refusals needs ~12s. Bun's 5s default made the first test
+// time out and keep writing while the next test ran, cascading false failures.
+setDefaultTimeout(60_000);
 /** @type {import('../../../apps/api/test/harness.js').Harness} */ let h;
 const PASSWORD = "kickoff-van-safety-password";
 const now = Date.now();

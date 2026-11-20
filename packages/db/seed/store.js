@@ -345,3 +345,22 @@ export async function resetDemo(db) {
     return { deleted };
   });
 }
+
+/**
+ * SP-0170: run the customer-master backfill for sample stores and mark the
+ * audit row it writes as demo-owned (the reset's native-row marker form), so
+ * `--reset` removes exactly what the seed created. Marks only when the demo
+ * manifest exists, never creating a partial batch.
+ * @param {any} db
+ */
+export async function backfillSampleCustomers(db) {
+  await db`select customer_master_backfill('system:sample-seed')`;
+  const rows = await db`select a.id::text as id from audit_logs a
+    where a.subject='system:sample-seed' and a.action='customer_master.sample_backfill'
+      and exists(select 1 from sample_data_rows m where m.batch=${BATCH} and m.key='audit_logs:manifest')
+      and not exists(select 1 from sample_data_rows m where m.table_name='audit_logs' and m.row_id=a.id::text)`;
+  for (const { id } of rows) {
+    const key = `audit_logs:daily-native:${id}`;
+    await db`insert into sample_data_rows(id,batch,table_name,row_id,key) values(${rowId("sample_data_rows", key)},${BATCH},'audit_logs',${id},${key}) on conflict do nothing`;
+  }
+}
