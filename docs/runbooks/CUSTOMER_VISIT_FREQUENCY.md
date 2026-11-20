@@ -4,7 +4,7 @@ Source: 20 November 2026 client review, 16:35–17:48. The office / Sales Head s
 
 ## Office use
 
-- Customers > open a customer > Required visits > choose a frequency > Save visit frequency.
+- Customers > Edit beside a customer > Required visits > choose a frequency > Save visit frequency. Sales Head users can open this editor without gaining permission to change other customer details.
 - Customers > tick customers > Set visit frequency > choose a frequency > Save visit frequency. Changes apply to the selected customers together; an inaccessible or inactive customer refuses the whole group.
 - Customers > Upload customers > download the current template. The appended Visit frequency column accepts Weekly, Every 2 weeks, Monthly, or a number such as `4 times a month` (whole numbers 1–31). Existing client columns and their order are unchanged. Older files without the added column remain accepted. Blank frequency cells preserve an existing customer's requirement.
 - Admin, operations and super-admin office users, and managers (Sales Head), can set the requirement within their existing customer scope. Sales and read-only users cannot change it. Managers do not gain general customer editing rights.

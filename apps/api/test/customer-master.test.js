@@ -94,7 +94,10 @@ async function accounting(id) {
 }
 
 beforeAll(async () => {
-  h = await startHarness({ installers: [org, masters], port: Number(process.env.SP_TEST_PORT ?? 5002) });
+  h = await startHarness({
+    installers: [org, masters],
+    port: Number(process.env.SP_TEST_PORT ?? 5002),
+  });
   await seedDemo(h.db, { days: 3, anchorDate: plusDays(todayManila(), 1) });
   await loadPhGeography(h.db);
   for (const role of ["admin", "manager", "viewer", "agent"])

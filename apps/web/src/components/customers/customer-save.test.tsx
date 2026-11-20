@@ -9,6 +9,7 @@ const state = vi.hoisted(() => ({
   values: [] as unknown[],
   cursor: 0,
   customer: null as Customer | null,
+  permissions: null as string[] | null,
   view: null as ViewProps | null,
   mutate: vi.fn(),
 }));
@@ -36,7 +37,10 @@ vi.mock("react", async (original) => {
 });
 vi.mock("next/dynamic", () => ({ default: () => () => null }));
 vi.mock("../../lib/auth", () => ({
-  usePermissions: () => ({ can: () => true }),
+  usePermissions: () => ({
+    can: (capability: string) =>
+      state.permissions === null || state.permissions.includes(capability),
+  }),
   useSession: () => ({ profile: { id: "office-person" } }),
 }));
 vi.mock("../../lib/api", () => ({
@@ -163,8 +167,38 @@ function view() {
 beforeEach(() => {
   state.values = [];
   state.customer = null;
+  state.permissions = null;
   state.view = null;
   state.mutate.mockReset().mockResolvedValue(customer(complete()));
+});
+
+it("SP-0223 Sales Head can set required visits while the rest of the customer stays read-only", () => {
+  state.permissions = ["outlet.frequency.manage"];
+  state.customer = {
+    ...customer(complete(), "active"),
+    visitFrequency: "4 times a month",
+    visitFrequencyDays: 7,
+    visitFrequencyPerMonth: 4,
+  };
+  const html = render();
+  expect(html).toContain("4 visits/month");
+  expect(html).toContain("Save visit frequency");
+  expect(view().canEdit).toBe(false);
+  expect(view().readOnly).toBe(true);
+});
+
+it("SP-0223 read-only people cannot change visit frequency on the customer screen", () => {
+  state.permissions = [];
+  state.customer = {
+    ...customer(complete(), "active"),
+    visitFrequency: "Monthly",
+    visitFrequencyDays: 30,
+    visitFrequencyPerMonth: null,
+  };
+  const html = render();
+  expect(html).toContain("1 visit/month");
+  expect(html).not.toContain("Save visit frequency");
+  expect(view().canEdit).toBe(false);
 });
 
 describe("SP-0214 Street 1 on customer enrollment", () => {

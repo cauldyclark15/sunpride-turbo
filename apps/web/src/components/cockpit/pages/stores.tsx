@@ -228,6 +228,7 @@ export function StoresPage() {
   const hidden: StoresTab[] = can("masterdata.manage") ? [] : ["settings"];
   const tab = readStoresTab(params, hidden);
   const canAdd = can("outlet.manage");
+  const canOpenEditor = canAdd || can("outlet.frequency.manage");
   const [adding, setAdding] = useState<string | null>(null);
   const canUpload = can("masterdata.manage");
   const [uploading, setUploading] = useState(false);
@@ -280,7 +281,7 @@ export function StoresPage() {
           link={link}
           canAdd={canAdd}
           onAdd={(name) => setAdding(name)}
-          onEdit={canAdd ? (id) => set({ edit: id }) : undefined}
+          onEdit={canOpenEditor ? (id) => set({ edit: id }) : undefined}
         />
       ) : tab === "new" ? (
         <div className="grid gap-8">
@@ -306,7 +307,7 @@ export function StoresPage() {
               canAdd={canAdd}
               awaitingApproval
               onAdd={(name) => setAdding(name)}
-              onEdit={canAdd ? (id) => set({ edit: id }) : undefined}
+              onEdit={canOpenEditor ? (id) => set({ edit: id }) : undefined}
             />
           </section>
         </div>
