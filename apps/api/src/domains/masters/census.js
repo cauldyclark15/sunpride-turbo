@@ -664,7 +664,13 @@ async function customerMasterSetup(ctx, unitIds) {
         .filter((/** @type {any} */ c) => typeof c === "string" && c),
     ),
   ].slice(0, 12);
-  return { salesOrgCode, provinceCodes, lists };
+  const { readEnrollmentForm } = await import("./enrollment-form.js");
+  return {
+    salesOrgCode,
+    provinceCodes,
+    lists,
+    enrollmentForm: await readEnrollmentForm(ctx.db),
+  };
 }
 /** Field "Edit store": the office's decisions on the caller's OWN store changes (newest 100),
  * so the phone can clear "Change waiting for office" and say plainly when one was not accepted.

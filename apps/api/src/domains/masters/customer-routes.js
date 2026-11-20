@@ -2,6 +2,11 @@
 // lists and PSGC geography. Old outlet routes stay for current apps. Contract:
 // docs/architecture/CUSTOMER_MASTER_CONTRACT.md.
 import { tx } from "@sunpride/db/client";
+import {
+  installEnrollmentForm,
+  readEnrollmentForm,
+  checkEnrollment,
+} from "./enrollment-form.js";
 import { optionLabel, validateCustomer } from "@sunpride/customer-master";
 import { requireCapability } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
@@ -28,6 +33,7 @@ const REFERENCE_LISTS_PUBLIC = REFERENCE_LISTS;
 
 /** @param {any} router @param {any} platform */
 export function installCustomers(router, platform) {
+  installEnrollmentForm(router, platform);
   /** Transactional command: reauthorize inside the transaction, optional Idempotency-Key replay,
    * audit by the writer, then a sync invalidation and realtime publish.
    * @param {string} method @param {string} path @param {string} name @param {(c:any,b:any)=>Promise<string>} handler */
@@ -88,7 +94,7 @@ export function installCustomers(router, platform) {
     /** @type {Record<string, any[]>} */ const lists = {};
     for (const list of REFERENCE_LISTS_PUBLIC) lists[list] = [];
     for (const r of rows) (lists[r.list] ??= []).push(r);
-    return { lists };
+    return { lists, enrollmentForm: await readEnrollmentForm(ctx.db) };
   });
   router.get(
     "/api/v1/customers/reference/:list",
@@ -154,6 +160,7 @@ export function installCustomers(router, platform) {
       lists: await referenceRows(ctx.db),
       geography,
     });
+    await checkEnrollment(ctx.db, customer);
     return { ok: result.ok, level, errors: result.errors };
   });
   router.post(

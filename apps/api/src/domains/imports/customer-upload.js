@@ -18,7 +18,8 @@
 //   each chunk stores a server-owned chunk hash (chunkHashOf). Re-uploading the identical file
 //   returns the existing run instead of writing again.
 import { tx } from "@sunpride/db/client";
-import { referenceIndex } from "@sunpride/customer-master";
+import { referenceIndex, validateEnrollment } from "@sunpride/customer-master";
+import { readEnrollmentForm } from "../masters/enrollment-form.js";
 import {
   CUSTOMER_CHUNK_SIZE,
   CUSTOMER_COLUMNS,
@@ -70,8 +71,10 @@ export const runtime = {
   workers: new Map(),
 };
 
-/** @param {any} body */
-function checkBody(body) {
+/** @param {any} body @param {any} db */
+async function checkBody(body, db) {
+  const form = await readEnrollmentForm(db);
+  const customIds = new Set(form.fields.map((f) => `customFields.${f.key}`));
   const header = body?.header;
   const bad = headerError(Array.isArray(header) ? header.map(String) : []);
   if (bad) throw new ApiError("header_mismatch", 400, bad.message);
@@ -95,9 +98,9 @@ function checkBody(body) {
       Array.isArray(row.values) ||
       Object.entries(row.values).some(
         ([key, value]) =>
-          !COLUMN_IDS.has(key) ||
+          (!COLUMN_IDS.has(key) && !customIds.has(key)) ||
           typeof value !== "string" ||
-          value.length > 600,
+          value.length > (customIds.has(key) ? 140000 : 600),
       )
     )
       throw new ApiError(
@@ -133,6 +136,7 @@ async function loadLookups(db, actor) {
   const { unitIds } = await scopeFilterForActor(db, actor);
   return {
     lists,
+    enrollmentForm: await readEnrollmentForm(db),
     index: referenceIndex(lists),
     /** @type {Omit<GeoData,'barangays'|'postalCodes'>} */
     geo: { regions, provinces, municipalities },
@@ -182,7 +186,7 @@ async function resolveRows(db, rows, lookups) {
   /** @type {UploadError[]} */ const errors = [...checked.errors];
   const codes = [...checked.items.values()].map((i) => i.code).filter(Boolean);
   const outlets = codes.length
-    ? await db`select o.id,o.code,o.status,coalesce(s.owner_unit_id,o.custodian_org_unit_id) as owner_unit_id from outlets o left join analytics_store_scope s on s.id=o.id where o.organization_id=${ORGANIZATION} and o.deleted_at is null and o.code=any(${db.array(codes, "TEXT")}::text[])`
+    ? await db`select o.id,o.code,o.status,cp.custom_fields,coalesce(s.owner_unit_id,o.custodian_org_unit_id) as owner_unit_id from outlets o left join analytics_store_scope s on s.id=o.id left join customer_profiles cp on cp.outlet_id=o.id and cp.deleted_at is null where o.organization_id=${ORGANIZATION} and o.deleted_at is null and o.code=any(${db.array(codes, "TEXT")}::text[])`
     : [];
   /** @type {Map<string, any>} */ const outletByCode = new Map(
     outlets.map((/** @type {any} */ o) => [o.code, o]),
@@ -193,6 +197,33 @@ async function resolveRows(db, rows, lookups) {
   for (const row of rows) {
     const item = /** @type {any} */ (checked.items.get(row.rowNumber));
     const existing = outletByCode.get(item.code) ?? null;
+    const prior =
+      existing &&
+      (lookups.scope === null || lookups.scope.has(existing.owner_unit_id))
+        ? (existing.custom_fields ?? {})
+        : {};
+    const custom = validateEnrollment(
+      lookups.enrollmentForm.fields,
+      {
+        ...prior,
+        ...Object.fromEntries(
+          Object.entries(item.customer.customFields ?? {}).filter(
+            ([, v]) => v !== "",
+          ),
+        ),
+      },
+      item.customer,
+    );
+    for (const e of custom.errors) {
+      errors.push({
+        rowNumber: row.rowNumber,
+        column: e.field,
+        label: e.label,
+        code: e.code,
+        message: e.message,
+      });
+      bad.add(row.rowNumber);
+    }
     /** @param {string} code @param {string} message */
     const fail = (code, message) => {
       errors.push({
@@ -571,7 +602,7 @@ export async function validateUploadRows(db, actor, rows) {
 export async function createRun(ctx, body) {
   const actor = await authorize(ctx);
   await requireCapability(ctx, "outlet.manage");
-  const input = checkBody(body);
+  const input = await checkBody(body, ctx.db);
   const fileHash = chunkHashOf({
     kind: CUSTOMER_UPLOAD_KIND,
     header: input.header,
@@ -678,7 +709,7 @@ async function loadVisibleRun(ctx, id) {
 /** @param {any} ctx @param {any} body */
 export async function previewUpload(ctx, body) {
   const actor = await authorize(ctx);
-  const input = checkBody(body);
+  const input = await checkBody(body, ctx.db);
   const checked = await validateUploadRows(ctx.db, actor, input.rows);
   const errorRows = new Set(checked.errors.map((e) => e.rowNumber));
   const rows = input.rows.map((r) => {
@@ -734,7 +765,11 @@ export function installCustomerUpload(router, platform) {
   router.get(`${base}/template`, async (ctx) => {
     await authorize(ctx);
     const reference = await templateReference(ctx.db);
-    return { reference, sheets: listSheets(reference) };
+    return {
+      reference,
+      sheets: listSheets(reference),
+      enrollmentForm: await readEnrollmentForm(ctx.db),
+    };
   });
   // Lists for the browser's instant checks (incl. the Sales Partner fallback the server accepts).
   router.get(`${base}/reference`, async (ctx) => {

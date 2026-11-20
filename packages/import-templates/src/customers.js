@@ -190,9 +190,15 @@ export function requiredText(c) {
 function csvCell(value) {
   return /[",\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
-/** CSV template: UTF-8 BOM (so Excel keeps ñ) + the header line, CRLF. */
-export function customerTemplateCsv() {
-  return `\uFEFF${CUSTOMER_HEADERS.map(csvCell).join(",")}\r\n`;
+/** CSV template: UTF-8 BOM (so Excel keeps ñ) + the header line, CRLF.
+ * @param {import("@sunpride/customer-master").EnrollmentField[]} [fields] */
+export function customerTemplateCsv(fields = []) {
+  return `\uFEFF${[...CUSTOMER_HEADERS, ...fields.map(enrollmentHeader)].map(csvCell).join(",")}\r\n`;
+}
+/** Stable identity in a header lets labels change without losing saved answers.
+ * @param {{key:string,label:string}} f */
+export function enrollmentHeader(f) {
+  return `${/^[\s]*[=+@-]/.test(f.label) ? "'" : ""}${f.label} [${f.key}]`;
 }
 
 /** Stable machine codes with their plain-English meaning (docs + UI legend). Row-level codes
@@ -240,6 +246,16 @@ export function mapHeader(header) {
   const ids = (header ?? []).map((h) => {
     const k = headerKey(h);
     if (!k) return null;
+    const extra = /\[(cf_[a-f0-9]{32})\]$/.exec(String(h).trim());
+    if (extra) {
+      const id = `customFields.${extra[1]}`;
+      if (used.has(id)) {
+        unknown.push(String(h).trim());
+        return null;
+      }
+      used.add(id);
+      return id;
+    }
     // The client's Customer Enrollment Form has Longitude and Latitude as two columns.
     if (k === "latitude" || k === "longitude") {
       used.add(k);
@@ -712,6 +728,11 @@ export function rowToCustomer(row, index, geo = null) {
       });
     }
   }
+  customer.customFields = Object.fromEntries(
+    Object.entries(row.values)
+      .filter(([key]) => /^customFields\.cf_[a-f0-9]{32}$/.test(key))
+      .map(([key, v]) => [key.slice(13), v]),
+  );
   customer.shipTos = [shipTo];
   return {
     code: normaliseCode(get("code")),
@@ -811,7 +832,7 @@ export function sortErrors(errors) {
  * are cleared when the chosen chain has none (they would otherwise no longer apply). The first
  * ship-to is replaced by the row's (blank cells keep its current values); further ship-tos stay.
  * @param {RowItem} item @param {UploadRow} row @param {ReferenceIndex} index
- * @param {{shipTos?:any[]}|null} existing
+ * @param {{shipTos?:any[],customFields?:Record<string,string>}|null} existing
  */
 export function writerInput(item, row, index, existing) {
   const c = item.customer;
@@ -828,6 +849,11 @@ export function writerInput(item, row, index, existing) {
     }
     if (cellOf(row, col.id)) out[col.key] = c[col.key];
   }
+  const filledCustom = Object.fromEntries(
+    Object.entries(c.customFields ?? {}).filter(([, v]) => v !== ""),
+  );
+  if (Object.keys(filledCustom).length)
+    out.customFields = { ...existing.customFields, ...filledCustom };
   const app = applicability(index, c);
   if (app.group1 === false) out.customerGroup1Code = null;
   if (app.group1 === false || app.group2 === false)

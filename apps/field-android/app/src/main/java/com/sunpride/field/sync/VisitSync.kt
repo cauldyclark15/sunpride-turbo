@@ -224,6 +224,7 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
             val pending = store.pending().filterNot{DomainOutbox.isDomain(it.first.kind)}
             if (pending.isEmpty()) return
             val ready = mutableListOf<IntentRow>(); val wire = mutableListOf<String>()
+            var wireBytes = 2048 // reserve the envelope and v2 adapter overhead
             for ((intent, _) in pending) {
                 if (com.sunpride.field.storage.ConfiguredFieldCalls.waitingForEvidence(store,intent)) {
                     if (ready.isEmpty()) return else break // keep original bytes queued until the required photo is attached
@@ -264,7 +265,13 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
                     if (op.getJSONObject("payload").getString("visitId").startsWith("@checkin:"))
                         op.getJSONObject("payload").put("visitId", visitAck.entityId)
                 }
-                ready.add(intent); wire.add(op.toString())
+                val serialized = op.toString()
+                val nextBytes = serialized.toByteArray(Charsets.UTF_8).size + 512
+                // SP-0229: extra enrollment photos must not turn a group of valid saves into a 413 retry loop.
+                if (wire.isNotEmpty() && wireBytes + nextBytes > 850 * 1024) break
+                require(nextBytes <= 850 * 1024) { "This saved form is too large to send. Contact the office; the saved copy is kept." }
+                wireBytes += nextBytes
+                ready.add(intent); wire.add(serialized)
                 if(ready.size==20)break
             }
             if (ready.isEmpty()) return

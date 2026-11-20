@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { EnrollmentFormAdmin } from "./enrollment-form-admin";
 import { OrgAdmin } from "./org-admin";
 import { TerritoryAdmin } from "./territory-admin";
 import { CustomerGroupsAdmin } from "./customer-groups-admin";
@@ -38,6 +39,7 @@ const groups = [
       ["customer-groups", "Customer groups"],
       ["routes", "Routes"],
       ["outlets", "Customers"],
+      ["enrollment-form", "Enrollment form"],
       ["assignments", "Assignments"],
     ],
   ],
@@ -163,6 +165,8 @@ export function AdminWorkspace() {
           <CustomerGroupsAdmin />
         ) : activeTab === "routes" ? (
           <RouteAdmin />
+        ) : activeTab === "enrollment-form" ? (
+          <EnrollmentFormAdmin />
         ) : activeTab === "outlets" ? (
           <OutletAdmin />
         ) : activeTab === "assignments" ? (

@@ -710,6 +710,9 @@ export async function enrolmentCommand(c, action, b) {
   let assigned = outlet.code;
   if (b.decision === "approved") {
     if (outlet.status === "inactive") rule("Outlet is inactive");
+    const { readCustomer } = await import("../masters/customers.js");
+    const { checkEnrollment } = await import("../masters/enrollment-form.js");
+    await checkEnrollment(c.db, await readCustomer(c.db, outlet.id));
     assigned = await allocate(c, "customer");
     const pin = await get(c.db, "outlet_pins", row.pin_id);
     if (pin.status === "pending")

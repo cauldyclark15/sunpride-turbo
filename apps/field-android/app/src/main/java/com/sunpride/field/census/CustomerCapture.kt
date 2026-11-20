@@ -29,7 +29,7 @@ object CustomerCapture {
 
     /** Offline setup from census-config `customerMaster` (reference lists, default Sales Organization,
      * the provinces of the agent's customers whose barangays the phone keeps). */
-    data class Setup(val salesOrgCode: String, val provinceCodes: List<String>, val index: CustomerMaster.ReferenceIndex) {
+    data class Setup(val salesOrgCode: String, val provinceCodes: List<String>, val index: CustomerMaster.ReferenceIndex, val enrollmentFields: List<EnrollmentFields.Field> = emptyList()) {
         fun options(list: String, salesOrgCode: String? = null, channelCode: String? = null, group1Code: String? = null) =
             index.options(list, salesOrgCode, channelCode, group1Code)
     }
@@ -44,7 +44,7 @@ object CustomerCapture {
         }
         if (rows.isEmpty()) return null
         val provinces = cm.optJSONArray("provinceCodes")?.let { p -> (0 until p.length()).mapNotNull { p.opt(it) as? String } }.orEmpty()
-        return Setup(cm.optString("salesOrgCode").ifEmpty { "1000" }, provinces, CustomerMaster.ReferenceIndex(rows))
+        return Setup(cm.optString("salesOrgCode").ifEmpty { "1000" }, provinces, CustomerMaster.ReferenceIndex(rows), EnrollmentFields.parse(cm.optJSONObject("enrollmentForm")?.optJSONArray("fields")))
     }
 
     /** PSGC geography kept on the phone: every region/province/municipality/postal code (one pack)
@@ -112,6 +112,7 @@ object CustomerCapture {
         /** SP-0196: the agent typed in (or cleared) Customer Address. Until then the field shows the address built from
          * the location pickers; afterwards it shows exactly what was typed and is never refilled or appended to. */
         val addressEdited: Boolean = false,
+        val customFields: Map<String,String> = emptyMap(),
     ) {
         fun detail(key: String): String = details[key] ?: if (key == "countryCode") "PH" else ""
         fun withDetail(key: String, value: String) = copy(details = details + (key to value))
@@ -148,7 +149,7 @@ object CustomerCapture {
      * saved or discarded: every typed/picked value, the GPS fix and the storefront photo. */
     data class Draft(val form: Form, val fix: JSONObject?, val photo: ByteArray?) {
         /** Nothing typed yet (the defaulted Sales Organization and a name carried from the search do not count). */
-        fun isEmpty() = fix == null && photo == null && form.contactPerson.isBlank() && form.sameAsCustomer &&
+        fun isEmpty() = form.customFields.values.all { it.isBlank() } && fix == null && photo == null && form.contactPerson.isBlank() && form.sameAsCustomer &&
             listOf(form.shipToParty, form.shipToAddress, form.shipToMobileNo, form.shipToEmail).all { it.isBlank() } &&
             form.values().all { (key, value) -> key == "salesOrgCode" || key == "customerName" || (key == "countryCode" && value == "PH") }
     }
@@ -159,7 +160,7 @@ object CustomerCapture {
             .put("details", JSONObject(d.form.details)).put("sameAsCustomer", d.form.sameAsCustomer)
             .put("shipToParty", d.form.shipToParty).put("shipToAddress", d.form.shipToAddress)
             .put("shipToMobileNo", d.form.shipToMobileNo).put("shipToEmail", d.form.shipToEmail)
-            .put("addressEdited", d.form.addressEdited)
+            .put("addressEdited", d.form.addressEdited).put("customFields", JSONObject(d.form.customFields))
         d.fix?.let { o.put("fix", JSONObject(it.toString())) }
         d.photo?.let { o.put("photo", java.util.Base64.getEncoder().encodeToString(it)) }
         return o.toString()
@@ -167,7 +168,7 @@ object CustomerCapture {
     fun parseDraft(text: String?): Draft? = runCatching {
         val o = JSONObject(text ?: return null); if (o.optInt("version") != 1) return null
         val v = o.getJSONObject("form"); fun g(k: String) = v.optString(k, "")
-        val form = Form(registeredName = g("registeredName"), tradeName = g("tradeName"), customerName = g("customerName"),
+        val form = Form(customFields = EnrollmentFields.values(o.optJSONObject("customFields")), registeredName = g("registeredName"), tradeName = g("tradeName"), customerName = g("customerName"),
             email = g("email"), mobileNo = g("mobileNo"), telNo = g("telNo"), tin = g("tin"), regionCode = g("regionCode"),
             provinceCode = g("provinceCode"), municipalityCode = g("municipalityCode"), barangayCode = g("barangayCode"),
             houseNo = g("houseNo"), street1 = g("street1"), street2 = g("street2"), floor = g("floor"), roomStallNo = g("roomStallNo"),
@@ -261,6 +262,7 @@ object CustomerCapture {
             if ((ship[field.key] as? String).isNullOrBlank()) add(Missing(key, "${label(key)} is required."))
         }
         if (!hasPhoto) add(Missing("photo", "Take a storefront photo."))
+        EnrollmentFields.errors(s?.enrollmentFields.orEmpty(), f).forEach { (key,message) -> add(Missing(key,message)) }
     }
     fun label(key: String): String = when (key) {
         "contactPerson", "shipToParty", "shipToAddress" -> CustomerMaster.shipToField(key).label
@@ -307,6 +309,7 @@ object CustomerCapture {
         f.values().forEach { (k, v) -> o.put(k, normalizeText(k, v)) }
         address(f, g).takeIf { it.isNotEmpty() }?.let { o.put("customerAddress", it) }
         o.put("shipTos", JSONArray().put(JSONObject(shipTo(f, g))))
+        if (f.customFields.isNotEmpty()) o.put("customFields", JSONObject(f.customFields))
         return o
     }
 
@@ -329,7 +332,7 @@ object CustomerCapture {
     fun validate(p: JSONObject) {
         require(uuid.matches(p.getString("captureId"))) { "Open Add customer again." }
         val c = p.getJSONObject("customer")
-        val allowed = CustomerMaster.CUSTOMER_FIELDS.map { it.key }.toSet() + "shipTos"
+        val allowed = CustomerMaster.CUSTOMER_FIELDS.map { it.key }.toSet() + setOf("shipTos", "customFields")
         c.keys().forEach { k -> require(k in allowed) { "Unknown customer field $k." } }
         require(p.getString("name").trim().length in 1..200) { "Registered Name is required." }
         require(p.getString("address").trim().length in 1..500) { "Customer Address is required." }
@@ -342,6 +345,10 @@ object CustomerCapture {
                 require(ship.keys().asSequence().all { it in keys }) { "Unknown ship-to field." }
                 ship.keys().asSequence().associateWith { if (ship.isNull(it)) null else ship.get(it) }
             }
+        }
+        c.optJSONObject("customFields")?.let { extra ->
+            require(extra.length() <= 30) { "Too many additional fields." }
+            extra.keys().forEach { key -> require(Regex("cf_[a-f0-9]{32}").matches(key) && extra.get(key) is String && extra.getString(key).length <= 140000) { "Check the additional information." } }
         }
         val location = p.getJSONObject("location")
         input["latitude"] = location.getDouble("latitude"); input["longitude"] = location.getDouble("longitude")

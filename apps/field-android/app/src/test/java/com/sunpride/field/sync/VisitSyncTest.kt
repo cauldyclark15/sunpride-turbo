@@ -129,6 +129,22 @@ class VisitSyncTest {
         runBlocking { store.enqueue(row, 1) }
         return row
     }
+    @Test fun enrollmentPhotoSizedSavesAreSplitBeforeTheRequestLimit() = runBlocking {
+        val store = Store(); val transport = Transport()
+        repeat(2) {
+            val row = enqueue(store,"visit.checkIn")
+            val op = JSONObject(row.serializedOperation).put("kind",com.sunpride.field.census.CensusRules.KIND)
+            op.getJSONObject("payload").put("photoSizedFixture","x".repeat(600000))
+            val i = store.rows.indexOfFirst { it.first.requestId == row.requestId }
+            store.rows[i] = row.copy(kind=com.sunpride.field.census.CensusRules.KIND,serializedOperation=op.toString()) to store.rows[i].second
+        }
+        transport.handler = { path,body -> if(path.endsWith("push")) 200 to pushResult(body.getJSONArray("operations")) else 200 to pull() }
+        engine(store,transport).sync()
+        val pushes = transport.sent.filter { it.first.endsWith("push") }
+        assertEquals(2,pushes.size)
+        assertTrue(pushes.all { it.second.size < 1024*1024 })
+        assertTrue(store.rows.all { it.second.state == "done" })
+    }
     /** SP-0198: exercise the same orchestration used by LiveFieldBackend, not just VisitSync in isolation. */
     @Test fun freshDownloadAndRecoveredHoldSendSavedWorkInTheSameAttempt() = runBlocking {
         for (held in listOf(false, true)) {

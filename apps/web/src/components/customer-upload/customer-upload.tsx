@@ -12,7 +12,7 @@ import { formatDateTime } from "../../lib/format";
  */
 import { Button } from "@heroui/react";
 import { Card } from "@sunpride/ui";
-import type { ReferenceRow } from "@sunpride/customer-master";
+import type { EnrollmentField, ReferenceRow } from "@sunpride/customer-master";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, useApi, useLive } from "../../lib/api";
 import { downloadCsv } from "../../lib/import-csv-export";
@@ -447,10 +447,11 @@ export function CustomerUpload({ compact = false }: { compact?: boolean }) {
   async function templateXlsx() {
     setMessage("");
     try {
-      const t = await apiFetch<{ reference: ReferenceRow[] }>(
-        `${CUSTOMER_UPLOAD_API}/template`,
-      );
-      await downloadTemplateXlsx(t.reference);
+      const t = await apiFetch<{
+        reference: ReferenceRow[];
+        enrollmentForm?: { fields: EnrollmentField[] };
+      }>(`${CUSTOMER_UPLOAD_API}/template`);
+      await downloadTemplateXlsx(t.reference, t.enrollmentForm?.fields);
     } catch (e) {
       setMessage(
         e instanceof Error ? e.message : "Could not build the template.",
@@ -681,7 +682,23 @@ export function CustomerUpload({ compact = false }: { compact?: boolean }) {
               <Button variant="outline" onPress={() => void templateXlsx()}>
                 Download template (Excel)
               </Button>
-              <Button variant="ghost" onPress={downloadTemplateCsv}>
+              <Button
+                variant="ghost"
+                onPress={async () => {
+                  try {
+                    const t = await apiFetch<{
+                      enrollmentForm: { fields: EnrollmentField[] };
+                    }>(`${CUSTOMER_UPLOAD_API}/template`);
+                    downloadTemplateCsv(t.enrollmentForm.fields);
+                  } catch (e) {
+                    setMessage(
+                      e instanceof Error
+                        ? e.message
+                        : "Could not download the template.",
+                    );
+                  }
+                }}
+              >
                 CSV version
               </Button>
               {filePicker}

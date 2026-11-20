@@ -1,4 +1,5 @@
 "use client";
+import { EnrollmentFields } from "./enrollment-fields";
 
 /**
  * SP-0170 Customer form: the client's "Customer Information template" — same sections, same
@@ -397,6 +398,14 @@ export function CustomerForm({
           </fieldset>
         );
       })}
+      <EnrollmentFields
+        fields={draft.enrollmentFields ?? []}
+        values={draft.customFields ?? {}}
+        customer={draft.values}
+        errors={errors}
+        readOnly={readOnly}
+        onChange={(customFields) => onChange({ ...draft, customFields })}
+      />
     </div>
   );
 }

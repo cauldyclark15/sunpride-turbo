@@ -12,6 +12,7 @@ import {
   instructionLines,
   listSheets,
   requiredText,
+  enrollmentHeader,
 } from "./customers.js";
 
 /** @typedef {import("@sunpride/customer-master").ReferenceRow} ReferenceRow */
@@ -40,8 +41,9 @@ export function columnLetter(n) {
  * headings marked and commented with the rule + the client's Remarks, every cell text-formatted,
  * dropdowns on list columns), then one sheet per client list from the DB reference rows.
  * @param {ReferenceRow[]} reference active customer_reference_values rows
+ * @param {import("@sunpride/customer-master").EnrollmentField[]} [fields]
  */
-export function buildCustomerTemplateWorkbook(reference) {
+export function buildCustomerTemplateWorkbook(reference, fields = []) {
   const wb = new ExcelJS.Workbook();
   wb.creator = "Sunpride";
   wb.title = "Sunpride customer upload template";
@@ -76,6 +78,15 @@ export function buildCustomerTemplateWorkbook(reference) {
     ]
       .filter(Boolean)
       .join("\n");
+  });
+  fields.forEach((f, i) => {
+    const col = ws.getColumn(CUSTOMER_COLUMNS.length + i + 1);
+    col.width = 35;
+    col.numFmt = "@";
+    const cell = ws.getCell(1, CUSTOMER_COLUMNS.length + i + 1);
+    cell.value = enrollmentHeader(f);
+    cell.note =
+      "Additional enrollment information. Dates: YYYY-MM-DD. Yes/no: true or false. Photos: JPEG data URL, at most 100 KB. Required only for the channels or customer types selected in Setup > Enrollment form.";
   });
   ws.getRow(1).height = 30;
 
@@ -134,10 +145,12 @@ export function buildCustomerTemplateWorkbook(reference) {
   return wb;
 }
 
-/** The template as .xlsx bytes. @param {ReferenceRow[]} reference */
-export async function customerTemplateXlsx(reference) {
-  const buffer =
-    await buildCustomerTemplateWorkbook(reference).xlsx.writeBuffer();
+/** The template as .xlsx bytes. @param {ReferenceRow[]} reference @param {import("@sunpride/customer-master").EnrollmentField[]} [fields] */
+export async function customerTemplateXlsx(reference, fields = []) {
+  const buffer = await buildCustomerTemplateWorkbook(
+    reference,
+    fields,
+  ).xlsx.writeBuffer();
   return new Uint8Array(/** @type {ArrayBuffer} */ (buffer));
 }
 

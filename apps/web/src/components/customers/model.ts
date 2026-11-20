@@ -4,6 +4,8 @@
  * "Customer Information template"); the server stays authoritative.
  */
 import {
+  validateEnrollment,
+  type EnrollmentField,
   ADP_CHANNEL,
   CUSTOMER_FIELDS,
   FIELDS,
@@ -76,6 +78,7 @@ export type Customer = Record<string, unknown> & {
 export type FieldMissing = { field: string; label: string; message: string };
 
 export type CustomerRow = {
+  customFields?: Record<string, string>;
   id: string;
   code: string;
   customerName: string;
@@ -110,6 +113,8 @@ export type CustomerRow = {
 
 /** The editable form state: every sheet key as text, names of chosen geography, ship-tos. */
 export type Draft = {
+  customFields?: Record<string, string>;
+  enrollmentFields?: EnrollmentField[];
   code: string;
   values: Record<string, string>;
   /** Display names of the chosen geography (for the generated Customer Address). */
@@ -217,6 +222,7 @@ export function emptyDraft(): Draft {
 export function draftFromCustomer(c: Customer): Draft {
   const d = emptyDraft();
   d.code = c.code ?? "";
+  d.customFields = (c.customFields as Record<string, string>) ?? {};
   for (const key of Object.keys(d.values)) d.values[key] = str(c[key]);
   if (!d.values.countryCode) d.values.countryCode = "PH";
   for (const [codeKey, nameKey] of Object.entries(GEO_NAME))
@@ -452,6 +458,7 @@ export function toPayload(d: Draft, a?: { adp: boolean }) {
       email: blankToNull(r.email),
     };
   });
+  customer.customFields = d.customFields ?? {};
   return customer;
 }
 
@@ -472,7 +479,12 @@ export function checkDraft(
     const key = e.field.split(".").pop() ?? "";
     return !(d.shipTos[e.index]?.sameAsCustomer && copied.has(key));
   });
-  return errorsToFields(errors);
+  const custom = validateEnrollment(
+    d.enrollmentFields ?? [],
+    d.customFields,
+    input,
+  );
+  return errorsToFields([...errors, ...custom.errors]);
 }
 
 type ServerError = { field?: string; message?: string; label?: string };

@@ -14,6 +14,7 @@ import {
   visitFrequencyLabel,
 } from "@sunpride/customer-master";
 import { requireCapability } from "../../core/capabilities.js";
+import { checkEnrollment } from "./enrollment-form.js";
 import { setCustomerFrequency } from "./customer-frequency.js";
 import { compactName, searchWordPatterns } from "./duplicates.js";
 import { ApiError } from "../../core/errors.js";
@@ -82,6 +83,7 @@ const INPUT_KEYS = new Set([
   "longitude",
   "shipTos",
   "visitFrequency",
+  "customFields",
 ]);
 /** List-backed keys and the name key returned beside them. */
 const NAME_KEYS = /** @type {const} */ ([
@@ -238,6 +240,7 @@ export async function readCustomer(db, id) {
     // SP-0188: a field app save the office must finish, with what the agent typed.
     fieldMissing: asJsonValue(o.field_missing),
     fieldSubmitted: asJsonValue(o.field_submitted),
+    customFields: asJsonValue(o.custom_fields) ?? {},
     customerName: o.name,
     customerAddress: o.address ?? null,
     addressCustom: o.address_custom ?? false,
@@ -455,6 +458,7 @@ export async function saveCustomer(c, b, opts = {}) {
         contactPerson: input.contactPerson ?? b.contactPerson ?? null,
       },
     ];
+  const customFields = await checkEnrollment(c.db, merged);
   const geo = await derive(c.db, merged, input, existing);
   const lists = await referenceRows(c.db);
   // Sales Partner (client sheet: "pre-determined based on who saved the customer profile"):
@@ -596,6 +600,7 @@ export async function saveCustomer(c, b, opts = {}) {
     await setCustomerFrequency(c, [outletId], input.visitFrequency);
   const row = /** @type {Record<string, any>} */ ({
     outlet_id: outletId,
+    custom_fields: customFields,
     completeness: complete.ok ? "complete" : "draft",
     source: existing ? undefined : opts.fieldCapture ? "field" : "api",
     updated_by: actor?.subject ?? actor?.userId ?? "system:customer-master",
@@ -692,6 +697,7 @@ export async function approveCustomer(c, outletId, b) {
   await access(c, "outlets", outletId, "outlet.enrol.approve");
   const customer = await readCustomer(c.db, outletId);
   if (customer.status === "inactive") rule("This customer is inactive.");
+  await checkEnrollment(c.db, customer);
   const lists = await referenceRows(c.db);
   const result = validateCustomer(customer, {
     level: "complete",
@@ -810,7 +816,7 @@ export async function listCustomers(c) {
     throw new ApiError("invalid_request", 400, "Choose a valid date.");
   const nationwide = unitIds === null;
   const rows =
-    await c.db`select x.*,count(*) over() as total_count from (select o.id,o.code,o.name,o.address,o.status,o.enrolment_status,o.visit_frequency_days,o.visit_frequency_per_month,p.completeness,p.registered_name,p.field_missing,
+    await c.db`select x.*,count(*) over() as total_count from (select o.id,o.code,o.name,o.address,o.status,o.enrolment_status,o.visit_frequency_days,o.visit_frequency_per_month,p.completeness,p.registered_name,p.field_missing,p.custom_fields,
       (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end) as list_status,
       count(*) over() as n_all,count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='prospect') over() as n_prospect,
       count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='active') over() as n_active,count(*) filter (where o.status='inactive') over() as n_inactive,
@@ -930,6 +936,7 @@ export async function listCustomers(c) {
       enrolmentStatus: r.enrolment_status ?? null,
       completeness: r.completeness ?? "draft",
       fieldMissing: asJsonValue(r.field_missing),
+      customFields: asJsonValue(r.custom_fields) ?? {},
       salesOrgCode: r.sales_org_code ?? null,
       salesOfficeCode: r.sales_office_code ?? null,
       distributionChannelCode: r.distribution_channel_code ?? null,

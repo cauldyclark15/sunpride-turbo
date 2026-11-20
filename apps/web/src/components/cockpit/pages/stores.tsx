@@ -383,7 +383,7 @@ function CustomersListTab({
     const v = params.get(k);
     if (v) filters[k] = v;
   }
-  const { index } = useCustomerReference();
+  const { index, enrollmentFields } = useCustomerReference();
   const { can } = usePermissions();
   const result = useCustomerList(q, status, filters, page, awaitingApproval);
   const onSearch = useCallback(
@@ -393,6 +393,7 @@ function CustomersListTab({
   return (
     <CustomerListView
       index={index}
+      enrollmentFields={enrollmentFields}
       rows={result.data?.rows ?? (result.error ? [] : null)}
       statusCounts={result.data?.statusCounts ?? null}
       canManageFrequency={can("outlet.frequency.manage")}

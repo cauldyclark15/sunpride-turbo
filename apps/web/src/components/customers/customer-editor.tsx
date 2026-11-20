@@ -5,7 +5,10 @@
  * the browser for instant feedback, saves through /api/v1/customers, and — for approvers —
  * approves a prospect (server `complete` check, errors shown next to each field) or deactivates.
  */
-import { visitFrequencySummary } from "@sunpride/customer-master";
+import {
+  type EnrollmentField,
+  visitFrequencySummary,
+} from "@sunpride/customer-master";
 import { CustomerFrequencyEditor } from "./visit-frequency";
 import { FieldIncompleteNote } from "./field-incomplete";
 import dynamic from "next/dynamic";
@@ -72,15 +75,20 @@ function useGeo(path: string, param: string, code: string) {
 
 /** Reference lists for every dropdown (one call; filtered in the browser). */
 export function useCustomerReference() {
-  const ref = useApi<{ lists: Record<string, RefOption[]> }>(
-    ["customers", "reference"],
-    "/api/v1/customers/reference",
-  );
+  const ref = useApi<{
+    lists: Record<string, RefOption[]>;
+    enrollmentForm?: { fields: EnrollmentField[] };
+  }>(["customers", "reference"], "/api/v1/customers/reference");
   const index = useMemo(
     () => indexReference(Object.values(ref.data?.lists ?? {}).flat()),
     [ref.data],
   );
-  return { index, loaded: Boolean(ref.data), error: ref.error };
+  return {
+    index,
+    enrollmentFields: ref.data?.enrollmentForm?.fields ?? [],
+    loaded: Boolean(ref.data),
+    error: ref.error,
+  };
 }
 
 export function CustomerEditor({
@@ -101,7 +109,7 @@ export function CustomerEditor({
     customerId ? ["customers", "one", customerId] : null,
     customerId ? `/api/v1/customers/${encodeURIComponent(customerId)}` : "",
   );
-  const { index, loaded: refLoaded } = useCustomerReference();
+  const { index, enrollmentFields, loaded: refLoaded } = useCustomerReference();
   const setup = useApi<Setup>(
     canEdit && !customerId ? ["masters", "store-setup"] : null,
     "/api/v1/masters/store-setup",
@@ -133,6 +141,7 @@ export function CustomerEditor({
         key={loaded.data ? loaded.data.id : "new"}
         customer={loaded.data ?? null}
         initialName={initialName}
+        enrollmentFields={enrollmentFields}
         index={index}
         canEdit={canEdit}
         canApprove={canApprove}
@@ -146,6 +155,7 @@ export function CustomerEditor({
 
 function EditorBody({
   customer: initial,
+  enrollmentFields,
   initialName,
   index,
   canEdit,
@@ -155,6 +165,7 @@ function EditorBody({
   onDone,
 }: {
   customer: Customer | null;
+  enrollmentFields: EnrollmentField[];
   initialName: string;
   index: ReturnType<typeof indexReference>;
   canEdit: boolean;
@@ -165,14 +176,21 @@ function EditorBody({
 }) {
   const [customer, setCustomer] = useState<Customer | null>(initial);
   const readOnly = !canEdit || customer?.status === "inactive";
-  const [draft, setDraft] = useState<Draft>(() => {
-    if (customer) return draftFromCustomer(customer);
-    return setField(emptyDraft(), "customerName", initialName);
+  const [formDraft, setDraft] = useState<Draft>(() => {
+    const d = customer
+      ? draftFromCustomer(customer)
+      : setField(emptyDraft(), "customerName", initialName);
+    return { ...d, enrollmentFields };
   });
+  const draft = { ...formDraft, enrollmentFields };
   // A field-captured prospect opens with the fields still missing for approval highlighted.
   const [errors, setErrors] = useState<FieldErrors>(() =>
     customer && awaitsApproval(customer)
-      ? checkDraft(index, draftFromCustomer(customer), "complete")
+      ? checkDraft(
+          index,
+          { ...draftFromCustomer(customer), enrollmentFields },
+          "complete",
+        )
       : {},
   );
   const [message, setMessage] = useState<{
@@ -181,7 +199,11 @@ function EditorBody({
   } | null>(() => {
     if (!customer || !awaitsApproval(customer)) return null;
     const n = Object.keys(
-      checkDraft(index, draftFromCustomer(customer), "complete"),
+      checkDraft(
+        index,
+        { ...draftFromCustomer(customer), enrollmentFields },
+        "complete",
+      ),
     ).length;
     return n
       ? {
@@ -427,7 +449,7 @@ function EditorBody({
           );
       dirty.current = false;
       setCustomer(saved);
-      setDraft(draftFromCustomer(saved));
+      setDraft({ ...draftFromCustomer(saved), enrollmentFields });
       return saved;
     } catch (e) {
       const { fields, message: text } = fieldErrorsFrom(e);
@@ -480,7 +502,7 @@ function EditorBody({
         },
       );
       setCustomer(approved);
-      setDraft(draftFromCustomer(approved));
+      setDraft({ ...draftFromCustomer(approved), enrollmentFields });
       setErrors({});
       setMessage({
         tone: "ok",

@@ -21,7 +21,7 @@ import {
   type UploadError,
   type UploadRow,
 } from "@sunpride/import-templates/customers";
-import type { ReferenceRow } from "@sunpride/customer-master";
+import type { EnrollmentField, ReferenceRow } from "@sunpride/customer-master";
 import { downloadCsv } from "./import-csv-export";
 
 export type { UploadError, UploadRow };
@@ -201,11 +201,19 @@ export function errorsCsv(errors: UploadError[]) {
 
 /** Run report: the template's columns + result + problems, one line per uploaded row. */
 export function reportCsv(rows: RunRow[]) {
+  const extra = [
+    ...new Set(
+      rows.flatMap((r) =>
+        Object.keys(r.values).filter((k) => k.startsWith("customFields.cf_")),
+      ),
+    ),
+  ];
   return (
     "\uFEFF" +
     [
       line([
         ...CUSTOMER_HEADERS,
+        ...extra.map((key) => `Additional information [${key.slice(13)}]`),
         "Result",
         "Action",
         "Problem column",
@@ -220,6 +228,7 @@ export function reportCsv(rows: RunRow[]) {
               : "not processed";
         return line([
           ...CUSTOMER_COLUMNS.map((c) => r.values[c.id] ?? ""),
+          ...extra.map((k) => r.values[k] ?? ""),
           result,
           r.action ?? "",
           r.errors.map((e) => e.label ?? columnLabel(e.column)).join("; "),
@@ -244,10 +253,13 @@ function downloadBlob(name: string, blob: Blob) {
 }
 
 /** The Excel template, built in the browser by the same code as the client file. */
-export async function downloadTemplateXlsx(reference: ReferenceRow[]) {
+export async function downloadTemplateXlsx(
+  reference: ReferenceRow[],
+  fields: EnrollmentField[] = [],
+) {
   const { customerTemplateXlsx } =
     await import("@sunpride/import-templates/customers-xlsx");
-  const bytes = await customerTemplateXlsx(reference);
+  const bytes = await customerTemplateXlsx(reference, fields);
   downloadBlob(
     CUSTOMER_TEMPLATE_FILE_NAME,
     new Blob([bytes as BlobPart], {
@@ -256,8 +268,8 @@ export async function downloadTemplateXlsx(reference: ReferenceRow[]) {
   );
 }
 
-export function downloadTemplateCsv() {
-  downloadCsv(CUSTOMER_TEMPLATE_CSV_NAME, customerTemplateCsv());
+export function downloadTemplateCsv(fields: EnrollmentField[] = []) {
+  downloadCsv(CUSTOMER_TEMPLATE_CSV_NAME, customerTemplateCsv(fields));
 }
 
 /** 0–100 for a progress bar. */

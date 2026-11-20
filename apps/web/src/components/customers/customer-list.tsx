@@ -6,7 +6,10 @@
  * shared ListPage pager.
  */
 import { useState } from "react";
-import { visitFrequencySummary } from "@sunpride/customer-master";
+import {
+  type EnrollmentField,
+  visitFrequencySummary,
+} from "@sunpride/customer-master";
 import { CustomerFrequencyEditor } from "./visit-frequency";
 import { apiFetch, useApi } from "../../lib/api";
 import {
@@ -389,8 +392,10 @@ export function CustomerListView({
   customerHref,
   adders = [],
   canManageFrequency = false,
+  enrollmentFields = [],
 }: {
   canManageFrequency?: boolean;
+  enrollmentFields?: EnrollmentField[];
   adders?: Adder[];
   index: ReferenceIndex;
   rows: CustomerRow[] | null;
@@ -451,7 +456,26 @@ export function CustomerListView({
         searchPlaceholder="Search by Customer Code, Customer Name or Registered Name"
         onAdd={canAdd ? onAdd : undefined}
         addLabel="Add customer"
-        columns={customerColumns(index)}
+        columns={[
+          ...customerColumns(index),
+          ...enrollmentFields.map((f) => ({
+            key: f.key,
+            label: f.label,
+            render: (r: CustomerRow) =>
+              f.kind === "photo"
+                ? r.customFields?.[f.key]
+                  ? "Photo attached"
+                  : ""
+                : f.kind === "boolean"
+                  ? r.customFields?.[f.key] === "true"
+                    ? "Yes"
+                    : r.customFields?.[f.key] === "false"
+                      ? "No"
+                      : ""
+                  : (r.customFields?.[f.key] ?? ""),
+            text: (r: CustomerRow) => r.customFields?.[f.key] ?? "",
+          })),
+        ]}
         rowKey={(r) => r.id}
         rowHref={customerHref}
         filters={statusFilters(statusCounts)}

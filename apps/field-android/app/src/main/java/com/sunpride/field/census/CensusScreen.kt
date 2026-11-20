@@ -476,6 +476,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 }
             }
             }
+            if (!edit) EnrollmentFieldsSection(setup?.enrollmentFields.orEmpty(), form, { formErrors = formErrors - changedKeys(form,it); form = it }, customerMarks, !busy, { busy = it })
             SectionCard("Storefront photo") {
                 Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     if (camera) {
@@ -585,7 +586,7 @@ private fun Marked(field: CensusRules.Field, marked: Set<CensusRules.Field>, req
 }
 private const val OFFLINE_SEARCH = "Address search needs internet. Use my location instead."
 @Composable
-private fun CensusPicker(label: String, choices: List<Pair<String, String>>, value: String, onChange: (String) -> Unit, tag: String,
+internal fun CensusPicker(label: String, choices: List<Pair<String, String>>, value: String, onChange: (String) -> Unit, tag: String,
     empty: String = "Choose…") {
     var expanded by remember { mutableStateOf(false) }
     Box {
@@ -645,7 +646,7 @@ private val MARK_ORDER = CustomerMaster.FIELDS.map {
 private fun changedKeys(old: CustomerCapture.Form, new: CustomerCapture.Form): Set<String> {
     fun values(f: CustomerCapture.Form) = f.values() + mapOf("contactPerson" to f.contactPerson,
         "shipToParty" to f.shipToParty, "shipToAddress" to f.shipToAddress, "shipToMobileNo" to f.shipToMobileNo, "shipToEmail" to f.shipToEmail)
-    val a = values(old); val b = values(new)
+    val a = values(old) + old.customFields.mapKeys { "customFields.${it.key}" }; val b = values(new) + new.customFields.mapKeys { "customFields.${it.key}" }
     return (a.keys + b.keys).filter { a[it] != b[it] }.toSet() +
         if (old.sameAsCustomer != new.sameAsCustomer) setOf("shipToParty", "shipToAddress", "shipToMobileNo", "shipToEmail") else emptySet()
 }
