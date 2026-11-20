@@ -325,7 +325,7 @@ export function ProductivityView({
       </div>
       {roster.truncated && (
         <p className="text-[13px] text-muted">
-          First {rows.length} shown. Pick a unit.
+          First {rows.length} shown. Pick a branch.
         </p>
       )}
       {rows.length === 0 ? (

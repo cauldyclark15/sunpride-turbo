@@ -135,7 +135,7 @@ async function authorizeTarget(db, actor, path, p) {
         "admin.manage",
       );
       if (r.org_unit_id !== device.org_unit_id)
-        refuse("Choose a register in the handheld's assigned unit");
+        refuse("Choose a register in the handheld's assigned branch");
     }
   } else if (path === "registers/save") {
     const [l] =
@@ -210,7 +210,7 @@ async function saveCashier(db, actor, p) {
     person.org_unit_id !== r.org_unit_id ||
     !roleHas(person.role, "van.operate")
   )
-    refuse("Choose an active POS cashier in the store's unit");
+    refuse("Choose an active POS cashier in the store's branch");
   await noOpenShift(db, r.id);
   if (typeof p.enabled !== "boolean")
     refuse("Choose whether the cashier is assigned");

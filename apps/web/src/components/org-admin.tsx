@@ -26,12 +26,18 @@ import {
 
 type Unit = Doc<"orgUnits">;
 type Action = "create" | "edit" | "reparent" | "deactivate";
-/** SP-0178: a unit type reads by its configured label (e.g. "department" → "Distribution
- * Channel"); the code is only a fallback while the types load. */
+const officeTypeLabels = new Map([
+  ["national", "Company"],
+  ["region", "Region"],
+  ["area", "Branch"],
+]);
+
+/** Office wording only; stored type codes and custom hierarchy labels stay unchanged. */
 export const typeLabel = (
   code: string,
   types?: ReadonlyArray<{ code: string; label: string }> | null,
 ) =>
+  officeTypeLabels.get(code.toLowerCase()) ||
   types?.find((t) => t.code === code)?.label ||
   code
     .toLowerCase()
@@ -227,7 +233,7 @@ export function OrgAdmin() {
   const columns: DataColumn<Unit & { id: string; depth: number }>[] = [
     {
       key: "name",
-      label: "Unit",
+      label: "Name",
       render: (row) => (
         <div
           data-depth={row.depth}
@@ -299,7 +305,7 @@ export function OrgAdmin() {
                 }}
               >
                 {action === "create"
-                  ? "Add unit below"
+                  ? "Add below"
                   : action === "edit"
                     ? "Edit"
                     : action === "reparent"
@@ -331,7 +337,7 @@ export function OrgAdmin() {
               setNotice("");
             }}
           >
-            Add unit
+            Add entry
           </Button>
         }
         flush
@@ -351,7 +357,7 @@ export function OrgAdmin() {
           </FormField>
           {previewDate && canManage ? (
             <p className="mt-1 text-[13px] text-muted">
-              Clear the date to add or edit units.
+              Clear the date to add or edit the organization.
             </p>
           ) : null}
         </div>
@@ -370,7 +376,7 @@ export function OrgAdmin() {
               )
               .slice((page - 1) * 25, page * 25)}
             columns={columns}
-            empty={<EmptyPanel title="No units" />}
+            empty={<EmptyPanel title="No organization entries" />}
           />
         )}
         <SetupSearch
@@ -401,7 +407,7 @@ export function OrgAdmin() {
       </Card>
       {choice ? (
         <Card
-          label={`${choice.action === "create" ? "Add unit" : choice.action === "edit" ? "Edit unit" : choice.action === "reparent" ? "Move unit" : "Remove unit"} · ${choice.unit.name}`}
+          label={`${choice.action === "create" ? "Add below" : choice.action === "edit" ? "Edit" : choice.action === "reparent" ? "Move" : "Remove"} ${typeLabel(choice.unit.typeCode, unitTypes)} · ${choice.unit.name}`}
         >
           <form
             onSubmit={submit}
@@ -417,7 +423,7 @@ export function OrgAdmin() {
                 </FormField>
                 <AdminSelectField
                   name="typeCode"
-                  label="Unit type"
+                  label="Type"
                   value={typeCode}
                   onChange={setTypeCode}
                   required
@@ -429,7 +435,10 @@ export function OrgAdmin() {
                           levelOf(choice.unit.typeCode) !== undefined &&
                           type.level > levelOf(choice.unit.typeCode)!,
                       )
-                      .map((type) => ({ id: type.code, label: type.label })),
+                      .map((type) => ({
+                        id: type.code,
+                        label: typeLabel(type.code, unitTypes),
+                      })),
                   ]}
                 />
               </>
@@ -445,7 +454,7 @@ export function OrgAdmin() {
                 onChange={setParentId}
                 required
                 options={[
-                  { id: "", label: "Select a unit" },
+                  { id: "", label: "Select a company, region or branch" },
                   ...(units ?? [])
                     .filter(
                       (unit) =>

@@ -33,7 +33,7 @@ export async function setupHealth(c) {
   const links = [
     [
       "people",
-      "People without a unit",
+      "People without a branch",
       "people",
       "/admin?section=people&unassigned=true",
     ],

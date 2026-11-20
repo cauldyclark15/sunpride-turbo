@@ -9,6 +9,8 @@
 
 ## B. Register a salesman's phone
 
+Before registering a phone, check **Setup > People**. **Add person** and **Edit** use **Branch** for the person's assignment. The **No branch** filter finds people who still need one. **Setup > Organization** keeps the hierarchy, with rows labelled **Company**, **Region** or **Branch**.
+
 3. A salesman signs in on his phone and tells you "My phone is waiting".
 4. Click **Setup** (left menu), then **Phones**.
 5. Under **Phones waiting to be registered**, find his name.

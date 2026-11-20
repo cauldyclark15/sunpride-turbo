@@ -43,7 +43,7 @@ export async function activeUnit(c, id, at, to = Infinity) {
     unit.status !== "active" ||
     (ms(unit.effective_to) ?? Infinity) < to
   )
-    rule("Unit does not cover effective interval");
+    rule("Branch does not cover effective interval");
   return unit;
 }
 /** @param {Ctx} c @param {string} childType @param {string} parentId @param {number} at @param {number} [to] */
@@ -100,7 +100,7 @@ export async function orgCommand(c, action, b) {
     unit.status !== "active" ||
     ms(unit.effective_from) >= at
   )
-    rule("Unit cannot be changed");
+    rule("This organization entry cannot be changed");
   if (action === "reparent") {
     await requireCapability(c, "admin.manage", uuid(b.parentId));
     await parentFor(
@@ -139,13 +139,15 @@ export async function orgCommand(c, action, b) {
   } else {
     const tree = await topology(c.db, at);
     if (tree.some((u) => u.parent_id === unit.id))
-      rule("Unit has active children");
+      rule("This organization entry has active children");
     const dependent =
       await c.db`select id from org_unit_parent_edges where parent_id=${unit.id} and deleted_at is null and (effective_to is null or effective_to>${instant(at)}) limit 1`;
-    if (dependent.length) rule("Unit has dependent child intervals");
+    if (dependent.length)
+      rule("This organization entry has dependent child intervals");
     const people =
       await c.db`select id from employee_assignments where org_unit_id=${unit.id} and deleted_at is null and (effective_to is null or effective_to>${instant(at)}) limit 1`;
-    if (people.length) rule("Reassign people before retiring this unit");
+    if (people.length)
+      rule("Reassign people before retiring this organization entry");
     await update(c.db, "org_units", unit.id, { effective_to: instant(at) });
     await c.db`update org_unit_parent_edges set effective_to=${instant(at)} where unit_id=${unit.id} and (effective_to is null or effective_to>${instant(at)})`;
   }
@@ -482,7 +484,7 @@ async function personWindow(
     from,
   );
   if (person.status !== "active" || !person.org_unit_id)
-    rule("Person has no active unit");
+    rule("Person has no active branch");
   await requireCapability(c, capability, person.org_unit_id);
   if (!(await subtree(c.db, owner, from)).includes(person.org_unit_id))
     rule("Person outside owner hierarchy");

@@ -68,7 +68,7 @@ export async function validateMigration(ctx, kind, rows) {
       if (!unit)
         fail(
           "org_unit_code",
-          "Map to an existing active organizational unit.",
+          "Map to an existing active branch.",
           "unknown_reference",
         );
       else item.unit = unit;
@@ -140,7 +140,7 @@ export async function validateMigration(ctx, kind, rows) {
       if (!territory)
         fail(
           "territory_code",
-          "Map a territory owned by this unit.",
+          "Map a territory owned by this branch.",
           "unknown_reference",
         );
       else item.territoryId = territory.id;

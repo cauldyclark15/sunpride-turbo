@@ -28,7 +28,7 @@ export async function createDistributor(c) {
     await requireCapability({ ...c, db, actor }, "integration.manage", unit);
     const [u] =
       await db`select id from org_units where id=${unit} and status='active' and deleted_at is null`;
-    if (!u) fail("Choose an active supervising unit");
+    if (!u) fail("Choose an active supervising branch");
     const [old] = await db`select * from distributors where code=${code}`;
     if (old) {
       await authorize({ ...c, db, actor }, old.id, "read", true);

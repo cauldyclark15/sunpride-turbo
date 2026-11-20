@@ -2,9 +2,9 @@
 
 ## Office check
 
-1. In Setup > People > Add person, enter the person's correct email, role, position and unit, then Save.
+1. In Setup > People > Add person, enter the person's correct email, role, position and branch, then Save.
 2. The result distinguishes email acceptance, a failed send, and email sending being turned off. The person's access invitation is saved even if sending fails.
-3. For a person added earlier, open Setup > People > Invited, find the correct email and choose Resend email. Wait one minute between attempts. Resend does not change their email, role or unit, and is available only while the invitation is waiting.
+3. For a person added earlier, open Setup > People > Invited, find the correct email and choose Resend email. Wait one minute between attempts. Resend does not change their email, role or branch, and is available only while the invitation is waiting.
 4. Ask the person to check Inbox and Spam. New users follow Create account on the website and choose their own password; existing users sign in with their existing password.
 5. Salespeople and sales managers also receive the same Google Play and backup Drive links shown under Share the Field app. Google Play tester membership is separate from Sunpride access. The backup instructions say to install over the old app, never uninstall it first.
 

@@ -492,7 +492,7 @@ describe("People list", () => {
     state.values["lib/capabilities:currentPermissions"] = permissions;
     expect(html(createElement(PeopleAdmin))).toContain("list-add");
   });
-  it("opens Add person as a form with name, email, role, position and unit", () => {
+  it("opens Add person as a form with name, email, role, position and branch", () => {
     admin();
     state.addingOverride = "";
     const view = html(createElement(PeopleAdmin));
@@ -500,7 +500,7 @@ describe("People list", () => {
     expect(view).toMatch(
       /<input[^>]*type="email"[^>]*required=""[^>]*name="email"/,
     );
-    for (const label of ["Full name", "Email", "Role", "Position", "Unit"])
+    for (const label of ["Full name", "Email", "Role", "Position", "Branch"])
       expect(view).toContain(`<label>${label}`);
     expect(view).toMatch(/>Save<\/button>/);
     expect(view).toMatch(/>Cancel<\/button>/);
@@ -579,6 +579,9 @@ describe("Organization admin", () => {
     expect(view).toContain('data-depth="2"');
     expect(view).toContain("Inactive");
     expect(view).toContain("Region");
+    expect(view).toContain("Company");
+    expect(view).toContain("Branch");
+    expect(view).not.toMatch(/>Unit</);
   });
   it("keeps hierarchy order even when units arrive code-sorted", () => {
     state.values["org/queries:tree"] = [area, root, region];
@@ -596,8 +599,8 @@ describe("Organization admin", () => {
       capabilities: ["org.read"],
     };
     const view = html(createElement(OrgAdmin));
-    expect(view).toMatch(/disabled=""[^>]*>Add unit below/);
-    expect(view).toMatch(/disabled=""[^>]*>Add unit</);
+    expect(view).toMatch(/disabled=""[^>]*>Add below/);
+    expect(view).toMatch(/disabled=""[^>]*>Add entry</);
   });
   it("routes create and reparent to their mutations with future Manila instants and reparent reason", async () => {
     const actions = {
@@ -645,7 +648,7 @@ describe("Organization admin", () => {
   it("renders catalog-backed type choices and sends edit reason", async () => {
     state.orgChoice = { unit: region, action: "create" };
     const view = html(createElement(OrgAdmin));
-    expect(view).toContain('value="AREA">Area from catalog');
+    expect(view).toContain('value="AREA">Branch');
     expect(view).not.toContain('value="TERRITORY"');
     expect(
       state.queryCalls.some((call) => call.name === "org/queries:types"),
@@ -700,6 +703,16 @@ describe("Organization admin", () => {
 });
 
 describe("People admin", () => {
+  it("SP-0217 uses Branch in the list, unassigned filter and Edit form without changing the submitted field", () => {
+    state.selectedOverride = person._id;
+    const view = html(createElement(PeopleAdmin));
+    expect(view).toContain("No branch");
+    expect(view).toContain("<label>Branch");
+    expect(view).toContain("Select a branch");
+    expect(view).toContain('name="orgUnitId"');
+    expect(view).not.toContain("No unit");
+    expect(view).not.toMatch(/>Unit</);
+  });
   it("loads supervisor options for the chosen unit rather than the legacy profiles list", () => {
     state.selectedOverride = person._id;
     state.unitOverride = region._id;

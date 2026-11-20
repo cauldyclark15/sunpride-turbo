@@ -42,7 +42,7 @@ export async function cashierContext(db, actor, device, at) {
       "Commercial store ownership changed; the office must relink this register",
     );
   if (r.org_unit_id !== fresh.device.org_unit_id)
-    throw forbidden("Register and handheld must share their assigned unit");
+    throw forbidden("Register and handheld must share their assigned branch");
   if (
     +new Date(r.effective_from) > at ||
     (r.effective_to && +new Date(r.effective_to) <= at)

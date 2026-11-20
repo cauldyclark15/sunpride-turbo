@@ -125,16 +125,16 @@ export function SupervisionWorkspace() {
         </div>
         {tab !== "signins" && options && options.units.length > 1 && (
           <div className="w-[220px] max-w-full">
-            <FormField label="Unit">
+            <FormField label="Branch">
               <select
-                aria-label="Unit"
+                aria-label="Branch"
                 className="h-10 w-full"
                 value={orgUnitId}
                 onChange={(event) =>
                   setOrgUnitId(event.target.value as Id<"orgUnits"> | "")
                 }
               >
-                <option value="">All units</option>
+                <option value="">All branches</option>
                 {options.units.map((unit) => (
                   <option key={unit.id} value={unit.id}>
                     {unit.name}

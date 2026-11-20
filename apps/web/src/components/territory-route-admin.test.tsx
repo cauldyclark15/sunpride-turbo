@@ -178,6 +178,19 @@ beforeEach(() => {
   };
 });
 describe("unmounted territory and route administration", () => {
+  it("SP-0217 calls the owner a branch in create and transfer forms", () => {
+    state.action = "create";
+    const add = render(createElement(TerritoryAdmin));
+    expect(add).toContain("Owning branch");
+    expect(add).toContain("Select branch");
+    expect(add).toContain('name="orgUnitId"');
+    expect(add).not.toContain("Owning unit");
+    state.selection = territory._id;
+    state.action = "transfer";
+    const transfer = render(createElement(TerritoryAdmin));
+    expect(transfer).toContain("Move to another branch");
+    expect(transfer).toContain("Owning branch");
+  });
   it("uses territory-filtered people rather than the company-wide first page for assignment", () => {
     state.selection = territory._id;
     state.action = "assign";
@@ -252,7 +265,7 @@ describe("unmounted territory and route administration", () => {
     state.personOptions = { page: [], continueCursor: "", isDone: true };
     const empty = render(createElement(TerritoryAdmin));
     expect(empty).toContain(
-      "No active people found in this territory’s owning unit.",
+      "No active people found in this territory’s owning branch.",
     );
     expect(empty).not.toContain("Loading salespeople…");
     expect(empty).toMatch(

@@ -217,7 +217,7 @@ export async function readFormPolicies(ctx) {
   }
   const units =
     await ctx.db`select id,name from org_units where deleted_at is null and status='active' order by name limit 1001`;
-  if (units.length > 1000) throw conflict("Too many organizational units");
+  if (units.length > 1000) throw conflict("Too many branches");
   const visible = [];
   for (const u of units) {
     try {

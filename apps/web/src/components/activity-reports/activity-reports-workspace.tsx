@@ -470,7 +470,7 @@ export function CompletenessView({
       )}
       {grid.truncated && (
         <p className="text-[13px] text-muted">
-          First {people.length} shown. Pick a unit.
+          First {people.length} shown. Pick a branch.
         </p>
       )}
       <Card
@@ -560,16 +560,16 @@ function TeamReports({ endDate }: { endDate: string }) {
       <div className="flex flex-wrap items-end gap-3 print:hidden">
         {grid && grid.units.length > 1 && (
           <div className="w-[220px] max-w-full">
-            <FormField label="Unit">
+            <FormField label="Branch">
               <select
-                aria-label="Unit"
+                aria-label="Branch"
                 className="h-10 w-full"
                 value={orgUnitId}
                 onChange={(event) =>
                   setOrgUnitId(event.target.value as Id<"orgUnits"> | "")
                 }
               >
-                <option value="">All units</option>
+                <option value="">All branches</option>
                 {grid.units.map((unit) => (
                   <option key={unit.id} value={unit.id}>
                     {unit.name}

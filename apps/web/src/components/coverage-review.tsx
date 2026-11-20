@@ -394,7 +394,7 @@ export function ApprovalRouteNotice({
           ;{" "}
           {view.backupName
             ? `${view.backupName} approves as backup.`
-            : "an MCP approver above the supervisor's unit approves as backup."}
+            : "an MCP approver above the supervisor's branch approves as backup."}
         </p>
       )}
       {view.approvedCapacity && (

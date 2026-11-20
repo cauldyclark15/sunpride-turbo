@@ -674,14 +674,14 @@ export function PrivilegeSwitchCard({
         Senior citizen / PWD discount on or off
       </h2>
       <p className="text-sm text-muted">
-        The senior citizen and PWD discount is required by law wherever a unit
+        The senior citizen and PWD discount is required by law wherever a branch
         sells to consumers. It is on for stores and off for vans unless the
         office changes it here. The weekly limit above does not switch the
         discount on; it only limits it.
       </p>
       {units.length ? (
         <label className="grid max-w-md gap-1 text-sm">
-          Unit
+          Branch
           <select
             className={control}
             value={unitId}
@@ -695,7 +695,7 @@ export function PrivilegeSwitchCard({
           </select>
         </label>
       ) : (
-        <p className="text-sm text-muted">No units to show.</p>
+        <p className="text-sm text-muted">No branches to show.</p>
       )}
       {unit ? (
         <table className="w-full max-w-xl text-sm">
@@ -745,7 +745,7 @@ export function PrivilegeSwitchCard({
       ) : null}
       {data.canManage ? (
         <p className="text-sm text-muted">
-          Switch it off only where this unit does not sell to consumers.
+          Switch it off only where this branch does not sell to consumers.
         </p>
       ) : (
         <p className="text-sm text-muted">Only the office can change this.</p>

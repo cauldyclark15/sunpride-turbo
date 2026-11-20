@@ -53,7 +53,7 @@ export async function approvalCapacity(ctx, p) {
     if (!r.supervisorUnitId) fail("Supervisor scope is not configured");
     await requireCapability(ctx, "mcp.approve", r.supervisorUnitId);
     if (actor.orgUnitId === r.supervisorUnitId)
-      fail("Backup approval needs an approver above the supervisor's unit");
+      fail("Backup approval needs an approver above the supervisor's branch");
   }
   return { capacity: "backup", onBehalfOf: r.supervisor.id };
 }

@@ -189,7 +189,7 @@ export async function productivePolicyCommand(ctx, platform, action, body) {
         channel = null;
       if (body.channelKey != null)
         fail(
-          "Use unit and position applicability until the effective channel-history adapter is installed",
+          "Use branch and position applicability until the effective channel-history adapter is installed",
         );
       if (
         positionId &&

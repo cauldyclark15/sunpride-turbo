@@ -301,7 +301,7 @@ export function PeopleAdmin() {
   }
 
   const filters = [
-    { id: "unassigned", label: "No unit" },
+    { id: "unassigned", label: "No branch" },
     ...(canAdd ? [{ id: "invited", label: "Invited" }] : []),
   ];
   const filter = invited ? "invited" : unassigned ? "unassigned" : null;
@@ -369,7 +369,7 @@ export function PeopleAdmin() {
     },
     {
       key: "unit",
-      label: "Unit",
+      label: "Branch",
       text: (row) => unitOf(row.orgUnitId),
       render: (row) =>
         `${unitOf(row.orgUnitId)}${row.supervisorSubject ? ` · ${supervisorOf(row.supervisorSubject)}` : ""}`,
@@ -651,7 +651,7 @@ export function PeopleAdmin() {
               <AdminSelectField
                 key={`${selected._id}-unit`}
                 name="orgUnitId"
-                label="Unit"
+                label="Branch"
                 defaultValue={selected.orgUnitId ?? ""}
                 required
                 onChange={(value) => {
@@ -661,7 +661,7 @@ export function PeopleAdmin() {
                   setSupervisorCursors([null]);
                 }}
                 options={[
-                  { id: "", label: "Select a unit" },
+                  { id: "", label: "Select a branch" },
                   ...(units ?? [])
                     .filter(
                       (unit) =>
@@ -855,7 +855,7 @@ export function PeopleAdmin() {
               ]}
             />
             <AdminSelectField
-              label="Unit"
+              label="Branch"
               value={orgUnitId}
               onChange={setOrgUnitId}
               options={[

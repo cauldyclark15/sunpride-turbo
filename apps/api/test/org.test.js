@@ -733,6 +733,22 @@ describe("people, invitations and teams", () => {
 });
 
 describe("territories, routes and outlet assignments", () => {
+  test("SP-0217 missing-person assignment says branch and leaves territory assignments unchanged", async () => {
+    const unassigned = await person("No branch example", "sales", null);
+    const before =
+      await h.db`select * from territory_salespeople where territory_id=${territory.id} order by id`;
+    const result = await call("territories/assignSalesperson", boss, {
+      territoryId: territory.id,
+      profileId: unassigned.profileId,
+      effectiveFrom: Date.now() + 86400000,
+      reason: "SAMPLE wording check",
+    });
+    expect(result.status).toBe(422);
+    expect(result.body.error.message).toBe("Person has no active branch");
+    expect(
+      await h.db`select * from territory_salespeople where territory_id=${territory.id} order by id`,
+    ).toEqual(before);
+  });
   test("creates prospective territory and route with bounded owner validation and deny", async () => {
     const from = Date.now() + 5000;
     const t = await call("territories/create", boss, {
@@ -1063,6 +1079,12 @@ describe("setup queues, enrollment and current-scope history", () => {
     const health = await call("org/setup-health");
     expect(health.status).toBe(200);
     expect(health.body.items).toHaveLength(6);
+    expect(
+      health.body.items.find((/** @type {any} */ item) => item.key === "people"),
+    ).toMatchObject({
+      label: "People without a branch",
+      href: "/admin?section=people&unassigned=true",
+    });
     const pending = await call("outlets/pins/queue");
     expect(pending.status).toBe(200);
     const unverified = await call("outlets/list?unverified=true&limit=100");

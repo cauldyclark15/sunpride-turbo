@@ -193,7 +193,7 @@ export function ExceptionQueueView({
     <div className="grid gap-4">
       {data.truncated && (
         <p className="text-[13px] text-muted">
-          Partial list. Pick a unit or channel.
+          Partial list. Pick a branch or channel.
         </p>
       )}
       <Card

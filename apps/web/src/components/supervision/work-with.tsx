@@ -189,7 +189,7 @@ export function WorkWithCadenceView({
         />
       </div>
       {data.truncated && (
-        <p className="text-[13px] text-muted">Partial list. Pick a unit.</p>
+        <p className="text-[13px] text-muted">Partial list. Pick a branch.</p>
       )}
       <Card
         label="Work-With cadence"

@@ -139,11 +139,11 @@ commands["locations/save"] = {
   cap: "inventory.write",
   prepare: async (c, b) => {
     await requireNationalScope(c, ["admin"]);
-    id(b.orgUnitId, "Organizational unit");
+    id(b.orgUnitId, "Branch");
     await requireCapability(c, "inventory.write", b.orgUnitId);
     const [unit] =
       await c.db`select id from org_units where id=${b.orgUnitId} and organization_id=${ORGANIZATION} and status='active' and deleted_at is null`;
-    if (!unit) invalid("Choose an active organizational unit");
+    if (!unit) invalid("Choose an active branch");
     if (b.id) {
       const existing = await document(c.db, "inventory_locations", id(b.id));
       if (existing.org_unit_id)

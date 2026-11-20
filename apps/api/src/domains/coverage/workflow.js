@@ -197,7 +197,7 @@ export async function snapshotSlot(ctx, p, s, cap = "mcp.approve") {
   );
   await requireCapability(ctx, cap, employee.org_unit_id);
   if (employee.org_unit_id !== p.org_unit_id)
-    fail(`Assignee unit changed on ${date}; revise plan`);
+    fail(`Assignee branch changed on ${date}; revise plan`);
   if (s.kind === "non_visit") {
     const [position] = employee.position_id
       ? await db`select code from positions where id=${employee.position_id}`
@@ -387,7 +387,7 @@ export async function workflow(ctx, action, b) {
       Math.max(from, ctx.now),
     );
     if (a.org_unit_id !== p.org_unit_id)
-      fail("Assignee unit changed; create a new scoped plan");
+      fail("Assignee branch changed; create a new scoped plan");
     await db`update coverage_plans set effective_from=${new Date(from)},effective_to=${new Date(to)} where id=${p.id}`;
     const moved =
       await db`update coverage_assignments set effective_from=${new Date(from)},effective_to=${new Date(to)},reason=${b.reason},actor_subject=${ctx.actor.subject} where plan_id=${p.id} returning id`;
@@ -483,7 +483,7 @@ export async function workflow(ctx, action, b) {
       +new Date(assignment.effective_to) !== +new Date(p.effective_to)
     )
       fail(
-        "This plan's assignment period does not match the plan (person, unit or dates). Return it to the planner: on the Plan tab they press \"Save assignment\" again and resubmit.",
+        'This plan\'s assignment period does not match the plan (person, branch or dates). Return it to the planner: on the Plan tab they press "Save assignment" again and resubmit.',
       );
     const overlaps =
       await db`select * from coverage_plans where id<>${p.id} and assignee_profile_id=${p.assignee_profile_id} and status in ('approved','active') and effective_from<${p.effective_to} and coalesce(active_through,effective_to)>${p.effective_from}`;

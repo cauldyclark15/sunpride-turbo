@@ -225,7 +225,7 @@ export function ActivityMapView({
         <ActivityTileMap people={people} showsFixes={data.showsFixes} />
         {data.truncated && (
           <p className="text-[13px] text-muted">
-            First {data.people.length} people shown. Pick a unit.
+            First {data.people.length} people shown. Pick a branch.
           </p>
         )}
         {people.every((person) => person.stops.length === 0) ? (

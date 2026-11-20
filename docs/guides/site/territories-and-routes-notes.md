@@ -7,6 +7,10 @@
 - Build: `python3 make-pdf.py md/territories-and-routes.md` from this directory.
 - Listed under **For the office** in `apps/web/src/config/guides.ts`.
 
+## SP-0217 wording refresh
+
+The Add territory screenshot (`img/w-territories-add.png`) was recaptured from the actual SP-0217 web application at 1440 × 1000 with the isolated `sunpride_lane_sp217` sample database (API 5000, web 5001). It now says **Owning branch**. The form was filled but not saved in this wording check. The other six screenshots retain their original provenance below. The published PDF was rebuilt at the same address; its message text now matches **Branch does not cover effective interval** and **Person has no active branch**.
+
 ## Screenshot provenance
 
 Captured on 19 November 2026 from the actual web application in worktree `sp-212`, base `4addb7bf`, using Chrome at 1440 × 1000 with device scale 1. API: `127.0.0.1:5000`; web: `127.0.0.1:5001`; database: **sunpride_lane_sp212**. No live customer data, phones, or production services were used. Screenshots are unaltered crops of the open forms, not drawings or mocked responses.

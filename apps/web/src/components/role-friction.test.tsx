@@ -73,7 +73,12 @@ describe("SP-0178 role friction", () => {
         { code: "department", label: "Distribution Channel" },
       ]),
     ).toBe("Distribution Channel");
-    expect(typeLabel("area")).toBe("Area");
+    expect(typeLabel("area")).toBe("Branch");
+    expect(
+      typeLabel("NATIONAL", [{ code: "NATIONAL", label: "National" }]),
+    ).toBe("Company");
+    expect(typeLabel("REGION")).toBe("Region");
+    expect(typeLabel("AREA", [{ code: "AREA", label: "Area" }])).toBe("Branch");
   });
 
   it("a person's meta line never repeats the job title", () => {

@@ -36,7 +36,7 @@ export async function topology(db, asOf = Date.now()) {
     }
   } else raw = loadRaw(db);
   const { all, edges: allEdges } = await raw;
-  if (all.length > 500) rule("Organization exceeds 500 units", "overflow");
+  if (all.length > 500) rule("Organization exceeds 500 entries", "overflow");
   const units = all.filter(
     (u) =>
       activeAt(u, asOf) && (u.status === "active" || u.effective_to != null),
@@ -50,7 +50,8 @@ export async function topology(db, asOf = Date.now()) {
     if (effective.length > 1) rule("Overlapping parents");
     const parent_id =
       effective[0]?.parent_id ?? (prior.length ? null : u.parent_id);
-    if (parent_id && !ids.has(parent_id)) rule("Orphaned organization unit");
+    if (parent_id && !ids.has(parent_id))
+      rule("Organization entry has no parent");
     return { ...u, parent_id };
   });
   if (

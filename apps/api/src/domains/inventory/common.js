@@ -156,7 +156,7 @@ export async function locationGate(
     throw new ApiError(
       "unmapped_location",
       403,
-      "This location needs an organizational unit",
+      "This location needs a branch",
     );
   if (row.org_unit_id)
     await requireCapability(ctx, capability, row.org_unit_id);

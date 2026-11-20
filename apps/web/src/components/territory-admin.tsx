@@ -219,7 +219,7 @@ function TerritorySalespersonField({ territoryId }: { territoryId: string }) {
       {!people ? (
         <p>Loading salespeople…</p>
       ) : !people.page.length ? (
-        <p>No active people found in this territory’s owning unit.</p>
+        <p>No active people found in this territory’s owning branch.</p>
       ) : null}
       <Pager
         page={cursors.length}
@@ -238,7 +238,7 @@ function TerritorySalespersonField({ territoryId }: { territoryId: string }) {
 const territoryActionLabel: Record<Action, string> = {
   create: "Add territory",
   edit: "Edit territory",
-  transfer: "Move to another unit",
+  transfer: "Move to another branch",
   assign: "Add salesperson",
   end: "Remove salesperson",
   deactivate: "Remove territory",
@@ -434,7 +434,7 @@ export function TerritoryAdmin() {
                 <ol>
                   {history?.map((row) => (
                     <li key={row._id}>
-                      {row.orgUnitName ?? "Unit unavailable"} ·{" "}
+                      {row.orgUnitName ?? "Branch unavailable"} ·{" "}
                       {formatManilaDate(row.effectiveFrom)} · {row.reason}
                     </li>
                   ))}
@@ -534,9 +534,9 @@ export function TerritoryAdmin() {
                     </>
                   )}
                   {(action === "create" || action === "transfer") && (
-                    <FormField label="Owning unit">
+                    <FormField label="Owning branch">
                       <select name="orgUnitId" required>
-                        <option value="">Select unit</option>
+                        <option value="">Select branch</option>
                         {units
                           ?.filter(
                             (unit) =>

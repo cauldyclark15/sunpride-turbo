@@ -30,7 +30,7 @@ export async function planAccess(ctx, planId, write = true) {
     throw new ApiError(
       "plan_locked",
       409,
-      "Only a draft in the salesperson's current unit can change.",
+      "Only a draft in the salesperson's current branch can change.",
     );
   // Historical draft membership must not expose an outlet after transfer.
   const members =
@@ -99,7 +99,7 @@ export async function validateMcp(ctx, input) {
     if (!employee || employee.org_unit_id !== plan.org_unit_id)
       fail(
         "employee_code",
-        "The salesperson is not assigned to this unit on that date.",
+        "The salesperson is not assigned to this branch on that date.",
         "assignment_mismatch",
       );
     const [outlet] =
@@ -152,7 +152,7 @@ export async function validateMcp(ctx, input) {
       if (owner?.org_unit_id !== plan.org_unit_id)
         fail(
           "territory_code",
-          "The territory is not owned by this plan's unit on that date.",
+          "The territory is not owned by this plan's branch on that date.",
           "scope_denied",
         );
       if (route) {

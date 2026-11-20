@@ -185,7 +185,7 @@ test("SP-0204 still requires the owning unit to cover today's effective interval
   });
   expect(result.status).toBe(422);
   expect(result.body.error.message).toBe(
-    "Unit does not cover effective interval",
+    "Branch does not cover effective interval",
   );
   const [count] =
     await h.db`select count(*)::int n from territories where code='BAD_OWNER'`;

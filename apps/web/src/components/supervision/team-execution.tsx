@@ -198,7 +198,7 @@ export function TeamExecutionView({
       </div>
       {data.truncated && (
         <p className="text-[13px] text-muted">
-          First {people.length} shown. Pick a unit.
+          First {people.length} shown. Pick a branch.
         </p>
       )}
       {people.length === 0 ? (

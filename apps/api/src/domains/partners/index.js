@@ -32,7 +32,7 @@ async function createAgency(c) {
     await requireCapability({ ...c, db, actor }, "integration.manage", unit);
     const [u] =
       await db`select id from org_units where id=${unit} and status='active' and deleted_at is null`;
-    if (!u) fail("Choose an active supervising unit");
+    if (!u) fail("Choose an active supervising branch");
     const [old] = await db`select * from distributors where code=${code}`;
     if (old) {
       await authorize({ ...c, db, actor }, old.id, "portal", true);
@@ -115,7 +115,7 @@ async function setOutlet(c, p, b) {
   const outletId = uuid(b.outletId),
     owner = await outletOwnerUnit(c.db, outletId, c.now);
   if (owner !== p.org_unit_id)
-    fail("Choose a store owned by the supervising unit", "out_of_scope", 403);
+    fail("Choose a store owned by the supervising branch", "out_of_scope", 403);
   await requireCapability(c, "outlet.read", owner);
   const from = new Date(b.effectiveFrom ?? c.now);
   if (!Number.isFinite(from.getTime()) || from.getTime() < c.now - 1000)

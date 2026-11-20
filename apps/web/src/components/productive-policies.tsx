@@ -60,7 +60,7 @@ export function ProductivePolicyList({
               {p.label} · version {p.version} · {p.status}
             </h3>
             <p>
-              Unit: {p.unitName} · Position:{" "}
+              Branch: {p.unitName} · Position:{" "}
               {p.positionLabel ?? "All positions"} ·{" "}
               {p.channelKey ?? "All channels"}
             </p>
@@ -237,9 +237,9 @@ export function ProductivePolicies() {
             />
           </label>
           <label className="grid gap-1 text-sm">
-            Applies within this unit
+            Applies within this branch
             <select
-              aria-label="Definition unit"
+              aria-label="Definition branch"
               value={unit || data.units[0]?.id || ""}
               onChange={(e) => setUnit(e.target.value)}
             >
@@ -256,7 +256,7 @@ export function ProductivePolicies() {
               value={position}
               onChange={(e) => setPosition(e.target.value)}
             >
-              <option value="">All positions in this unit</option>
+              <option value="">All positions in this branch</option>
               {data.positions.map((p) => (
                 <option key={p.id} value={p.id}>
                   {p.label}
@@ -328,9 +328,9 @@ export function ProductivePolicies() {
             </div>
           </fieldset>
           <p className="text-sm text-muted md:col-span-2">
-            Units are exact applicability, not implicit inheritance. Overlapping
-            definitions are refused. A replacement must retain its applicability
-            and start after its predecessor.
+            Branches are exact applicability, not implicit inheritance.
+            Overlapping definitions are refused. A replacement must retain its
+            applicability and start after its predecessor.
           </p>
           <button
             className={action}

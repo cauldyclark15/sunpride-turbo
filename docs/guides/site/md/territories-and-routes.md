@@ -16,7 +16,7 @@ The territory and owning branch must cover the route's **whole active period**. 
 5. Click **Add territory**.
 6. Fill **Code** and **Name**. Use a short, unique reference in Code; use a name your team will recognise.
 7. Fill **Channel** if this territory uses one. Use the wording agreed by your office; “Sample channel” in the picture is only an example. Leave the optional boundary box blank unless your office has supplied a boundary.
-8. Under **Owning unit**, choose the branch responsible for the territory.
+8. Under **Owning branch**, choose the branch responsible for the territory.
 9. Choose the **Effective date**: today or later. Leave **End date** blank unless you know when the territory ends. If filled, it must be after the start date.
 10. Fill **Reason (required)**, then click **Save**.
 11. Find the new territory in the list. Click **Edit** beside it to see its owner, dates and **Ownership history**.
@@ -118,9 +118,9 @@ An approved coverage plan can protect a route from changes during its dates. Ask
 
 **“Territory does not cover interval” / “Territory ownership gap” / “Territory owner does not cover interval”** — Choose a territory owned for the route's whole period, or shorten the route's dates. Ask the administrator to correct ownership gaps.
 
-**“Unit does not cover effective interval” / “Territory has no owner” / “Route has no territory”** — The owning branch or territory is missing or not active for those dates. Check the owning branch and ownership history before retrying.
+**“Branch does not cover effective interval” / “Territory has no owner” / “Route has no territory”** — The owning branch or territory is missing or not active for those dates. Check the owning branch and ownership history before retrying.
 
-**“Person has no active unit” / “Person outside owner hierarchy”** — Check **Setup > People**. Choose an active person in the owning branch or a branch below it, or ask the administrator to correct the person's branch if it is wrong.
+**“Person has no active branch” / “Person outside owner hierarchy”** — Check **Setup > People**. Choose an active person in the owning branch or a branch below it, or ask the administrator to correct the person's branch if it is wrong.
 
 **“Future employee assignment needs revalidation”** — The person already has a later branch or role change scheduled. Ask the administrator to check that change before assigning the person here.
 

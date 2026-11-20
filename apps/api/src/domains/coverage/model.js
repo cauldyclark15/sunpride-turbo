@@ -104,7 +104,7 @@ export async function employeeAt(
   db,
   profileId,
   at,
-  message = "Assignee has no effective employee assignment with unit",
+  message = "Assignee has no effective employee assignment with branch",
 ) {
   const [a] =
     await db`select a.* from employee_assignments a join profiles p on p.id=a.profile_id where a.profile_id=${uuid(profileId)} and p.status='active' and p.deleted_at is null and a.deleted_at is null and a.effective_from<=${new Date(at)} and (a.effective_to is null or a.effective_to>${new Date(at)})`;

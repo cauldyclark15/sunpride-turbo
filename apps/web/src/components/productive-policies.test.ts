@@ -29,7 +29,7 @@ describe("F-208 published productive-call policy registry", () => {
     );
     for (const text of [
       "version 2",
-      "Cebu",
+      "Branch: Cebu",
       "Truck seller",
       "From Nov 1, 2026",
       "Every qualifying activity",

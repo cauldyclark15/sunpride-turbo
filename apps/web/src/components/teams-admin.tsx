@@ -159,10 +159,10 @@ export function TeamsAdmin() {
     },
     {
       key: "unit",
-      label: "Unit",
+      label: "Branch",
       render: (row) =>
         units?.find((unit) => unit._id === row.orgUnitId)?.name ??
-        "Unit unavailable",
+        "Branch unavailable",
     },
     {
       key: "status",
@@ -405,10 +405,10 @@ export function TeamsAdmin() {
                 <AdminSelectField
                   key="new-team-unit"
                   name="orgUnitId"
-                  label="Unit"
+                  label="Branch"
                   required
                   options={[
-                    { id: "", label: "Select a unit" },
+                    { id: "", label: "Select a branch" },
                     ...(units ?? [])
                       .filter(
                         (unit) =>
