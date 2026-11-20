@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { requirePhoneCustody } from "./phone-custody.js";
 import {
   recordDeviceAssessment,
   requireDeviceIntegrity,
@@ -106,6 +107,7 @@ export async function devicePerson(db, actor, deviceId, opts = {}) {
   const device = rows[0];
   if (!device || device.profile_id !== actor.profileId)
     throw forbidden("Device unavailable", "device_unavailable");
+  await requirePhoneCustody(db, actor.userId, device.app, device.key_id);
   if (device.status === "revoked")
     throw forbidden(NOT_SET_UP_MESSAGE, "device_revoked");
   if (device.status === "suspended")

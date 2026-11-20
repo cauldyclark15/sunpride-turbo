@@ -93,7 +93,14 @@ export async function startHarness(opts = {}) {
     filesDir,
     setHooks,
     /** @param {string} path @param {RequestInit} [init] */
-    fetch: (path, init) => fetch(`${origin}${path}`, init),
+    fetch: (path, init) => {
+      // Fixed-port lanes restart several harnesses at the same origin. Do not let
+      // Bun reuse a keep-alive connection to the previous, already closed harness.
+      if (!process.env.SP_TEST_PORT) return fetch(`${origin}${path}`, init);
+      const headers = new Headers(init?.headers);
+      headers.set("connection", "close");
+      return fetch(`${origin}${path}`, { ...init, headers });
+    },
     async close() {
       await app.stop();
       await db.close();

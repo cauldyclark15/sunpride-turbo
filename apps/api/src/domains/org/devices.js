@@ -1,4 +1,5 @@
 import { requireCapability } from "../../core/capabilities.js";
+import { lockPhoneKey } from "../../core/phone-custody.js";
 import { access } from "./readers.js";
 import {
   dto,
@@ -91,8 +92,9 @@ export async function registerDevice(c, b) {
     rule("Invalid P-256 public key");
   }
   const keyId = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+  await lockPhoneKey(c.db, keyId);
   const existing =
-    await c.db`select id,profile_id,status,public_key_spki from registered_devices where key_id=${keyId} and app=${b.app} for update`;
+    await c.db`select id,profile_id,status,public_key_spki from registered_devices where key_id=${keyId} for update`;
   if (existing.length)
     rule("This key is already registered; manage the existing phone instead");
   if (
@@ -112,7 +114,14 @@ export async function registerDevice(c, b) {
 /** @param {Ctx} c @param {Row} p */
 export async function deviceReport(c, p) {
   const device = await access(c, "devices", uuid(p.deviceId), "admin.manage");
-  const person = await get(c.db, "profiles", device.profile_id);
+  const [person] =
+    await c.db`select name,email from profiles where id=${device.profile_id}`;
+  const [custody] =
+    await c.db`select state from company_phone_custody where key_id=${device.key_id}`;
+  /** @type {Row[]} */ const assignments =
+    await c.db`select a.*,p.name as current_name from company_phone_assignments a
+    left join profiles p on p.id=a.profile_id where device_id=${device.id}
+    order by effective_from desc,id desc limit 101`;
   /** @type {Row[]} */ const operations =
     await c.db`select client_op_id,op_type,status,ack,server_time from op_receipts where device_id=${device.id} order by server_time desc limit 100`;
   /** @type {Row[]} */ const audits =
@@ -122,7 +131,9 @@ export async function deviceReport(c, p) {
       deviceId: device.id,
       inventoryTag: device.inventory_tag,
       status: device.status,
-      employeeName: person.name,
+      profileId: device.profile_id,
+      lost: custody?.state === "lost",
+      employeeName: person?.name ?? "Former user",
       lastSeenAt: ms(device.last_seen_at),
       statusAt: null,
       offlineLeaseExpiresAt: null,
@@ -130,7 +141,17 @@ export async function deviceReport(c, p) {
       model: "Not recorded",
       platform: device.platform,
     },
-    profile: { name: person.name, email: person.email },
+    profile: {
+      name: person?.name ?? "Former user",
+      email: person?.email ?? null,
+    },
+    assignments: assignments.slice(0, 100).map((r) => ({
+      id: r.id,
+      personName: r.person_name ?? r.current_name ?? "Former user",
+      from: ms(r.effective_from),
+      to: ms(r.effective_to),
+    })),
+    assignmentsMore: assignments.length > 100,
     lastAcknowledgedAt: ms(operations[0]?.server_time),
     history: audits.map((r) => ({
       action: r.action,

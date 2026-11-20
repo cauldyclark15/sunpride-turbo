@@ -50,6 +50,7 @@ import {
 import { catalogCommand } from "./catalog.js";
 import { currentStandards, foundation, setStandard } from "./standards.js";
 import { deviceCommand, deviceReport, registerDevice } from "./devices.js";
+import { losePhone, reassignPhone, reregisterPhone } from "./phone-custody.js";
 import { supervisorOptions, roster, notifications } from "./extra-readers.js";
 import { setupHealth } from "./setup.js";
 import {
@@ -214,6 +215,7 @@ export function install(router, platform) {
                 payload: { table, id: materializeId },
               });
         const entityId =
+          (path.startsWith("people/devices/") ? body.deviceId : null) ??
           body.outletId ??
           body.profileId ??
           body.unitId ??
@@ -401,7 +403,12 @@ export function install(router, platform) {
       example: `${s?.prefix ?? "SP"}${String(s?.next_sequence ?? 1).padStart(s?.digits ?? 6, "0")}`,
     };
   });
-  read("people/devices/report", deviceReport);
+  read("people/devices/report", (c, p) =>
+    tx(c.db, async (db) => {
+      await db`set transaction isolation level repeatable read read only`;
+      return deviceReport({ ...c, db }, p);
+    }),
+  );
   read("people/supervisor-options", supervisorOptions);
   read("outlets/assignments/route-stops", (c, p) => roster(c, "route", p));
   read("outlets/assignments/territory-roster", (c, p) =>
@@ -532,6 +539,9 @@ export function install(router, platform) {
   command("catalog/foundation", "admin.manage", foundation);
   command("catalog/set-standard", "admin.manage", setStandard);
   command("people/devices/register", "admin.manage", registerDevice);
+  command("people/devices/reassign", "admin.manage", reassignPhone);
+  command("people/devices/lost", "admin.manage", losePhone);
+  command("people/devices/reregister", "admin.manage", reregisterPhone);
   for (const action of ["suspend", "revoke", "reinstate"])
     command(`people/devices/${action}`, "admin.manage", (c, b) =>
       deviceCommand(c, /** @type {any} */ (action), b),

@@ -1,6 +1,7 @@
 import { noteWaitingPhone } from "../domains/integrity/waiting-phones.js";
 import { autoApproveSuperadminPhone } from "../domains/integrity/superadmin-phones.js";
 import { tx } from "@sunpride/db/client";
+import { lockPhoneKey, requirePhoneCustody } from "./phone-custody.js";
 import {
   nativeControl,
   recordDeviceAssessment,
@@ -239,8 +240,11 @@ export function installAuth(router) {
         if (native && body.passwordChange !== "supported")
           return { refuse: "password_change_required" };
       }
-      if (native && deviceKeyId)
+      if (native && deviceKeyId) {
+        await lockPhoneKey(t, deviceKeyId);
+        await requirePhoneCustody(t, user.id, app, deviceKeyId);
         await refuseRevokedPhone(t, user.id, app, deviceKeyId);
+      }
       if (native && deviceKeyId)
         await registerSamplePhone(t, user.id, app, body.deviceKey);
       if (native && deviceKeyId)
@@ -344,6 +348,13 @@ export function installAuth(router) {
         throw unauthenticated(
           "Session belongs to another device key",
           "session_invalid",
+        );
+      if (row.device_key_id)
+        await requirePhoneCustody(
+          ctx.db,
+          row.user_id,
+          row.app,
+          row.device_key_id,
         );
       const profile = await loadProfile(ctx.db, row.user_id);
       if (profile && row.device_key_id) {

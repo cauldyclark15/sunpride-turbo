@@ -143,7 +143,8 @@ export async function handheldInfo(db, actor, device, trip) {
   const [vehicle] = trip
     ? await db`select vehicle_code,plate_number from vehicles where id=${trip.vehicle_id}`
     : await db`select v.vehicle_code,v.plate_number from van_trips t join vehicles v on v.id=t.vehicle_id
-        where t.deleted_at is null and t.status<>'cancelled' and (t.started_device_id=${device.id} or t.salesperson_profile_id=${actor.profileId})
+        where t.deleted_at is null and t.status<>'cancelled' and (t.salesperson_profile_id=${actor.profileId}
+          or (t.started_device_id=${device.id} and not exists(select 1 from company_phone_custody c where c.device_id=${device.id})))
         order by t.service_date desc,t.created_at desc limit 1`;
   const [assigned] =
     await db`select p.name,p.phone,p.user_id from employee_assignments a join profiles p on p.id=a.supervisor_id

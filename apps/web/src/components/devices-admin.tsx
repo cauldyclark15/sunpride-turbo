@@ -21,6 +21,7 @@ import { SetupSearch } from "./master-data/setup-health";
 import { StorePosAdmin } from "./storepos/storepos-admin";
 import { WaitingPhones } from "./integrity/fleet";
 import { PhoneCode } from "./phone-code";
+import { PhoneCustodyActions } from "./phone-custody-actions";
 
 export type DeviceAction = "suspend" | "revoke" | "reinstate";
 type DeviceStatus = "active" | "suspended" | "revoked";
@@ -110,6 +111,9 @@ const historyLabel: Record<string, string> = {
   "people.devices.suspend": "Suspended",
   "people.devices.revoke": "Revoked",
   "people.devices.reinstate": "Reinstated",
+  "people.devices.reassign": "Given to another person",
+  "people.devices.lost": "Marked as lost",
+  "people.devices.reregister": "Registered again",
   "device.registered": "Registered",
   "device.sample_registered": "Registered",
   "device.bound": "Signed in on phone",
@@ -258,7 +262,9 @@ export function DevicesAdmin() {
       label: "Status",
       render: (row) => (
         <span className="whitespace-nowrap">
-          <StatusPill tone={statusTone(row.status)}>{row.status}</StatusPill>
+          <StatusPill tone={statusTone(row.status)}>
+            {row.lost ? "Lost" : row.status}
+          </StatusPill>
         </span>
       ),
     },
@@ -369,7 +375,7 @@ export function DevicesAdmin() {
                 </p>
                 <div className="flex items-center gap-2">
                   <StatusPill tone={statusTone(device.status)}>
-                    {device.status}
+                    {device.lost ? "Lost" : device.status}
                   </StatusPill>
                   {device.statusReason && device.status !== "active" ? (
                     <span className="text-[13px] text-muted">
@@ -394,6 +400,26 @@ export function DevicesAdmin() {
                     recapture.
                   </p>
                 ) : null}
+                <PhoneCustodyActions
+                  key={`${device.deviceId}:${device.profileId ?? ""}`}
+                  device={device}
+                />
+                <h4 className="text-sm font-medium">Who used this phone</h4>
+                <div className="-mx-4 border-y border-separator">
+                  {(report.assignments ?? []).map((entry) => (
+                    <ListRow
+                      key={entry.id}
+                      icon={<WorkspaceIcon name="queue" />}
+                      title={entry.personName}
+                      meta={`${formatManilaDateTime(entry.from)} – ${entry.to === null ? "Now" : formatManilaDateTime(entry.to)}`}
+                    />
+                  ))}
+                  {report.assignmentsMore ? (
+                    <p className="p-3 text-xs text-muted">
+                      Showing the latest 100 assignments.
+                    </p>
+                  ) : null}
+                </div>
                 <StorePosAdmin
                   key={device.deviceId}
                   deviceId={device.deviceId}
@@ -457,7 +483,9 @@ export function DevicesAdmin() {
                   </div>
                 ) : (
                   <p className="text-[13px] text-muted">
-                    A revoked phone stays revoked. Enroll a replacement.
+                    {device.lost
+                      ? "Only an administrator can register this lost phone again."
+                      : "A revoked phone stays revoked. Enroll a replacement."}
                   </p>
                 )}
                 {action ? (

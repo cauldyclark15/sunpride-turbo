@@ -126,6 +126,9 @@ export const api = {
       suspend: "people/devices/suspend",
       revoke: "people/devices/revoke",
       reinstate: "people/devices/reinstate",
+      reassign: "people/devices/reassign",
+      lost: "people/devices/lost",
+      reregister: "people/devices/reregister",
     },
   },
 } as const;

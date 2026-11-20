@@ -1056,6 +1056,20 @@ describe("Phones admin", () => {
       ],
       acknowledgedMore: false,
       lastAcknowledgedAt: Date.parse("2026-10-03T01:29:00Z"),
+      assignments: [
+        {
+          id: "previous",
+          personName: "Former employee",
+          from: 0,
+          to: Date.parse("2026-10-03T01:00:00Z"),
+        },
+        {
+          id: "current",
+          personName: "Ana Reyes",
+          from: Date.parse("2026-10-03T01:00:00Z"),
+          to: null,
+        },
+      ],
       history: [
         {
           action: "device.suspended",
@@ -1082,6 +1096,11 @@ describe("Phones admin", () => {
     expect(view).toContain("Reconcile the received operations");
     expect(view).toContain("Check-in");
     expect(view).toContain("Maria Santos");
+    expect(view).toContain("Who used this phone");
+    expect(view).toContain("Former employee");
+    expect(view).toContain("Now");
+    expect(view).toContain("Give to another person");
+    expect(view).toContain("Mark as lost");
     expect(view).toContain("suspected compromise");
     expect(view).toContain("Former user");
     expect(view).toContain("Reinstate phone");

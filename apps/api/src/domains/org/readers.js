@@ -298,7 +298,8 @@ export async function list(c, kind, p) {
     case "devices":
       table = "registered_devices";
       where = scoped("t.org_unit_id");
-      joins = "left join profiles person on person.id=t.profile_id";
+      joins =
+        "left join profiles person on person.id=t.profile_id left join company_phone_custody phone on phone.key_id=t.key_id";
       break;
     case "invitations":
       table = "access_invitations";
@@ -323,7 +324,7 @@ export async function list(c, kind, p) {
   if (p.channel && ["outlets", "customers", "territories"].includes(kind))
     where += ` and t.channel=${bind(p.channel)}`;
   /** @type {Row[]} */ const rows = await c.db.unsafe(
-    `select t.*${kind === "devices" ? ",person.name as employee_name" : ""} from ${table} t ${joins} where ${where} order by t.id limit ${bind(size + 1)}`,
+    `select t.*${kind === "devices" ? ",person.name as employee_name,(phone.state='lost') as lost" : ""} from ${table} t ${joins} where ${where} order by t.id limit ${bind(size + 1)}`,
     params,
   );
   const enriched = [];

@@ -178,6 +178,8 @@ export type Invitation = Base & {
 };
 export type Device = {
   deviceId: string;
+  profileId?: string;
+  lost?: boolean;
   inventoryTag: string;
   employeeName: string | null;
   status: "active" | "suspended" | "revoked";
@@ -196,6 +198,13 @@ export type DeviceReport = {
   lastAcknowledgedAt: number | null;
   acknowledged: { kind: string; clientRequestId: string; serverAt: number }[];
   acknowledgedMore: boolean;
+  assignments?: {
+    id: string;
+    personName: string;
+    from: number;
+    to: number | null;
+  }[];
+  assignmentsMore?: boolean;
   history: {
     action: string;
     at: number;
@@ -559,6 +568,9 @@ export type CommandMap = {
   "people/devices/suspend": { deviceId: string; reason: string };
   "people/devices/revoke": { deviceId: string; reason: string };
   "people/devices/reinstate": { deviceId: string; reason: string };
+  "people/devices/reassign": { deviceId: string; profileId: string };
+  "people/devices/lost": { deviceId: string };
+  "people/devices/reregister": { deviceId: string; profileId?: string };
   "catalog/saveProduct": Reason & {
     productId?: string;
     code?: string;
