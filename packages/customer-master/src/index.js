@@ -2,3 +2,4 @@
 // shared by the API, the web app and uploads. Pure JS, no I/O.
 export * from "./fields.js";
 export * from "./validate.js";
+export * from "./visit-frequency.js";

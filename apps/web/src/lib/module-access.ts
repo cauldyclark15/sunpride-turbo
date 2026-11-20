@@ -166,6 +166,7 @@ export const OUTLET_PANEL_ROLES = {
   "territory.manage": administrators,
   "route.manage": masterDataManagers,
   "outlet.manage": masterDataManagers,
+  "outlet.frequency.manage": ["super_admin", "admin", "operations", "manager"],
   "outlet.assign": masterDataManagers,
   "outlet.verify": ["super_admin", "admin", "manager"],
 } as const satisfies Record<string, readonly AppRole[]>;

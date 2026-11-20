@@ -12,6 +12,8 @@ import {
   optionLabel,
   referenceIndex,
   validateCustomer,
+  parseVisitFrequency,
+  VISIT_FREQUENCY_HINT,
 } from "@sunpride/customer-master";
 
 /** @typedef {import("@sunpride/customer-master").ReferenceRow} ReferenceRow */
@@ -142,6 +144,19 @@ export const CUSTOMER_COLUMNS = Object.freeze([
             : (HINTS[f.kind] ?? ""),
     };
   }),
+  {
+    id: "visitFrequency",
+    key: "visitFrequency",
+    label: "Visit frequency",
+    section: "Office visit requirement",
+    required: false,
+    when: null,
+    kind: "frequency",
+    shipTo: false,
+    remark:
+      "Set by the office or Sales Head (20 Nov 2026 client review). Blank keeps the current requirement on update.",
+    hint: VISIT_FREQUENCY_HINT,
+  },
 ]);
 
 /** The template header: the client's labels in the client's order. */
@@ -244,7 +259,7 @@ export function mapHeader(header) {
   const missing = CUSTOMER_COLUMNS.filter(
     // Customer Code may be left out (the client's form has none): new customers are numbered
     // automatically, the same as on the web form.
-    (c) => !used.has(c.id) && c.id !== "code",
+    (c) => !used.has(c.id) && c.id !== "code" && c.id !== "visitFrequency",
   ).map((c) =>
     c.shipTo && CUSTOMER_COLUMNS.some((o) => !o.shipTo && o.label === c.label)
       ? `${c.label} (Delivery Arrangement)`
@@ -599,7 +614,12 @@ export function rowToCustomer(row, index, geo = null) {
   /** @type {Record<string, any>} */ const shipTo = { sameAsCustomer: false };
   const get = (/** @type {string} */ id) => cellOf(row, id);
   for (const c of CUSTOMER_COLUMNS) {
-    if (c.id === "code" || c.kind === "list" || c.kind === "coordinates")
+    if (
+      c.id === "code" ||
+      c.kind === "list" ||
+      c.kind === "coordinates" ||
+      c.id === "visitFrequency"
+    )
       continue;
     let v = get(c.id) || null;
     if (v && c.kind === "mobile") v = phone(v);
@@ -675,6 +695,22 @@ export function rowToCustomer(row, index, geo = null) {
     if (g.municipality) customer.municipalityCode = g.municipality.code;
     if (g.barangay) customer.barangayCode = g.barangay.code;
     geography = g;
+  }
+  if (get("visitFrequency")) {
+    try {
+      customer.visitFrequency = parseVisitFrequency(
+        get("visitFrequency"),
+      ).label;
+    } catch {
+      errors.push({
+        rowNumber: row.rowNumber,
+        column: "visitFrequency",
+        label: "Visit frequency",
+        code: "invalid_visit_frequency",
+        message: VISIT_FREQUENCY_HINT,
+        value: get("visitFrequency"),
+      });
+    }
   }
   customer.shipTos = [shipTo];
   return {

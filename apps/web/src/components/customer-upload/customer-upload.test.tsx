@@ -138,15 +138,16 @@ const run = (over: Partial<RunSummary> = {}): RunSummary => ({
 });
 
 describe("customer upload — the client's template", () => {
-  it("header = Customer Code + the client's 51 labels in their order", () => {
-    expect(CUSTOMER_HEADERS.length).toBe(52);
+  it("header keeps all 51 client fields and appends the office visit frequency", () => {
+    expect(CUSTOMER_HEADERS.length).toBe(53);
     expect(CUSTOMER_HEADERS[0]).toBe("Customer Code");
     expect(CUSTOMER_HEADERS.slice(1, 4)).toEqual([
       "Registered Name",
       "Trade Name",
       "Customer Name",
     ]);
-    expect(CUSTOMER_HEADERS.at(-1)).toBe("Cluster Name");
+    expect(CUSTOMER_HEADERS.at(-2)).toBe("Cluster Name");
+    expect(CUSTOMER_HEADERS.at(-1)).toBe("Visit frequency");
     expect(CUSTOMER_HEADERS).not.toContain("customer_code");
     expect(columnLabel("shipTo.mobileNo")).toBe("Mobile No. (ship-to)");
   });

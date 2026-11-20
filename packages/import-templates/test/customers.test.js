@@ -78,7 +78,7 @@ describe("SP-0170 template = the client's Customer Information template", () => 
     expect(sheet.length).toBe(51);
     expect(CUSTOMER_HEADERS[0]).toBe("Customer Code");
     expect(
-      CUSTOMER_COLUMNS.slice(1).map((c) => ({
+      CUSTOMER_COLUMNS.slice(1, -1).map((c) => ({
         label: c.label,
         required: c.required,
         remark: c.remark,
@@ -96,7 +96,7 @@ describe("SP-0170 template = the client's Customer Information template", () => 
       "Mobile No.",
       "Email Address",
     ]);
-    expect(CUSTOMER_COLUMNS.slice(-13).every((c) => c.when === "adp")).toBe(
+    expect(CUSTOMER_COLUMNS.slice(-14, -1).every((c) => c.when === "adp")).toBe(
       true,
     );
   });
@@ -181,8 +181,8 @@ describe("SP-0170 template = the client's Customer Information template", () => 
       model[`${col("Tax Classification")}2:${col("Tax Classification")}5001`]
         .formulae[0],
     ).toBe(`'Tax Class'!$C$${LIST_FIRST_ROW}:$C$${LIST_FIRST_ROW + 4}`);
-    // 12 list columns; Sales Partner has no dropdown while "List of Agents" is empty.
-    expect(Object.keys(model).length).toBe(12);
+    // 12 client list columns plus the office visit-frequency choices.
+    expect(Object.keys(model).length).toBe(13);
     const tab = /** @type {ExcelJS.Worksheet} */ (
       wb.getWorksheet("Payment Terms")
     );
@@ -193,6 +193,66 @@ describe("SP-0170 template = the client's Customer Information template", () => 
     const parsed = await parseCustomerFile("t.xlsx", bytes);
     expect(parsed.header).toEqual([...CUSTOMER_HEADERS]);
     expect(parsed.fileErrors.map((e) => e.code)).toEqual(["empty_file"]);
+  });
+});
+
+describe("SP-0223 visit frequency in customer uploads", () => {
+  test("keeps old templates compatible and normalizes the office requirement", () => {
+    expect(mapHeader(CUSTOMER_HEADERS.slice(0, -1)).missing).toEqual([]);
+    const row = {
+      rowNumber: 2,
+      values: { ...EXAMPLE, visitFrequency: "  4 times a month  " },
+    };
+    const checked = validateCustomerRows([row], REFERENCE);
+    expect(checked.errors).toEqual([]);
+    const item = checked.items.get(2);
+    if (!item) throw new Error("Expected a parsed customer row");
+    expect(item.customer.visitFrequency).toBe("4 times a month");
+    expect(
+      writerInput(item, row, referenceIndex(REFERENCE), { shipTos: [] })
+        .visitFrequency,
+    ).toBe("4 times a month");
+    const blank = { rowNumber: 2, values: { ...EXAMPLE, visitFrequency: "" } };
+    const empty = validateCustomerRows([blank], REFERENCE).items.get(2);
+    if (!empty) throw new Error("Expected a parsed blank-frequency row");
+    expect(
+      writerInput(empty, blank, referenceIndex(REFERENCE), { shipTos: [] }),
+    ).not.toHaveProperty("visitFrequency");
+    const invalid = validateCustomerRows(
+      [
+        {
+          rowNumber: 2,
+          values: { ...EXAMPLE, visitFrequency: "0 times a month" },
+        },
+      ],
+      REFERENCE,
+    );
+    expect(invalid.errors).toEqual([
+      expect.objectContaining({
+        column: "visitFrequency",
+        code: "invalid_visit_frequency",
+      }),
+    ]);
+  });
+  test("an actual workbook round-trips an exact monthly frequency", async () => {
+    const wb = buildCustomerTemplateWorkbook(REFERENCE);
+    const ws = wb.getWorksheet("Customers");
+    if (!ws) throw new Error("Expected Customers sheet");
+    for (const [i, col] of CUSTOMER_COLUMNS.entries())
+      ws.getCell(2, i + 1).value =
+        col.id === "visitFrequency"
+          ? "7 times a month"
+          : (EXAMPLE[col.id] ?? "");
+    const parsed = await parseCustomerFile(
+      "frequency.xlsx",
+      new Uint8Array(await wb.xlsx.writeBuffer()),
+    );
+    expect(parsed.fileErrors).toEqual([]);
+    const checked = validateCustomerRows(parsed.rows, REFERENCE);
+    expect(checked.errors).toEqual([]);
+    expect(checked.items.get(2)?.customer.visitFrequency).toBe(
+      "7 times a month",
+    );
   });
 });
 
@@ -223,7 +283,7 @@ describe("SP-0170 reading files", () => {
     expect(parsed.fileErrors[0]?.message).toContain("missing columns: Region");
     expect(parsed.fileErrors[0]?.message).toContain("unknown columns: Area");
     const noShip = parseCustomerCsv(
-      `${CUSTOMER_HEADERS.slice(0, -15).join(",")}\r\n`,
+      `${CUSTOMER_HEADERS.slice(0, CUSTOMER_HEADERS.indexOf("Delivering Plant") + 2).join(",")}\r\n`,
     );
     expect(noShip.fileErrors[0]?.message).toContain(
       "Mobile No. (Delivery Arrangement)",

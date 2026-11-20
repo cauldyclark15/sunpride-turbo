@@ -20,6 +20,7 @@ import {
   referenceRows,
   saveCustomer,
 } from "./customers.js";
+import { setCustomerFrequency } from "./customer-frequency.js";
 import { REFERENCE_LISTS } from "@sunpride/db/customer-reference";
 
 /** @type {readonly string[]} */
@@ -155,6 +156,40 @@ export function installCustomers(router, platform) {
     });
     return { ok: result.ok, level, errors: result.errors };
   });
+  router.post(
+    "/api/v1/customers/visit-frequency",
+    async (/** @type {any} */ ctx) => {
+      if (!isPlainObject(ctx.body))
+        rule("Choose customers and a visit frequency.");
+      const ids = await tx(ctx.db, async (db) => {
+        const c = {
+          ...ctx,
+          db,
+          actor: await currentActor(db, ctx.actor),
+          now: Date.now(),
+        };
+        await requireCapability(c, "outlet.frequency.manage");
+        await db`select pg_advisory_xact_lock(4310420)`;
+        await db`select set_config('sunpride.actor',${c.actor.userId},true)`;
+        const ids = await setCustomerFrequency(
+          c,
+          ctx.body.customerIds,
+          ctx.body.visitFrequency,
+        );
+        for (const id of ids)
+          await platform.recordChange(db, {
+            entity: "org.reference",
+            entityId: id,
+            scopeKey: "global",
+            op: "upsert",
+          });
+        return ids;
+      });
+      for (const topic of ["masters", "outlets", "org"])
+        await ctx.publish(topic);
+      return { customerIds: ids, updated: ids.length };
+    },
+  );
   router.get("/api/v1/customers/:id", async (/** @type {any} */ ctx) => {
     await access(ctx, "outlets", uuid(ctx.params.id), "outlet.read");
     return readCustomer(ctx.db, ctx.params.id);

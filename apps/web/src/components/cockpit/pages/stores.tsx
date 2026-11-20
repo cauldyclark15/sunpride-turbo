@@ -383,6 +383,7 @@ function CustomersListTab({
     if (v) filters[k] = v;
   }
   const { index } = useCustomerReference();
+  const { can } = usePermissions();
   const result = useCustomerList(q, status, filters, page, awaitingApproval);
   const onSearch = useCallback(
     (next: string) => set({ q: next || null, page: null }, { replace: true }),
@@ -393,6 +394,7 @@ function CustomersListTab({
       index={index}
       rows={result.data?.rows ?? (result.error ? [] : null)}
       statusCounts={result.data?.statusCounts ?? null}
+      canManageFrequency={can("outlet.frequency.manage")}
       adders={result.data?.adders ?? []}
       total={
         result.data ? (result.data.total ?? result.data.rows.length) : null

@@ -51,6 +51,7 @@ export const OUTLET_ENROLMENT_EVENT_KIND = /** @type {const} */ ([
  * @property {number | null} salesPotential
  * @property {number | null} preferredWeekday
  * @property {number | null} visitFrequencyDays
+ * @property {number | null} visitFrequencyPerMonth
  * @property {string | null} visitWindow
  * @property {"provisional" | "approved" | "rejected" | null} enrolmentStatus
  * @property {string} createdBy

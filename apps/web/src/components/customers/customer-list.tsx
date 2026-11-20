@@ -5,6 +5,9 @@
  * Registered Name, the client's assignment filters, status and completeness, paged with the
  * shared ListPage pager.
  */
+import { useState } from "react";
+import { visitFrequencySummary } from "@sunpride/customer-master";
+import { CustomerFrequencyEditor } from "./visit-frequency";
 import { apiFetch, useApi } from "../../lib/api";
 import {
   ListPage,
@@ -118,6 +121,14 @@ export function customerColumns(
       label: "Sales Office",
       render: (r) => nameOf(index, "sales_office", r.salesOfficeCode),
       text: (r) => nameOf(index, "sales_office", r.salesOfficeCode),
+    },
+    {
+      key: "visitFrequency",
+      label: "Required visits",
+      render: (r) =>
+        visitFrequencySummary(r.visitFrequencyDays, r.visitFrequencyPerMonth),
+      text: (r) =>
+        visitFrequencySummary(r.visitFrequencyDays, r.visitFrequencyPerMonth),
     },
     {
       key: "added",
@@ -377,7 +388,9 @@ export function CustomerListView({
   onEdit,
   customerHref,
   adders = [],
+  canManageFrequency = false,
 }: {
+  canManageFrequency?: boolean;
   adders?: Adder[];
   index: ReferenceIndex;
   rows: CustomerRow[] | null;
@@ -398,8 +411,23 @@ export function CustomerListView({
   onEdit?: (row: CustomerRow) => void;
   customerHref: (row: CustomerRow) => string;
 }) {
+  const pageKey = (rows ?? []).map((r) => r.id).join("|");
+  const [frequencySelection, setFrequencySelection] = useState<{
+    page: string;
+    ids: string[];
+  }>({ page: "", ids: [] });
+  const frequencyCustomers =
+    frequencySelection.page === pageKey ? frequencySelection.ids : [];
   return (
     <div className="grid gap-4">
+      {canManageFrequency && frequencyCustomers.length ? (
+        <CustomerFrequencyEditor
+          key={frequencyCustomers.join("|")}
+          customerIds={frequencyCustomers}
+          canManage
+          onCancel={() => setFrequencySelection({ page: pageKey, ids: [] })}
+        />
+      ) : null}
       <ListPage
         noun={{ one: "customer", many: "customers" }}
         filterPanel={{
@@ -431,6 +459,20 @@ export function CustomerListView({
         filter={status}
         onFilter={(id) => onStatus((id as CustomerStatus | null) ?? null)}
         exportName="customers"
+        bulkActions={
+          canManageFrequency
+            ? [
+                {
+                  label: "Set visit frequency",
+                  run: (chosen) =>
+                    setFrequencySelection({
+                      page: pageKey,
+                      ids: chosen.map((r) => r.id),
+                    }),
+                },
+              ]
+            : []
+        }
         rowEnd={
           onEdit
             ? (r) => (

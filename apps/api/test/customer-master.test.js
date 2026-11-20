@@ -94,7 +94,10 @@ async function accounting(id) {
 }
 
 beforeAll(async () => {
-  h = await startHarness({ installers: [org, masters], port: 5002 });
+  h = await startHarness({
+    installers: [org, masters],
+    port: Number(process.env.SP_TEST_PORT ?? 5002),
+  });
   await seedDemo(h.db, { days: 3, anchorDate: plusDays(todayManila(), 1) });
   await loadPhGeography(h.db);
   for (const role of ["admin", "manager", "viewer", "agent"])
@@ -527,7 +530,10 @@ describe("SP-0170 customer writer", () => {
     );
     expect(await readCustomer(h.db, id)).toEqual(incomplete);
     const finished = await call("admin", "PUT", `/api/v1/customers/${id}`, {
-      customer: { registeredName: saved.registeredName, street1: saved.street1 },
+      customer: {
+        registeredName: saved.registeredName,
+        street1: saved.street1,
+      },
     });
     expect(finished.status).toBe(200);
     expect(finished.body.completeness).toBe("complete");
@@ -644,10 +650,25 @@ describe("SP-0170 customer writer", () => {
     /** @param {string} q */
     const codes = async (q) =>
       (
-        await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent(q)}`)
+        await call(
+          "admin",
+          "GET",
+          `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent(q)}`,
+        )
       ).body.rows.map((/** @type {any} */ r) => r.code);
-    for (const q of ["SMP-C0069", "SMP-CO069", "smpc0069", "smp c 0069", "SMP-C-0069", "c0069", "C0O69"])
-      expect([q, await codes(q)]).toEqual([q, expect.arrayContaining(["SMP-C0069"])]);
+    for (const q of [
+      "SMP-C0069",
+      "SMP-CO069",
+      "smpc0069",
+      "smp c 0069",
+      "SMP-C-0069",
+      "c0069",
+      "C0O69",
+    ])
+      expect([q, await codes(q)]).toEqual([
+        q,
+        expect.arrayContaining(["SMP-C0069"]),
+      ]);
     expect(await codes("SMP-C0070")).not.toContain("SMP-C0069");
     expect(await codes("SMP-C690")).not.toContain("SMP-C0069");
     // Wildcards stay literal (EDGE-005).
@@ -677,40 +698,107 @@ describe("SP-0170 customer writer", () => {
     /** @param {string} q */
     const names = async (q) =>
       (
-        await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent(q)}`)
+        await call(
+          "admin",
+          "GET",
+          `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent(q)}`,
+        )
       ).body.rows.map((/** @type {any} */ r) => r.customerName);
-    for (const q of ["Aling Nina", "alingnena", "aling-nena", "ALING  NENA", "sari sari aling"])
-      expect([q, await names(q)]).toEqual([q, expect.arrayContaining(["Aling Nena Sari-Sari Store"])]);
-    expect(await names("Mang Kanor")).not.toContain("Aling Nena Sari-Sari Store");
+    for (const q of [
+      "Aling Nina",
+      "alingnena",
+      "aling-nena",
+      "ALING  NENA",
+      "sari sari aling",
+    ])
+      expect([q, await names(q)]).toEqual([
+        q,
+        expect.arrayContaining(["Aling Nena Sari-Sari Store"]),
+      ]);
+    expect(await names("Mang Kanor")).not.toContain(
+      "Aling Nena Sari-Sari Store",
+    );
     // "Who added what": the creator and the Manila day are listed and filterable.
-    const list = await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent("Aling Nena")}`);
-    const row = list.body.rows.find((/** @type {any} */ r) => r.id === made.body.id);
+    const list = await call(
+      "admin",
+      "GET",
+      `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent("Aling Nena")}`,
+    );
+    const row = list.body.rows.find(
+      (/** @type {any} */ r) => r.id === made.body.id,
+    );
     expect(row.addedAt).toBeGreaterThan(0);
     expect(Array.isArray(list.body.adders)).toBe(true);
-    const today = new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10);
-    const onDay = await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&addedOn=${today}`);
-    expect(onDay.body.rows.map((/** @type {any} */ r) => r.id)).toContain(made.body.id);
-    const otherDay = await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&addedOn=2020-01-01`);
-    expect(otherDay.body.rows.map((/** @type {any} */ r) => r.id)).not.toContain(made.body.id);
+    const today = new Date(Date.now() + 8 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    const onDay = await call(
+      "admin",
+      "GET",
+      `/api/v1/customers?limit=200&offset=0&addedOn=${today}`,
+    );
+    expect(onDay.body.rows.map((/** @type {any} */ r) => r.id)).toContain(
+      made.body.id,
+    );
+    const otherDay = await call(
+      "admin",
+      "GET",
+      `/api/v1/customers?limit=200&offset=0&addedOn=2020-01-01`,
+    );
+    expect(
+      otherDay.body.rows.map((/** @type {any} */ r) => r.id),
+    ).not.toContain(made.body.id);
     if (row.addedById) {
-      const by = await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&addedBy=${row.addedById}`);
-      expect(by.body.rows.map((/** @type {any} */ r) => r.id)).toContain(made.body.id);
+      const by = await call(
+        "admin",
+        "GET",
+        `/api/v1/customers?limit=200&offset=0&addedBy=${row.addedById}`,
+      );
+      expect(by.body.rows.map((/** @type {any} */ r) => r.id)).toContain(
+        made.body.id,
+      );
     }
-    expect((await call("admin", "GET", "/api/v1/customers?addedOn=nope")).status).toBe(400);
+    expect(
+      (await call("admin", "GET", "/api/v1/customers?addedOn=nope")).status,
+    ).toBe(400);
     // Duplicate check (the office Add form and the phone call the same endpoint).
     await h.db`delete from rate_limits where bucket_key like 'dupcheck:%'`;
     /** @param {any} body */
     const dup = async (body) =>
-      (await call("admin", "POST", "/api/v1/masters/census/duplicate-check", body)).body.candidates
+      (
+        await call(
+          "admin",
+          "POST",
+          "/api/v1/masters/census/duplicate-check",
+          body,
+        )
+      ).body.candidates
         .filter((/** @type {any} */ c) => c.id === made.body.id)
         .map((/** @type {any} */ c) => c.reasons);
-    expect(await dup({ name: "Totally different", phone: "+63 918 555 0199" })).toEqual([["phone"]]);
+    expect(
+      await dup({ name: "Totally different", phone: "+63 918 555 0199" }),
+    ).toEqual([["phone"]]);
     expect(await dup({ name: "Aling Nina Store" })).toEqual([["name"]]);
     expect(await dup({ name: "alingnena" })).toEqual([["name"]]);
     // The field app's body (name, phone, GPS point; no new APK needed).
-    expect(await dup({ name: "Aling Nina", latitude: 10.3312, longitude: 123.9056 })).toEqual([["name"]]);
-    expect(await dup({ name: "Other", phone: "09185550199", latitude: 10.3312, longitude: 123.9056 })).toEqual([["phone"]]);
-    expect(await dup({ name: "Aling Nina", barangay: "Somewhere Else", municipality: "Far City" })).toEqual([]);
+    expect(
+      await dup({ name: "Aling Nina", latitude: 10.3312, longitude: 123.9056 }),
+    ).toEqual([["name"]]);
+    expect(
+      await dup({
+        name: "Other",
+        phone: "09185550199",
+        latitude: 10.3312,
+        longitude: 123.9056,
+      }),
+    ).toEqual([["phone"]]);
+    expect(
+      await dup({
+        name: "Aling Nina",
+        barangay: "Somewhere Else",
+        municipality: "Far City",
+      }),
+    ).toEqual([]);
   });
   test("list, filters and permissions", async () => {
     const list = await call(
@@ -951,12 +1039,21 @@ describe("SP-0170 customer writer", () => {
     // SP-0176: the proposing agent's phone gets the decision WITH the final Customer Code in one read.
     const [enrol] =
       await h.db`select client_request_id from outlet_enrolments where outlet_id=${outletId}`;
-    const mine = await call("agent", "GET", "/api/v1/masters/census/my-changes");
+    const mine = await call(
+      "agent",
+      "GET",
+      "/api/v1/masters/census/my-changes",
+    );
     expect(
       mine.body.customers.find(
-        (/** @type {any} */ c) => c.captureId === String(enrol.client_request_id),
+        (/** @type {any} */ c) =>
+          c.captureId === String(enrol.client_request_id),
       ),
-    ).toMatchObject({ outletId, decision: "accepted", code: approved.body.code });
+    ).toMatchObject({
+      outletId,
+      decision: "accepted",
+      code: approved.body.code,
+    });
   });
   test("an approver or office admin can reject a field capture (old New store approvals' Reject): inactive, no accounting customer", async () => {
     const captureId = crypto.randomUUID();
@@ -1018,22 +1115,36 @@ describe("SP-0170 customer writer", () => {
     const [me] =
       await h.db`select id from profiles where email='agent@sunpride.test'`;
     expect(
-      (await addedByProfileOutlets(h.db, me.id)).map((/** @type {any} */ o) => o.id),
+      (await addedByProfileOutlets(h.db, me.id)).map(
+        (/** @type {any} */ o) => o.id,
+      ),
     ).not.toContain(outletId);
     // E2E-008: the proposing agent's phone learns the rejection and its reason (Saved customers row).
-    const mine = await call("agent", "GET", "/api/v1/masters/census/my-changes");
+    const mine = await call(
+      "agent",
+      "GET",
+      "/api/v1/masters/census/my-changes",
+    );
     expect(mine.status).toBe(200);
     expect(
-      mine.body.customers.find((/** @type {any} */ c) => c.captureId === captureId),
+      mine.body.customers.find(
+        (/** @type {any} */ c) => c.captureId === captureId,
+      ),
     ).toMatchObject({
       outletId,
       decision: "rejected",
       reason: "Duplicate of an existing store",
       code: null,
     });
-    const other = await call("manager", "GET", "/api/v1/masters/census/my-changes");
+    const other = await call(
+      "manager",
+      "GET",
+      "/api/v1/masters/census/my-changes",
+    );
     expect(
-      (other.body.customers ?? []).some((/** @type {any} */ c) => c.captureId === captureId),
+      (other.body.customers ?? []).some(
+        (/** @type {any} */ c) => c.captureId === captureId,
+      ),
     ).toBe(false);
     // Only a pending field capture can be rejected.
     expect(

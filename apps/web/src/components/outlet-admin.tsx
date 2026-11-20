@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { visitFrequencySummary } from "@sunpride/customer-master";
 import { FormField, StatusPill } from "@sunpride/ui";
 import { api } from "./master-data/api";
 import type { Id } from "./master-data/model";
@@ -360,14 +361,19 @@ export function OutletEditor({
                   defaultValue={detail.outlet.preferredWeekday}
                 />
               </FormField>
-              <FormField label="Visit every (days)">
-                <input
-                  type="number"
-                  min="1"
-                  max="365"
-                  name="visitFrequencyDays"
-                  defaultValue={detail.outlet.visitFrequencyDays}
-                />
+              <FormField label="Required visits">
+                <p>
+                  {visitFrequencySummary(
+                    detail.outlet.visitFrequencyDays,
+                    detail.outlet.visitFrequencyPerMonth,
+                  )}
+                </p>
+                <Link
+                  href={`/customers?edit=${encodeURIComponent(outletId)}`}
+                  className="text-sm underline"
+                >
+                  Set visit frequency on the customer screen
+                </Link>
               </FormField>
             </>
           )}

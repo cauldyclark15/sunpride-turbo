@@ -65,8 +65,11 @@ function profileFields(b) {
   }
   if (b.preferredWeekday !== undefined)
     fields.preferred_weekday = integer(b.preferredWeekday, 0, 6);
-  if (b.visitFrequencyDays !== undefined)
+  if (b.visitFrequencyDays !== undefined) {
     fields.visit_frequency_days = integer(b.visitFrequencyDays, 1, 366);
+    // Legacy day editor explicitly switches back to a day cadence.
+    fields.visit_frequency_per_month = null;
+  }
   return fields;
 }
 /** @param {Ctx} c @param {string} outletId @param {any} contacts */
@@ -528,8 +531,7 @@ async function carryProposerAssignment(c, enrolment, outletId) {
         and own.org_unit_id=${enrolment.org_unit_id}
       order by (s.kind='primary') desc nulls last, s.effective_from desc, s.id limit 1`;
   if (!territory) return;
-  const routes =
-    await c.db`select distinct r.route_id from route_salespeople r
+  const routes = await c.db`select distinct r.route_id from route_salespeople r
       join route_territories rt on rt.route_id=r.route_id and rt.deleted_at is null
         and rt.effective_from<=${at} and (rt.effective_to is null or rt.effective_to>${at})
       where r.profile_id=${enrolment.proposed_by_profile_id} and r.deleted_at is null

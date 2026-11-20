@@ -133,6 +133,7 @@ export type Outlet = Base & {
   salesPotential?: number;
   preferredWeekday?: number;
   visitFrequencyDays?: number;
+  visitFrequencyPerMonth?: number | null;
   visitWindow?: string;
   territoryName?: string;
   customerGroupId?: string;

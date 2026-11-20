@@ -5,6 +5,8 @@
  * the browser for instant feedback, saves through /api/v1/customers, and — for approvers —
  * approves a prospect (server `complete` check, errors shown next to each field) or deactivates.
  */
+import { visitFrequencySummary } from "@sunpride/customer-master";
+import { CustomerFrequencyEditor } from "./visit-frequency";
 import { FieldIncompleteNote } from "./field-incomplete";
 import dynamic from "next/dynamic";
 import { useEffect, useMemo, useRef, useState } from "react";
@@ -112,17 +114,33 @@ export function CustomerEditor({
     );
   if (!refLoaded) return <p className="text-sm text-muted">Loading lists…</p>;
   return (
-    <EditorBody
-      key={loaded.data ? loaded.data.id : "new"}
-      customer={loaded.data ?? null}
-      initialName={initialName}
-      index={index}
-      canEdit={canEdit}
-      canApprove={canApprove}
-      myProfileId={profile?.id ?? null}
-      setup={setup.data ?? null}
-      onDone={onDone}
-    />
+    <div className="grid gap-4">
+      {loaded.data ? (
+        <CustomerFrequencyEditor
+          key={`${loaded.data.id}-${loaded.data.visitFrequency}`}
+          customerIds={[loaded.data.id]}
+          initialValue={loaded.data.visitFrequency}
+          summary={visitFrequencySummary(
+            loaded.data.visitFrequencyDays,
+            loaded.data.visitFrequencyPerMonth,
+          )}
+          canManage={
+            can("outlet.frequency.manage") && loaded.data.status !== "inactive"
+          }
+        />
+      ) : null}
+      <EditorBody
+        key={loaded.data ? loaded.data.id : "new"}
+        customer={loaded.data ?? null}
+        initialName={initialName}
+        index={index}
+        canEdit={canEdit}
+        canApprove={canApprove}
+        myProfileId={profile?.id ?? null}
+        setup={setup.data ?? null}
+        onDone={onDone}
+      />
+    </div>
   );
 }
 

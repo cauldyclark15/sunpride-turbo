@@ -69,7 +69,7 @@ export function buildCustomerTemplateWorkbook(reference) {
     cell.fill = c.required ? REQUIRED_FILL : HEADER_FILL;
     cell.alignment = { wrapText: true, vertical: "top" };
     cell.note = [
-      `${c.section}${c.section === "System" ? "" : " (Sunpride template)"}`,
+      `${c.section}${c.section === "System" || c.kind === "frequency" ? "" : " (Sunpride template)"}`,
       requiredText(c),
       c.hint,
       c.remark ? `Sunpride remark: ${c.remark}` : "",
@@ -102,7 +102,9 @@ export function buildCustomerTemplateWorkbook(reference) {
   CUSTOMER_COLUMNS.forEach((c, i) => {
     const range = `${columnLetter(i + 1)}2:${columnLetter(i + 1)}${lastRow}`;
     /** @type {string[]|null} */ let formulae = null;
-    if (c.list === "country") formulae = ['"Philippines (PH)"'];
+    if (c.kind === "frequency")
+      formulae = ['"Weekly,Every 2 weeks,Monthly,4 times a month"'];
+    else if (c.list === "country") formulae = ['"Philippines (PH)"'];
     else if (c.kind === "list") {
       const src = sources[c.id];
       if (src && src.count > 0) {

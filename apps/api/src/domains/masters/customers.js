@@ -11,8 +11,10 @@ import {
   referenceIndex,
   shipToFromCustomer,
   validateCustomer,
+  visitFrequencyLabel,
 } from "@sunpride/customer-master";
 import { requireCapability } from "../../core/capabilities.js";
+import { setCustomerFrequency } from "./customer-frequency.js";
 import { compactName, searchWordPatterns } from "./duplicates.js";
 import { ApiError } from "../../core/errors.js";
 import {
@@ -79,6 +81,7 @@ const INPUT_KEYS = new Set([
   "latitude",
   "longitude",
   "shipTos",
+  "visitFrequency",
 ]);
 /** List-backed keys and the name key returned beside them. */
 const NAME_KEYS = /** @type {const} */ ([
@@ -238,6 +241,12 @@ export async function readCustomer(db, id) {
     customerName: o.name,
     customerAddress: o.address ?? null,
     addressCustom: o.address_custom ?? false,
+    visitFrequencyDays: o.visit_frequency_days ?? null,
+    visitFrequencyPerMonth: o.visit_frequency_per_month ?? null,
+    visitFrequency: visitFrequencyLabel(
+      o.visit_frequency_days,
+      o.visit_frequency_per_month,
+    ),
   };
   for (const [key, column] of PROFILE_COLUMNS)
     out[key] =
@@ -582,6 +591,9 @@ export async function saveCustomer(c, b, opts = {}) {
       );
     }
   }
+  // Field capture never changes the office-owned visit requirement. Omission preserves it.
+  if (!opts.fieldCapture && input.visitFrequency !== undefined)
+    await setCustomerFrequency(c, [outletId], input.visitFrequency);
   const row = /** @type {Record<string, any>} */ ({
     outlet_id: outletId,
     completeness: complete.ok ? "complete" : "draft",
@@ -624,7 +636,9 @@ export async function saveCustomer(c, b, opts = {}) {
   row.country_code = v.countryCode ?? "PH";
   if (opts.fieldCapture) {
     row.field_missing = fieldMissing ? JSON.stringify(fieldMissing) : null;
-    row.field_submitted = fieldSubmitted ? JSON.stringify(fieldSubmitted) : null;
+    row.field_submitted = fieldSubmitted
+      ? JSON.stringify(fieldSubmitted)
+      : null;
   } else if (existing?.fieldMissing)
     row.field_missing = fieldMissing ? JSON.stringify(fieldMissing) : null;
   for (const k of Object.keys(row)) if (row[k] === undefined) delete row[k];
@@ -796,7 +810,7 @@ export async function listCustomers(c) {
     throw new ApiError("invalid_request", 400, "Choose a valid date.");
   const nationwide = unitIds === null;
   const rows =
-    await c.db`select x.*,count(*) over() as total_count from (select o.id,o.code,o.name,o.address,o.status,o.enrolment_status,p.completeness,p.registered_name,p.field_missing,
+    await c.db`select x.*,count(*) over() as total_count from (select o.id,o.code,o.name,o.address,o.status,o.enrolment_status,o.visit_frequency_days,o.visit_frequency_per_month,p.completeness,p.registered_name,p.field_missing,
       (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end) as list_status,
       count(*) over() as n_all,count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='prospect') over() as n_prospect,
       count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='active') over() as n_active,count(*) filter (where o.status='inactive') over() as n_inactive,
@@ -899,6 +913,12 @@ export async function listCustomers(c) {
       id: r.id,
       code: r.code,
       customerName: r.name,
+      visitFrequencyDays: r.visit_frequency_days ?? null,
+      visitFrequencyPerMonth: r.visit_frequency_per_month ?? null,
+      visitFrequency: visitFrequencyLabel(
+        r.visit_frequency_days,
+        r.visit_frequency_per_month,
+      ),
       addedById: addedById.get(r.id)?.pid ?? null,
       addedByName: addedById.get(r.id)?.name ?? null,
       addedAt: addedById.get(r.id)?.at

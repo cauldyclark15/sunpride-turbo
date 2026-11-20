@@ -51,6 +51,9 @@ export type Customer = Record<string, unknown> & {
   id: string;
   code: string;
   status: CustomerStatus;
+  visitFrequency?: string;
+  visitFrequencyDays?: number | null;
+  visitFrequencyPerMonth?: number | null;
   completeness: "draft" | "complete";
   enrolmentStatus: string | null;
   customerName: string | null;
@@ -79,6 +82,9 @@ export type CustomerRow = {
   registeredName: string | null;
   customerAddress: string | null;
   status: CustomerStatus;
+  visitFrequency?: string;
+  visitFrequencyDays?: number | null;
+  visitFrequencyPerMonth?: number | null;
   enrolmentStatus: string | null;
   completeness: "draft" | "complete";
   salesOrgCode: string | null;

@@ -38,6 +38,7 @@ const EXPECTED = {
   "territory.manage": ["super_admin", "admin"],
   "route.manage": ["super_admin", "admin", "operations"],
   "outlet.manage": ["super_admin", "admin", "operations"],
+  "outlet.frequency.manage": ["super_admin", "admin", "operations", "manager"],
   "outlet.verify": ["super_admin", "admin", "manager"],
   "outlet.enrol.propose": ["super_admin", "admin", "manager", "sales"],
   "outlet.enrol.approve": ["super_admin", "admin", "manager"],
@@ -153,8 +154,8 @@ async function outcome(p) {
 }
 
 describe("capability table", () => {
-  test("F-209/F-210/F-222/F-613/F-615 and messaging: 66 grants, 8 roles", () => {
-    expect(Object.keys(CAPABILITIES).length).toBe(66);
+  test("Existing grants plus SP-0223 visit frequency: 67 grants, 8 roles", () => {
+    expect(Object.keys(CAPABILITIES).length).toBe(67);
     expect(/** @type {string[]} */ ([...ROLES])).toEqual(A);
     expect(Object.keys(CAPABILITIES).sort()).toEqual(
       Object.keys(EXPECTED).sort(),
@@ -193,7 +194,7 @@ describe("requireCapability matrix", () => {
         }).toEqual({ cap, role, got: want });
         checked++;
       }
-    expect(checked).toBe(66 * 8);
+    expect(checked).toBe(67 * 8);
   });
 
   test("every grant × role with an out-of-scope target: only super_admin and analyst bypass", async () => {

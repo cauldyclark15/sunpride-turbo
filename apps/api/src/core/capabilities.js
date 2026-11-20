@@ -47,6 +47,7 @@ export const CAPABILITIES = Object.freeze({
   "territory.manage": ["super_admin", "admin"],
   "route.manage": ["super_admin", "admin", "operations"],
   "outlet.manage": ["super_admin", "admin", "operations"],
+  "outlet.frequency.manage": ["super_admin", "admin", "operations", "manager"],
   "outlet.verify": ["super_admin", "admin", "manager"],
   // SP-0179: office admins (the client's project test team) use the Field app too:
   // first Sync, store visits and adding stores from the phone.
