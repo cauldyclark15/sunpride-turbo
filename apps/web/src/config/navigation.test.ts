@@ -42,7 +42,11 @@ describe("v2 navigation", () => {
       expect.arrayContaining(["Live map", "Work", "Issues", "Setup"]),
     );
     expect(all).not.toContain("Dashboard");
-    expect(all).not.toContain("Reports");
+    expect(all).toContain("Reports");
+    expect(primaryIdFor("/reports")).toBe("reports");
+    expect(navFor("super_admin", "/reports").moduleTabs).toEqual([
+      { id: "plan-actual", label: "Plan vs actual", href: "/reports" },
+    ]);
   });
 
   it("sales see Today but no other owner page and no Setup", () => {

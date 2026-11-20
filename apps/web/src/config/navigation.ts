@@ -163,6 +163,7 @@ export const WORKSPACE_SLUGS = [
   "call-sheets",
   "daily-sales",
   "activity-reports",
+  "reports",
   "training",
   "inventory",
   "imports",
@@ -231,6 +232,7 @@ const moduleTabs: Record<string, WorkspaceModuleTab[]> = {
     label,
     href,
   })),
+  reports: [{ id: "plan-actual", label: "Plan vs actual", href: "/reports" }],
   work: [
     { id: "orders", label: "Orders", href: "/orders" },
     { id: "distributors", label: "Distributors", href: "/distributors" },
@@ -283,6 +285,7 @@ const tailItems: WorkspaceNavGroup["items"] = [
     href: "/supervision",
     icon: "field",
   },
+  { id: "reports", label: "Reports", href: "/reports", icon: "reports" },
   { id: "work", label: "Work", href: "/orders", icon: "board" },
   // SP-0216: price-list work must be reachable directly, not hidden under Setup.
   { id: "pricing", label: "Prices", href: "/pricing", icon: "commercial" },

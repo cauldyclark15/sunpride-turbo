@@ -14,6 +14,7 @@ import { OperationsTabs } from "./ops/operations-workspace";
 import { useSession } from "../lib/auth/session";
 import { canAccessWebModule } from "../lib/module-access";
 import { ActivityReportsWorkspace } from "./activity-reports/activity-reports-workspace";
+import { PlanActualWorkspace } from "./plan-actual/workspace";
 import { AdminWorkspace } from "./admin-workspace";
 import { DistributorWorkspace } from "./distributors/workspace";
 import {
@@ -65,6 +66,7 @@ const TITLES = {
   "call-sheets": "Call sheets",
   "daily-sales": "Daily sales report",
   "activity-reports": "DAR / ROAR",
+  reports: "Reports",
   training: "Training",
   inventory: "Inventory",
   imports: "Imports",
@@ -244,6 +246,8 @@ function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
       return <DailySalesWorkspace />;
     case "training":
       return <TrainingWorkspace />;
+    case "reports":
+      return <PlanActualWorkspace />;
     case "activity-reports":
       return <ActivityReportsWorkspace />;
     case "live-map":

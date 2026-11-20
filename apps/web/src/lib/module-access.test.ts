@@ -36,6 +36,7 @@ describe("module access mirrors apps/api capabilities.js", () => {
     ["sap-integration", ["integration.read"]],
     ["agencies", ["integration.read"]],
     ["live-map", ["location.read"]],
+    ["reports", ["mcp.read"]],
     ["supervision", ["people.read"]],
     ["orders", ["order.create", "order.approve", "order.encode"]],
     ["outside-calls", ["order.encode", "visit.record"]],

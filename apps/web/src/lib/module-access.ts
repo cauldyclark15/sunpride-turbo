@@ -229,6 +229,7 @@ export const MODULE_ROLES = {
   "call-sheets": allReaders, // outlet.read + visit.read; editing needs outlet.manage
   "daily-sales": activityReportReaders, // people.read for the roster, or sales self-only
   "activity-reports": activityReportReaders, // visit.record (file) or people.read (team)
+  reports: MCP_PANEL_ROLES["mcp.read"],
   training: allReaders, // visit.read; each person sees only their own trainer forms
   inventory: allReaders, // inventory.read
   imports: importActors, // masterdata.manage, inventory.adjustment.request, inventory.count.submit

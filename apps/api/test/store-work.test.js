@@ -426,3 +426,234 @@ test("signed phone tick, untick, replay and scope refusal persist actual work wi
   expect(end.status, JSON.stringify(end)).toBe("applied");
   expect((await push(tick(false))).status).toBe("rejected");
 });
+
+// SP-0226: the report consumes the real public plan/approval/activation and
+// signed simulated-device operations above. No physical device or live data.
+/** @param {any} who @param {any} [filters] */
+async function report(who, filters = {}) {
+  return request(
+    who,
+    `coverage/plan-actual?${new URLSearchParams({ from: day, to: tomorrow, ...filters })}`,
+  );
+}
+test("SP-0226 public plan and signed activity results reconcile by salesman/day and retain approved names", async () => {
+  setSystemTime(new Date(now + 86400000));
+  await h.db`update sessions set expires_at=${new Date(now + 10 * 86400000)}`;
+  const r = await report(manager);
+  expect(r.status, JSON.stringify(r.data)).toBe(200);
+  expect(r.data.summary).toMatchObject({
+    planned: 2,
+    visited: 1,
+    plannedActivities: 4,
+    doneActivities: 1,
+    followed: 0,
+    followedPct: 0,
+    visitPct: 50,
+    missed: 0,
+    outstanding: 1,
+    unplanned: 0,
+    plannedDays: 2,
+    visitedDays: 1,
+    plannedStores: 1,
+    visitedStores: 1,
+  });
+  expect(r.data.days).toHaveLength(2);
+  expect(
+    r.data.days.reduce(
+      (/** @type {number} */ n, /** @type {any} */ d) => n + d.totals.planned,
+      0,
+    ),
+  ).toBe(r.data.summary.planned);
+  const stop = r.data.days.find((/** @type {any} */ d) => d.date === day)
+    .stops[0];
+  expect(stop.status).toBe("Activities unfinished");
+  expect(
+    stop.activities.map((/** @type {any} */ a) => [a.name, a.done]),
+  ).toEqual([
+    ["Collection", true],
+    ["Countering", false],
+    ["Count stock", false],
+  ]);
+  expect(
+    r.data.salesmen.find((/** @type {any} */ p) => p.profileId === seller.id)
+      .totals,
+  ).toEqual(r.data.summary);
+  expect(r.data.prior.planned).toBe(0);
+  if (process.env.SP_PLAN_ACTUAL_PROOF)
+    await Bun.write(process.env.SP_PLAN_ACTUAL_PROOF, JSON.stringify(r.data));
+  expect((await report(seller)).data.summary).toEqual(r.data.summary);
+  expect((await report(stranger)).data.days).toHaveLength(0);
+  expect((await report(stranger, { profileId: seller.id })).status).toBe(403);
+});
+
+test("SP-0226 duplicates, open/rejected/review visits and unplanned same-store calls cannot inflate followed stops", async () => {
+  const [v] = await h.db`select * from visit_executions limit 1`;
+  // The persisted uniqueness guard refuses a second execution for this stop.
+  await expect(
+    Promise.resolve(
+      h.db`insert into visit_executions(organization_id,client_visit_id,planned_visit_id,assignee_profile_id,outlet_id,org_unit_id,service_date,source,state,productivity,last_server_time) values ('sunpride',${crypto.randomUUID()},${v.planned_visit_id},${v.assignee_profile_id},${v.outlet_id},${v.org_unit_id},${day},'planned','checked-out','pending',${new Date(now)})`,
+    ),
+  ).rejects.toMatchObject({ errno: "23505" });
+  for (const [state, review] of [
+    ["checked-out", "rejected"],
+    ["checked-out", "pending_review"],
+    ["checked-in", null],
+  ]) {
+    await h.db`update visit_executions set state=${state},late_review_status=${review} where id=${v.id}`;
+    expect((await report(manager)).data.summary).toMatchObject({
+      visited: 0,
+      doneActivities: 0,
+      followed: 0,
+    });
+  }
+  await h.db`update visit_executions set state='checked-out',late_review_status=null where id=${v.id}`;
+  await h.db`insert into visit_executions(organization_id,client_visit_id,assignee_profile_id,outlet_id,org_unit_id,service_date,source,state,productivity,last_server_time) values ('sunpride',${crypto.randomUUID()},${v.assignee_profile_id},${v.outlet_id},${v.org_unit_id},${day},'unplanned','checked-out','pending',${new Date(now)})`;
+  const r = await report(manager);
+  expect(r.status).toBe(200);
+  expect(r.data.summary).toMatchObject({
+    planned: 2,
+    visited: 1,
+    actualVisits: 2,
+    unplanned: 1,
+    followed: 0,
+    followedPct: 0,
+  });
+  expect(
+    r.data.days.find((/** @type {any} */ d) => d.date === day).stops,
+  ).toHaveLength(2);
+  // Move past the second planned day: it becomes a missed stop, never disappears.
+  setSystemTime(new Date(now + 2 * 86400000));
+  expect((await report(manager)).data.summary).toMatchObject({
+    missed: 1,
+    outstanding: 0,
+  });
+});
+
+test("SP-0226 latest tick/untick and all planned tasks govern followed percentage; equal prior window reconciles", async () => {
+  const [v] =
+    await h.db`select * from visit_executions where client_visit_id not like '' and checked_in_at is not null limit 1`;
+  for (const activity of activities.slice(1)) {
+    await h.db`insert into visit_activities(organization_id,org_unit_id,visit_id,assignee_profile_id,outlet_id,activity_kind,activity,device_time,server_time) values ('sunpride',${unit.id},${v.id},${seller.id},${outlet.id},'planned_activity',${{ kind: "planned_activity", activityId: activity.id, done: true }},${new Date(now)},${new Date(now + 1000)})`;
+  }
+  expect((await report(manager)).data.summary).toMatchObject({
+    doneActivities: 3,
+    followed: 1,
+    followedPct: 50,
+  });
+  await h.db`insert into visit_activities(organization_id,org_unit_id,visit_id,assignee_profile_id,outlet_id,activity_kind,activity,device_time,server_time) values ('sunpride',${unit.id},${v.id},${seller.id},${outlet.id},'planned_activity',${{ kind: "planned_activity", activityId: activities[0].id, done: false }},${new Date(now)},${new Date(now + 2000)})`;
+  expect((await report(manager)).data.summary).toMatchObject({
+    doneActivities: 2,
+    followed: 0,
+  });
+  const r = await report(manager, { from: tomorrow });
+  expect(r.data.summary).toMatchObject({ planned: 1, missed: 1 });
+  expect(r.data.prior).toMatchObject({
+    planned: 1,
+    visited: 1,
+    doneActivities: 2,
+    unplanned: 1,
+  });
+});
+
+test("SP-0226 validates dates and filters before querying and refuses future or excessive windows", async () => {
+  for (const filters of [
+    { from: "2030-02-30" },
+    { from: "2029-01-01" },
+    { from: tomorrow, to: day },
+    { to: "2030-12-01" },
+    { territoryId: "bad" },
+    { territoryType: "invented" },
+    { profileId: "not-a-uuid" },
+  ]) {
+    expect((await report(manager, filters)).status).toBe(422);
+  }
+});
+
+test("SP-0226 only approved effective slots count, including pre-activation plans but not superseded future stops", async () => {
+  await h.db`update coverage_plans set status='draft' where id=${plan._id}`;
+  expect((await report(manager)).data.summary.planned).toBe(0);
+  await h.db`update coverage_plans set status='approved' where id=${plan._id}`;
+  expect((await report(manager)).data.summary.planned).toBe(2);
+  await h.db`update coverage_plans set status='superseded',active_through=${new Date(Date.parse(tomorrow + "T00:00:00+08:00"))} where id=${plan._id}`;
+  expect((await report(manager)).data.summary.planned).toBe(1);
+  await h.db`update coverage_plans set status='active',active_through=null where id=${plan._id}`;
+  const [future] =
+    await h.db`select id from planned_visits where service_date=${tomorrow}`;
+  await h.db`update planned_visits set deleted_at=now() where id=${future.id}`;
+  const preActivation = await report(manager);
+  expect(preActivation.data.summary).toMatchObject({ planned: 2, missed: 1 });
+  await h.db`update planned_visits set deleted_at=null where id=${future.id}`;
+});
+
+test("SP-0226 filters branch, territory, territory type/group, and does not ignore a super-admin branch choice", async () => {
+  const [group] =
+    await h.db`insert into customer_groups(code,name) values ('SAMPLE226','Sample chain') returning *`;
+  await h.db`update outlets set customer_group_id=${group.id} where id=${outlet.id}`;
+  await h.db`update territories set territory_type='customer_group' where id=${territory.id}`;
+  for (const filters of [
+    { unitId: unit.id },
+    { territoryId: territory.id },
+    { territoryType: "customer_group" },
+    { groupId: group.id },
+    {
+      profileId: seller.id,
+      unitId: unit.id,
+      territoryId: territory.id,
+      territoryType: "customer_group",
+      groupId: group.id,
+    },
+  ]) {
+    expect((await report(admin, filters)).data.summary.planned).toBe(2);
+  }
+  expect(
+    (await report(manager, { territoryType: "location" })).data.days,
+  ).toHaveLength(0);
+  expect(
+    (await report(manager, { groupId: crypto.randomUUID() })).data.days,
+  ).toHaveLength(0);
+  const [branch] =
+    await h.db`insert into org_units(organization_id,code,name,type_code,status,parent_id,effective_from) values ('sunpride','EMPTY226','Sample empty branch','branch','active',${unit.id},'2020-01-01') returning *`;
+  expect((await report(admin, { unitId: branch.id })).data.days).toHaveLength(
+    0,
+  );
+});
+
+test("SP-0226 current person, source branch and current store scope independently guard historical detail/options", async () => {
+  const branches = [];
+  for (const code of ["A226", "B226"]) {
+    const [b] =
+      await h.db`insert into org_units(organization_id,code,name,type_code,status,parent_id,effective_from) values ('sunpride',${code},${code},'branch','active',${unit.id},'2020-01-01') returning *`;
+    branches.push(b);
+  }
+  const [a, b] = branches;
+  for (const p of [manager, seller]) {
+    await h.db`update profiles set org_unit_id=${a.id} where id=${p.id}`;
+    await h.db`update employee_assignments set org_unit_id=${a.id} where profile_id=${p.id}`;
+  }
+  await h.db`update coverage_plans set org_unit_id=${a.id} where assignee_profile_id=${seller.id}`;
+  await h.db`update visit_executions set org_unit_id=${a.id} where assignee_profile_id=${seller.id}`;
+  await h.db`update territory_ownerships set org_unit_id=${a.id} where territory_id=${territory.id}`;
+  expect((await report(manager)).data.summary.planned).toBe(2);
+  const [extra] =
+    await h.db`select id from visit_executions where source='unplanned' limit 1`;
+  await h.db`update visit_executions set org_unit_id=${b.id} where id=${extra.id}`;
+  expect((await report(manager)).data.summary.unplanned).toBe(0);
+  expect((await report(manager, { unitId: b.id })).status).toBe(403);
+  await h.db`update territory_ownerships set org_unit_id=${b.id} where territory_id=${territory.id}`;
+  const hidden = await report(manager);
+  expect(hidden.status).toBe(200);
+  expect(hidden.data.days).toHaveLength(0);
+  expect(hidden.data.options.territories).toHaveLength(0);
+  expect(hidden.data.options.groups).toHaveLength(0);
+  // Restore store visibility, then withdraw the person's current scope instead.
+  await h.db`update territory_ownerships set org_unit_id=${a.id} where territory_id=${territory.id}`;
+  await h.db`update employee_assignments set org_unit_id=${b.id} where profile_id=${seller.id}`;
+  await h.db`update profiles set org_unit_id=${b.id} where id=${seller.id}`;
+  const moved = await report(manager);
+  expect(moved.data.days).toHaveLength(0);
+  expect(
+    moved.data.options.people.some(
+      (/** @type {any} */ p) => p.id === seller.id,
+    ),
+  ).toBe(false);
+});

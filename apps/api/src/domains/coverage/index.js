@@ -24,6 +24,7 @@ import { digest, workflow } from "./workflow.js";
 import { installPjp } from "./pjp.js";
 import { installStoreWork } from "./store-work.js";
 import { readAdherence } from "./adherence.js";
+import { installPlanActual } from "./plan-actual.js";
 import { installProductivePolicies } from "../visits/productive-policies.js";
 import { installWorkforce } from "./workforce.js";
 import { installDormancy } from "./dormancy.js";
@@ -211,6 +212,7 @@ export async function command(ctx, platform, path, body) {
 export function install(router, platform) {
   installPjp(router, platform);
   installStoreWork(router, platform);
+  installPlanActual(router);
   installProductivePolicies(router, platform);
   installWorkforce(router, platform);
   installDormancy(router, platform);
