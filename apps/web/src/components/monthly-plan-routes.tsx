@@ -1,5 +1,6 @@
 "use client";
 
+import { formatStatus } from "../lib/format";
 import { useState } from "react";
 import { api } from "./coverage-model";
 import { useCoverageMutation, useCoverageQuery } from "./coverage-data";
@@ -141,7 +142,7 @@ export function WeeklyPlanReview({
             className="underline"
             onClick={() => onOpen({ _id: p.planId, localMonth: p.month })}
           >
-            {p.month} · v{p.version} · {p.status.replaceAll("_", " ")}
+            {p.month} · v{p.version} · {formatStatus(p.status)}
           </button>
           {p.reviewed && <span>Reviewed</span>}
           {isSelf &&
