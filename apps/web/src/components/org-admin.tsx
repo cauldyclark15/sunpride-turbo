@@ -30,7 +30,10 @@ const officeTypeLabels = new Map([
   ["national", "Company"],
   ["region", "Region"],
   ["area", "Branch"],
+  ["territory", "Territory"],
 ]);
+const sentence = (text: string) =>
+  text.replaceAll("_", " ").replace(/^./, (c) => c.toUpperCase());
 
 /** Office wording only; stored type codes and custom hierarchy labels stay unchanged. */
 export const typeLabel = (
@@ -38,11 +41,8 @@ export const typeLabel = (
   types?: ReadonlyArray<{ code: string; label: string }> | null,
 ) =>
   officeTypeLabels.get(code.toLowerCase()) ||
-  types?.find((t) => t.code === code)?.label ||
-  code
-    .toLowerCase()
-    .replaceAll("_", " ")
-    .replace(/^./, (c) => c.toUpperCase());
+  // SP-0217: a stored lowercase label ("territory") still reads as a proper label.
+  sentence(types?.find((t) => t.code === code)?.label || code.toLowerCase());
 
 /** Select keeps the submitted form value while using the HeroUI popover. */
 export function AdminSelectField({
