@@ -25,6 +25,10 @@ import {
   registerProjection,
 } from "./sync.js";
 
+/** Seconds a request may run before Bun drops the socket. Bun's default is 10 s,
+ * which cut slow management reads (admin Today) while the web proxy still waited
+ * 60 s, so the browser saw "socket hang up". Keep it at least the proxy timeout. */
+export const SERVER_IDLE_TIMEOUT_S = 75;
 /**
  * Compose the API: core routes + domain installers + realtime hub + scheduler.
  * @param {{ db: any, dbUrl: string, env?: Record<string,string|undefined>, installers?: Array<(router: Router, ctx: any) => void>,
@@ -171,6 +175,7 @@ export function createApp(opts) {
         port: o.port ?? 4310,
         hostname: o.hostname ?? "127.0.0.1",
         maxRequestBodySize: 25 * 1024 * 1024,
+        idleTimeout: SERVER_IDLE_TIMEOUT_S,
         fetch: (req, srv) => fetch(req, srv),
         websocket: /** @type {any} */ (realtime.websocket),
       });
