@@ -38,6 +38,13 @@ class TruckStockTest {
         assertFalse(TruckStock.needsReason(b, 0))
     }
 
+    @Test fun balancedLeftoverNeedsNoReason() {
+        val week = TruckStock.decode(data)!!
+        assertFalse(TruckStock.needsReason(week.lines[0], 32))
+        val p = TruckStock.payload(week, mapOf("a" to "32", "b" to "0"), emptyMap(), emptyMap())
+        assertTrue(p.getJSONArray("lines").getJSONObject(0).isNull("reasonId"))
+    }
+
     @Test fun payloadRequiresEveryCountAndReasons() {
         val week = TruckStock.decode(data)!!
         val missingCount = runCatching { TruckStock.payload(week, mapOf("a" to "30"), emptyMap(), emptyMap()) }

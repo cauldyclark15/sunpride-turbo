@@ -111,6 +111,7 @@ test("SP-0227 weekly truck stock: served basis, sold from van sales, Saturday co
     expect(deleted).toBe(false);
     const missing = list.find((/** @type {any} */ r) => r.name === "Missing");
     const unsold = list.find((/** @type {any} */ r) => r.name === "Unsold");
+    expect(unsold).toBeDefined();
 
     // Office records request vs served for the seller's week.
     const day = manilaDate(Date.now());
@@ -313,7 +314,8 @@ test("SP-0227 weekly truck stock: served basis, sold from van sales, Saturday co
           reasonId: missing.id,
           note: "SAMPLE two short",
         },
-        { productId: b.id, countedBase: 20, reasonId: unsold.id },
+        // Balanced with stock left: no reason needed (SP-0227 QA).
+        { productId: b.id, countedBase: 20, reasonId: null },
       ],
     };
     const at = Date.now();
@@ -384,6 +386,8 @@ test("SP-0227 weekly truck stock: served basis, sold from van sales, Saturday co
     ).toBe(401);
     const csvAll = await office(`truck-weeks?weekStart=${week}&format=csv`);
     expect(csvAll.status).toBe(200);
+    expect(csvAll.text).toContain("Counted, office to check");
+    expect(csvAll.text).not.toMatch(/,"?counted"?,/);
     expect(csvAll.text).toContain(
       '"SAMPLE corned beef","PC",100,80,20,48,32,30,2,"Missing","SAMPLE two short"',
     );

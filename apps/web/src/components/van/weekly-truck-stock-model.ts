@@ -1,4 +1,6 @@
 /** SP-0227 weekly truck stock DTOs and pure helpers (shared with tests; no React). */
+import { formatDate, formatStatus, toInstant } from "../../lib/format";
+
 export type TruckWeekLine = {
   productId: string;
   code: string;
@@ -61,6 +63,7 @@ export type TruckWeekList = {
   trips?: {
     id: string;
     name: string;
+    serviceDate?: string;
     vehicleId: string;
     salespersonProfileId: string;
   }[];
@@ -100,6 +103,23 @@ export function varianceText(value: number | null): string {
   if (value === null) return "Not counted yet";
   if (value === 0) return "Balanced";
   return value > 0 ? `${value} missing` : `${-value} extra`;
+}
+
+/** "Should be left" never shows a negative stock: more sold than loaded is flagged in words. */
+export function expectedLeftText(value: number): string {
+  return value < 0 ? `0 (sold ${-value} more than loaded)` : String(value);
+}
+
+/** A trip as office staff read it: "Mon, Nov 16, 2026 · trip 0" instead of the stored code. */
+export function tripLabel(t: { name: string; serviceDate?: string }): string {
+  if (!t.serviceDate) return formatStatus(t.name);
+  const day = formatDate(t.serviceDate);
+  const weekday = new Intl.DateTimeFormat("en-PH", {
+    weekday: "short",
+    timeZone: "Asia/Manila",
+  }).format(toInstant(t.serviceDate) ?? 0);
+  const n = /-(\d+)$/.exec(t.name)?.[1];
+  return `${weekday}, ${day}${n !== undefined ? ` · trip ${Number(n) + 1}` : ""}`;
 }
 
 export type DraftLine = {

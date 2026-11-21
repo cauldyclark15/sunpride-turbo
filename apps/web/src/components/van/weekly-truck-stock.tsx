@@ -7,6 +7,8 @@ import { formatDateTime, formatPeriod, manilaDay } from "../../lib/format";
 import {
   STATUS_LABELS,
   addDays,
+  expectedLeftText,
+  tripLabel,
   mondayOf,
   shiftWeek,
   stockMoney,
@@ -86,7 +88,7 @@ export function WeeklyTruckStock() {
             {!list.data.rows.length && (
               <p>No truck stock recorded for this week yet.</p>
             )}
-            <table className="w-full text-sm">
+            <table className="w-full text-sm [&_td]:px-2 [&_td]:py-1 [&_th]:px-2 [&_th]:py-1">
               <thead>
                 <tr className="text-left text-muted">
                   <th>Salesman</th>
@@ -209,7 +211,7 @@ export function WeekDetail({
           {w.reviewNote ? ` · ${w.reviewNote}` : ""}
         </p>
       )}
-      <table className="w-full text-sm">
+      <table className="w-full text-sm [&_td]:px-2 [&_td]:py-1 [&_th]:px-2 [&_th]:py-1">
         <thead>
           <tr className="text-left text-muted">
             <th>Product</th>
@@ -236,7 +238,13 @@ export function WeekDetail({
               <td className="text-right">{l.servedBase}</td>
               <td className="text-right">{l.shortfallBase}</td>
               <td className="text-right">{l.soldBase}</td>
-              <td className="text-right">{l.expectedLeftBase}</td>
+              <td
+                className={
+                  l.expectedLeftBase < 0 ? "text-right text-danger" : "text-right"
+                }
+              >
+                {expectedLeftText(l.expectedLeftBase)}
+              </td>
               <td className="text-right">{l.countedBase ?? "—"}</td>
               <td className="text-right">{varianceText(l.varianceBase)}</td>
               <td>
@@ -253,6 +261,12 @@ export function WeekDetail({
         Total difference: {varianceText(w.totals.varianceBase)}. Positive
         differences are stock not accounted for.
       </p>
+      {w.lines.some((l) => l.expectedLeftBase < 0) && (
+        <Notice
+          tone="warning"
+          title="Some products were sold more than was loaded. Check that the loaded quantities are right."
+        />
+      )}
       <p>
         Stock accountability value: {stockMoney(w.cashier?.amountMinor)}. This
         is not cash due.
@@ -479,7 +493,7 @@ function WeekForm({
                   setKey(undefined);
                 }}
               />{" "}
-              {t.name}
+              {tripLabel(t)}
             </label>
           ))}
       </fieldset>

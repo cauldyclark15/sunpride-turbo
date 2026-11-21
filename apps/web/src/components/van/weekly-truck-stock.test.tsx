@@ -4,6 +4,8 @@ import {
   mondayOf,
   shiftWeek,
   stockMoney,
+  expectedLeftText,
+  tripLabel,
   varianceText,
   weekSaveBody,
 } from "./weekly-truck-stock-model";
@@ -62,6 +64,22 @@ vi.mock("../../lib/api", () => ({
                 reasonName: "Missing",
                 note: "Two short",
               },
+              {
+                productId: "p2",
+                name: "SAMPLE never loaded",
+                code: "SAMPLE-B",
+                uom: "PC",
+                requestedBase: 0,
+                servedBase: 0,
+                shortfallBase: 0,
+                soldBase: 24,
+                expectedLeftBase: -24,
+                countedBase: 0,
+                varianceBase: -24,
+                reasonName: null,
+                needsReason: true,
+                note: null,
+              },
             ],
           }
         : list,
@@ -82,6 +100,23 @@ describe("SP-0227 weekly truck stock", () => {
     expect(varianceText(0)).toBe("Balanced");
     expect(varianceText(2)).toBe("2 missing");
     expect(varianceText(-3)).toBe("3 extra");
+  });
+  it("never shows negative stock left and names trips by day", () => {
+    expect(expectedLeftText(32)).toBe("32");
+    expect(expectedLeftText(-24)).toBe("0 (sold 24 more than loaded)");
+    expect(
+      tripLabel({ name: "SMP-TRIP-2026-11-16-0", serviceDate: "2026-11-16" }),
+    ).toBe("Mon, Nov 16, 2026 · trip 1");
+  });
+  it("keeps the detail headers apart and flags over-sold products", () => {
+    const html = renderToStaticMarkup(
+      <WeekDetail id="w1" canManage onEdit={() => {}} />,
+    );
+    expect(html).toMatch(/\[&amp;_th\]:px-2|\[&_th\]:px-2/);
+    expect(html).toContain("<th>Reason</th>");
+    expect(html).not.toContain(">-24<");
+    expect(html).toContain("0 (sold 24 more than loaded)");
+    expect(html).toContain("sold more than was loaded");
   });
   it("builds the save command from requested and actually loaded", () => {
     expect(weekSaveBody("", "2026-11-16", [])).toEqual({

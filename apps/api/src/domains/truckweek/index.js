@@ -122,7 +122,7 @@ export async function weekDetail(db, week) {
       varianceBase: variance,
       needsReason:
         line.countedBase !== null &&
-        (variance !== 0 || line.countedBase > 0) &&
+        variance !== 0 &&
         !line.reasonId,
     };
   });
@@ -249,12 +249,18 @@ const CSV_HEAD = [
   "Unit price (centavos)",
   "Accountability amount (centavos)",
 ];
+/** Plain words for the stored week status (CSV is read by office staff). */
+const STATUS_WORDS = /** @type {Record<string,string>} */ ({
+  open: "Waiting for Saturday count",
+  counted: "Counted, office to check",
+  reviewed: "Checked and closed",
+});
 /** @param {any} d */
 function csvRows(d) {
   return d.lines.map((/** @type {any} */ l) => [
     d.weekStart,
     d.seller,
-    d.status,
+    STATUS_WORDS[d.status] ?? d.status,
     l.code,
     l.name,
     l.uom,
@@ -311,7 +317,7 @@ export async function listWeeks(c) {
     [units],
   );
   const trips = await c.db.unsafe(
-    `select id,trip_number as name,vehicle_id as "vehicleId",salesperson_profile_id as "salespersonProfileId" from van_trips where service_date between $1::date and $1::date+5 and status<>'cancelled' and deleted_at is null and ($2::uuid[] is null or org_unit_id=any($2::uuid[])) order by service_date,id limit 1001`,
+    `select id,trip_number as name,service_date::text as "serviceDate",vehicle_id as "vehicleId",salesperson_profile_id as "salespersonProfileId" from van_trips where service_date between $1::date and $1::date+5 and status<>'cancelled' and deleted_at is null and ($2::uuid[] is null or org_unit_id=any($2::uuid[])) order by service_date,id limit 1001`,
     [start, units],
   );
   if (

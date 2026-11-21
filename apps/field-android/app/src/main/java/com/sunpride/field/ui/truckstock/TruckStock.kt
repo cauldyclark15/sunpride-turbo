@@ -36,8 +36,8 @@ object TruckStock {
             (0 until reasons.length()).map { reasons.getJSONObject(it) }.map { Reason(it.getString("id"), it.getString("name")) })
     }
 
-    /** A reason is needed when anything is left or the count differs from what should be left. */
-    fun needsReason(line: Line, counted: Long): Boolean = counted > 0 || counted != line.expectedLeft
+    /** A reason is needed only when the count differs from what should be left; a balanced line needs none. */
+    fun needsReason(line: Line, counted: Long): Boolean = counted != line.expectedLeft
 
     /** Plain words for the difference loaded − sold − counted. */
     fun difference(line: Line, counted: Long?): String {
