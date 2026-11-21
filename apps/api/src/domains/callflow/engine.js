@@ -190,7 +190,7 @@ export async function configurations(db, profile, outlets, at, binding = null) {
   const grants = binding
     ? await db`select r.id,r.outlet_id,r.policy_id,r.kind,extract(epoch from d.created_at)*1000 as "approvedAt",extract(epoch from r.expires_at)*1000 as "expiresAt"
     from call_flow_reviews r join call_flow_decisions d on d.review_id=r.id where r.profile_id=${binding.profileId} and r.device_id=${binding.deviceId}
-    and r.outlet_id in ${db(ids)} and r.consumed_by is null and d.decision='approve' and d.actor_profile_id<>r.profile_id
+    and r.outlet_id in ${db(ids)} and r.consumed_by is null and d.decision='approve'
     and r.expires_at>${new Date(at)} and r.kind in ('geofence_start','geofence_end') order by d.created_at desc limit 12001`
     : [];
   if (grants.length > 12000)
@@ -287,7 +287,7 @@ async function gateLocation(ctx, config, outletId, kind, fix, at) {
     await ctx.db`select r.* from call_flow_reviews r join call_flow_decisions d on d.review_id=r.id
     where r.id=${ctx.payload.geofenceApprovalId} and r.kind=${kind} and r.profile_id=${ctx.actor.profileId}
     and r.device_id=${ctx.device.id} and r.outlet_id=${outletId} and r.policy_id=${config.policy.id}
-    and d.decision='approve' and d.actor_profile_id<>r.profile_id and r.consumed_by is null
+    and d.decision='approve' and r.consumed_by is null
     and r.created_at<=${new Date(at)} and d.created_at<=${new Date(at)} and r.expires_at>${new Date(at)} for update of r`;
   if (!grant) refuse("evidence_pending_review");
   return grant.id;

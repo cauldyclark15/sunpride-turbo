@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 // F-615: target setting and cascade. One parent's monthly target is allocated to its complete set of
 // children (company -> channel -> territory -> agent, the same hierarchy the target book rolls up),
 // reconciled exactly, submitted, and published only by a different approver. Publishing sales_value
@@ -398,7 +399,7 @@ export async function decideCascade(ctx, installCtx = null) {
     throw invalid("Approve or reject");
   const reason =
     decision === "reject"
-      ? required(ctx.body?.reason, "Reason", 500)
+      ? optionalReason(ctx.body?.reason, "Reason", 500)
       : (ctx.body?.reason ?? null);
   const result = await tx(ctx.db, async (db) => {
     const actor = await currentActor(db, ctx.actor),
@@ -409,8 +410,6 @@ export async function decideCascade(ctx, installCtx = null) {
     if (!k) throw notFound("Cascade not found");
     const s = await scopeFor(c);
     await requireParent(db, s, k.parent_level, k.parent_key);
-    if (k.prepared_by === actor.profileId)
-      throw forbidden("A different person must approve this cascade");
     if (k.status !== "submitted")
       throw conflict("This cascade was already decided");
     if (ctx.body?.contentHash !== k.content_hash)

@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 // SP-0170 customer master: the one writer and reader of the client's customer record.
 // Customer = store: the `outlets` row is the customer (code = Customer Code, name = Customer
 // Name, address = Customer Address); every other field of Sunpride's sheet lives in
@@ -736,9 +737,7 @@ export async function approveCustomer(c, outletId, b) {
 export async function rejectCustomer(c, outletId, b) {
   await requireCapability(c, "outlet.enrol.approve");
   await access(c, "outlets", outletId, "outlet.enrol.approve");
-  const reason =
-    typeof b.reason === "string" && b.reason.trim() ? b.reason.trim() : "";
-  if (!reason) rule("Enter the reason for rejecting this customer.");
+  const reason = optionalReason(b.reason, "Reason for rejecting");
   const [enrolment] =
     await c.db`select id from outlet_enrolments where outlet_id=${outletId} and status='pending' and deleted_at is null`;
   if (!enrolment)

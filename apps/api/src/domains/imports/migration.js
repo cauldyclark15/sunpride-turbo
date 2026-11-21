@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 import { tx } from "@sunpride/db/client";
 import {
   requireCapability,
@@ -276,7 +277,7 @@ export function installMigrationReview(router, platform) {
           await db`select * from migration_staging_rows where id=${uuid(p.stagingId)}`;
         if (!row) throw new ApiError("not_found", 404, "Staged row not found.");
         const actor = ctx.actor,
-          reason = required(p.reason, "Review reason", 500);
+          reason = optionalReason(p.reason, "Review reason", 500);
         if (
           !["create", "map", "reject"].includes(p.action) ||
           p.payloadHash !== row.payload_hash

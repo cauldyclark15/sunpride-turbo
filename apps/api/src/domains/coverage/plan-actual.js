@@ -1,3 +1,4 @@
+import { isCompanyWide } from "../../core/capabilities.js";
 import { tx } from "@sunpride/db/client";
 import { requireCapability } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
@@ -100,7 +101,7 @@ export async function readPlanActual(ctx, b) {
       403,
       "Salesman is outside your current scope",
     );
-  const scope = ["super_admin", "analyst"].includes(actor.role)
+  const scope = isCompanyWide(actor.role)
     ? null
     : new Set(await hooks.scopeUnitIds(ctx.db, actor));
   const allowedUnit = (/** @type {string} */ id) =>

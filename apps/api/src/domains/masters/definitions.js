@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 import {
   requireCapability,
   requireNationalScope,
@@ -372,7 +373,7 @@ export async function saveDefinition(ctx, p) {
       : integer(p.effectiveFrom, ctx.now, ctx.now + 366 * 86400000);
   const key = code(p.code),
     label = required(p.label, "Name", 160),
-    reason = required(p.reason, "Reason", 500);
+    reason = optionalReason(p.reason, "Reason", 500);
   one(p.status, ["active", "inactive"], "a status");
   integer(p.baseVersion, 0);
   await ctx.db`select pg_advisory_xact_lock(4310420)`;

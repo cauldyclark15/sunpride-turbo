@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 import { join } from "node:path";
 import {
   requireCapability,
@@ -45,7 +46,7 @@ export async function saveCatalogue(ctx, p) {
       2000,
     ),
     shelfLifeDays = integer(p.shelfLifeDays, 0, 3650),
-    reason = required(p.reason, "Change reason", 500);
+    reason = optionalReason(p.reason, "Change reason", 500);
   const bytes = new Uint8Array(await Bun.file(SAMPLE_IMAGE).arrayBuffer());
   let sha256 =
       prior?.image_sha256 ??

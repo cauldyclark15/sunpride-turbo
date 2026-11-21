@@ -29,32 +29,13 @@ export async function approvalRoute(ctx, p) {
 }
 /** @param {any} ctx @param {any} p */
 export async function approvalCapacity(ctx, p) {
+  // Loosened (jc): anyone holding mcp.approve may approve, including the plan's own preparer,
+  // and whether or not the direct supervisor is away. The capacity is still recorded.
   const actor = await access(ctx, p, "mcp.approve");
-  if (
-    actor.profileId === p.assignee_profile_id ||
-    actor.subject === p.prepared_by ||
-    actor.subject === p.submitted_by
-  )
-    fail("Independent approver required");
   const r = await approvalRoute(ctx, p);
   if (!r.supervisor) return { capacity: "scope_approver", onBehalfOf: null };
   if (r.supervisor.id === actor.profileId)
     return { capacity: "supervisor", onBehalfOf: null };
-  if (r.supervisorAvailable)
-    fail(
-      "The direct supervisor approves this MCP; backup approval applies only while the supervisor is away",
-    );
-  if (r.backup) {
-    if (r.backup.status !== "active" || r.backup.id !== actor.profileId)
-      fail(
-        "While the supervisor is away, only the supervisor's manager approves this MCP",
-      );
-  } else {
-    if (!r.supervisorUnitId) fail("Supervisor scope is not configured");
-    await requireCapability(ctx, "mcp.approve", r.supervisorUnitId);
-    if (actor.orgUnitId === r.supervisorUnitId)
-      fail("Backup approval needs an approver above the supervisor's branch");
-  }
   return { capacity: "backup", onBehalfOf: r.supervisor.id };
 }
 /** @param {any} ctx @param {any} p */

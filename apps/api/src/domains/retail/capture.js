@@ -494,8 +494,6 @@ export async function caseAction(c) {
     owner = p.id;
     status = "assigned";
   } else if (action === "approve") {
-    if (row.profile_id === c.actor.profileId)
-      throw invalid("A different person must approve the request");
     if (!["pullout", "markdown"].includes(row.kind)) throw invalid();
     const handoff = await seams.requestSapAction(c, {
       caseId: row.id,
@@ -510,8 +508,6 @@ export async function caseAction(c) {
     text(b.reference);
     status = "resolved";
   } else {
-    if (row.profile_id === c.actor.profileId)
-      throw invalid("A different person must reject the request");
     status = "rejected";
   }
   await c.db`insert into retail_case_events(case_id,kind,note,reference,actor_subject) values(${row.id},${action},${text(b.note, 1000)},${b.reference ? text(b.reference) : null},${c.actor.subject})`;

@@ -50,8 +50,6 @@ export async function enforceInventoryAuthority(
   if (!rows.length) return;
   const userId = document.requested_by ?? document.created_by;
   const counter = await currentActor(c.db, await actorFor(c.db, userId));
-  if (counter.profileId === c.actor.profileId)
-    invalid("Another person must approve stock changes");
   // IP-INT2: a store cashier (or any role that may not request stock changes) can still count at the till. Their count
   // is approved on the approver's own authority: the approver needs the adjustment capability and a stock band that
   // covers the value; otherwise the count could never be approved.

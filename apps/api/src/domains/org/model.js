@@ -38,11 +38,18 @@ export function integer(value, min = 0, max = Number.MAX_SAFE_INTEGER) {
     rule(`Enter a whole number from ${min} to ${max}`);
   return /** @type {number} */ (value);
 }
+/** Start of the Manila (UTC+08) business day containing `now`. @param {number} now */
+export function manilaTodayStart(now) {
+  const day = new Date(now + 8 * 3600000).toISOString().slice(0, 10);
+  return Date.parse(`${day}T00:00:00+08:00`);
+}
 /** @param {any} value @param {number} [now] */
 export function instant(value, now) {
   integer(value, 0, 8640000000000000);
-  if (now !== undefined && value < now)
-    rule("Changes must be future-effective", "not_prospective");
+  // Loosened (jc): any time from today's Manila midnight on is accepted, so a change can
+  // start today; earlier days stay refused because they would rewrite history.
+  if (now !== undefined && value < manilaTodayStart(now))
+    rule("Choose today or a future effective date.", "not_prospective");
   return new Date(value);
 }
 /** @overload @param {Date|string|number} value @returns {number} */

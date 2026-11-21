@@ -222,12 +222,9 @@ export async function audit(t, actor, action, entityId, details = null) {
 }
 /** @param {any} actor @param {string|null} author */
 export function notSelf(actor, author) {
-  if (actor.userId === author || actor.profileId === author)
-    throw new ApiError(
-      "self_approval",
-      403,
-      "A different person must approve this work",
-    );
+  // Loosened (jc): whoever prepared stock work may also approve it.
+  void actor;
+  void author;
 }
 /** @param {any} t @param {any} row @param {string} capability @param {any} actor */
 export async function gateTransfer(t, row, capability, actor) {

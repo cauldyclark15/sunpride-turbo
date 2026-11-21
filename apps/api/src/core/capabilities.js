@@ -153,8 +153,23 @@ export const CAPABILITIES = Object.freeze({
 
 /** Unscoped tester-feedback writes read-only roles may hold. */
 export const TESTER_FEEDBACK_CAPABILITIES = Object.freeze(["issues.write"]);
-/** Cross-scope roles read the whole organization (and only read, by their capability list). */
-export const CROSS_SCOPE_ROLES = Object.freeze(["super_admin", "analyst"]);
+/**
+ * Company-wide roles see and act on the whole organization, limited only by their capability
+ * list (jc, loosen rules: office roles were branch-limited and hit "not allowed" in demos).
+ * Sales stays limited to its own branch.
+ */
+export const CROSS_SCOPE_ROLES = Object.freeze([
+  "super_admin",
+  "analyst",
+  "admin",
+  "operations",
+  "manager",
+  "approver",
+  "viewer",
+]);
+/** @param {string|undefined|null} role */
+export const isCompanyWide = (role) =>
+  /** @type {readonly string[]} */ (CROSS_SCOPE_ROLES).includes(role ?? "");
 
 /** @param {string} capability */
 export const isReadOnlyCapability = (capability) =>
@@ -218,7 +233,7 @@ export async function requireScopedRole(ctx, allowed, targetUnitId) {
   if (!actor) throw unauthenticated();
   if (actor.role !== "super_admin" && !allowed.includes(actor.role))
     throw forbidden("Insufficient permission");
-  if (!targetUnitId || actor.role === "super_admin") return actor;
+  if (!targetUnitId || isCompanyWide(actor.role)) return actor;
   if (!actor.orgUnitId)
     throw forbidden("Your access has no organizational scope", "no_scope");
   if (!(await unitInScope(ctx.db, actor, targetUnitId)))
@@ -239,7 +254,7 @@ export async function requireNationalScope(ctx, allowed) {
   if (!actor) throw unauthenticated();
   if (actor.role !== "super_admin" && !allowed.includes(actor.role))
     throw forbidden("Insufficient permission");
-  if (actor.role === "super_admin") return actor;
+  if (isCompanyWide(actor.role)) return actor;
   if (!actor.orgUnitId)
     throw forbidden("Your access has no organizational scope", "no_scope");
   const root = await hooks.rootUnitId(ctx.db);

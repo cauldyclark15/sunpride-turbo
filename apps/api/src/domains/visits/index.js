@@ -204,8 +204,6 @@ async function decideLate(ctx) {
   const [visit] =
     await ctx.db`select * from visit_executions where id=${uuid(p.visitId)} for update`;
   await accessVisit(ctx, visit);
-  if (visit.assignee_profile_id === ctx.actor.profileId)
-    throw forbidden("You cannot review your own visit", "self_approval_denied");
   if (visit.late_review_status !== "pending_review")
     throw conflict("Already reviewed", "already_reviewed");
   const status = p.decision === "accept" ? "accepted" : "rejected";

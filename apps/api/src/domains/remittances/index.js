@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 import { mkdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { tx } from "@sunpride/db/client";
@@ -10,7 +11,6 @@ import { writeAudit } from "../org/audit.js";
 import { required, uuid } from "../org/model.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { validateCollectionJpeg } from "../masters/photo.js";
-import { sellingOn } from "../van/selling.js";
 import { CHANNELS, STATUSES } from "./model.js";
 
 /**
@@ -93,14 +93,10 @@ export function readRemittance(p, now) {
   };
 }
 
-/** Selling on (or the owner) — the same rule as Truck selling. @param {any} db @param {any} actor */
+/** Any salesman (or the owner) may remit; Truck selling no longer gates it (jc, loosen rules).
+ * @param {any} db @param {any} actor */
 async function requireSeller(db, actor) {
   await requireCapability({ db, actor }, "remittance.submit");
-  if (!actor.profileId || !(await sellingOn(db, actor.profileId)))
-    throw forbidden(
-      "Only salesmen with Selling turned on can remit cash",
-      "not_selling",
-    );
   if (!actor.orgUnitId)
     throw forbidden("Your access has no branch", "no_scope");
 }
@@ -294,11 +290,9 @@ export async function reviewRemittance(ctx, decision) {
     const c = { ...ctx, db };
     const row = await scopedRow(c, ctx.params.id, "remittance.review", true);
     const actor = c.actor;
-    if (row.salesman_profile_id === actor.profileId)
-      throw forbidden("You cannot review your own remittance");
     const reason =
       decision === "rejected"
-        ? required(ctx.body?.reason, "Reason for rejecting", 500)
+        ? optionalReason(ctx.body?.reason, "Reason for rejecting", 500)
         : null;
     if (row.status !== "submitted") {
       if (

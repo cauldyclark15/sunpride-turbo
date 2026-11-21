@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 import { saveCoverage } from "./territory-coverage.js";
 import {
   requireCapability,
@@ -67,7 +68,7 @@ export async function orgCommand(c, action, b) {
     "admin.manage",
     action === "create" ? uuid(b.parentId) : uuid(b.unitId),
   );
-  const reason = required(b.reason, "Reason");
+  const reason = optionalReason(b.reason, "Reason");
   if (action === "create") {
     await parentFor(c, b.typeCode, b.parentId, at);
     const row = await insert(c.db, "org_units", {
@@ -255,7 +256,7 @@ export async function assignPerson(c, b) {
       position_id: b.positionId ?? target.position_id,
       supervisor_id: supervisorId,
       actor_subject: actor.subject,
-      reason: required(b.reason, "Reason"),
+      reason: optionalReason(b.reason, "Reason"),
       effective_to: b.effectiveTo === undefined ? null : instant(b.effectiveTo),
     },
   );
@@ -297,7 +298,7 @@ export async function setSelling(c, b) {
     rule("Only an active Sales person can sell from the truck");
   // The wrapper writes the audit row from the reason; give it plain words when none was sent.
   b.reason = b.reason
-    ? required(b.reason, "Reason")
+    ? optionalReason(b.reason, "Reason")
     : b.selling
       ? "Selling switched on"
       : "Selling switched off";
@@ -375,7 +376,7 @@ export async function setAppMode(c, b) {
   }
   const label = modes.map((m) => APP_MODE_LABELS[m]).join(", ");
   b.reason = b.reason
-    ? required(b.reason, "Reason")
+    ? optionalReason(b.reason, "Reason")
     : bulk
       ? `App mode set to ${label} for ${targets.length} ${targets.length === 1 ? "person" : "people"}`
       : `App mode set to ${label}`;
@@ -509,11 +510,11 @@ async function personWindow(
     await get(c.db, "profiles", profileId),
     from,
   );
-  if (person.status !== "active" || !person.org_unit_id)
-    rule("Person has no active branch");
-  await requireCapability(c, capability, person.org_unit_id);
-  if (!(await subtree(c.db, owner, from)).includes(person.org_unit_id))
-    rule("Person outside owner hierarchy");
+  if (person.status !== "active") rule("Person is not active");
+  // Loosened (jc): any active person may be added, whichever branch they belong to (the
+  // "Person outside owner hierarchy" rule is gone). The caller's own permission still counts.
+  void owner;
+  await requireCapability(c, capability, person.org_unit_id ?? undefined);
   const rows = await history(
     c.db,
     "employee_assignments",
@@ -539,7 +540,7 @@ export async function teamCommand(c, action, b) {
     "admin.manage",
     action === "create" ? uuid(b.orgUnitId) : undefined,
   );
-  const reason = required(b.reason, "Reason");
+  const reason = optionalReason(b.reason, "Reason");
   if (action === "create") {
     await activeUnit(c, b.orgUnitId, from);
     if (b.supervisorProfileId)
@@ -627,13 +628,13 @@ export async function teamCommand(c, action, b) {
   return null;
 }
 
-/** Approved plans freeze assignment/route facts over their full interval. Read-only access to COVERAGE tables. @param {Ctx} c @param {string[]} outlets @param {string[]} routes @param {number} from */
-export async function assertUnlocked(c, outlets, routes, from) {
-  const locked =
-    await c.db`select p.id from coverage_plans p where p.deleted_at is null and p.status in ('approved','active') and p.effective_to>${instant(from)} and exists(select 1 from coverage_plan_outlets o where o.plan_id=p.id and (o.outlet_id in (select value::uuid from jsonb_array_elements_text(${JSON.stringify(outlets)}::text::jsonb)) or o.route_id in (select value::uuid from jsonb_array_elements_text(${JSON.stringify(routes)}::text::jsonb)))) limit 1`;
-  if (locked.length)
-    rule("An approved coverage plan locks this interval", "plan_locked");
-}
+/**
+ * Loosened (jc): approved plans no longer freeze route and assignment changes ("An approved
+ * coverage plan locks this interval" is gone). A plan keeps its own copy of its stores and
+ * routes, so its days still read correctly. assertPlansKept (SP-0222) is unchanged.
+ * @param {Ctx} _c @param {string[]} _outlets @param {string[]} _routes @param {number} _from
+ */
+export async function assertUnlocked(_c, _outlets, _routes, _from) {}
 
 /**
  * SP-0222: office edits to territory coverage and customer groups may add stores freely;
@@ -745,7 +746,7 @@ export async function geographyCommand(c, kind, action, b) {
       ? b.effectiveTo
       : b.effectiveFrom;
   const actor = await requireCapability(c, cap);
-  const reason = required(b.reason, "Reason");
+  const reason = optionalReason(b.reason, "Reason");
   if (!isRoute && action === "create") {
     // Date-only territory starts include today in Manila, not earlier days.
     instant(from);

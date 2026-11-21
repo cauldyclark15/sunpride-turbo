@@ -106,8 +106,6 @@ export async function reviewPickup(db, actor, p) {
   if (!r) refuse("Pickup not found");
   const trip = await tripFor(db, actor, r.trip_id, "van.stock.approve", true);
   notSelf(actor, trip);
-  if (r.recorded_by === actor.profileId)
-    refuse("Another person must review this pickup");
   const kind = p.decision,
     reason = text(p.reason, 300, true);
   if (

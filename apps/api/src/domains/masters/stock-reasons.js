@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 import { requireNationalScope } from "../../core/capabilities.js";
 import { required, rule, uuid } from "../org/model.js";
 import { logReferenceChange } from "./reference-log.js";
@@ -19,7 +20,7 @@ export async function stockReasonSetup(c) {
  * the name they were recorded with. @param {any} c @param {any} b */
 export async function saveStockReason(c, b) {
   await requireNationalScope(c, ["admin"]);
-  const reason = required(b.reason, "Reason for this change", 500);
+  const reason = optionalReason(b.reason, "Reason for this change", 500);
   const name = required(b.name, "Stock reason name", 120);
   const active = b.active === undefined ? true : b.active;
   if (typeof active !== "boolean") rule("Choose active or inactive.");

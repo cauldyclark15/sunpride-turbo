@@ -535,17 +535,15 @@ export async function reviewWeek(c, b) {
     rule("This stock week changed. Reload before saving.");
   const trips =
     await c.db`select t.id,t.status from truck_week_trips x join van_trips t on t.id=x.trip_id where x.week_id=${w.id} order by t.id for update of t`;
-  if (trips.some((/** @type {any} */ t) => t.status !== "closed"))
-    rule("Close the linked POS trips before freezing the cashier report.");
+  // Loosened (jc): the week may close while a linked trip is still open; the reply warns.
+  const openTrips = trips.filter(
+    (/** @type {any} */ t) => t.status !== "closed",
+  ).length;
   const d = await weekDetail(c.db, w);
   const note =
     b.note == null || b.note === ""
       ? null
       : required(b.note, "Review note", 500);
-  if ((d.totals.missingReasons > 0 || d.totals.notLoaded > 0) && !note)
-    rule(
-      "Some differences have no reason. Add a review note to close the week.",
-    );
   const frozen = {
     ...d,
     status: "reviewed",
@@ -559,7 +557,13 @@ export async function reviewWeek(c, b) {
     w.id,
     `profile:${w.salesperson_profile_id}`,
   );
-  return { id: w.id };
+  return {
+    id: w.id,
+    openTrips,
+    warning: openTrips
+      ? `${openTrips} linked trip${openTrips === 1 ? " is" : "s are"} still open. The week was closed anyway.`
+      : null,
+  };
 }
 
 /** Phone bundle: this salesman's own week containing the service day, plus active reasons.

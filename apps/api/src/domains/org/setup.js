@@ -1,5 +1,5 @@
 import { requireCapability } from "../../core/capabilities.js";
-import { rootUnitId, scopeFilterForActor } from "./scope.js";
+import { scopeFilterForActor } from "./scope.js";
 
 /** Exact counts; the accessible master set is defined once for the whole summary.
  * @param {import('./model.js').Ctx} c
@@ -9,7 +9,7 @@ export async function setupHealth(c) {
   const { unitIds } = await scopeFilterForActor(c.db, actor);
   const national =
     actor.role === "super_admin" ||
-    (actor.role === "admin" && actor.orgUnitId === (await rootUnitId(c.db)));
+    actor.role === "admin";
   const [counts] =
     await c.db`with scope as (select value::uuid as id from jsonb_array_elements_text(${JSON.stringify(unitIds ?? [])}::text::jsonb)),
     visible_outlets as (

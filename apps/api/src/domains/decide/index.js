@@ -1,3 +1,4 @@
+import { NO_REASON } from "../../core/reason.js";
 import { tx } from "@sunpride/db/client";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { actorNames } from "../../core/actor-names.js";
@@ -185,7 +186,7 @@ async function transferDifferences(router, c, actor) {
     const sender = t.people?.dispatchedBy ?? null,
       receiver = t.people?.receivedBy ?? null;
     const mine = [sender?.id, receiver?.id].includes(actor.userId);
-    const can = roleHas(actor.role, "inventory.approve") && !mine;
+    const can = roleHas(actor.role, "inventory.approve");
     const back = backs.get(t.id);
     const sentBack =
       back && new Date(back.created_at).getTime() >= (touched.get(t.id) ?? 0)
@@ -551,9 +552,14 @@ async function act(router, c) {
   const verdict = b.verdict;
   if (verdict !== "approve" && verdict !== "reject")
     throw new ApiError("invalid_request", 422, "Choose Approve or Reject");
-  const reason = words(b.reason);
-  if (verdict === "reject" && reason.length < REASON_MIN)
-    throw new ApiError("invalid_request", 422, "Say why you are rejecting this, in a few words");
+  // Loosened (jc): a reject reason is optional; a blank or very short one is recorded plainly.
+  const given = words(b.reason);
+  const reason =
+    verdict === "reject" && given.length < REASON_MIN
+      ? given
+        ? `${NO_REASON}: ${given}`
+        : NO_REASON
+      : given;
   const [kind, ...rest] = String(b.id ?? "").split(":");
   const ref = rest.join(":");
   if (!(kind in KINDS) || !ref)

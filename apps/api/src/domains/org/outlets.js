@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
 import {
@@ -101,7 +102,7 @@ async function evidence(c, fileId) {
 /** @param {Ctx} c @param {string} action @param {Row} b */
 export async function outletCommand(c, action, b) {
   const actor = await requireCapability(c, "outlet.manage");
-  const reason = required(b.reason, "Reason");
+  const reason = optionalReason(b.reason, "Reason");
   if (action === "create") {
     await requireCapability(c, "outlet.manage", uuid(b.custodianOrgUnitId));
     await activeUnit(c, b.custodianOrgUnitId, c.now, c.now + 1);
@@ -188,7 +189,7 @@ async function changeLink(c, b) {
         customer_id: customer.id,
         source: required(b.source ?? "office", "Source", 100),
         actor_subject: c.actor?.subject,
-        reason: required(b.reason, "Reason"),
+        reason: optionalReason(b.reason, "Reason"),
       },
     )
   ).id;
@@ -211,7 +212,7 @@ export async function pinCommand(c, action, b) {
     validatePin(b);
     const from = b.effectiveFrom ?? c.now;
     instant(from, c.now);
-    required(b.reason, "Reason");
+    optionalReason(b.reason, "Reason");
     if (b.evidenceStorageId) await evidence(c, b.evidenceStorageId);
     return (
       await insert(c.db, "outlet_pins", {
@@ -238,10 +239,8 @@ export async function pinCommand(c, action, b) {
   const outlet = await access(c, "outlets", pin.outlet_id, "outlet.verify");
   if (outlet.status === "inactive") rule("Inactive outlet");
   if (pin.status !== "pending") rule("Pin already reviewed");
-  if (pin.proposed_by === actor.subject)
-    rule("Independent verifier required", "self_verify");
   if (!["verified", "rejected"].includes(b.decision)) rule("Invalid decision");
-  const reason = required(b.reason, "Review reason");
+  const reason = optionalReason(b.reason, "Review reason");
   let from = ms(pin.effective_from) ?? c.now;
   if (b.decision === "verified") {
     const rows = await history(c.db, "outlet_pins", "outlet_id", pin.outlet_id);
@@ -325,7 +324,7 @@ export async function assignmentCommand(c, action, b) {
   const actor = await requireCapability(c, "outlet.assign");
   const from = b.effectiveFrom;
   instant(from, c.now);
-  const reason = required(b.reason, "Reason");
+  const reason = optionalReason(b.reason, "Reason");
   /** @type {Row[]} */ let changes =
     action === "batchAssign" ? b.assignments : [b];
   if (action === "reorder") {
@@ -700,13 +699,8 @@ export async function enrolmentCommand(c, action, b) {
     "outlet.enrol.approve",
   );
   if (row.status !== "pending") rule("Enrolment already decided");
-  if (
-    row.proposed_by === actor.subject ||
-    row.proposed_by_profile_id === actor.profileId
-  )
-    rule("The proposer cannot decide their own store", "self_verify");
   if (!["approved", "rejected"].includes(b.decision)) rule("Invalid decision");
-  const reason = required(b.reason, "Reason");
+  const reason = optionalReason(b.reason, "Reason");
   let assigned = outlet.code;
   if (b.decision === "approved") {
     if (outlet.status === "inactive") rule("Outlet is inactive");

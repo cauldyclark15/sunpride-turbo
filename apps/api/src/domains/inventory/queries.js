@@ -353,7 +353,6 @@ export async function countDetail(ctx) {
       },
       canApprove:
         roleHas(actor.role, "inventory.count.approve") &&
-        !counter &&
         session.status === "submitted",
       lines: result,
     };
@@ -548,7 +547,6 @@ export async function documents(ctx, kind) {
     if (!locationIds.length || locationIds.some((k) => !ids.includes(k)))
       continue;
     const actor = ctx.actor;
-    const self = [row.requested_by, row.created_by].includes(actor?.userId);
     const approvalCap =
       kind === "counts" ? "inventory.count.approve" : "inventory.approve";
     result.push({
@@ -558,7 +556,7 @@ export async function documents(ctx, kind) {
       locations: locationIds.map(
         (k) => locations.find((l) => l.id === k)?.name,
       ),
-      canApprove: actor && roleHas(actor.role, approvalCap) && !self,
+      canApprove: actor && roleHas(actor.role, approvalCap),
       requestedBy: row.requested_by ?? row.created_by ?? null,
     });
   }

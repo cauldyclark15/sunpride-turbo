@@ -215,8 +215,6 @@ export function install(router, platform) {
         await c.db`select * from integrity_findings where id=${c.body.findingId}`;
       if (!f) throw forbidden();
       await requireCapability(c, "integrity.review", f.org_unit_id);
-      if (f.profile_id === c.actor.profileId)
-        throw forbidden("A different person must review this finding");
       const [person] =
         await c.db`select org_unit_id from profiles where id=${f.profile_id}`;
       await requireCapability(c, "integrity.review", person?.org_unit_id);

@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 import { tx } from "@sunpride/db/client";
 import {
   requireCapability,
@@ -97,7 +98,7 @@ export async function saveStoreMaster(ctx, kind) {
     const name = required(b.name, "Name");
     if (name.length > 200 || typeof b.active !== "boolean")
       fail("Enter a name up to 200 characters and an active choice");
-    const reason = required(b.reason, "Reason");
+    const reason = optionalReason(b.reason, "Reason");
     await db`select pg_advisory_xact_lock(hashtext('store-work-masters'))`;
     const table =
       kind === "activity"

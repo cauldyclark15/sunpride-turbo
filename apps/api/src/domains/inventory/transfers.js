@@ -1084,13 +1084,6 @@ async function resolveStock(c, b, row, r) {
  * @param {Ctx} c @param {any} b @param {any} row */
 export async function resolveVariance(c, b, row) {
   state(row, OPEN_VARIANCE_STATES);
-  for (const who of [row.received_by, row.shipped_by])
-    if (who && (who === c.actor.userId || who === c.actor.profileId))
-      throw new ApiError(
-        "self_approval",
-        403,
-        "A different person must decide this difference: the sender and the receiver cannot",
-      );
   const allocs = await allocationsOf(c.db, row.id);
   const openShort = allocs.reduce(
     (/** @type {number} */ n, /** @type {any} */ a) =>
@@ -1329,13 +1322,6 @@ export async function reopenForRecount(c, transferId, reason) {
   state(row, OPEN_VARIANCE_STATES);
   // IP-INT3FIX: maker != checker, same rule as resolveVariance. Whoever sent or received the document cannot send it
   // back and then post the "late" stock themselves with no difference left to review.
-  for (const who of [row.received_by, row.shipped_by])
-    if (who && (who === c.actor.userId || who === c.actor.profileId))
-      throw new ApiError(
-        "self_approval",
-        403,
-        "A different person must decide this difference: the sender and the receiver cannot",
-      );
   if (row.type === "van_load_out")
     invalid(
       "A van load is recounted from the Van day board, with the clerk and the seller",

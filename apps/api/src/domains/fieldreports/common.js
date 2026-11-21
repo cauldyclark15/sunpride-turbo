@@ -1,3 +1,4 @@
+import { isCompanyWide } from "../../core/capabilities.js";
 import { tx } from "@sunpride/db/client";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { scopeFilterForActor, outletOwnerUnit } from "../org/scope.js";
@@ -8,7 +9,7 @@ export * from "./validation.js";
 /** @param {any} c @param {string} cap @param {string|null} unit */
 export async function gate(c, cap, unit) {
   const actor = await requireCapability(c, cap);
-  if (!unit && !["super_admin", "analyst"].includes(actor.role))
+  if (!unit && !isCompanyWide(actor.role))
     fail("This record has no organizational scope", 403, "no_scope");
   await requireCapability(c, cap, unit);
   return actor;

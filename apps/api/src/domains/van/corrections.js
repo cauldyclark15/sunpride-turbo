@@ -183,8 +183,6 @@ export async function decideCorrection(db, actor, p) {
     c.kind === "cash_recount" ? "van.cash.approve" : "van.stock.approve";
   const trip = await tripFor(db, actor, c.trip_id, cap, true);
   notSelf(actor, trip);
-  if (actor.profileId === c.requested_by)
-    refuse("A different person must approve this correction");
   if (["closed", "cancelled"].includes(trip.status))
     refuse("The trip is final");
   if (

@@ -1,3 +1,4 @@
+import { isCompanyWide } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
 import { roleHas, requireCapability } from "../../core/capabilities.js";
 import { hooks } from "../../core/hooks.js";
@@ -307,7 +308,7 @@ export async function read(ctx, action, b) {
     return {
       role: actor.role,
       capabilities: [...actor.capabilities],
-      scopeUnitIds: ["super_admin", "analyst"].includes(actor.role)
+      scopeUnitIds: isCompanyWide(actor.role)
         ? (await db`select id from org_units where deleted_at is null`).map(
             /** @param {any} r */ (r) => r.id,
           )

@@ -130,8 +130,9 @@ export async function outletFor(db, actor, outletId) {
 }
 /** @param {any} actor @param {any} trip */
 export function notSelf(actor, trip) {
-  if (actor.profileId === trip.salesperson_profile_id)
-    throw forbidden("You cannot approve your own trip");
+  // Loosened (jc): a salesman's own trip may be approved by the same person (demos).
+  void actor;
+  void trip;
 }
 /** @param {any} actor @param {string} capability */
 export const can = (actor, capability) =>

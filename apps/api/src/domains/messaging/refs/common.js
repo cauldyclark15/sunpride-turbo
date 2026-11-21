@@ -1,3 +1,4 @@
+import { isCompanyWide } from "../../../core/capabilities.js";
 import { ApiError, notFound } from "../../../core/errors.js";
 import { unitInScope } from "../../../core/hooks.js";
 import { outletOwnerUnit, territoryOwnerUnit } from "../../org/scope.js";
@@ -95,7 +96,7 @@ const config = {
 /** @param {any} db @param {any} a @param {string|null} unit */
 async function unitOK(db, a, unit) {
   return (
-    ["super_admin", "analyst"].includes(a.role) ||
+    isCompanyWide(a.role) ||
     !!(unit && (await unitInScope(db, a, unit)))
   );
 }
@@ -118,13 +119,13 @@ async function access(db, a, type, r) {
       const owners =
         await db`select o.org_unit_id from route_territories rt join territory_ownerships o on o.territory_id=rt.territory_id
     where rt.route_id=${r.id} and rt.deleted_at is null and o.deleted_at is null and rt.effective_from<=now() and (rt.effective_to is null or rt.effective_to>now()) and o.effective_from<=now() and (o.effective_to is null or o.effective_to>now())`;
-      if (["super_admin", "analyst"].includes(a.role)) return true;
+      if (isCompanyWide(a.role)) return true;
       for (const o of owners)
         if (await unitOK(db, a, o.org_unit_id)) return true;
       return false;
     }
     case "customer": {
-      if (["super_admin", "analyst"].includes(a.role)) return true;
+      if (isCompanyWide(a.role)) return true;
       const assignments =
         await db`select p.org_unit_id,p.user_id,p.auth_subject from sales_assignments s join profiles p on p.auth_subject=s.salesperson_subject or p.user_id::text=s.salesperson_subject
     where s.customer_code=${r.code} and s.territory=${r.territory} and s.active and p.status='active' and p.deleted_at is null`;

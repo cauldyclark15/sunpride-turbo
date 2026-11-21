@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { access } from "../org/readers.js";
 import { required, uuid, rule } from "../org/model.js";
@@ -26,7 +27,7 @@ export async function classify(ctx, p) {
   const assignedClass = p.overrideClass ?? result.derivedClass;
   if (!["A", "B", "C", "D"].includes(assignedClass))
     rule("Choose A, B, C or D.");
-  const reason = required(p.reason, "Decision reason", 500);
+  const reason = optionalReason(p.reason, "Decision reason", 500);
   if (assignedClass !== result.derivedClass && actor.role === "sales")
     rule("A reviewer must authorize a potential-class override.");
   const [decision] =
@@ -49,7 +50,7 @@ export async function setTaxonomy(ctx, p) {
   if (sub.data.channelId !== channel.id)
     rule("Sub-channel does not belong to this channel.");
   await ctx.db`update outlets set channel_id=${channel.id},subchannel_id=${sub.id} where id=${outlet.id}`;
-  await ctx.db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${ctx.actor.userId},'F-013.outlet.taxonomy','outlet',${outlet.id},${JSON.stringify({ before: { channelId: outlet.channel_id, subchannelId: outlet.subchannel_id }, after: { channelId: channel.id, subchannelId: sub.id }, reason: required(p.reason, "Reason", 500) })})`;
+  await ctx.db`insert into audit_logs(subject,action,entity_type,entity_id,details) values(${ctx.actor.userId},'F-013.outlet.taxonomy','outlet',${outlet.id},${JSON.stringify({ before: { channelId: outlet.channel_id, subchannelId: outlet.subchannel_id }, after: { channelId: channel.id, subchannelId: sub.id }, reason: optionalReason(p.reason, "Reason", 500) })})`;
   return { outletId: outlet.id, channelId: channel.id, subchannelId: sub.id };
 }
 /** @param {string} value */
@@ -168,7 +169,7 @@ export async function mergeOutlets(ctx, p) {
     (await canonicalOutletId(ctx.db, source.id)) !== source.id
   )
     rule("One selected store already has a survivor. Reload the review.");
-  const reason = required(p.reason, "Merge reason", 500);
+  const reason = optionalReason(p.reason, "Merge reason", 500);
   const [alias] =
     await ctx.db`insert into outlet_survivors(source_outlet_id,survivor_outlet_id,actor_profile_id,reason,effective_from) values(${source.id},${target.id},${ctx.actor.profileId},${reason},${new Date(ctx.now)}) returning id`;
   await ctx.db`update outlets set status='inactive' where id=${source.id}`;

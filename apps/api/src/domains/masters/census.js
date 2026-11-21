@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 import { mkdir, rename, rm } from "node:fs/promises";
 import { join } from "node:path";
 import { requireCapability } from "../../core/capabilities.js";
@@ -605,11 +606,9 @@ export async function reviewCensus(ctx, p) {
     await ctx.db`select c.*,b.org_unit_id,pc.place_latitude,pc.place_longitude,(case when c.location_source='gps' then 'verified' when pc.capture_id is null then 'pending' else pc.status end) location_status from census_captures c join census_batches b on b.id=c.batch_id left join census_place_checks pc on pc.capture_id=c.id where c.id=${uuid(p.captureId)}`;
   if (!capture) rule("Capture not found.");
   await requireCapability(ctx, "outlet.verify", capture.org_unit_id);
-  if (actor.profileId === capture.actor_profile_id)
-    rule("Another person must review the census capture.");
   if (!["accept", "reject", "duplicate"].includes(p.decision))
     rule("Choose a census decision.");
-  const reason = required(p.reason, "Review reason", 500);
+  const reason = optionalReason(p.reason, "Review reason", 500);
   const [prior] =
     await ctx.db`select 1 from census_reviews where capture_id=${capture.id}`;
   if (prior) rule("This capture was already reviewed.");

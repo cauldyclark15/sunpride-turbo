@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 import {
   requireCapability,
   requireNationalScope,
@@ -26,7 +27,7 @@ export async function catalogCommand(c, action, b) {
   const actor = await requireCapability(c, "masterdata.manage");
   // These are national masters. A scoped operations actor must not modify other regions' catalog.
   await requireNationalScope(c, ["admin", "operations"]);
-  required(b.reason, "Reason");
+  optionalReason(b.reason, "Reason");
   if (
     c.env.SAP_MODE != null &&
     [

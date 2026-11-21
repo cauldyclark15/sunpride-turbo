@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 import { tx } from "@sunpride/db/client";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
@@ -87,7 +88,7 @@ async function away(ctx, b, action) {
   if (action === "record") {
     await awayAccess(ctx, uuid(b.profileId));
     const { from, to } = awayBounds(b.fromDate, b.toDate);
-    required(b.reason, "Away reason");
+    optionalReason(b.reason, "Away reason");
     if (
       from < localDate(manilaDate(ctx.now)) ||
       to <= from ||

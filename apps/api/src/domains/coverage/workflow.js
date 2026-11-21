@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 import { requireCapability } from "../../core/capabilities.js";
 import {
   access,
@@ -366,7 +367,7 @@ export async function workflow(ctx, action, b) {
   if (action === "createRevision") {
     if (!["approved", "active"].includes(p.status))
       fail("Revision requires approved or active plan");
-    required(b.reason, "Revision reason");
+    optionalReason(b.reason, "Revision reason");
     const next = await create(ctx, {
       ...b,
       localMonth: p.local_month,
@@ -429,7 +430,7 @@ export async function workflow(ctx, action, b) {
   else if (action === "saveSlots") await saveSlots(ctx, p, b.slots);
   else if (action === "setAssignment") {
     draft(p);
-    required(b.reason, "Assignment reason");
+    optionalReason(b.reason, "Assignment reason");
     const from = Number(b.effectiveFrom),
       to = Number(b.effectiveTo),
       bounds = monthBounds(p.local_month);
@@ -519,7 +520,7 @@ export async function workflow(ctx, action, b) {
   } else if (action === "returnPlan") {
     if (p.status !== "submitted") fail("Only submitted plans can be returned");
     await approvalCapacity(ctx, p);
-    required(b.reason, "Return reason");
+    optionalReason(b.reason, "Return reason");
     await db`update coverage_plans set status='draft',submitted_by=null,submitted_at=null,revision_reason=${b.reason.trim()} where id=${p.id}`;
   } else if (action === "approve") {
     if (p.status !== "submitted") fail("Only submitted plans can be approved");

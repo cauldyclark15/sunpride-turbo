@@ -158,7 +158,6 @@ export async function reviewRows(ctx) {
         plannedSequence: row.planned_sequence,
         createdAt: +new Date(row.created_at),
         canDecide:
-          row.profile_id !== ctx.actor.profileId &&
           roleHas(ctx.actor.role, "visit.locationException.approve"),
       });
     } catch (e) {
@@ -481,8 +480,6 @@ export function install(router, installCtx) {
           "visit.locationException.approve",
           employee.org_unit_id,
         );
-        if (r.profile_id === ctx.actor.profileId)
-          throw forbidden("You cannot approve your own call");
         if (!["approve", "reject"].includes(p.decision)) throw invalid();
         if (
           (await db`select 1 from call_flow_decisions where review_id=${r.id}`)

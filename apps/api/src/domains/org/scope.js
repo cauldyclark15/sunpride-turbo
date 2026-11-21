@@ -1,3 +1,4 @@
+import { isCompanyWide } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
 import { activeAt, get, history, instant, ms, rule } from "./model.js";
 
@@ -89,7 +90,7 @@ export async function subtree(db, root, asOf = Date.now()) {
 /** Current scope always gates historical reads. @param {Db} db @param {Actor} actor @returns {Promise<{unitIds:string[]|null}>} */
 export async function scopeFilterForActor(db, actor) {
   if (!actor) throw new ApiError("unauthenticated", 401, "Sign in required");
-  if (["super_admin", "analyst"].includes(actor.role)) return { unitIds: null };
+  if (isCompanyWide(actor.role)) return { unitIds: null };
   return { unitIds: actor.orgUnitId ? await subtree(db, actor.orgUnitId) : [] };
 }
 

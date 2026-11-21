@@ -257,17 +257,6 @@ async function build(c, b, from = null, routeTravel = true) {
       f.territories.find((/** @type {any} */ t) => t.id === b.territoryId)
         .org_unit_id,
     );
-  if (from != null && moves.length) {
-    const locked =
-      await c.db`select o.name,max(p.effective_to) as until from coverage_plans p join coverage_plan_outlets x on x.plan_id=p.id
-   join analytics_store_scope o on o.id in ${c.db(moves.map((/** @type {any} */ m) => m.outletId))} and (x.outlet_id=o.id or (o.route_id is not null and x.route_id=o.route_id))
-   where p.deleted_at is null and p.status in ('approved','active') and p.effective_to>${new Date(from)} group by o.name order by o.name`;
-    if (locked.length)
-      throw conflict(
-        `${locked.map((/** @type {any} */ l) => `${l.name} is in an approved coverage plan until ${dayText(l.until)}`).join("; ")}. Choose a later start day.`,
-        "plan_locked",
-      );
-  }
   const sim = simulateFacts(f, moves, a);
   for (const t of sim) {
     const original = f.territories.find(
@@ -413,8 +402,6 @@ export async function publishScenario(ctx) {
       throw conflict("This scenario was already published");
     }
     if (s.status !== "draft") throw conflict("This scenario is not a draft");
-    if (s.prepared_by === actor?.profileId)
-      throw forbidden("A different person must publish this territory change");
     if (b.contentHash !== s.content_hash)
       throw conflict(
         "The scenario changed since you reviewed it",

@@ -1,3 +1,4 @@
+import { isCompanyWide } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
 import { requireCapability, roleHas } from "../../core/capabilities.js";
 import { hooks } from "../../core/hooks.js";
@@ -173,7 +174,7 @@ export async function audit(ctx, p, action, before, after, reason = null, signat
 export async function visiblePeople(ctx) {
   const actor = await requireCapability(ctx, "mcp.read");
   const db = ctx.db;
-  const units = ["super_admin", "analyst"].includes(actor.role)
+  const units = isCompanyWide(actor.role)
     ? null
     : await hooks.scopeUnitIds(db, actor);
   if (units && !units.length) return [];

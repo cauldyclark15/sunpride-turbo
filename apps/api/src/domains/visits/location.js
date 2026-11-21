@@ -92,8 +92,6 @@ export async function decideLocation(ctx) {
     "visit.locationException.approve",
     visit.org_unit_id,
   );
-  if (visit.assignee_profile_id === ctx.actor.profileId)
-    throw forbidden("You cannot decide your own visit", "self_approval_denied");
   const prior =
     await ctx.db`select 1 from execution_events where entity_id=${fix.id} and kind='location.exception.decided'`;
   if (fix.review_status !== "pending_review" || prior.length)

@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 // F-209/F-222: non-call captures use the platform signed-operation ledger, not another call flow.
 import { tx } from "@sunpride/db/client";
 import { join } from "node:path";
@@ -512,7 +513,7 @@ async function proposeAdjustmentIn(c, body, externalIdentity = null) {
     kind: body.kind,
     proposed_start: start === null ? null : new Date(start),
     proposed_end: end === null ? null : new Date(end),
-    reason: required(body.reason, "Reason", 1000),
+    reason: optionalReason(body.reason, "Reason", 1000),
     source_ref: required(body.sourceRef, "Import or correction source", 500),
     client_key: key,
     request_hash: hash,
@@ -544,7 +545,7 @@ export async function decideAdjustment(c, body) {
       await db`select org_unit_id from attendance_sessions where profile_id=${row.profile_id} and service_date=${dateText(row.service_date)}::date`;
     if (original)
       await requireCapability(ctx, "workforce.approve", original.org_unit_id);
-    const reason = required(body.reason, "Decision reason", 1000);
+    const reason = optionalReason(body.reason, "Decision reason", 1000);
     if (!["approved", "rejected"].includes(body.decision))
       throw invalid("Choose an approval decision");
     if (row.status !== "pending") {
@@ -743,7 +744,7 @@ export async function decideProspect(c, b) {
     const review = await duplicateCandidates(ctx, r);
     if (review.token !== b.dedupeToken)
       throw conflict("Master candidates changed; review again");
-    const reason = required(b.reason, "Dedupe and decision reason", 1000);
+    const reason = optionalReason(b.reason, "Dedupe and decision reason", 1000);
     if (!["approve_distinct", "link_existing", "reject"].includes(b.decision))
       throw invalid("Choose a prospect decision");
     const target =

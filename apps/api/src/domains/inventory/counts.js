@@ -1381,7 +1381,6 @@ async function reviewRoute(ctx) {
     from stock_count_lines where session_id=${session.id}`;
   const canApprove =
     session.status === "submitted" &&
-    !counter &&
     roleHas(actor.role, "inventory.count.approve");
   const approveBlockedReason = canApprove
     ? await postBlockedReason(ctx.db, session, actor)

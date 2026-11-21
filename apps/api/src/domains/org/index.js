@@ -3,6 +3,7 @@ import { actorFor } from "../../core/context.js";
 import {
   requireCapability,
   requireNationalScope,
+  isCompanyWide,
   roleHas,
 } from "../../core/capabilities.js";
 import { ApiError } from "../../core/errors.js";
@@ -297,7 +298,7 @@ export function install(router, platform) {
       capabilities: [...actor.capabilities],
       role: actor.role,
       national:
-        actor.role === "super_admin" ||
+        isCompanyWide(actor.role) ||
         Boolean(
           actor.orgUnitId && actor.orgUnitId === (await rootUnitId(c.db)),
         ),

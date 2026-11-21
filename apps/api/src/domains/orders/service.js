@@ -444,13 +444,6 @@ export async function transition(ctx, id, status, reason, input = {}) {
   await scoped(ctx, capability, row.org_unit_id);
   const note = text(reason, "Reason");
   if (
-    ["approved", "rejected"].includes(status) &&
-    (row.created_by_subject === ctx.actor.subject ||
-      row.salesperson_subject === ctx.actor.subject ||
-      row.salesperson_profile_id === ctx.actor.profileId)
-  )
-    fail("You cannot decide your own order", "self_approval");
-  if (
     ["submitted", "pending_approval", "voided"].includes(status) &&
     ctx.actor.role !== "super_admin" &&
     row.created_by_subject !== ctx.actor.subject &&

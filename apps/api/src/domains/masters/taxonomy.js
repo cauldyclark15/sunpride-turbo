@@ -1,3 +1,4 @@
+import { optionalReason } from "../../core/reason.js";
 import {
   requireCapability,
   requireNationalScope,
@@ -147,7 +148,7 @@ export async function migrateLegacyTaxonomy(ctx, p) {
     rule(
       "Legacy rows or taxonomy changed. Review a fresh preview before applying.",
     );
-  const reason = required(p.reason, "Migration review reason", 500);
+  const reason = optionalReason(p.reason, "Migration review reason", 500);
   let outlets = 0,
     customers = 0;
   for (const row of rows) {
@@ -173,7 +174,7 @@ export async function assignLegacyTaxonomy(ctx, p) {
   await requireCapability(ctx, "masterdata.manage");
   await requireNationalScope(ctx, ["admin", "operations"]);
   const id = uuid(p.id),
-    reason = required(p.reason, "Review reason", 500);
+    reason = optionalReason(p.reason, "Review reason", 500);
   const channel = await reference(ctx, p.channelId, "channel", ctx.now);
   if (!["outlet", "customer"].includes(p.kind))
     rule("Choose a store or accounting customer.");

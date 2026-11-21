@@ -430,8 +430,7 @@ export async function queue(ctx) {
       const p = await present(d.product_id);
       const canTouch =
         d.status === "requested" &&
-        roleHas(actor.role, d.approval_level === "manager" ? "inventory.approve" : "inventory.adjustment.approve") &&
-        actor.userId !== d.requested_by;
+        roleHas(actor.role, d.approval_level === "manager" ? "inventory.approve" : "inventory.adjustment.approve");
       outRequests.push({
         id: d.id,
         number: d.disposition_number,
