@@ -43,6 +43,7 @@ import { VanDamageApprovals } from "./van-damage-approvals";
 import { VanStockApproval } from "./van-stock-approval";
 import { VanVoidApproval } from "./van-void-approval";
 import { VanRefundApproval } from "./van-refund-approval";
+import { WeeklyTruckStock } from "./van/weekly-truck-stock";
 
 /**
  * The Work and Setup pages (`app/(dashboard)/[module]`). The owner pages have
@@ -193,7 +194,9 @@ export function VanTripRoute() {
 /** r6web5 sweep: Today's "order waiting" link (/workflows?order=…) opens that order. */
 export function WorkflowOrders() {
   const query = useSearchParams();
-  return <OrdersWorkspace view="approvals" initialOrderId={query.get("order")} />;
+  return (
+    <OrdersWorkspace view="approvals" initialOrderId={query.get("order")} />
+  );
 }
 
 function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
@@ -231,7 +234,14 @@ function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
     case "pricing":
       return <PricingWorkspace />;
     case "van-trips":
-      return <VanTripRoute />;
+      return (
+        <>
+          <VanTripRoute />
+          <PanelErrorBoundary label="Weekly truck stock">
+            <WeeklyTruckStock />
+          </PanelErrorBoundary>
+        </>
+      );
     case "retail-execution":
       return <RetailWorkspace />;
     case "inventory":

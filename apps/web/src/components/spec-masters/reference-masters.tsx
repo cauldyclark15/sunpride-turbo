@@ -54,6 +54,7 @@ export function ReferenceMasters({ other }: { other: React.ReactNode }) {
           ["customer-groups", "Customer groups"],
           ["channels", "Channels"],
           ["places", "Places"],
+          ["stock-reasons", "Stock reasons"],
           ["log", "Change log"],
           ["other", "Other field masters"],
         ].map(([key, label]) => (
@@ -82,6 +83,8 @@ export function ReferenceMasters({ other }: { other: React.ReactNode }) {
         <Channels />
       ) : section === "places" ? (
         <Places />
+      ) : section === "stock-reasons" ? (
+        <StockReasons />
       ) : (
         <ReferenceChangeLog />
       )}
@@ -162,6 +165,141 @@ function Channels() {
                 );
               }}
             />
+          </>
+        )}
+        {message && <p role="status">{message}</p>}
+      </div>
+    </Card>
+  );
+}
+type StockReason = {
+  id: string;
+  code: string;
+  name: string;
+  active: boolean;
+  updatedAt: string;
+};
+/** SP-0227 truck stock reasons used in the Saturday count. Never deleted; retire instead. */
+export function stockReasonSaveBody(
+  form: Pick<FormData, "get">,
+  current?: StockReason,
+) {
+  const text = (key: string) => String(form.get(key) ?? "").trim();
+  return {
+    name: text("name"),
+    reason: text("reason"),
+    active: current ? form.get("active") === "on" : true,
+    ...(current ? { id: current.id, baseUpdatedAt: current.updatedAt } : {}),
+  };
+}
+function StockReasons() {
+  const setup = useApi<{ rows: StockReason[] }>(
+    ["masters", "stock-reasons"],
+    "/api/v1/masters/stock-reasons",
+  );
+  const [current, setCurrent] = useState<StockReason>();
+  const [message, setMessage] = useState("");
+  const [error, setError] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [requestKey, setRequestKey] = useState<string>();
+  async function save(e: FormEvent<HTMLFormElement>) {
+    e.preventDefault();
+    if (busy) return;
+    const body = stockReasonSaveBody(new FormData(e.currentTarget), current);
+    const key = requestKey ?? crypto.randomUUID();
+    setRequestKey(key);
+    setBusy(true);
+    setError("");
+    try {
+      await mutate("/api/v1/masters/reference/stock-reason-save", body, {
+        idempotencyKey: key,
+        invalidate: [["masters"]],
+      });
+      setRequestKey(undefined);
+      setCurrent(undefined);
+      setMessage(
+        "Stock reason saved. Salesmen see it after their next Field app sync.",
+      );
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Could not save. Try again.",
+      );
+    } finally {
+      setBusy(false);
+    }
+  }
+  return (
+    <Card label="Stock reasons">
+      <div className="grid gap-4">
+        <p>
+          Reasons the salesman picks in his Saturday truck stock count. A reason
+          that was used is never deleted; turn it off instead and old counts
+          keep their reason.
+        </p>
+        {setup.error ? (
+          <Notice title={setup.error.message} tone="danger" />
+        ) : !setup.data ? (
+          <p>Loading stock reasons…</p>
+        ) : (
+          <>
+            <button className={button} onClick={() => setCurrent(undefined)}>
+              Add stock reason
+            </button>
+            <ul className="grid gap-2">
+              {setup.data.rows.map((r) => (
+                <li
+                  key={r.id}
+                  className="flex flex-wrap items-center justify-between gap-2"
+                >
+                  <span>
+                    {r.name}
+                    {r.active ? "" : " · Not in use"}
+                  </span>
+                  <button className={button} onClick={() => setCurrent(r)}>
+                    Edit {r.name}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <form
+              key={`${current?.id ?? "new"}:${current?.updatedAt ?? ""}`}
+              className="grid gap-3 border-t border-border pt-4"
+              onSubmit={save}
+              onChange={() => setRequestKey(undefined)}
+            >
+              <h3>{current ? `Edit ${current.name}` : "New stock reason"}</h3>
+              <FormField label="Name">
+                <input
+                  name="name"
+                  className={control}
+                  defaultValue={current?.name}
+                  maxLength={120}
+                  required
+                />
+              </FormField>
+              {current && (
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    name="active"
+                    defaultChecked={current.active}
+                  />
+                  In use (salesmen can choose it)
+                </label>
+              )}
+              <FormField label="Reason for this change">
+                <input
+                  name="reason"
+                  className={control}
+                  maxLength={500}
+                  required
+                />
+              </FormField>
+              <button className={button} disabled={busy}>
+                Save stock reason
+              </button>
+              {error && <p role="alert">{error}</p>}
+            </form>
           </>
         )}
         {message && <p role="status">{message}</p>}
@@ -486,6 +624,8 @@ const labels: Record<string, string> = {
   channel: "Channels",
   place: "Places",
   territory: "Territory coverage",
+  stock_reason: "Stock reasons",
+  active: "Active",
   code: "Code",
   name: "Name",
   salesOrgCode: "Sales organization",
@@ -497,6 +637,7 @@ function valueText(value: unknown): string {
   if (value == null) return "Not set";
   if (Array.isArray(value))
     return value.length ? value.map(valueText).join(", ") : "None";
+  if (typeof value === "boolean") return value ? "Yes" : "No";
   if (typeof value === "object")
     return "name" in value
       ? String(value.name)
@@ -534,6 +675,7 @@ export function ReferenceChangeLog() {
               "channel",
               "place",
               "territory",
+              "stock_reason",
             ].map((k) => (
               <option key={k} value={k}>
                 {labels[k]}

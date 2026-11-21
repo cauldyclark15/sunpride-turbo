@@ -146,6 +146,7 @@ data class SyncStatus(
             "availability.record", "dsr.availability.record" -> "Shelf check"
             "collections.capture" -> "Collection"
             "remittance.submit" -> "Cash remittance"
+            "truckweek.capture" -> "Truck stock count"
             "jointcall.capture" -> "Work-With"
             "workforce.clockIn" -> "Clock in"
             "workforce.clockOut" -> "Clock out"

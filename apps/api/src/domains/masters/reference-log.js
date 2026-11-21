@@ -37,6 +37,7 @@ export async function referenceLog(c) {
       "channel",
       "place",
       "territory",
+      "stock_reason",
     ].includes(kind)
   )
     rule("Choose a change log section.");

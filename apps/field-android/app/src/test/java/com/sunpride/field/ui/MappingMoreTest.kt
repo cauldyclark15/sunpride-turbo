@@ -8,7 +8,7 @@ import java.io.File
 
 /** SP-0195: Customer mapping's More keeps only Products, Add customer and Sync; the other modes are unchanged. */
 class MappingMoreTest {
-    private val hidden = listOf(MoreRow.ATTENDANCE, MoreRow.COLLECTIONS, MoreRow.EARNED_STATEMENTS, MoreRow.WORK_WITH, MoreRow.TEAM)
+    private val hidden = listOf(MoreRow.ATTENDANCE, MoreRow.COLLECTIONS, MoreRow.TRUCK_STOCK, MoreRow.EARNED_STATEMENTS, MoreRow.WORK_WITH, MoreRow.TEAM)
 
     @Test fun mappingMoreHasOnlyProductsAndAddCustomer() {
         for (visits in listOf(true, false)) for (supervisor in listOf(true, false)) for (team in listOf(true, false)) {
@@ -21,10 +21,10 @@ class MappingMoreTest {
     @Test fun visitsAndSellingMoreAreUnchanged() {
         for (mode in listOf(AppMode.VISITS, AppMode.SELLING)) {
             assertEquals(MoreRow.entries.toList(), FieldNav.moreWorkRows(mode, visits = true, supervisor = true, team = true, remit = true))
-            assertEquals(listOf(MoreRow.PRODUCTS, MoreRow.ATTENDANCE, MoreRow.COLLECTIONS, MoreRow.EARNED_STATEMENTS),
+            assertEquals(listOf(MoreRow.PRODUCTS, MoreRow.ATTENDANCE, MoreRow.COLLECTIONS, MoreRow.TRUCK_STOCK, MoreRow.EARNED_STATEMENTS),
                 FieldNav.moreWorkRows(mode, visits = false, supervisor = false, team = true))
             assertEquals(listOf(MoreRow.PRODUCTS, MoreRow.ADD_CUSTOMER, MoreRow.ATTENDANCE, MoreRow.COLLECTIONS,
-                MoreRow.WORK_WITH, MoreRow.EARNED_STATEMENTS), FieldNav.moreWorkRows(mode, visits = true, supervisor = true, team = false))
+                MoreRow.TRUCK_STOCK, MoreRow.WORK_WITH, MoreRow.EARNED_STATEMENTS), FieldNav.moreWorkRows(mode, visits = true, supervisor = true, team = false))
         }
     }
 

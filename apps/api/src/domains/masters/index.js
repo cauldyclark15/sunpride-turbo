@@ -6,6 +6,7 @@ import {
   placeSetup,
   savePlace,
 } from "./reference-maintenance.js";
+import { stockReasonSetup, saveStockReason } from "./stock-reasons.js";
 import { ORG_LOCK } from "../org/identity.js";
 import { catalogueImage, catalogueSetup, saveCatalogue } from "./catalogue.js";
 import { uploadCatalogueImage } from "./catalogue-images.js";
@@ -81,6 +82,7 @@ export function install(router, platform) {
   router.get("/api/v1/masters/reference-log", referenceLog);
   router.get("/api/v1/masters/channels", channelSetup);
   router.get("/api/v1/masters/places", placeSetup);
+  router.get("/api/v1/masters/stock-reasons", stockReasonSetup);
   router.get("/api/v1/masters/catalogue-images/:id", catalogueImage);
   router.get("/api/v1/masters/catalogue", catalogueSetup);
   router.get("/api/v1/masters/taxonomy-migration", taxonomyMigrationPreview);
@@ -196,6 +198,7 @@ export function install(router, platform) {
   );
   command("reference/channel-save", "masterdata.manage", saveChannel);
   command("reference/place-save", "masterdata.manage", savePlace);
+  command("reference/stock-reason-save", "masterdata.manage", saveStockReason);
   command("catalogue/image", "masterdata.manage", uploadCatalogueImage);
   command("catalogue/save", "masterdata.manage", saveCatalogue);
   command("definitions/save", "masterdata.manage", saveDefinition);

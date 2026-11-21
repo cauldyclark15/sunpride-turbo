@@ -775,7 +775,7 @@ class LiveFieldBackend(
         val partition=storedScope()?:error("Sync this account first")
         val life=sapMasterLifetime()?:error("Sign in again")
         val ticket=com.sunpride.field.sync.DomainOutbox.ticket()
-        if(kind in setOf("jointcall.capture","collections.capture")) check(domainForms(kind.substringBefore("."),false)!=null) {"Refresh this authorized form before recording"}
+        if(kind in setOf("jointcall.capture","collections.capture","truckweek.capture")) check(domainForms(kind.substringBefore("."),false)!=null) {"Refresh this authorized form before recording"}
         val row=com.sunpride.field.sync.DomainOutbox.intent(partition,kind,payload,aggregate,dependencies)
         withStore { store->store.enqueueDomain(row,System.currentTimeMillis()) {com.sunpride.field.sync.DomainOutbox.current(ticket)&&sapMasterLifetime()==life&&storedScope()==partition} }
         runCatching{com.sunpride.field.sync.work.SyncWork.enqueue(context)}
@@ -783,7 +783,7 @@ class LiveFieldBackend(
     }
     /** F-223/F-613 independently granted finite snapshots in the existing encrypted partition. */
     override fun domainForms(kind:String,refresh:Boolean):JSONObject? {
-        require(kind in setOf("jointcall","collections"))
+        require(kind in setOf("jointcall","collections","truckweek"))
         val partition=storedScope()?:return null
         val day=LocalDate.now(ZoneId.of("Asia/Manila")).toString()
         val grant=projectionGrant("forms:$kind",day)?:return null
