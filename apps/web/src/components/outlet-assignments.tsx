@@ -38,7 +38,6 @@ export async function performAssignmentAction(
 ) {
   const get = (key: string) => String(data.get(key) ?? "").trim();
   const reason = get("reason");
-  if (!reason) throw new Error("Reason required");
   const effectiveFrom = futureManilaDateToUtcMs(get("effectiveDate"));
   if (action === "reorder") {
     if (!get("routeId") || !routeOrder.length)
@@ -423,7 +422,7 @@ export function OutletAssignments() {
                     <input name="effectiveDate" type="date" required />
                   </FormField>
                   <FormField label="Reason">
-                    <input name="reason" required />
+                    <input name="reason" />
                   </FormField>
                 </div>
                 <div className="flex flex-wrap items-center gap-2">

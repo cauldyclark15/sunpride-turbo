@@ -674,13 +674,14 @@ describe("Organization admin", () => {
         .mockRejectedValue(new Error("Parent interval does not cover child")),
       deactivate: vi.fn(),
     };
+    // Loosened (jc): a blank reason is allowed.
     await expect(
       performOrgAction(
         { unit: region, action: "edit" },
         form({ reason: "  ", name: "New" }),
         actions,
       ),
-    ).rejects.toThrow("Reason required");
+    ).resolves.not.toThrow();
     await expect(
       performOrgAction(
         { unit: area, action: "reparent" },

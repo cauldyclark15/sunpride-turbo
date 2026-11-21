@@ -58,7 +58,6 @@ export async function performPeopleAssignment(
   ) => Promise<unknown>,
 ) {
   const reason = String(data.get("reason") ?? "").trim();
-  if (!reason) throw new Error("Reason required");
   const positionId = String(data.get("positionId") ?? "");
   const supervisorId = String(data.get("supervisorId") ?? "");
   const employeeCode = String(data.get("employeeCode") ?? "").trim();
@@ -774,7 +773,6 @@ export function PeopleAdmin() {
                 <textarea
                   className="min-h-20 rounded-[10px] border border-border bg-surface p-3 text-sm"
                   name="reason"
-                  required
                   rows={2}
                 />
               </FormField>

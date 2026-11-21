@@ -179,7 +179,7 @@ function StagedRow({ row }: { row: Row }) {
       )}
       <label className="grid gap-1 text-xs">
         Review reason
-        <input name="reason" className={input} required maxLength={500} />
+        <input name="reason" className={input} maxLength={500} />
       </label>
       {message && (
         <p role="status" className="text-sm">

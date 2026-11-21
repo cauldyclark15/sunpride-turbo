@@ -186,7 +186,7 @@ function ContentForm({ product }: { product: Product }) {
       </label>
       <label className="grid gap-1 text-sm">
         Change reason
-        <input className={input} name="reason" required maxLength={500} />
+        <input className={input} name="reason" maxLength={500} />
       </label>
       {message && (
         <p role="status" className="text-sm">

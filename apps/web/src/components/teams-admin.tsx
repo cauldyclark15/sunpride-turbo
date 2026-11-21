@@ -44,7 +44,6 @@ export async function performTeamAction(
   teamId?: Id<"teams">,
 ) {
   const reason = String(data.get("reason") ?? "").trim();
-  if (!reason) throw new Error("Reason required");
   const date = futureManilaDateToUtcMs(String(data.get("effectiveDate") ?? ""));
   if (action === "create")
     return mutations.create({
@@ -468,7 +467,6 @@ export function TeamsAdmin() {
             <FormField label="Reason">
               <textarea
                 name="reason"
-                required
                 rows={2}
                 className="min-h-20 rounded-[10px] border border-border bg-surface p-3 text-sm"
               />

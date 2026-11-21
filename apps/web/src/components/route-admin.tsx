@@ -53,7 +53,6 @@ export async function performRouteAction(
 ) {
   const get = (key: string) => String(data.get(key) ?? "").trim();
   const reason = get("reason");
-  if (!reason) throw new Error("Reason required");
   const selectedTerritory = (get("territoryId") || territoryId) as
     Id<"territories"> | undefined;
   if (action === "edit") {
@@ -513,8 +512,8 @@ export function RouteAdmin() {
                       <input type="date" name="endDate" />
                     </FormField>
                   )}
-                  <FormField label="Reason (required)">
-                    <textarea name="reason" required />
+                  <FormField label="Reason (optional)">
+                    <textarea name="reason" />
                   </FormField>
                   {error && (
                     <p role="alert" className="text-danger">

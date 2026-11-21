@@ -612,7 +612,7 @@ function OutletReview({ options }: { options: Options }) {
     const reason = window.prompt(
       "Why are these the same physical store? Historical records will retain their original store IDs.",
     );
-    if (!reason?.trim()) return;
+    if (reason === null) return;
     try {
       await mutate(
         "/api/v1/masters/outlets/merge",

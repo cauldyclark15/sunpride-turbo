@@ -234,6 +234,7 @@ describe("Outlet admin (unmounted)", () => {
       decision: "rejected",
       reason: "not entrance",
     });
+    // Loosened (jc): a blank reason is allowed.
     await expect(
       performOutletAction(
         "verified",
@@ -242,7 +243,7 @@ describe("Outlet admin (unmounted)", () => {
         outlet._id,
         pending._id,
       ),
-    ).rejects.toThrow(/Reason required/);
+    ).resolves.not.toThrow();
   });
   it("shows errors inline and sends future Manila customer-link changes", async () => {
     state.error = "Requested scope is outside your organizational scope";

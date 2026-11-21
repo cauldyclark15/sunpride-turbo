@@ -54,7 +54,6 @@ export function returnCoveragePlan(
     args: FunctionArgs<typeof api.coverage.plans.returnPlan>,
   ) => Promise<unknown>,
 ) {
-  if (!reason.trim()) throw new Error("Return reason required");
   return run({ planId, reason: reason.trim() });
 }
 export function approveCoveragePlan(
@@ -583,7 +582,7 @@ function SelectedPlan({
               <button
                 className={secondaryAction}
                 type="button"
-                disabled={busy || !!blocked || !reason.trim()}
+                disabled={busy || !!blocked}
                 onClick={() =>
                   void act(
                     () => returnCoveragePlan(planId, reason, returned),

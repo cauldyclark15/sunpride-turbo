@@ -619,7 +619,6 @@ export function CustomerEditorView({
   busy,
   canEdit,
   canApprove,
-  myProfileId = null,
   pinSlot,
   duplicates = [],
   duplicatesAcknowledged = false,
@@ -675,8 +674,8 @@ export function CustomerEditorView({
     !!onReject &&
     customer.status !== "inactive" &&
     customer.enrolmentStatus === "provisional";
-  const ownProposal =
-    !!customer && !!myProfileId && customer.proposedByProfileId === myProfileId;
+  // Loosened (jc): whoever added a customer may approve it too.
+  const ownProposal = false;
   const ownNote = ownProposal ? (
     <span className="text-xs text-muted">{OWN_PROPOSAL_WORDS}</span>
   ) : null;

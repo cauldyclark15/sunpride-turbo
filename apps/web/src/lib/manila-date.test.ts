@@ -48,9 +48,17 @@ describe("Asia/Manila date-only conversion", () => {
       "Invalid date",
     );
   });
-  it("rejects date-only values whose Manila midnight has already passed", () => {
+  it("accepts today but rejects earlier Manila days for every effective date (loosened)", () => {
+    vi.spyOn(Date, "now").mockReturnValue(Date.parse("2026-11-19T04:00:00Z"));
+    expect(futureManilaDateToUtcMs("2026-11-19")).toBe(
+      manilaDateToUtcMs("2026-11-19"),
+    );
+    expect(() => futureManilaDateToUtcMs("2026-11-18")).toThrow(
+      "Choose today or a future effective date.",
+    );
+    vi.restoreAllMocks();
     expect(() => futureManilaDateToUtcMs("2020-01-01")).toThrow(
-      "Choose a future effective date.",
+      "Choose today or a future effective date.",
     );
     expect(futureManilaDateToUtcMs("2099-01-01")).toBe(
       manilaDateToUtcMs("2099-01-01"),

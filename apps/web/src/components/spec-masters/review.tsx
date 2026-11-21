@@ -166,7 +166,7 @@ export function OutletClassification({ outlets }: { outlets: Choice[] }) {
           </label>
           <label className="grid gap-1 text-xs">
             Decision reason
-            <input className={field} name="reason" required />
+            <input className={field} name="reason" />
           </label>
           <Button type="submit" variant="outline">
             Record class decision

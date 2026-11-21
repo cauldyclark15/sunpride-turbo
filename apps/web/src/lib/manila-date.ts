@@ -35,8 +35,10 @@ export function todayOrFutureManilaDateToUtcMs(value: string): number {
   return instant;
 }
 
+/**
+ * Effective dates for routes, stops, assignments, teams and org changes: today or later
+ * (loosened from "tomorrow or later" so office staff can show a change working the same day).
+ */
 export function futureManilaDateToUtcMs(value: string): number {
-  const instant = manilaDateToUtcMs(value);
-  if (instant <= Date.now()) throw new Error("Choose a future effective date.");
-  return instant;
+  return todayOrFutureManilaDateToUtcMs(value);
 }

@@ -115,7 +115,7 @@ export function SupervisorAwayPanel({
       <button
         className={`${secondaryAction} w-fit`}
         type="button"
-        disabled={busy || !reason.trim() || !fromDate || !toDate}
+        disabled={busy || !fromDate || !toDate}
         onClick={() =>
           void run(() =>
             record({ profileId, fromDate, toDate, reason: reason.trim() }),

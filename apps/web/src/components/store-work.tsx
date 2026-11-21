@@ -153,7 +153,7 @@ export function StoreWorkAdmin() {
           )}
           <label>
             Reason for this change
-            <input name="reason" required maxLength={500} />
+            <input name="reason" maxLength={500} />
           </label>
           <div className="flex gap-2">
             <button className={button} disabled={busy}>

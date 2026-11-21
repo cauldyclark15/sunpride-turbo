@@ -119,7 +119,6 @@ export async function performOrgAction(
   actions: OrgActions,
 ) {
   const reason = String(data.get("reason") ?? "").trim();
-  if (!reason) throw new Error("Reason required");
   const unitId = choice.unit._id;
   if (choice.action === "create") {
     return actions.create({
@@ -482,7 +481,6 @@ export function OrgAdmin() {
               <textarea
                 className="min-h-20 rounded-[10px] border border-border bg-surface p-3 text-sm"
                 name="reason"
-                required
                 rows={2}
               />
             </FormField>

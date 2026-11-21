@@ -150,10 +150,6 @@ function ReviewActions({ row, decide }: { row: Remittance; decide: Decide }) {
   const [error, setError] = useState("");
   async function run(decision: "confirm" | "reject") {
     if (busy) return;
-    if (decision === "reject" && !reason.trim()) {
-      setError("Write why you are rejecting it");
-      return;
-    }
     setBusy(true);
     setError("");
     try {

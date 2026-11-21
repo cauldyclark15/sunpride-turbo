@@ -188,12 +188,16 @@ export function WeekDetail({
     setBusy(true);
     setMessage("");
     try {
-      await mutate(
+      const result = (await mutate(
         "/api/v1/truck-weeks/review",
         { id: w.id, baseUpdatedAt: w.updatedAt, note },
         { idempotencyKey: key, invalidate: [["truck-weeks"]] },
+      )) as { warning?: string | null } | undefined;
+      setMessage(
+        result?.warning
+          ? `Week checked and closed. ${result.warning}`
+          : "Week checked and closed.",
       );
-      setMessage("Week checked and closed.");
     } catch (cause) {
       setMessage(cause instanceof Error ? cause.message : "Could not save.");
     } finally {
@@ -309,7 +313,7 @@ export function WeekDetail({
       </div>
       {canManage && w.status === "counted" && (
         <div className="grid gap-2">
-          <FormField label="Office note (needed if a difference has no reason)">
+          <FormField label="Office note (optional)">
             <input
               className={control}
               value={note}

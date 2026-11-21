@@ -79,8 +79,7 @@ export const isTransferKind = (kind: DecideKind) =>
 /** What is wrong with the form, in words, before the server is asked. Empty means it can be sent. */
 export function decideProblems(item: DecideItem, form: DecideForm): string[] {
   const problems: string[] = [];
-  if (form.verdict === "reject" && form.reason.trim().length < 3)
-    problems.push("Say why you are rejecting this, in a few words.");
+  // Loosened (jc): the reject reason is optional.
   if (form.verdict === "approve" && item.needs.chargeTo && !form.chargeTo)
     problems.push(
       "Say who carries the difference: sending side, receiving side, carrier or driver.",

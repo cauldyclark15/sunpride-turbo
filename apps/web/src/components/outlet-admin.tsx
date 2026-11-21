@@ -55,7 +55,6 @@ export async function performOutletAction(
   pinId?: Id<"outletPins">,
 ) {
   const reason = text(data, "reason");
-  if (!reason) throw new Error("Reason required");
   if (action === "create" || action === "edit") {
     // A phone needs a contact name (the API stores contacts by name); dropping the typed phone
     // silently looked like a successful save (WEB-170).
@@ -422,7 +421,7 @@ export function OutletEditor({
             </>
           )}
           <FormField label="Reason">
-            <input name="reason" required />
+            <input name="reason" />
           </FormField>
           <div className="flex gap-2 sm:col-span-2">
             <button type="submit" className={primaryBtn} disabled={pending}>

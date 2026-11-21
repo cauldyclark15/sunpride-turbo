@@ -171,7 +171,7 @@ export function MasterDataWorkspace({
       const name = String(data.get("name") ?? "").trim(),
         reason = String(data.get("reason") ?? "").trim(),
         code = String(data.get("code") ?? "").trim();
-      if (!name || !reason) throw new Error("Name and reason are required.");
+      if (!name) throw new Error("Name is required.");
       if (!selected && !code) throw new Error("Code is required.");
       const active = data.get("active") === "on";
       if (editing.kind === "products")
@@ -570,7 +570,7 @@ export function MasterDataWorkspace({
               Active
             </label>
             <FormField label="Reason">
-              <textarea name="reason" required rows={2} />
+              <textarea name="reason" rows={2} />
             </FormField>
             {error ? (
               <p role="alert" className="text-sm text-danger sm:col-span-2">

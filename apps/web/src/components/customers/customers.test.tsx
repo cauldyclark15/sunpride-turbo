@@ -655,7 +655,7 @@ describe("approval errors land next to the field", () => {
         />,
       ),
     ).not.toContain(">Reject<");
-    // WEB-059: your own proposal shows Approve/Reject disabled with the reason.
+    // Loosened (jc): your own proposal can be approved or rejected by you.
     const own = renderToStaticMarkup(
       <CustomerEditorView
         customer={{ ...field, proposedByProfileId: "me" } as Customer}
@@ -673,9 +673,9 @@ describe("approval errors land next to the field", () => {
         onReject={() => undefined}
       />,
     );
-    expect(own).toMatch(/<button type="button"[^>]*disabled=""[^>]*>Approve</);
-    expect(own).toMatch(/<button type="button"[^>]*disabled=""[^>]*>Reject</);
-    expect(own).toContain("Another approver must decide your own proposal.");
+    expect(own).not.toMatch(/<button type="button"[^>]*disabled=""[^>]*>Approve</);
+    expect(own).not.toMatch(/<button type="button"[^>]*disabled=""[^>]*>Reject</);
+    expect(own).not.toContain("Another approver must decide your own proposal.");
     const other = renderToStaticMarkup(
       <CustomerEditorView
         customer={{ ...field, proposedByProfileId: "someone" } as Customer}

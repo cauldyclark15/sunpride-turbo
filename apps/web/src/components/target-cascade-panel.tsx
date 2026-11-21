@@ -88,7 +88,7 @@ export function canDecide(
   d: { canApprove: boolean; me: string | null },
   c: { preparedById: string; canDecide?: boolean },
 ) {
-  return c.canDecide ?? (d.canApprove && c.preparedById !== d.me);
+  return c.canDecide ?? d.canApprove;
 }
 
 /** F-615: display a target amount in the metric's own unit. */
@@ -299,7 +299,7 @@ export function TargetCascadePanel() {
                   </label>
                   <button
                     className={button}
-                    disabled={busy || !reason.trim()}
+                    disabled={busy}
                     onClick={async () => {
                       if (
                         await post("/api/v1/targets/cascade/decide", {
@@ -319,9 +319,7 @@ export function TargetCascadePanel() {
                 </div>
               ) : (
                 <p className="mt-2 text-xs text-muted">
-                  {c.preparedById === d.me
-                    ? "A different person must approve your cascade."
-                    : d.canApprove
+                  {d.canApprove
                       ? "A company-wide manager or approver decides this cascade."
                       : "Awaiting a manager or approver."}
                 </p>

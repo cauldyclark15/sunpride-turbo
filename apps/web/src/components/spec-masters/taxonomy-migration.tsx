@@ -88,7 +88,7 @@ export function TaxonomyMigration() {
           <form onSubmit={apply} className="flex flex-wrap items-end gap-3">
             <label className="grid flex-1 gap-1 text-sm">
               Cutover review reason
-              <input name="reason" required maxLength={500} className={input} />
+              <input name="reason" maxLength={500} className={input} />
             </label>
             <Button type="submit" isDisabled={busy}>
               {busy ? "Applying…" : "Apply reviewed known-key mappings"}
@@ -221,7 +221,7 @@ function Resolve({
       )}
       <label className="grid gap-1 text-sm">
         Mapping reason
-        <input className={input} name="reason" required maxLength={500} />
+        <input className={input} name="reason" maxLength={500} />
       </label>
       {message && (
         <p role="status" className="text-sm">

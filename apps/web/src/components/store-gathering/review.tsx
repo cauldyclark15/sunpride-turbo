@@ -380,7 +380,6 @@ export function CaptureDetail({
           <input
             className={field}
             name="reason"
-            required
             defaultValue={
               decision === "accept"
                 ? "Checked photo, owner and location"
@@ -560,7 +559,6 @@ export function ChangeDetail({
           <input
             className={field}
             name="reason"
-            required
             defaultValue={decision === "accept" ? "Checked the changes" : ""}
             key={decision}
           />

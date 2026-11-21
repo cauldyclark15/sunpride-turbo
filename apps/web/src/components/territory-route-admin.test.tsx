@@ -298,7 +298,8 @@ describe("unmounted territory and route administration", () => {
         else expect(field).toContain('required=""');
       }
       expect(html).toContain('name="boundaryGeoJson"');
-      expect(html).toContain('name="reason" required=""');
+      expect(html).toContain('name="reason"');
+      expect(html).not.toContain('name="reason" required=""');
       if (action === "create") {
         expect(html).toContain('name="orgUnitId" required=""');
         expect(html).toContain('type="date" required="" name="effectiveDate"');
@@ -541,20 +542,18 @@ describe("unmounted territory and route administration", () => {
     await expect(
       performTerritoryAction(
         "create",
-        form({ ...values, endDate: "2026-11-19" }),
+        form({ ...values, endDate: "2026-11-18" }),
         actions,
       ),
-    ).rejects.toThrow("Choose a future effective date.");
+    ).rejects.toThrow("Choose today or a future effective date.");
     expect(actions.create).not.toHaveBeenCalled();
-    for (const action of ["transfer", "assign", "end", "deactivate"] as const) {
-      await expect(
-        performTerritoryAction(action, form(values), actions, territory._id),
-      ).rejects.toThrow("Choose a future effective date.");
-    }
-    expect(actions.transferOwner).not.toHaveBeenCalled();
-    expect(actions.assignSalesperson).not.toHaveBeenCalled();
-    expect(actions.endSalespersonAssignment).not.toHaveBeenCalled();
-    expect(actions.deactivate).not.toHaveBeenCalled();
+    // Loosened (jc): every territory action may take effect today.
+    for (const action of ["transfer", "assign", "end", "deactivate"] as const)
+      await performTerritoryAction(action, form(values), actions, territory._id);
+    expect(actions.transferOwner).toHaveBeenCalled();
+    expect(actions.assignSalesperson).toHaveBeenCalled();
+    expect(actions.endSalespersonAssignment).toHaveBeenCalled();
+    expect(actions.deactivate).toHaveBeenCalled();
   });
   it("sends territory create and transfer with owner unit, reason and future date; propagates errors", async () => {
     const actions = {
@@ -626,7 +625,7 @@ describe("unmounted territory and route administration", () => {
         { ...actions, move: vi.fn(), duplicateTemplate: vi.fn() },
         route._id,
       ),
-    ).rejects.toThrow("Reason required");
+    ).resolves.not.toThrow();
   });
   it("shows mutation errors inline in forms", () => {
     state.selection = territory._id;

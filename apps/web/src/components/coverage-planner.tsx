@@ -98,7 +98,6 @@ export function saveCoverageAssignment(
     args: FunctionArgs<typeof api.coverage.plans.setAssignment>,
   ) => Promise<unknown>,
 ) {
-  if (!reason.trim()) throw new Error("Assignment reason required");
   const effectiveFrom = manilaDateToUtcMs(fromDate);
   const effectiveTo = manilaDateToUtcMs(toDate);
   if (effectiveTo <= effectiveFrom)
@@ -138,7 +137,6 @@ export function reviseCoveragePlan(
     args: FunctionArgs<typeof api.coverage.plans.createRevision>,
   ) => Promise<Doc<"coveragePlans">>,
 ) {
-  if (!reason.trim()) throw new Error("Revision reason required");
   manilaDateToUtcMs(effectiveFromDate);
   return revise({ planId, effectiveFromDate, reason: reason.trim() });
 }
@@ -439,14 +437,9 @@ export function CoveragePlanner({
                         disabled={
                           !canPlan ||
                           busy ||
-                          !revisionReason.trim() ||
                           !revisionDate
                         }
                         onClick={() => {
-                          if (!revisionReason.trim()) {
-                            setError("Revision reason required");
-                            return;
-                          }
                           void action(() =>
                             reviseCoveragePlan(
                               detail.plan._id,

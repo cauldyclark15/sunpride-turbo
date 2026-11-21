@@ -359,7 +359,6 @@ export function TerritoryScenarios() {
               </p>
               <CompareTable territories={s.territories} />
               {d.canPlan &&
-              s.preparedById !== d.me &&
               (!s.plan?.boundaries?.length || d.canBoundary) ? (
                 <button
                   className={button}
@@ -376,9 +375,7 @@ export function TerritoryScenarios() {
                 </button>
               ) : (
                 <p className="text-xs text-muted">
-                  {s.preparedById === d.me
-                    ? "A different person must publish your scenario."
-                    : s.plan?.boundaries?.length
+                  {s.plan?.boundaries?.length
                       ? "A different administrator must publish boundary changes."
                       : "Waiting for an operations or admin user."}
                 </p>
