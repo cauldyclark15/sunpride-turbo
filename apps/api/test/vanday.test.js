@@ -290,7 +290,10 @@ describe("the suggested load for a trip, from real history", () => {
     const n = ++seq;
     const [truck] = await h.db`insert into inventory_locations (organization_id,org_unit_id,site_code,code,name,type,active,allows_picking,allows_receiving,allows_sale,allows_production) values ('sunpride',${unit},'CEBU',${`TRK${n}`},${`Truck ${n}`},'truck',true,false,true,true,false) returning id`;
     const [v] = await h.db`insert into vehicles(organization_id,org_unit_id,vehicle_code,plate_number,name,truck_location_id,home_location_id,status,created_by) values('sunpride',${unit},${`VAN${n}`},${`HIS ${n}`},'Van',${truck.id},${depot},'active','fixture') returning id`;
-    const target = "2026-12-14"; // a Monday
+    // A Monday 70-76 days out, so its history days (-35..-1) never collide with the later tests' tomorrow/day-after.
+    const t0 = new Date(Date.now() + 70 * 86400000);
+    t0.setUTCDate(t0.getUTCDate() + ((8 - t0.getUTCDay()) % 7));
+    const target = t0.toISOString().slice(0, 10); // a Monday
     expect(isoWeekday(target)).toBe(1);
     // Mondays at -7,-14,-21,-28 sold A: 20,30,40,50 (average 35). -35 sold 500 but is the fifth: ignored. A Sunday sold 900: ignored.
     const history = [[-7, 20], [-14, 30], [-21, 40], [-28, 50], [-35, 500], [-1, 900]];
