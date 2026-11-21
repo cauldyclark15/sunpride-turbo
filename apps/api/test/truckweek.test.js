@@ -14,6 +14,8 @@ import {
   install as truckweek,
   mondayOf,
   csv,
+  csvRows,
+  differenceText,
 } from "../src/domains/truckweek/index.js";
 import { sha256Hex } from "../src/core/util.js";
 import { manilaDate } from "../src/domains/visits/shared.js";
@@ -389,7 +391,10 @@ test("SP-0227 weekly truck stock: served basis, sold from van sales, Saturday co
     expect(csvAll.text).toContain("Counted, office to check");
     expect(csvAll.text).not.toMatch(/,"?counted"?,/);
     expect(csvAll.text).toContain(
-      '"SAMPLE corned beef","PC",100,80,20,48,32,30,2,"Missing","SAMPLE two short"',
+      '"SAMPLE corned beef","PC",100,80,20,48,32,30,"2 missing","Missing","SAMPLE two short"',
+    );
+    expect(csvAll.text).toContain(
+      '"Requested","Loaded","Short","Sold","Should be left","Counted","Difference"',
     );
 
     // Office review closes the week; the generic own-seller bundle above did not infer other trips.
@@ -431,4 +436,20 @@ test("SP-0227 weekly truck stock: served basis, sold from van sales, Saturday co
   } finally {
     await h.close();
   }
+});
+
+test("SP-0227 CSV uses the screen's words; sold-but-not-loaded goes to the office", () => {
+  const rows = csvRows({
+    weekStart: "2026-11-16",
+    seller: "S",
+    status: "counted",
+    lines: [
+      { code: "A", name: "A", uom: "PC", requestedBase: 10, servedBase: 8, shortfallBase: 2, soldBase: 32, expectedLeftBase: -24, countedBase: 3, varianceBase: -27, reasonName: "Damaged", needsReason: false },
+      { code: "B", name: "B", uom: "PC", requestedBase: 0, servedBase: 0, shortfallBase: 0, soldBase: 5, expectedLeftBase: -5, countedBase: 0, varianceBase: -5, reasonName: null, needsReason: false, notLoaded: true },
+    ],
+  });
+  expect(rows[0][12]).toBe("27 extra");
+  expect(rows[1][13]).toBe("Sold but not loaded — check loading");
+  expect(differenceText(4)).toBe("4 missing");
+  expect(differenceText(0)).toBe("Balanced");
 });

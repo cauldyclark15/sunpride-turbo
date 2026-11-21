@@ -149,7 +149,9 @@ export async function weekDetail(db, week) {
         note: null,
         expectedLeftBase: -q,
         varianceBase: week.status === "open" ? null : -q,
-        needsReason: week.status !== "open",
+        // The salesman cannot give a reason for a product he was never loaded with:
+        // the office checks the loading instead.
+        needsReason: false,
         notLoaded: true,
       });
     }
@@ -189,6 +191,9 @@ export async function weekDetail(db, week) {
       varianceBase: week.status === "open" ? null : sum("varianceBase"),
       missingReasons: out.filter((/** @type {any} */ l) => l.needsReason)
         .length,
+      notLoaded: out.filter(
+        (/** @type {any} */ l) => l.notLoaded && l.countedBase !== null,
+      ).length,
     },
   };
 }
@@ -236,12 +241,12 @@ const CSV_HEAD = [
   "Product",
   "Unit",
   "Requested",
-  "Served",
-  "Shortfall",
+  "Loaded",
+  "Short",
   "Sold",
-  "Expected left",
+  "Should be left",
   "Counted",
-  "Variance",
+  "Difference",
   "Reason",
   "Note",
   "Quantity scale",
@@ -255,8 +260,15 @@ const STATUS_WORDS = /** @type {Record<string,string>} */ ({
   counted: "Counted, office to check",
   reviewed: "Checked and closed",
 });
+/** Same words as the website: "Balanced", "3 missing", "27 extra". @param {number|null|undefined} v */
+export function differenceText(v) {
+  if (v === null || v === undefined) return "Not counted yet";
+  if (v === 0) return "Balanced";
+  return v > 0 ? `${v} missing` : `${-v} extra`;
+}
+export const NOT_LOADED_TEXT = "Sold but not loaded — check loading";
 /** @param {any} d */
-function csvRows(d) {
+export function csvRows(d) {
   return d.lines.map((/** @type {any} */ l) => [
     d.weekStart,
     d.seller,
@@ -270,8 +282,11 @@ function csvRows(d) {
     l.soldBase,
     l.expectedLeftBase,
     l.countedBase ?? "",
-    l.varianceBase ?? "",
-    l.reasonName ?? (l.needsReason ? "No reason given" : ""),
+    l.countedBase === null || l.countedBase === undefined
+      ? ""
+      : differenceText(l.varianceBase),
+    l.reasonName ??
+      (l.notLoaded ? NOT_LOADED_TEXT : l.needsReason ? "No reason given" : ""),
     l.note ?? "",
     l.quantityScale ?? "1",
     l.accountableBase ?? "",
@@ -525,7 +540,7 @@ export async function reviewWeek(c, b) {
     b.note == null || b.note === ""
       ? null
       : required(b.note, "Review note", 500);
-  if (d.totals.missingReasons > 0 && !note)
+  if ((d.totals.missingReasons > 0 || d.totals.notLoaded > 0) && !note)
     rule(
       "Some differences have no reason. Add a review note to close the week.",
     );

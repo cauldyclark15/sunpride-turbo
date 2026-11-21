@@ -13,6 +13,8 @@ import {
   shiftWeek,
   stockMoney,
   varianceText,
+  reasonText,
+  weekFlags,
   weekSaveBody,
   type DraftLine,
   type TruckWeek,
@@ -108,8 +110,7 @@ export function WeeklyTruckStock() {
                     <td>{r.seller}</td>
                     <td>
                       {STATUS_LABELS[r.status]}
-                      {r.totals.missingReasons > 0 &&
-                        ` · ${r.totals.missingReasons} without reason`}
+                      {weekFlags(r.totals)}
                     </td>
                     <td className="text-right">{r.totals.requestedBase}</td>
                     <td className="text-right">{r.totals.servedBase}</td>
@@ -248,7 +249,9 @@ export function WeekDetail({
               <td className="text-right">{l.countedBase ?? "—"}</td>
               <td className="text-right">{varianceText(l.varianceBase)}</td>
               <td>
-                {l.reasonName ?? (l.needsReason ? "No reason given" : "—")}
+                <span className={l.notLoaded && !l.reasonName ? "text-danger" : undefined}>
+                  {reasonText(l)}
+                </span>
                 {l.note && (
                   <span className="block text-xs text-muted">{l.note}</span>
                 )}
@@ -258,8 +261,10 @@ export function WeekDetail({
         </tbody>
       </table>
       <p>
-        Total difference: {varianceText(w.totals.varianceBase)}. Positive
-        differences are stock not accounted for.
+        Total difference: {varianceText(w.totals.varianceBase)}.
+        &ldquo;Missing&rdquo; means less was counted than should be left;
+        &ldquo;extra&rdquo; means more was counted. The CSV uses the same
+        words.
       </p>
       {w.lines.some((l) => l.expectedLeftBase < 0) && (
         <Notice

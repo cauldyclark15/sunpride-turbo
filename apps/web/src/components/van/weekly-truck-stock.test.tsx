@@ -7,6 +7,8 @@ import {
   expectedLeftText,
   tripLabel,
   varianceText,
+  reasonText,
+  weekFlags,
   weekSaveBody,
 } from "./weekly-truck-stock-model";
 
@@ -100,6 +102,18 @@ describe("SP-0227 weekly truck stock", () => {
     expect(varianceText(0)).toBe("Balanced");
     expect(varianceText(2)).toBe("2 missing");
     expect(varianceText(-3)).toBe("3 extra");
+  });
+  it("sends products sold but never loaded to the office, not the salesman", () => {
+    const base = { reasonName: null, needsReason: false, countedBase: 0 };
+    expect(reasonText({ ...base, notLoaded: true })).toBe(
+      "Sold but not loaded — check loading",
+    );
+    expect(reasonText({ ...base, needsReason: true })).toBe("No reason given");
+    expect(reasonText({ ...base, reasonName: "Damaged" })).toBe("Damaged");
+    expect(weekFlags({ missingReasons: 0, notLoaded: 2 })).toBe(
+      " · 2 sold but not loaded",
+    );
+    expect(weekFlags({ missingReasons: 1 })).toBe(" · 1 without reason");
   });
   it("never shows negative stock left and names trips by day", () => {
     expect(expectedLeftText(32)).toBe("32");

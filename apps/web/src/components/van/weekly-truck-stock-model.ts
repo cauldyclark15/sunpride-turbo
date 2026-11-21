@@ -17,6 +17,8 @@ export type TruckWeekLine = {
   reasonName: string | null;
   note: string | null;
   needsReason: boolean;
+  /** Sold from the truck but never loaded through this form. */
+  notLoaded?: boolean;
   quantityScale?: string;
   unitPriceMinor?: string | null;
   accountableBase?: number | null;
@@ -30,6 +32,7 @@ export type TruckWeekTotals = {
   countedBase: number | null;
   varianceBase: number | null;
   missingReasons: number;
+  notLoaded?: number;
 };
 export type TruckWeek = {
   id: string;
@@ -103,6 +106,24 @@ export function varianceText(value: number | null): string {
   if (value === null) return "Not counted yet";
   if (value === 0) return "Balanced";
   return value > 0 ? `${value} missing` : `${-value} extra`;
+}
+
+export const NOT_LOADED_TEXT = "Sold but not loaded — check loading";
+
+/** Reason cell: the salesman's reason, or what the office must do. */
+export function reasonText(l: Pick<TruckWeekLine, "reasonName" | "needsReason" | "notLoaded" | "countedBase">): string {
+  if (l.reasonName) return l.reasonName;
+  if (l.notLoaded && l.countedBase !== null) return NOT_LOADED_TEXT;
+  return l.needsReason ? "No reason given" : "—";
+}
+
+/** Status suffix on the weeks list. */
+export function weekFlags(t: Pick<TruckWeekTotals, "missingReasons" | "notLoaded">): string {
+  const bits: string[] = [];
+  if (t.missingReasons > 0) bits.push(`${t.missingReasons} without reason`);
+  if ((t.notLoaded ?? 0) > 0)
+    bits.push(`${t.notLoaded} sold but not loaded`);
+  return bits.map((b) => ` · ${b}`).join("");
 }
 
 /** "Should be left" never shows a negative stock: more sold than loaded is flagged in words. */
