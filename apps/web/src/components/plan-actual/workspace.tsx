@@ -4,7 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { apiFetch, useApi, useLive } from "../../lib/api";
 import { currentManilaDate } from "../../lib/coverage-calendar";
-import { formatDate, formatPeriod } from "../../lib/format";
+import { formatDate, formatPeriod, formatTime } from "../../lib/format";
 import {
   actualLabel,
   downloadPlanActual,
@@ -96,16 +96,9 @@ export function DayDetail({ day }: { day: Day }) {
                           {v.checkedInAt && (
                             <p className="text-xs text-muted">
                               In{" "}
-                              {new Date(v.checkedInAt).toLocaleTimeString(
-                                "en-PH",
-                                {
-                                  timeZone: "Asia/Manila",
-                                  hour: "2-digit",
-                                  minute: "2-digit",
-                                },
-                              )}
+                              {formatTime(v.checkedInAt)}
                               {v.checkedOutAt
-                                ? ` · Out ${new Date(v.checkedOutAt).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila", hour: "2-digit", minute: "2-digit" })}`
+                                ? ` · Out ${formatTime(v.checkedOutAt)}`
                                 : ""}
                             </p>
                           )}
