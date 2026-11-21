@@ -226,4 +226,12 @@ class CensusRulesTest {
             CensusRules.CustomerDecision(capture, true, null))))
         assertEquals(emptyMap<String, CensusRules.CustomerDecision>(), CensusRules.customerDecisions(JSONObject().put("items", org.json.JSONArray())))
     }
+
+    /** QA retest: Edit customer opens with the saved name, owner and phone; text the agent typed is kept. */
+    @Test fun editPrefillsEverySavedValue() {
+        val store = CensusRules.Current("Sample Santos Sari-sari 101", "Sample address", "Rosa Santos", "09179876543")
+        assertEquals(store, CensusRules.prefill(store, CensusRules.Current("", "", "", "")))
+        val typed = CensusRules.prefill(store, CensusRules.Current("New name", "", " ", ""))
+        assertEquals("New name", typed.name); assertEquals("Rosa Santos", typed.ownerName)
+    }
 }

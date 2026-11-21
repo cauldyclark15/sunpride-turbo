@@ -26,6 +26,8 @@ fun TruckStockScreen(c: FieldController, modifier: Modifier = Modifier) {
     val notes = remember(life) { mutableStateMapOf<String, String>() }
     var message by remember(life) { mutableStateOf<String?>(null) }
     var saved by remember { mutableStateOf<String?>(null) }
+    var flagged by remember(life) { mutableStateOf<Set<String>>(emptySet()) }
+    val scroll = rememberScrollState()
     LaunchedEffect(life, refresh, c.today.lastSynced) {
         loading = true; val before = life
         val next = try { withContext(Dispatchers.IO) { c.domainForms(TruckStock.KIND, true) } }
@@ -43,12 +45,13 @@ fun TruckStockScreen(c: FieldController, modifier: Modifier = Modifier) {
             if (l.note != null && notes[l.productId] == null) notes[l.productId] = l.note
         }
     }
-    Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(16.dp).testTag("truck-stock"),
+    Column(modifier.fillMaxSize().verticalScroll(scroll).padding(16.dp).testTag("truck-stock"),
         verticalArrangement = Arrangement.spacedBy(10.dp)) {
         NoticeCard("Your truck stock for this week. You are counted on what the warehouse actually loaded, not on what you asked for.")
         FieldButton({ refresh++ }, Modifier.fillMaxWidth(), enabled = !loading && !c.busy) { Text(if (loading) "Refreshing…" else "Refresh") }
         c.error?.let { NoticeCard(it, tone = Look.Tone.BAD) }
         saved?.let { NoticeCard(it, tone = Look.Tone.GOOD, glyph = GlyphKind.CHECK, modifier = Modifier.testTag("truck-stock-saved")) }
+        message?.let { NoticeCard(it, tone = Look.Tone.BAD, modifier = Modifier.testTag("truck-stock-message")) }
         if (d == null) { NoticeCard("Connect once today to download your truck stock. After that the count works offline.",
             tone = Look.Tone.WARN, glyph = GlyphKind.LOCK); return@Column }
         if (week == null) { EmptyState("No truck stock this week", "The office has not recorded what was loaded on your truck this week.", GlyphKind.BOX); return@Column }
@@ -68,7 +71,9 @@ fun TruckStockScreen(c: FieldController, modifier: Modifier = Modifier) {
             if (n != null) Text(TruckStock.difference(line, n), style = MaterialTheme.typography.bodyMedium)
             if (n != null && TruckStock.needsReason(line, n) || reasons[line.productId] != null) {
                 Text("Reason", style = MaterialTheme.typography.labelLarge)
-                for (r in week.reasons) ChoiceRow(r.name, reasons[line.productId] == r.id, { reasons[line.productId] = r.id; message = null }, enabled = !closed)
+                if (line.productId in flagged) Text(TruckStock.REASON_MISSING, color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("truck-reason-missing-${line.code}"))
+                for (r in week.reasons) ChoiceRow(r.name, reasons[line.productId] == r.id, { reasons[line.productId] = r.id; message = null; flagged = flagged - line.productId }, enabled = !closed)
                 FieldTextField(notes[line.productId].orEmpty(), { notes[line.productId] = it }, label = { Text("Note (optional)") },
                     modifier = Modifier.fillMaxWidth(), enabled = !closed)
             }
@@ -76,7 +81,10 @@ fun TruckStockScreen(c: FieldController, modifier: Modifier = Modifier) {
         HorizontalDivider(color = Look.hairline)
         FieldButton({
             message = null; saved = null
-            val payload = try { TruckStock.payload(week, counts, reasons, notes) } catch (e: IllegalArgumentException) { message = e.message; null }
+            flagged = TruckStock.missingReasons(week, counts, reasons).toSet()
+            if (flagged.isNotEmpty()) message = TruckStock.REASON_MISSING
+            val payload = if (flagged.isNotEmpty()) null else try { TruckStock.payload(week, counts, reasons, notes) } catch (e: IllegalArgumentException) { message = e.message; null }
+            if (payload == null) scope.launch { scroll.animateScrollTo(0) }
             if (payload != null) scope.launch {
                 c.queueDomain(TruckStock.OP, payload, week.id).join()
                 if (c.error == null) saved = "Count saved on this phone. It sends with your next sync."

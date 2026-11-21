@@ -98,10 +98,14 @@ data class SyncStatus(
         }
         /** Recent saves the server did not accept, newest first, from the phone's outbox. */
         fun notAcceptedFrom(history: List<Pair<IntentRow, OutboxRow>>, dismissed: Set<String>, now: Long): List<NotAccepted> =
-            history.filter { (_, row) -> com.sunpride.field.storage.OutboxState.refused(row.state) && row.requestId !in dismissed &&
-                row.createdAt >= now - NOT_ACCEPTED_DAYS * 86_400_000L }
+            history.filter { (intent, row) -> com.sunpride.field.storage.OutboxState.refused(row.state) && row.requestId !in dismissed &&
+                row.createdAt >= now - NOT_ACCEPTED_DAYS * 86_400_000L && !resolvedLater(intent, row, history) }
                 .map { (intent, row) -> NotAccepted(row.requestId, intent.kind, row.rejectionCode, row.createdAt) }
                 .sortedByDescending { it.at }
+        /** A refused save is resolved once a later retry of the same step (same kind, same visit) was accepted. */
+        private fun resolvedLater(intent: IntentRow, row: OutboxRow, history: List<Pair<IntentRow, OutboxRow>>): Boolean =
+            intent.clientVisitId.isNotBlank() && history.any { (i, r) -> r.state == "done" && r.requestId != row.requestId &&
+                i.kind == intent.kind && i.clientVisitId == intent.clientVisitId && r.createdAt >= row.createdAt }
         /** Every word a salesman may see on the Sync page and pill (SP-0189). "Not accepted" is allowed: a refused
          * save must say so plainly. */
         val FORBIDDEN_WORDS = listOf("review", "reconcil", "rejected", "refused", "invalid",

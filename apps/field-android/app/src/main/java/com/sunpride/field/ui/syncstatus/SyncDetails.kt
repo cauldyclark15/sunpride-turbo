@@ -62,7 +62,7 @@ fun SyncDetails(status: SyncStatus, onDismiss: () -> Unit, onSync: () -> Unit = 
                     }
                 }
             }
-            (if (busy) SyncFeedback.RUNNING else message)?.let { feedback ->
+            (if (busy) SyncFeedback.RUNNING else SyncFeedback.shown(message, status))?.let { feedback ->
                 Text(feedback, style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.testTag("sync-feedback").semantics { liveRegion = LiveRegionMode.Polite })
             }

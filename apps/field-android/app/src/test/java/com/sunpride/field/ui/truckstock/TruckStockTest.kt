@@ -28,6 +28,14 @@ class TruckStockTest {
         assertNull(TruckStock.decode(JSONObject().put("week", JSONObject.NULL)))
     }
 
+    @Test fun missingReasonFlagsOnlyUnexplainedLines() {
+        val week = TruckStock.decode(data)!!
+        val counts = mapOf("a" to "30", "b" to "0")
+        assertEquals(listOf("a"), TruckStock.missingReasons(week, counts, emptyMap()))
+        assertEquals(emptyList<String>(), TruckStock.missingReasons(week, counts, mapOf("a" to "missing")))
+        assertEquals("Choose a reason for every stock difference.", TruckStock.REASON_MISSING)
+    }
+
     @Test fun differenceUsesLoadedNotRequested() {
         val a = TruckStock.decode(data)!!.lines[0]
         assertEquals("2 missing", TruckStock.difference(a, 30))

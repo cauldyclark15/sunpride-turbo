@@ -109,6 +109,10 @@ object CensusRules {
         g?.municipality(f.municipalityCode)?.name, g?.province(f.provinceCode)?.name, f.postalCode).orEmpty()
     /** The store as it is on the phone, to compare with the edited form. */
     data class Current(val name: String, val address: String, val ownerName: String, val ownerPhone: String)
+    /** Edit customer opens with every saved value; a blank field takes the store's value, typed text is kept. */
+    fun prefill(store: Current, shown: Current): Current = Current(
+        shown.name.ifBlank { store.name }, shown.address.ifBlank { store.address },
+        shown.ownerName.ifBlank { store.ownerName }, shown.ownerPhone.ifBlank { store.ownerPhone })
     /** True when the edited form differs from the store (a new location or photo always counts). */
     fun changed(current: Current, name: String, address: String, ownerName: String, ownerPhone: String, landmark: String,
         moved: Boolean, photo: Boolean): Boolean = moved || photo || landmark.isNotBlank() ||

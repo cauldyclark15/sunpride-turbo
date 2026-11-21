@@ -46,6 +46,15 @@ object TruckStock {
         return when { d == 0L -> "Balanced"; d > 0 -> "$d missing"; else -> "${-d} extra" }
     }
 
+    const val REASON_MISSING = "Choose a reason for every stock difference."
+
+    /** Products counted with a difference but no reason chosen yet; the screen marks these lines. */
+    fun missingReasons(week: Week, counts: Map<String, String>, reasons: Map<String, String?>): List<String> =
+        week.lines.filter { line ->
+            val n = counts[line.productId]?.trim()?.toLongOrNull() ?: return@filter false
+            needsReason(line, n) && reasons[line.productId].isNullOrBlank()
+        }.map { it.productId }
+
     fun parseCount(text: String): Long {
         val t = text.trim()
         require(t.matches(Regex("[0-9]{1,9}"))) { "Enter the counted quantity as a whole number" }

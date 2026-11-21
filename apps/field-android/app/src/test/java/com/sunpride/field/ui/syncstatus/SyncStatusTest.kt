@@ -144,4 +144,24 @@ class SyncStatusTest {
         SyncStatus.FORBIDDEN_WORDS.forEach { w -> SyncStatus.REASONS.keys.forEach { c ->
             assertFalse("$c: $w", SyncStatus.notAcceptedText(c).lowercase().contains(w)) } }
     }
+
+    /** QA retest: a refusal clears once the retry of the same step is accepted; other refusals stay. */
+    @Test fun acceptedRetryClearsNotAccepted() {
+        val now = 10L * 86_400_000L
+        val retried = listOf(intent("a", "visit.checkIn") to row("office", code = "invalid_plan", id = "a").copy(createdAt = now - 1000),
+            intent("a2", "visit.checkIn") to row("done", id = "a2").copy(createdAt = now - 500))
+        assertEquals(emptyList<String>(), SyncStatus.notAcceptedFrom(retried, emptySet(), now).map { it.requestId })
+        val otherStep = listOf(intent("a", "visit.checkIn") to row("office", code = "invalid_plan", id = "a").copy(createdAt = now - 1000),
+            intent("b", "visit.checkOut") to row("done", id = "b").copy(createdAt = now))
+        assertEquals(listOf("a"), SyncStatus.notAcceptedFrom(otherStep, emptySet(), now).map { it.requestId })
+    }
+
+    /** QA retest: offline, the Sync page never keeps saying "your phone is up to date". */
+    @Test fun staleUpToDateHiddenWhileOffline() {
+        val status = SyncStatus()
+        assertEquals(SyncFeedback.UPDATED, SyncFeedback.shown(SyncFeedback.UPDATED, status))
+        assertNull(SyncFeedback.shown(SyncFeedback.UPDATED, status.copy(offline = true)))
+        assertNull(SyncFeedback.shown(SyncFeedback.UPDATED, status.copy(queued = 1)))
+        assertEquals(SyncFeedback.UNAVAILABLE, SyncFeedback.shown(SyncFeedback.UNAVAILABLE, status.copy(offline = true)))
+    }
 }

@@ -97,10 +97,18 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     val keep = draftHolder
     // SP-0196: a rebuilt screen starts from the form kept above it, never from an older phone copy.
     val held = if (edit) null else keep.draft
-    var name by rememberSaveable(editKey) { mutableStateOf((editing?.name ?: initialName).take(80)) }
-    var address by rememberSaveable(editKey) { mutableStateOf(editing?.let { it.address ?: it.account?.address }.orEmpty()) }
-    var owner by rememberSaveable(editKey) { mutableStateOf(editing?.contactName.orEmpty()) }
-    var phone by rememberSaveable(editKey) { mutableStateOf(editing?.contactPhone.orEmpty()) }
+    // QA retest: an explicit per-store key, so a value saved earlier on this screen (for example an empty
+    // Add customer form) is never restored into Edit customer; the agent must not retype the name.
+    val saveKey = "census-${editKey ?: "new"}"
+    var name by rememberSaveable(editKey, key = "$saveKey-name") { mutableStateOf((editing?.name ?: initialName).take(80)) }
+    var address by rememberSaveable(editKey, key = "$saveKey-address") { mutableStateOf(editing?.let { it.address ?: it.account?.address }.orEmpty()) }
+    var owner by rememberSaveable(editKey, key = "$saveKey-owner") { mutableStateOf(editing?.contactName.orEmpty()) }
+    var phone by rememberSaveable(editKey, key = "$saveKey-phone") { mutableStateOf(editing?.contactPhone.orEmpty()) }
+    LaunchedEffect(editKey) {
+        val start = current ?: return@LaunchedEffect
+        val filled = CensusRules.prefill(start, CensusRules.Current(name, address, owner, phone))
+        name = filled.name.take(80); address = filled.address; owner = filled.ownerName; phone = filled.ownerPhone
+    }
     var batch by rememberSaveable { mutableStateOf("") }; var channel by rememberSaveable { mutableStateOf("") }
     var subchannel by rememberSaveable { mutableStateOf("") }; var estimatedClass by rememberSaveable { mutableStateOf("D") }
     var landmark by rememberSaveable { mutableStateOf("") }

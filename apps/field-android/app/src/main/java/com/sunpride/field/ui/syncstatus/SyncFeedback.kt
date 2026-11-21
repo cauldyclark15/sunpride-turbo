@@ -10,6 +10,10 @@ object SyncFeedback {
     const val UNAVAILABLE = "Could not sync now. Your saved work is kept. Try again."
     const val UPDATE = "Update the app, then try Sync now again."
 
+    /** The last Sync now result, unless the phone state since makes it untrue (offline or work waiting). */
+    fun shown(message: String?, status: SyncStatus): String? =
+        if (message == UPDATED && (status.offline || !status.nothingWaiting)) null else message
+
     /** Fixed copy only: never show a raw transport exception or a server-supplied warning. */
     fun result(data: TodayData, sellFailed: Boolean = false): String = when {
         data.updateRequired -> UPDATE
