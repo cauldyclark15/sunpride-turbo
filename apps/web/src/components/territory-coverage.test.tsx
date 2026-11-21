@@ -6,10 +6,12 @@ import {
   TerritoryCoverageFields,
   TerritoryStores,
   readCoverageForm,
+  storeListArgs,
 } from "./territory-coverage-fields";
 import { CustomerGroupsAdmin } from "./customer-groups-admin";
 import { performTerritoryAction } from "./territory-admin";
 import type { ReadMap } from "./master-data/model";
+import { orgQueryParams } from "./master-data/api";
 
 const render = (store: ApiStore, node: React.ReactNode) =>
   renderToStaticMarkup(createElement(ApiProvider, { store }, node));
@@ -151,11 +153,7 @@ describe("SP-0222 territory coverage", () => {
       [
         "setup",
         "outlets/list",
-        {
-          territoryId: "t",
-          status: "active",
-          paginationOpts: { numItems: 25, cursor: null },
-        },
+        storeListArgs("", null, { territoryId: "t" }),
       ],
       {
         ...page([{ _id: "s", code: "SAMPLE-1", name: "SAMPLE Store" }]),
@@ -182,11 +180,7 @@ describe("SP-0222 territory coverage", () => {
       [
         "setup",
         "outlets/list",
-        {
-          q: "",
-          status: "active",
-          paginationOpts: { numItems: 25, cursor: null },
-        },
+        storeListArgs("", null),
       ],
       page([
         {
@@ -212,5 +206,32 @@ describe("SP-0222 territory coverage", () => {
     expect(html).not.toContain("Add customer group");
     expect(html).not.toContain("Link selected stores");
     expect(html).toContain("A national administrator");
+  });
+  it("store search sends the typed words to the server as a store search, from page one", () => {
+    const args = storeListArgs("  Cebu  ", null, { territoryId: "t" });
+    expect(args).toEqual({
+      territoryId: "t",
+      q: "Cebu",
+      searchIn: "store",
+      status: "active",
+      paginationOpts: { numItems: 25, cursor: null },
+    });
+    const wire = orgQueryParams(args);
+    expect(wire.q).toBe("Cebu");
+    expect(wire.searchIn).toBe("store");
+    // Different words are different reads, so typing replaces the list.
+    expect(JSON.stringify(storeListArgs("Cebu", null))).not.toBe(
+      JSON.stringify(storeListArgs("Mandaue", null)),
+    );
+  });
+  it("territory store list shows a search box and an empty-search message", () => {
+    const store = setup();
+    store.setData(
+      ["setup", "outlets/list", storeListArgs("", null, { territoryId: "t" })],
+      page([]),
+    );
+    const html = render(store, <TerritoryStores territoryId="t" />);
+    expect(html).toContain("Search stores");
+    expect(html).toContain("No active stores here yet.");
   });
 });

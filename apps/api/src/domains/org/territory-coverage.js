@@ -4,7 +4,7 @@ import {
 } from "../../core/capabilities.js";
 import { access } from "./readers.js";
 import { code, dto, paging, page, required, rule, uuid } from "./model.js";
-import { assertUnlocked } from "./commands.js";
+import { assertPlansKept } from "./commands.js";
 import { logReferenceChange } from "../masters/reference-log.js";
 
 /** @typedef {import('./model.js').Ctx} Ctx */
@@ -132,13 +132,16 @@ export async function saveCoverage(c, id, b) {
     or exists(select 1 from outlet_assignments a where a.outlet_id=o.id and a.territory_id=${id} and a.assignment_source='automatic' and a.deleted_at is null and (a.effective_to is null or a.effective_to>now())))`;
   for (const row of affected) {
     await access(c, "outlets", row.id, "territory.manage");
-    await assertUnlocked(c, [row.id], [], c.now);
   }
   await c.db`delete from territory_coverage where territory_id=${id}`;
   for (const r of desired)
     await c.db`insert into territory_coverage(territory_id,municipality_code,barangay_code,customer_group_id) values(${id},${r.municipality_code ?? null},${r.barangay_code ?? null},${r.customer_group_id ?? null})`;
   await c.db`update territories set territory_type=${type} where id=${id}`;
   await c.db`select refresh_all_territory_coverage()`;
+  await assertPlansKept(
+    c,
+    affected.map((/** @type {any} */ r) => r.id),
+  );
   for (const row of affected)
     await access(c, "outlets", row.id, "territory.manage");
   const describe = (/** @type {any[]} */ rows) =>
@@ -211,7 +214,6 @@ export async function linkCustomerGroup(c, b) {
   const reason = required(b.reason, "Reason", 500);
   for (const id of ids) {
     const store = await access(c, "outlets", uuid(id), "territory.manage");
-    await assertUnlocked(c, [id], [], c.now);
     if ((store.customer_group_id ?? null) === groupId) continue;
     const describe = async (/** @type {string|null} */ group) =>
       group
@@ -231,5 +233,6 @@ export async function linkCustomerGroup(c, b) {
       reason,
     );
   }
+  await assertPlansKept(c, ids);
   return ids.length;
 }

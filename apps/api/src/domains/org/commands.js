@@ -635,6 +635,50 @@ export async function assertUnlocked(c, outlets, routes, from) {
     rule("An approved coverage plan locks this interval", "plan_locked");
 }
 
+/**
+ * SP-0222: office edits to territory coverage and customer groups may add stores freely;
+ * they are refused only when, AFTER the change, a store in an approved/active plan is no
+ * longer in that plan's territory for the rest of the plan's dates. Call inside the write
+ * transaction after the change (and coverage refresh) so a refusal rolls everything back.
+ * @param {Ctx} c @param {string[]} outlets
+ */
+export async function assertPlansKept(c, outlets) {
+  if (!outlets.length) return;
+  const broken =
+    await c.db`select o.name store, t.name territory, s.name salesman, p.local_month, p.effective_to
+    from coverage_plans p join coverage_plan_outlets x on x.plan_id=p.id
+    join outlets o on o.id=x.outlet_id
+    left join territories t on t.id=x.territory_id
+    left join profiles s on s.id=p.assignee_profile_id
+    where p.deleted_at is null and p.status in ('approved','active') and p.effective_to>now()
+      and x.territory_id is not null
+      and x.outlet_id in (select value::uuid from jsonb_array_elements_text(${JSON.stringify(outlets)}::text::jsonb))
+      and not (tstzrange(greatest(now(),p.effective_from),p.effective_to,'[)') <@ coalesce((
+        select range_agg(tstzrange(a.effective_from,a.effective_to,'[)')) from outlet_assignments a
+        where a.outlet_id=x.outlet_id and a.territory_id=x.territory_id and a.deleted_at is null
+          and a.effective_to is distinct from a.effective_from),'{}'::tstzmultirange))
+    order by p.effective_to desc, o.name limit 3`;
+  if (!broken.length) return;
+  const day = (/** @type {any} */ d) =>
+    new Date(d).toLocaleDateString("en-PH", {
+      timeZone: "Asia/Manila",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+  const month = (/** @type {string} */ m) =>
+    new Date(`${m}-15T00:00:00+08:00`).toLocaleDateString("en-PH", {
+      timeZone: "Asia/Manila",
+      month: "long",
+      year: "numeric",
+    });
+  const b = broken[0];
+  rule(
+    `This change would take ${b.store}${broken.length > 1 ? " and other stores" : ""} out of ${b.salesman ?? "a salesman"}'s approved coverage plan for ${month(b.local_month)} (${b.territory ?? "its territory"}). Adding stores is fine. To remove or move it, make the change on or after ${day(b.effective_to)}, or revise that plan first.`,
+    "plan_locked",
+  );
+}
+
 /** @param {any} raw */
 function boundary(raw) {
   if (!raw) return;

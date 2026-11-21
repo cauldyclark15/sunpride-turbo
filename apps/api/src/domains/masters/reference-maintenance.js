@@ -1,6 +1,6 @@
 import { requireNationalScope } from "../../core/capabilities.js";
 import { required, rule, uuid } from "../org/model.js";
-import { assertUnlocked } from "../org/commands.js";
+import { assertPlansKept } from "../org/commands.js";
 import { resolveGeography } from "./customers.js";
 import { logReferenceChange } from "./reference-log.js";
 
@@ -168,8 +168,6 @@ export async function savePlace(c, b) {
       )
     : [];
   // Label corrections leave assignment facts and signed plan snapshots unchanged.
-  if (before && spec.parent && before[spec.parent] !== parent.code)
-    for (const p of affected) await assertUnlocked(c, [p.outlet_id], [], c.now);
   if (before) {
     await c.db.unsafe(
       `update ${spec.table} set name=$1,updated_at=now()${spec.parent ? `,${spec.parent}=$3` : ""}${b.kind === "municipality" ? ",region_code=$4" : ""} where code=$2`,
@@ -211,6 +209,11 @@ export async function savePlace(c, b) {
     await c.db`update outlets o set address=customer_address_line(p.room_stall_no,p.floor,p.house_no,p.street1,p.street2,p.barangay_name,p.municipality_name,p.province_name,p.postal_code) from customer_profiles p where o.id=${p.outlet_id} and p.outlet_id=o.id and not p.address_custom`;
     await c.db`update customer_ship_tos s set ship_to_address=o.address,updated_by=${c.actor.userId},updated_at=now() from outlets o where s.outlet_id=${p.outlet_id} and o.id=s.outlet_id and s.same_as_customer and s.deleted_at is null`;
   }
+  // SP-0222: refused only if a moved place pulls a store out of an approved plan.
+  await assertPlansKept(
+    c,
+    affected.map((/** @type {any} */ p) => p.outlet_id),
+  );
   await c.db`insert into ph_geography_releases(release,source,counts,loaded_by) values(${`admin-${crypto.randomUUID()}`},${{ type: "admin-setup", reason }},${{ changedPlace: code }},${c.actor.userId})`;
   await logReferenceChange(
     c,

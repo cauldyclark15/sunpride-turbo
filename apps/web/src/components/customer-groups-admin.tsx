@@ -6,6 +6,7 @@ import { Card, FormField, Pager } from "@sunpride/ui";
 import { useQuery, useMutation } from "./master-data/api";
 import { useSetupParam } from "./master-data/location";
 import { SetupSearch } from "./master-data/setup-health";
+import { storeListArgs } from "./territory-coverage-fields";
 import type { CustomerGroup } from "./master-data/model";
 
 const button =
@@ -45,13 +46,10 @@ export function CustomerGroupsAdmin() {
   const stores = useQuery(
     "outlets/list",
     canRead
-      ? {
-          q: search,
-          status: "active",
+      ? storeListArgs(search, storePages.at(-1) ?? null, {
           ...(onlyMembers && selected ? { customerGroupId: selected._id } : {}),
           ...(missingOnly ? { missingCoverage: "true" } : {}),
-          paginationOpts: { numItems: 25, cursor: storePages.at(-1) },
-        }
+        })
       : "skip",
   );
   const save = useMutation("customer-groups/save");

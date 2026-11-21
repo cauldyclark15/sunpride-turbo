@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { FormField, Pager } from "@sunpride/ui";
 import { useQuery } from "./master-data/api";
+import { SetupSearch } from "./master-data/setup-health";
 import type { Coverage, CoverageInput, ReadMap } from "./master-data/model";
 
 export function readCoverageForm(data: Pick<FormData, "get">): CoverageInput {
@@ -211,20 +212,45 @@ export function TerritoryCoverageFields({
   );
 }
 
+/** SP-0222: store-list read for the territory/group pickers; typing searches name, code,
+ * city/barangay and territory (not the address province, which matched every store). */
+export function storeListArgs(
+  search: string,
+  cursor: string | null,
+  filters: Record<string, unknown> = {},
+) {
+  return {
+    ...filters,
+    q: search.trim(),
+    searchIn: "store",
+    status: "active",
+    paginationOpts: { numItems: 25, cursor },
+  };
+}
+
 export function TerritoryStores({ territoryId }: { territoryId: string }) {
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
-  const stores = useQuery("outlets/list", {
-    territoryId,
-    status: "active",
-    paginationOpts: { numItems: 25, cursor: cursors.at(-1) },
-  });
+  // Lazy initial value: sibling tests count plain useState("") calls by position.
+  const [search, setSearch] = useState(() => "");
+  const stores = useQuery(
+    "outlets/list",
+    storeListArgs(search, cursors.at(-1) ?? null, { territoryId }),
+  );
   return (
     <section className="grid gap-2">
       <h4>Stores in this territory</h4>
+      <SetupSearch
+        label="Search stores"
+        value={search}
+        onChange={(value) => {
+          setSearch(value);
+          setCursors([null]);
+        }}
+      />
       {!stores ? (
         <p>Loading stores…</p>
       ) : !stores.page.length ? (
-        <p>No active stores here yet.</p>
+        <p>{search ? "No stores match this search." : "No active stores here yet."}</p>
       ) : (
         <ul>
           {stores.page.map((row) => (

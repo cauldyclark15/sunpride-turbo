@@ -311,9 +311,15 @@ export async function list(c, kind, p) {
   if (p.id) where += ` and t.id=${bind(uuid(p.id))}::uuid`;
   if (cursor) where += ` and t.id>${bind(cursor)}::uuid`;
   if (q) {
-    const query = search ? bind(q) : null,
+    const storeSearch = kind === "outlets" && p.searchIn === "store";
+    const query = search && !storeSearch ? bind(q) : null,
       like = bind(`%${q.replace(/[\\%_]/g, "\\$&")}%`);
-    where += search
+    // SP-0222: store pickers (territories, customer groups) match what each row shows:
+    // name, code, city/barangay and current territory. The full-text address match also
+    // hits the province ("…, Cebu"), so typing "Cebu" listed every store.
+    if (storeSearch)
+      where += ` and (t.name ilike ${like} or t.code ilike ${like} or exists(select 1 from customer_profiles cp where cp.outlet_id=t.id and cp.deleted_at is null and (cp.municipality_name ilike ${like} or cp.barangay_name ilike ${like})) or exists(select 1 from territories st where st.id=assignment.territory_id and st.name ilike ${like}))`;
+    else where += search
       ? ` and (${search} @@ plainto_tsquery('simple',${query}) or t.name ilike ${like}${kind === "people" ? ` or t.email ilike ${like}` : ` or t.code ilike ${like}`})`
       : ` and (t.${kind === "invitations" ? "email" : kind === "devices" ? "inventory_tag" : "name"} ilike ${like})`;
   }
