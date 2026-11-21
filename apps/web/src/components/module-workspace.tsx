@@ -36,6 +36,7 @@ import { ModernTradeWorkspace } from "./modern-trade";
 import { PanelErrorBoundary } from "./panel-error-boundary";
 import { ProgrammeWorkspace } from "./programme/programme-workspace";
 import { SupervisionWorkspace } from "./supervision/supervision-workspace";
+import { RemittancesWorkspace } from "./remittances/remittances";
 import { TrainingWorkspace } from "./training/trainer-forms";
 import { VanCashApproval } from "./van-cash-approval";
 import { VanDamageApprovals } from "./van-damage-approvals";
@@ -80,6 +81,7 @@ const TITLES = {
   pricing: "Prices",
   "trade-promotions": "Trade Marketing",
   "finance-claims": "Claims & Finance",
+  remittances: "Cash remittances",
   "sap-integration": "Integration",
   programme: "Programme",
   distributors: "Distributors",
@@ -224,6 +226,8 @@ function ModuleContent({ module }: { module: WebModuleSlug }): ReactNode {
       return <TradeMarketingWorkspace />;
     case "finance-claims":
       return <FinanceClaimsWorkspace />;
+    case "remittances":
+      return <RemittancesWorkspace />;
     case "pricing":
       return <PricingWorkspace />;
     case "van-trips":

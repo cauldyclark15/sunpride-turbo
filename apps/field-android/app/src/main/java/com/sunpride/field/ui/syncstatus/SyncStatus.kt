@@ -94,6 +94,7 @@ data class SyncStatus(
             "dsr.visit.checkOut" -> "End visit"
             "availability.record", "dsr.availability.record" -> "Shelf check"
             "collections.capture" -> "Collection"
+            "remittance.submit" -> "Cash remittance"
             "jointcall.capture" -> "Work-With"
             "workforce.clockIn" -> "Clock in"
             "workforce.clockOut" -> "Clock out"

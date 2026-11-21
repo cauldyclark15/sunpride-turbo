@@ -1,12 +1,21 @@
-# Cash remittance — preparation for SP-0228
+# Cash remittance (SP-0228)
 
-## Status and prerequisite
+## Status and scope decision
 
-This is an implementation and acceptance checklist, not an available app feature or a record of money received. No Field app menu, receipt upload, Finance queue or weekly reconciliation integration is implemented by this document.
+Built standalone. SP-0228 originally started after the weekly truck stock card (**VAN-STOCK-WEEK, SP-0227**), which is waiting on Sunpride's answers. JC's lead session authorized building remittance capture and the Finance queue **now**, and linking confirmed remittances to the weekly cashier reconciliation later in SP-0227. Until then a remittance is not counted in any weekly figure.
 
-SP-0228 explicitly starts after **VAN-STOCK-WEEK (SP-0227)**. The SP-0227 preparation report says the weekly workflow is not implemented and is awaiting Sunpride's answers about the partial-loading cashier basis and stock reasons. Its preparation commit contains worksheets, a worksheet generator, tests and a runbook, not application changes. That commit is not in the starting tree for SP-0228.
+## Where
 
-Do not replace this prerequisite with the existing daily trip settlement or silently choose a weekly financial basis. Resume implementation after the weekly stock authority and cashier report are available. Building a separately usable remittance feature before that is a scope/sequencing change requiring JC's approval, not a question for Sunpride office staff on this issue.
+- **Field app → More → Remit cash** (people with Selling on, and the owner). Amount (₱), Sent through (Palawan Express, Cebuana Lhuillier, GCash, Bank deposit, Other + name), Reference number, Date and time remitted, Receipt photo (required), Note (optional). Saved on the phone first and sent by itself through the normal sync (op `remittance.submit` in the shared domain outbox), so it works without signal.
+- **Web → Work → Cash remittances** (`/remittances`). Opens on "Waiting for Finance". Filter by dates, branch, salesman and status; View receipt; Confirm or Reject (reason required); Download CSV.
+
+## How it is stored and checked
+
+- `field_cash_remittances` (migration `0840_cash_remittances.sql`): salesman, the salesman's branch at submission, device, amount in centavos, channel (+ other name), reference, remitted time, submission time, note, receipt file (`files`, purpose `remittance-receipt`), status `submitted` / `confirmed` / `rejected` (+ reason, reviewer, review time). Submit, confirm and reject each write `audit_logs`.
+- Retry safety: op receipts (phone op id) plus the remittance id. The same facts sent again are the same record; changed facts under the same id are refused (`idempotency_conflict`). The phone's `deviceTime` stamp is not part of the facts.
+- Capabilities: `remittance.submit` (owner, sales; the server also requires Selling on), `remittance.read` (owner, admin, operations, manager, approver, analyst), `remittance.review` (owner, admin, operations, approver = Finance). Reads follow the stored branch and the reader's current scope: managers see their branch and below, national office roles see all. Out-of-scope rows and receipts answer "not found". Nobody reviews their own remittance. A decision is final; repeating the same decision is harmless.
+- Receipt JPEG: up to 64 KiB, longest side 1024 px (≤ 1 MP), digest-checked and decoded on the server; served privately (`/api/v1/remittances/:id/receipt`, `no-store`).
+- API: `GET /api/v1/remittances?from&to&unit&salesman&status`, `POST /api/v1/remittances/:id/confirm`, `POST /api/v1/remittances/:id/reject {reason}`.
 
 ## Confirmed client requirements
 
@@ -15,7 +24,7 @@ Source: `~/.hermes/attachments/SUNPRIDE_CORRECTIONS.md`, section 4, lines 37–4
 - A salesman away from the depot can remit through Palawan or another remittance center.
 - Record a **Cash remittance** activity with amount, channel, reference number and receipt photo.
 - Finance can see the remittance and its receipt, then confirm it.
-- The remittance counts toward the week's cashier reconciliation.
+- The remittance counts toward the week's cashier reconciliation (SP-0227, not yet).
 - The client said cash should be remitted the same day or by the next day. No cash threshold was set.
 
 Do not invent an amount threshold, processing fee, automatic approval, late-entry lockout or a rule limiting remittance centers to Palawan. Display the same/next-day guidance without pretending software can attest when the center actually received the money.
@@ -51,7 +60,7 @@ The following labels describe intended business facts, not a finalized storage o
 
 Keep visible statuses limited to what is true: waiting to send on the phone, submitted for Finance review, or confirmed after the office actually confirms. A photo that has not reached protected storage is not available to Finance. Do not display “received” or “confirmed” merely because a transport request succeeded.
 
-## Weekly reconciliation integration checklist
+## Weekly reconciliation integration checklist (SP-0227, still to do)
 
 - Use the weekly stock record and cashier authority delivered by SP-0227; do not infer a weekly liability from a single day's POS total.
 - Show unconfirmed remittances separately from confirmed amounts. Only independently confirmed entries can reduce cash still due in the cashier reconciliation.
@@ -62,20 +71,6 @@ Keep visible statuses limited to what is true: waiting to send on the phone, sub
 - Preserve the weekly report's own valuation and partial-loading rules. Do not settle SP-0227's unanswered requested-versus-served question here.
 - Retain an auditable link from a weekly amount to its remittance, reference, receipt, submitter and confirmer. Any future correction must preserve the original facts rather than silently replace evidence or money.
 
-## Smallest implementation proof after the prerequisite
+## Proof status
 
-All boxes below remain unchecked. These are future acceptance checks, not results.
-
-- [ ] Create one clearly marked sample salesman, an independent scoped Finance reviewer and the smallest valid weekly stock record through the real delivered weekly workflow.
-- [ ] In Field app > Remit cash, submit a positive amount, Palawan, a reference with leading zeroes and a real uploaded sample receipt image. Verify the persisted record and the privately served image, not just a mocked upload response.
-- [ ] Submit another entry using another remittance center and a partial amount. Verify the first entry is unchanged and both belong to the intended weekly stock record.
-- [ ] Verify Finance can list the pending records with amount, channel, reference, salesman and receipt; a missing or failed image is shown as unavailable, not substituted with a sample picture.
-- [ ] Confirm one entry as the independent reviewer; read it back and open the weekly cashier report. The confirmed amount appears once; the unconfirmed second amount does not reduce cash due.
-- [ ] Retry submission and confirmation unchanged, including a concurrent retry. Verify one record and one weekly contribution. Changed money, photo, reference or weekly link under the same request identity must not overwrite the original.
-- [ ] Deny unrelated salesmen and out-of-scope readers both the record and receipt bytes. Deny sender self-confirmation and writes from a suspended/reassigned device or withdrawn assignment, including on replay.
-- [ ] Refuse missing amount/channel/reference/photo, invalid amounts, a foreign or unstored receipt and a mismatched weekly record without partial business writes.
-- [ ] Exercise remittance date, submission date and confirmation date across a week boundary. Read the original weekly report to verify no automatic reattribution.
-- [ ] Reconcile a later depot cash hand-in and confirm there is no second credit for the same remittance.
-- [ ] Run the specified API, web and Android checks for the areas actually changed. No phone installation or production write is authorized in the SP-0228 development work.
-
-Use invented data only when visibly marked as sample. A sample workflow proves software behavior, not an actual Palawan transfer, a live Finance review or Sunpride acceptance.
+Automated: `apps/api/test/remittances.test.js` (create, idempotency, validation, Selling off, scope, receipt access, confirm/reject), `apps/web/src/components/remittances/remittances.test.tsx`, `apps/field-android/.../remit/RemitCashTest.kt`. Not yet done: a phone pass on the test phone and Sunpride's own trial. The weekly-link checks above wait for SP-0227. Use invented data only when visibly marked as sample.

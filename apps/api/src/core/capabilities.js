@@ -137,6 +137,18 @@ export const CAPABILITIES = Object.freeze({
   "van.refund.approve": ["super_admin", "manager", "approver"],
   "van.cash.approve": ["super_admin", "manager", "approver"],
   "van.stock.approve": ["super_admin", "manager", "approver"],
+  // SP-0228: a salesman (Selling on, or the owner) records a cash remittance with its receipt;
+  // Finance (approver) and the office confirm or reject it. Managers read their branch.
+  "remittance.submit": ["super_admin", "sales"],
+  "remittance.read": [
+    "super_admin",
+    "admin",
+    "operations",
+    "manager",
+    "approver",
+    "analyst",
+  ],
+  "remittance.review": ["super_admin", "admin", "operations", "approver"],
 });
 
 /** Unscoped tester-feedback writes read-only roles may hold. */

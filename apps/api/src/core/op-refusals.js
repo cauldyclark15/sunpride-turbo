@@ -22,6 +22,7 @@ const OP_NAMES = /** @type {Record<string,string>} */ ({
   "dsr.availability.record": "Shelf check",
   "availability.proposal": "Shelf check change",
   "collections.capture": "Collection",
+  "remittance.submit": "Cash remittance",
   "jointcall.capture": "Work-With",
   "workforce.clockIn": "Clock in",
   "workforce.clockOut": "Clock out",

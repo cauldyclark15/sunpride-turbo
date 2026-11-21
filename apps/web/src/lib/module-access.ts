@@ -249,6 +249,15 @@ export const MODULE_ROLES = {
     "analyst",
     "viewer",
   ],
+  // SP-0228 remittance.read: Finance and the office see all, managers their branch.
+  remittances: [
+    "super_admin",
+    "admin",
+    "operations",
+    "manager",
+    "approver",
+    "analyst",
+  ],
   pricing: masterDataManagers, // masterdata.manage (price lists are master data)
   "sap-integration": integrationReaders, // integration.read
   programme: administrators, // admin.manage (v2 spec F-025 traceability)

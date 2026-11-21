@@ -40,7 +40,7 @@ object BackNavigation {
         s.page == "account" || s.page == "sync" -> BackStep.ToPage(s.origin)
         s.page == "support" || s.page == "change-password" -> BackStep.ToPage("account")
         s.ready && s.page == "more" -> BackStep.ToPage("home")
-        s.ready && (s.page == "location-consent" || s.page == "location-battery" || s.page == "workforce" || s.page == "jointcall" || s.page == "collections") -> BackStep.ToPage(s.origin)
+        s.ready && (s.page == "location-consent" || s.page == "location-battery" || s.page == "workforce" || s.page == "jointcall" || s.page == "collections" || s.page == "remit") -> BackStep.ToPage(s.origin)
         s.visitOpen && s.visitsEnabled && s.ready -> when {
             s.photoCaptureOpen -> BackStep.ClosePhoto
             s.activityFormOpen -> BackStep.CloseActivityForm

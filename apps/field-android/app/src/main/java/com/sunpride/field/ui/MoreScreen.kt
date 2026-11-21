@@ -34,6 +34,8 @@ fun MoreScreen(
     onCatalogue: () -> Unit, onWorkforce: (() -> Unit)?, onCollections: (() -> Unit)?, onIncentives: (() -> Unit)?,
     onSignOut: () -> Unit, modifier: Modifier = Modifier,
     onCensus: (() -> Unit)? = null, onJointCall: (() -> Unit)? = null, onTeam: (() -> Unit)? = null,
+    /** SP-0228: Selling on (or the owner): record cash sent through Palawan, Cebuana, GCash or a bank. */
+    onRemitCash: (() -> Unit)? = null,
     onBatteryGuide: (() -> Unit)? = null, onReportIssue: (() -> Unit)? = null,
     /** SP-0195: the owner's Switch mode; shown only when [modes] has more than one entry. */
     modes: List<AppMode> = emptyList(), mode: AppMode? = null, onSwitchMode: ((AppMode) -> Unit)? = null,
@@ -51,6 +53,8 @@ fun MoreScreen(
                 Modifier.testTag("workforce-open"), onClick = onWorkforce) }
             if (onCollections != null) { Rule(); ListRow("Collections", "Payments to collect", "cash",
                 Modifier.testTag("collections-open"), onClick = onCollections) }
+            if (onRemitCash != null) { Rule(); ListRow("Remit cash", "Palawan, Cebuana, GCash or bank, with the receipt", "cash",
+                Modifier.testTag("remit-open"), onClick = onRemitCash) }
             if (onJointCall != null) { Rule(); ListRow("Work-With & coaching", "Ride-along visits and coaching notes", "person",
                 Modifier.testTag("jointcall-open"), onClick = onJointCall) }
             if (onTeam != null) { Rule(); ListRow("Your team", "Who is on route today", "team",

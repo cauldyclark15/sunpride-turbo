@@ -177,6 +177,7 @@ export const WORKSPACE_SLUGS = [
   "pricing",
   "trade-promotions",
   "finance-claims",
+  "remittances",
   "sap-integration",
   "programme",
   "distributors",
@@ -241,6 +242,8 @@ const moduleTabs: Record<string, WorkspaceModuleTab[]> = {
       label: "Claims & Finance",
       href: "/finance-claims",
     },
+    // SP-0228: cash salesmen sent through Palawan, Cebuana, GCash or a bank deposit.
+    { id: "remittances", label: "Cash remittances", href: "/remittances" },
     { id: "modern-trade", label: "Modern trade", href: "/modern-trade" },
     { id: "sales-force", label: "Coverage plans", href: "/sales-force" },
     { id: "call-sheets", label: "Call sheets", href: "/call-sheets" },

@@ -37,6 +37,8 @@ const calls = {
     "/api/v1/tpm/deductions",
     "/api/v1/tpm/incentives",
   ],
+  // SP-0228: Finance queue of cash remittances (the page opens on "waiting for Finance").
+  remittances: ["/api/v1/remittances?status=submitted"],
   // F-306 F-307 F-309: real mounted reads for the MT Work tab.
   "modern-trade": [
     "/api/v1/mt/options",

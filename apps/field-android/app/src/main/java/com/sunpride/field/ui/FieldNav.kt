@@ -52,15 +52,15 @@ object FieldNav {
 
     /** Pages that are forms or one-time steps: the bar steps aside so it cannot pull the seller out mid-entry. */
     val noBarPages: Set<String> = setOf("change-password", "location-consent", "location-battery",
-        "census", "workforce", "jointcall", "collections")
+        "census", "workforce", "jointcall", "collections", "remit")
 
     /** Pages reached from somewhere else (Account, Sync, a tool): Back returns to the page they opened from. */
     val overlayPages: Set<String> = setOf("account", "sync", "support", "change-password", "incentives", "catalogue", "census",
-        "team", "workforce", "jointcall", "collections", "location-consent", "location-battery")
+        "team", "workforce", "jointcall", "collections", "remit", "location-consent", "location-battery")
 
     /** Pages FieldApp shows even while a visit is open (they come before the visit screens in its `when`). */
     val pagesAheadOfVisit: Set<String> = setOf("account", "incentives", "change-password", "support", "location-consent",
-        "location-battery", "collections", "jointcall", "catalogue", "census", "workforce", "messages",
+        "location-battery", "collections", "remit", "jointcall", "catalogue", "census", "workforce", "messages",
         "sync", "more")
 
     /** The tab a page belongs to (drill-down pages keep their parent tab selected). */
@@ -84,16 +84,16 @@ object FieldNav {
     }
 
     /** SP-0195: More pages Customer mapping hides (Attendance, Collections, Earned statements, Work-With, Your team). */
-    val mappingHiddenPages: Set<String> = setOf("workforce", "collections", "incentives", "jointcall", "team")
+    val mappingHiddenPages: Set<String> = setOf("workforce", "collections", "remit", "incentives", "jointcall", "team")
 
     /**
      * The "Your work" rows More shows, in order. Customer mapping keeps only Products and Add customer; Field visits and
      * Truck selling are unchanged (Add customer needs Visits, Work-With a supervisor, Your team the Team feature too).
      */
-    fun moreWorkRows(mode: AppMode, visits: Boolean, supervisor: Boolean, team: Boolean): List<MoreRow> =
+    fun moreWorkRows(mode: AppMode, visits: Boolean, supervisor: Boolean, team: Boolean, remit: Boolean = false): List<MoreRow> =
         if (mode == AppMode.MAPPING) listOf(MoreRow.PRODUCTS, MoreRow.ADD_CUSTOMER)
         else listOfNotNull(MoreRow.PRODUCTS, MoreRow.ADD_CUSTOMER.takeIf { visits }, MoreRow.ATTENDANCE, MoreRow.COLLECTIONS,
-            MoreRow.WORK_WITH.takeIf { supervisor }, MoreRow.TEAM.takeIf { team && supervisor }, MoreRow.EARNED_STATEMENTS)
+            MoreRow.REMIT_CASH.takeIf { remit }, MoreRow.WORK_WITH.takeIf { supervisor }, MoreRow.TEAM.takeIf { team && supervisor }, MoreRow.EARNED_STATEMENTS)
 
     /**
      * E2E-001: the moment the app becomes ready (sign-in or registration just finished, or a launch) it opens on
@@ -171,4 +171,4 @@ fun rememberImeVisible(): Boolean {
 }
 
 /** SP-0195: the rows of More's "Your work" group. */
-enum class MoreRow { PRODUCTS, ADD_CUSTOMER, ATTENDANCE, COLLECTIONS, WORK_WITH, TEAM, EARNED_STATEMENTS }
+enum class MoreRow { PRODUCTS, ADD_CUSTOMER, ATTENDANCE, COLLECTIONS, REMIT_CASH, WORK_WITH, TEAM, EARNED_STATEMENTS }

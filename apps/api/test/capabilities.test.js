@@ -122,6 +122,16 @@ const EXPECTED = {
   "van.refund.approve": ["super_admin", "manager", "approver"],
   "van.cash.approve": ["super_admin", "manager", "approver"],
   "van.stock.approve": ["super_admin", "manager", "approver"],
+  "remittance.submit": ["super_admin", "sales"],
+  "remittance.read": [
+    "super_admin",
+    "admin",
+    "operations",
+    "manager",
+    "approver",
+    "analyst",
+  ],
+  "remittance.review": ["super_admin", "admin", "operations", "approver"],
 };
 
 /** @param {string} cap @returns {string[]} */
@@ -154,8 +164,8 @@ async function outcome(p) {
 }
 
 describe("capability table", () => {
-  test("Existing grants plus SP-0223 visit frequency: 67 grants, 8 roles", () => {
-    expect(Object.keys(CAPABILITIES).length).toBe(67);
+  test("Existing grants plus SP-0228 cash remittances: 70 grants, 8 roles", () => {
+    expect(Object.keys(CAPABILITIES).length).toBe(70);
     expect(/** @type {string[]} */ ([...ROLES])).toEqual(A);
     expect(Object.keys(CAPABILITIES).sort()).toEqual(
       Object.keys(EXPECTED).sort(),
@@ -194,7 +204,7 @@ describe("requireCapability matrix", () => {
         }).toEqual({ cap, role, got: want });
         checked++;
       }
-    expect(checked).toBe(67 * 8);
+    expect(checked).toBe(70 * 8);
   });
 
   test("every grant × role with an out-of-scope target: only super_admin and analyst bypass", async () => {

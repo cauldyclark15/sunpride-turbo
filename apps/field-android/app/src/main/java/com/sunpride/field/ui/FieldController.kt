@@ -1367,6 +1367,8 @@ class FieldController(
     /** Last chosen enabled mode, kept per person on this phone. */
     var modeChoice by mutableStateOf<AppMode?>(null); private set
     private var sellsNow = false
+    /** SP-0228: More > Remit cash is for people the office switched Selling on for (and the owner). */
+    val canRemitCash: Boolean get() = sellsNow
     private var modeChoiceVersion = 0L
     private var modeChoiceConfirmed by mutableStateOf(false)
     /** SP-0195: the mode the phone shows: its tabs, its Home, and whether any Sell work runs. */

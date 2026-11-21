@@ -20,7 +20,7 @@ object DomainOutbox {
     fun ticket()=epoch.get()
     fun current(ticket:Long)=epoch.get()==ticket
     fun retire(){epoch.incrementAndGet()}
-    val kinds=setOf("dsr.visit.checkIn","dsr.visit.activity","dsr.visit.checkOut","dsr.availability.record","jointcall.capture","collections.capture")
+    val kinds=setOf("dsr.visit.checkIn","dsr.visit.activity","dsr.visit.checkOut","dsr.availability.record","jointcall.capture","collections.capture",com.sunpride.field.remit.RemitCash.KIND)
     private val flights=java.util.concurrent.ConcurrentHashMap<StoreScope,Mutex>()
     fun isDomain(kind:String)=kind in kinds
     fun intent(scope:StoreScope,kind:String,payload:JSONObject,aggregateId:String=UUID.randomUUID().toString(),dependsOn:List<String> = emptyList(),at:Long=System.currentTimeMillis()):IntentRow {

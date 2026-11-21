@@ -443,6 +443,7 @@ fun FieldApp(
                         onDone = { page = origin }, modifier = modifier)
                 }
                 ready && page == "collections" -> CollectorScreen(controller,modifier)
+                ready && page == "remit" -> RemitCashScreen(controller, modifier)
                 ready && page == "jointcall" -> JointCallScreen(controller,modifier)
                 ready && page == "catalogue" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
                     com.sunpride.field.catalogue.FieldCatalogue(backend, { page = origin }, modifier)
@@ -470,7 +471,7 @@ fun FieldApp(
                     onSync = controller::syncNow, busy = controller.busy, modifier = modifier, now = now,
                     message = controller.syncMessage)
                 ready && page == "more" -> FieldNav.moreWorkRows(mode, visits, controller.today.supervisor,
-                    FieldFeature.TEAM in features).let { rows -> MoreScreen(modifier = modifier, status = status, now = now,
+                    FieldFeature.TEAM in features, controller.canRemitCash).let { rows -> MoreScreen(modifier = modifier, status = status, now = now,
                     onSync = { go("sync") }, onAccount = { go("account") }, onSupport = { go("support") },
                     onCatalogue = { go("catalogue") },
                     // SP-0195: Customer mapping keeps only Products, Add customer and Sync in its work rows.
@@ -478,6 +479,7 @@ fun FieldApp(
                     onWorkforce = if (MoreRow.ATTENDANCE in rows) ({ controller.openWorkforce(); go("workforce") }) else null,
                     onJointCall = if (MoreRow.WORK_WITH in rows) ({ go("jointcall") }) else null,
                     onCollections = if (MoreRow.COLLECTIONS in rows) ({ go("collections") }) else null,
+                    onRemitCash = if (MoreRow.REMIT_CASH in rows) ({ go("remit") }) else null,
                     onTeam = if (MoreRow.TEAM in rows) ({ go("team") }) else null,
                     onIncentives = if (MoreRow.EARNED_STATEMENTS in rows) ({ go("incentives") }) else null,
                     onBatteryGuide = if (batteryGuide != null) ({ go("location-battery") }) else null,
@@ -882,6 +884,7 @@ private fun headerSpec(ready: Boolean, locked: Boolean, signedIn: Boolean, page:
         "workforce" -> HeaderSpec("Attendance", back = true, backTag = "workforce-back")
         "jointcall" -> HeaderSpec("Work-With", back = true, backTag = "account-back")
         "collections" -> HeaderSpec("Collector", back = true, backTag = "account-back")
+        "remit" -> HeaderSpec("Remit cash", back = true, backTag = "account-back")
         "catalogue" -> HeaderSpec("Products", back = true, backTag = "account-back")
         "incentives" -> HeaderSpec("Earned statements", back = true, backTag = "account-back")
         "location-consent" -> HeaderSpec("Location sharing", back = true, backTag = "account-back")

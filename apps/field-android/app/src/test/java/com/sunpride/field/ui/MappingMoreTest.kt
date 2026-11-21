@@ -20,7 +20,7 @@ class MappingMoreTest {
 
     @Test fun visitsAndSellingMoreAreUnchanged() {
         for (mode in listOf(AppMode.VISITS, AppMode.SELLING)) {
-            assertEquals(MoreRow.entries.toList(), FieldNav.moreWorkRows(mode, visits = true, supervisor = true, team = true))
+            assertEquals(MoreRow.entries.toList(), FieldNav.moreWorkRows(mode, visits = true, supervisor = true, team = true, remit = true))
             assertEquals(listOf(MoreRow.PRODUCTS, MoreRow.ATTENDANCE, MoreRow.COLLECTIONS, MoreRow.EARNED_STATEMENTS),
                 FieldNav.moreWorkRows(mode, visits = false, supervisor = false, team = true))
             assertEquals(listOf(MoreRow.PRODUCTS, MoreRow.ADD_CUSTOMER, MoreRow.ATTENDANCE, MoreRow.COLLECTIONS,
@@ -43,14 +43,16 @@ class MappingMoreTest {
         val main = File("src/main/java/com/sunpride/field/ui")
         val more = File(main, "MoreScreen.kt").readText()
         for ((action, label) in listOf("onWorkforce" to "Attendance", "onCollections" to "Collections", "onIncentives" to "Earned statements",
-            "onJointCall" to "Work-With & coaching", "onTeam" to "Your team", "onCensus" to "Add customer"))
+            "onJointCall" to "Work-With & coaching", "onTeam" to "Your team", "onCensus" to "Add customer",
+            "onRemitCash" to "Remit cash"))
             assertTrue(label, Regex("""if \($action != null\) \{ Rule\(\); ListRow\("${Regex.escape(label)}"""").containsMatchIn(more))
         assertTrue(Regex("""\n\s+ListRow\("Products"""").containsMatchIn(more))
         assertTrue(Regex("""\n\s+ListRow\("Sync"""").containsMatchIn(more))
         val app = File(main, "FieldApp.kt").readText()
         assertTrue(app.contains("FieldNav.moreWorkRows(mode, visits,"))
         for ((action, row) in listOf("onCensus" to "ADD_CUSTOMER", "onWorkforce" to "ATTENDANCE", "onJointCall" to "WORK_WITH",
-            "onCollections" to "COLLECTIONS", "onTeam" to "TEAM", "onIncentives" to "EARNED_STATEMENTS"))
+            "onCollections" to "COLLECTIONS", "onTeam" to "TEAM", "onIncentives" to "EARNED_STATEMENTS",
+            "onRemitCash" to "REMIT_CASH"))
             assertTrue(action, app.contains("$action = if (MoreRow.$row in rows)"))
     }
 }

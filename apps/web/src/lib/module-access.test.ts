@@ -61,6 +61,7 @@ describe("module access mirrors apps/api capabilities.js", () => {
       ],
     ],
     ["van-trips", ["van.read"]],
+    ["remittances", ["remittance.read"]],
     // IP-NAV: the Operations verbs.
     ["ops-stock", ["inventory.read"]],
     ["ops-receive", ["inventory.write"]],
