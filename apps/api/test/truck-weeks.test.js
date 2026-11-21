@@ -121,16 +121,60 @@ test("SP-0227 weekly truck stock: served basis, sold from van sales, Saturday co
       lines: [{ productId: a.id, requestedBase: 1, servedBase: 1 }],
     });
     expect(bad.status).toBe(422);
+    const truck = crypto.randomUUID(),
+      depot = crypto.randomUUID(),
+      vehicle = crypto.randomUUID(),
+      trip = crypto.randomUUID();
+    const t = h.db;
+    for (const [id, type] of [
+      [truck, "truck"],
+      [depot, "warehouse"],
+    ])
+      await t`insert into inventory_locations(id,organization_id,org_unit_id,site_code,code,name,type,active,allows_picking,allows_receiving,allows_sale,allows_production) values (${id},'sunpride',${unit},'CEB',${id},${"SAMPLE " + type},${type},true,true,true,true,false)`;
+    await t`insert into vehicles(id,organization_id,org_unit_id,vehicle_code,plate_number,truck_location_id,home_location_id,status,created_by) values (${vehicle},'sunpride',${unit},${vehicle},'SAMPLE',${truck},${depot},'active','fixture')`;
+    await t`insert into van_trips(id,organization_id,org_unit_id,trip_number,vehicle_id,truck_location_id,source_location_id,service_date,salesperson_profile_id,salesperson_subject,status,created_by)
+      values(${trip},'sunpride',${unit},'SAMPLE-T1',${vehicle},${truck},${depot},${week},${people.seller.id},'s','closed','fixture')`;
+    // This is an explicit persisted approval fixture, not a proof of the approval workflow.
+    const plan = crypto.randomUUID();
+    await t`insert into coverage_plans(id,organization_id,assignee_profile_id,local_month,version,cycle_type,org_unit_id,requested_from,requested_to,effective_from,effective_to,status,prepared_by,prepared_at,content_revision,created_by,updated_by,approval_signature,content_hash)
+      values(${plan},'sunpride',${people.seller.id},${week.slice(0, 7)},1,'monthly',${unit},'2020-01-01','2030-01-01','2020-01-01','2030-01-01','approved','SAMPLE',now(),1,'SAMPLE','SAMPLE','SAMPLE-signature','SAMPLE-hash')`;
+    for (const product of [a, b]) {
+      const payload = {
+        data: {
+          productCode: product.id === a.id ? "SAMPLE-A" : "SAMPLE-B",
+          uom: "PC",
+          unitPriceCentavos: 2500,
+          precedence: 1,
+          taxInclusive: true,
+          taxBasisPoints: 0,
+          taxCode: "SAMPLE-EXEMPT",
+        },
+      };
+      await t`insert into sap_replicas(organization_id,master_id,kind,sap_key,sap_version,payload,effective_from,source,payload_hash) values('sunpride',${product.id},'condition',${product.id},1,${payload},'2020-01-01','sample','SAMPLE')`;
+    }
     const saveKey = crypto.randomUUID();
     const saveBody = {
       salespersonProfileId: people.seller.id,
       weekStart: week,
+      vehicleId: vehicle,
+      tripIds: [trip],
       lines: [
         { productId: a.id, requestedBase: 100, servedBase: 80 },
         { productId: b.id, requestedBase: 20, servedBase: 20 },
       ],
     };
-    const saved = await office("truck-weeks/save", saveBody, saveKey);
+    await t`update coverage_plans set status='draft' where id=${plan}`;
+    expect((await office("truck-weeks/save", saveBody)).status).toBe(400);
+    await t`update coverage_plans set status='approved' where id=${plan}`;
+    await t`update van_trips set salesperson_profile_id=${people.other.id} where id=${trip}`;
+    expect((await office("truck-weeks/save", saveBody)).status).toBe(400);
+    await t`update van_trips set salesperson_profile_id=${people.seller.id} where id=${trip}`;
+    const saves = await Promise.all([
+      office("truck-weeks/save", saveBody, saveKey),
+      office("truck-weeks/save", saveBody, saveKey),
+    ]);
+    const saved = saves[0];
+    expect(saves[1].body.id).toBe(saved.body.id);
     expect(saved.status).toBe(200);
     expect((await office("truck-weeks/save", saveBody, saveKey)).body.id).toBe(
       saved.body.id,
@@ -142,14 +186,6 @@ test("SP-0227 weekly truck stock: served basis, sold from van sales, Saturday co
 
     // Sales recorded through the existing van records during the week.
     {
-      const t = h.db;
-      const truck = crypto.randomUUID(),
-        vehicle = crypto.randomUUID(),
-        trip = crypto.randomUUID();
-      await t`insert into inventory_locations(id,organization_id,org_unit_id,site_code,code,name,type,active,allows_picking,allows_receiving,allows_sale,allows_production) values (${truck},'sunpride',${unit},'CEB',${truck},'Truck','truck',true,true,true,true,false)`;
-      await t`insert into vehicles(id,organization_id,org_unit_id,vehicle_code,plate_number,truck_location_id,home_location_id,status,created_by) values (${vehicle},'sunpride',${unit},${vehicle},'SAMPLE',${truck},${truck},'active','fixture')`;
-      await t`insert into van_trips(id,organization_id,org_unit_id,trip_number,vehicle_id,truck_location_id,source_location_id,service_date,salesperson_profile_id,salesperson_subject,status,created_by)
-        values(${trip},'sunpride',${unit},'SAMPLE-T1',${vehicle},${truck},${truck},${week},${people.seller.id},'s','closed','fixture')`;
       const [approval] =
         await t`insert into van_approval_codes(trip_id,kind,facts_hash,facts,issuer_profile_id,issuer_name) values(${trip},'void','x',${{}},${people.office.id},'SAMPLE') returning id`;
       for (const [n, q, voided] of [
@@ -166,6 +202,14 @@ test("SP-0227 weekly truck stock: served basis, sold from van sales, Saturday co
       await t`insert into van_returns(id,trip_id,return_number,captured_request) values(${ret},${trip},'SAMPLE-RET',${{}})`;
       await t`insert into van_return_lines(return_id,ordinal,product_id,quantity_base,stock_status,facts) values(${ret},1,${a.id},2,'available',${{}})`;
     }
+
+    // A second trip for this SAME seller/date is not part of this request.
+    const unlinked = crypto.randomUUID(),
+      unlinkedSale = crypto.randomUUID();
+    await t`insert into van_trips(id,organization_id,org_unit_id,trip_number,vehicle_id,truck_location_id,source_location_id,service_date,salesperson_profile_id,salesperson_subject,status,created_by)
+      values(${unlinked},'sunpride',${unit},'SAMPLE-UNLINKED',${vehicle},${truck},${depot},${week},${people.seller.id},'s','closed','fixture')`;
+    await t`insert into van_sales(id,trip_id,receipt_number,total_centavos,receipt,captured_request) values(${unlinkedSale},${unlinked},'SAMPLE-UNLINKED-R',999999,${{}},${{}})`;
+    await t`insert into van_sale_lines(sale_id,ordinal,product_id,quantity_base,total_centavos,facts) values(${unlinkedSale},1,${a.id},100,999999,${{}})`;
 
     // Field app: signed own bundle shows served stock and active reasons only.
     const key = await deviceKey();
@@ -278,6 +322,41 @@ test("SP-0227 weekly truck stock: served basis, sold from van sales, Saturday co
 
     const detail = await office(`truck-weeks?id=${saved.body.id}`);
     expect(detail.body.status).toBe("counted");
+    expect(detail.body.pos.invoicesMinor).toBe("0");
+    await t`update van_trips set status='active' where id=${trip}`;
+    expect(
+      (
+        await office("truck-weeks/review", {
+          id: saved.body.id,
+          baseUpdatedAt: detail.body.updatedAt,
+        })
+      ).status,
+    ).toBe(422);
+    await t`update van_trips set status='closed' where id=${trip}`;
+    // Actually served 100 - counted 50 = 50 units at PHP25; requested 120 is not the basis.
+    expect(detail.body.cashier.amountMinor).toBe("125000");
+    expect(
+      detail.body.lines.find((/** @type {any} */ l) => l.productId === a.id)
+        .accountableMinor,
+    ).toBe("125000");
+    for (const kind of ["request", "loading", "count", "cashier"]) {
+      const print = await h.fetch(
+        `/api/v1/truck-weeks?id=${saved.body.id}&format=print&report=${kind}`,
+        { headers: { cookie } },
+      );
+      expect(print.status).toBe(200);
+      expect(print.headers.get("content-security-policy")).toContain(
+        "default-src 'none'",
+      );
+      const html = await print.text();
+      expect(html).toContain("QUANTITY RECORD ONLY");
+      expect(html).toContain("SAMPLE-T1");
+      if (kind === "cashier") {
+        expect(html).toContain("PHP 1250.00");
+        if (process.env.SP_REPORT_PROOF_PATH)
+          await Bun.write(process.env.SP_REPORT_PROOF_PATH, html);
+      }
+    }
     const rA = detail.body.lines.find(
       (/** @type {any} */ l) => l.productId === a.id,
     );
@@ -296,13 +375,20 @@ test("SP-0227 weekly truck stock: served basis, sold from van sales, Saturday co
       missingReasons: 0,
     });
 
+    expect(
+      (
+        await h.fetch(
+          `/api/v1/truck-weeks?id=${saved.body.id}&format=print&report=cashier`,
+        )
+      ).status,
+    ).toBe(401);
     const csvAll = await office(`truck-weeks?weekStart=${week}&format=csv`);
     expect(csvAll.status).toBe(200);
     expect(csvAll.text).toContain(
       '"SAMPLE corned beef","PC",100,80,20,48,32,30,2,"Missing","SAMPLE two short"',
     );
 
-    // Another salesman cannot see or count this week; office review closes it.
+    // Office review closes the week; the generic own-seller bundle above did not infer other trips.
     const listed = await office(`truck-weeks?weekStart=${week}`);
     expect(listed.body.rows).toHaveLength(1);
     expect(listed.body.sellers.map((/** @type {any} */ s) => s.name)).toContain(
@@ -313,6 +399,19 @@ test("SP-0227 weekly truck stock: served basis, sold from van sales, Saturday co
       baseUpdatedAt: detail.body.updatedAt,
     });
     expect(reviewed.status).toBe(200);
+    const frozen = await office(`truck-weeks?id=${saved.body.id}`);
+    await t`update products set name='RENAMED' where id=${a.id}`;
+    await t`update sap_replicas set payload=jsonb_set(payload,'{data,unitPriceCentavos}','9999') where kind='condition'`;
+    expect((await office(`truck-weeks?id=${saved.body.id}`)).body).toEqual(
+      frozen.body,
+    );
+    const events =
+      await t`select kind from truck_week_report_events where week_id=${saved.body.id} order by created_at,id`;
+    expect(events.map((/** @type {any} */ e) => e.kind)).toEqual([
+      "request_saved",
+      "counted",
+      "reviewed",
+    ]);
     expect((await push({ ...count, deviceTime: Date.now() })).status).toBe(
       "rejected",
     );

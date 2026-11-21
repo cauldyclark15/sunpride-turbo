@@ -15,6 +15,10 @@ export type TruckWeekLine = {
   reasonName: string | null;
   note: string | null;
   needsReason: boolean;
+  quantityScale?: string;
+  unitPriceMinor?: string | null;
+  accountableBase?: number | null;
+  accountableMinor?: string | null;
 };
 export type TruckWeekTotals = {
   requestedBase: number;
@@ -35,6 +39,15 @@ export type TruckWeek = {
   reviewedAt: number | null;
   reviewNote: string | null;
   updatedAt: string;
+  requestFacts?: {
+    vehicleId: string;
+    vehicle: string;
+    depot: string;
+    priceChannel: string | null;
+    sapOrderReference: string;
+    trips: { id: string; number: string }[];
+  } | null;
+  cashier?: { amountMinor: string | null };
   lines: TruckWeekLine[];
   totals: TruckWeekTotals;
 };
@@ -44,7 +57,22 @@ export type TruckWeekList = {
   rows: (Omit<TruckWeek, "lines"> & { lineCount: number })[];
   sellers: { id: string; name: string }[];
   products: { id: string; code: string; name: string; uom: string }[];
+  vehicles?: { id: string; name: string }[];
+  trips?: {
+    id: string;
+    name: string;
+    vehicleId: string;
+    salespersonProfileId: string;
+  }[];
+  priceChannels?: string[];
 };
+
+export function stockMoney(value: string | null | undefined): string {
+  if (value == null)
+    return "Unavailable until every price and count is recorded";
+  const n = BigInt(value);
+  return `PHP ${n / 100n}.${String(n % 100n).padStart(2, "0")}`;
+}
 
 export const STATUS_LABELS: Record<TruckWeek["status"], string> = {
   open: "Waiting for Saturday count",

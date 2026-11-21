@@ -9,6 +9,7 @@ import {
   addDays,
   mondayOf,
   shiftWeek,
+  stockMoney,
   varianceText,
   weekSaveBody,
   type DraftLine,
@@ -40,7 +41,9 @@ export function WeeklyTruckStock() {
           Record what each salesman asked for and what the warehouse actually
           loaded. On Saturday the salesman counts what is left in the Field app.
           The cashier counts him for what was actually loaded: loaded − sold −
-          counted = difference, each with a reason.
+          counted = difference, each with a reason. These weekly quantity
+          records do not yet move stock into the van or return it to cold
+          storage.
         </p>
         <div className="flex flex-wrap items-center gap-2">
           <button
@@ -157,7 +160,7 @@ export function WeeklyTruckStock() {
   );
 }
 
-function WeekDetail({
+export function WeekDetail({
   id,
   canManage,
   onEdit,
@@ -250,7 +253,29 @@ function WeekDetail({
         Total difference: {varianceText(w.totals.varianceBase)}. Positive
         differences are stock not accounted for.
       </p>
+      <p>
+        Stock accountability value: {stockMoney(w.cashier?.amountMinor)}. This
+        is not cash due.
+      </p>
       <div className="flex flex-wrap gap-2">
+        {(
+          [
+            ["request", "Print stock request"],
+            ["loading", "Print actual service"],
+            ["count", "Print Saturday count"],
+            ["cashier", "Print cashier report"],
+          ] as const
+        ).map(([report, label]) => (
+          <a
+            key={report}
+            className={button}
+            href={`/api/v1/truck-weeks?id=${w.id}&format=print&report=${report}`}
+            target="_blank"
+            rel="noreferrer"
+          >
+            {label}
+          </a>
+        ))}
         <a
           className={button}
           href={`/api/v1/truck-weeks?id=${w.id}&format=csv`}
@@ -295,6 +320,18 @@ function WeekForm({
   onDone: (id?: string) => void;
 }) {
   const [seller, setSeller] = useState(current?.salespersonProfileId ?? "");
+  const [vehicle, setVehicle] = useState(
+    current?.requestFacts?.vehicleId ?? "",
+  );
+  const [priceChannel, setPriceChannel] = useState(
+    current?.requestFacts?.priceChannel ?? "",
+  );
+  const [sapOrderReference, setSapOrderReference] = useState(
+    current?.requestFacts?.sapOrderReference ?? "",
+  );
+  const [tripIds, setTripIds] = useState<string[]>(
+    current?.requestFacts?.trips.map((t) => t.id) ?? [],
+  );
   const [lines, setLines] = useState<DraftLine[]>(
     current
       ? current.lines
@@ -315,8 +352,13 @@ function WeekForm({
     setLines((all) => all.map((l, n) => (n === i ? { ...l, ...patch } : l)));
   };
   async function save() {
+    if (!vehicle) return setError("Choose the truck and issuing depot.");
     const built = weekSaveBody(seller, week, lines, current?.updatedAt);
     if (!built.ok) return setError(built.error);
+    if (built.body.lines.some((l) => l.servedBase > 0) && tripIds.length === 0)
+      return setError(
+        "Choose the week's POS trips before recording served stock.",
+      );
     const k = key ?? crypto.randomUUID();
     setKey(k);
     setBusy(true);
@@ -324,7 +366,13 @@ function WeekForm({
     try {
       const result = await mutate<{ id: string }>(
         "/api/v1/truck-weeks/save",
-        built.body,
+        {
+          ...built.body,
+          vehicleId: vehicle,
+          priceChannel,
+          sapOrderReference,
+          tripIds,
+        },
         { idempotencyKey: k, invalidate: [["truck-weeks"]] },
       );
       onDone(result.id);
@@ -346,6 +394,7 @@ function WeekForm({
           disabled={!!current}
           onChange={(e) => {
             setSeller(e.target.value);
+            setTripIds([]);
             setKey(undefined);
           }}
         >
@@ -359,6 +408,86 @@ function WeekForm({
             ))}
         </select>
       </FormField>
+      <FormField label="Truck (returns to its issuing depot)">
+        <select
+          className={control}
+          value={vehicle}
+          onChange={(e) => {
+            setVehicle(e.target.value);
+            setTripIds([]);
+            setKey(undefined);
+          }}
+        >
+          <option value="">Choose…</option>
+          {list.vehicles?.map((v) => (
+            <option key={v.id} value={v.id}>
+              {v.name}
+            </option>
+          ))}
+        </select>
+      </FormField>
+      <FormField label="Pricing channel for the cashier stock value">
+        <select
+          className={control}
+          value={priceChannel}
+          onChange={(e) => {
+            setPriceChannel(e.target.value);
+            setKey(undefined);
+          }}
+        >
+          <option value="">Base price condition</option>
+          {list.priceChannels?.map((v) => (
+            <option key={v} value={v}>
+              {v}
+            </option>
+          ))}
+        </select>
+      </FormField>
+      <FormField label="SAP sales order reference (encoder fills after the request)">
+        <input
+          className={control}
+          value={sapOrderReference}
+          maxLength={100}
+          onChange={(e) => {
+            setSapOrderReference(e.target.value);
+            setKey(undefined);
+          }}
+        />
+      </FormField>
+      <fieldset className="grid gap-2">
+        <legend>POS trips included in this week</legend>
+        <p>
+          Choose the planned trips before stock is served. Only these trips
+          count in the report; another trip for the same salesman is not
+          included automatically.
+        </p>
+        {list.trips
+          ?.filter(
+            (t) => t.vehicleId === vehicle && t.salespersonProfileId === seller,
+          )
+          .map((t) => (
+            <label key={t.id}>
+              <input
+                type="checkbox"
+                checked={tripIds.includes(t.id)}
+                onChange={(e) => {
+                  setTripIds((all) =>
+                    e.target.checked
+                      ? [...all, t.id]
+                      : all.filter((id) => id !== t.id),
+                  );
+                  setKey(undefined);
+                }}
+              />{" "}
+              {t.name}
+            </label>
+          ))}
+      </fieldset>
+      <p>
+        The Monday–Saturday coverage plan must be approved. Enter scaled base
+        quantities; the printout identifies each product's unit and scale.
+        Request facts are fixed once stock is served.
+      </p>
       {lines.map((l, i) => (
         <div key={i} className="grid gap-2 md:grid-cols-[2fr_1fr_1fr_auto]">
           <FormField label="Product">
