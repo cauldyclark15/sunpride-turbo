@@ -1,15 +1,14 @@
-# Weekly truck stock — preparation pending client decisions (SP-0227)
+# Weekly truck stock (SP-0227)
 
 ## Status and boundary
 
-This is preparation, not the completed Field app workflow. No app menu, weekly stock records, inventory postings, POS integration or cashier settlement has been added. The HTML pack is a printable paper worksheet, not an authenticated business document. Existing daily van loads and settlements are unchanged.
+The branch implements a weekly recording screen in **Van trips > Weekly truck stock**, a Saturday count in **Field app > More > Truck stock**, CSV exports, and editable reasons in **Setup > Field masters > Stock reasons**. Office staff enter requested and served quantities. The report calculates served minus net POS sold minus counted remainder. POS quantities currently come from the seller's trips in that week, excluding voided sales and subtracting stock-bearing customer returns.
 
-Two questions were posted on SP-0227 and the issue is Awaiting client response:
+These are recording and comparison features, not the complete stock workflow. Saving served quantities does **not** post a depot-to-van movement; saving or reviewing the Saturday count does **not** return stock to cold storage. The weekly record has no persisted approved-plan, trip, depot, vehicle or price link. The screen has CSV downloads but no application-generated printable request, count or cashier amount. Existing daily van stock movements remain separate and unchanged. Do not represent this branch as complete acceptance of SP-0227.
 
-1. If the warehouse serves less than requested, does the cashier use **requested minus counted remainder** or **actually served minus counted remainder**?
-2. Which reasons should staff choose for unsold stock, expired stock and count differences?
+JC confirmed the served-quantity basis and initial reasons on 21 November 2026: cashier accountability is **actually served minus counted remainder**, never requested quantity. Start with **Unsold, Expired, Damaged, Missing, Returned by customer**; administrators can add, rename and deactivate reasons. The earlier board question is not a reason to wait for another client answer.
 
-The client must answer these; choosing a financial liability basis or inventing stock disposition rules is not a software-only decision. The preparation does not select a default. Price authority, discounts, taxes and rounding must also be verified against existing governed pricing before a final cashier amount is implemented; the sample reference price is not that authority.
+The HTML pack below is an older preparation worksheet, not an authenticated business document. It still prints both earlier cashier alternatives, marked NOT PAYABLE, and is not the finalized app report. Its sample reference price is not a governed price authority. The remaining software work is listed below; client acceptance and live-device verification have not been performed in this lane.
 
 ## Client evidence
 
@@ -62,11 +61,11 @@ Use the example as the exact input shape. Every stock line identifies product, u
 
 Differences remain signed, including a physical overage. Indicative amounts are unavailable for missing values, negative candidate accountability, or fractional centavos requiring an unconfirmed rounding rule. Multiplication uses integer arithmetic, not floating point. A zero count or price is preserved when explicitly supplied; it is not inferred. No mixed-unit quantity total or guessed payable total is printed.
 
-## Implementation and acceptance checklist after confirmation
+## Remaining implementation and acceptance work
 
-These are remaining work, not completed features:
+The recording screen above does not complete the following acceptance items:
 
-- [ ] Record the client's exact answers on SP-0227; use their labels and do not rename their reasons.
+- [x] Record the owner's answers: actually served minus counted remainder; start with the five editable reasons listed above.
 - [ ] Define the weekly request lifecycle and its relationship to existing daily trips. Link a request to the salesman's approved MCP/daily routes, original issuing depot, vehicle, Monday–Saturday window and server-owned identity. Prevent overlapping open requests or accidental reuse next week.
 - [ ] Add Field app > Sell > Stock for the week using the existing authenticated, selling-enabled device boundaries. No client-supplied salesman or branch should bypass scope. Show owned current and historical requests without exposing another seller's records.
 - [ ] Capture requested product/unit quantities and create a printable request only after persisted plan approval. Keep the encoder's SAP sales order reference, not an invented automatic order.
