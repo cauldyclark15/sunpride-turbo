@@ -84,14 +84,15 @@ object FieldNav {
     }
 
     /** SP-0195: More pages Customer mapping hides (Attendance, Collections, Earned statements, Work-With, Your team). */
-    val mappingHiddenPages: Set<String> = setOf("workforce", "collections", "remit", "truckstock", "incentives", "jointcall", "team")
+    val mappingHiddenPages: Set<String> = setOf("workforce", "collections", "incentives", "jointcall", "team")
 
     /**
      * The "Your work" rows More shows, in order. Customer mapping keeps only Products and Add customer; Field visits and
      * Truck selling are unchanged (Add customer needs Visits, Work-With a supervisor, Your team the Team feature too).
      */
     fun moreWorkRows(mode: AppMode, visits: Boolean, supervisor: Boolean, team: Boolean, remit: Boolean = false): List<MoreRow> =
-        if (mode == AppMode.MAPPING) listOf(MoreRow.PRODUCTS, MoreRow.ADD_CUSTOMER)
+        // Loosened (jc): Remit cash and Truck stock show in every app mode, not only Truck selling.
+        if (mode == AppMode.MAPPING) listOfNotNull(MoreRow.PRODUCTS, MoreRow.ADD_CUSTOMER, MoreRow.REMIT_CASH.takeIf { remit }, MoreRow.TRUCK_STOCK)
         else listOfNotNull(MoreRow.PRODUCTS, MoreRow.ADD_CUSTOMER.takeIf { visits }, MoreRow.ATTENDANCE, MoreRow.COLLECTIONS,
             MoreRow.REMIT_CASH.takeIf { remit }, MoreRow.TRUCK_STOCK, MoreRow.WORK_WITH.takeIf { supervisor }, MoreRow.TEAM.takeIf { team && supervisor }, MoreRow.EARNED_STATEMENTS)
 

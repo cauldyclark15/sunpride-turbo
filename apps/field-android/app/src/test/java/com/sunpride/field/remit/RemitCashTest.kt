@@ -70,11 +70,11 @@ class RemitCashTest {
         assertEquals(id, row.clientVisitId)
     }
 
-    @Test fun moreShowsRemitCashOnlyForSellingPeopleOutsideMapping() {
+    @Test fun moreShowsRemitCashInEveryAppMode() {
         assertTrue(MoreRow.REMIT_CASH in FieldNav.moreWorkRows(AppMode.SELLING, true, false, false, remit = true))
         assertTrue(MoreRow.REMIT_CASH in FieldNav.moreWorkRows(AppMode.VISITS, true, false, false, remit = true))
         assertFalse(MoreRow.REMIT_CASH in FieldNav.moreWorkRows(AppMode.SELLING, true, false, false, remit = false))
-        assertFalse(MoreRow.REMIT_CASH in FieldNav.moreWorkRows(AppMode.MAPPING, true, false, false, remit = true))
+        assertTrue(MoreRow.REMIT_CASH in FieldNav.moreWorkRows(AppMode.MAPPING, true, false, false, remit = true))
     }
 
     @Test fun channelsMatchTheServer() {

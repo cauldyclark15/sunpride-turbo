@@ -8,12 +8,13 @@ import java.io.File
 
 /** SP-0195: Customer mapping's More keeps only Products, Add customer and Sync; the other modes are unchanged. */
 class MappingMoreTest {
-    private val hidden = listOf(MoreRow.ATTENDANCE, MoreRow.COLLECTIONS, MoreRow.TRUCK_STOCK, MoreRow.EARNED_STATEMENTS, MoreRow.WORK_WITH, MoreRow.TEAM)
+    private val hidden = listOf(MoreRow.ATTENDANCE, MoreRow.COLLECTIONS, MoreRow.EARNED_STATEMENTS, MoreRow.WORK_WITH, MoreRow.TEAM)
 
-    @Test fun mappingMoreHasOnlyProductsAndAddCustomer() {
+    // Loosened (jc): mapping also keeps Remit cash and Truck stock.
+    @Test fun mappingMoreHasProductsAddCustomerRemitAndTruckStock() {
         for (visits in listOf(true, false)) for (supervisor in listOf(true, false)) for (team in listOf(true, false)) {
-            val rows = FieldNav.moreWorkRows(AppMode.MAPPING, visits, supervisor, team)
-            assertEquals(listOf(MoreRow.PRODUCTS, MoreRow.ADD_CUSTOMER), rows)
+            val rows = FieldNav.moreWorkRows(AppMode.MAPPING, visits, supervisor, team, remit = true)
+            assertEquals(listOf(MoreRow.PRODUCTS, MoreRow.ADD_CUSTOMER, MoreRow.REMIT_CASH, MoreRow.TRUCK_STOCK), rows)
             hidden.forEach { assertFalse("$it", it in rows) }
         }
     }
@@ -34,7 +35,7 @@ class MappingMoreTest {
             assertEquals(page, page, FieldNav.pageForMode(page, AppMode.VISITS))
             assertEquals(page, page, FieldNav.pageForMode(page, AppMode.SELLING))
         }
-        for (page in listOf("catalogue", "census", "sync", "account", "support", "location-battery", "more"))
+        for (page in listOf("catalogue", "census", "sync", "account", "support", "location-battery", "more", "remit", "truckstock"))
             assertEquals(page, page, FieldNav.pageForMode(page, AppMode.MAPPING))
     }
 
