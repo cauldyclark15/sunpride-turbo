@@ -103,6 +103,25 @@ class CensusRulesTest {
             "Nena Cruz", "0917 555 0101", 1000L, null, place, "", null)
         assertEquals(10.3126, only.getJSONObject("location").getDouble("latitude"), 0.0)
     }
+    /** SP-0220: Edit customer sends the same structured address as Add customer; Street 1 is required. */
+    @Test fun storeEditSendsTheStructuredAddress() {
+        val saved = mapOf("houseNo" to "5", "street1" to "Rizal St", "municipalityCode" to "0702230000")
+        val form = CensusRules.formFromParts(saved)
+        assertEquals("Rizal St", form.street1); assertEquals("0702230000", form.municipalityCode)
+        assertFalse(CensusRules.addressPartsChanged(saved, form))
+        val moved = form.copy(street1 = "Mabini St")
+        assertTrue(CensusRules.addressPartsChanged(saved, moved))
+        assertEquals("5 Mabini St", CensusRules.addressLine(moved, null))
+        val p = CensusRules.changePayload(UUID.randomUUID().toString(), target, "Nena Mini Mart", "5 Mabini St",
+            "Nena Cruz", "0917 555 0101", 1000L, null, null, "", null, CensusRules.addressPartsJson(moved))
+        val parts = p.getJSONObject("addressParts")
+        assertEquals("Mabini St", parts.getString("street1")); assertTrue(parts.isNull("barangayCode"))
+        assertEquals(CensusRules.ADDRESS_PART_KEYS.toSet(), parts.keys().asSequence().toSet())
+        CensusRules.validate(p)
+        val blank = CensusRules.changePayload(UUID.randomUUID().toString(), target, "Nena Mini Mart", "5",
+            "Nena Cruz", "0917 555 0101", 1000L, null, null, "", null, CensusRules.addressPartsJson(form.copy(street1 = " ")))
+        assertEquals("Street 1 is required.", runCatching { CensusRules.validate(blank) }.exceptionOrNull()?.message)
+    }
     @Test fun storeEditPayloadIsAChangeForTheStoreWithoutNewStoreFields() {
         val p = change()
         assertEquals("change", p.getString("kind")); assertEquals(target, p.getString("targetOutletId"))

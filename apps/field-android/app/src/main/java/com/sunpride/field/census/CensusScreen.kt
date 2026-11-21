@@ -121,6 +121,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     val setup = remember(config) { CustomerCapture.setup(config) }
     var form by remember { mutableStateOf(held?.form?.let { if (it.customerName.isBlank()) it.copy(customerName = initialName.take(200)) else it }
         ?: CustomerCapture.Form(customerName = initialName.take(200))) }
+    // SP-0220: Edit customer edits the same structured address as Add customer, starting from the saved parts.
+    LaunchedEffect(editKey) { if (edit) form = CensusRules.formFromParts(editing!!.addressParts, form) }
     var geography by remember { mutableStateOf<CustomerCapture.Geography?>(null) }
     var geoNote by remember { mutableStateOf<String?>(null) }
     var formErrors by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
@@ -190,8 +192,9 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     // Sales Organization defaults from the agent's assignment once the setup is known.
     LaunchedEffect(setup) { if (setup != null && form.salesOrgCode.isEmpty()) form = CustomerCapture.start(setup, form.customerName).let { form.copy(salesOrgCode = it.salesOrgCode) } }
     LaunchedEffect(backend, setup) {
-        if (edit || backend == null) return@LaunchedEffect
-        geography = runCatching { withContext(Dispatchers.IO) { backend.customerGeography(setup?.provinceCodes.orEmpty()) } }.getOrNull()
+        if (backend == null) return@LaunchedEffect
+        val provinces = (setup?.provinceCodes.orEmpty() + listOfNotNull(editing?.addressParts?.get("provinceCode"))).distinct()
+        geography = runCatching { withContext(Dispatchers.IO) { backend.customerGeography(provinces) } }.getOrNull()
         if (geography == null) geoNote = "Connect once to download the Region, Province and Municipality lists."
     }
     // A province whose barangays are not on the phone yet: fetch them now (kept for offline use).
@@ -220,7 +223,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         (0 until a.length()).map { a.getJSONObject(it) }.filter { key != "subchannels" || it.getJSONObject("data").getString("channelId") == channel }
             .map { it.getString("id") to it.optString("label", it.optString("name")) }
     }.orEmpty()
-    fun missingNow() = if (edit) CensusRules.missingForChange(name, owner, phone, mode, fix != null, picked != null, address)
+    fun missingNow() = if (edit) CensusRules.missingForChange(name, owner, phone, mode, fix != null, picked != null, form.street1)
         else CensusRules.missing(name, owner, phone, channel, subchannel, mode, fix != null, picked != null, address, jpeg != null)
     val marked = if (attempted && edit) missingNow().toSet() else emptySet()
     fun customerMissing() = CustomerCapture.missing(form, setup, geography, fix != null, jpeg != null)
@@ -315,9 +318,10 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         }
         if (!edit) return CustomerCapture.payload(CensusRules.captureId(), form, geography, System.currentTimeMillis(),
             fix ?: JSONObject(), jpeg?.let { Base64.getEncoder().encodeToString(it) } ?: "", acknowledged)
-        if (edit) return CensusRules.changePayload(CensusRules.captureId(), editing!!.outletId, name, address, owner, phone,
+        if (edit) return CensusRules.changePayload(CensusRules.captureId(), editing!!.outletId, name,
+            CensusRules.addressLine(form, geography).ifEmpty { form.street1 }, owner, phone,
             System.currentTimeMillis(), if (mode == "gps" || (mode == "places" && place != null)) fix?.takeIf { CensusRules.fixUsable(it) } else null,
-            place, landmark, jpeg?.let { Base64.getEncoder().encodeToString(it) })
+            place, landmark, jpeg?.let { Base64.getEncoder().encodeToString(it) }, CensusRules.addressPartsJson(form))
         return CensusRules.payload(CensusRules.captureId(), CensusRules.chosenBatch(showBatch, batch), name, address, owner, phone, channel, subchannel,
             estimatedClass, System.currentTimeMillis(), if (mode == "gps") fix else null, place, landmark,
             reverse?.takeIf { mode == "gps" }?.let { it.formattedAddress to it.components.json() }, acknowledged,
@@ -380,7 +384,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 val draft = build(emptyList()); CensusRules.validate(draft)
                 if (edit) {
                     // A change is for this store: no duplicate check, nothing to send when nothing changed.
-                    if (!CensusRules.changed(current!!, name, address, owner, phone, landmark, draft.has("location"), jpeg != null)) {
+                    if (!CensusRules.changed(current!!, name, current.address, owner, phone, landmark, draft.has("location"), jpeg != null) &&
+                        !CensusRules.addressPartsChanged(editing!!.addressParts, form)) {
                         saveNote = "Nothing was changed."; return@launch
                     }
                     busy = false; queue(draft); return@launch
@@ -467,7 +472,13 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                         }
                         if (picked != null) StatusChip("Pin from address", Look.Tone.GOOD, textTag = "census-pin-from-address")
                     }
-                    Marked(CensusRules.Field.ADDRESS, marked, requesters) { FieldTextField(address, { address = it }, label = { Text("Address") }, isError = CensusRules.Field.ADDRESS in marked, modifier = Modifier.fillMaxWidth().testTag("census-address")) }
+                    // SP-0220: the same address fields as Add customer (Street 1 required); the server builds the address.
+                    current?.address?.takeIf { it.isNotBlank() }?.let { Text("Current address: $it", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("census-current-address")) }
+                    Marked(CensusRules.Field.ADDRESS, emptySet(), requesters) {
+                        AddressFields(geography, form, { form = it },
+                            if (CensusRules.Field.ADDRESS in marked) mapOf("street1" to "Street 1 is required.") else emptyMap(), ::requester, geoNote)
+                    }
                     (if (mode == "places") picked?.components else reverse?.components)?.line()?.takeIf { it.isNotEmpty() }?.let {
                         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("census-address-line"))
                     }
@@ -689,6 +700,39 @@ private fun CmPicker(key: String, options: List<CustomerCapture.Option>, value: 
 }
 private fun geoOptions(rows: List<Pair<String, String>>) = rows.map { CustomerCapture.Option(it.first, it.second) }
 
+/** SP-0170/SP-0220: Region to Postal Code, shared by Add customer and Edit customer. */
+@Composable
+private fun AddressFields(geography: CustomerCapture.Geography?, form: CustomerCapture.Form,
+    onChange: (CustomerCapture.Form) -> Unit, marks: Map<String, String>, requester: (String) -> BringIntoViewRequester, geoNote: String?) {
+    Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+        val g = geography
+        geoNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.testTag("customer-geo-note")) }
+        CmPicker("regionCode", geoOptions(g?.regions.orEmpty().map { it.code to it.name }), form.regionCode,
+            { onChange(form.withRegion(it)) }, marks, requester)
+        CmPicker("provinceCode", geoOptions(g?.provincesOf(form.regionCode).orEmpty().map { it.code to it.name }), form.provinceCode,
+            { onChange(form.withProvince(it)) }, marks, requester, if (form.regionCode.isEmpty()) "Choose Region first" else "Choose…")
+        CmPicker("municipalityCode", geoOptions(g?.municipalitiesOf(form.provinceCode).orEmpty().map { it.code to it.name }),
+            form.municipalityCode, { onChange(form.withMunicipality(it, g)) }, marks, requester,
+            if (form.provinceCode.isEmpty()) "Choose Province first" else "Choose…")
+        val barangays = g?.barangaysOf(form.municipalityCode)
+        CmPicker("barangayCode", geoOptions(barangays.orEmpty().map { it.code to it.name }), form.barangayCode,
+            { onChange(form.copy(barangayCode = it)) }, marks, requester,
+            when { form.municipalityCode.isEmpty() -> "Choose Municipality first"; barangays == null -> "Not on this phone yet"; else -> "Choose…" })
+        CmText("houseNo", form.houseNo, { onChange(form.copy(houseNo = it)) }, marks, requester, 60)
+        CmText("street1", form.street1, { onChange(form.copy(street1 = it)) }, marks, requester, 200)
+        CmText("street2", form.street2, { onChange(form.copy(street2 = it)) }, marks, requester, 200)
+        CmText("floor", form.floor, { onChange(form.copy(floor = it)) }, marks, requester, 60)
+        CmText("roomStallNo", form.roomStallNo, { onChange(form.copy(roomStallNo = it)) }, marks, requester, 60)
+        val postal = g?.postalCodesOf(form.municipalityCode).orEmpty()
+        if (postal.isNotEmpty() || form.municipalityCode.isEmpty())
+            CmPicker("postalCode", postal.map { CustomerCapture.Option(it, it) }, form.postalCode, { onChange(form.copy(postalCode = it)) },
+                marks, requester, if (form.municipalityCode.isEmpty()) "Choose Municipality first" else "Choose…")
+        else CmText("postalCode", form.postalCode, { onChange(form.copy(postalCode = it.filter(Char::isDigit))) }, marks, requester, 4,
+            androidx.compose.ui.text.input.KeyboardType.Number)
+    }
+}
+
 /** SP-0170 Add customer: the agent's fields in the client's sections, order and labels. */
 @Composable
 private fun CustomerSections(setup: CustomerCapture.Setup?, geography: CustomerCapture.Geography?, form: CustomerCapture.Form,
@@ -713,32 +757,8 @@ private fun CustomerSections(setup: CustomerCapture.Setup?, geography: CustomerC
     }
     SectionCard(CustomerMaster.LOCATION) {
         Column(pad, verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            val g = geography
             CustomerDetailFields(listOf("countryCode"), setup, form, onChange, marks, requester)
-            geoNote?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.testTag("customer-geo-note")) }
-            CmPicker("regionCode", geoOptions(g?.regions.orEmpty().map { it.code to it.name }), form.regionCode,
-                { onChange(form.withRegion(it)) }, marks, requester)
-            CmPicker("provinceCode", geoOptions(g?.provincesOf(form.regionCode).orEmpty().map { it.code to it.name }), form.provinceCode,
-                { onChange(form.withProvince(it)) }, marks, requester, if (form.regionCode.isEmpty()) "Choose Region first" else "Choose…")
-            CmPicker("municipalityCode", geoOptions(g?.municipalitiesOf(form.provinceCode).orEmpty().map { it.code to it.name }),
-                form.municipalityCode, { onChange(form.withMunicipality(it, g)) }, marks, requester,
-                if (form.provinceCode.isEmpty()) "Choose Province first" else "Choose…")
-            val barangays = g?.barangaysOf(form.municipalityCode)
-            CmPicker("barangayCode", geoOptions(barangays.orEmpty().map { it.code to it.name }), form.barangayCode,
-                { onChange(form.copy(barangayCode = it)) }, marks, requester,
-                when { form.municipalityCode.isEmpty() -> "Choose Municipality first"; barangays == null -> "Not on this phone yet"; else -> "Choose…" })
-            CmText("houseNo", form.houseNo, { onChange(form.copy(houseNo = it)) }, marks, requester, 60)
-            CmText("street1", form.street1, { onChange(form.copy(street1 = it)) }, marks, requester, 200)
-            CmText("street2", form.street2, { onChange(form.copy(street2 = it)) }, marks, requester, 200)
-            CmText("floor", form.floor, { onChange(form.copy(floor = it)) }, marks, requester, 60)
-            CmText("roomStallNo", form.roomStallNo, { onChange(form.copy(roomStallNo = it)) }, marks, requester, 60)
-            val postal = g?.postalCodesOf(form.municipalityCode).orEmpty()
-            if (postal.isNotEmpty() || form.municipalityCode.isEmpty())
-                CmPicker("postalCode", postal.map { CustomerCapture.Option(it, it) }, form.postalCode, { onChange(form.copy(postalCode = it)) },
-                    marks, requester, if (form.municipalityCode.isEmpty()) "Choose Municipality first" else "Choose…")
-            else CmText("postalCode", form.postalCode, { onChange(form.copy(postalCode = it.filter(Char::isDigit))) }, marks, requester, 4,
-                androidx.compose.ui.text.input.KeyboardType.Number)
+            AddressFields(geography, form, onChange, marks, requester, geoNote)
             Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(CustomerCapture.formLabel("coordinates"), style = MaterialTheme.typography.labelMedium)
                 if (fix == null) PrimaryBottomButton("Use my location", useMyLocation, Modifier.fillMaxWidth().testTag("census-gps"), !busy)

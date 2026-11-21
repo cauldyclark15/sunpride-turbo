@@ -138,7 +138,7 @@ class AddStoreScreenTest {
 
     @Test fun editStoreOpensTheFormFilledFromTheStore() {
         val backend = Backend(config(false), oldServer)
-        val store = com.sunpride.field.ui.customers.CustomerRecord("o9", "Aling Nena Store", "OUT-9", address = "5 Rizal St",
+        val store = com.sunpride.field.ui.customers.CustomerRecord("o9", "Aling Nena Store", "OUT-9", address = "5 Rizal St", addressParts = mapOf("houseNo" to "5", "street1" to "Rizal St"),
             account = com.sunpride.field.storage.CallSheetHeader("Aling Nena Store", null, "Nena Cruz", "0917 555 0101", null, null,
                 null, null, null, null))
         rule.setContent { MaterialTheme(colorScheme = SunprideTokens.lightColors) { CensusScreen(backend, gps, {}, editing = store) } }
@@ -146,12 +146,13 @@ class AddStoreScreenTest {
         rule.onNodeWithTag("census-name").assertTextContains("Aling Nena Store")
         rule.onNodeWithTag("census-owner").performScrollTo().assertTextContains("Nena Cruz")
         rule.onNodeWithTag("census-phone").performScrollTo().assertTextContains("0917 555 0101")
-        rule.onNodeWithTag("census-address").performScrollTo().assertTextContains("5 Rizal St")
+        rule.onNodeWithTag("census-current-address").performScrollTo().assertTextContains("5 Rizal St", substring = true)
+        rule.onNodeWithTag("customer-street1").performScrollTo().assertTextContains("Rizal St")
         rule.onNodeWithTag("census-edit-note").assertTextContains("The office checks your changes first.")
     }
 
     private val target = UUID.randomUUID().toString()
-    private fun editStore() = com.sunpride.field.ui.customers.CustomerRecord(target, "Aling Nena Store", "OUT-9", address = "5 Rizal St",
+    private fun editStore() = com.sunpride.field.ui.customers.CustomerRecord(target, "Aling Nena Store", "OUT-9", address = "5 Rizal St", addressParts = mapOf("houseNo" to "5", "street1" to "Rizal St"),
         account = com.sunpride.field.storage.CallSheetHeader("Aling Nena Store", null, "Nena Cruz", "0917 555 0101", null, null,
             null, null, null, null))
 

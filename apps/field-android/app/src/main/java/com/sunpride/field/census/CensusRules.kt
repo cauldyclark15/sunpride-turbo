@@ -52,6 +52,7 @@ object CensusRules {
     /** A change carries the whole edited store; location and photo are optional (left out = unchanged). */
     fun validateChange(p: JSONObject) {
         require(uuid.matches(p.getString("captureId")) && uuid.matches(p.getString("targetOutletId"))) { "Open the customer again, then edit it." }
+        p.optJSONObject("addressParts")?.let { require(it.optString("street1").isNotBlank()) { "Street 1 is required." } }
         for ((key, max) in listOf("name" to 200, "address" to 500, "ownerName" to 150, "ownerPhone" to 40))
             require(p.getString(key).trim().length in 1..max) { "Complete the customer and owner details." }
         require(p.getString("ownerPhone").count { it.isDigit() } >= 7) { "Enter a complete owner phone number." }
@@ -85,6 +86,27 @@ object CensusRules {
         if ((mode == "gps" && !hasFix) || (mode == "places" && !hasPlace)) add(Field.LOCATION)
         if (address.isBlank()) add(Field.ADDRESS)
     }
+    /** SP-0220 structured address keys Edit customer sends (same keys and labels as Add customer). */
+    val ADDRESS_PART_KEYS = listOf("regionCode", "provinceCode", "municipalityCode", "barangayCode", "houseNo", "street1",
+        "street2", "floor", "roomStallNo", "postalCode")
+    fun addressParts(f: CustomerCapture.Form): Map<String, String> = mapOf("regionCode" to f.regionCode,
+        "provinceCode" to f.provinceCode, "municipalityCode" to f.municipalityCode, "barangayCode" to f.barangayCode,
+        "houseNo" to f.houseNo, "street1" to f.street1, "street2" to f.street2, "floor" to f.floor,
+        "roomStallNo" to f.roomStallNo, "postalCode" to f.postalCode).mapValues { it.value.trim() }
+    fun addressPartsJson(f: CustomerCapture.Form): JSONObject = JSONObject().also { o ->
+        addressParts(f).forEach { (k, v) -> o.put(k, v.ifEmpty { null } ?: JSONObject.NULL) } }
+    /** The edit form starts from the customer's saved parts. */
+    fun formFromParts(parts: Map<String, String>, base: CustomerCapture.Form = CustomerCapture.Form()): CustomerCapture.Form = base.copy(
+        regionCode = parts["regionCode"].orEmpty(), provinceCode = parts["provinceCode"].orEmpty(),
+        municipalityCode = parts["municipalityCode"].orEmpty(), barangayCode = parts["barangayCode"].orEmpty(),
+        houseNo = parts["houseNo"].orEmpty(), street1 = parts["street1"].orEmpty(), street2 = parts["street2"].orEmpty(),
+        floor = parts["floor"].orEmpty(), roomStallNo = parts["roomStallNo"].orEmpty(), postalCode = parts["postalCode"].orEmpty())
+    fun addressPartsChanged(saved: Map<String, String>, f: CustomerCapture.Form): Boolean =
+        addressParts(f).any { (k, v) -> v != saved[k].orEmpty().trim() }
+    /** One-line address shown while editing (the server builds the saved one the same way). */
+    fun addressLine(f: CustomerCapture.Form, g: CustomerCapture.Geography?): String = CustomerMaster.formatAddress(f.roomStallNo,
+        f.floor, f.houseNo, f.street1, f.street2, g?.barangaysOf(f.municipalityCode)?.firstOrNull { it.code == f.barangayCode }?.name,
+        g?.municipality(f.municipalityCode)?.name, g?.province(f.provinceCode)?.name, f.postalCode).orEmpty()
     /** The store as it is on the phone, to compare with the edited form. */
     data class Current(val name: String, val address: String, val ownerName: String, val ownerPhone: String)
     /** True when the edited form differs from the store (a new location or photo always counts). */
@@ -94,10 +116,13 @@ object CensusRules {
         current.ownerName.trim() != ownerName.trim() || current.ownerPhone.trim() != ownerPhone.trim()
     /** Edit store payload: same op as Add store, linked to the existing store by [targetOutletId]. */
     fun changePayload(captureId: String, targetOutletId: String, name: String, address: String, ownerName: String,
-        ownerPhone: String, deviceTime: Long, gpsFix: JSONObject?, place: Place?, landmark: String, photo: String?): JSONObject {
+        ownerPhone: String, deviceTime: Long, gpsFix: JSONObject?, place: Place?, landmark: String, photo: String?,
+        addressParts: JSONObject? = null): JSONObject {
         val p = JSONObject().put("kind", CHANGE).put("targetOutletId", targetOutletId).put("captureId", captureId)
             .put("name", name.trim()).put("address", address.trim()).put("ownerName", ownerName.trim())
             .put("ownerPhone", ownerPhone.trim()).put("deviceTime", deviceTime)
+        // SP-0220: the structured address, as Add customer sends it; the server builds the address line from it.
+        addressParts?.let { p.put("addressParts", it) }
         if (place != null) {
             // E2E-010: the searched address is the PROPOSED pin, the agent's own fix is the capture location. The
             // server checks the place against Google and measures it from this fix, so a pin moved far from where

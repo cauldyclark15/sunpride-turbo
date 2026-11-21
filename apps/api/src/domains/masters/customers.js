@@ -991,7 +991,8 @@ export async function customerMasterSummaries(db, ids) {
   if (!ids.length) return out;
   const rows =
     await db`select s.id,s.channel,s.subchannel,s.sales_org_code,s.distribution_channel_code,s.customer_group1_code,
-      s.customer_group2_code,s.customer_group2_name,s.customer_group_code,s.customer_group_name,p.completeness
+      s.customer_group2_code,s.customer_group2_name,s.customer_group_code,s.customer_group_name,p.completeness,
+      p.outlet_id profile_id,p.region_code,p.province_code,p.municipality_code,p.barangay_code,p.house_no,p.street1,p.street2,p.floor,p.room_stall_no,p.postal_code
       from analytics_store_scope s left join customer_profiles p on p.outlet_id=s.id and p.deleted_at is null
       where s.id in ${db(ids)}`;
   for (const r of rows)
@@ -1009,6 +1010,23 @@ export async function customerMasterSummaries(db, ids) {
         customerGroupName: r.customer_group_name ?? null,
         completeness: r.completeness ?? null,
       },
+      // SP-0220: the structured address, so Edit customer opens with the same fields as Add customer.
+      ...(r.profile_id
+        ? {
+            addressParts: {
+              regionCode: r.region_code ?? null,
+              provinceCode: r.province_code ?? null,
+              municipalityCode: r.municipality_code ?? null,
+              barangayCode: r.barangay_code ?? null,
+              houseNo: r.house_no ?? null,
+              street1: r.street1 ?? null,
+              street2: r.street2 ?? null,
+              floor: r.floor ?? null,
+              roomStallNo: r.room_stall_no ?? null,
+              postalCode: r.postal_code ?? null,
+            },
+          }
+        : {}),
     });
   return out;
 }

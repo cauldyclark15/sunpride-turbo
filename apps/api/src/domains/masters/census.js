@@ -153,13 +153,85 @@ async function storeJpeg(ctx, id, bytes, actor) {
     await ctx.db`insert into files(owner_id,purpose,sha256,mime,size,path,status,device_id,created_by) values(${id},'census-storefront',${digest},'image/jpeg',${bytes.length},${relative},'stored',${ctx.device.id},${actor.userId}) on conflict(created_by,purpose,owner_id,sha256) do update set status='stored' returning id`;
   return file;
 }
+/** SP-0220 structured address keys (phone key, customer_profiles column). */
+const PART_KEYS = /** @type {const} */ ([
+  ["regionCode", "region_code"],
+  ["provinceCode", "province_code"],
+  ["municipalityCode", "municipality_code"],
+  ["barangayCode", "barangay_code"],
+  ["houseNo", "house_no"],
+  ["street1", "street1"],
+  ["street2", "street2"],
+  ["floor", "floor"],
+  ["roomStallNo", "room_stall_no"],
+  ["postalCode", "postal_code"],
+]);
+/** @param {any} a @param {any} b */
+function sameParts(a, b) {
+  return PART_KEYS.every(
+    ([k]) => String(a?.[k] ?? "").trim() === String(b?.[k] ?? "").trim(),
+  );
+}
+/** SP-0220: Edit customer's structured address, as Add customer sends it. Street 1 is
+ * required; the places must exist and fit together; the server builds the address line.
+ * Absent (older phones) = the free-text `address` path.
+ * @param {any} db @param {any} raw */
+export async function readAddressParts(db, raw) {
+  if (raw === undefined || raw === null) return null;
+  if (typeof raw !== "object" || Array.isArray(raw))
+    rule("Enter the customer's address.");
+  /** @type {Record<string, string | null>} */ const f = {};
+  for (const [k] of PART_KEYS) {
+    const v = raw[k];
+    if (v !== undefined && v !== null && typeof v !== "string")
+      rule("Enter the customer's address.");
+    const t = typeof v === "string" ? v.trim() : "";
+    if (t.length > (k === "street1" || k === "street2" ? 200 : 60))
+      rule("The address is too long.");
+    f[k] = t || null;
+  }
+  if (!f.street1) rule("Street 1 is required.");
+  const { resolveGeography } = await import("./customers.js");
+  const g = await resolveGeography(db, f);
+  if (f.regionCode && !g.region) rule("Choose a Region from the list.");
+  if (
+    f.provinceCode &&
+    (!g.province || (f.regionCode && g.province.regionCode !== f.regionCode))
+  )
+    rule("Choose a Province in that Region.");
+  if (
+    f.municipalityCode &&
+    (!g.municipality ||
+      (f.provinceCode && g.municipality.provinceCode !== f.provinceCode))
+  )
+    rule("Choose a Municipality in that Province.");
+  if (
+    f.barangayCode &&
+    (!g.barangay ||
+      (f.municipalityCode &&
+        g.barangay.municipalityCode !== f.municipalityCode))
+  )
+    rule("Choose a Barangay in that Municipality.");
+  const names = {
+    regionName: g.region?.name ?? null,
+    provinceName: g.province?.name ?? null,
+    municipalityName: g.municipality?.name ?? null,
+    barangayName: g.barangay?.name ?? null,
+  };
+  const [row] =
+    await db`select customer_address_line(${f.roomStallNo},${f.floor},${f.houseNo},${f.street1},${f.street2},${names.barangayName},${names.municipalityName},${names.provinceName},${f.postalCode}) line`;
+  const line = String(row?.line ?? "").slice(0, 500) || f.street1;
+  return { fields: f, line, stored: { ...f, ...names } };
+}
 /** The store as the office knows it now: the old side of an Edit store change.
  * @param {any} db @param {string} outletId */
 export async function storeSnapshot(db, outletId) {
   const [row] = await db`select o.name,o.address,o.directions landmark,
     c.name owner_name,c.phone owner_phone,p.latitude,p.longitude,
-    (select f.file_id from outlet_photos f where f.outlet_id=o.id and f.deleted_at is null order by f.ordinal limit 1) photo_file_id
+    (select f.file_id from outlet_photos f where f.outlet_id=o.id and f.deleted_at is null order by f.ordinal limit 1) photo_file_id,
+    cp.outlet_id cp_id,cp.region_code,cp.province_code,cp.municipality_code,cp.barangay_code,cp.house_no,cp.street1,cp.street2,cp.floor,cp.room_stall_no,cp.postal_code
     from outlets o
+    left join customer_profiles cp on cp.outlet_id=o.id
     left join lateral (select name,phone from outlet_contacts where outlet_id=o.id and deleted_at is null order by ordinal limit 1) c on true
     left join lateral (select latitude,longitude from outlet_pins where outlet_id=o.id and status='verified' and deleted_at is null and effective_from<=now() and (effective_to is null or effective_to>now()) order by effective_from desc limit 1) p on true
     where o.id=${outletId}`;
@@ -173,6 +245,11 @@ export async function storeSnapshot(db, outletId) {
         latitude: row.latitude ?? null,
         longitude: row.longitude ?? null,
         photoFileId: row.photo_file_id ?? null,
+        addressParts: row.cp_id
+          ? Object.fromEntries(
+              PART_KEYS.map(([k, col]) => [k, row[col] ?? null]),
+            )
+          : null,
       }
     : null;
 }
@@ -191,9 +268,10 @@ async function captureChange(ctx, actor, p) {
   const batch = await defaultBatch(ctx.db, unit ?? actor.orgUnitId);
   if (!batch) rule("Census batch not found.");
   const at = integer(p.deviceTime, ctx.now - 7 * 86400000, ctx.now + 120000);
+  const parts = await readAddressParts(ctx.db, p.addressParts);
   const id = uuid(p.captureId),
     name = required(p.name, "Store name", 200),
-    address = required(p.address, "Address", 500);
+    address = parts ? parts.line : required(p.address, "Address", 500);
   const ownerName = required(p.ownerName, "Owner contact name", 150),
     ownerPhone = required(p.ownerPhone, "Owner phone", 40);
   if (ownerPhone.replace(/\D/g, "").length < 7)
@@ -231,6 +309,7 @@ async function captureChange(ctx, actor, p) {
     !bytes &&
     same(before.name, name) &&
     same(before.address, address) &&
+    (!parts || sameParts(before.addressParts, parts.fields)) &&
     same(before.ownerName, ownerName) &&
     same(before.ownerPhone, ownerPhone) &&
     (landmark === null || same(before.landmark, landmark))
@@ -238,7 +317,7 @@ async function captureChange(ctx, actor, p) {
     rule("Nothing was changed.");
   const file = bytes ? await storeJpeg(ctx, id, bytes, actor) : null;
   const gps = loc?.source === "gps";
-  await ctx.db`insert into census_captures(id,batch_id,actor_profile_id,payload_hash,name,address,latitude,longitude,accuracy_meters,captured_at,owner_name,owner_phone,channel_id,subchannel_id,estimated_class,photo_file_id,location_provider,location_recorded_at,device_id,location_source,place_id,address_components,formatted_address,landmark,app,kind,target_outlet_id,previous_values) values(${id},${batch.id},${actor.profileId},${hash},${name},${address},${loc ? loc.l.latitude : null},${loc ? loc.l.longitude : null},${gps ? loc.l.accuracyMeters : null},${new Date(at)},${ownerName},${ownerPhone},${null},${null},${null},${file?.id ?? null},${loc ? (gps ? loc.l.provider : "places") : null},${loc ? new Date(gps ? loc.l.fixTime : at) : null},${ctx.device.id},${loc?.source ?? "gps"},${loc?.placeId ?? null},${components},${formattedAddress},${landmark},${ctx.app},'change',${targetId},${before})`;
+  await ctx.db`insert into census_captures(id,batch_id,actor_profile_id,payload_hash,name,address,latitude,longitude,accuracy_meters,captured_at,owner_name,owner_phone,channel_id,subchannel_id,estimated_class,photo_file_id,location_provider,location_recorded_at,device_id,location_source,place_id,address_components,formatted_address,landmark,app,kind,target_outlet_id,previous_values,address_parts) values(${id},${batch.id},${actor.profileId},${hash},${name},${address},${loc ? loc.l.latitude : null},${loc ? loc.l.longitude : null},${gps ? loc.l.accuracyMeters : null},${new Date(at)},${ownerName},${ownerPhone},${null},${null},${null},${file?.id ?? null},${loc ? (gps ? loc.l.provider : "places") : null},${loc ? new Date(gps ? loc.l.fixTime : at) : null},${ctx.device.id},${loc?.source ?? "gps"},${loc?.placeId ?? null},${components},${formattedAddress},${landmark},${ctx.app},'change',${targetId},${before},${parts ? parts.stored : null})`;
   if (loc?.source === "places")
     await ctx.enqueue({
       kind: RESOLVE_PLACE_JOB,
@@ -263,6 +342,15 @@ async function applyChange(ctx, capture, actor, reason) {
       ? capture.place_id
       : null;
   await ctx.db`update outlets set name=${capture.name},address=${capture.address},directions=coalesce(${capture.landmark ?? null}::text,directions),place_id=coalesce(${placeId}::text,place_id) where id=${id}`;
+  // SP-0220: a structured address change updates the customer record; the address line is the server's.
+  const ap = capture.address_parts;
+  if (ap)
+    await ctx.db`insert into customer_profiles(outlet_id,region_code,region_name,province_code,province_name,municipality_code,municipality_name,barangay_code,barangay_name,house_no,street1,street2,floor,room_stall_no,postal_code,address_custom,updated_by)
+      values(${id},${ap.regionCode},${ap.regionName},${ap.provinceCode},${ap.provinceName},${ap.municipalityCode},${ap.municipalityName},${ap.barangayCode},${ap.barangayName},${ap.houseNo},${ap.street1},${ap.street2},${ap.floor},${ap.roomStallNo},${ap.postalCode},false,${actor.userId})
+      on conflict (outlet_id) do update set region_code=excluded.region_code,region_name=excluded.region_name,province_code=excluded.province_code,province_name=excluded.province_name,
+        municipality_code=excluded.municipality_code,municipality_name=excluded.municipality_name,barangay_code=excluded.barangay_code,barangay_name=excluded.barangay_name,
+        house_no=excluded.house_no,street1=excluded.street1,street2=excluded.street2,floor=excluded.floor,room_stall_no=excluded.room_stall_no,postal_code=excluded.postal_code,
+        address_custom=false,updated_by=excluded.updated_by,updated_at=now()`;
   await ctx.db`insert into outlet_contacts(outlet_id,ordinal,name,phone) values(${id},0,${capture.owner_name},${capture.owner_phone}) on conflict (outlet_id,ordinal) do update set name=excluded.name,phone=excluded.phone,deleted_at=null,updated_at=now()`;
   // WEB-173: the office customer page reads the customer record (Mobile No. on customer_profiles, Contact Person /
   // Mobile No. on the first ship-to), not outlet_contacts. Write the approved owner and phone there too.
@@ -470,17 +558,24 @@ async function captureCustomer(ctx, actor, p) {
   const at = integer(p.deviceTime, ctx.now - 7 * 86400000, ctx.now + 120000);
   // SP-0188: never refuse a salesman's save for blanks. Pre-SP-0183 builds sent the name at
   // the top level (`name`) and fewer customer fields; the office finishes what is missing.
-  const name = firstText(200, p.customer.customerName, p.name) ?? "New customer (no name)";
+  const name =
+    firstText(200, p.customer.customerName, p.name) ?? "New customer (no name)";
   const [previous] =
     await ctx.db`select id,outlet_id from outlet_enrolments where proposed_by=${actor.subject} and client_request_id=${id}`;
   if (previous) return { entityId: previous.outlet_id, eventIds: [] };
-  const ship0 = Array.isArray(p.customer.shipTos) ? p.customer.shipTos[0] : null;
+  const ship0 = Array.isArray(p.customer.shipTos)
+    ? p.customer.shipTos[0]
+    : null;
   const address =
     firstText(500, p.address, p.customer.customerAddress, p.formattedAddress) ??
     "Not given";
   const contactName =
-    firstText(100, p.ownerName, p.customer.contactPerson, ship0?.contactPerson) ??
-    "Not given";
+    firstText(
+      100,
+      p.ownerName,
+      p.customer.contactPerson,
+      ship0?.contactPerson,
+    ) ?? "Not given";
   const contactPhone = firstText(40, p.ownerPhone, p.customer.mobileNo);
   const { l } = readLocation(p, at);
   const bytes = readJpeg(p.photoJpegBase64);

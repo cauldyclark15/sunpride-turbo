@@ -231,10 +231,15 @@ test("store edit: approve updates the existing store, adds no store, moves the p
   const [contact] =
     await h.db`select name,phone from outlet_contacts where outlet_id=${id} and ordinal=0`;
   expect(contact).toEqual({ name: "New Owner", phone: "0917 555 0199" });
-  const [profileRow] = await h.db`select mobile_no from customer_profiles where outlet_id=${id}`;
+  const [profileRow] =
+    await h.db`select mobile_no from customer_profiles where outlet_id=${id}`;
   expect(profileRow.mobile_no).toBe("09175550199");
-  const [shipTo] = await h.db`select contact_person,mobile_no from customer_ship_tos where outlet_id=${id} and deleted_at is null and ordinal=0`;
-  expect(shipTo).toEqual({ contact_person: "New Owner", mobile_no: "09175550199" });
+  const [shipTo] =
+    await h.db`select contact_person,mobile_no from customer_ship_tos where outlet_id=${id} and deleted_at is null and ordinal=0`;
+  expect(shipTo).toEqual({
+    contact_person: "New Owner",
+    mobile_no: "09175550199",
+  });
   // E2E-010: the moved pin is a proposal for Pins to confirm (two-person pin verification), never verified at
   // once; the store keeps its old verified pin and the agent who moved it cannot confirm it.
   const pins =
@@ -243,7 +248,8 @@ test("store edit: approve updates the existing store, adds no store, moves the p
   const [proposed] =
     await h.db`select id,status,proposed_by from outlet_pins where outlet_id=${id} and latitude=10.3311 and deleted_at is null`;
   expect(proposed.status).toBe("pending");
-  const [agentRow] = await h.db`select user_id from profiles where id=${rep.profileId}`;
+  const [agentRow] =
+    await h.db`select user_id from profiles where id=${rep.profileId}`;
   expect(proposed.proposed_by).toBe(String(agentRow.user_id));
   const confirm = await as("manager", "/api/v1/outlets/pins/decide", {
     pinId: proposed.id,
@@ -464,4 +470,71 @@ test("store edit: an office move that is put back keeps the phone's scope, so it
   expect(
     queue.body.rows.some((/** @type {any} */ r) => r.id === p.captureId),
   ).toBe(true);
+});
+
+test("store edit: a structured address (SP-0220) is checked, built by the server and saved on the customer", async () => {
+  const rep = await fieldPerson();
+  const id = storeIds[4];
+  const missing = await rep.push(
+    change(id, { address: undefined, addressParts: { street1: "  " } }),
+  );
+  expect(missing.status).toBe("rejected");
+  expect(missing.code).toBe("invalid_request");
+  const { readAddressParts } = await import("../src/domains/masters/census.js");
+  await expect(readAddressParts(h.db, { street1: "" })).rejects.toThrow(
+    "Street 1 is required.",
+  );
+  await h.db`insert into ph_regions(code,name) values('0700000000','Region VII (Central Visayas)') on conflict do nothing`;
+  await h.db`insert into ph_provinces(code,region_code,name,kind) values('0702200000','0700000000','Cebu','province') on conflict do nothing`;
+  await h.db`insert into ph_municipalities(code,province_code,region_code,name,kind) values('0702230000','0702200000','0700000000','Mandaue City','city') on conflict do nothing`;
+  await h.db`insert into ph_barangays(code,municipality_code,name) values('0702230001','0702230000','Bakilid') on conflict do nothing`;
+  const [b] =
+    await h.db`select b.code,b.name,m.code mcode,m.name mname,v.code pcode,v.name pname,v.region_code rcode from ph_barangays b join ph_municipalities m on m.code=b.municipality_code join ph_provinces v on v.code=m.province_code limit 1`;
+  expect(b).toBeTruthy();
+  const wrong = await rep.push(
+    change(id, {
+      address: undefined,
+      addressParts: {
+        street1: "Rizal St",
+        municipalityCode: b.mcode,
+        barangayCode: "000000000",
+      },
+    }),
+  );
+  expect(wrong.status).toBe("rejected");
+  const p = change(id, {
+    address: "ignored free text",
+    addressParts: {
+      regionCode: b.rcode,
+      provinceCode: b.pcode,
+      municipalityCode: b.mcode,
+      barangayCode: b.code,
+      houseNo: "12",
+      street1: "Rizal St",
+      street2: null,
+    },
+  });
+  expect((await rep.push(p)).status).toBe("applied");
+  const expected = `12 Rizal St, ${b.name}, ${b.mname}, ${b.pname}`;
+  const [cap] =
+    await h.db`select address from census_captures where id=${p.captureId}`;
+  expect(cap.address).toBe(expected);
+  const ok = await as("manager", "/api/v1/masters/census/review", {
+    captureId: p.captureId,
+    decision: "accept",
+    reason: "Address checked",
+  });
+  expect(ok.status).toBe(200);
+  const [o] = await h.db`select address from outlets where id=${id}`;
+  expect(o.address).toBe(expected);
+  const [cp] =
+    await h.db`select street1,house_no,barangay_code,barangay_name,municipality_name,address_custom from customer_profiles where outlet_id=${id}`;
+  expect(cp).toEqual({
+    street1: "Rizal St",
+    house_no: "12",
+    barangay_code: b.code,
+    barangay_name: b.name,
+    municipality_name: b.mname,
+    address_custom: false,
+  });
 });
