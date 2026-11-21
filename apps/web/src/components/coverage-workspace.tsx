@@ -171,6 +171,52 @@ function ScopedPlanPicker({
   );
 }
 
+/** SP-0224: the Review tab never opens empty; it lists the plans waiting for this approver. */
+export function ReviewQueue({
+  month,
+  onOpen,
+}: {
+  month: string;
+  onOpen: (plan: SelectedPlan) => void;
+}) {
+  const summary = useCoverageQuery(api.coverage.summary, { month });
+  if (!summary)
+    return <span className="text-[13px] text-muted">Loading plans…</span>;
+  const waiting = summary.rows.filter(
+    (r) => r.awaitsMyApproval && r.approvalPlanId,
+  );
+  if (!waiting.length)
+    return (
+      <span className="text-[13px] text-muted">
+        No plan is waiting for your approval this month. Pick any plan above to
+        read it.
+      </span>
+    );
+  return (
+    <div className="grid gap-2" aria-label="Waiting for your approval">
+      <h3 className="font-semibold">Waiting for your approval</h3>
+      <div className="flex flex-wrap gap-2">
+        {waiting.map((r) => (
+          <button
+            key={r.approvalPlanId}
+            type="button"
+            className="h-10 rounded-[10px] border border-border px-3 text-sm font-medium"
+            onClick={() =>
+              onOpen({
+                id: r.approvalPlanId as Id<"coveragePlans">,
+                assigneeId: r.profileId as Id<"profiles">,
+                assigneeName: r.name,
+              })
+            }
+          >
+            Review {r.name}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function SalesForcePanels() {
   const permissions = useCoverageQuery(
     api.lib.capabilities.currentPermissions,
@@ -444,6 +490,13 @@ export function SalesForcePanels() {
                         localMonth: month,
                       }}
                     />
+                  </PanelErrorBoundary>
+                ) : coverageTab === "review" ? (
+                  <PanelErrorBoundary
+                    key={`queue-${month}`}
+                    label="Review queue"
+                  >
+                    <ReviewQueue month={month} onOpen={setSelected} />
                   </PanelErrorBoundary>
                 ) : (
                   <span className="text-[13px] text-muted">Select a plan</span>

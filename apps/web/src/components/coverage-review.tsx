@@ -26,7 +26,7 @@ import {
 } from "../lib/mcp-deadlines";
 import { SupervisorAwayPanel } from "./coverage-deadlines";
 import { CoverageStandardsReview } from "./coverage-summary";
-import { DailyPlanRoutes } from "./monthly-plan-routes";
+import { DailyPlanRoutes, VisitFrequencyCheck } from "./monthly-plan-routes";
 import { manilaDateToUtcMs } from "../lib/manila-date";
 
 type Mode = "review" | "visits" | "history";
@@ -523,6 +523,7 @@ function SelectedPlan({
             {stamp(plan.approvedAt)}
           </p>
         )}
+        {mode === "review" && <VisitFrequencyCheck detail={detail} />}
         {detail.review && <CoverageStandardsReview review={detail.review} />}
         <DailyPlanRoutes detail={detail} />
         {route && (

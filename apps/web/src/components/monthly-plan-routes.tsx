@@ -23,6 +23,63 @@ export function planningFrequencyGaps(detail: Detail, slots: Detail["slots"]) {
     .filter((r) => r.planned < r.expected);
 }
 
+/** SP-0224: every customer's required vs planned visits, shortfalls first, for the approver. */
+export function VisitFrequencyCheck({ detail }: { detail: Detail }) {
+  const rows = [...(detail.frequencyRequirements ?? [])].sort(
+    (a, b) =>
+      b.expected - b.planned - (a.expected - a.planned) ||
+      a.name.localeCompare(b.name),
+  );
+  if (!rows.length) return null;
+  const short = rows.filter((r) => r.planned < r.expected);
+  return (
+    <section
+      aria-label="Visit frequency check"
+      className="grid gap-2 rounded-xl border border-border p-4"
+    >
+      <h3 className="font-semibold">Visit frequency check</h3>
+      <p className={short.length ? "text-danger" : "text-muted"}>
+        {short.length
+          ? `${short.length} of ${rows.length} customers get fewer visits than required.`
+          : `All ${rows.length} customers get their required visits.`}
+      </p>
+      <div className="max-h-80 overflow-auto">
+        <table className="w-full text-left text-sm">
+          <thead>
+            <tr>
+              <th>Customer</th>
+              <th className="text-right">Required</th>
+              <th className="text-right">Planned</th>
+              <th className="text-right">Short by</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r) => (
+              <tr key={r.outletId}>
+                <td>{r.name}</td>
+                <td className="text-right tabular-nums">{r.expected}</td>
+                <td className="text-right tabular-nums">{r.planned}</td>
+                <td className="text-right tabular-nums">
+                  {r.planned < r.expected ? r.expected - r.planned : "—"}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="text-xs text-muted">
+        Required visits are set by the office for each customer. A shortfall
+        does not block approval.
+      </p>
+    </section>
+  );
+}
+
+const stopCount = (detail: Detail, date: string) =>
+  detail.slots.filter(
+    (s) => s.serviceDate === date && s.kind === "outlet_visit",
+  ).length;
+
 export function DailyPlanRoutes({ detail }: { detail: Detail }) {
   if (!detail.dailyRoutes?.length) return null;
   return (
@@ -33,10 +90,31 @@ export function DailyPlanRoutes({ detail }: { detail: Detail }) {
         Changes need your manager&apos;s approval; earlier versions remain in
         History.
       </p>
+      <table className="w-full text-left text-sm" aria-label="Daily routes">
+        <thead>
+          <tr>
+            <th>Route</th>
+            <th>Date</th>
+            <th className="text-right">Stops</th>
+          </tr>
+        </thead>
+        <tbody>
+          {detail.dailyRoutes.map((r) => (
+            <tr key={r._id}>
+              <td>Route {r.code}</td>
+              <td>{r.serviceDate}</td>
+              <td className="text-right tabular-nums">
+                {stopCount(detail, r.serviceDate)}
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
       {detail.dailyRoutes.map((r) => (
         <details key={r._id} className="rounded border border-border p-3">
           <summary>
-            Route {r.code} · {r.serviceDate}
+            Route {r.code} · {r.serviceDate} ·{" "}
+            {stopCount(detail, r.serviceDate)} stops
           </summary>
           <ol className="list-inside list-decimal">
             {detail.slots

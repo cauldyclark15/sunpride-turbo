@@ -24,6 +24,7 @@ const state = vi.hoisted(() => ({
     version: number;
     status: string;
   }[],
+  summary: undefined as unknown,
   tab: "plan",
   setupSection: "routes",
   hookCalls: 0,
@@ -39,6 +40,7 @@ vi.mock("./coverage-data", () => ({
     if (name === "lib/capabilities:currentPermissions")
       return state.permissions;
     if (name === "coverage/plans:list") return [];
+    if (name.includes("summary")) return state.summary;
     if (name === "coverage/plans:detail")
       return {
         plan: {
@@ -77,12 +79,12 @@ vi.mock("react", async (original) => {
       // The selected plan now lives in ?plan=&person= (WEB-113/114).
       return [
         initial === "summary"
-            ? state.tab
-            : initial === "routes"
-              ? state.setupSection
-              : typeof initial === "function"
-                ? (initial as () => unknown)()
-                : initial,
+          ? state.tab
+          : initial === "routes"
+            ? state.setupSection
+            : typeof initial === "function"
+              ? (initial as () => unknown)()
+              : initial,
         vi.fn(),
       ];
     },
@@ -492,5 +494,51 @@ describe("sales force coverage module", () => {
       "coverage/exports:schedule",
     ])
       expect(state.calls.some((c) => c.name === name)).toBe(false);
+  });
+});
+
+describe("SP-0224 review queue", () => {
+  it("lists the plans waiting for this approver and opens the one clicked", async () => {
+    const { ReviewQueue } = await import("./coverage-workspace");
+    state.summary = {
+      rows: [
+        {
+          name: "Ana",
+          profileId: "ana",
+          awaitsMyApproval: true,
+          approvalPlanId: "plan-v2",
+        },
+        { name: "Ben", profileId: "ben", awaitsMyApproval: false },
+      ],
+    };
+    const onOpen = vi.fn();
+    const html = renderToStaticMarkup(
+      createElement(ReviewQueue, { month: "2026-12", onOpen }),
+    );
+    expect(html).toContain("Waiting for your approval");
+    expect(html).toContain("Review Ana");
+    expect(html).not.toContain("Review Ben");
+    const tree = ReviewQueue({
+      month: "2026-12",
+      onOpen,
+    }) as React.ReactElement<{ children: React.ReactNode }>;
+    const row = React.Children.toArray(
+      tree.props.children,
+    )[1] as React.ReactElement<{
+      children: React.ReactElement<{ onClick: () => void }>[];
+    }>;
+    row.props.children[0]!.props.onClick();
+    expect(onOpen).toHaveBeenCalledWith({
+      id: "plan-v2",
+      assigneeId: "ana",
+      assigneeName: "Ana",
+    });
+    state.summary = { rows: [] };
+    expect(
+      renderToStaticMarkup(
+        createElement(ReviewQueue, { month: "2026-12", onOpen }),
+      ),
+    ).toContain("No plan is waiting");
+    state.summary = undefined;
   });
 });

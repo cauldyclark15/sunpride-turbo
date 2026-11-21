@@ -3,6 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, expect, it, vi } from "vitest";
 import {
   DailyPlanRoutes,
+  VisitFrequencyCheck,
   WeeklyPlanReview,
   planningFrequencyGaps,
 } from "./monthly-plan-routes";
@@ -144,4 +145,22 @@ it("Sunday overdue and no approved plan are visible without a false success", ()
   expect(html).toContain("Weekly review overdue");
   expect(html).toContain("No approved plan");
   expect(html).not.toContain("Reviewed</span>");
+});
+
+it("SP-0224 shows the approver every customer's required vs planned visits and each dated route's stop count", () => {
+  const check = renderToStaticMarkup(<VisitFrequencyCheck detail={detail} />);
+  expect(check).toContain("2 of 2 customers get fewer visits than required");
+  expect(check).toMatch(
+    /Customer A<\/td><td[^>]*>4<\/td><td[^>]*>2<\/td><td[^>]*>2</,
+  );
+  expect(check.indexOf("Customer A")).toBeLessThan(
+    check.indexOf("Omitted customer"),
+  );
+  expect(
+    renderToStaticMarkup(
+      <VisitFrequencyCheck detail={{ ...detail, frequencyRequirements: [] }} />,
+    ),
+  ).toBe("");
+  const routes = renderToStaticMarkup(<DailyPlanRoutes detail={detail} />);
+  expect(routes).toMatch(/Route 001<\/td><td>2030-11-11<\/td><td[^>]*>\d+</);
 });
