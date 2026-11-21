@@ -448,6 +448,7 @@ test("SP-0227 CSV uses the screen's words; sold-but-not-loaded goes to the offic
       { code: "B", name: "B", uom: "PC", requestedBase: 0, servedBase: 0, shortfallBase: 0, soldBase: 5, expectedLeftBase: -5, countedBase: 0, varianceBase: -5, reasonName: null, needsReason: false, notLoaded: true },
     ],
   });
+  expect(rows[0][10]).toBe("0 (sold 24 more than loaded)");
   expect(rows[0][12]).toBe("27 extra");
   expect(rows[1][13]).toBe("Sold but not loaded — check loading");
   expect(differenceText(4)).toBe("4 missing");

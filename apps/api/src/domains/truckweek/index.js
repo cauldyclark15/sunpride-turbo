@@ -280,7 +280,9 @@ export function csvRows(d) {
     l.servedBase,
     l.shortfallBase,
     l.soldBase,
-    l.expectedLeftBase,
+    l.expectedLeftBase < 0
+      ? `0 (sold ${-l.expectedLeftBase} more than loaded)`
+      : l.expectedLeftBase,
     l.countedBase ?? "",
     l.countedBase === null || l.countedBase === undefined
       ? ""
