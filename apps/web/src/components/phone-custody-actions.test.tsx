@@ -68,11 +68,19 @@ vi.mock("./master-data/api", async (original) => ({
               name: "Old person",
               email: "old@example.test",
               orgUnitId: "branch",
+              userId: "u-old",
             },
             {
               _id: "next",
               name: "Replacement person",
               email: "next@example.test",
+              orgUnitId: "branch",
+              userId: "u-next",
+            },
+            {
+              _id: "noaccount",
+              name: "Ben Flores",
+              email: "field2@example.test",
               orgUnitId: "branch",
             },
           ],
@@ -192,6 +200,11 @@ it("SP-0221 gives the phone to a searched, paged replacement and explains fresh 
   expect(html).toContain("Setup &gt; People");
   expect(html).toContain("Replacement person");
   expect(html).not.toContain("old@example.test");
+  // QA 2026-11-21: people with no sign-in account are never offered.
+  expect(html).not.toContain("Ben Flores");
+  expect(html).toContain(
+    "Only active people with a branch and a sign-in account",
+  );
   state.select!("next");
   render();
   await submit();
@@ -209,6 +222,7 @@ it("SP-0221 paginates and searches replacement people without silently selecting
   render();
   expect(state.query).toHaveBeenLastCalledWith("people/list", {
     status: "active",
+    canSignIn: "true",
     q: "",
     paginationOpts: { numItems: 25, cursor: "page-two" },
   });
@@ -216,6 +230,7 @@ it("SP-0221 paginates and searches replacement people without silently selecting
   render();
   expect(state.query).toHaveBeenLastCalledWith("people/list", {
     status: "active",
+    canSignIn: "true",
     q: "Replacement",
     paginationOpts: { numItems: 25, cursor: null },
   });

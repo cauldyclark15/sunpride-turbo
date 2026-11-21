@@ -31,6 +31,7 @@ export function PhoneCustodyActions({ device }: { device: Device }) {
     action === "reassign" || action === "reregister"
       ? {
           status: "active",
+          canSignIn: "true",
           q: search,
           paginationOpts: { numItems: 25, cursor: cursors.at(-1) ?? null },
         }
@@ -146,7 +147,9 @@ export function PhoneCustodyActions({ device }: { device: Device }) {
                   ...(people?.page ?? [])
                     .filter(
                       (person) =>
-                        person._id !== device.profileId && person.orgUnitId,
+                        person._id !== device.profileId &&
+                        !!person.orgUnitId &&
+                        !!person.userId,
                     )
                     .map((person) => ({
                       id: person._id,
@@ -154,6 +157,11 @@ export function PhoneCustodyActions({ device }: { device: Device }) {
                     })),
                 ]}
               />
+              <p className="text-sm text-muted">
+                Only active people with a branch and a sign-in account are
+                listed. Invite someone first in Setup &gt; People if they are
+                missing.
+              </p>
               <Pager
                 label="Replacement people pages"
                 page={cursors.length}

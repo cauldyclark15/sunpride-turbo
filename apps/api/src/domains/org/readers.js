@@ -210,6 +210,9 @@ export async function list(c, kind, p) {
       where = `t.deleted_at is null and (${scoped(owner)}${national ? ` or (${owner}) is null` : ""})`;
       search = "t.search_vector";
       if (p.unassigned === "true") where += ` and (${owner}) is null`;
+      // SP-0221: only people who can sign in (e.g. to receive a phone).
+      if (p.canSignIn === "true")
+        where += ` and t.user_id is not null and t.status='active' and (${owner}) is not null`;
       if (p.supervisorUnits)
         where += ` and t.status='active' and (${owner}) in (select value::uuid from jsonb_array_elements_text(${bind(JSON.stringify(p.supervisorUnits))}::text::jsonb))`;
       if (p.territoryId) {

@@ -495,3 +495,30 @@ test("SP-0221 a recovered phone may go straight to a new person; owner multi-pho
     await h.db`select status from registered_devices where key_id=${keys[1].keyId}`;
   expect(otherPhone.status).toBe("active");
 });
+
+test("SP-0221 the replacement list offers only people who can sign in", async () => {
+  const withAccount = await person("Can Sign In");
+  const subject = crypto.randomUUID();
+  const [noAccount] =
+    await h.db`insert into profiles(auth_subject,name,email,role,status,org_unit_id,effective_from)
+    values(${subject},'No Account Person',${`${subject}@example.test`},'sales','active',${region},now()-interval '1 day') returning id`;
+  /** @param {string} query */
+  const ids = async (query) => {
+    const res = await h.fetch(`/api/v1/people/list?${query}`, {
+      headers: { cookie: boss.cookie },
+    });
+    expect(res.status).toBe(200);
+    const body = /** @type {any} */ (await res.json());
+    return body.page.map((/** @type {any} */ p) => p._id);
+  };
+  const paging = encodeURIComponent(
+    JSON.stringify({ numItems: 100, cursor: null }),
+  );
+  const all = await ids(`status=active&paginationOpts=${paging}`);
+  expect(all).toContain(noAccount.id);
+  const signIn = await ids(
+    `status=active&canSignIn=true&paginationOpts=${paging}`,
+  );
+  expect(signIn).toContain(withAccount.profileId);
+  expect(signIn).not.toContain(noAccount.id);
+});
