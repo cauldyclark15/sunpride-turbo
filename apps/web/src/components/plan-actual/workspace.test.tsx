@@ -279,6 +279,34 @@ it("does not export stale results on an error/loading state and distinguishes em
   expect(empty).toContain("No approved stops");
   expect(empty).toContain("disabled");
 });
+it("SP-0226 a range without inline stores fetches only the opened day", async () => {
+  const key = sample.days[0]!.key;
+  state.selected = key;
+  state.fetch.mockClear();
+  state.data = sample;
+  const query = { from: "2030-11-01", to: "2030-11-21" };
+  const html = renderToStaticMarkup(
+    <PlanActualView
+      data={{
+        ...sample,
+        detail: null,
+        days: sample.days.map((d) => ({ ...d, stops: [] })),
+      }}
+      query={query}
+    />,
+  );
+  const [k, fetcher] = state.fetch.mock.calls.at(-1)!;
+  expect(k[2]).toEqual({ ...query, day: key });
+  const signal = new AbortController().signal;
+  await fetcher({ signal });
+  expect(apiFetch).toHaveBeenCalledWith("/api/v1/coverage/plan-actual", {
+    query: { ...query, day: key },
+    signal,
+  });
+  expect(html).toContain(sample.days[0]!.stops[0]!.outletCode);
+  state.selected = null;
+  state.data = undefined;
+});
 it("shows rejected/review states without inventing completion", () => {
   expect(actualLabel({ ...stop.visits[0]!, review: "pending_review" })).toBe(
     "checked out · pending review",

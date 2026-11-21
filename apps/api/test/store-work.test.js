@@ -1,4 +1,5 @@
 import { afterAll, beforeAll, expect, setSystemTime, test } from "bun:test";
+import { windows } from "../src/domains/coverage/plan-actual.js";
 import {
   startHarness,
   createUser,
@@ -433,7 +434,7 @@ test("signed phone tick, untick, replay and scope refusal persist actual work wi
 async function report(who, filters = {}) {
   return request(
     who,
-    `coverage/plan-actual?${new URLSearchParams({ from: day, to: tomorrow, ...filters })}`,
+    `coverage/plan-actual?${new URLSearchParams({ from: day, to: tomorrow, detail: "all", ...filters })}`,
   );
 }
 test("SP-0226 public plan and signed activity results reconcile by salesman/day and retain approved names", async () => {
@@ -484,6 +485,34 @@ test("SP-0226 public plan and signed activity results reconcile by salesman/day 
   expect((await report(seller)).data.summary).toEqual(r.data.summary);
   expect((await report(stranger)).data.days).toHaveLength(0);
   expect((await report(stranger, { profileId: seller.id })).status).toBe(403);
+});
+
+test("SP-0226 a month range reads week windows, keeps totals and returns store detail only for the opened day", async () => {
+  expect(windows("2030-10-01", "2030-10-31")).toEqual([
+    ["2030-10-01", "2030-10-07"],
+    ["2030-10-08", "2030-10-14"],
+    ["2030-10-15", "2030-10-21"],
+    ["2030-10-22", "2030-10-28"],
+    ["2030-10-29", "2030-10-31"],
+  ]);
+  const month = { from: "2030-10-12", to: tomorrow, detail: "" };
+  const r = await report(manager, month);
+  expect(r.status, JSON.stringify(r.data)).toBe(200);
+  expect(r.data.priorFrom).toBe("2030-09-11");
+  expect(r.data.summary).toMatchObject({ planned: 2, plannedDays: 2 });
+  expect(r.data.options.people.length).toBeGreaterThan(0);
+  expect(r.data.options.branches.length).toBeGreaterThan(0);
+  expect(r.data.days).toHaveLength(2);
+  for (const d of r.data.days) {
+    expect(d.stops).toEqual([]);
+    expect(d.stopCount).toBe(d.totals.planned + d.totals.unplanned);
+  }
+  const key = r.data.days.find((/** @type {any} */ d) => d.date === day).key;
+  const one = await report(manager, { ...month, day: key });
+  expect(one.data.detail).toBe(key);
+  expect(one.data.summary).toEqual(r.data.summary);
+  for (const d of one.data.days)
+    expect(d.stops.length).toBe(d.key === key ? d.stopCount : 0);
 });
 
 test("SP-0226 duplicates, open/rejected/review visits and unplanned same-store calls cannot inflate followed stops", async () => {

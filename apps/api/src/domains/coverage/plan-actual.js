@@ -23,6 +23,13 @@ const date = (value) =>
 const completed = (v) =>
   ["completed", "checked-out"].includes(v.state) &&
   !["rejected", "pending_review"].includes(v.late_review_status);
+/** Inclusive 7-day [from,to] windows covering from..to. @param {string} from @param {string} to */
+export function windows(from, to) {
+  const out = [];
+  for (let at = localDate(from), end = localDate(to); at <= end; at += 7 * DAY)
+    out.push([manilaDate(at), manilaDate(Math.min(at + 6 * DAY, end))]);
+  return out;
+}
 /** @param {number} a @param {number} b */
 const pct = (a, b) => (b ? Math.round((a / b) * 1000) / 10 : null);
 
@@ -107,36 +114,45 @@ export async function readPlanActual(ctx, b) {
     .filter((/** @type {any} */ p) => !b.profileId || p.id === b.profileId)
     .map((/** @type {any} */ p) => p.id);
   const db = ctx.db;
-  const slots = ids.length
-    ? bounded(
-        await db`
-    select s.*,p.assignee_profile_id,p.org_unit_id,p.version,pv.id as planned_visit_id
+  // SP-0226: read week-sized windows so a full month for a whole branch is
+  // complete. Each window keeps its own guard; the prior period is folded into
+  // totals only and the per-store day detail is returned only on request.
+  /** @type {any[]} */ const slots = [];
+  /** @type {any[]} */ const visits = [];
+  if (ids.length)
+    for (const [wFrom, wTo] of windows(priorFrom, to)) {
+      slots.push(
+        ...bounded(
+          await db`
+    select s.id,s.plan_id,s.outlet_id,s.service_date,s.sequence,s.approved_snapshot,p.assignee_profile_id,p.org_unit_id,p.version,pv.id as planned_visit_id
     from coverage_plan_slots s join coverage_plans p on p.id=s.plan_id
     left join planned_visits pv on pv.plan_slot_id=s.id and pv.status='planned' and pv.deleted_at is null
     where p.assignee_profile_id in ${db(ids)} and p.status in ('approved','active','superseded')
     and p.approval_signature is not null and p.deleted_at is null and s.deleted_at is null and s.kind='outlet_visit'
-    and s.service_date between ${priorFrom}::date and ${to}::date
+    and s.service_date between ${wFrom}::date and ${wTo}::date
     and s.service_date >= (p.effective_from at time zone 'Asia/Manila')::date
     and s.service_date < (coalesce(p.active_through,p.effective_to) at time zone 'Asia/Manila')::date
     order by s.service_date,s.sequence,s.id limit ${LIMIT + 1}`,
-        "Planned stops; narrow the dates or salesman",
-        LIMIT,
-      )
-    : [];
-  const visits = ids.length
-    ? bounded(
-        await db`
-    select v.*,a.territory_id as actual_territory_id from visit_executions v
+          "Planned stops in one week; narrow the salesman",
+          LIMIT,
+        ),
+      );
+      visits.push(
+        ...bounded(
+          await db`
+    select v.id,v.planned_visit_id,v.assignee_profile_id,v.outlet_id,v.org_unit_id,v.service_date,v.state,v.late_review_status,
+      v.checked_in_at,v.ended_at,v.reason_code,v.unplanned_reason,a.territory_id as actual_territory_id from visit_executions v
     left join lateral (select territory_id from outlet_assignments where outlet_id=v.outlet_id and deleted_at is null
       and effective_from <= (v.service_date::timestamp at time zone 'Asia/Manila')
       and (effective_to is null or effective_to > (v.service_date::timestamp at time zone 'Asia/Manila')) limit 1) a on true
     where v.assignee_profile_id in ${db(ids)} and v.deleted_at is null
-    and v.service_date between ${priorFrom}::date and ${to}::date
+    and v.service_date between ${wFrom}::date and ${wTo}::date
     order by v.service_date,v.id limit ${LIMIT + 1}`,
-        "Visits; narrow the dates or salesman",
-        LIMIT,
-      )
-    : [];
+          "Visits in one week; narrow the salesman",
+          LIMIT,
+        ),
+      );
+    }
   const outletIds = [...new Set([...slots, ...visits].map((s) => s.outlet_id))];
   const outlets = outletIds.length
     ? await db`
@@ -171,15 +187,24 @@ export async function readPlanActual(ctx, b) {
     allowedUnit(outletMap.get(s.outlet_id)?.current_unit_id);
   const safeVisits = visits.filter(authorized);
   const visitIds = safeVisits.map((v) => v.id);
-  const activities = visitIds.length
-    ? bounded(
+  /** @type {any[]} */ const activities = [];
+  for (let i = 0; i < visitIds.length; i += 2000)
+    activities.push(
+      ...bounded(
         await db`
     select id,visit_id,activity_kind,activity,server_time,change_seq from visit_activities
-    where visit_id in ${db(visitIds)} and deleted_at is null order by server_time desc,change_seq desc,id desc limit 100001`,
+    where visit_id in ${db(visitIds.slice(i, i + 2000))} and deleted_at is null limit 100001`,
         "Activities; narrow the dates or salesman",
         100000,
-      )
-    : [];
+      ),
+    );
+  // Newest first, as the single ordered read did.
+  activities.sort(
+    (a, b) =>
+      +new Date(b.server_time) - +new Date(a.server_time) ||
+      Number(b.change_seq) - Number(a.change_seq) ||
+      String(b.id).localeCompare(String(a.id)),
+  );
   const activityMap = new Map();
   const activityRank = new Map(activities.map((a, i) => [a.id, i]));
   for (const a of activities) {
@@ -347,8 +372,14 @@ export async function readPlanActual(ctx, b) {
     day.stops.push(s);
     days.set(key, day);
   }
+  const detail = b.detail === "all" ? null : String(b.day ?? "");
   const rows = [...days.values()]
-    .map((d) => ({ ...d, totals: planActualTotals(d.stops) }))
+    .map((d) => ({
+      ...d,
+      totals: planActualTotals(d.stops),
+      stops: detail === null || detail === d.key ? d.stops : [],
+      stopCount: d.stops.length,
+    }))
     .sort(
       (a, b) =>
         b.totals.missed - a.totals.missed ||
@@ -369,6 +400,7 @@ export async function readPlanActual(ctx, b) {
     summary: planActualTotals(current),
     prior: planActualTotals(filtered.filter((s) => s.date < from)),
     salesmen,
+    detail: detail === null ? "all" : detail || null,
     days: rows,
   };
 }

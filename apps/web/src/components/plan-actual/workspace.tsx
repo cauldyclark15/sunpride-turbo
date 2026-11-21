@@ -95,8 +95,7 @@ export function DayDetail({ day }: { day: Day }) {
                           {actualLabel(v)}
                           {v.checkedInAt && (
                             <p className="text-xs text-muted">
-                              In{" "}
-                              {formatTime(v.checkedInAt)}
+                              In {formatTime(v.checkedInAt)}
                               {v.checkedOutAt
                                 ? ` · Out ${formatTime(v.checkedOutAt)}`
                                 : ""}
@@ -125,9 +124,46 @@ export function DayDetail({ day }: { day: Day }) {
     </section>
   );
 }
-export function PlanActualView({ data }: { data: PlanActual }) {
+type Query = Record<string, string>;
+/** The range view carries day totals only; one day's stores are fetched when opened (SP-0226). */
+function RemoteDay({ query, dayKey }: { query: Query; dayKey: string }) {
+  const r = useApi<PlanActual>(
+    ["coverage", "plan-actual", { ...query, day: dayKey }],
+    ({ signal }) =>
+      apiFetch("/api/v1/coverage/plan-actual", {
+        query: { ...query, day: dayKey },
+        signal,
+      }),
+  );
+  const day = r.data?.days.find((d) => d.key === dayKey);
+  if (r.error) return <p role="alert">{r.error.message}</p>;
+  return day ? <DayDetail day={day} /> : <p role="status">Loading the day…</p>;
+}
+export function PlanActualView({
+  data,
+  query,
+}: {
+  data: PlanActual;
+  query?: Query;
+}) {
   const [selected, setSelected] = useState<string | null>(null);
-  const detail = data.days.find((d) => d.key === selected);
+  const [exporting, setExporting] = useState(false);
+  const inline = data.days.find((d) => d.key === selected);
+  const remote =
+    !!selected && !!query && data.detail !== "all" && data.detail !== selected;
+  const exportCsv = async () => {
+    if (data.detail === "all" || !query) return downloadPlanActual(data);
+    setExporting(true);
+    try {
+      downloadPlanActual(
+        await apiFetch<PlanActual>("/api/v1/coverage/plan-actual", {
+          query: { ...query, detail: "all" },
+        }),
+      );
+    } finally {
+      setExporting(false);
+    }
+  };
   const s = data.summary;
   return (
     <div className="grid gap-4">
@@ -138,10 +174,10 @@ export function PlanActualView({ data }: { data: PlanActual }) {
         </p>
         <button
           className="rounded-lg border border-border px-3 py-2 text-sm"
-          onClick={() => downloadPlanActual(data)}
-          disabled={!data.days.length}
+          onClick={() => void exportCsv()}
+          disabled={!data.days.length || exporting}
         >
-          Export CSV
+          {exporting ? "Preparing CSV…" : "Export CSV"}
         </button>
       </div>
       <div className="grid gap-2 border-y border-border py-4 sm:grid-cols-4">
@@ -277,7 +313,11 @@ export function PlanActualView({ data }: { data: PlanActual }) {
               </tbody>
             </table>
           </div>
-          {detail && <DayDetail day={detail} />}
+          {remote && query && selected ? (
+            <RemoteDay query={query} dayKey={selected} />
+          ) : (
+            inline && <DayDetail day={inline} />
+          )}
           <Link className="text-sm underline" href="/sales-force">
             Review the next coverage plan
           </Link>
@@ -312,7 +352,7 @@ export function PlanActualWorkspace() {
     <label className="grid gap-1 text-sm">
       {label}
       <select
-        className="h-10 rounded-lg border border-border px-2"
+        className="h-10 min-w-40 rounded-lg border border-border pl-2 pr-8"
         aria-label={label}
         value={filters[key]}
         onChange={(e) => setFilters({ ...filters, [key]: e.target.value })}
@@ -406,7 +446,7 @@ export function PlanActualWorkspace() {
       ) : result.isFetching ? (
         <p role="status">Loading plan vs actual…</p>
       ) : result.data ? (
-        <PlanActualView data={result.data} />
+        <PlanActualView data={result.data} query={query} />
       ) : (
         <p role="status">Loading plan vs actual…</p>
       )}

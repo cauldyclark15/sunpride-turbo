@@ -56,6 +56,8 @@ export type Day = {
   person: string;
   date: string;
   stops: Stop[];
+  /** Stops on the day; `stops` is filled only for the requested day or detail=all. */
+  stopCount?: number;
   totals: Totals;
 };
 export type Option = { id: string; name: string };
@@ -73,6 +75,8 @@ export type PlanActual = {
   summary: Totals;
   prior: Totals;
   salesmen: { profileId: string; person: string; totals: Totals }[];
+  /** "all" when every day carries its stops, else the one day key returned in full. */
+  detail?: string | null;
   days: Day[];
 };
 export const percent = (n: number | null) => (n === null ? "No plan" : `${n}%`);
