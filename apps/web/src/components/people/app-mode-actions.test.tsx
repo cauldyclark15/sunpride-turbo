@@ -1,6 +1,6 @@
 import { isValidElement, type ReactNode } from "react";
 import { beforeEach, expect, it, vi } from "vitest";
-import { AppModeChoice, BulkAppMode } from "./app-mode";
+import { APP_MODES_SAVED, AppModeChoice, BulkAppMode } from "./app-mode";
 
 // Exercise the actual checkbox and Save callbacks without a browser/DOM substitute.
 const state = vi.hoisted(() => ({ values: [] as unknown[], index: 0 }));
@@ -83,6 +83,12 @@ it("the person editor replaces the set only when Save is clicked", async () => {
     profileId: "a",
     modes: ["mapping", "selling"],
   });
+  await Promise.resolve();
+  expect(
+    render(component).some(
+      (p) => p.role === "status" && p.children === APP_MODES_SAVED,
+    ),
+  ).toBe(true);
 });
 it("empty selections and mixed-role Truck selling never save", async () => {
   const write = vi.fn(),

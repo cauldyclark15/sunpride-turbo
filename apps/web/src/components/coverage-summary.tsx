@@ -5,6 +5,7 @@ import { useCoverageQuery } from "./coverage-data";
 import { coverageStatusLabel } from "../lib/coverage-view-model";
 import { deadlineDate, deadlineStateLabel } from "../lib/mcp-deadlines";
 import { formatDate } from "./cockpit/format";
+import { countOf } from "../lib/format";
 import { ListPage, PAGE_SIZE } from "./list-page/list-page";
 
 /** `Oct 2026` for a `YYYY-MM` month. */
@@ -234,12 +235,12 @@ export function CoverageStandardsReview({ review }: { review: Review }) {
     >
       <h3 className="font-semibold">Plan versus standard</h3>
       <p>
-        {review.planned} planned calls · {review.visited} visited ·{" "}
+        {countOf(review.planned, "planned call")} · {review.visited} visited ·{" "}
         {review.productive} verified productive
       </p>
       <p className="text-sm text-muted">
         {review.standardSource
-          ? `Position standard: ${review.standardSource}`
+          ? "Uses the office's visit standard for this position."
           : "No position standard configured — calls target is unknown, not zero."}{" "}
         Activity figures are received evidence, not proof an unsynced phone did
         nothing.
@@ -249,7 +250,7 @@ export function CoverageStandardsReview({ review }: { review: Review }) {
         <ul className="grid gap-1 text-sm">
           {review.daily.map((d) => (
             <li key={d.date}>
-              {formatDate(d.date)}: {d.calls} calls /{" "}
+              {formatDate(d.date)}: {countOf(d.calls, "call")} /{" "}
               {d.target === null ? "no selling target" : `${d.target} standard`}
               {d.target !== null && d.calls < d.target
                 ? " · below standard"

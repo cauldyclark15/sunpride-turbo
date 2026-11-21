@@ -7,6 +7,9 @@ import { currentManilaDate } from "../../lib/coverage-calendar";
 import { formatDate, formatPeriod, formatTime } from "../../lib/format";
 import {
   actualLabel,
+  codeLabel,
+  reasonLabel,
+  visitActivitiesLabel,
   downloadPlanActual,
   percent,
   type Day,
@@ -73,7 +76,7 @@ export function DayDetail({ day }: { day: Day }) {
                     {s.territory} · {s.group}
                   </p>
                 </td>
-                <td>{s.status}</td>
+                <td>{codeLabel(s.status)}</td>
                 <td>
                   {s.activities.length ? (
                     <ul>
@@ -103,12 +106,10 @@ export function DayDetail({ day }: { day: Day }) {
                           )}
                           {v.activities.length > 0 && (
                             <p>
-                              {v.activities
-                                .map((a) => a.replaceAll("_", " "))
-                                .join(", ")}
+                              {visitActivitiesLabel(v.activities)}
                             </p>
                           )}
-                          {v.reason && <p>{v.reason}</p>}
+                          {v.reason && <p>{reasonLabel(v.reason)}</p>}
                         </li>
                       ))}
                     </ul>

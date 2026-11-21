@@ -1,6 +1,6 @@
 "use client";
 
-import { formatStatus } from "../lib/format";
+import { countOf, formatStatus } from "../lib/format";
 import { useState } from "react";
 import { api } from "./coverage-model";
 import { useCoverageMutation, useCoverageQuery } from "./coverage-data";
@@ -114,7 +114,7 @@ export function DailyPlanRoutes({ detail }: { detail: Detail }) {
         <details key={r._id} className="rounded border border-border p-3">
           <summary>
             Route {r.code} · {r.serviceDate} ·{" "}
-            {stopCount(detail, r.serviceDate)} stops
+            {countOf(stopCount(detail, r.serviceDate), "stop")}
           </summary>
           <ol className="list-inside list-decimal">
             {detail.slots

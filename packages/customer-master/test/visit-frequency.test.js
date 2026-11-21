@@ -56,3 +56,8 @@ test("SP-0223 preserves legacy day values and clearly labels unset and calendar 
   );
   expect(visitFrequencySummary(30, null)).toBe("1 visit/month");
 });
+
+test("SP-0223 one-day cadence reads as plain words", () => {
+  expect(visitFrequencyLabel(1, null)).toBe("Every day");
+  expect(visitFrequencyLabel(3, null)).toBe("Every 3 days");
+});

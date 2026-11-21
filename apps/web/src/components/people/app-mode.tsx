@@ -43,6 +43,9 @@ export const appModeLabel = (mode: AppMode) =>
   APP_MODES.find((m) => m.value === mode)?.label ?? "Customer mapping";
 
 /** The mode the person's phone shows (same rule as the server): Truck selling only while they are Sales. */
+export const APP_MODES_SAVED =
+  "Saved. The phone picks up the new modes at its next sync.";
+
 export function currentAppMode(
   p: Pick<AppModeTarget, "role" | "appMode" | "selling">,
 ): AppMode {
@@ -145,6 +148,7 @@ export function AppModeChoice({
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
+  const [saved, setSaved] = useState(false);
   const [shown, setShown] = useState<AppMode[] | null>(null);
   const owner = target.role === "super_admin";
   const value = shown ?? currentAppModes(target);
@@ -152,8 +156,10 @@ export function AppModeChoice({
     if (pending || !value.length || !canManage) return;
     setPending(true);
     setError("");
+    setSaved(false);
     try {
       await save({ profileId: target.profileId, modes: value });
+      setSaved(true);
     } catch (cause) {
       setError(
         cause instanceof Error ? cause.message : "Could not save. Try again.",
@@ -177,7 +183,10 @@ export function AppModeChoice({
             disabled={(mode) =>
               pending || !canPickAppMode(target, mode, canManage)
             }
-            onPick={(mode) => setShown(toggleAppMode(value, mode))}
+            onPick={(mode) => {
+              setSaved(false);
+              setShown(toggleAppMode(value, mode));
+            }}
           />
           <p className="text-xs text-muted">
             Choose one or more modes. They can switch between these on the
@@ -201,6 +210,11 @@ export function AppModeChoice({
           ) : null}
         </>
       )}
+      {saved && !error ? (
+        <span role="status" className="text-sm text-success">
+          {APP_MODES_SAVED}
+        </span>
+      ) : null}
       {error ? (
         <span role="alert" className="text-sm text-danger">
           {error}

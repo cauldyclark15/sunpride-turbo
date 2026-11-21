@@ -2,6 +2,7 @@
 
 import { useState, type FormEvent } from "react";
 import { apiFetch, useApi, useLive, useMutate } from "../lib/api";
+import { countOf } from "../lib/format";
 import type { SlotInput, StoreWork } from "./coverage-model";
 
 type Activity = { activityId: string; name: string; active: boolean };
@@ -69,7 +70,7 @@ export function StoreWorkAdmin() {
         the names and activities that were agreed at the time.
       </p>
       <p>
-        Start with Francis&apos;s activity list. Collection, Countering and
+        Start with the office&apos;s standard activity list. Collection, Countering and
         Count stock are examples, not a supplied master list. A tick records
         what the salesman says he did; it does not replace a collection receipt
         or a stock count.
@@ -339,7 +340,7 @@ export function StopWorkPlanner({
             >
               <summary>
                 {s.serviceDate} · {nameFor(s.outletId!)} ·{" "}
-                {work.activities.length} activities
+                {countOf(work.activities.length, "activity", "activities")}
               </summary>
               {!readOnly && data ? (
                 <div className="grid gap-2 py-2">

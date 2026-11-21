@@ -1,5 +1,5 @@
 "use client";
-import { formatDate } from "../lib/format";
+import { countOf, formatDate } from "../lib/format";
 import { Button } from "@heroui/react";
 import { Card, ListRow, WorkspaceIcon } from "@sunpride/ui";
 import { api } from "./coverage-model";
@@ -72,7 +72,7 @@ export function CoverageWorkloadView({
                   meta={`${person.selection} · ${person.routeCodes.join(", ") || "No route"} · ${person.workingDays.map((d) => formatDate(d)).join(", ") || "No working days"}`}
                   value={
                     <span className="text-[13px] tabular-nums">
-                      {person.visitCount} calls · {person.durationMinutes} min ·{" "}
+                      {countOf(person.visitCount, "call")} · {person.durationMinutes} min ·{" "}
                       {person.dailyCallsTarget === undefined
                         ? "No target"
                         : `${person.dailyCallsTarget}/day · ${person.variance! > 0 ? "Over" : person.variance! < 0 ? "Under" : "On"} (${person.variance})`}

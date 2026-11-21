@@ -5,7 +5,7 @@ import type { Id } from "./coverage-model";
 import { FormField, Pager, UnderlineTabs } from "@sunpride/ui";
 import { useCoverageQuery } from "./coverage-data";
 import dynamic from "next/dynamic";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { salesForcePanels } from "../lib/module-access";
 import { CoveragePlanner } from "./coverage-planner";
 import { CoverageReview } from "./coverage-review";
@@ -171,6 +171,20 @@ function ScopedPlanPicker({
   );
 }
 
+/** The plan to open straight away when exactly one waits for this approver. */
+export function singleWaitingPlan(
+  waiting: { approvalPlanId?: string | null; profileId: string; name: string }[],
+): SelectedPlan | null {
+  const [one, ...rest] = waiting;
+  return one?.approvalPlanId && !rest.length
+    ? {
+        id: one.approvalPlanId as Id<"coveragePlans">,
+        assigneeId: one.profileId as Id<"profiles">,
+        assigneeName: one.name,
+      }
+    : null;
+}
+
 /** SP-0224: the Review tab never opens empty; it lists the plans waiting for this approver. */
 export function ReviewQueue({
   month,
@@ -180,11 +194,19 @@ export function ReviewQueue({
   onOpen: (plan: SelectedPlan) => void;
 }) {
   const summary = useCoverageQuery(api.coverage.summary, { month });
-  if (!summary)
-    return <span className="text-[13px] text-muted">Loading plans…</span>;
-  const waiting = summary.rows.filter(
+  const waiting = (summary?.rows ?? []).filter(
     (r) => r.awaitsMyApproval && r.approvalPlanId,
   );
+  const only = singleWaitingPlan(waiting);
+  // QA retest: one click opens the plan. With a single plan waiting, open it at once.
+  useEffect(() => {
+    if (only) onOpen(only);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [only?.id]);
+  if (!summary)
+    return <span className="text-[13px] text-muted">Loading plans…</span>;
+  if (only)
+    return <span className="text-[13px] text-muted">Opening the plan…</span>;
   if (!waiting.length)
     return (
       <span className="text-[13px] text-muted">

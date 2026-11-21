@@ -34,8 +34,10 @@ export function visitFrequencyLabel(days, perMonth) {
       ? "Every 2 weeks"
       : days === 30
         ? "Monthly"
-        : days
-          ? `Every ${days} days`
+        : days === 1
+          ? "Every day"
+          : days
+            ? `Every ${days} days`
           : "Not set";
 }
 

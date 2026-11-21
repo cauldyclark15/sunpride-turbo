@@ -1,6 +1,7 @@
 "use client";
 
 import { Button } from "@heroui/react";
+import { platformLabel } from "../lib/format";
 import { api } from "./master-data/api";
 import type { Id } from "./master-data/model";
 import {
@@ -245,9 +246,9 @@ export function DevicesAdmin() {
           <PhoneCode value={row.inventoryTag} />
           <span
             className="mt-1 block truncate text-xs text-muted"
-            title={`${row.platform} · ${row.model}`}
+            title={`${platformLabel(row.platform)} · ${row.model}`}
           >
-            {row.platform} · {row.model}
+            {platformLabel(row.platform)} · {row.model}
           </span>
         </div>
       ),
@@ -370,7 +371,7 @@ export function DevicesAdmin() {
               >
                 <PhoneCode value={device.inventoryTag} />
                 <p className="text-[13px] text-muted">
-                  {device.employeeName ?? "Unassigned"} · {device.platform}{" "}
+                  {device.employeeName ?? "Unassigned"} · {platformLabel(device.platform)}{" "}
                   {device.osVersion} · app {device.appVersion}
                 </p>
                 <div className="flex items-center gap-2">

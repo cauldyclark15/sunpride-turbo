@@ -1,3 +1,5 @@
+import { formatStatus } from "../../lib/format";
+import { activityLabel } from "../../lib/activity-reports";
 export type Totals = {
   planned: number;
   visited: number;
@@ -80,8 +82,22 @@ export type PlanActual = {
   days: Day[];
 };
 export const percent = (n: number | null) => (n === null ? "No plan" : `${n}%`);
+const REASON_LABELS: Record<string, string> = {
+  no_sales_due_to_inventory: "No sale: store has enough stock",
+};
+/** Visit reason codes in plain words. */
+export const reasonLabel = (code: string | null) =>
+  !code
+    ? ""
+    : REASON_LABELS[code] ??
+      (/^[a-z]+(_[a-z]+)+$/.test(code) ? formatStatus(code) : code);
+/** Territory type / stop status codes in plain words. */
+export const codeLabel = (code: string | null) =>
+  code ? formatStatus(code, { location: "Location", customer_group: "Customer group" }) : "";
 export const actualLabel = (v: ActualVisit) =>
-  `${v.state.replaceAll("-", " ")}${v.review ? ` · ${v.review.replaceAll("_", " ")}` : ""}`;
+  `${formatStatus(v.state)}${v.review ? ` · ${formatStatus(v.review)}` : ""}`;
+export const visitActivitiesLabel = (kinds: readonly string[]) =>
+  kinds.map(activityLabel).join(", ");
 const time = (at: number | null) =>
   at === null ? "" : new Date(at).toISOString();
 /** Full filtered detail, never only the expanded day. RFC 4180 + Excel formula protection. */
@@ -128,14 +144,14 @@ export function planActualCsv(data: PlanActual) {
         s.date,
         s.branch,
         s.territory,
-        s.territoryType,
+        codeLabel(s.territoryType),
         s.group,
         s.route,
         s.outletCode,
         s.outlet,
         s.planned ? "Yes" : "No",
         s.planVersion,
-        s.status,
+        codeLabel(s.status),
         s.completedVisits,
         s.activities.map((a) => a.name).join("; "),
         s.activities
@@ -147,11 +163,11 @@ export function planActualCsv(data: PlanActual) {
           .map((a) => a.name)
           .join("; "),
         s.visits.map(actualLabel).join("; "),
-        s.visits.flatMap((v) => v.activities).join("; "),
+        s.visits.flatMap((v) => v.activities).map(activityLabel).join("; "),
         s.visits.map((v) => time(v.checkedInAt)).join("; "),
         s.visits.map((v) => time(v.checkedOutAt)).join("; "),
         s.visits
-          .map((v) => v.reason ?? "")
+          .map((v) => reasonLabel(v.reason))
           .filter(Boolean)
           .join("; "),
         d.totals.planned,

@@ -509,6 +509,12 @@ describe("SP-0224 review queue", () => {
           approvalPlanId: "plan-v2",
         },
         { name: "Ben", profileId: "ben", awaitsMyApproval: false },
+        {
+          name: "Carla",
+          profileId: "carla",
+          awaitsMyApproval: true,
+          approvalPlanId: "plan-c1",
+        },
       ],
     };
     const onOpen = vi.fn();
@@ -540,5 +546,22 @@ describe("SP-0224 review queue", () => {
       ),
     ).toContain("No plan is waiting");
     state.summary = undefined;
+  });
+  it("opens the only waiting plan straight away (one click from the plans list)", async () => {
+    const { singleWaitingPlan } = await import("./coverage-workspace");
+    const ana = {
+      name: "Ana",
+      profileId: "ana",
+      approvalPlanId: "plan-v2",
+    };
+    expect(singleWaitingPlan([ana])).toEqual({
+      id: "plan-v2",
+      assigneeId: "ana",
+      assigneeName: "Ana",
+    });
+    expect(
+      singleWaitingPlan([ana, { ...ana, profileId: "b", approvalPlanId: "p2" }]),
+    ).toBeNull();
+    expect(singleWaitingPlan([])).toBeNull();
   });
 });

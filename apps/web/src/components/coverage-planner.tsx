@@ -1,7 +1,7 @@
 "use client";
 
 import { StopWorkPlanner } from "./store-work";
-import { formatStatus } from "../lib/format";
+import { countOf, formatStatus } from "../lib/format";
 
 import { Button } from "@heroui/react";
 import { Card, FormField, StatusPill, WorkspaceIcon } from "@sunpride/ui";
@@ -82,6 +82,11 @@ export async function saveCoverageSlots(
       throw new Error("Sequence must be positive");
   }
   return save({ planId, slots });
+}
+
+/** One line instead of a 75-line list; the names open on request. */
+export function frequencyGapSummary(n: number): string {
+  return `${countOf(n, "customer")} below the required visits`;
 }
 
 export function saveCoverageAssignment(
@@ -698,14 +703,19 @@ export function PlanEditor({
             approved days. Add the missing visits or discuss the shortfall with
             your manager.
           </p>
-          <ul>
-            {frequencyGaps.map((r) => (
-              <li key={r.outletId}>
-                {r.name}: {r.planned} of {r.expected} visits planned ·{" "}
-                {r.requirement}
-              </li>
-            ))}
-          </ul>
+          <details>
+            <summary className="cursor-pointer font-medium">
+              {frequencyGapSummary(frequencyGaps.length)} — show the list
+            </summary>
+            <ul className="mt-2 max-h-64 overflow-auto">
+              {frequencyGaps.map((r) => (
+                <li key={r.outletId}>
+                  {r.name}: {r.planned} of {r.expected} visits planned ·{" "}
+                  {r.requirement}
+                </li>
+              ))}
+            </ul>
+          </details>
         </aside>
       )}
       {!!detail.warnings.length && (
@@ -893,8 +903,8 @@ export function PlanEditor({
         Outlet cadence (draft defaults, not automatic slots)
       </h3>
       <p className="text-xs">
-        Use preferred weekdays Sunday=0. Custom dates are comma-separated Manila
-        dates. Schedule actual occurrences in the grid.
+        Tick the preferred days for each outlet. Type custom dates separated
+        by commas. Schedule actual occurrences in the grid.
       </p>
       <div className="max-h-80 overflow-auto">
         {visible.map((o) => (

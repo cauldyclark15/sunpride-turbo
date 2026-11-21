@@ -159,3 +159,13 @@ export function formatStatus(
       : text;
   return lower.charAt(0).toUpperCase() + lower.slice(1);
 }
+
+/** "1 call", "3 calls": a count with the right singular/plural noun. */
+export function countOf(n: number, one: string, many = `${one}s`): string {
+  return `${n} ${n === 1 ? one : many}`;
+}
+
+/** Phone platform as people write it: "android" → "Android", "ios" → "iOS". */
+export function platformLabel(value: string | null | undefined): string {
+  return formatStatus(value, { android: "Android", ios: "iOS", web: "Website" });
+}

@@ -184,7 +184,7 @@ it("renders totals, prior comparison and daily exceptions; the open-day button s
   expect(expanded).toContain("Done — Collection");
   expect(expanded).toContain("Not done — Countering");
   expect(expanded).toContain("Activities unfinished");
-  expect(expanded).toContain("checked out");
+  expect(expanded).toContain("Checked out");
 });
 it("exports all days, including missed stops, regardless of expansion, and protects spreadsheet formulas", () => {
   const data = structuredClone(sample);
@@ -309,7 +309,7 @@ it("SP-0226 a range without inline stores fetches only the opened day", async ()
 });
 it("shows rejected/review states without inventing completion", () => {
   expect(actualLabel({ ...stop.visits[0]!, review: "pending_review" })).toBe(
-    "checked out · pending review",
+    "Checked out · Pending review",
   );
   expect(renderToStaticMarkup(<DayDetail day={sample.days[1]!} />)).toContain(
     "No visit recorded",
