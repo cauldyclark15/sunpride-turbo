@@ -130,6 +130,8 @@ describe("prices · price lists", () => {
       h.indexOf('data-testid="list-table"'),
     );
     expect(h).toContain("General trade");
+    // SP-0216: the Channel column shows the channel name, never the raw key.
+    expect(h).not.toMatch(/>gt</);
     expect(h).toContain('href="/pricing?list=raw-list&amp;edit=1"');
     expect(h).toContain(">Edit<");
     for (const gone of [

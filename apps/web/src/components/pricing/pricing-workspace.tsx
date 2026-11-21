@@ -5,6 +5,7 @@ import Link from "next/link";
 import { Card, FormField, Pager, WorkspaceIcon } from "@sunpride/ui";
 import { useRef, useState, type FormEvent } from "react";
 import { apiFetch, mutate, useApi, useLive } from "../../lib/api";
+import { channelLabel } from "../../lib/channel-label";
 import { usePermissions } from "../../lib/auth";
 import { manilaToday } from "../../lib/outside-calls";
 import { Drawer } from "../cockpit/kit/drawer";
@@ -402,7 +403,12 @@ export function PricingWorkspace() {
     rows.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
 
   const listRows = lists.data
-    ? matchRows(lists.data.rows, q, status, (r) => r.channelKey ?? "")
+    ? matchRows(
+        lists.data.rows,
+        q,
+        status,
+        (r) => `${r.channelKey ?? ""} ${channelLabel(r.channelKey, "")}`,
+      )
     : null;
   const promoRows = promotions.data
     ? matchRows(promotions.data.rows, q, status)
@@ -467,7 +473,7 @@ export function PricingWorkspace() {
               {selectedList ? (
                 <p className="text-sm text-muted">
                   {selectedList.code} ·{" "}
-                  {selectedList.channelKey ?? "Default channel"} ·{" "}
+                  {channelLabel(selectedList.channelKey, "Default channel")} ·{" "}
                   {statusWord(selectedList.status)} · from{" "}
                   {shortDate(selectedList.effectiveFrom)}
                   {selectedList.source === "sample" ? " · Sample data" : ""}
@@ -573,8 +579,8 @@ export function PricingWorkspace() {
             {
               key: "channel",
               label: "Channel",
-              text: (r) => r.channelKey ?? "Default",
-              render: (r) => r.channelKey ?? "Default",
+              text: (r) => channelLabel(r.channelKey),
+              render: (r) => channelLabel(r.channelKey),
             },
             {
               key: "status",
@@ -641,7 +647,9 @@ export function PricingWorkspace() {
                       .filter((p): p is string => p !== null),
                   ),
                 ].map((ch) => (
-                  <option key={ch}>{ch}</option>
+                  <option key={ch} value={ch}>
+                    {channelLabel(ch)}
+                  </option>
                 ))}
               </select>
             </FormField>
@@ -663,7 +671,7 @@ export function PricingWorkspace() {
                   <th className="p-3">Product</th>
                   {matrix.data?.channels.map((ch) => (
                     <th key={ch} className="p-3">
-                      {ch}
+                      {channelLabel(ch)}
                     </th>
                   ))}
                 </tr>
@@ -875,7 +883,7 @@ export function PricingWorkspace() {
               <option value="">Every list</option>
               {lists.data?.rows.map((p) => (
                 <option key={p.id} value={p.id}>
-                  {p.name} ({p.channelKey ?? "Default"})
+                  {p.name} ({channelLabel(p.channelKey)})
                 </option>
               ))}
             </select>
