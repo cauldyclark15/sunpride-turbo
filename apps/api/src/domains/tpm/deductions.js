@@ -131,11 +131,8 @@ export function installDeductions(router) {
             reason,
           });
         } else {
-          if (
-            BigInt(r.recovered_centavos) + BigInt(r.written_off_centavos) !==
-            BigInt(r.amount_centavos)
-          )
-            fail("Wait for SAP-confirmed recovery or write-off before closing");
+          // SP-0231: SAP is not connected for Sunpride, so an owner may resolve without SAP-confirmed
+          // recovery/write-off; any SAP confirmation that does arrive is still recorded on the deduction.
           await cc.db`update deductions set status='resolved',updated_at=now() where id=${r.id}`;
         }
         await cc.db`insert into deduction_events(deduction_id,action,actor_subject,reason,recovered_centavos) values(${r.id},${action},${cc.actor.subject},${reason},${recovery})`;

@@ -164,18 +164,24 @@ test("F-504 earned accrual is atomic, idempotent, and staged pending the SAP sea
   );
 });
 test("F-505 one intake accepts distributor MT agency with type period value and immutable history", async () => {
+  // Agency claimants are authorized against a real current agency record (partners/model authorize).
+  const [agencyUnit] =
+    await h.db`insert into org_units(organization_id,code,name,type_code,status,effective_from) values('sunpride','TPM-AGENCY','Sample agency unit','national','active',now()-interval '1 day') returning id`;
+  const [agency] =
+    await h.db`insert into distributors(org_unit_id,code,name,status,source,partner_kind,effective_from) values(${agencyUnit.id},'SAMPLE-AGENCY','Sample agency','accredited','sample','agency',now()-interval '1 day') returning id`;
   for (const partyType of ["distributor", "modern_trade", "agency"]) {
     const r = await api(admin, "claims/submit", {
       reference: partyType + "-CLAIM",
       partyType,
-      partyId: "ACCOUNT",
+      partyId: partyType === "agency" ? agency.id : "ACCOUNT",
       partyName: "Sample claimant",
       typeId,
       periodFrom: day,
       periodTo: day,
       amountCentavos: 1000,
       campaignVersionId: version,
-      earningId: earning,
+      // The sample earning belongs to account ACCOUNT, so only that account's claims may cite it.
+      ...(partyType === "agency" ? {} : { earningId: earning }),
     });
     expect(r.status).toBe(200);
     if (partyType === "distributor") claimId = r.body.id;
