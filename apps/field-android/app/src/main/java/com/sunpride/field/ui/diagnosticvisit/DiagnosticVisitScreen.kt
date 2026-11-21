@@ -410,7 +410,7 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                             com.sunpride.field.storage.ActivityRules.kindLabel(JSONObject(intent.serializedOperation)
                                 .getJSONObject("payload").getJSONObject("activity").optString("kind"));
                         "visit.checkOut" -> "End call"; else -> "Visit action"
-                    }, when (state) { "pending", "sending" -> "Waiting"; "done" -> "Sent"; else -> "Saved" },
+                    }, com.sunpride.field.ui.syncstatus.SyncStatus.itemState(state, controller.refusalCodes[intent.requestId]),
                         "activity", Modifier.testTag("diagnostic-operation"))
                 }
             }

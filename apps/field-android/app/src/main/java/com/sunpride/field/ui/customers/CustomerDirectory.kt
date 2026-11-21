@@ -47,6 +47,8 @@ data class CustomerRecord(
     val ownerPhone: String? = null,
     /** FLD-207: a call on this store is open (an unplanned call has no [today] row). */
     val callOpen: Boolean = false,
+    /** SP-0220: the structured address (Street 1, barangay, city, province codes) when the office has it. */
+    val addressParts: Map<String, String> = emptyMap(),
 ) {
     /** The chip on the Stores row: today's planned status, else "In progress" for an open unplanned call. */
     val visitStatus: String? get() = today?.status?.takeIf { it in setOf("Done", "In progress") }
@@ -129,7 +131,9 @@ object CustomerDirectory {
                 routeCode.takeIf { outletRoute != null && outletRoute == routeId }, accounts[row.id],
                 plansByOutlet[row.id].orEmpty().sortedBy { it.serviceDate }.distinctBy { it.plannedVisitId },
                 historyByOutlet[row.id].orEmpty(), today.firstOrNull { it.outletId == row.id },
-                o.text("ownerName"), o.text("ownerPhone"), callOpen = row.id in open)
+                o.text("ownerName"), o.text("ownerPhone"), callOpen = row.id in open,
+                addressParts = o.optJSONObject("addressParts")?.let { a -> a.keys().asSequence()
+                    .mapNotNull { k -> a.text(k)?.let { k to it } }.toMap() }.orEmpty())
         }.distinctBy { it.outletId }
     }
 
@@ -167,11 +171,7 @@ object CustomerDirectory {
         }
     }
 
-    private fun stateLabel(state: String) = when (state) {
-        "done" -> "Sent"
-        "pending", "sending" -> "Waiting to send"
-        else -> "Saved"
-    }
+    private fun stateLabel(state: String) = com.sunpride.field.ui.syncstatus.SyncStatus.itemState(state)
 
     /** Lower-case, accent-free text so "Pena" finds "Peña" and "sto nino" finds "Sto. Niño". */
     fun normalize(value: String): String = Normalizer.normalize(value, Normalizer.Form.NFD)

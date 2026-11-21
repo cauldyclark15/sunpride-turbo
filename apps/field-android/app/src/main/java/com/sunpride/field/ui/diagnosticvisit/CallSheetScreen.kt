@@ -81,12 +81,12 @@ fun CallSheetScreen(sheet: CallSheet, controller: FieldController, modifier: Mod
             if (saved.isNotEmpty()) item {
                 SectionCard("Saved call sheets") {
                     Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        saved.forEachIndexed { index, (_, state) ->
+                        saved.forEachIndexed { index, (savedIntent, state) ->
                             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                                 Text("Save ${index + 1}", Modifier.weight(1f), style = MaterialTheme.typography.bodyMedium)
-                                StatusChip(when (state) {
-                                    "pending" -> "Queued"; "sending" -> "Sending"; "done" -> "Sent"; else -> "Saved"
-                                }, when (state) { "done" -> Look.Tone.GOOD; "pending", "sending" -> Look.Tone.NEUTRAL; else -> Look.Tone.WARN },
+                                StatusChip(com.sunpride.field.ui.syncstatus.SyncStatus.itemState(state, controller.refusalCodes[savedIntent.requestId]),
+                                    when { state == "done" -> Look.Tone.GOOD; state == "pending" || state == "sending" -> Look.Tone.NEUTRAL
+                                        com.sunpride.field.storage.OutboxState.refused(state) -> Look.Tone.BAD; else -> Look.Tone.WARN },
                                     textTag = "call-sheet-status")
                             }
                         }

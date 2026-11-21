@@ -77,6 +77,8 @@ interface FieldBackend {
     fun today(deviceId: String, signer: DeviceSigner, sync: Boolean): TodayData = TodayData()
     fun visitHistory(): List<com.sunpride.field.storage.IntentRow> = emptyList()
     fun visitStates(): List<Pair<com.sunpride.field.storage.IntentRow, String>> = emptyList()
+    /** Refusal code of each save the server did not accept, by request id. */
+    fun refusalCodes(): Map<String, String> = emptyMap()
     /** FLD-176: clear one refused item from the phone's To review list. */
     fun dismissReview(requestId: String): Boolean = false
     fun syncStatus(): com.sunpride.field.ui.syncstatus.SyncStatus = com.sunpride.field.ui.syncstatus.SyncStatus()
@@ -369,6 +371,13 @@ class LiveFieldBackend(
         finally { store.close() }
     }
     override fun visitHistory() = visitStates().map { it.first }
+    override fun refusalCodes(): Map<String, String> {
+        val scope = storedScope() ?: return emptyMap()
+        val store = EncryptedFieldDatabase.store(context, scope)
+        return try { runBlocking { store.history().mapNotNull { (_, row) ->
+            row.rejectionCode?.takeIf { com.sunpride.field.storage.OutboxState.refused(row.state) }?.let { row.requestId to it } }.toMap() } }
+        finally { store.close() }
+    }
     override fun dismissReview(requestId: String): Boolean {
         val scope = storedScope() ?: return false
         val store = EncryptedFieldDatabase.store(context, scope)
@@ -1433,6 +1442,7 @@ class FieldController(
     }
     var diagnostic by mutableStateOf<VisitDisplay?>(null); private set
     var diagnosticRows by mutableStateOf<List<Pair<com.sunpride.field.storage.IntentRow, String>>>(emptyList()); private set
+    var refusalCodes by mutableStateOf<Map<String, String>>(emptyMap()); private set
     var diagnosticError by mutableStateOf<String?>(null); private set
     var retailCall by mutableStateOf<com.sunpride.retail.RetailCall?>(null); private set
     val retailSaved: Boolean get() = diagnostic?.let { v -> relatedCall(v).firstOrNull { it.first.kind=="visit.checkIn" }?.first?.clientVisitId }?.let { com.sunpride.field.storage.RetailQueueRules.saved(it,diagnosticRows) } ?: false
@@ -1713,6 +1723,7 @@ class FieldController(
         // Rows are device-wide (not per visit), so a refresh that finishes after the screen changed
         // must still land; otherwise the next visit's Start rules read a stale, empty history.
         diagnosticRows = withContext(io) { backend.visitStates() }
+        refusalCodes = withContext(io) { backend.refusalCodes() }
         diagnosticRules = withContext(io) { backend.activityRules() }
         val sheet = visit?.outletId?.let { withContext(io) { backend.callSheet(it) } }
         val terms = visit?.outletId?.let { withContext(io) { backend.orderTerms(it) } }

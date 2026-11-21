@@ -24,7 +24,7 @@ class SyncStatusTest {
                 val label = SyncStatus.fromRoom(p, rows, offline).copy(photosWaiting = photos).label(now)
                 seen += label
                 assertTrue(label, label == SyncStatus.ALL_SENT || label == SyncStatus.WAITING_FOR_SIGNAL ||
-                    Regex("""Waiting to send \(\d+\)""").matches(label))
+                    Regex("""(Waiting to send|Not accepted) \(\d+\)""").matches(label))
                 SyncStatus.FORBIDDEN_WORDS.forEach { assertFalse(label, label.lowercase().contains(it)) }
             }
         assertTrue(seen.toString(), SyncStatus.ALL_SENT in seen && SyncStatus.WAITING_FOR_SIGNAL in seen &&
@@ -120,5 +120,28 @@ class SyncStatusTest {
         assertFalse(work.shouldRun(SyncStatus.fromRoom(partition, listOf(row("review", code = "invalid_plan")))))
         assertFalse(work.shouldRun(SyncStatus.fromRoom(partition, listOf(row("office", code = "invalid_plan")))))
         assertFalse(work.shouldRun(SyncStatus.fromRoom(partition, emptyList())))
+    }
+
+    private fun intent(id: String, kind: String) = com.sunpride.field.storage.IntentRow("account", "device", "scope", id, "visit-1", kind, "{}", 1)
+
+    /** QA 2026-11-21: a refused Start is never "Saved" or "All sent"; it says Not accepted with a plain reason. */
+    @Test fun refusedSavesSayNotAcceptedEverywhere() {
+        assertEquals("Not accepted: this visit was changed or closed by the office (for example marked missed)",
+            SyncStatus.itemState("office", "invalid_plan"))
+        assertTrue(SyncStatus.itemState("review", null).startsWith("Not accepted: "))
+        assertEquals("Waiting to send", SyncStatus.itemState("pending")); assertEquals("Sent", SyncStatus.itemState("done"))
+        val now = 10L * 86_400_000L
+        val history = listOf(intent("a", "visit.checkIn") to row("office", code = "invalid_plan", id = "a").copy(createdAt = now - 1000),
+            intent("b", "visit.checkOut") to row("done", id = "b").copy(createdAt = now),
+            intent("c", "visit.activity") to row("review", id = "c").copy(createdAt = now - 5 * 86_400_000L),
+            intent("d", "visit.activity") to row("review", id = "d").copy(createdAt = now - 10))
+        val items = SyncStatus.notAcceptedFrom(history, dismissed = setOf("d"), now = now)
+        assertEquals(listOf("a"), items.map { it.requestId })
+        assertEquals("Start visit", items.single().title)
+        val status = SyncStatus.fromRoom(partition, emptyList()).copy(notAccepted = items)
+        assertEquals("Not accepted (1)", status.label(1100))
+        assertEquals("Waiting to send (1)", status.copy(queued = 1).label(1100))
+        SyncStatus.FORBIDDEN_WORDS.forEach { w -> SyncStatus.REASONS.keys.forEach { c ->
+            assertFalse("$c: $w", SyncStatus.notAcceptedText(c).lowercase().contains(w)) } }
     }
 }

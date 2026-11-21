@@ -37,8 +37,8 @@ private val stamp = DateTimeFormatter.ofPattern("MMM d, yyyy h:mm a")
 fun manilaTime(time: Long?): String = time?.let { stamp.format(Instant.ofEpochMilli(it).atZone(zone)) } ?: "Never"
 
 /**
- * SP-0189: the salesman's Sync page shows only whether everything is sent: "All sent" (with the last sent time),
- * "Waiting to send (N)" or "Waiting for signal". Nothing to review, clear or fix; sending happens in the background.
+ * SP-0189: the salesman's Sync page shows whether everything is sent: "All sent" (with the last sent time),
+ * "Waiting to send (N)" or "Waiting for signal". Saves the server did not accept are listed with a plain reason.
  */
 @Composable
 fun SyncDetails(status: SyncStatus, onDismiss: () -> Unit, onSync: () -> Unit = {},
@@ -51,6 +51,16 @@ fun SyncDetails(status: SyncStatus, onDismiss: () -> Unit, onSync: () -> Unit = 
                 Text(status.label(now), Modifier.padding(horizontal = 16.dp, vertical = 12.dp).testTag("sync-state"),
                     style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.SemiBold)
                 ValueRow("Last sent", manilaTime(status.lastSuccess), Modifier.testTag("sync-last-sent"))
+            }
+            if (status.notAccepted.isNotEmpty()) SectionCard("Needs your attention") {
+                Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    status.notAccepted.take(20).forEach { item ->
+                        Column(Modifier.fillMaxWidth().testTag("sync-not-accepted")) {
+                            Text("${item.title} · ${manilaTime(item.at)}", style = MaterialTheme.typography.bodyMedium, fontWeight = FontWeight.SemiBold)
+                            Text(item.text, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error)
+                        }
+                    }
+                }
             }
             (if (busy) SyncFeedback.RUNNING else message)?.let { feedback ->
                 Text(feedback, style = MaterialTheme.typography.bodyMedium,

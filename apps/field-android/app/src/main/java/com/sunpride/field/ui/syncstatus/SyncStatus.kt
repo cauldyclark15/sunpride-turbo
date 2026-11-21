@@ -33,7 +33,14 @@ data class SyncStatus(
     val photosWaiting: Int = 0,
     /** FLD-153: internal reasons for held work (SyncWork reads them); never shown to the salesman. */
     val heldReasons: List<String> = emptyList(),
+    /** Saves the server did not accept (recent, not cleared): shown plainly so "All sent" is never a lie. */
+    val notAccepted: List<NotAccepted> = emptyList(),
 ) {
+    /** One save the server did not accept, with the plain reason shown to the salesman. */
+    data class NotAccepted(val requestId: String, val kind: String?, val code: String?, val at: Long) {
+        val title get() = describe(kind)
+        val text get() = notAcceptedText(code)
+    }
     /** Work still on this phone that will be sent: queued, sending, held under an earlier sign-in, photos. */
     val waiting get() = queued + sending + held + photosWaiting
     val pending get() = queued + sending + held > 0
@@ -45,6 +52,7 @@ data class SyncStatus(
     fun label(now: Long): String = when {
         waiting > 0 && offline -> WAITING_FOR_SIGNAL
         waiting > 0 -> waitingToSend(waiting)
+        notAccepted.isNotEmpty() -> notAcceptedCount(notAccepted.size)
         else -> ALL_SENT
     }
 
@@ -52,8 +60,51 @@ data class SyncStatus(
         const val ALL_SENT = "All sent"
         const val WAITING_FOR_SIGNAL = "Waiting for signal"
         fun waitingToSend(n: Int) = "Waiting to send ($n)"
-        /** Every word a salesman may see on the Sync page and pill (SP-0189). */
-        val FORBIDDEN_WORDS = listOf("review", "reconcil", "not accepted", "rejected", "refused", "invalid",
+        fun notAcceptedCount(n: Int) = "Not accepted ($n)"
+        /** How long a not-accepted save stays on the Sync page. */
+        const val NOT_ACCEPTED_DAYS = 3L
+        /**
+         * The one state label for a saved item on every salesman screen (visit, call sheet, history, workforce):
+         * a save the server did not accept is never shown as "Saved" or "Sent".
+         */
+        fun itemState(state: String, code: String? = null): String = when {
+            state == "pending" || state == "sending" -> "Waiting to send"
+            state == "done" -> "Sent"
+            com.sunpride.field.storage.OutboxState.refused(state) -> notAcceptedText(code)
+            else -> "Saved on this phone"
+        }
+        fun notAcceptedText(code: String?) = "Not accepted: ${salesmanReason(code)}"
+        /** Plain, salesman-facing reason for a refusal code. */
+        fun salesmanReason(code: String?): String = when (code) {
+            "invalid_plan" -> "this visit was changed or closed by the office (for example marked missed)"
+            "out_of_scope", "scope_changed" -> "this store or work is no longer assigned to you"
+            "dependency_missing" -> "the visit start was not accepted, so this step was not either"
+            "invalid_transition" -> "this visit was already ended or changed"
+            "call_open" -> "finish the open call first"
+            "mcp_order" -> "visit customers in plan order"
+            "wrong_date" -> "the visit date does not match the phone date"
+            "idempotency_conflict" -> "this was already recorded once"
+            "evidence_pending_review", "photo_needs_review" -> "a photo for this visit is still being checked"
+            "unsupported_operation", "unsupported" -> "this app version cannot send this. Update the app"
+            "load_not_posted" -> "the truck load is not posted yet"
+            "stock_conflict" -> "stock changed in the office. Refresh and try again"
+            "mock_location_refused" -> "the location looked faked"
+            "place_mismatch" -> "you were not at this store's location"
+            "rebootstrap_visit_changed" -> "the visit changed after you saved this"
+            "work_with_incomplete" -> "the joint call is missing a required part"
+            "device_revoked" -> "this phone was removed by the office"
+            "unauthorized" -> "your access could not be confirmed. Sign in again"
+            else -> "the office did not take this. Call your team lead"
+        }
+        /** Recent saves the server did not accept, newest first, from the phone's outbox. */
+        fun notAcceptedFrom(history: List<Pair<IntentRow, OutboxRow>>, dismissed: Set<String>, now: Long): List<NotAccepted> =
+            history.filter { (_, row) -> com.sunpride.field.storage.OutboxState.refused(row.state) && row.requestId !in dismissed &&
+                row.createdAt >= now - NOT_ACCEPTED_DAYS * 86_400_000L }
+                .map { (intent, row) -> NotAccepted(row.requestId, intent.kind, row.rejectionCode, row.createdAt) }
+                .sortedByDescending { it.at }
+        /** Every word a salesman may see on the Sync page and pill (SP-0189). "Not accepted" is allowed: a refused
+         * save must say so plainly. */
+        val FORBIDDEN_WORDS = listOf("review", "reconcil", "rejected", "refused", "invalid",
             "supervisor", "office system", "conflict", "remove from this phone")
         fun fromRoom(partition: PartitionRow?, rows: List<OutboxRow>, offline: Boolean = false,
             intents: List<IntentRow> = emptyList(), @Suppress("UNUSED_PARAMETER") dismissed: Set<String> = emptySet()): SyncStatus {

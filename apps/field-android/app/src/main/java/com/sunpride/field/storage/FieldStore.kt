@@ -612,7 +612,8 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     override suspend fun status(offline: Boolean): com.sunpride.field.ui.syncstatus.SyncStatus =
         com.sunpride.field.ui.syncstatus.SyncStatus.fromRoom(dao.partition(a, d, s),
             dao.outstandingForDevice(a, d), offline, history().map { it.first }, dismissedReviews())
-            .copy(photosWaiting = dao.waitingPhotos(a, d, s))
+            .copy(photosWaiting = dao.waitingPhotos(a, d, s),
+                notAccepted = com.sunpride.field.ui.syncstatus.SyncStatus.notAcceptedFrom(history(), dismissedReviews(), System.currentTimeMillis()))
     override suspend fun history(): List<Pair<IntentRow, OutboxRow>> = dao.allOutbox(a, d, s)
         .map { row -> (dao.intent(a, d, s, row.requestId) ?: error("Orphaned outbox")) to row }
     override suspend fun intent(requestId: String): IntentRow? = dao.intent(a, d, s, requestId)

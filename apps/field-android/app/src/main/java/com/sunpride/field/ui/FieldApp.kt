@@ -375,7 +375,7 @@ fun FieldApp(
                             verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             val label = status.label(now)
                             StatusPill(label, Modifier.testTag("sync-status"), onClick = { go("sync") },
-                                warning = false, good = label == com.sunpride.field.ui.syncstatus.SyncStatus.ALL_SENT)
+                                warning = status.notAccepted.isNotEmpty(), good = label == com.sunpride.field.ui.syncstatus.SyncStatus.ALL_SENT)
                             if (dayView != null) com.sunpride.field.ui.location.LocationIndicator(dayView)
                         }
                     }) else null)
