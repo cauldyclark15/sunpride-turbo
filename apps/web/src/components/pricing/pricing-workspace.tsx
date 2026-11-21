@@ -120,13 +120,12 @@ const fromDate = (value: FormDataEntryValue | null) =>
   new Date(`${String(value)}T00:00:00+08:00`).getTime();
 const failure = (e: unknown) =>
   e instanceof Error ? e.message : "The change was not saved";
-/** F-501: the API refuses to ACTIVATE a new promotion that has no approved campaign budget, and this form has no
- * campaign field, so a new promotion is saved Inactive (sending "active" made every save fail). */
+/** A new promotion is saved Active; linking a campaign budget is optional (SP-0231). */
 export function newPromotionBody<T extends object>(fields: T) {
-  return { ...fields, status: "inactive" as const };
+  return { ...fields, status: "active" as const };
 }
 export const NEW_PROMOTION_NOTICE =
-  "Saved as Inactive. A new promotion goes live only once it is linked to an approved campaign budget.";
+  "Saved as Active. Linking it to a campaign budget is optional.";
 
 const statusWord = (s: string) => (s === "active" ? "Active" : "Inactive");
 const ruleWord = (kind: string) =>

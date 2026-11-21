@@ -80,6 +80,8 @@ async function person(role, name, org) {
 async function persist(p) {
   await h.db`insert into profiles(id,user_id,auth_subject,name,email,role,status,org_unit_id)
     values(${p.id},${p.userId},${p.userId},${p.name},${p.userId + "@test.invalid"},${p.role},'active',${p.orgUnitId})`;
+  // Fiscal paths re-check the live person through exactly one current assignment (van/access currentActor).
+  await h.db`insert into employee_assignments(profile_id,org_unit_id,role,effective_from,actor_subject,reason) values(${p.id},${p.orgUnitId},${p.role},now()-interval '1 day','fixture','fixture')`;
 }
 /** @param {any} who @param {string} path @param {any} [body] */
 async function api(who, path, body) {
@@ -1083,6 +1085,8 @@ test("F-502 F-504 F-511 real order quote, authority refusal, stacked allocation 
       0,
     ),
   ).toBe(2300);
+  // F-511: the approval consumes the company discount through the fiscal authority matrix, so the fixture needs a policy.
+  await h.db`insert into fiscal_authority_rules(org_unit_id,kind,role,channel,min_centavos,max_centavos,self_limit_centavos,approver_roles,effective_from,sample) values(${unit},'discount','super_admin','*',0,100000000,0,${["manager"]},now()-interval '1 day',true)`;
   const approved = await api(manager, "orders/approve", {
     id: made.body.id,
     reason: "Independent approval",

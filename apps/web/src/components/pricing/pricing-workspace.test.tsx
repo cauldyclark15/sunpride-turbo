@@ -277,11 +277,11 @@ describe("price helpers", () => {
 });
 
 describe("WEB-140: Add promotion can save under F-501", () => {
-  it("never asks the API to activate a promotion with no campaign budget", async () => {
+  it("saves a new promotion as Active without needing a campaign budget", async () => {
     const mod = await import("./pricing-workspace");
     const body = mod.newPromotionBody({ code: "P1", name: "Promo" });
-    expect(body.status).toBe("inactive");
+    expect(body.status).toBe("active");
     expect(body).not.toHaveProperty("campaignVersionId");
-    expect(mod.NEW_PROMOTION_NOTICE).toContain("Saved as Inactive");
+    expect(mod.NEW_PROMOTION_NOTICE).toContain("Saved as Active");
   });
 });
