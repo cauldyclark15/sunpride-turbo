@@ -308,8 +308,12 @@ export function setField(
   if (key === "distributionChannelCode" && value !== ADP_CHANNEL)
     for (const k of ADP_KEYS) values[k] = "";
   const next = { ...d, values, names };
-  if (ADDRESS_PARTS.has(key) && !d.addressCustom)
+  // SP-0220: Street 1 and the location are the address; changing them replaces an older
+  // custom line (the server does the same).
+  if (ADDRESS_PARTS.has(key)) {
+    next.addressCustom = false;
     next.values.customerAddress = generatedAddress(next);
+  }
   return next;
 }
 
@@ -424,15 +428,9 @@ export function toPayload(d: Draft, a?: { adp: boolean }) {
       normalizeCustomerText(f.key, d.values[f.key] ?? ""),
     );
   }
-  // "" returns Customer Address to the generated line (contract §1).
-  customer.customerAddress = d.addressCustom
-    ? blankToNull(
-        normalizeCustomerText(
-          "customerAddress",
-          d.values.customerAddress ?? "",
-        ),
-      )
-    : "";
+  // SP-0220: Customer Address is no longer typed; the server builds it from Street 1 and the
+  // location fields (an older custom address is kept until those change).
+  delete customer.customerAddress;
   if (customer.creditLimit !== null && customer.creditLimit !== undefined)
     customer.creditLimit = Number(
       String(customer.creditLimit).replace(/,/g, ""),
@@ -517,7 +515,11 @@ export function fieldErrorsFrom(error: unknown): {
 
 /** Field keys in the client's order for one section. */
 export function sectionFields(section: Section): FieldSpec[] {
-  return FIELDS.filter((f) => f.section === section && !f.shipTo);
+  // SP-0220: hidden fields (the stored one-line Customer Address) are not shown or edited.
+  return FIELDS.filter(
+    (f) =>
+      f.section === section && !f.shipTo && !(f as { hidden?: boolean }).hidden,
+  );
 }
 
 /** Status shown to people: a field-captured customer is a prospect until approved. */

@@ -21,7 +21,6 @@ const validate = (input) =>
 const required = [
   "registeredName",
   "customerName",
-  "customerAddress",
   "mobileNo",
   "taxClassificationCode",
   "countryCode",
@@ -42,6 +41,13 @@ const required = [
   "customerGroupCode",
   "typeOfBusiness",
 ];
+
+test("SP-0220 field save no longer requires the separate Customer Address", () => {
+  for (const blank of [undefined, null, "", " \t "]) {
+    const r = validate({ ...sample.input, customerAddress: blank });
+    expect(r.errors.map((e) => e.field)).not.toContain("customerAddress");
+  }
+});
 
 for (const key of required) {
   test(`field save refuses missing, empty and whitespace ${key}`, () => {

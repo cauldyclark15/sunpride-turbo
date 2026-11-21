@@ -701,11 +701,7 @@ private fun CustomerSections(setup: CustomerCapture.Setup?, geography: CustomerC
             CmText("registeredName", form.registeredName, { onChange(form.copy(registeredName = it)) }, marks, requester, 200)
             CmText("tradeName", form.tradeName, { onChange(form.copy(tradeName = it)) }, marks, requester, 200)
             CmText("customerName", form.customerName, { onChange(form.copy(customerName = it)) }, marks, requester, 200)
-            // SP-0196: the built address shows until the agent edits the field; then only their text (never refilled).
-            CmText("customerAddress", CustomerCapture.addressField(form, geography),
-                { onChange(CustomerCapture.withAddressTyped(form, it)) }, marks, requester, 500,
-                hint = "Built from the location below; editable", normalizeOnBlur = form.addressEdited && form.detail("customerAddress").isNotBlank(),
-                normalize = { CustomerCapture.normalizeAddress(form, geography, it) })
+            // SP-0220: no separate Customer Address field; Street 1 and the location below are the address.
             CmText("email", form.email, { onChange(form.copy(email = it)) }, marks, requester, 200,
                 androidx.compose.ui.text.input.KeyboardType.Email)
             CmText("mobileNo", form.mobileNo, { onChange(form.copy(mobileNo = it)) }, marks, requester, 20, phone, "09XXXXXXXXX")

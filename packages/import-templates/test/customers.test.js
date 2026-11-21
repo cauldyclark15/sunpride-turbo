@@ -68,6 +68,8 @@ describe("SP-0170 template = the client's Customer Information template", () => 
     )) {
       const [label, req, remark] = r;
       if (!label || sections.has(label)) continue;
+      // SP-0220: the separate Customer Address column was removed (client decision).
+      if (label === "Customer Address") continue;
       // SP-0214 supersedes the original sheet's optional Street 1 flag.
       sheet.push({
         label,
@@ -75,7 +77,8 @@ describe("SP-0170 template = the client's Customer Information template", () => 
         remark: remark ?? "",
       });
     }
-    expect(sheet.length).toBe(51);
+    expect(sheet.length).toBe(50);
+    expect(CUSTOMER_HEADERS).not.toContain("Customer Address");
     expect(CUSTOMER_HEADERS[0]).toBe("Customer Code");
     expect(
       CUSTOMER_COLUMNS.slice(1, -1).map((c) => ({
@@ -271,9 +274,15 @@ describe("SP-0170 reading files", () => {
     const parsed = parseCustomerCsv(`${customerTemplateCsv()}${line}\r\n\r\n`);
     expect(parsed.fileErrors).toEqual([]);
     expect(parsed.rows).toHaveLength(1);
-    expect(parsed.rows[0]?.values.customerAddress).toBe(
-      "12 Gorordo Ave, Apas, City of Cebu, Cebu 6000",
-    );
+    expect(parsed.rows[0]?.values.customerAddress).toBeUndefined();
+    expect(parsed.rows[0]?.values.street1).toBe(EXAMPLE.street1);
+  });
+  test("SP-0220 older files with a Customer Address column still read; the column is ignored", () => {
+    const header = [...CUSTOMER_HEADERS, "Customer Address *"];
+    const { ids, missing, unknown } = mapHeader(header);
+    expect(missing).toEqual([]);
+    expect(unknown).toEqual([]);
+    expect(ids.at(-1)).toBeNull();
   });
   test("missing / unknown columns are listed", () => {
     const parsed = parseCustomerCsv(
@@ -465,10 +474,9 @@ describe("SP-0170 values", () => {
       expect(item).toBeDefined();
       if (!item) throw new Error("Expected a valid address row");
       const input = writerInput(item, row, index, null);
-      expect(input).toMatchObject({
-        street1: address,
-        customerAddress: address,
-      });
+      expect(input).toMatchObject({ street1: address });
+      // SP-0220: the server builds Customer Address from Street 1 and the location.
+      expect(input.customerAddress).toBeUndefined();
       expect(input.shipTos[0].shipToAddress).toBe(address);
     }
   });

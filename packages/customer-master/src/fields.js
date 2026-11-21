@@ -5,7 +5,7 @@
 // `key` is our API/JSON field key.
 
 /** @typedef {'text'|'list'|'geo'|'coordinates'|'money'|'email'|'mobile'|'tin'} FieldKind */
-/** @typedef {{key:string,label:string,section:string,required:boolean,kind:FieldKind,list?:string,max?:number,shipTo?:boolean,adp?:boolean}} FieldSpec */
+/** @typedef {{key:string,label:string,section:string,required:boolean,kind:FieldKind,list?:string,max?:number,shipTo?:boolean,adp?:boolean,hidden?:boolean}} FieldSpec */
 
 export const SECTIONS = /** @type {const} */ ([
   "Customer General Information",
@@ -53,7 +53,10 @@ export const FIELDS = [
     key: "customerAddress",
     label: "Customer Address",
     section: G,
-    required: true,
+    // SP-0220: no longer a separate field (client decision). The address is Street 1 plus the
+    // location fields; this stays as the stored one-line value, built by the server.
+    required: false,
+    hidden: true,
     kind: "text",
     max: 500,
   },

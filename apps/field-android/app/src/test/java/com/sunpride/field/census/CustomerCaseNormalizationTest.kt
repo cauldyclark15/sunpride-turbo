@@ -102,7 +102,9 @@ class CustomerCaseNormalizationTest {
             shipToParty = "SECOND WAREHOUSE", shipToAddress = "99 MAIN STREET", shipToMobileNo = "09175550202",
             shipToEmail = "Other.Team@Example.COM")
         val p = payload(f); val c = p.getJSONObject("customer"); val ship = c.getJSONArray("shipTos").getJSONObject(0)
-        assertEquals("Near The Chapel", c.getString("customerAddress")); assertEquals("Near The Chapel", p.getString("address"))
+        // SP-0220: the old typed Customer Address is not sent; the built one is.
+        val built = CustomerCapture.builtAddress(f, null)
+        assertEquals(built, c.optString("customerAddress")); assertEquals(built.ifEmpty { p.getString("name") }, p.getString("address"))
         assertEquals("Second Warehouse", ship.getString("shipToParty")); assertEquals("99 Main Street", ship.getString("shipToAddress"))
         assertEquals("Juan O'Neil", ship.getString("contactPerson"))
         assertEquals(f.email, c.getString("email")); assertEquals(f.shipToEmail, ship.getString("email"))
@@ -117,7 +119,7 @@ class CustomerCaseNormalizationTest {
         assertEquals(f, restored.form); assertArrayEquals(photo, restored.photo)
         val c = payload(restored.form).getJSONObject("customer")
         assertEquals("Aling Rosa Store", c.getString("customerName"))
-        assertEquals("Near The Chapel", c.getString("customerAddress"))
+        assertEquals(CustomerCapture.builtAddress(restored.form, null), c.optString("customerAddress"))
         assertEquals("Second Warehouse", c.getJSONArray("shipTos").getJSONObject(0).getString("shipToParty"))
         assertEquals(f.email, c.getString("email")); assertEquals("mIXed TEXT", c.getString("distributorCode"))
     }

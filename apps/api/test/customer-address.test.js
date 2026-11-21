@@ -113,44 +113,49 @@ describe("SP-0220 customer addresses", () => {
     expect(saved.body.shipTos[0].shipToAddress).toBe(reportedAddress);
   });
 
-  test("edit, save and reopen preserve . , - # / in Customer Address and Street 1", async () => {
-    for (const address of [punctuationAddress, reportedAddress]) {
+  test("SP-0220 an older custom Customer Address stays readable until the location changes", async () => {
+    const opened = await call("GET", `/${customerId}`);
+    expect(opened.body.addressCustom).toBe(true);
+    const draft = setField(
+      draftFromCustomer(opened.body),
+      "tradeName",
+      "Sample Trade",
+    );
+    const payload = toPayload(draft);
+    expect(payload).not.toHaveProperty("customerAddress");
+    const edited = await call("PUT", `/${customerId}`, { customer: payload });
+    expect(edited.status).toBe(200);
+    const reopened = await call("GET", `/${customerId}`);
+    expect(reopened.body).toMatchObject({
+      customerAddress: reportedAddress,
+      addressCustom: true,
+    });
+  });
+
+  test("edit, save and reopen preserve . , - # / in Street 1; Customer Address is built from it", async () => {
+    // Street 1 starts as punctuationAddress, so the first edit changes the location.
+    for (const address of [reportedAddress, punctuationAddress]) {
       const opened = await call("GET", `/${customerId}`);
-      let draft = draftFromCustomer(opened.body);
-      draft = setField(draft, "street1", address);
-      draft = setField(draft, "customerAddress", address);
-      const edited = await call("PUT", `/${customerId}`, {
-        customer: toPayload(draft),
-      });
+      const draft = setField(
+        draftFromCustomer(opened.body),
+        "street1",
+        address,
+      );
+      const payload = toPayload(draft);
+      expect(payload).not.toHaveProperty("customerAddress");
+      const edited = await call("PUT", `/${customerId}`, { customer: payload });
       expect(edited.status).toBe(200);
       const reopened = await call("GET", `/${customerId}`);
       expect(reopened.status).toBe(200);
+      const expected = `${address}, Apas, City of Cebu, Cebu 6000`;
       expect(reopened.body).toMatchObject({
-        customerAddress: address,
+        customerAddress: expected,
         street1: address,
-        addressCustom: true,
+        addressCustom: false,
         completeness: "complete",
       });
-      expect(reopened.body.shipTos[0].shipToAddress).toBe(address);
+      expect(reopened.body.shipTos[0].shipToAddress).toBe(expected);
     }
-  });
-
-  test("editing Street 1 regenerates Customer Address and the copied delivery address", async () => {
-    const opened = await call("GET", `/${customerId}`);
-    let draft = setField(draftFromCustomer(opened.body), "customerAddress", "");
-    draft = setField(draft, "street1", reportedAddress);
-    const edited = await call("PUT", `/${customerId}`, {
-      customer: toPayload(draft),
-    });
-    expect(edited.status).toBe(200);
-    const reopened = await call("GET", `/${customerId}`);
-    const expected = `${reportedAddress}, Apas, City of Cebu, Cebu 6000`;
-    expect(reopened.body).toMatchObject({
-      street1: reportedAddress,
-      customerAddress: expected,
-      addressCustom: false,
-    });
-    expect(reopened.body.shipTos[0].shipToAddress).toBe(expected);
   });
 
   test("a custom Customer Address cannot bypass blank Street 1 on create or edit", async () => {

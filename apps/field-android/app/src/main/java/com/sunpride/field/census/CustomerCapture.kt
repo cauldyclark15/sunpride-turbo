@@ -302,12 +302,13 @@ object CustomerCapture {
         }.distinctBy { it.field }
     }
 
-    /** The contract's `customer` object: the agent's fields with the built Customer Address. */
+    /** The contract's `customer` object: the agent's fields with the Customer Address built from Street 1 and the location. */
     fun customer(f: Form, g: Geography?): JSONObject {
         val o = JSONObject()
         // Normalize at submission as well as blur: restored drafts and Save from a focused field are covered.
-        f.values().forEach { (k, v) -> o.put(k, normalizeText(k, v)) }
-        address(f, g).takeIf { it.isNotEmpty() }?.let { o.put("customerAddress", it) }
+        // SP-0220: Customer Address is no longer a separate field; the server builds it from Street 1 and the location.
+        f.values().forEach { (k, v) -> if (k != "customerAddress") o.put(k, normalizeText(k, v)) }
+        builtAddress(f, g).takeIf { it.isNotEmpty() }?.let { o.put("customerAddress", it) }
         o.put("shipTos", JSONArray().put(JSONObject(shipTo(f, g))))
         if (f.customFields.isNotEmpty()) o.put("customFields", JSONObject(f.customFields))
         return o
@@ -320,7 +321,7 @@ object CustomerCapture {
         // SP-0196: `name` is the store (Registered Name); the customer object keeps both names as entered.
         val name = customer.optString("registeredName").trim().ifEmpty { customer.optString("customerName").trim() }
         val p = JSONObject().put("captureId", captureId).put("name", name)
-            .put("address", customer.optString("customerAddress").ifEmpty { name })
+            .put("address", builtAddress(f, g).ifEmpty { name })
             .put("ownerName", normalizeText("contactPerson", f.contactPerson.trim())).put("ownerPhone", f.mobileNo.trim()).put("deviceTime", deviceTime)
             .put("locationSource", "gps").put("location", gpsFix).put("photoJpegBase64", photo).put("customer", customer)
         if (acknowledged.isNotEmpty()) p.put("acknowledgedDuplicateIds", JSONArray(acknowledged.distinct().take(10)))
@@ -335,7 +336,7 @@ object CustomerCapture {
         val allowed = CustomerMaster.CUSTOMER_FIELDS.map { it.key }.toSet() + setOf("shipTos", "customFields")
         c.keys().forEach { k -> require(k in allowed) { "Unknown customer field $k." } }
         require(p.getString("name").trim().length in 1..200) { "Registered Name is required." }
-        require(p.getString("address").trim().length in 1..500) { "Customer Address is required." }
+        require(p.getString("address").trim().length in 1..500) { "Fill Street 1 and the location." }
         require(p.getString("ownerName").trim().length in 1..150) { "Contact Person is required." }
         val input = HashMap<String, Any?>(); c.keys().forEach { input[it] = if (c.isNull(it)) null else c.get(it) }
         c.optJSONArray("shipTos")?.let { a ->

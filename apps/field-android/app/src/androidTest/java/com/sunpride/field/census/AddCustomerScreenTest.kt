@@ -7,6 +7,7 @@ import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onAllNodesWithTag
 import androidx.compose.ui.test.onAllNodesWithText
+import androidx.compose.ui.test.assertCountEquals
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performClick
@@ -118,7 +119,8 @@ class AddCustomerScreenTest {
         type("shipToParty", "Nena Warehouse"); type("shipToAddress", "99 Delivery Road")
         type("shipToMobileNo", "09175550202"); type("shipToEmail", "delivery@example.ph")
         type("contactPerson", "Nena Cruz"); shot("04-delivery-contact")
-        rule.onNodeWithTag("customer-customerAddress").performScrollTo().assertTextContains("12 Gorordo Ave, Apas, City of Cebu, Cebu 6000")
+        // SP-0220: no separate Customer Address field; it is built from Street 1 and the location.
+        rule.onAllNodesWithTag("customer-customerAddress").assertCountEquals(0)
         // SP-0183: every other required field is filled; Registered Name alone must block saving.
         rule.onNodeWithTag("census-save").performClick()
         waitTag("customer-missing-registeredName")

@@ -394,7 +394,10 @@ export async function derive(db, merged, input, existing) {
   } else if (
     !existing ||
     !existing.addressCustom ||
-    input.customerAddress === ""
+    input.customerAddress === "" ||
+    // SP-0220: Customer Address is no longer a separate field. An older custom line is kept
+    // for history until Street 1 or the location changes; then the built line replaces it.
+    generated !== formatAddress(existing)
   ) {
     merged.customerAddress = generated ?? existing?.customerAddress ?? null;
     merged.addressCustom = false;

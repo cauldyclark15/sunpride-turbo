@@ -357,20 +357,12 @@ describe("dependent dropdowns reset what was chosen under them", () => {
     expect(next.values.customerAddress).toBe("12 Gorordo Ave");
   });
 
-  it("a typed Customer Address is kept; clearing it builds it again", () => {
-    const typed = setField(
-      completeDraft(),
-      "customerAddress",
-      "Near the chapel",
-    );
-    expect(typed.addressCustom).toBe(true);
-    const moved = setField(typed, "street1", "Banilad Rd");
-    expect(moved.values.customerAddress).toBe("Near the chapel");
-    const back = setField(moved, "customerAddress", "");
-    expect(back.addressCustom).toBe(false);
-    expect(back.values.customerAddress).toContain("Banilad Rd");
-    expect(toPayload(back).customerAddress).toBe("");
-    expect(toPayload(typed).customerAddress).toBe("Near The Chapel");
+  it("SP-0220 Customer Address is not sent; the server builds it from Street 1 and the location", () => {
+    const d = setField(completeDraft(), "street1", "Banilad Rd");
+    expect(d.values.customerAddress).toContain("Banilad Rd");
+    expect(toPayload(d)).not.toHaveProperty("customerAddress");
+    const legacy = setField(d, "customerAddress", "Near the chapel");
+    expect(toPayload(legacy)).not.toHaveProperty("customerAddress");
   });
 
   it("leaving channel 40 clears the ADP block", () => {

@@ -247,24 +247,24 @@ describe("SP-0214 Street 1 on customer enrollment", () => {
 
 describe("SP-0220 address edits", () => {
   it.each(["prospect", "active"] as const)(
-    "saves normal punctuation when editing a %s without removing Customer Address",
+    "saves normal punctuation when editing a %s; no separate Customer Address field (SP-0220)",
     async (status) => {
       state.customer = customer(complete(), status);
       state.mutate.mockImplementation(async (_path, body) => ({
         ...state.customer,
         ...body.customer,
-        addressCustom: true,
       }));
       for (const address of [
         "Blk 5, Lot 3. Brgy. Guadalupe",
         "#5-A / Lot 3. Brgy. Guadalupe, Cebu",
       ]) {
         render();
-        let draft = setField(view().draft, "street1", address);
-        draft = setField(draft, "customerAddress", address);
+        const draft = setField(view().draft, "street1", address);
         view().onChange(draft);
         const edited = render();
-        for (const key of ["street1", "customerAddress"]) {
+        expect(edited).not.toContain('id="cm-customerAddress"');
+        expect(edited).not.toContain("Customer Address");
+        for (const key of ["street1"]) {
           const input = edited.match(
             new RegExp(`<input[^>]*id="cm-${key}"[^>]*>`),
           )?.[0];
@@ -278,13 +278,10 @@ describe("SP-0220 address edits", () => {
         const [path, body, options] = state.mutate.mock.calls.at(-1)!;
         expect(path).toBe("/api/v1/customers/customer");
         expect(options.method).toBe("PUT");
-        expect(body.customer).toMatchObject({
-          street1: address,
-          customerAddress: address,
-        });
-        expect(body.customer.shipTos[0].shipToAddress).toBe(address);
+        expect(body.customer).toMatchObject({ street1: address });
+        expect(body.customer).not.toHaveProperty("customerAddress");
+        expect(body.customer.shipTos[0].shipToAddress).toContain(address);
         expect(view().draft.values.street1).toBe(address);
-        expect(view().draft.values.customerAddress).toBe(address);
       }
       expect(state.mutate).toHaveBeenCalledTimes(2);
     },

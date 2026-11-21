@@ -170,7 +170,8 @@ class CustomerCaptureTest {
         val c = p.getJSONObject("customer")
         for ((key, value) in adp) assertEquals(key, value, c.getString(key))
         assertEquals("12345.67", c.getString("creditLimit"))
-        assertEquals("12 Custom Street, Cebu", c.getString("customerAddress"))
+        // SP-0220: a typed Customer Address (older drafts) is ignored; the address is built from Street 1 and the location.
+        assertEquals(CustomerCapture.builtAddress(f, geography), c.getString("customerAddress"))
         val ship = c.getJSONArray("shipTos").getJSONObject(0)
         assertFalse(ship.getBoolean("sameAsCustomer"))
         assertEquals("Nena Warehouse", ship.getString("shipToParty"))
@@ -241,7 +242,7 @@ class CustomerCaptureTest {
 
     @Test fun outboxCannotQueueAnIncompleteCustomerEvenWithoutTheScreenCheck() {
         val ok = CustomerCapture.payload(UUID.randomUUID().toString(), complete(), geography, 5000L, fix, jpeg)
-        for (key in listOf("registeredName", "customerName", "customerAddress", "mobileNo", "regionCode", "provinceCode",
+        for (key in listOf("registeredName", "customerName", "mobileNo", "regionCode", "provinceCode",
             "municipalityCode", "barangayCode", "street1", "postalCode", "salesOrgCode", "distributionChannelCode", "customerGroupCode", "typeOfBusiness", "countryCode", "taxClassificationCode",
             "salesOfficeCode", "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode")) {
             for (blank in listOf(null, JSONObject.NULL, "", " \t ")) {
@@ -350,11 +351,13 @@ class CustomerCaptureTest {
         assertTrue(CustomerCapture.parseDraft(legacy.toString())!!.form.addressEdited)
     }
 
-    // SP-0196 (fails on the old code, which sent "City Of Cebu"): picked place names keep their official spelling.
-    @Test fun typedAddressKeepsOfficialPlaceNames() {
-        val f = complete().let { CustomerCapture.withAddressTyped(it, "12 gorordo ave, apas, CITY OF CEBU, cebu") }
-        assertEquals("12 Gorordo Ave, Apas, City of Cebu, Cebu", CustomerCapture.address(f, geography))
-        assertEquals("12 Gorordo Ave, Apas, City of Cebu, Cebu",
-            CustomerCapture.payload(UUID.randomUUID().toString(), f, geography, 5000L, fix, jpeg).getString("address"))
+    // SP-0220: no separate Customer Address; a typed one in an older draft is not sent, the built address is.
+    @Test fun customerAddressIsAlwaysBuiltFromStreet1AndLocation() {
+        val f = complete().let { CustomerCapture.withAddressTyped(it, "Near the chapel") }
+        val p = CustomerCapture.payload(UUID.randomUUID().toString(), f, geography, 5000L, fix, jpeg)
+        assertEquals("12 Gorordo Ave, Apas, City of Cebu, Cebu 6000", p.getString("address"))
+        assertEquals("12 Gorordo Ave, Apas, City of Cebu, Cebu 6000", p.getJSONObject("customer").getString("customerAddress"))
+        assertFalse(CustomerMaster.field("customerAddress").required)
+        CensusRules.validate(p)
     }
 }

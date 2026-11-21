@@ -84,12 +84,22 @@ describe("client field list", () => {
       json.fields.map((/** @type {any} */ f) => [
         f.section,
         f.field,
-        f.field === "Street 1" ? true : f.required,
+        // SP-0214 made Street 1 required; SP-0220 dropped the separate Customer Address.
+        f.field === "Street 1"
+          ? true
+          : f.field === "Customer Address"
+            ? false
+            : f.required,
       ]),
     );
     expect([...SECTIONS]).toEqual([
       ...new Set(json.fields.map((/** @type {any} */ f) => f.section)),
     ]);
+  });
+  test("SP-0220 Customer Address is hidden and built from the location", () => {
+    const f = FIELDS.find((x) => x.key === "customerAddress");
+    expect(f?.hidden).toBe(true);
+    expect(f?.required).toBe(false);
   });
   test("dropdown shows Description (Code)", () => {
     expect(optionLabel({ code: "30", name: "General Trade" })).toBe(

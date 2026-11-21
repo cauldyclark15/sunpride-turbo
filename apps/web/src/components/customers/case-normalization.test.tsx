@@ -141,13 +141,12 @@ describe("SP-0182 customer text casing", () => {
     expect(onChange).not.toHaveBeenCalled();
   });
 
-  it("normalizes custom addresses and ship-to fields on blur but not either email", () => {
+  it("normalizes ship-to fields on blur but not either email (no separate Customer Address, SP-0220)", () => {
     let draft = setShipTo(emptyDraft(), 0, "sameAsCustomer", false);
     const onChange = (next: Draft) => {
       draft = next;
     };
     for (const [id, value] of [
-      ["cm-customerAddress", "NEAR THE CHAPEL"],
       ["cm-shipTos-0--shipToParty", "SECOND WAREHOUSE"],
       ["cm-shipTos-0--shipToAddress", "12 MAIN STREET"],
       ["cm-shipTos-0--contactPerson", "JUAN DELA CRUZ"],
@@ -160,8 +159,7 @@ describe("SP-0182 customer text casing", () => {
       form(draft, onChange);
       blur(id!, value!);
     }
-    expect(draft.addressCustom).toBe(true);
-    expect(draft.values.customerAddress).toBe("Near The Chapel");
+    expect(captured.has("cm-customerAddress")).toBe(false);
     expect(draft.shipTos[0]).toMatchObject({
       shipToParty: "Second Warehouse",
       shipToAddress: "12 Main Street",
@@ -181,11 +179,10 @@ describe("SP-0182 customer text casing", () => {
   });
 
   it("normalizes the save payload even without blur, including separate and copied ship-tos", () => {
-    let draft = addShipTo(emptyDraft());
+    const draft = addShipTo(emptyDraft());
     draft.code = "SAP-abC001";
     for (const f of FIELDS.filter((f) => f.kind === "text" && !f.shipTo))
       draft.values[f.key] = "mIXed TEXT";
-    draft = setField(draft, "customerAddress", "NEAR THE CHAPEL");
     draft.values.email = "Mixed.Case@Example.COM";
     draft.shipTos[0]!.contactPerson = "ROSA DELA CRUZ";
     draft.shipTos[1] = {
@@ -197,13 +194,14 @@ describe("SP-0182 customer text casing", () => {
       email: "Other.Team@Example.COM",
     };
     const payload = toPayload(draft);
-    for (const f of FIELDS.filter((f) => f.kind === "text" && !f.shipTo)) {
+    expect(payload).not.toHaveProperty("customerAddress");
+    for (const f of FIELDS.filter(
+      (f) => f.kind === "text" && !f.shipTo && f.key !== "customerAddress",
+    )) {
       const expected =
-        f.key === "customerAddress"
-          ? "Near The Chapel"
-          : f.key.endsWith("Code") || f.key === "clusterNo"
-            ? "mIXed TEXT"
-            : "Mixed Text";
+        f.key.endsWith("Code") || f.key === "clusterNo"
+          ? "mIXed TEXT"
+          : "Mixed Text";
       expect(payload[f.key], f.key).toBe(expected);
     }
     expect(payload.email).toBe("Mixed.Case@Example.COM");
@@ -211,7 +209,7 @@ describe("SP-0182 customer text casing", () => {
       {
         sameAsCustomer: true,
         shipToParty: "Mixed Text",
-        shipToAddress: "Near The Chapel",
+        shipToAddress: generatedAddress(draft),
         contactPerson: "Rosa Dela Cruz",
         mobileNo: null,
         email: "Mixed.Case@Example.COM",
@@ -236,13 +234,9 @@ describe("SP-0182 customer text casing", () => {
     expect(generatedAddress(draft)).toBe("Gorordo Ave, City of Cebu");
     expect(draft.values.customerAddress).toBe("Gorordo Ave, City of Cebu");
     expect(draft.addressCustom).toBe(false);
-    const onChange = vi.fn();
-    form(draft, onChange);
-    blur("cm-customerAddress", draft.values.customerAddress!);
-    expect(onChange).not.toHaveBeenCalled();
     const payload = toPayload(draft);
     expect(payload.street1).toBe("Gorordo Ave");
-    expect(payload.customerAddress).toBe("");
+    expect(payload).not.toHaveProperty("customerAddress");
     expect(payload.shipTos).toMatchObject([
       { shipToAddress: "Gorordo Ave, City of Cebu" },
     ]);

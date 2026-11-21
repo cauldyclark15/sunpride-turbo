@@ -116,7 +116,9 @@ export const CUSTOMER_COLUMNS = Object.freeze([
       "Our key (SAP customer number when known). An existing code updates that customer; a new code adds one; blank adds a new customer numbered automatically.",
     hint: "Letters, numbers, - or _ (up to 40). Unique per customer.",
   },
-  ...FIELDS.map((f, i) => {
+  // SP-0220: hidden fields (the built Customer Address) are not upload columns.
+  ...FIELDS.flatMap((f, i) => {
+    if (/** @type {any} */ (f).hidden) return [];
     /** @type {TemplateColumn['when']} */
     const when = f.adp
       ? "adp"
@@ -125,24 +127,26 @@ export const CUSTOMER_COLUMNS = Object.freeze([
         : f.key === "customerGroup2Code"
           ? "group2"
           : null;
-    return {
-      id: f.shipTo ? shipToId(f.key) : f.key,
-      key: f.key,
-      label: f.label,
-      section: f.section,
-      required: f.required,
-      when,
-      kind: f.kind,
-      ...(f.list ? { list: f.list } : {}),
-      shipTo: !!f.shipTo,
-      remark: /** @type {string} */ (CLIENT_REMARKS[i]),
-      hint:
-        f.key === "postalCode"
-          ? POSTAL_HINT
-          : f.key === "countryCode"
-            ? "Philippines (PH)."
-            : (HINTS[f.kind] ?? ""),
-    };
+    return [
+      {
+        id: f.shipTo ? shipToId(f.key) : f.key,
+        key: f.key,
+        label: f.label,
+        section: f.section,
+        required: f.required,
+        when,
+        kind: f.kind,
+        ...(f.list ? { list: f.list } : {}),
+        shipTo: !!f.shipTo,
+        remark: /** @type {string} */ (CLIENT_REMARKS[i]),
+        hint:
+          f.key === "postalCode"
+            ? POSTAL_HINT
+            : f.key === "countryCode"
+              ? "Philippines (PH)."
+              : (HINTS[f.kind] ?? ""),
+      },
+    ];
   }),
   {
     id: "visitFrequency",
@@ -261,6 +265,8 @@ export function mapHeader(header) {
       used.add(k);
       return k;
     }
+    // SP-0220: older files still carry the removed Customer Address column; ignore it.
+    if (k === "customer address") return null;
     const n = seen.get(k) ?? 0;
     seen.set(k, n + 1);
     const col = CUSTOMER_COLUMNS.filter((c) => headerKey(c.label) === k)[n];
@@ -1103,7 +1109,6 @@ export const EXAMPLE = Object.freeze(
     registeredName: "Tindahan ni Aling Rosa Inc.",
     tradeName: "Aling Rosa",
     customerName: "Aling Rosa Store",
-    customerAddress: "12 Gorordo Ave, Apas, City of Cebu, Cebu 6000",
     email: "rosa@example.ph",
     mobileNo: "09171234567",
     tin: "123-456-789",

@@ -138,8 +138,9 @@ const run = (over: Partial<RunSummary> = {}): RunSummary => ({
 });
 
 describe("customer upload — the client's template", () => {
-  it("header keeps all 51 client fields and appends the office visit frequency", () => {
-    expect(CUSTOMER_HEADERS.length).toBe(53);
+  it("header keeps the client fields (without the removed Customer Address) and appends the office visit frequency", () => {
+    expect(CUSTOMER_HEADERS.length).toBe(52);
+    expect(CUSTOMER_HEADERS).not.toContain("Customer Address");
     expect(CUSTOMER_HEADERS[0]).toBe("Customer Code");
     expect(CUSTOMER_HEADERS.slice(1, 4)).toEqual([
       "Registered Name",

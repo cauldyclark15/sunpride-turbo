@@ -29,7 +29,8 @@ object CustomerMaster {
         f("registeredName", "Registered Name", GENERAL, true, Kind.TEXT, max = 200),
         f("tradeName", "Trade Name", GENERAL, false, Kind.TEXT, max = 200),
         f("customerName", "Customer Name", GENERAL, true, Kind.TEXT, max = 200),
-        f("customerAddress", "Customer Address", GENERAL, true, Kind.TEXT, max = 500),
+        // SP-0220: kept for parity with the shared field list; not shown or required (the server builds it).
+        f("customerAddress", "Customer Address", GENERAL, false, Kind.TEXT, max = 500),
         f("email", "Email Address", GENERAL, false, Kind.EMAIL, max = 200),
         f("mobileNo", "Mobile No.", GENERAL, true, Kind.MOBILE),
         f("telNo", "Tel. No.", GENERAL, false, Kind.TEXT, max = 40),
