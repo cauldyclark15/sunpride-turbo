@@ -194,7 +194,7 @@ test("a salesman's remittance is stored with branch, photo and audit; a retry cr
   expect(n).toBe(1);
 });
 
-test("missing photo, bad amount, 'other' without a name and Selling off are refused", async () => {
+test("missing photo, bad amount and 'other' without a name are refused; a salesman with Selling off can remit (loosened, jc)", async () => {
   for (const bad of [
     remit({ photo: null }),
     remit({ amountMinor: 0 }),
@@ -213,31 +213,30 @@ test("missing photo, bad amount, 'other' without a name and Selling off are refu
     remit({ channel: "other", channelOther: "M Lhuillier" }),
   );
   expect(other.status).toBe("applied");
+  // Loosened (jc): Truck selling no longer gates cash remittance.
   const off = await push(noSell, remit());
-  expect(off.status).toBe("rejected");
-  expect(off.code).toBe("invalid_request");
+  expect(off.status).toBe("applied");
 });
 
-test("scope: managers see their own branch, Finance at the root sees all; receipts follow the same rule", async () => {
+test("scope (loosened, jc): managers and Finance see every branch; sales cannot open the list", async () => {
   const south1 = remit({ channel: "gcash", referenceNumber: "GC-1" });
   expect((await push(sellerSouth, south1)).status).toBe("applied");
   const all = await web(finance, "remittances");
   expect(all.status, JSON.stringify(all.data)).toBe(200);
   expect(all.data.canReview).toBe(true);
-  expect(all.data.items.length).toBe(3);
+  expect(all.data.items.length).toBe(4);
   const n = await web(managerNorth, "remittances");
-  expect(n.data.items.map((/** @type {any} */ i) => i.branch)).toEqual([
-    "Sample N228",
-    "Sample N228",
-  ]);
+  expect(n.data.items.length).toBe(4);
   expect(n.data.canReview).toBe(false);
   const s = await web(managerSouth, "remittances");
-  expect(s.data.items.map((/** @type {any} */ i) => i.id)).toEqual([
+  expect(s.data.items.map((/** @type {any} */ i) => i.id)).toContain(
     south1.remittanceId,
-  ]);
+  );
+  const northOnly = await web(managerSouth, `remittances?unit=${north.id}`);
+  expect(northOnly.status).toBe(200);
   expect(
-    (await web(managerSouth, `remittances?unit=${north.id}`)).status,
-  ).toBe(403);
+    northOnly.data.items.every((/** @type {any} */ i) => i.branch === "Sample N228"),
+  ).toBe(true);
   // Filters.
   const filtered = await web(
     finance,
@@ -260,7 +259,7 @@ test("scope: managers see their own branch, Finance at the root sees all; receip
   expect(
     (await web(managerSouth, `remittances/${first.remittanceId}/receipt`))
       .status,
-  ).toBe(404);
+  ).toBe(200);
   // Sales cannot open the Finance list.
   expect((await web(sellerNorth, "remittances")).status).toBe(403);
 });
@@ -287,15 +286,11 @@ test("Finance confirms or rejects with a reason, once; managers and out-of-scope
   ).toBe(400);
   const [south1] =
     await h.db`select id from field_cash_remittances where org_unit_id=${south.id}`;
-  expect(
-    (await web(finance, `remittances/${south1.id}/reject`, {})).status,
-  ).toBe(422);
-  const no = await web(finance, `remittances/${south1.id}/reject`, {
-    reason: "Reference not found at GCash",
-  });
+  // Loosened (jc): the reject reason is optional; a blank one is stored as "No reason given".
+  const no = await web(finance, `remittances/${south1.id}/reject`, {});
   expect(no.status, JSON.stringify(no.data)).toBe(200);
   const list = await web(finance, `remittances?status=rejected`);
-  expect(list.data.items[0].rejectReason).toBe("Reference not found at GCash");
+  expect(list.data.items[0].rejectReason).toBe("No reason given");
   expect(list.data.items[0].reviewedBy).toBe("Finance228");
   const audit =
     await h.db`select action from audit_logs where entity_id in (${first.remittanceId},${south1.id}) order by created_at`;
@@ -307,4 +302,16 @@ test("Finance confirms or rejects with a reason, once; managers and out-of-scope
   const [row] =
     await h.db`select status from field_cash_remittances where id=${first.remittanceId}`;
   expect(row.status).toBe("confirmed");
+});
+
+test("loosened (jc): a branch Administrator reviews any branch's remittance (no Finance test account)", async () => {
+  const branchAdmin = await person("Admin228", "admin", north);
+  const fresh = remit({ channel: "cebuana", referenceNumber: "CB-9" });
+  expect((await push(sellerSouth, fresh)).status).toBe("applied");
+  const list = await web(branchAdmin, "remittances");
+  expect(list.status).toBe(200);
+  expect(list.data.canReview).toBe(true);
+  const ok = await web(branchAdmin, `remittances/${fresh.remittanceId}/confirm`, {});
+  expect(ok.status, JSON.stringify(ok.data)).toBe(200);
+  expect(ok.data.status).toBe("confirmed");
 });

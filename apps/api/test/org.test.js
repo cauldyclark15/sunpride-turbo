@@ -15,6 +15,8 @@ import { runDueJobs } from "../src/core/jobs.js";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { canSubscribe } from "../src/core/hooks.js";
+import { manilaTodayStart } from "../src/domains/org/model.js";
+import { NO_REASON } from "../src/core/reason.js";
 
 /** @type {import('./harness.js').Harness} */ let h;
 /** @type {any} */ let boss;
@@ -185,12 +187,15 @@ describe("ORG identity hooks", () => {
 
 describe("ORG scope and tree", () => {
   test("current subtree excludes sibling and scope remains current for historical tree", async () => {
-    expect((await scopeFilterForActor(h.db, manager)).unitIds).toEqual([
-      regionA.id,
-    ]);
+    // Loosened (jc): managers read company-wide; sales stays branch-limited.
+    expect((await scopeFilterForActor(h.db, manager)).unitIds).toBeNull();
+    expect(
+      (await scopeFilterForActor(h.db, { ...manager, role: "sales" })).unitIds,
+    ).toEqual([regionA.id]);
     const r = await call(`org/tree?asOf=${Date.now()}`, manager);
     expect(r.status).toBe(200);
-    expect(r.body.map((/** @type {any} */ x) => x.id)).toEqual([regionA.id]);
+    expect(r.body.map((/** @type {any} */ x) => x.id)).toContain(regionA.id);
+    expect(r.body.length).toBeGreaterThan(1);
     expect(
       (await scopeFilterForActor(h.db, { ...manager, role: "analyst" }))
         .unitIds,
@@ -210,7 +215,8 @@ describe("ORG scope and tree", () => {
       (
         await call("org/create", boss, {
           ...b,
-          effectiveFrom: Date.now() - 1000,
+          // Loosened (jc): today is allowed; an earlier day is still refused.
+          effectiveFrom: Date.now() - 2 * 86400000,
         })
       ).status,
     ).toBe(422);
@@ -273,7 +279,8 @@ describe("ORG scope and tree", () => {
           reason: "bad",
         })
       ).status,
-    ).toBe(403);
+      // Loosened (jc): admins are company-wide, so only the business rule refuses now.
+    ).toBe(422);
   });
 });
 
@@ -311,7 +318,7 @@ describe("people, invitations and teams", () => {
     ).toBe(422);
     expect(
       (await call(`people/history?profileId=${sales.profileId}`, other)).status,
-    ).toBe(403);
+    ).toBe(/* loosened (jc): was 403 */ 200);
   });
   test("SP-0191 an administrator switches Selling per Sales person; audited, phone refreshes, nobody else can", async () => {
     const before =
@@ -582,7 +589,7 @@ describe("people, invitations and teams", () => {
           JSON.stringify(p.appModes) === JSON.stringify(["visits", "selling"]),
       ),
     ).toBe(true);
-    const saved = await read();
+    let saved = await read();
     for (const modes of [[], ["visits", "visits"], ["truck"], "visits", null])
       expect((await set({ profileId: a.profileId, modes })).status).toBe(422);
     expect(
@@ -609,7 +616,8 @@ describe("people, invitations and teams", () => {
           modes: ["mapping", "visits"],
         })
       ).status,
-    ).toBe(403);
+    ).toBe(/* loosened (jc): was 403 */ 200);
+    saved = await read();
     expect(
       (
         await set(
@@ -621,7 +629,8 @@ describe("people, invitations and teams", () => {
     expect(await read()).toEqual(saved);
     const [audit] =
       await h.db`select details from audit_logs where action='people.app-mode' and entity_id=${a.profileId} order by created_at desc limit 1`;
-    expect(audit.details).toContain("Field visits, Truck selling");
+    // Loosened (jc): the company-wide bulk change above is now the latest audit.
+    expect(audit.details).toContain("Customer mapping, Field visits");
     expect(
       (
         await set({
@@ -768,7 +777,15 @@ describe("people, invitations and teams", () => {
       name: "New agent",
       orgUnitId: regionA.id,
     };
-    expect((await call("people/invite", admin, b)).status).toBe(403);
+    // Loosened (jc): a branch administrator may invite company-wide now.
+    expect(
+      (
+        await call("people/invite", admin, {
+          ...b,
+          email: "branch-admin-invite@example.com",
+        })
+      ).status,
+    ).toBe(200);
     const result = await call("people/invite", boss, b);
     expect(result.status).toBe(200);
     expect(
@@ -848,7 +865,7 @@ describe("people, invitations and teams", () => {
           profileId: other.profileId,
         })
       ).status,
-    ).toBe(422);
+    ).toBe(/* loosened (jc): was 422 */ 200);
     expect(
       (
         await call("org/teams/removeMember", boss, {
@@ -862,7 +879,8 @@ describe("people, invitations and teams", () => {
     const detail = await call(
       `org/teams/detail?teamId=${team.body}&asOf=${from + 1500}`,
     );
-    expect(detail.body.members.length).toBe(1);
+    // Loosened (jc): the other-branch person joined too.
+    expect(detail.body.members.length).toBe(2);
   });
 });
 
@@ -878,7 +896,8 @@ describe("territories, routes and outlet assignments", () => {
       reason: "SAMPLE wording check",
     });
     expect(result.status).toBe(422);
-    expect(result.body.error.message).toBe("Person has no active branch");
+    // Loosened (jc): a person without a branch is no longer refused for that reason.
+    expect(result.body.error.message).not.toBe("Person has no active branch");
     expect(
       await h.db`select * from territory_salespeople where territory_id=${territory.id} order by id`,
     ).toEqual(before);
@@ -1025,10 +1044,10 @@ describe("territories, routes and outlet assignments", () => {
       effectiveFrom: from,
       reason: "Batch",
     });
-    expect(batch.status).toBe(403);
+    expect(batch.status).toBe(/* loosened (jc): was 403 */ 200);
     const [count] =
       await h.db`select count(*)::int as n from outlet_assignments where outlet_id=${o2.id}`;
-    expect(count.n).toBe(0);
+    expect(count.n).toBe(1);
   });
   test("lists search and page before LIMIT with no hidden first-50 truncation", async () => {
     const r = await call("outlets/list?q=First&limit=1", manager);
@@ -1040,8 +1059,11 @@ describe("territories, routes and outlet assignments", () => {
     const b = await call(`outlets/list?limit=1&cursor=${a.body.next}`);
     expect(a.body.page[0].id).not.toBe(b.body.page[0].id);
     expect((await call("outlets/list?cursor=broken")).status).toBe(400);
+    // Loosened (jc): managers see every branch's stores.
     const scoped = await call("outlets/list?q=Foreign", manager);
-    expect(scoped.body.page).toEqual([]);
+    expect(scoped.body.page.map((/** @type {any} */ o) => o.code)).toEqual([
+      "FOREIGN",
+    ]);
   });
 });
 
@@ -1070,7 +1092,7 @@ describe("pin verification, catalog and standards", () => {
           reason: "Checked",
         })
       ).status,
-    ).toBe(422);
+    ).toBe(/* loosened (jc): was 422 */ 200);
     expect(
       (
         await call("outlets/pins/decide", other, {
@@ -1079,7 +1101,8 @@ describe("pin verification, catalog and standards", () => {
           reason: "Checked",
         })
       ).status,
-    ).toBe(403);
+      // Loosened (jc): the proposer already verified it, so this is "already reviewed".
+    ).toBe(422);
     expect(
       (
         await call("outlets/pins/decide", manager, {
@@ -1088,7 +1111,7 @@ describe("pin verification, catalog and standards", () => {
           reason: "Checked",
         })
       ).status,
-    ).toBe(200);
+    ).toBe(422); // loosened (jc): already verified by its proposer
     const [audit] =
       await h.db`select details from audit_logs where entity_id=${pin.body} order by created_at desc limit 1`;
     expect(audit.details).not.toContain("10.3");
@@ -1171,7 +1194,7 @@ describe("pin verification, catalog and standards", () => {
           reason: "Bad",
         })
       ).status,
-    ).toBe(403);
+    ).toBe(/* loosened (jc): was 403 */ 200);
     const listed = await call("catalog/products/list?q=Sample");
     expect(listed.body.page[0].name).toBe("Sample meat");
     expect(listed.body.page[0].priceStatus).toBe("Governed price required");
@@ -1276,18 +1299,7 @@ describe("setup queues, enrollment and current-scope history", () => {
     expect(
       (await call("outlets/enrolment/propose", sales, b, "enroll-intent")).body,
     ).toEqual(proposed.body);
-    const ownManager = await person("Proposing manager", "manager", regionA.id);
-    await h.db`update outlet_enrolments set proposed_by=${ownManager.subject},proposed_by_profile_id=${ownManager.profileId} where id=${proposed.body.enrolmentId}`;
-    expect(
-      (
-        await call("outlets/enrolment/decide", ownManager, {
-          enrolmentId: proposed.body.enrolmentId,
-          decision: "approved",
-          reason: "Self",
-        })
-      ).status,
-    ).toBe(422);
-    await h.db`update outlet_enrolments set proposed_by=${sales.subject},proposed_by_profile_id=${sales.profileId} where id=${proposed.body.enrolmentId}`;
+    // Loosened (jc): self-approval is allowed; "loosened rules (jc)" below covers it.
     const queue = await call("outlets/enrolment/pending", manager);
     expect(queue.status).toBe(200);
     const queued = queue.body.page.find(
@@ -1303,7 +1315,7 @@ describe("setup queues, enrollment and current-scope history", () => {
     const denied = await h.fetch(queued.photoUrls[0], {
       headers: { cookie: other.cookie },
     });
-    expect(denied.status).toBe(403);
+    expect(denied.status).toBe(/* loosened (jc): was 403 */ 200);
     const decision = await call("outlets/enrolment/decide", manager, {
       enrolmentId: proposed.body.enrolmentId,
       decision: "approved",
@@ -1337,7 +1349,7 @@ describe("setup queues, enrollment and current-scope history", () => {
           manager,
         )
       ).status,
-    ).toBe(403);
+    ).toBe(/* loosened (jc): was 403 */ 200);
     const historical = await call(
       `outlets/assignments/history?outletId=${store.id}&asOf=${from + 500}`,
       other,
@@ -1351,7 +1363,7 @@ describe("setup queues, enrollment and current-scope history", () => {
     expect(roster.status).toBe(200);
     expect(
       roster.body.some((/** @type {any} */ r) => r.outletId === store.id),
-    ).toBe(false);
+    ).toBe(true); // loosened (jc): managers are company-wide
   });
   test("future reparenting changes scope at the edge instant and durable jobs materialize the projection", async () => {
     const [area] =
@@ -1400,7 +1412,7 @@ describe("setup queues, enrollment and current-scope history", () => {
     const historical = await call(`org/tree?asOf=${at - 100}`, manager);
     expect(
       historical.body.some((/** @type {any} */ r) => r.id === area.id),
-    ).toBe(false);
+    ).toBe(true); // loosened (jc): managers are company-wide
     const after = await identityHooks(h.env).loadProfile(h.db, manager.userId);
     expect(after?.scopeEpoch).not.toBe(before?.scopeEpoch);
   });
@@ -1643,9 +1655,9 @@ describe("catalog DTOs and national setup reconciliation", () => {
     const national = await person("National administrator", "admin", root),
       expired = await person("Expired assignment", "viewer", regionA.id);
     await h.db`update employee_assignments set effective_to=now()-interval '1 hour' where profile_id=${expired.profileId}`;
+    // Loosened (jc): a manager is company-wide, so an unassigned person is visible.
     const regional = await call("people/list?q=Expired", manager);
     expect(regional.status).toBe(200);
-    expect(regional.body.page).toEqual([]);
     const unassigned = await call(
       "people/list?unassigned=true&status=active",
       national,
@@ -1664,9 +1676,9 @@ describe("catalog DTOs and national setup reconciliation", () => {
     expect(health.body.items[0].count).toBe(unassigned.body.page.length);
     expect(
       (await call("org/setup-health", admin)).body.items[0].count,
-    ).toBeNull();
+    ).not.toBeNull(); // loosened (jc): every administrator is company-wide
     expect((await call("org/permissions", national)).body.national).toBe(true);
-    expect((await call("org/permissions", admin)).body.national).toBe(false);
+    expect((await call("org/permissions", admin)).body.national).toBe(true);
     // SAP ownership hint for the office UI (Master data, Prices)
     const before = h.env.SAP_MODE;
     try {
@@ -1682,5 +1694,146 @@ describe("catalog DTOs and national setup reconciliation", () => {
       if (before === undefined) delete h.env.SAP_MODE;
       else h.env.SAP_MODE = before;
     }
+  });
+});
+
+describe("loosened rules (jc)", () => {
+  test("rule 1: any active person with a sign-in can be added to a territory, whatever their branch", async () => {
+    // `other` belongs to REGION_B; the territory is owned by REGION_A.
+    const options = await call(
+      `people/list?territoryId=${territory.id}&limit=50&q=Other`,
+      admin,
+    );
+    expect(options.status).toBe(200);
+    const ids = options.body.page.map((/** @type {any} */ p) => p._id ?? p.id);
+    expect(ids).toContain(other.profileId);
+    const r = await call("territories/assignSalesperson", admin, {
+      territoryId: territory.id,
+      profileId: other.profileId,
+      effectiveFrom: Date.now() + 60_000,
+      kind: "secondary",
+      reason: "Loosened rule 1",
+    });
+    expect(r.status, JSON.stringify(r.body)).toBe(200);
+    expect(JSON.stringify(r.body)).not.toContain("Person outside owner hierarchy");
+  });
+  test("rule 2: a route and its salesperson can start today; an earlier day is still refused", async () => {
+    const today = manilaTodayStart(Date.now());
+    const created = await call("territories/routes/create", boss, {
+      code: "TODAY_R",
+      name: "Starts today",
+      territoryId: territory.id,
+      effectiveFrom: today,
+      weekdayTemplate: [1],
+      cycleDays: 7,
+      reason: "Loosened rule 2",
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(200);
+    const fresh = await person("Fresh seller", "sales", regionA.id);
+    const assigned = await call("territories/routes/assignSalesperson", boss, {
+      routeId: created.body,
+      profileId: fresh.profileId,
+      effectiveFrom: today,
+      primary: true,
+      reason: "Loosened rule 2",
+    });
+    expect(assigned.status, JSON.stringify(assigned.body)).toBe(200);
+    const yesterday = await call("territories/routes/create", boss, {
+      code: "YESTERDAY_R",
+      name: "Started yesterday",
+      territoryId: territory.id,
+      effectiveFrom: today - 86_400_000,
+      weekdayTemplate: [1],
+      cycleDays: 7,
+      reason: "Loosened rule 2",
+    });
+    expect(yesterday.status).toBe(422);
+    expect(yesterday.body.error.message).toBe(
+      "Choose today or a future effective date.",
+    );
+  });
+  test("rule 3: the reason is optional; a given reason is stored and a blank one is recorded as not given", async () => {
+    const blank = await call("territories/routes/create", boss, {
+      code: "NOREASON_R",
+      name: "No reason route",
+      territoryId: territory.id,
+      effectiveFrom: Date.now() + 60_000,
+      weekdayTemplate: [2],
+      cycleDays: 7,
+    });
+    expect(blank.status, JSON.stringify(blank.body)).toBe(200);
+    const given = await call("territories/assignSalesperson", boss, {
+      territoryId: territory.id,
+      profileId: manager.profileId,
+      effectiveFrom: Date.now() + 60_000,
+      kind: "secondary",
+      reason: "  Covers Mandaue  ",
+    });
+    expect(given.status, JSON.stringify(given.body)).toBe(200);
+    const none = await call("territories/assignSalesperson", boss, {
+      territoryId: territory.id,
+      profileId: admin.profileId,
+      effectiveFrom: Date.now() + 60_000,
+      kind: "secondary",
+      reason: "",
+    });
+    expect(none.status, JSON.stringify(none.body)).toBe(200);
+    const rows =
+      await h.db`select profile_id,reason from territory_salespeople where territory_id=${territory.id} and profile_id in (${manager.profileId},${admin.profileId})`;
+    const reasons = Object.fromEntries(
+      rows.map((/** @type {any} */ r) => [r.profile_id, r.reason]),
+    );
+    expect(reasons[manager.profileId]).toBe("Covers Mandaue");
+    expect(reasons[admin.profileId]).toBe(NO_REASON);
+  });
+  test("rule 4: the person who added a customer can approve it", async () => {
+    const bytes = Buffer.from("loosened-self-approval-image");
+    const sha = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+    const dir = join(h.filesDir, sha.slice(0, 2));
+    await mkdir(dir, { recursive: true });
+    await Bun.write(join(dir, sha), bytes);
+    const [file] =
+      await h.db`insert into files(purpose,sha256,mime,size,path,status,created_by) values('new-store',${sha},'image/png',${bytes.length},${`${sha.slice(0, 2)}/${sha}`},'stored',${manager.userId}) returning id`;
+    const proposed = await call("outlets/enrolment/propose", manager, {
+      clientRequestId: "loosened-self-approval",
+      name: "Self approved store",
+      address: "Cebu road",
+      channel: "GT",
+      contactName: "Store owner",
+      latitude: 10.31,
+      longitude: 123.91,
+      territoryId: territory.id,
+      photoStorageIds: [file.id],
+    });
+    expect(proposed.status, JSON.stringify(proposed.body)).toBe(200);
+    const decided = await call("outlets/enrolment/decide", manager, {
+      enrolmentId: proposed.body.enrolmentId,
+      decision: "approved",
+    });
+    expect(decided.status, JSON.stringify(decided.body)).toBe(200);
+    const [stored] =
+      await h.db`select enrolment_status from outlets where id=${proposed.body.outletId}`;
+    expect(stored.enrolment_status).toBe("approved");
+  });
+  test("rule 7: office roles act and read company-wide; sales stays in its branch", async () => {
+    // A REGION_B manager reads a REGION_A territory and store.
+    expect(
+      (await call(`territories/detail?territoryId=${territory.id}`, other))
+        .status,
+    ).toBe(200);
+    expect(
+      (await call(`outlets/detail?outletId=${outlet.id}`, other)).status,
+    ).not.toBe(403);
+    // A REGION_A administrator sees REGION_B people.
+    const people = await call("people/list?q=Other&limit=50", admin);
+    expect(people.status).toBe(200);
+    expect(
+      people.body.page.some((/** @type {any} */ p) => p.name === "Other"),
+    ).toBe(true);
+    expect((await call("org/permissions", admin)).body.national).toBe(true);
+    // Sales is unchanged: still limited to its own branch.
+    expect(
+      (await scopeFilterForActor(h.db, { ...sales, role: "sales" })).unitIds,
+    ).not.toBeNull();
   });
 });

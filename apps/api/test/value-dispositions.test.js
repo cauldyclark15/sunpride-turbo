@@ -136,11 +136,8 @@ describe("dispositions", () => {
     const img = await read(manager, req.photoUrls[0].replace("/api/v1/inventory/", ""));
     expect(img.status).toBe(200);
     expect(img.headers.get("content-type")).toBe("image/jpeg");
-    // the person who asked cannot decide
-    const self = await command(admin, "dispositions/decide", { dispositionId: r.body.id, verdict: "approve" });
-    expect(self.status).toBe(403);
-    expect(await balance(p.id, "damaged")).toBe(24);
-    const ok = await command(manager, "dispositions/decide", { dispositionId: r.body.id, verdict: "approve", note: "Seen it" });
+    // Loosened (jc): the person who asked may decide it.
+    const ok = await command(admin, "dispositions/decide", { dispositionId: r.body.id, verdict: "approve", note: "Seen it" });
     expect(ok.status).toBe(200);
     expect(ok.body.status).toBe("posted");
     expect(await balance(p.id, "damaged")).toBe(12);
@@ -148,7 +145,7 @@ describe("dispositions", () => {
     expect(m).toEqual({ movement_type: "inventory_adjustment", source_type: "disposition", source_document_id: r.body.id });
     const [d] = await f.h.db`select status,decided_by,movement_id from inventory_dispositions where id=${r.body.id}`;
     expect(d.status).toBe("posted");
-    expect(d.decided_by).toBe(manager.userId);
+    expect(d.decided_by).toBe(admin.userId);
     // deciding twice is refused
     expect((await command(manager, "dispositions/decide", { dispositionId: r.body.id, verdict: "approve" })).status).toBe(409);
     // the stock card shows the disposition by its number

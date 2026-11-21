@@ -1101,7 +1101,7 @@ test("F-205 reports keep unplanned calls apart and exclude another salesperson",
   expect(body.items.length).toBe(1);
   expect(body.items[0].reason).toBe("Supervisor requested store");
 });
-test("F-006 F-107 nationwide flow masters refuse an area-only administrator but permit the national administrator", async () => {
+test("F-006 F-107 nationwide flow masters: loosened (jc), a branch administrator may publish too, like the national administrator", async () => {
   const area = await fixture({ role: "admin" }),
     national = await fixture({ role: "admin", unit: rootUnit }),
     c = await config(area),
@@ -1141,16 +1141,16 @@ test("F-006 F-107 nationwide flow masters refuse an area-only administrator but 
   ])
     expect(
       (await webCall(area, `/api/v1/callflow/${kind}/publish`, payload)).status,
-    ).toBe(403);
+    ).toBe(/* loosened (jc): was 403 */ 200);
   expect(
     (
       await h.db`select id from call_flow_definitions where channel_profile=${key}`
     ).length,
-  ).toBe(0);
+  ).toBe(1); // loosened (jc): every administrator is company-wide
   const saved = await webCall(
     national,
     "/api/v1/callflow/definition/publish",
-    definition,
+    { ...definition, channelProfile: `${key}_n` },
   );
   expect(saved.status).toBe(200);
   expect(

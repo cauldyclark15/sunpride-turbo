@@ -215,7 +215,8 @@ test("pre-existing waiting invitations can be resent without changing their emai
 test("resend denies scoped admins, salespeople, anonymous callers and protected administrator invitations", async () => {
   const result = await invite("protected-send@example.test");
   await age(result.body.invitationId);
-  for (const cookie of [scopedAdmin, salesperson, ""])
+  // Loosened (jc): a branch administrator is company-wide, so only these are refused.
+  for (const cookie of [salesperson, ""])
     expect([401, 403]).toContain(
       (await resend(result.body.invitationId, cookie)).status,
     );

@@ -226,20 +226,17 @@ describe("transfer differences", () => {
     expect(r.body.status).toBe("review_needed");
     return { id: made.body.id, p, transit };
   }
-  it("shows the difference with value and rule; the receiver is refused in words; a reject needs a reason and sends it back; approve writes it off", async () => {
+  it("shows the difference with value and rule; the receiver may decide it (loosened, jc); a reject sends it back; approve writes it off", async () => {
     const { id, transit, p } = await shortTransfer();
     const row = await rowOf(sup, id);
     expect(row).toMatchObject({ kind: "transfer_variance", valueCentavos: 96 * 2000, canDecide: true, needs: { chargeTo: true }, sentBack: null });
     expect(row.documentNumber).toMatch(/^TRF-/);
     expect(row.rule).toContain("needs a person to decide");
-    // The receiver (who may approve in general) is blocked by the rule, up front and by the server.
+    // Loosened (jc): the receiver may decide their own difference too.
     const mine = await rowOf(boss, id);
-    expect(mine).toMatchObject({ canDecide: false });
-    expect(mine.blockedReason).toMatch(/different person/);
-    const refused = await act(boss, row.id, "approve", { chargeTo: "driver" });
-    expect(refused.status).toBe(403);
-    // Reject needs a reason; with one it is sent back and stays visible, last in the queue.
-    expect((await act(sup, row.id, "reject")).status).toBe(422);
+    expect(mine).toMatchObject({ canDecide: true });
+    expect(mine.blockedReason).toBeNull();
+    // A reject is sent back and stays visible, last in the queue.
     const back = await act(sup, row.id, "reject", { reason: "Count the pallet again" });
     expect(back.status).toBe(200);
     expect(back.body.status).toBe("Sent back for a recount.");
@@ -356,7 +353,7 @@ describe("count reviews", () => {
     expect(row.valueCentavos).toBeGreaterThan(0);
     expect(row.documentNumber).toMatch(/^CNT-/);
     expect(await rowOf(clerk, first)).toBeUndefined(); // the counter is not shown their own count
-    expect((await act(sup, row.id, "reject")).status).toBe(422);
+    // Loosened (jc): a reject reason is optional now; this flow still gives one.
     const sent = await act(sup, row.id, "reject", { reason: "Recount the top shelf" });
     expect(sent.status).toBe(200);
     expect((await h.db`select status from stock_count_sessions where id=${first}`)[0].status).toBe("counting");
@@ -401,7 +398,7 @@ describe("till counts, forced closes and overrides", () => {
     expect(row.title).toContain("short");
     expect(row.rule).toContain("₱100.00");
     expect([403, 404]).toContain((await act(cashier, row.id, "approve")).status); // sales: no authority, and it is not listed for them
-    expect((await act(planner, row.id, "reject")).status).toBe(422);
+    // Loosened (jc): a reject reason is optional now; this flow still gives one.
     const ok = await act(planner, row.id, "reject", { reason: "Drawer was left open" });
     expect(ok.status, JSON.stringify(ok.body)).toBe(200);
     expect((await h.db`select decision from store_shift_decisions where closure_id=${a.closureId}`)[0].decision).toBe("investigate");

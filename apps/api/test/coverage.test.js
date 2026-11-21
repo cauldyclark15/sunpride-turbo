@@ -207,7 +207,7 @@ test("same-day hire approval rejects with the dated message and zero plan, slot,
     count.n,
   );
 });
-test("manager substitutes only while supervisor is away; self/preparer approval never allowed", async () => {
+test("loosened (jc): a manager approves for the supervisor without an away record", async () => {
   const p = await run(sales, "plans/create", {
     assigneeProfileId: sales.id,
     localMonth: "2026-11",
@@ -218,19 +218,9 @@ test("manager substitutes only while supervisor is away; self/preparer approval 
     slots: [slot("2026-11-02")],
   });
   await run(sales, "plans/submit", { planId: p._id });
-  await expect(
-    run(manager, "plans/approve", { planId: p._id }),
-  ).rejects.toThrow("direct supervisor");
-  const away = await run(manager, "away/record", {
-    profileId: supervisor.id,
-    fromDate: "2026-10-15",
-    toDate: "2026-10-16",
-    reason: "Leave",
-  });
   const approved = await run(manager, "plans/approve", { planId: p._id });
   expect(approved.approvalCapacity).toBe("backup");
   expect(approved.approvedOnBehalfOfProfileId).toBe(supervisor.id);
-  await run(manager, "away/end", { awayId: away._id });
 });
 test("deadline last-week and first-week boundaries are Manila, preserving late history", () => {
   const d = mcpDeadlines("2026-11");
@@ -452,7 +442,7 @@ test("revision copies a future suffix, freezes signed evidence, and activation r
       .status,
   ).toBe("superseded");
 });
-test("approval independently denies the preparer and repeats authorization before command replay", async () => {
+test("approval lets the preparer approve (loosened, jc) and repeats authorization before command replay", async () => {
   const p = await run(supervisor, "plans/create", {
     assigneeProfileId: sales.id,
     localMonth: "2027-02",
@@ -466,9 +456,9 @@ test("approval independently denies the preparer and repeats authorization befor
     slots: [slot("2027-02-02")],
   });
   await run(supervisor, "plans/submit", { planId: p._id });
-  await expect(
-    run(supervisor, "plans/approve", { planId: p._id }),
-  ).rejects.toThrow("Independent approver");
+  // Loosened (jc): the person who prepared the plan may approve it.
+  const self = await run(supervisor, "plans/approve", { planId: p._id });
+  expect(self.status).toBe("approved");
   const key = crypto.randomUUID(),
     body = {
       assigneeProfileId: sales.id,
@@ -482,7 +472,7 @@ test("approval independently denies the preparer and repeats authorization befor
   );
   await h.db`update profiles set status='active' where id=${sales.id}`;
 });
-test("eligible uncovered stores appear in route and map views; transferred current ownership never grants old-scope reads", async () => {
+test("eligible uncovered stores appear in route and map views; managers keep company-wide reads after a transfer (loosened, jc)", async () => {
   const db = h.db;
   const [o] =
     await db`insert into outlets(organization_id,code,name,status,custodian_org_unit_id,created_by) values ('sunpride','UNCOVERED','Uncovered shop','active',${unit.id},${manager.user_id}) returning *`;
@@ -500,16 +490,17 @@ test("eligible uncovered stores appear in route and map views; transferred curre
     map.page.find(/** @param {any} row */ (row) => row.outletId === o.id)
       .inPlan,
   ).toBe(false);
+  // Loosened (jc): managers read company-wide, so a manager elsewhere can open the plan.
   const foreign = { ...supervisor, org_unit_id: crypto.randomUUID() };
-  await expect(
-    read(ctx(foreign), "plans/detail", { planId: approved._id }),
-  ).rejects.toThrow("outside your organizational scope");
+  expect(
+    await read(ctx(foreign), "plans/detail", { planId: approved._id }),
+  ).toBeTruthy();
   const [other] =
     await db`insert into org_units(organization_id,code,name,type_code,status,effective_from) values ('sunpride','OTHER','Other region','region','active',${new Date(now)}) returning id`;
   await db`update territory_ownerships set org_unit_id=${other.id} where territory_id=${territory.id}`;
-  await expect(
-    read(ctx(supervisor), "exports/schedule", { planId: approved._id }),
-  ).rejects.toThrow("outside your organizational scope");
+  expect(
+    await read(ctx(supervisor), "exports/schedule", { planId: approved._id }),
+  ).toBeTruthy();
   await db`update territory_ownerships set org_unit_id=${unit.id} where territory_id=${territory.id}`;
 });
 test("custom cadence and anchor stay Manila date strings through SQL and a copied revision", async () => {

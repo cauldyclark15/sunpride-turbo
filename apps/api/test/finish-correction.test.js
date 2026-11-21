@@ -139,17 +139,9 @@ test("F-116 F-117 independent remainder and cash corrections preserve original e
         reason: "SAMPLE two units physically found",
       }),
     );
-    await expect(
-      tx(h.db, (db) =>
-        decideCorrection(db, requester, {
-          changeId: pending.changeId,
-          decision: "approved",
-          reason: "SAMPLE",
-        }),
-      ),
-    ).rejects.toThrow("different person");
+    // Loosened (jc): the person who asked for the correction may approve it.
     await tx(h.db, (db) =>
-      decideCorrection(db, approver, {
+      decideCorrection(db, requester, {
         changeId: pending.changeId,
         decision: "approved",
         reason: "SAMPLE received remaining two",

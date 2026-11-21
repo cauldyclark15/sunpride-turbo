@@ -111,7 +111,8 @@ test("F-124 stock approval and handheld void code use the current fiscal matrix;
         },
         "adjustments/decide",
       ),
-    ).rejects.toMatchObject({ status: 403 });
+      // Fiscal override authority is kept: a second person still approves it.
+    ).rejects.toThrow("second person");
     await execute(
       {
         ...ctx,

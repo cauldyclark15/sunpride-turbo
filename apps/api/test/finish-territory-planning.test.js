@@ -116,19 +116,11 @@ test("F-224 whole route expands every stop, preserves sequence through ORG, and 
       idempotencyKey: crypto.randomUUID(),
     });
     expect(saved.status).toBe(200);
-    expect(
-      (
-        await f.call("/publish", {
-          scenarioId: saved.body.id,
-          contentHash: saved.body.contentHash,
-        })
-      ).status,
-    ).toBe(403);
-    const published = await f.call(
-      "/publish",
-      { scenarioId: saved.body.id, contentHash: saved.body.contentHash },
-      1,
-    );
+    // Loosened (jc): the preparer may publish their own scenario.
+    const published = await f.call("/publish", {
+      scenarioId: saved.body.id,
+      contentHash: saved.body.contentHash,
+    });
     expect(published.status).toBe(200);
     expect(published.body.assignments).toBe(2);
     const future = await f.h

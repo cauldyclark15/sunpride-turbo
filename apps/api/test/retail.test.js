@@ -1003,14 +1003,13 @@ test("F-313 custody assignment uses current employee history instead of the stal
     unitCode: crypto.randomUUID(),
     requestKey: crypto.randomUUID(),
   };
-  await expect(
-    tx(h.db, (t) => custody({ ...ctx(f, next, "operations"), db: t })),
-  ).rejects.toThrow();
+  // Loosened (jc): operations is company-wide, so the transferred person's custody saves.
+  await tx(h.db, (t) => custody({ ...ctx(f, next, "operations"), db: t }));
   expect(
     (
       await h.db`select * from posm_custody_events where unit_code=${next.unitCode}`
     ).length,
-  ).toBe(0);
+  ).toBe(1);
   expect(
     (
       await h.db`select org_unit_id from profiles where id=${person.d.profile.id}`

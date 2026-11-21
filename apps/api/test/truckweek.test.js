@@ -327,16 +327,6 @@ test("SP-0227 weekly truck stock: served basis, sold from van sales, Saturday co
     const detail = await office(`truck-weeks?id=${saved.body.id}`);
     expect(detail.body.status).toBe("counted");
     expect(detail.body.pos.invoicesMinor).toBe("0");
-    await t`update van_trips set status='active' where id=${trip}`;
-    expect(
-      (
-        await office("truck-weeks/review", {
-          id: saved.body.id,
-          baseUpdatedAt: detail.body.updatedAt,
-        })
-      ).status,
-    ).toBe(422);
-    await t`update van_trips set status='closed' where id=${trip}`;
     // Actually served 100 - counted 50 = 50 units at PHP25; requested 120 is not the basis.
     expect(detail.body.cashier.amountMinor).toBe("125000");
     expect(
@@ -403,11 +393,16 @@ test("SP-0227 weekly truck stock: served basis, sold from van sales, Saturday co
     expect(listed.body.sellers.map((/** @type {any} */ s) => s.name)).toContain(
       "SAMPLE other",
     );
+    // Loosened (jc): the week closes even while the Saturday trip is still open; the reply warns.
+    await t`update van_trips set status='active' where id=${trip}`;
     const reviewed = await office("truck-weeks/review", {
       id: saved.body.id,
       baseUpdatedAt: detail.body.updatedAt,
     });
-    expect(reviewed.status).toBe(200);
+    expect(reviewed.status, JSON.stringify(reviewed.body)).toBe(200);
+    expect(reviewed.body.openTrips).toBe(1);
+    expect(reviewed.body.warning).toContain("still open");
+    await t`update van_trips set status='closed' where id=${trip}`;
     const frozen = await office(`truck-weeks?id=${saved.body.id}`);
     await t`update products set name='RENAMED' where id=${a.id}`;
     await t`update sap_replicas set payload=jsonb_set(payload,'{data,unitPriceCentavos}','9999') where kind='condition'`;

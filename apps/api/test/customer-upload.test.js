@@ -599,7 +599,8 @@ describe("SP-0170 customer upload — interruption and resume", () => {
 });
 
 describe("SP-0170 customer upload — scope", () => {
-  test("a scoped user cannot update customers outside their areas; their new customers land in their area as prospects", async () => {
+  // Loosened (jc): operations is company-wide, so an upload may update any branch's customer.
+  test("an operations user updates customers in any area; their new customers land in their area as prospects", async () => {
     await h.db`insert into outlets(organization_id,code,name,status,custodian_org_unit_id,created_by) values('sunpride','DVO-1','Davao store','active',${ids.davao},'fixture')`;
     const pre = await call(
       "ops",
@@ -609,34 +610,33 @@ describe("SP-0170 customer upload — scope", () => {
     expect(pre.status).toBe(200);
     expect(
       pre.body.errors.map((/** @type {any} */ e) => `${e.rowNumber}:${e.code}`),
-    ).toEqual(["3:customer_out_of_scope"]);
+    ).toEqual([]);
     const r = await call(
       "ops",
       "/runs",
       file([row(2, { code: "OPS-1" }), row(3, { code: "DVO-1" })], "ops.xlsx"),
     );
     const run = await finish(r.body.id);
-    expect(run.succeeded_count).toBe(1);
-    expect(run.failed_count).toBe(1);
-    const [dvo] = await h.db`select name from outlets where code='DVO-1'`;
-    expect(dvo.name).toBe("Davao store");
+    expect(run.succeeded_count).toBe(2);
+    expect(run.failed_count).toBe(0);
     expect(await customerByCode("OPS-1")).toMatchObject({
       status: "prospect",
       completeness: "complete",
       custodianOrgUnitId: ids.cebu,
     });
+    // Loosened (jc): company-wide, so other people's upload runs are visible too.
     const mine = await call("ops", "/runs");
-    expect(mine.body.rows.map((/** @type {any} */ x) => x.fileName)).toEqual([
+    expect(mine.body.rows.map((/** @type {any} */ x) => x.fileName)).toContain(
       "ops.xlsx",
-    ]);
+    );
     const other = await call(
       "ops",
       `/runs/${(await call("boss", "/runs")).body.rows.at(-1).id}`,
     );
-    expect(other.status).toBe(404);
+    expect(other.status).toBe(200);
   }, 30000);
 
-  test("scope follows the store's territory owner (as the Customers list), not only its custodian unit", async () => {
+  test("a store held by another area's territory is no longer refused to an operations user (loosened, jc)", async () => {
     // Custodian Cebu (the uploader's unit) but assigned to a Davao-owned territory: the
     // Customers list and PUT refuse it to the Cebu user, so the upload must refuse it too.
     const [t] =
@@ -653,8 +653,6 @@ describe("SP-0170 customer upload — scope", () => {
     expect(pre.status).toBe(200);
     expect(
       pre.body.errors.map((/** @type {any} */ e) => `${e.rowNumber}:${e.code}`),
-    ).toEqual(["2:customer_out_of_scope"]);
-    const [same] = await h.db`select name from outlets where id=${o.id}`;
-    expect(same.name).toBe("Cebu-held Davao store");
+    ).toEqual([]);
   }, 30000);
 });

@@ -563,7 +563,7 @@ describe("SPEC 4.9: a 300-line count over two sessions and two devices, approved
 });
 
 describe("rules that stay", () => {
-  it("the counter cannot approve and a different approver can; the starter may count their own count", async () => {
+  it("approval needs the approve permission (self-approval allowed, loosened jc); the starter may count their own count", async () => {
     const loc = await location(`Starter-${crypto.randomUUID()}`);
     const p = await product();
     await stockIn(loc, [{ p, qty: 10 }]);
@@ -572,9 +572,11 @@ describe("rules that stay", () => {
     const ls = (await lines(planner, sid)).lines;
     expect((await command(planner, "counts/save-lines", { sessionId: sid, lines: [{ lineId: ls[0].id, countedBase: 9 }] })).status).toBe(200);
     expect((await command(planner, "counts/submit", { sessionId: sid })).status).toBe(200);
+    // Loosened (jc): self-approval is no longer refused. A count that changes stock still
+    // needs a role allowed to post it (an approver), so the manager gets that refusal instead.
     const self = await command(planner, "counts/approve", { sessionId: sid });
     expect(self.status).toBe(403);
-    expect(self.body.error.code).toBe("self_approval");
+    expect(self.body.error.code).toBe("forbidden");
     expect((await command(sup, "counts/approve", { sessionId: sid })).status).toBe(200);
     // Counted by two people (a second phone helped): neither may approve.
     const plan2 = await command(planner, "counts/plan", { locationId: loc, blindCount: false });

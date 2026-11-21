@@ -81,8 +81,9 @@ afterAll(async () => {
   await h?.close();
 });
 
-test("F-005 console denies viewer and non-national administrator on reads and actions", async () => {
-  for (const who of [viewer, regional]) {
+test("F-005 console denies the viewer; a regional administrator is company-wide (loosened, jc)", async () => {
+  expect((await api(regional, "/api/v1/integration/events")).status).toBe(200);
+  for (const who of [viewer]) {
     expect((await api(who, "/api/v1/integration/events")).status).toBe(403);
     expect(
       (

@@ -307,7 +307,7 @@ test("admin reset permission matrix", async () => {
     ["self", a.cookie, a.userId, 403, "reset_self"],
     ["admin -> super admin", a.cookie, superTarget.userId, 403, "reset_not_allowed"],
     ["manager has no admin.manage", manager.cookie, plain.userId, 403, null],
-    ["admin outside scope", a.cookie, otherUnit.userId, 403, "out_of_scope"],
+    ["admin outside scope (loosened, jc)", a.cookie, otherUnit.userId, 200, null],
     ["disabled profile", a.cookie, disabledProfile.userId, 403, "reset_not_allowed"],
     ["disabled user", a.cookie, disabledUser.userId, 403, "reset_not_allowed"],
     ["agent user", a.cookie, agent.userId, 403, "reset_not_allowed"],

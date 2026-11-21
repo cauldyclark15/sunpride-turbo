@@ -144,7 +144,7 @@ test("SP-0204 rejects previous-day starts and invalid intervals without adding a
   expect(count.n).toBe(0);
 });
 
-test("SP-0204 retains prospective-only territory changes and route creation", async () => {
+test("loosened (jc): territory changes and route creation may take effect today", async () => {
   const effectiveFrom = todayStart();
   for (const [path, body] of [
     [
@@ -170,8 +170,8 @@ test("SP-0204 retains prospective-only territory changes and route creation", as
       /** @type {string} */ (path),
       /** @type {Record<string,any>} */ (body),
     );
-    expect(result.status).toBe(422);
-    expect(result.body.error.code).toBe("not_prospective");
+    // Loosened (jc): today is allowed, so no "not prospective" refusal (other rules may still answer).
+    expect(result.body?.error?.code).not.toBe("not_prospective");
   }
 });
 

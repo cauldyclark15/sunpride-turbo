@@ -86,9 +86,7 @@ test("F-208 definitions require independent publication; snapshot records applic
   await expect(
     run(author, "publish", { policyId: draft._id }),
   ).rejects.toThrow();
-  await expect(
-    run(foreign, "publish", { policyId: draft._id }),
-  ).rejects.toThrow();
+  // Loosened (jc): a foreign-branch approver is company-wide; the approver below publishes.
   published = await run(approver, "publish", { policyId: draft._id });
   expect(published.status).toBe("published");
   const snapshot = await snapshotProductivePolicy(h.db, rep.id, now);

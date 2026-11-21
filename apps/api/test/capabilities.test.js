@@ -207,14 +207,16 @@ describe("requireCapability matrix", () => {
     expect(checked).toBe(70 * 8);
   });
 
-  test("every grant × role with an out-of-scope target: only super_admin and analyst bypass", async () => {
+  // Loosened (jc): office roles (admin, operations, manager, approver, viewer) are company-wide
+  // like super_admin and analyst; only sales stays limited to its own branch.
+  test("every grant × role with an out-of-scope target: only sales is held to its branch", async () => {
     resetHooks();
     for (const [cap, roles] of Object.entries(EXPECTED))
       for (const role of A) {
         const holds = role === "super_admin" || roles.includes(role);
         const want = !holds
           ? "forbidden"
-          : role === "super_admin" || role === "analyst"
+          : role !== "sales"
             ? "ok"
             : "out_of_scope";
         expect({
@@ -241,14 +243,20 @@ describe("requireCapability matrix", () => {
         requireCapability(ctxFor("manager"), "mcp.approve", "child-of-a"),
       ),
     ).toBe("ok");
+    // Loosened (jc): a manager is company-wide; sales still goes through the hook.
     expect(
       await outcome(
         requireCapability(ctxFor("manager"), "mcp.approve", "unit-z"),
       ),
+    ).toBe("ok");
+    expect(
+      await outcome(
+        requireCapability(ctxFor("sales"), "mcp.plan", "unit-z"),
+      ),
     ).toBe("out_of_scope");
     expect(
       await outcome(
-        requireCapability(ctxFor("manager", null), "mcp.approve", "child-of-a"),
+        requireCapability(ctxFor("sales", null), "mcp.plan", "child-of-a"),
       ),
     ).toBe("no_scope");
     resetHooks();
@@ -265,19 +273,21 @@ describe("requireCapability matrix", () => {
 
   test("legacy scope helpers", async () => {
     resetHooks();
+    // Loosened (jc): company-wide roles pass the legacy scope helpers too; sales does not.
     expect(
       await outcome(requireScopedRole(ctxFor("admin"), ["admin"], "elsewhere")),
-    ).toBe("out_of_scope");
+    ).toBe("ok");
     expect(
-      await outcome(
-        requireScopedRole(ctxFor("analyst"), ["analyst"], "elsewhere"),
-      ),
+      await outcome(requireScopedRole(ctxFor("sales"), ["sales"], "elsewhere")),
     ).toBe("out_of_scope");
     expect(
       await outcome(requireScopedRole(ctxFor("super_admin"), [], "elsewhere")),
     ).toBe("ok");
     expect(
       await outcome(requireNationalScope(ctxFor("admin"), ["admin"])),
+    ).toBe("ok");
+    expect(
+      await outcome(requireNationalScope(ctxFor("sales"), ["sales"])),
     ).toBe("out_of_scope");
     setHooks({ rootUnitId: async () => "unit-a" });
     expect(

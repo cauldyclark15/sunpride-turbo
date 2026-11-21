@@ -131,8 +131,9 @@ test("SP-0223 Sales Head can set two customers together without editing enrollme
 test("SP-0223 refuses field/read-only roles, foreign scope, inactive customers and invalid batches atomically", async () => {
   for (const who of ["agent", "viewer"])
     expect((await set([ids.A], "Monthly", who)).status).toBe(403);
+  // Loosened (jc): the head (manager) is company-wide, so a foreign store saves too.
+  expect((await set([ids.A, ids.FOREIGN], "Monthly", "head")).status).toBe(/* loosened (jc): was 403 */ 200);
   const before = await stored(ids.A);
-  expect((await set([ids.A, ids.FOREIGN], "Monthly", "head")).status).toBe(403);
   expect((await set([ids.A, ids.CLOSED], "Monthly")).status).toBe(422);
   for (const batch of [[], [ids.A, ids.A], Array(101).fill(ids.A)])
     expect((await set(batch, "Monthly")).status).toBe(422);
