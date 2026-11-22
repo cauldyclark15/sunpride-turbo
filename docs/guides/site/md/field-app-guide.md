@@ -40,14 +40,15 @@ Full steps with pictures: see the guide **How to add customers**.
 10. The app asks to share your location while you work. Read it, then tap **I agree**.
 11. Visit your stores from **Today** or **Route**.
 12. **Truck selling** only: tap **Sell** to load the truck, sell and print receipts, take returns, count cash and stock, and close the trip. The **Sell** tab shows only when the office has set you up for selling.
-13. At the end of the day, tap **End day**.
+13. In any app mode, tap **More** for **Remit cash** and **Truck stock**. You do not need Truck selling for these.
+14. At the end of the day, tap **End day**.
 
 ## E. Sync: is everything sent?
 
 ![Sync: All sent](../img/p-sync.png "right")
 
-14. The pill at the top shows **All sent** or **Waiting to send**.
-15. Tap **More**, then **Sync**. Tap **Sync now** when you have signal.
+15. The pill at the top shows **All sent** or **Waiting to send**.
+16. Tap **More**, then **Sync**. Tap **Sync now** when you have signal.
 
 **What the words mean:**
 

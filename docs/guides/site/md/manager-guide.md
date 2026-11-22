@@ -24,7 +24,7 @@ Salesmen fill in every field on the phone. You check the customer and approve or
 ![Top of the customer](../img/w-customer-top.png "web")
 ![Approve: Yes, approve](../img/w-approve-confirm.png "strip") ![Reject: reason, then Confirm reject](../img/w-reject-reason.png "strip")
 
-*You cannot approve a customer you added yourself. Another manager or an office admin must do it.*
+*You can approve a customer you added yourself.*
 
 ## C. Watch the field team
 

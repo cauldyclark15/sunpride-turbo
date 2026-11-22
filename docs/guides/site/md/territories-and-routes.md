@@ -4,9 +4,9 @@
 
 ## A. Before you start
 
-1. Check the owning branch in **Setup > Organization** and the person's branch in **Setup > People**. They must belong to the owning branch or a branch below it.
-2. **Add territory** accepts **today or later**. Every other dated change here, including adding a salesperson, needs **tomorrow or later**. Dates follow Philippine time.
-3. Give a short **Reason** for every save, including edits: for example, “New north area”.
+1. Any active person can be added to any territory or route, from any branch.
+2. Every dated change here accepts **today or later**. Yesterday is refused. Dates follow Philippine time.
+3. **Reason** is optional. A short note, for example “New north area”, helps others understand the change later.
 
 The territory and owning branch must cover the route's **whole active period**. A route cannot outlast its territory. Leave an end date blank only if there is no planned end.
 
@@ -18,7 +18,7 @@ The territory and owning branch must cover the route's **whole active period**. 
 7. Fill **Channel** if this territory uses one. Use the wording agreed by your office; “Sample channel” in the picture is only an example. Leave the optional boundary box blank unless your office has supplied a boundary.
 8. Under **Owning branch**, choose the branch responsible for the territory.
 9. Choose the **Effective date**: today or later. Leave **End date** blank unless you know when the territory ends. If filled, it must be after the start date.
-10. Fill **Reason (required)**, then click **Save**.
+10. Fill **Reason** if you like (optional), then click **Save**.
 11. Find the new territory in the list. Click **Edit** beside it to see its owner, dates and **Ownership history**.
 
 ![Add territory: the owning branch, start date and reason](../img/w-territories-add.png "wide")
@@ -27,11 +27,11 @@ The territory and owning branch must cover the route's **whole active period**. 
 
 12. In **Setup > Territories**, click **Edit** beside the territory.
 13. Click **Add salesperson**.
-14. Choose the **Effective date** first: tomorrow or later, while the territory is active.
+14. Choose the **Effective date** first: today or later, while the territory is active.
 15. Use **Search salespeople** or the page buttons to find the person, then choose them under **Salesperson**.
-16. Fill the reason, then click **Save**.
+16. Click **Save**. The reason is optional.
 
-Only active people in the territory's owning branch or a branch below it are listed here. Changing the date can change the available people. If a name is missing, check the date and their branch in **Setup > People**; do not change the territory's owner just to make a name appear.
+Every active person is listed here, from any branch. If a name is missing, check the date and that the person is active in **Setup > People**.
 
 This screen adds the **main** salesperson. There can be only one main salesperson on this territory at a time. End the old assignment before adding a replacement; the two periods must not overlap. A future assignment will not appear under **Current salespeople** until it starts.
 
@@ -43,8 +43,8 @@ This screen adds the **main** salesperson. There can be only one main salesperso
 18. In the form, choose the **Territory**, then fill **Code** and **Name**.
 19. Under **Weekday template (Monday=1)**, tick the usual visit days. The numbers mean **1 = Monday, 2 = Tuesday, 3 = Wednesday, 4 = Thursday, 5 = Friday, 6 = Saturday, 7 = Sunday**. For Monday, Wednesday and Friday, tick **1, 3 and 5**.
 20. If you use a repeating day cycle, fill **Cycle days (optional, 1–366)** with a whole number. For example, **7** means a seven-day cycle. Leave it blank if your team does not use one. These settings describe the route's pattern; they do not by themselves create a person's visit plan.
-21. Choose an **Effective date** of tomorrow or later. It must fall within the territory's active dates. Fill **End date** only if needed; it must be after the start and no later than the territory ends.
-22. Fill the reason, then click **Save**.
+21. Choose an **Effective date** of today or later. It must fall within the territory's active dates. Fill **End date** only if needed; it must be after the start and no later than the territory ends.
+22. Click **Save**. The reason is optional.
 23. Find the route and click **Edit** beside it. Check its dates, **Weekdays** and **Cycle**. A future route is listed before it starts; its current territory or salesperson details may not show until its start date.
 
 ![Add route: 1, 3 and 5 are Monday, Wednesday and Friday](../img/w-territories-route-add.png "wide")
@@ -52,14 +52,12 @@ This screen adds the **main** salesperson. There can be only one main salesperso
 ## E. Add a route salesperson
 
 24. In **Setup > Routes**, click **Edit** beside the route, then **Add salesperson**.
-25. Choose the **Salesperson**. They must be active and belong to the branch that owns the route's territory, or a branch below it.
+25. Choose the **Salesperson**. Any active person can be chosen, from any branch.
 26. Keep **Primary owner** ticked for the main salesperson. Untick it only for an additional, secondary salesperson.
-27. Choose an **Effective date** of tomorrow or later, on or after the route starts.
-28. Fill the reason, then click **Save**.
+27. Choose an **Effective date** of today or later, on or after the route starts.
+28. Click **Save**. The reason is optional.
 
 One route can have only **one main salesperson at a time**. The same person cannot have two overlapping assignments on that route, even if one is secondary. Adding a territory salesperson does not also assign that person to its routes; save each route assignment separately.
-
-The territory salesperson list is limited to the owning branch. The route salesperson list can be wider: being visible there does not mean a person belongs to the right branch. If saving says **“Person outside owner hierarchy”**, choose a person from the owning branch or a branch below it.
 
 ![Add route salesperson: Primary owner means the main salesperson](../img/w-territories-route-person.png "wide")
 
@@ -68,8 +66,8 @@ The territory salesperson list is limited to the owning branch. The route salesp
 29. Open **Setup > Territories** or **Setup > Routes**, then click **Edit** beside the area or route.
 30. Under **Current salespeople** (territory) or **Salespeople** (route), click **Remove** beside a person.
 31. In **Remove salesperson**, choose the person under **Assignment**.
-32. Choose the **Effective date** when the assignment should stop: tomorrow or later, after the assignment started and while the territory or route is still active.
-33. Fill the reason, then click **Save**. This ends the assignment; it does **not** remove the person's account.
+32. Choose the **Effective date** when the assignment should stop: today or later, after the assignment started and while the territory or route is still active.
+33. Click **Save** (the reason is optional). This ends the assignment; it does **not** remove the person's account.
 34. To replace the main salesperson, use **Add salesperson** afterwards. Start the replacement on the old assignment's end date or later, not before it.
 
 The person can still appear in the current list until the end date arrives. If a future assignment is not yet listed, do not add it again; ask the office administrator to check it.
@@ -82,8 +80,8 @@ The person can still appear in the current list until the end date arrives. If a
 36. Return to **Setup > Routes**, then click **Edit** beside the empty route.
 37. Click **Move to another territory**.
 38. Choose **Destination territory**. It and its owning branch must cover all the route's remaining active dates.
-39. Choose the **Effective date**: tomorrow or later, while the route is active.
-40. Fill the reason, then click **Save**. Check **Association history**. Recheck the salesperson's branch before using the route under its new owner.
+39. Choose the **Effective date**: today or later, while the route is active.
+40. Click **Save** (the reason is optional). Check **Association history**.
 
 ![Move an empty route to its new territory](../img/w-territories-move.png "wide")
 
@@ -93,10 +91,10 @@ The buttons say **Remove route** and **Remove territory**. They stop future use 
 
 41. For a route, move all its stores off first in **Setup > Assignments**, including stores assigned for a future date.
 42. In **Setup > Routes**, click **Edit** beside it, then **Remove route**.
-43. Choose a future **Effective date**, after the route's start and before any existing end date. Fill the reason, then click **Save**.
+43. Choose an **Effective date** of today or later, after the route's start and before any existing end date. Click **Save** (the reason is optional).
 44. For a territory, first move its routes and stores to another territory. It cannot stop while any current or future route or store assignment still continues there. Allow these changes to take effect before the territory's stop date.
 45. In **Setup > Territories**, click **Edit** beside it, then **Remove territory**.
-46. Choose a future **Effective date**, after the territory's start and before any existing end date. Fill the reason, then click **Save**.
+46. Choose an **Effective date** of today or later, after the territory's start and before any existing end date. Click **Save** (the reason is optional).
 
 ![Remove territory: the empty route is stopped in the same way with Remove route](../img/w-territories-remove.png "wide")
 
@@ -104,15 +102,11 @@ An approved coverage plan can protect a route from changes during its dates. Ask
 
 ## I. Common messages and what they mean
 
-**“Reason required” / “Reason is required”** — Explain why you are making the change, then save again.
-
 **“Code is required” / “Name is required” / “Invalid code”** — Fill both boxes. Code: up to 40 letters, numbers, hyphens or underscores, no spaces. Name: up to 200 characters. Use a different Code if it already exists.
 
 **“Select a territory” / “Select a route” / “Selection is invalid”** — Reopen the correct row with **Edit**, then choose the missing territory, person or assignment.
 
-**“Choose today or a future effective date.”** — When adding a territory, choose today or a later Philippine date, not yesterday.
-
-**“Choose a future effective date.” / “Changes must be future-effective”** — For routes and other dated changes, choose tomorrow or later. Today is allowed only when adding a territory.
+**“Choose today or a future effective date.” / “Changes must be future-effective”** — Choose today or a later Philippine date, not yesterday.
 
 **“Invalid date” / “Invalid effective interval” / “Not active at effective time”** — Check the dates. The end must be after the start; a move or assignment must be while the area or route is active. A stop date must be after its start and before an existing end date.
 
@@ -120,7 +114,7 @@ An approved coverage plan can protect a route from changes during its dates. Ask
 
 **“Branch does not cover effective interval” / “Territory has no owner” / “Route has no territory”** — The owning branch or territory is missing or not active for those dates. Check the owning branch and ownership history before retrying.
 
-**“Person has no active branch” / “Person outside owner hierarchy”** — Check **Setup > People**. Choose an active person in the owning branch or a branch below it, or ask the administrator to correct the person's branch if it is wrong.
+**“Person has no active branch”** — Check **Setup > People** and make sure the person is active.
 
 **“Future employee assignment needs revalidation”** — The person already has a later branch or role change scheduled. Ask the administrator to check that change before assigning the person here.
 

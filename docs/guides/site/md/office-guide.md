@@ -46,7 +46,7 @@ Salesmen fill in every field on the phone, including the payment, tax and delive
 ![Bottom: Save, Approve, Reject](../img/w-customer-bottom.png "strip")
 ![Approve: Yes, approve](../img/w-approve-confirm.png "strip") ![Reject: reason, then Confirm reject](../img/w-reject-reason.png "strip")
 
-*You cannot approve or reject a customer you added yourself. Another admin or a manager must do it.*
+*You can approve or reject a customer you added yourself.*
 
 ## E. Phone saves for the office
 
