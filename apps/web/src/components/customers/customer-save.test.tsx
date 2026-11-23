@@ -17,6 +17,7 @@ const state = vi.hoisted(() => ({
   customer: null as Customer | null,
   permissions: null as string[] | null,
   view: null as ViewProps | null,
+  inputs: new Map<string, Record<string, unknown>>(),
   mutate: vi.fn(),
 }));
 
@@ -69,6 +70,8 @@ vi.mock("../../lib/api", () => ({
 }));
 function capture(type: unknown, props: Record<string, unknown>) {
   if (type === CustomerEditorView) state.view = props as ViewProps;
+  if (type === "input" && typeof props.id === "string")
+    state.inputs.set(props.id, props);
 }
 vi.mock("react/jsx-runtime", async (original) => {
   const actual = await original<typeof import("react/jsx-runtime")>();
@@ -175,6 +178,7 @@ beforeEach(() => {
   state.customer = null;
   state.permissions = null;
   state.view = null;
+  state.inputs.clear();
   state.mutate.mockReset().mockResolvedValue(customer(complete()));
 });
 
@@ -289,6 +293,51 @@ describe("SP-0220 address edits", () => {
 });
 
 describe("SP-0213 customer Save required fields", () => {
+  it.each(["new", "prospect", "active"] as const)(
+    "does not keep a saved notice after Street 1 is cleared on a %s customer",
+    async (status) => {
+      if (status !== "new") state.customer = customer(complete(), status);
+      render();
+      if (status === "new") {
+        view().onChange(complete());
+        render();
+      }
+      await view().onSave?.();
+      render();
+      expect(view().message?.tone).toBe("ok");
+      expect(state.mutate).toHaveBeenCalledTimes(1);
+
+      // Use the real Street 1 control, not an independently constructed draft.
+      const changeStreet = (value: string) => {
+        const input = state.inputs.get("cm-street1")!;
+        (input.onChange as (e: { target: { value: string } }) => void)({
+          target: { value },
+        });
+        return render();
+      };
+      changeStreet("");
+      expect(view().message?.tone).not.toBe("ok");
+      expect(view().draft.values.street1).toBe("");
+      await view().onSave?.();
+      const refused = render();
+      expect(state.mutate).toHaveBeenCalledTimes(1);
+      expect(view().errors).toEqual({ street1: "Street 1 is required." });
+      expect(refused).toContain("Street 1 is required.");
+      expect(refused).not.toContain("Saved.");
+      expect(view().draft.values.street1).toBe("");
+
+      changeStreet("New Sample Street");
+      expect(view().errors.street1).toBeUndefined();
+      await view().onSave?.();
+      render();
+      expect(state.mutate).toHaveBeenCalledTimes(2);
+      expect(state.mutate.mock.calls[1]![1].customer.street1).toBe(
+        "New Sample Street",
+      );
+      expect(view().message?.tone).toBe("ok");
+    },
+  );
+
   it("blocks a name-only new customer and shows required messages without sending a request", async () => {
     render();
     const draft = emptyDraft();

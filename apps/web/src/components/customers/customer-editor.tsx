@@ -253,6 +253,8 @@ function EditorBody({
     dirty.current = true;
     saveKey.current = "";
     setDraft(next);
+    // A saved confirmation describes the previous values, not this unsaved edit.
+    setMessage((prev) => (prev?.tone === "ok" ? null : prev));
     // Re-check only the fields already flagged, so the highlight clears as people fix them.
     if (Object.keys(errors).length) {
       const now = checkDraft(index, next, "complete");

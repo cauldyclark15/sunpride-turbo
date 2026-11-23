@@ -17,14 +17,14 @@ let customerId = "";
 const reportedAddress = "Blk 5, Lot 3. Brgy. Guadalupe";
 const punctuationAddress = "#5-A / Lot 3. Brgy. Guadalupe, Cebu";
 
-/** @param {string} method @param {string} path @param {any} [body] */
-async function call(method, path, body) {
+/** @param {string} method @param {string} path @param {any} [body] @param {string} [key] */
+async function call(method, path, body, key = crypto.randomUUID()) {
   const response = await h.fetch(`/api/v1/customers${path}`, {
     method,
     headers: {
       cookie,
       "content-type": "application/json",
-      "idempotency-key": crypto.randomUUID(),
+      "idempotency-key": key,
       connection: "close",
     },
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
@@ -156,6 +156,75 @@ describe("SP-0220 customer addresses", () => {
       });
       expect(reopened.body.shipTos[0].shipToAddress).toBe(expected);
     }
+  });
+
+  test("SP-0213 clearing Street 1 in the web payload cannot save; fixing it can retry the same request", async () => {
+    const opened = await call("GET", `/${customerId}`);
+    const before = (
+      await h.db`select
+        (select count(*)::int from outlets) outlets,
+        (select count(*)::int from customer_profiles) profiles,
+        (select count(*)::int from customer_ship_tos) ship_tos,
+        (select count(*)::int from customers) accounting,
+        (select count(*)::int from audit_logs) audits,
+        (select count(*)::int from master_command_receipts) receipts`
+    )[0];
+    const key = crypto.randomUUID();
+    for (const street1 of ["", " \t "]) {
+      const cleared = setField(
+        draftFromCustomer(opened.body),
+        "street1",
+        street1,
+      );
+      const payload = toPayload(cleared);
+      expect(payload.street1).toBeNull();
+      expect(payload).not.toHaveProperty("customerAddress");
+      // The remaining location still builds an address, but cannot replace Street 1.
+      expect(cleared.values.customerAddress).not.toBe("");
+      const refused = await call(
+        "PUT",
+        `/${customerId}`,
+        { customer: payload },
+        key,
+      );
+      expect(refused.status).toBe(422);
+      expect(refused.body.error.details.errors).toEqual([
+        expect.objectContaining({
+          field: "street1",
+          message: "Street 1 is required.",
+        }),
+      ]);
+      const reopened = await call("GET", `/${customerId}`);
+      expect(reopened.body).toEqual(opened.body);
+    }
+    const after = (
+      await h.db`select
+        (select count(*)::int from outlets) outlets,
+        (select count(*)::int from customer_profiles) profiles,
+        (select count(*)::int from customer_ship_tos) ship_tos,
+        (select count(*)::int from customers) accounting,
+        (select count(*)::int from audit_logs) audits,
+        (select count(*)::int from master_command_receipts) receipts`
+    )[0];
+    expect(after).toEqual(before);
+    const fixed = setField(
+      draftFromCustomer(opened.body),
+      "street1",
+      "New Sample Street",
+    );
+    const saved = await call(
+      "PUT",
+      `/${customerId}`,
+      { customer: toPayload(fixed) },
+      key,
+    );
+    expect(saved.status).toBe(200);
+    const reopened = await call("GET", `/${customerId}`);
+    expect(reopened.body).toMatchObject({
+      street1: "New Sample Street",
+      customerAddress: "New Sample Street, Apas, City of Cebu, Cebu 6000",
+      completeness: "complete",
+    });
   });
 
   test("a custom Customer Address cannot bypass blank Street 1 on create or edit", async () => {
