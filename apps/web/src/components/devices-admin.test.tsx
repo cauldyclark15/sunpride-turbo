@@ -59,7 +59,7 @@ vi.mock("./master-data/api", async (original) => ({
     state.query(path, args);
     if (args === "skip") return undefined;
     if (path === "org/permissions")
-      return { capabilities: state.canManage ? ["admin.manage"] : [] };
+      return { capabilities: state.canManage ? ["admin.manage", "phones.manage"] : [] };
     if (path === "people/devices/list")
       return {
         page: [],
