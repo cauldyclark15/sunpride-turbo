@@ -1462,6 +1462,79 @@ describe("setup queues, enrollment and current-scope history", () => {
       await h.db`select details from audit_logs where action='people.devices.register' order by created_at desc limit 1`;
     expect(JSON.stringify(audit.details)).not.toContain(key.publicKeySpki);
   });
+  test("SP-0232 Person search filters names before paging and combines with phone and status filters", async () => {
+    const owner = await person("Phone filter owner", "sales", regionA.id);
+    const second = await person("Zelda Other", "sales", regionB.id);
+    const unrelated = await person("Different person", "sales", regionA.id);
+    const name = "Zelda %_\\ Rao";
+    await h.db`update profiles set name=${name} where id=${owner.profileId}`;
+    const ids = [1, 2, 3, 4].map(
+      (n) => `70000000-0000-4000-8000-00000000000${n}`,
+    );
+    for (const [index, profileId, tag, status] of [
+      [0, owner.profileId, "SEARCH-A-1", "active"],
+      [1, second.profileId, "SEARCH-B", "active"],
+      [2, unrelated.profileId, "Zelda-PHONE", "active"],
+      [3, owner.profileId, "SEARCH-A-2", "suspended"],
+    ]) {
+      await h.db`insert into registered_devices(id,profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id,status)
+        values(${ids[index]},${profileId},'field-android','android',${tag},'test-only-public-key',${String(index).repeat(64)},${regionA.id},${status})`;
+    }
+    const path = (/** @type {Record<string,string>} */ params) =>
+      `people/devices/list?${new URLSearchParams(params)}`;
+    const matches = await call(path({ person: "  zElDa  " }), admin);
+    expect(matches.status).toBe(200);
+    expect(matches.body.page.map((/** @type {any} */ d) => d.deviceId)).toEqual(
+      [ids[0], ids[1], ids[3]],
+    );
+    const first = await call(path({ person: "zelda", limit: "1" }), admin);
+    expect(first.body.page.map((/** @type {any} */ d) => d.deviceId)).toEqual([
+      ids[0],
+    ]);
+    expect(first.body.isDone).toBe(false);
+    const next = await call(
+      path({ person: "zelda", limit: "1", cursor: first.body.continueCursor }),
+      admin,
+    );
+    expect(next.body.page.map((/** @type {any} */ d) => d.deviceId)).toEqual([
+      ids[1],
+    ]);
+    const last = await call(
+      path({ person: "zelda", limit: "1", cursor: next.body.continueCursor }),
+      admin,
+    );
+    expect(last.body.page.map((/** @type {any} */ d) => d.deviceId)).toEqual([
+      ids[3],
+    ]);
+    expect(last.body.isDone).toBe(true);
+    const combined = await call(
+      path({ person: "zelda", q: "SEARCH-A", status: "suspended" }),
+      admin,
+    );
+    expect(
+      combined.body.page.map((/** @type {any} */ d) => d.deviceId),
+    ).toEqual([ids[3]]);
+    for (const person of ["%", "_", "\\", name]) {
+      const literal = await call(path({ person }), admin);
+      expect(
+        literal.body.page.map((/** @type {any} */ d) => d.deviceId),
+      ).toEqual([ids[0], ids[3]]);
+    }
+    expect(
+      (await call(path({ person: "Nobody here" }), admin)).body.page,
+    ).toEqual([]);
+    const cleared = await call(
+      path({ person: "   ", q: "Zelda-PHONE" }),
+      admin,
+    );
+    expect(cleared.body.page.map((/** @type {any} */ d) => d.deviceId)).toEqual(
+      [ids[2]],
+    );
+    expect((await call(path({ person: "zelda" }), sales)).status).toBe(403);
+    expect((await call(path({ person: "zelda" }), null)).status).toBe(401);
+    expect(matches.body.page[0].publicKeySpki).toBeUndefined();
+    expect(matches.body.page[0].keyId).toBeUndefined();
+  });
   test("F-007 device administration has legal transitions, private-key fields stay out of lists and foreign scope is denied", async () => {
     // This transition fixture owns its person; the previous test already enrolled Seller's active phone.
     const owner = await person("Seller", "sales", regionA.id);

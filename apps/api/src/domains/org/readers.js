@@ -281,12 +281,18 @@ export async function list(c, kind, p) {
       if (unitIds !== null)
         where += ` and exists(select 1 from outlet_customer_links cl join outlets o on o.id=cl.outlet_id left join lateral(select oa.* from outlet_assignments oa where oa.outlet_id=o.id and ${effective("oa")} limit 1) oa on true left join lateral(select own.org_unit_id from territory_ownerships own where own.territory_id=oa.territory_id and ${effective("own")} limit 1) own on true where cl.customer_id=t.id and ${effective("cl")} and o.deleted_at is null and ${scoped("case when oa.id is null then o.custodian_org_unit_id else own.org_unit_id end")})`;
       break;
-    case "devices":
+    case "devices": {
       table = "registered_devices";
       where = scoped("t.org_unit_id");
       joins =
         "left join profiles person on person.id=t.profile_id left join company_phone_custody phone on phone.key_id=t.key_id";
+      const personSearch = String(p.person ?? "")
+        .trim()
+        .slice(0, 200);
+      if (personSearch)
+        where += ` and person.name ilike ${bind(`%${personSearch.replace(/[\\%_]/g, "\\$&")}%`)}`;
       break;
+    }
     case "invitations":
       table = "access_invitations";
       break;

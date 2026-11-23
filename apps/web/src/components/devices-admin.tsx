@@ -162,6 +162,7 @@ const operationLabel: Record<string, string> = {
 };
 
 export function DevicesAdmin() {
+  const [personSearch, setPersonSearch] = useState("");
   const [search, setSearch] = useState<string | undefined>(undefined);
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const canManage = permissions?.capabilities.includes("admin.manage") ?? false;
@@ -172,6 +173,7 @@ export function DevicesAdmin() {
     canManage
       ? {
           ...(search ? { q: search } : {}),
+          ...(personSearch.trim() ? { person: personSearch.trim() } : {}),
           paginationOpts: {
             numItems: 25,
             cursor: cursors[cursors.length - 1] ?? null,
@@ -317,6 +319,20 @@ export function DevicesAdmin() {
                 setCursors([null]);
               }}
             />
+            <label className="grid gap-1 p-3 text-xs text-muted">
+              Person
+              <input
+                type="search"
+                aria-label="Person"
+                value={personSearch}
+                placeholder="Search by name"
+                onChange={(event) => {
+                  setPersonSearch(event.target.value);
+                  setCursors([null]);
+                }}
+                className="min-h-10 rounded-[10px] border border-border bg-surface px-3 text-sm text-foreground"
+              />
+            </label>
             <AdminSelectField
               label="Status"
               value={statusFilter}
