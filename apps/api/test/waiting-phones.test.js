@@ -233,9 +233,9 @@ for (const app of ["field-android", "van-android"]) {
             await h.db`select status from registered_devices where id=${other.id}`
           )[0].status,
         ).toBe("active");
-        expect((await admin.fleet()).waiting.map((/** @type {any} */ w) => w.app)).toEqual([
-          otherApp,
-        ]);
+        expect(
+          (await admin.fleet()).waiting.map((/** @type {any} */ w) => w.app),
+        ).toEqual([otherApp]);
         expect(
           (
             await h.db`select ack from op_receipts where client_op_id=${requestId}`
@@ -290,7 +290,8 @@ for (const app of ["field-android", "van-android"]) {
         expect(report.status).toBe(200);
         expect(
           (await report.json()).history.some(
-            (/** @type {any} */ e) => e.action === "device.revoked" && e.reason === "replacement",
+            (/** @type {any} */ e) =>
+              e.action === "device.revoked" && e.reason === "replacement",
           ),
         ).toBe(true);
         expect((await admin.get("/api/v1/people/devices/list")).status).toBe(
@@ -353,6 +354,47 @@ for (const app of ["field-android", "van-android"]) {
           )
         ).res.status,
       ).toBe(403);
+    } finally {
+      await h.close();
+    }
+  });
+
+  test(`SP-0234 ${app} copied-code replacements need no label, including when an older phone is labelled Phone`, async () => {
+    const { h, person, office } = await setup();
+    try {
+      const seller = await person("no-label-sales@example.test", "sales");
+      await person("no-label-office@example.test", "operations");
+      const admin = await office("no-label-office@example.test");
+      const ids = [];
+      for (const inventoryTag of ["Phone", "", "   "]) {
+        const key = await deviceKey();
+        const response = await admin.request(
+          "/api/v1/people/devices/register",
+          {
+            profileId: seller.profile.id,
+            app,
+            publicKeySpki: key.publicKeySpki,
+            inventoryTag,
+          },
+        );
+        expect(response.status).toBe(200);
+        ids.push((await response.json()).deviceId);
+      }
+      const rows =
+        await h.db`select id,status,inventory_tag from registered_devices
+        where profile_id=${seller.profile.id} and app=${app}`;
+      expect(rows).toHaveLength(3);
+      expect(
+        new Set(rows.map((/** @type {any} */ r) => r.inventory_tag)).size,
+      ).toBe(3);
+      expect(
+        rows
+          .filter((/** @type {any} */ r) => r.status === "active")
+          .map((/** @type {any} */ r) => r.id),
+      ).toEqual([ids[2]]);
+      expect(
+        rows.filter((/** @type {any} */ r) => r.status === "revoked"),
+      ).toHaveLength(2);
     } finally {
       await h.close();
     }
@@ -420,7 +462,9 @@ test("SP-0234 simultaneous office approvals choose one phone without deadlock; f
     const requests = (await admin.fleet()).waiting;
     expect(requests).toHaveLength(2);
     const results = await Promise.all(
-      requests.map((/** @type {any} */ w) => admin.post("register", { requestId: w.id })),
+      requests.map((/** @type {any} */ w) =>
+        admin.post("register", { requestId: w.id }),
+      ),
     );
     expect(results.map((res) => res.status).sort()).toEqual([200, 409]);
     expect(
@@ -483,7 +527,9 @@ test("SP-0174 reject and second-phone rules", async () => {
       await h.db`select 1 from phone_registration_requests where profile_id=${a.profile.id} and status='waiting'`;
     expect(after).toHaveLength(1);
     expect(
-      (await admin.fleet()).waiting.find((/** @type {any} */ w) => w.person === a.email).replaces,
+      (await admin.fleet()).waiting.find(
+        (/** @type {any} */ w) => w.person === a.email,
+      ).replaces,
     ).toBe("SAMPLE old");
   } finally {
     await h.close();

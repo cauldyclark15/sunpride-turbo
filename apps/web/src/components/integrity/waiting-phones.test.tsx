@@ -1,7 +1,39 @@
-import { createElement } from "react";
+import { createElement, type FormEvent } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
-import { it, expect, vi } from "vitest";
+import { afterEach, beforeEach, it, expect, vi } from "vitest";
 import { WAITING_PHONE_INVALIDATE, WaitingPhones } from "./fleet";
+
+const state = vi.hoisted(() => ({
+  submit: undefined as undefined | ((e: FormEvent<HTMLFormElement>) => void),
+  mutate: vi.fn(),
+}));
+vi.mock("react/jsx-runtime", async (original) => {
+  const actual = await original<typeof import("react/jsx-runtime")>();
+  const wrap =
+    (fn: typeof actual.jsx) =>
+    (type: React.ElementType, props: Record<string, unknown>, key: string) => {
+      if (type === "form") state.submit = props.onSubmit as typeof state.submit;
+      return fn(type, props, key);
+    };
+  return { ...actual, jsx: wrap(actual.jsx), jsxs: wrap(actual.jsxs) };
+});
+vi.mock("react/jsx-dev-runtime", async (original) => {
+  const actual = await original<typeof import("react/jsx-dev-runtime")>();
+  return {
+    ...actual,
+    jsxDEV: (...args: Parameters<typeof actual.jsxDEV>) => {
+      if (args[0] === "form")
+        state.submit = (args[1] as Record<string, unknown>)
+          .onSubmit as typeof state.submit;
+      return actual.jsxDEV(...args);
+    },
+  };
+});
+beforeEach(() => {
+  state.submit = undefined;
+  state.mutate.mockReset();
+});
+afterEach(() => vi.unstubAllGlobals());
 
 vi.mock("../../lib/auth", () => ({
   usePermissions: () => ({ can: (c: string) => c === "phones.manage" }),
@@ -30,7 +62,7 @@ vi.mock("../../lib/api", () => ({
     },
   }),
   useLive: vi.fn(),
-  mutate: vi.fn(),
+  mutate: (...args: unknown[]) => state.mutate(...args),
   apiFetch: vi.fn(),
 }));
 
@@ -62,6 +94,36 @@ it("keeps waiting phone codes on one line with the full value on hover and Copy"
   expect(html).toContain("min-w-0 flex-1 truncate font-mono text-sm");
   expect(html).toContain("min-w-0 flex-1 basis-64");
 });
+
+it.each(["", "   "])(
+  "SP-0234 copied-code registration leaves blank phone labels (%j) for automatic naming",
+  (tag) => {
+    renderToStaticMarkup(createElement(WaitingPhones));
+    expect(state.submit).toBeTypeOf("function");
+    const form = new FormData();
+    form.set("person", "p1");
+    form.set("app", "field-android");
+    form.set("tag", tag);
+    form.set("code", "cGhv bmU=\n");
+    vi.stubGlobal("FormData", function () {
+      return form;
+    });
+    state.submit!({
+      preventDefault: vi.fn(),
+      currentTarget: {},
+    } as unknown as FormEvent<HTMLFormElement>);
+    expect(state.mutate).toHaveBeenCalledWith(
+      "/api/v1/people/devices/register",
+      {
+        profileId: "p1",
+        app: "field-android",
+        inventoryTag: undefined,
+        publicKeySpki: "cGhvbmU=",
+      },
+      expect.objectContaining({ invalidate: WAITING_PHONE_INVALIDATE }),
+    );
+  },
+);
 
 it("SP-0178 Register refreshes Setup > Phones (the setup device list), not only the waiting list", () => {
   expect(WAITING_PHONE_INVALIDATE).toEqual(

@@ -128,8 +128,9 @@ export async function registerDevice(c, b) {
     rule("Invalid P-256 public key");
   }
   const keyId = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
+  const label = typeof b.inventoryTag === "string" ? b.inventoryTag.trim() : "";
   const tag = required(
-    b.inventoryTag || `Phone ${keyId.slice(0, 16).toUpperCase()} (${b.app})`,
+    label || `Phone ${keyId.slice(0, 16).toUpperCase()} (${b.app})`,
     "Phone label",
     100,
   );

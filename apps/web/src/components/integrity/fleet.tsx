@@ -647,7 +647,7 @@ export function WaitingPhones() {
               {
                 profileId: f.get("person"),
                 app: f.get("app"),
-                inventoryTag: f.get("tag") || "Phone",
+                inventoryTag: String(f.get("tag") ?? "").trim() || undefined,
                 publicKeySpki: String(f.get("code") ?? "").replace(/\s+/g, ""),
               },
               "Phone registered. It opens by itself within a minute.",
