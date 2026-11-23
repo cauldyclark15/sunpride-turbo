@@ -40,6 +40,11 @@ vi.mock("react", async (original) => {
         },
       ];
     },
+    useRef: (initial: unknown) => {
+      const index = state.cursor++;
+      if (!(index in state.values)) state.values[index] = { current: initial };
+      return state.values[index];
+    },
   };
 });
 vi.mock("next/dynamic", () => ({ default: () => () => null }));
@@ -315,8 +320,10 @@ describe("SP-0213 customer Save required fields", () => {
         });
         return render();
       };
-      changeStreet("");
+      const changed = changeStreet("");
       expect(view().message?.tone).not.toBe("ok");
+      expect(changed).toContain("Unsaved changes");
+      expect(changed).not.toContain("All required fields filled");
       expect(view().draft.values.street1).toBe("");
       await view().onSave?.();
       const refused = render();
@@ -324,7 +331,15 @@ describe("SP-0213 customer Save required fields", () => {
       expect(view().errors).toEqual({ street1: "Street 1 is required." });
       expect(refused).toContain("Street 1 is required.");
       expect(refused).not.toContain("Saved.");
+      expect(refused).not.toContain("All required fields filled");
+      expect(refused).toContain("Unsaved changes");
       expect(view().draft.values.street1).toBe("");
+      if (status !== "active") {
+        await view().onApprove?.();
+        render();
+        expect(state.mutate).toHaveBeenCalledTimes(1);
+        expect(view().errors.street1).toBe("Street 1 is required.");
+      }
 
       changeStreet("New Sample Street");
       expect(view().errors.street1).toBeUndefined();
@@ -335,6 +350,8 @@ describe("SP-0213 customer Save required fields", () => {
         "New Sample Street",
       );
       expect(view().message?.tone).toBe("ok");
+      expect(view().hasUnsavedChanges).toBe(false);
+      expect(render()).toContain("All required fields filled");
     },
   );
 

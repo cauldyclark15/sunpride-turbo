@@ -218,7 +218,7 @@ function EditorBody({
   const [reason, setReason] = useState("");
   const [suggestNote, setSuggestNote] = useState("");
   const saveKey = useRef("");
-  const dirty = useRef(false);
+  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const v = draft.values;
   const regions = useApi<{ options: GeoOption[] }>(
@@ -250,7 +250,7 @@ function EditorBody({
   };
 
   function change(next: Draft) {
-    dirty.current = true;
+    setHasUnsavedChanges(true);
     saveKey.current = "";
     setDraft(next);
     // A saved confirmation describes the previous values, not this unsaved edit.
@@ -449,7 +449,7 @@ function EditorBody({
               invalidate: [["customers"], ["stores"]],
             },
           );
-      dirty.current = false;
+      setHasUnsavedChanges(false);
       setCustomer(saved);
       setDraft({ ...draftFromCustomer(saved), enrollmentFields });
       return saved;
@@ -490,7 +490,7 @@ function EditorBody({
     setBusy(true);
     setMessage(null);
     // Save pending edits first so approval checks what is on screen.
-    if (dirty.current && !(await save())) {
+    if (hasUnsavedChanges && !(await save())) {
       setBusy(false);
       return;
     }
@@ -576,6 +576,7 @@ function EditorBody({
     <CustomerEditorView
       customer={customer}
       draft={draft}
+      hasUnsavedChanges={hasUnsavedChanges}
       onChange={change}
       index={index}
       geo={geo}
@@ -612,6 +613,7 @@ function EditorBody({
 export function CustomerEditorView({
   customer,
   draft,
+  hasUnsavedChanges = false,
   onChange,
   index,
   geo,
@@ -640,6 +642,7 @@ export function CustomerEditorView({
 }: {
   customer: Customer | null;
   draft: Draft;
+  hasUnsavedChanges?: boolean;
   onChange: (d: Draft) => void;
   index: ReturnType<typeof indexReference>;
   geo: GeoLists;
@@ -711,11 +714,13 @@ export function CustomerEditorView({
             <span className="text-muted">Provisional code</span>
           ) : null}
           <span className="text-muted">
-            {customer.completeness === "complete"
-              ? "All required fields filled"
-              : customer.fieldMissing?.length
-                ? "Incomplete — from field app"
-                : "Incomplete (draft)"}
+            {hasUnsavedChanges
+              ? "Unsaved changes"
+              : customer.completeness === "complete"
+                ? "All required fields filled"
+                : customer.fieldMissing?.length
+                  ? "Incomplete — from field app"
+                  : "Incomplete (draft)"}
           </span>
           {readOnly && !canEdit ? (
             <span className="text-muted">· Read only</span>
