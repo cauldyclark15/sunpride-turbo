@@ -2,6 +2,7 @@
 import { formatStatus } from "../lib/format";
 
 import { Button, Input } from "@heroui/react";
+import Link from "next/link";
 import { api } from "./master-data/api";
 import type { Doc, Id, Invitation } from "./master-data/model";
 import { FormField, Pager, StatusPill } from "@sunpride/ui";
@@ -467,8 +468,8 @@ export function PeopleAdmin() {
     },
     {
       key: "status",
-      label: "Status",
-      text: (row) => row.status,
+      label: "Invitation status",
+      text: (row) => `Invitation ${row.status}`,
       render: (row) => (
         <StatusPill
           tone={
@@ -479,7 +480,7 @@ export function PeopleAdmin() {
                 : "warning"
           }
         >
-          {formatStatus(row.status)}
+          {`Invitation ${row.status}`}
         </StatusPill>
       ),
     },
@@ -559,6 +560,28 @@ export function PeopleAdmin() {
     <div className="grid gap-4">
       <h2 className="text-[20px] font-semibold text-foreground">People</h2>
       <ShareFieldAppCard />
+      {invited && canManage ? (
+        <section
+          aria-label="Phone registration is separate"
+          className="rounded-lg border border-border p-3 text-sm"
+        >
+          <h3 className="font-semibold">Phone registration is separate</h3>
+          <p className="mt-1 text-muted">
+            Invitation accepted means the person has accepted their account
+            invitation. It does not register their phone. If the Field app says
+            Register phone, open{" "}
+            <Link
+              href="/setup?section=devices#waiting-phones"
+              className="underline"
+            >
+              Setup &gt; Phones
+            </Link>
+            , find their name under Phones waiting to be registered, check the
+            phone code matches, then click Register. On the phone, tap Check
+            again.
+          </p>
+        </section>
+      ) : null}
       {notice ? (
         <p role="status" className="text-sm text-success">
           {notice}

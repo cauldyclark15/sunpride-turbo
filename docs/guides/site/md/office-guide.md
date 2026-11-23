@@ -9,13 +9,15 @@
 
 ## B. Register a salesman's phone
 
+**Invitation accepted** under **Setup > People > Invited** means the person has accepted their account invitation. It does not mean their phone is registered. If the Field app shows **Register phone**, follow the steps below; do not remove the app or clear its saved work.
+
 Before registering a phone, check **Setup > People**. **Add person** and **Edit** use **Branch** for the person's assignment. The **No branch** filter finds people who still need one. **Setup > Organization** keeps the hierarchy, with rows labelled **Company**, **Region** or **Branch**.
 
 3. A salesman signs in on his phone and tells you "My phone is waiting".
 4. Click **Setup** (left menu), then **Phones**.
 5. Under **Phones waiting to be registered**, find his name.
-6. If he already has a phone, the waiting phone says Replaces followed by the old phone's label.
-7. Click **Register**. His phone opens by itself within a minute. Older phones for that app are turned off automatically, with the reason **Replaced by a new phone** in their history.
+6. Check that the **Phone code** is the same as the code on his phone. If he already has a phone, the waiting phone says Replaces followed by the old phone's label.
+7. Click **Register**. On the phone, tap **Check again** while connected to the internet (or leave the screen open for its next automatic check). Older phones for that app are turned off automatically, with the reason **Replaced by a new phone** in their history.
 8. Wrong person or not his phone? Click **Reject**.
 
 This works for both Field and Van phones. Administrators and Operations staff can approve a replacement without an asset tag, a replacement code or checking the old phone's work first. Keep the old phone and any unsent work for the office to check later; this does not hold up the new phone. A phone already revoked does not prevent a new phone being registered. Controlled handover in Fleet & integrity remains optional.
@@ -25,6 +27,8 @@ To turn a phone off temporarily, click **View phone**, then **Suspend phone**. T
 ![Phones waiting to be registered](../img/a-phones.png "wide")
 
 _Phone not in the list? Ask him to tap_ **Copy code** _and send it to you. Click_ **Phone not listed? Register with the phone's code**.
+
+*Already registered but still seeing Register phone?* Check **Setup > Phones**, not the invitation list. Confirm the phone belongs to that person and the phone code matches. Ask the person to tap **Check again** with internet access. If it still does not open, send screenshots of both screens and the app version shown in **Support info**. Keep the app and its saved work; do not uninstall it or register a different phone just to get past the screen.
 
 ## C. Choose what each person sees in the app
 

@@ -519,7 +519,13 @@ describe("People list", () => {
     expect(view.match(/(?<!Select )first@example\.com/g)).toHaveLength(1);
     expect(view).toContain("Jo Santos");
     expect(view).toContain("Sales manager");
-    expect(view).toContain("Accepted");
+    expect(view).toContain("Invitation status");
+    expect(view).toContain("Invitation accepted");
+    expect(view).not.toMatch(/>Accepted</);
+    expect(view).toContain("Phone registration is separate");
+    expect(view).toContain("does not register their phone");
+    expect(view).toContain('href="/setup?section=devices#waiting-phones"');
+    expect(view).toContain("Check again");
     // the super admin's invitation cannot be removed; Jo's can
     expect(view.match(/>Remove<\/button>/g)).toHaveLength(1);
     expect(

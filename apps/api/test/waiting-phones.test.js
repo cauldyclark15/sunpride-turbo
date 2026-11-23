@@ -5,10 +5,10 @@ import {
   createUser,
   deviceKey,
   nativeSignIn,
+  bind,
 } from "./harness.js";
 import { install } from "../src/domains/integrity/index.js";
 import { install as org } from "../src/domains/org/index.js";
-import { bind } from "./harness.js";
 
 /** SP-0174: a first phone that signed in waits on Setup > Phones; the office registers it without a code. */
 async function setup() {
@@ -471,6 +471,80 @@ test("SP-0234 simultaneous office approvals choose one phone without deadlock; f
       await h.db`select 1 from registered_devices where profile_id=${seller.profile.id} and status='active'`,
     ).toHaveLength(1);
     expect((await admin.fleet()).waiting).toHaveLength(0);
+  } finally {
+    await h.close();
+  }
+});
+
+test("SP-0231 an accepted account invitation is not a phone approval; registering the matching phone lets the same session bind", async () => {
+  const { h, person, office } = await setup();
+  try {
+    const salesman = await person("sample-taborada@example.test", "sales");
+    await person("sample-taborada-admin@example.test", "admin");
+    await h.db`insert into access_invitations(email,name,role,status,invited_by,invited_at,accepted_at,profile_id)
+      values(${salesman.email},'SAMPLE TABORADA','sales','accepted','SAMPLE',now(),now(),${salesman.profile.id})`;
+    const key = await deviceKey();
+    const phone = await nativeSignIn(
+      h,
+      salesman.email,
+      "test-only-waiting-password",
+      "field-android",
+      key,
+    );
+    expect(phone.res.status).toBe(200);
+    const me = async () => {
+      const response = await h.fetch("/api/me", {
+        headers: {
+          authorization: `Bearer ${phone.body.accessToken}`,
+          "x-app": "field-android",
+          "x-device-key-id": key.keyId,
+        },
+      });
+      expect(response.status).toBe(200);
+      return response.json();
+    };
+    const before = await me();
+    expect(before.device).toBeNull();
+    expect(before.handoverRequired).toBe(false);
+    const admin = await office("sample-taborada-admin@example.test");
+    const waiting = (await admin.fleet()).waiting;
+    expect(waiting).toHaveLength(1);
+    expect(waiting[0].phoneCode.replaceAll(" ", "")).toBe(
+      key.keyId.slice(0, 16).toUpperCase(),
+    );
+    const approved = await admin.post("register", { requestId: waiting[0].id });
+    expect(approved.status).toBe(200);
+    const { deviceId } = await approved.json();
+    const registered = await me();
+    expect(registered.device.id).toBe(deviceId);
+    expect(registered.device.status).toBe("active");
+    expect(registered.device.bound).toBe(false);
+    // Match NativeApi.post: a newly registered phone reports its OS assessment
+    // with the first challenge; sign-in happened before a device row existed.
+    const assessed = await h.fetch("/api/devices/challenge", {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${phone.body.accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        version: 2,
+        deviceId,
+        integrity: { rooted: false, tampered: false },
+      }),
+    });
+    expect(assessed.status).toBe(200);
+    const bound = await bind(h, phone.body.accessToken, deviceId, key);
+    expect(bound.res.status).toBe(200);
+    expect(bound.body.bindingStatus).toBe("bound");
+    const ready = await me();
+    expect(ready.device.id).toBe(deviceId);
+    expect(ready.device.bound).toBe(true);
+    expect(ready.handoverRequired).toBe(false);
+    expect((await admin.fleet()).waiting).toHaveLength(0);
+    const [invitation] =
+      await h.db`select status from access_invitations where profile_id=${salesman.profile.id}`;
+    expect(invitation.status).toBe("accepted");
   } finally {
     await h.close();
   }
