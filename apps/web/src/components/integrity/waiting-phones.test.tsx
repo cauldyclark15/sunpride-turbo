@@ -4,7 +4,7 @@ import { it, expect, vi } from "vitest";
 import { WAITING_PHONE_INVALIDATE, WaitingPhones } from "./fleet";
 
 vi.mock("../../lib/auth", () => ({
-  usePermissions: () => ({ can: (c: string) => c === "admin.manage" }),
+  usePermissions: () => ({ can: (c: string) => c === "phones.manage" }),
 }));
 vi.mock("../../lib/api", () => ({
   useApi: () => ({
@@ -22,6 +22,7 @@ vi.mock("../../lib/api", () => ({
           person: "SAMPLE seller",
           app: "field-android",
           phoneCode: "AB12 CD34 EF56 7890",
+          replaces: "Old sales phone",
           requestedAt: Date.UTC(2026, 10, 14, 0, 30),
           lastSeenAt: Date.UTC(2026, 10, 14, 0, 31),
         },
@@ -39,6 +40,14 @@ it("SP-0174 Setup > Phones lists phones waiting to be registered with Register a
   expect(html).toContain("SAMPLE seller · Field app");
   expect(html).toContain("AB12 CD34 EF56 7890");
   expect(html).toContain("Asked Nov 14");
+  expect(html).toContain("Replaces Old sales phone");
+  expect(html).toContain("Phones guide");
+  expect(html).toContain(
+    "No asset tag, replacement code or old-phone work check is needed.",
+  );
+  expect(html).toContain(
+    "Controlled handover in Fleet &amp; integrity is optional.",
+  );
   expect(html).toContain(">Register<");
   expect(html).toContain(">Reject<");
   expect(html).toContain(

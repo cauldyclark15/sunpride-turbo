@@ -588,15 +588,8 @@ async function nativeMe(ctx) {
       keyId,
       String(app),
     ),
-    handoverRequired:
-      !device &&
-      // SP-0193: a super_admin may run several phones; a new one never needs a handover.
-      actor.role !== "super_admin" &&
-      Boolean(
-        (
-          await ctx.db`select 1 from registered_devices where profile_id=${actor.profileId} limit 1`
-        ).length,
-      ),
+    // SP-0234: existing app builds must offer normal registration for replacements too.
+    handoverRequired: false,
     device,
     mustChangePassword: Boolean(ctx.user?.mustChangePassword),
   };

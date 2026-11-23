@@ -15,7 +15,7 @@ describe("FLD-013 phone history reads in plain words", () => {
     expect(unknown).not.toContain("device.");
   });
   test("only a reason code becomes words; objects never render", () => {
-    expect(deviceHistoryReason("replacement")).toBe("replacement");
+    expect(deviceHistoryReason("replacement")).toBe("Replaced by a new phone");
     expect(deviceHistoryReason("suspected_compromise")).toBe(
       "suspected compromise",
     );

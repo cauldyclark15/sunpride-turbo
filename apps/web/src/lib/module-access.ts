@@ -238,7 +238,7 @@ export const MODULE_ROLES = {
   "retail-execution": allReaders, // visit.read; each mutation checks its own capability
   "live-map": locationReaders, // location.read; the server limits sales to themselves
   // Setup.
-  admin: administrators, // admin.manage
+  admin: masterDataManagers, // phones.manage (Operations gets the Phones section only)
   "master-data": masterDataManagers, // masterdata.manage
   "trade-promotions": masterDataManagers,
   "finance-claims": [

@@ -91,9 +91,8 @@ afterAll(async () => {
   await h?.close();
 });
 
-test("F-007 one ACTIVE phone per user across apps, concurrent sample sign-ins cannot bypass", async () => {
+test("SP-0234 one active phone per app, concurrent sample sign-ins cannot bypass", async () => {
   const p = await person(),
-    d = await phone(p),
     keys = await Promise.all([deviceKey(), deviceKey()]);
   const attempts = await Promise.all(
     keys.map((key) => nativeSignIn(h, p.email, password, "van-android", key)),
@@ -107,8 +106,8 @@ test("F-007 one ACTIVE phone per user across apps, concurrent sample sign-ins ca
       },
     });
     const me = /** @type {any} */ (await r.json());
-    expect(me.device).toBeNull();
-    expect(me.handoverRequired).toBe(true);
+    expect(me.device === null || me.device.status === "active").toBe(true);
+    expect(me.handoverRequired).toBe(false);
   }
   expect(
     await h.db`select * from registered_devices where profile_id=${p.profile.id} and status='active'`,
@@ -118,10 +117,11 @@ test("F-007 one ACTIVE phone per user across apps, concurrent sample sign-ins ca
       h.db`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id) values (${p.profile.id},'van-android','android',${crypto.randomUUID()},${keys[0].publicKeySpki},${keys[0].keyId},${root})`,
     ),
   ).rejects.toThrow();
-  expect(d.deviceId).toBeTruthy();
+  // A different app is independent, even while the first phone remains active.
+  expect((await phone(p, "field-android")).deviceId).toBeTruthy();
 });
 
-test("F-007 legacy revoke/register and reinstate routes cannot bypass held-work reconciliation", async () => {
+test("SP-0234 registration after revoke is allowed; same-phone pending recovery still protects reinstatement", async () => {
   const p = await person(),
     old = await phone(p),
     key = await deviceKey();
@@ -142,7 +142,7 @@ test("F-007 legacy revoke/register and reinstate routes cannot bypass held-work 
         publicKeySpki: key.publicKeySpki,
       })
     ).status,
-  ).toBe(422);
+  ).toBe(200);
   const attempt = await nativeSignIn(h, p.email, password, "van-android", key);
   const me = await h.fetch("/api/me", {
     headers: {
@@ -151,28 +151,9 @@ test("F-007 legacy revoke/register and reinstate routes cannot bypass held-work 
       "x-device-key-id": key.keyId,
     },
   });
-  expect((await me.json()).handoverRequired).toBe(true);
-  const request = await api("devices/handover", {
-    deviceId: old.deviceId,
-    app: "van-android",
-    inventoryTag: "SAMPLE controlled replacement",
-    publicKeySpki: key.publicKeySpki,
-    reasonCode: "replacement",
-  });
-  expect(request.status).toBe(200);
-  expect(
-    (
-      await h.db`select status from registered_devices where id=${old.deviceId}`
-    )[0].status,
-  ).toBe("revoked");
-  expect(
-    (
-      await api("devices/complete-handover", {
-        handoverId: request.body.handoverId,
-        reconciliation: "lost_phone_work_unrecoverable",
-      })
-    ).status,
-  ).toBe(200);
+  const mine = await me.json();
+  expect(mine.handoverRequired).toBe(false);
+  expect(mine.device.status).toBe("active");
   const other = await person(),
     held = await phone(other);
   expect(
@@ -809,7 +790,9 @@ test("F-221 a transferred outlet withdraws both its finding and its contribution
       (/** @type {any} */ i) => i.rule === "mock_location",
     ),
   ).toBe(true);
-  expect(before.body.mockRate.attempts).toBe(/* loosened (jc): company-wide, was 1 */ 8);
+  expect(before.body.mockRate.attempts).toBe(
+    /* loosened (jc): company-wide, was 1 */ 8,
+  );
   await h.db`update outlets set custodian_org_unit_id=${b} where id=${outlet.id}`;
   // Loosened (jc): the reader is company-wide, so the transferred outlet stays in view.
   const after = await api("queue", undefined, cookie);

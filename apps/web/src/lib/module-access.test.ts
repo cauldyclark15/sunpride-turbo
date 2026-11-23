@@ -30,7 +30,7 @@ describe("module access mirrors apps/api capabilities.js", () => {
   });
 
   it.each([
-    ["admin", ["admin.manage"]],
+    ["admin", ["admin.manage", "phones.manage"]],
     ["master-data", ["masterdata.manage"]],
     ["pricing", ["masterdata.manage"]],
     ["sap-integration", ["integration.read"]],

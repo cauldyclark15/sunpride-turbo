@@ -30,6 +30,7 @@ const EXPECTED = {
   "integrity.read": ["super_admin", "admin", "manager", "analyst"],
   "integrity.review": ["super_admin", "admin", "manager"],
   "admin.manage": ["super_admin", "admin"],
+  "phones.manage": ["super_admin", "admin", "operations"],
   "org.read": A,
   "people.read": ["super_admin", "admin", "manager", "analyst", "viewer"],
   "territory.read": A,
@@ -164,8 +165,8 @@ async function outcome(p) {
 }
 
 describe("capability table", () => {
-  test("Existing grants plus SP-0228 cash remittances: 70 grants, 8 roles", () => {
-    expect(Object.keys(CAPABILITIES).length).toBe(70);
+  test("Existing grants plus SP-0234 office phone management: 71 grants, 8 roles", () => {
+    expect(Object.keys(CAPABILITIES).length).toBe(71);
     expect(/** @type {string[]} */ ([...ROLES])).toEqual(A);
     expect(Object.keys(CAPABILITIES).sort()).toEqual(
       Object.keys(EXPECTED).sort(),
@@ -204,7 +205,7 @@ describe("requireCapability matrix", () => {
         }).toEqual({ cap, role, got: want });
         checked++;
       }
-    expect(checked).toBe(70 * 8);
+    expect(checked).toBe(71 * 8);
   });
 
   // Loosened (jc): office roles (admin, operations, manager, approver, viewer) are company-wide
@@ -250,9 +251,7 @@ describe("requireCapability matrix", () => {
       ),
     ).toBe("ok");
     expect(
-      await outcome(
-        requireCapability(ctxFor("sales"), "mcp.plan", "unit-z"),
-      ),
+      await outcome(requireCapability(ctxFor("sales"), "mcp.plan", "unit-z")),
     ).toBe("out_of_scope");
     expect(
       await outcome(

@@ -17,7 +17,11 @@ export async function refuseRevokedPhone(t, userId, app, keyId) {
   if (!profile) return;
   const rows =
     await t`select id, status from registered_devices where profile_id=${profile.id} and key_id=${keyId} and app=${app}`;
-  if (!rows.length || rows.some((/** @type {any} */ r) => r.status !== "revoked")) return;
+  if (
+    !rows.length ||
+    rows.some((/** @type {any} */ r) => r.status !== "revoked")
+  )
+    return;
   const [control] =
     await t`select 1 from device_controls c join registered_devices d on d.id=c.device_id
       where d.profile_id=${profile.id} and d.key_id=${keyId} and d.app=${app} and c.status='pending' limit 1`;
@@ -53,11 +57,10 @@ export async function registerSamplePhone(t, userId, app, key) {
   } catch {
     throw invalid("Invalid P-256 public key");
   }
-  // F-007: only the very first phone self-registers. Even permanent retirement needs an
-  // explicit controlled reconciliation before a replacement; a new key cannot bypass old queued work.
-  // A shared demo phone may still carry several sample accounts, each with its own row and bind.
+  // SP-0234: retired phones do not prevent a new registration; each app is independent.
+  // A live replacement still waits for the office, rather than silently replacing a working phone.
   const existing =
-    await t`select id from registered_devices where profile_id=${profile.id} limit 1`;
+    await t`select id from registered_devices where profile_id=${profile.id} and app=${app} and status<>'revoked' limit 1`;
   if (existing.length) return;
   const [device] = await t`insert into registered_devices
     (profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id)

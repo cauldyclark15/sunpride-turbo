@@ -203,15 +203,15 @@ test("SP-0193 sales, admin and manager phones still wait for the office; Selling
       await h.db`update profiles set selling=true where id=${who.profile.id}`;
       expect((await me(p)).profile.selling).toBe(role === "sales");
     }
-    // A sales person with a phone already: a new phone still needs a controlled handover.
+    // SP-0234: a salesperson with an old phone can request a replacement normally.
     const seller = await person("sa-seller2@example.test", "sales");
     await h.db`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id,status) values(${seller.profile.id},'field-android','android','SAMPLE old','x',${"b".repeat(64)},${seller.profile.orgUnitId},'active')`;
     const second = await phone(seller.email);
-    expect((await me(second)).handoverRequired).toBe(true);
-    // The one-active-phone rule still holds for everyone else at the database level.
+    expect((await me(second)).handoverRequired).toBe(false);
+    // The one-active-phone-per-app rule still holds for everyone else.
     let refused = /** @type {any} */ (null);
     try {
-      await h.db`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id,status) values(${seller.profile.id},'van-android','android','SAMPLE other','x',${"c".repeat(64)},${seller.profile.orgUnitId},'active')`;
+      await h.db`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id,status) values(${seller.profile.id},'field-android','android','SAMPLE other','x',${"c".repeat(64)},${seller.profile.orgUnitId},'active')`;
     } catch (e) {
       refused = e;
     }

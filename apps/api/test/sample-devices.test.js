@@ -115,7 +115,7 @@ test("concurrent sign-ins register once; active, suspended and revoked keys are 
     expect(rows[0].status).toBe(status);
   }
 });
-test("F-007 all apps remain supported but a second app requires controlled handover", async () => {
+test("SP-0234 sample accounts can register independently for each app", async () => {
   for (const firstApp of ["field-android", "field-ios", "van-android"]) {
     const p = await person();
     for (const app of [
@@ -128,9 +128,14 @@ test("F-007 all apps remain supported but a second app requires controlled hando
     }
     const rows =
       await h.db`select app,platform from registered_devices where profile_id=${p.profile.id}`;
-    expect(rows).toHaveLength(1);
-    expect(rows[0].app).toBe(firstApp);
-    expect(rows[0].platform).toBe(firstApp === "field-ios" ? "ios" : "android");
+    expect(rows).toHaveLength(3);
+    expect(rows.map((/** @type {any} */ r) => r.app).sort()).toEqual([
+      "field-android",
+      "field-ios",
+      "van-android",
+    ]);
+    for (const row of rows)
+      expect(row.platform).toBe(row.app === "field-ios" ? "ios" : "android");
   }
 });
 test("one shared demo phone can carry several sample accounts, each with its own row and its own bind", async () => {
@@ -157,7 +162,7 @@ test("one shared demo phone can carry several sample accounts, each with its own
     ).length,
   ).toBe(0);
 });
-test("F-007 a retired sample phone still requires controlled reconciliation before a new key", async () => {
+test("SP-0234 a retired sample phone does not prevent a new key registering", async () => {
   const p = await person(),
     oldKey = await deviceKey(),
     newKey = await deviceKey();
@@ -172,7 +177,7 @@ test("F-007 a retired sample phone still requires controlled reconciliation befo
   const { body } = await login(p, newKey);
   expect(
     await h.db`select 1 from registered_devices where profile_id=${p.profile.id} and status='active'`,
-  ).toHaveLength(0);
+  ).toHaveLength(1);
   const me = await h.fetch("/api/me", {
     headers: {
       authorization: `Bearer ${body.accessToken}`,
@@ -180,10 +185,12 @@ test("F-007 a retired sample phone still requires controlled reconciliation befo
       "x-device-key-id": newKey.keyId,
     },
   });
-  expect((await me.json()).handoverRequired).toBe(true);
+  expect((await me.json()).handoverRequired).toBe(false);
   expect(
     (
       await h.db`select status from registered_devices where profile_id=${p.profile.id}`
-    ).map((/** @type {any} */ r) => r.status),
-  ).toEqual(["revoked"]);
+    )
+      .map((/** @type {any} */ r) => r.status)
+      .sort(),
+  ).toEqual(["active", "revoked"]);
 });

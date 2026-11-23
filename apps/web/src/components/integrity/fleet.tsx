@@ -42,6 +42,7 @@ export type WaitingPhone = {
   person: string;
   app: string;
   phoneCode: string;
+  replaces?: string | null;
   requestedAt: number;
   lastSeenAt: number;
 };
@@ -149,7 +150,8 @@ export function IntegrityFleet() {
         <h2 className="text-lg font-semibold">Fleet & phone integrity</h2>
         <p className="text-sm text-muted">
           Which phones are ready, who has them, and what needs replacement? One
-          active phone per person, across all apps.
+          active phone per person for each app. Approve replacements in Setup
+          &gt; Phones, or use the optional controlled handover below.
         </p>
         {message ? <p role="status">{message}</p> : null}
         {result.error ? <p role="alert">{result.error.message}</p> : null}
@@ -504,13 +506,13 @@ const appName = (app: string) =>
   app === "van-android" ? "Van POS" : "Field app";
 const when = (at: number) => formatDateTime(at);
 
-/** SP-0174: a person's FIRST phone signs in, waits here, and the office registers it with one click. */
+/** First and replacement phones use the same one-click office approval. */
 /** Lists a phone decision changes: the integrity fleet and Setup > Phones (people/devices/list). */
 export const WAITING_PHONE_INVALIDATE: string[][] = [["integrity"], ["setup"]];
 
 export function WaitingPhones() {
   const { can } = usePermissions();
-  const allowed = can("admin.manage");
+  const allowed = can("phones.manage");
   const result = useApi<Fleet>(
     allowed ? ["integrity", "fleet"] : null,
     "/api/v1/integrity/fleet",
@@ -543,9 +545,10 @@ export function WaitingPhones() {
         Phones waiting to be registered
       </h2>
       <p className="text-sm text-muted">
-        When someone signs in on a new phone, it shows here. Check the phone
-        code matches the code on their screen, then press Register. Their phone
-        opens by itself within a minute.
+        Ask the person to sign in on the new Field or Van phone. Find their name
+        here, then press Register. Their phone opens by itself within a minute.
+        Any older phones for that app are turned off automatically. No asset
+        tag, replacement code or old-phone work check is needed.
       </p>
       {result.error ? <p role="alert">{result.error.message}</p> : null}
       {!result.data ? (
@@ -562,6 +565,9 @@ export function WaitingPhones() {
               <p className="font-medium">
                 {w.person} · {appName(w.app)}
               </p>
+              {w.replaces ? (
+                <p className="text-sm">Replaces {phoneLabel(w.replaces)}</p>
+              ) : null}
               <div className="mt-1 max-w-sm">
                 <p className="text-xs text-muted">Phone code</p>
                 <PhoneCode value={w.phoneCode} />
@@ -604,6 +610,31 @@ export function WaitingPhones() {
           </article>
         ))
       )}
+      <details className="border-t border-border pt-3 text-sm">
+        <summary>Phones guide</summary>
+        <ol className="mt-3 list-decimal space-y-2 pl-5">
+          <li>
+            Sign in on the new phone using the person&apos;s usual account.
+          </li>
+          <li>
+            In Setup &gt; Phones, find the person under Phones waiting to be
+            registered and press Register.
+          </li>
+          <li>
+            The new phone opens within a minute. Older phones for the same app
+            are revoked with the reason Replaced by a new phone.
+          </li>
+          <li>
+            To turn a phone off temporarily, open View phone and choose Suspend
+            phone. Choose Reinstate phone to turn it back on.
+          </li>
+        </ol>
+        <p className="mt-3">
+          Keep the old phone and any unsent work for the office to check later.
+          This does not hold up the new phone. Controlled handover in Fleet
+          &amp; integrity is optional.
+        </p>
+      </details>
       <details className="border-t border-border pt-3 text-sm">
         <summary>Phone not listed? Register with the phone&apos;s code</summary>
         <form

@@ -297,7 +297,7 @@ const manager = {
 const permissions = {
   version: 1,
   role: "admin",
-  capabilities: ["admin.manage", "org.read", "people.read"],
+  capabilities: ["admin.manage", "phones.manage", "org.read", "people.read"],
   scopeUnitIds: [root._id, region._id, area._id],
   orgUnitId: root._id,
 };
@@ -1020,6 +1020,29 @@ describe("Phones admin", () => {
     bound: true,
     offlineLeaseExpiresAt: Date.parse("2026-10-04T01:30:00Z"),
   };
+  it("SP-0234 Operations opens Setup directly on Phones without other admin sections", () => {
+    state.values["lib/capabilities:currentPermissions"] = {
+      ...permissions,
+      role: "operations",
+      capabilities: ["phones.manage", "org.read"],
+    };
+    state.values["mobile/devices:list"] = {
+      page: [device],
+      continueCursor: "",
+      isDone: true,
+    };
+    const view = html(createElement(AdminWorkspace));
+    expect(view).toContain("Phones");
+    expect(view).toContain("PHONE-7");
+    expect(view).not.toContain('aria-label="Setup sections"');
+    expect(state.queryCalls).toContainEqual({
+      name: "mobile/devices:list",
+      args: { paginationOpts: { numItems: 25, cursor: null } },
+    });
+    expect(state.queryCalls.some((q) => q.name === "org/queries:tree")).toBe(
+      false,
+    );
+  });
   it("lists scoped phones from the Phones tab", () => {
     state.tabOverride = "devices";
     state.values["mobile/devices:list"] = {

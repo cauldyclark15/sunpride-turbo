@@ -53,14 +53,14 @@ branches under it.
 
 | Role on screen    | Who it is for           | Main things they can do                                                              |
 | ----------------- | ----------------------- | ------------------------------------------------------------------------------------ |
-| **Super admin**   | System owner            | Everything, across all branches. Cannot approve their own work.                         |
-| **Administrator** | National / regional IT  | Users, branches, teams, territories, routes, outlets, phones. Cannot approve MCPs.      |
+| **Super admin**   | System owner            | Everything, across all branches. Cannot approve their own work.                      |
+| **Administrator** | National / regional IT  | Users, branches, teams, territories, routes, outlets, phones. Cannot approve MCPs.   |
 | **Operations**    | Sales admin             | Routes, outlets, outlet assignments, imports, outside-call POs.                      |
 | **Sales manager** | Supervisor or manager   | Approves MCPs, new stores and field exceptions; verifies pins; coaches; Supervision. |
 | **Approver**      | Order approver          | Approves sales orders.                                                               |
 | **Sales**         | Salesperson (KAS, RDS…) | Writes their own MCP; runs the day on the phone; reads set-up data only.             |
 | **Analyst**       | Head office reporting   | Reads everything, changes nothing.                                                   |
-| **Viewer**        | Read-only user          | Reads their own branch, changes nothing.                                               |
+| **Viewer**        | Read-only user          | Reads their own branch, changes nothing.                                             |
 
 Who may approve or decide:
 
@@ -552,8 +552,15 @@ starts. Future assignments appear from their start date.
 
 ## 13. Phones: suspend, reinstate, revoke, lost phone
 
-For Administrators and Super admins of the person's branch. Salespeople use their own phones
-(Client rule). One person can have only one active phone.
+For Administrators, Super admins and Operations staff. The ordinary limit is one active phone per person for each app; the system owner may keep several phones active. This is the software's setup, not a claim about the client's phone policy.
+
+To register a first or replacement Field or Van phone:
+
+1. Ask the person to sign in on the new phone with their usual account.
+2. Open Setup › **Phones**. Under **Phones waiting to be registered**, find the person. A replacement says Replaces followed by the older phone's label.
+3. Click **Register**. The new phone opens within a minute. Older phones for that app are revoked automatically with the reason **Replaced by a new phone**, recorded in **History**.
+
+No asset tag, replacement code or old-phone reconciliation is required. Keep any unsent work on the old phone for the office to check later; do not recapture it blindly. The optional controlled handover remains in Fleet & integrity. Revoked phones do not prevent registration of a new phone.
 
 1. Open Admin › **Phones**.
 2. Filter by **Status**: **All phones**, **Active**, **Suspended**, **Revoked**.
@@ -578,8 +585,8 @@ Lost phone:
 4. Work still on the phone and not sent cannot be recovered from the web. A suspended or
    revoked phone keeps its unsent work; it is not deleted. Missed visits go through the
    supervisor's normal process.
-5. If the phone is found, **Reinstate phone**. If not, or the person gets a new phone,
-   **Revoke phone** (permanent) before the new phone is enrolled.
+5. If the suspended phone is found, **Reinstate phone**. If the person gets a new phone,
+   approve it under **Phones waiting to be registered**; this automatically revokes older phones for the same app.
 
 A revoked phone can never be reinstated. A person who moved branch needs the old phone
 revoked and a new enrolment.
@@ -749,7 +756,7 @@ PO under Commercial › **Outside-call POs**, and the salesperson records the ac
 
 | You see / problem                                     | Do this                                                                      |
 | ----------------------------------------------------- | ---------------------------------------------------------------------------- |
-| A new person sees nothing after signing in            | Assign their branch in Admin › **People** (section 10.2).                      |
+| A new person sees nothing after signing in            | Assign their branch in Admin › **People** (section 10.2).                    |
 | **Review** tab is missing                             | Only Sales managers and Super admins approve plans.                          |
 | Approve is disabled on a plan                         | You prepared or submitted it, it is your own, or it has blocking exceptions. |
 | Revise the approved coverage plan first               | Revise the MCP that uses that store/route, then make the change.             |
@@ -757,7 +764,7 @@ PO under Commercial › **Outside-call POs**, and the salesperson records the ac
 | A store is missing from the coverage map              | It has no verified pin. Propose and verify one (section 12.2).               |
 | Imported visits do not show as ticks in the plan grid | Check them in **Calendar** or **Dated slots**; see section 20.               |
 | A phone cannot sync after being found                 | It may be revoked (permanent). Enrol it again as a new phone.                |
-| A list says only the first part is shown              | Narrow the **Branch** or other filters.                                        |
+| A list says only the first part is shown              | Narrow the **Branch** or other filters.                                      |
 
 ## 20. Not in the system yet / open client questions
 

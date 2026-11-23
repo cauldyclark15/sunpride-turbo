@@ -132,7 +132,7 @@ export function install(router, platform) {
     "integrity",
     (/** @type {any} */ actor) =>
       roleHas(actor.role, "integrity.read") ||
-      roleHas(actor.role, "admin.manage"),
+      roleHas(actor.role, "phones.manage"),
   );
   platform.registerJob("integrity.detect", async (/** @type {any} */ c) => {
     await collectCommercialSignals(c.db);
@@ -301,7 +301,7 @@ export function install(router, platform) {
     }),
   );
   router.get("/api/v1/integrity/fleet", async (/** @type {any} */ c) => {
-    await requireCapability(c, "admin.manage");
+    await requireCapability(c, "phones.manage");
     const ids = await units(c);
     const assets =
       await c.db`select f.*,case when p.deleted_at is null and p.status='active' and p.org_unit_id in ${c.db(ids.length ? ids : [null])} then p.name else null end as assigned_name,

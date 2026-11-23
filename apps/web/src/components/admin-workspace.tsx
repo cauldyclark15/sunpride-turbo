@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { api, useQuery } from "./master-data/api";
 import { EnrollmentFormAdmin } from "./enrollment-form-admin";
 import { OrgAdmin } from "./org-admin";
 import { TerritoryAdmin } from "./territory-admin";
@@ -135,12 +136,17 @@ function SectionNav({
 }
 
 export function AdminWorkspace() {
+  const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
   const [tab, setTab] = useState<AdminTab>("health");
   const raw = useSetupParam("section");
   const section = aliases[raw] ?? raw;
   const activeTab = (
     tabs.some(([id]) => id === section) ? section : tab
   ) as AdminTab;
+  // Operations may manage phones without opening unrelated administrator sections.
+  if (!permissions) return <p>Loading access…</p>;
+  if (!permissions.capabilities.includes("admin.manage"))
+    return <DevicesAdmin />;
   return (
     <div className="grid gap-4 lg:grid-cols-[13rem_minmax(0,1fr)] lg:gap-6">
       <SectionNav

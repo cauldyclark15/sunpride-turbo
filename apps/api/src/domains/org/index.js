@@ -541,12 +541,12 @@ export function install(router, platform) {
     );
   command("catalog/foundation", "admin.manage", foundation);
   command("catalog/set-standard", "admin.manage", setStandard);
-  command("people/devices/register", "admin.manage", registerDevice);
+  command("people/devices/register", "phones.manage", registerDevice);
   command("people/devices/reassign", "admin.manage", reassignPhone);
   command("people/devices/lost", "admin.manage", losePhone);
   command("people/devices/reregister", "admin.manage", reregisterPhone);
   for (const action of ["suspend", "revoke", "reinstate"])
-    command(`people/devices/${action}`, "admin.manage", (c, b) =>
+    command(`people/devices/${action}`, "phones.manage", (c, b) =>
       deviceCommand(c, /** @type {any} */ (action), b),
     );
 }

@@ -14,13 +14,17 @@ Before registering a phone, check **Setup > People**. **Add person** and **Edit*
 3. A salesman signs in on his phone and tells you "My phone is waiting".
 4. Click **Setup** (left menu), then **Phones**.
 5. Under **Phones waiting to be registered**, find his name.
-6. Check that the **Phone code** is the same as the code on his phone.
-7. Click **Register**. His phone opens by itself within a minute.
+6. If he already has a phone, the waiting phone says Replaces followed by the old phone's label.
+7. Click **Register**. His phone opens by itself within a minute. Older phones for that app are turned off automatically, with the reason **Replaced by a new phone** in their history.
 8. Wrong person or not his phone? Click **Reject**.
+
+This works for both Field and Van phones. Administrators and Operations staff can approve a replacement without an asset tag, a replacement code or checking the old phone's work first. Keep the old phone and any unsent work for the office to check later; this does not hold up the new phone. A phone already revoked does not prevent a new phone being registered. Controlled handover in Fleet & integrity remains optional.
+
+To turn a phone off temporarily, click **View phone**, then **Suspend phone**. To turn a suspended phone back on, choose **Reinstate phone**. A revoked phone stays revoked; approve the new phone instead.
 
 ![Phones waiting to be registered](../img/a-phones.png "wide")
 
-*Phone not in the list? Ask him to tap* **Copy code** *and send it to you. Click* **Phone not listed? Register with the phone's code**.
+_Phone not in the list? Ask him to tap_ **Copy code** _and send it to you. Click_ **Phone not listed? Register with the phone's code**.
 
 ## C. Choose what each person sees in the app
 
@@ -46,7 +50,7 @@ Salesmen fill in every field on the phone, including the payment, tax and delive
 ![Bottom: Save, Approve, Reject](../img/w-customer-bottom.png "strip")
 ![Approve: Yes, approve](../img/w-approve-confirm.png "strip") ![Reject: reason, then Confirm reject](../img/w-reject-reason.png "strip")
 
-*You can approve or reject a customer you added yourself.*
+_You can approve or reject a customer you added yourself._
 
 ## E. Phone saves for the office
 

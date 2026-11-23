@@ -175,19 +175,20 @@ export async function list(c, kind, p) {
           ? "route.read"
           : kind === "outlets"
             ? "outlet.read"
-            : kind === "teams" || kind === "devices" || kind === "invitations"
-              ? "admin.manage"
-              : kind === "customers"
-                ? "masterdata.manage"
-                : "inventory.read",
+            : kind === "devices"
+              ? "phones.manage"
+              : kind === "teams" || kind === "invitations"
+                ? "admin.manage"
+                : kind === "customers"
+                  ? "masterdata.manage"
+                  : "inventory.read",
   );
   if (kind === "invitations") await requireNationalScope(c, ["admin"]);
   const { unitIds } = await scopeFilterForActor(c.db, actor);
   const { size, cursor, q } = paging(p);
   const national =
     kind === "people" &&
-    (actor.role === "super_admin" ||
-      actor.role === "admin");
+    (actor.role === "super_admin" || actor.role === "admin");
   /** @type {any[]} */ const params = [];
   /** @param {any} v */ const bind = (v) => {
     params.push(v);
@@ -312,9 +313,10 @@ export async function list(c, kind, p) {
     // hits the province ("…, Cebu"), so typing "Cebu" listed every store.
     if (storeSearch)
       where += ` and (t.name ilike ${like} or t.code ilike ${like} or exists(select 1 from customer_profiles cp where cp.outlet_id=t.id and cp.deleted_at is null and (cp.municipality_name ilike ${like} or cp.barangay_name ilike ${like})) or exists(select 1 from territories st where st.id=assignment.territory_id and st.name ilike ${like}))`;
-    else where += search
-      ? ` and (${search} @@ plainto_tsquery('simple',${query}) or t.name ilike ${like}${kind === "people" ? ` or t.email ilike ${like}` : ` or t.code ilike ${like}`})`
-      : ` and (t.${kind === "invitations" ? "email" : kind === "devices" ? "inventory_tag" : "name"} ilike ${like})`;
+    else
+      where += search
+        ? ` and (${search} @@ plainto_tsquery('simple',${query}) or t.name ilike ${like}${kind === "people" ? ` or t.email ilike ${like}` : ` or t.code ilike ${like}`})`
+        : ` and (t.${kind === "invitations" ? "email" : kind === "devices" ? "inventory_tag" : "name"} ilike ${like})`;
   }
   if (p.status && p.status !== "all")
     where += ` and t.status=${bind(p.status)}`;

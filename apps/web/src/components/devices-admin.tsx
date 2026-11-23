@@ -116,6 +116,7 @@ const historyLabel: Record<string, string> = {
   "people.devices.lost": "Marked as lost",
   "people.devices.reregister": "Registered again",
   "device.registered": "Registered",
+  "device.registered_from_waiting": "Registered",
   "device.sample_registered": "Registered",
   "device.bound": "Signed in on phone",
   "device.suspended": "Suspended",
@@ -150,6 +151,7 @@ export function deviceHistoryReason(reason: unknown): string | null {
   if (typeof reason !== "string" || !/^[a-z][a-z0-9_]{1,79}$/.test(reason))
     return null;
   if (["registered", "bound"].includes(reason)) return null;
+  if (reason === "replacement") return "Replaced by a new phone";
   return reason.replaceAll("_", " ");
 }
 
@@ -165,7 +167,8 @@ export function DevicesAdmin() {
   const [personSearch, setPersonSearch] = useState("");
   const [search, setSearch] = useState<string | undefined>(undefined);
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
-  const canManage = permissions?.capabilities.includes("admin.manage") ?? false;
+  const canManage =
+    permissions?.capabilities.includes("phones.manage") ?? false;
   const [statusFilter, setStatusFilter] = useState<DeviceStatus | "all">("all");
   const [cursors, setCursors] = useState<(string | null)[]>([null]);
   const devices = useQuery(
@@ -421,10 +424,12 @@ export function DevicesAdmin() {
                     recapture.
                   </p>
                 ) : null}
-                <PhoneCustodyActions
-                  key={`${device.deviceId}:${device.profileId ?? ""}`}
-                  device={device}
-                />
+                {permissions?.capabilities.includes("admin.manage") ? (
+                  <PhoneCustodyActions
+                    key={`${device.deviceId}:${device.profileId ?? ""}`}
+                    device={device}
+                  />
+                ) : null}
                 <h4 className="text-sm font-medium">Who used this phone</h4>
                 <div className="-mx-4 border-y border-separator">
                   {(report.assignments ?? []).map((entry) => (

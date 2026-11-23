@@ -39,6 +39,7 @@ export const CAPABILITIES = Object.freeze({
   "integrity.read": ["super_admin", "admin", "manager", "analyst"],
   "integrity.review": ["super_admin", "admin", "manager"],
   "admin.manage": ["super_admin", "admin"],
+  "phones.manage": ["super_admin", "admin", "operations"],
   "org.read": ALL,
   "people.read": ["super_admin", "admin", "manager", "analyst", "viewer"],
   "territory.read": ALL,
