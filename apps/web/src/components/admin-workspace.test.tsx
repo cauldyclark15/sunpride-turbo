@@ -533,6 +533,37 @@ describe("People list", () => {
         ?.args,
     ).toBe("skip");
   });
+  it("SP-0235 sends the name search to Invited and describes its searchable fields", () => {
+    admin();
+    state.params = { section: "people", filter: "invited", q: "Jo Santos" };
+    state.values["domains/profiles:listInvitations"] = {
+      page: invitationsFixture.filter((row) => row.name === "Jo Santos"),
+      continueCursor: "",
+      isDone: true,
+    };
+    const view = html(createElement(PeopleAdmin));
+    expect(view).toContain('aria-label="Search by name or email"');
+    expect(view).toContain('value="Jo Santos"');
+    expect(view).toContain("Jo Santos");
+    expect(view).not.toContain("first@example.com");
+    expect(state.queryCalls).toContainEqual({
+      name: "domains/profiles:listInvitations",
+      args: { q: "Jo Santos", paginationOpts: { numItems: 25, cursor: null } },
+    });
+  });
+  it("SP-0235 omits the search after clearing it and keeps code search on All", () => {
+    admin();
+    state.params = { section: "people", filter: "invited" };
+    html(createElement(PeopleAdmin));
+    expect(state.queryCalls).toContainEqual({
+      name: "domains/profiles:listInvitations",
+      args: { paginationOpts: { numItems: 25, cursor: null } },
+    });
+    state.params = { section: "people" };
+    expect(html(createElement(PeopleAdmin))).toContain(
+      'aria-label="Search by name, email or code"',
+    );
+  });
   it("SP-0206 shows delivery state and Resend email only for waiting invitations", () => {
     admin();
     state.params = { section: "people", filter: "invited" };

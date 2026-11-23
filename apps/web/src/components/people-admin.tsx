@@ -331,7 +331,9 @@ export function PeopleAdmin() {
     onPage: () => {},
     q,
     onSearch,
-    searchPlaceholder: "Search by name, email or code",
+    searchPlaceholder: invited
+      ? "Search by name or email"
+      : "Search by name, email or code",
     onAdd: canAdd ? (name: string) => setAdding(name) : undefined,
     filters,
     filter,
