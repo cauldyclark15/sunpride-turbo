@@ -38,8 +38,8 @@ afterAll(async () => {
   await h?.close();
 });
 
-/** @param {string} app @param {Record<string,string>} [headers] */
-async function phone(app, headers = {}) {
+/** @param {string} app @param {Record<string,string>} [headers] @param {boolean} [withCode] */
+async function phone(app, headers = {}, withCode = false) {
   const email = `${crypto.randomUUID()}@example.test`;
   const userId = await createUser(h, email, password);
   const [p] =
@@ -66,11 +66,22 @@ async function phone(app, headers = {}) {
     await h.db`select * from phone_registration_requests where profile_id=${p.id} and status='waiting'`;
   expect(waiting).toBeTruthy();
   const registered = await h.fetch(
-    "/api/v1/integrity/devices/waiting/register",
+    withCode
+      ? "/api/v1/people/devices/register"
+      : "/api/v1/integrity/devices/waiting/register",
     {
       method: "POST",
       headers: { cookie, "content-type": "application/json" },
-      body: JSON.stringify({ requestId: waiting.id }),
+      body: JSON.stringify(
+        withCode
+          ? {
+              profileId: p.id,
+              app,
+              inventoryTag: `SAMPLE-${crypto.randomUUID()}`,
+              publicKeySpki: key.publicKeySpki,
+            }
+          : { requestId: waiting.id },
+      ),
     },
   );
   expect(registered.status).toBe(200);
@@ -137,17 +148,30 @@ async function checkIn(d, headers = {}, overrides = {}) {
   );
 }
 for (const app of ["field-android", "van-android"]) {
-  test(`SP-0233 ${app}: first registration preserves maker and model`, async () => {
-    const d = await phone(app, hardware);
-    expect(d.waiting.manufacturer).toBe("Xiaomi");
-    expect(d.waiting.model).toBe("Redmi Note 13");
-    await readLabel(d, "Xiaomi Redmi Note 13");
-    const [saved] =
-      await h.db`select manufacturer,model from registered_devices where id=${d.deviceId}`;
-    expect(saved).toMatchObject({
-      manufacturer: "Xiaomi",
-      model: "Redmi Note 13",
+  for (const withCode of [false, true])
+    test(`SP-0233 ${app}: ${withCode ? "copied-code" : "waiting-list"} registration preserves maker and model`, async () => {
+      const d = await phone(app, hardware, withCode);
+      expect(d.waiting.manufacturer).toBe("Xiaomi");
+      expect(d.waiting.model).toBe("Redmi Note 13");
+      await readLabel(d, "Xiaomi Redmi Note 13");
+      const [saved] =
+        await h.db`select manufacturer,model from registered_devices where id=${d.deviceId}`;
+      expect(saved).toMatchObject({
+        manufacturer: "Xiaomi",
+        model: "Redmi Note 13",
+      });
     });
+  test(`SP-0233 ${app}: malformed optional hardware never blocks registration or check-in`, async () => {
+    const invalid = {
+      "x-device-manufacturer": "%",
+      "x-device-model": "x".repeat(121),
+    };
+    const d = await phone(app, invalid);
+    expect(d.waiting.manufacturer).toBeNull();
+    expect(d.waiting.model).toBeNull();
+    await readLabel(d, "Model not sent yet");
+    expect((await checkIn(d, invalid)).res.status).toBe(200);
+    await readLabel(d, "Model not sent yet");
   });
   test(`SP-0233 ${app}: existing phone fills hardware at next verified check-in, older apps remain usable`, async () => {
     const d = await phone(app);

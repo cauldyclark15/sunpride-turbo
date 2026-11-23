@@ -109,9 +109,15 @@ export async function registerDevice(c, b) {
     rule(
       "Use a controlled handover to reconcile this person’s existing phone first",
     );
+  // Registering with the copied phone code must retain the same report as
+  // registering from the waiting list. Match the exact person, app and key.
+  const [waiting] =
+    await c.db`select manufacturer,model from phone_registration_requests where profile_id=${person.id} and app=${b.app} and key_id=${keyId} and status='waiting'`;
   const hardware = {
-    manufacturer: cleanHardwareText(b.manufacturer),
-    model: cleanHardwareText(b.model),
+    manufacturer:
+      cleanHardwareText(b.manufacturer) ??
+      cleanHardwareText(waiting?.manufacturer),
+    model: cleanHardwareText(b.model) ?? cleanHardwareText(waiting?.model),
   };
   const [row] =
     await c.db`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id,status,manufacturer,model)
