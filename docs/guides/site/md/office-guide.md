@@ -28,7 +28,7 @@ To turn a phone off temporarily, click **View phone**, then **Suspend phone**. T
 
 _Phone not in the list? Ask him to tap_ **Copy code** _and send it to you. Click_ **Phone not listed? Register with the phone's code**.
 
-*Already registered but still seeing Register phone?* Check **Setup > Phones**, not the invitation list. Confirm the phone belongs to that person and the phone code matches. Ask the person to tap **Check again** with internet access. If it still does not open, send screenshots of both screens and the app version shown in **Support info**. Keep the app and its saved work; do not uninstall it or register a different phone just to get past the screen.
+_Already registered but still seeing Register phone?_ Check **Setup > Phones**, not the invitation list. Confirm the phone belongs to that person and the phone code matches. Ask the person to tap **Check again** with internet access. If it still does not open, send screenshots of both screens and the app version shown in **Support info**. Keep the app and its saved work; do not uninstall it or register a different phone just to get past the screen.
 
 ## C. Choose what each person sees in the app
 
