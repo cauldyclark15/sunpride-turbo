@@ -28,7 +28,8 @@ fun defaultHttpClient(): OkHttpClient = sharedHttpClient
 /** Stable v2 session in the existing biometric-aware vault; opaque access credential in memory only. */
 class AuthClient(private val environment: AppEnvironment, private val vault: SessionVault,
     private val http: OkHttpClient = defaultHttpClient(), private val clock: () -> Long = System::currentTimeMillis,
-    private val signer: (() -> DeviceSigner)? = null) {
+    private val signer: (() -> DeviceSigner)? = null,
+    private val phoneHeaders: () -> Map<String, String> = { com.sunpride.integrity.PhoneHardware.headers() }) {
     private var access: String? = null
     private var refreshAt = 0L
     /** FLD-014/171: told why the server ended the session (true = the office removed/paused this phone). */
@@ -130,7 +131,7 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
     }
     private fun exchange(path: String, body: JSONObject, session: String?, signingIn: Boolean = false): JSONObject {
         val request = Request.Builder().url(environment.apiOrigin.trimEnd('/') + path)
-            .apply { session?.let { header("Authorization", "Bearer $it") } }
+            .apply { phoneHeaders().forEach { (k, v) -> header(k, v) }; session?.let { header("Authorization", "Bearer $it") } }
             .post(body.toString().toRequestBody(JSON_MEDIA)).build()
         return try {
             http.newCall(request).execute().use { r ->

@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { recordPhoneHardware } from "../../core/phone-hardware.js";
 import { createAccess, createSession } from "../../core/auth.js";
 import { verifySignature } from "../../core/devices.js";
 import { autoApproveSuperadminPhone } from "./superadmin-phones.js";
@@ -123,6 +124,7 @@ export function installNativeOidc(router) {
         const [device] =
           await t`select * from registered_devices where profile_id=${profile.id} and key_id=${r.key_id} and app=${r.app} and status<>'revoked' order by created_at desc limit 1`;
         if (device) {
+          await recordPhoneHardware(t, device.id, c.req.headers);
           await recordDeviceAssessment(t, device, r.integrity);
           if (!(await nativeControl(t, profile.id, r.key_id, r.app)))
             await requireDeviceIntegrity(t, device);

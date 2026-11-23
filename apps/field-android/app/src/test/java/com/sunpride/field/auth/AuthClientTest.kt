@@ -30,6 +30,19 @@ class AuthClientTest {
         env = AppEnvironment(origin)
         auth = AuthClient(env, vault, clock = { now })
     }
+    @Test fun reportsPhoneHardwareAtSignInAndRefresh() {
+        val hardware = com.sunpride.integrity.PhoneHardware.headers("Xiaomi", "Redmi Note 13")
+        val client = AuthClient(env, vault, clock = { now }, phoneHeaders = { hardware })
+        server.enqueue(MockResponse().setBody(tokens()))
+        client.signIn("seller@example.test", "fake-password")
+        val signIn = take()
+        assertEquals("Xiaomi", signIn.getHeader("x-device-manufacturer"))
+        assertEquals("Redmi%20Note%2013", signIn.getHeader("x-device-model"))
+        server.enqueue(MockResponse().setBody(tokens()))
+        client.accessToken(true)
+        assertEquals("Redmi%20Note%2013", take().getHeader("x-device-model"))
+    }
+
     @After fun tearDown() { server.shutdown() }
 
     private fun tokens(session: String = "sps_session", access: String = "spa_access") = JSONObject()

@@ -22,7 +22,8 @@ class AuthClient(
     private val vault: SessionVault,
     private val http: OkHttpClient = defaultHttpClient(),
     private val clock: () -> Long = System::currentTimeMillis,
-    private val deviceKey: () -> JSONObject? = { null }
+    private val deviceKey: () -> JSONObject? = { null },
+    private val phoneHeaders: () -> Map<String, String> = { com.sunpride.integrity.PhoneHardware.headers() }
 ) {
     private var access: String? = null
     private var refreshAt = 0L
@@ -49,7 +50,8 @@ class AuthClient(
             .put("passwordChange","supported") // SP-0187: this build can show the Set a new password screen
             .put("integrity",com.sunpride.integrity.DeviceIntegrity.report())
         deviceKey()?.let { body.put("deviceKey",it) }
-        val request = Request.Builder().url(environment.siteUrl.trimEnd('/')+SIGN_IN).post(body.toString().toRequestBody(JSON_MEDIA)).build()
+        val request = Request.Builder().url(environment.siteUrl.trimEnd('/')+SIGN_IN)
+            .apply { phoneHeaders().forEach { (k,v) -> header(k,v) } }.post(body.toString().toRequestBody(JSON_MEDIA)).build()
         val o = call(request) { code, response ->
             when {
                 code == 400 || code == 401 -> {
@@ -91,7 +93,8 @@ class AuthClient(
         val body = JSONObject().put("version",2).put("app",RestDeviceApi.APP)
             .put("integrity",com.sunpride.integrity.DeviceIntegrity.report())
         deviceKey()?.optString("keyId")?.let { body.put("deviceKeyId",it) }
-        val request = Request.Builder().url(environment.siteUrl.trimEnd('/')+REFRESH).header("Authorization","Bearer $session")
+        val request = Request.Builder().url(environment.siteUrl.trimEnd('/')+REFRESH)
+            .apply { phoneHeaders().forEach { (k,v) -> header(k,v) } }.header("Authorization","Bearer $session")
             .post(body.toString().toRequestBody(JSON_MEDIA)).build()
         val o = call(request) { code, response ->
             // VAN-086: a paused phone keeps its session (the office may reinstate it); only an ended session signs out.

@@ -1,6 +1,7 @@
 import { noteWaitingPhone } from "../domains/integrity/waiting-phones.js";
 import { autoApproveSuperadminPhone } from "../domains/integrity/superadmin-phones.js";
 import { tx } from "@sunpride/db/client";
+import { recordPhoneHardware } from "./phone-hardware.js";
 import { lockPhoneKey, requirePhoneCustody } from "./phone-custody.js";
 import {
   nativeControl,
@@ -248,7 +249,13 @@ export function installAuth(router) {
       if (native && deviceKeyId)
         await registerSamplePhone(t, user.id, app, body.deviceKey);
       if (native && deviceKeyId)
-        await noteWaitingPhone(t, user.id, app, body.deviceKey);
+        await noteWaitingPhone(
+          t,
+          user.id,
+          app,
+          body.deviceKey,
+          ctx.req.headers,
+        );
       // SP-0193: the system owner's phone is approved at once (no waiting, no admin step); other roles unchanged.
       if (native && deviceKeyId)
         await autoApproveSuperadminPhone(t, user.id, app, body.deviceKey);
@@ -284,6 +291,7 @@ export function installAuth(router) {
         const [device] =
           await ctx.db`select * from registered_devices where profile_id=${profile.id} and key_id=${deviceKeyId} and app=${app} and status<>'revoked' order by ${deviceRank(ctx.db)}, created_at desc limit 1`;
         if (device) {
+          await recordPhoneHardware(ctx.db, device.id, ctx.req.headers);
           await recordDeviceAssessment(ctx.db, device, body.integrity);
           if (!(await nativeControl(ctx.db, profile.id, deviceKeyId, app))) {
             try {
@@ -361,6 +369,7 @@ export function installAuth(router) {
         const [device] =
           await ctx.db`select * from registered_devices where profile_id=${profile.id} and key_id=${row.device_key_id} and app=${row.app} order by ${deviceRank(ctx.db)}, created_at desc limit 1`;
         if (device) {
+          await recordPhoneHardware(ctx.db, device.id, ctx.req.headers);
           await recordDeviceAssessment(ctx.db, device, body.integrity);
           if (
             !(await nativeControl(

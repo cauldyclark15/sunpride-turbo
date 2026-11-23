@@ -1030,6 +1030,7 @@ describe("Phones admin", () => {
     const view = html(createElement(AdminWorkspace));
     expect(view).toContain("Phones");
     expect(view).toContain("PHONE-7");
+    expect(view).toContain("Android · Galaxy A55");
     expect(view).toContain("Ana Reyes");
     expect(view).toContain("Suspended");
     expect(state.queryCalls).toContainEqual({
@@ -1104,6 +1105,8 @@ describe("Phones admin", () => {
       name: "mobile/devices:lostDeviceReport",
       args: { deviceId },
     });
+    expect(view).toContain("Android · Galaxy A55");
+    expect(view).toContain("app 1.0");
     expect(view).toContain("The server now refuses this phone");
     expect(view).toContain("Work may remain only on the phone");
     expect(view).toContain("may already have reached the office");
@@ -1120,6 +1123,26 @@ describe("Phones admin", () => {
     expect(view).toContain("Reinstate phone");
     expect(view).toContain("Revoke phone");
     expect(view).not.toContain("Suspend phone");
+  });
+  it("shows the not-yet-sent explanation in the list and phone detail", () => {
+    const pending = { ...device, model: "Model not sent yet" };
+    state.selectedOverride = deviceId;
+    state.values["mobile/devices:list"] = {
+      page: [pending],
+      continueCursor: "",
+      isDone: true,
+    };
+    state.values["mobile/devices:lostDeviceReport"] = {
+      device: pending,
+      acknowledged: [],
+      history: [],
+      lastAcknowledgedAt: null,
+    };
+    const view = html(createElement(DevicesAdmin));
+    expect(
+      view.match(/Android · Model not sent yet/g)?.length,
+    ).toBeGreaterThanOrEqual(2);
+    expect(view).not.toContain("Not recorded");
   });
   it("offers only legal transitions and sends reason codes", async () => {
     expect(deviceActionsFor("active")).toEqual(["suspend", "revoke"]);

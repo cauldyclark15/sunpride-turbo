@@ -1,3 +1,7 @@
+import {
+  cleanHardwareText,
+  phoneModelLabel,
+} from "../../core/phone-hardware.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { lockPhoneKey } from "../../core/phone-custody.js";
 import { access } from "./readers.js";
@@ -105,9 +109,13 @@ export async function registerDevice(c, b) {
     rule(
       "Use a controlled handover to reconcile this person’s existing phone first",
     );
+  const hardware = {
+    manufacturer: cleanHardwareText(b.manufacturer),
+    model: cleanHardwareText(b.model),
+  };
   const [row] =
-    await c.db`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id,status)
-    values(${person.id},${b.app},${b.app === "field-ios" ? "ios" : "android"},${tag},${publicKey},${keyId},${person.org_unit_id},'active') returning id`;
+    await c.db`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id,status,manufacturer,model)
+    values(${person.id},${b.app},${b.app === "field-ios" ? "ios" : "android"},${tag},${publicKey},${keyId},${person.org_unit_id},'active',${hardware.manufacturer},${hardware.model}) returning id`;
   return { deviceId: row.id };
 }
 
@@ -138,7 +146,7 @@ export async function deviceReport(c, p) {
       statusAt: null,
       offlineLeaseExpiresAt: null,
       allowedApp: device.app,
-      model: "Not recorded",
+      model: phoneModelLabel(device),
       platform: device.platform,
     },
     profile: {

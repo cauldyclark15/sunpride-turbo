@@ -65,6 +65,23 @@ class RequestSignerTest {
         }
     }
 
+    @Test fun reportsOptionalHardwareOnEveryV2CheckInPath() {
+        val hardware = com.sunpride.integrity.PhoneHardware.headers(" Xiaomi ", "Redmi Note 13")
+        listOf("/api/sync/pull", "/api/sync/push", "/api/media/claims").forEach { path ->
+            val headers = RequestSigner.headers(signer, "d", path, byteArrayOf(1),
+                "10000000-0000-4000-8000-000000000001", 1780000000000, hardware)
+            assertEquals("Xiaomi", headers["x-device-manufacturer"])
+            assertEquals("Redmi%20Note%2013", headers["x-device-model"])
+            assertTrue(CryptoVectors.verifyP1363(CryptoVectors.publicKey,
+                RequestSigner.canonical("POST", path, byteArrayOf(1),
+                    "10000000-0000-4000-8000-000000000001", 1780000000000).toByteArray(),
+                headers.getValue("x-device-signature")))
+        }
+        assertTrue(com.sunpride.integrity.PhoneHardware.headers(null, "").isEmpty())
+        assertTrue(com.sunpride.integrity.PhoneHardware.headers("bad\nvalue", "x".repeat(121)).isEmpty())
+        assertEquals("%E6%89%8B%E6%9C%BA", com.sunpride.integrity.PhoneHardware.headers(null, "手机")["x-device-model"])
+    }
+
     @Test fun fingerprintIsShortAndStable() {
         val spki = unbase64(CryptoVectors.json.getString("publicKeySpkiBase64"))
         assertTrue(Regex("^[0-9a-f]{4}( [0-9a-f]{4}){3}$").matches(fingerprint(spki)))

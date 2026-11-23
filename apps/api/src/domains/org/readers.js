@@ -2,6 +2,7 @@ import {
   requireCapability,
   requireNationalScope,
 } from "../../core/capabilities.js";
+import { phoneModelLabel } from "../../core/phone-hardware.js";
 import { ApiError } from "../../core/errors.js";
 import { coverageRows } from "./territory-coverage.js";
 import {
@@ -355,7 +356,7 @@ export async function list(c, kind, p) {
       offlineLeaseExpiresAt: null,
       employeeName: r.employeeName ?? null,
       allowedApp: r.app,
-      model: r.model ?? "Not recorded",
+      model: phoneModelLabel(r),
     }));
   return result;
 }

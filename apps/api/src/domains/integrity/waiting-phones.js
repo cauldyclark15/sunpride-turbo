@@ -1,3 +1,4 @@
+import { phoneHardware } from "../../core/phone-hardware.js";
 import { loadProfile } from "../../core/hooks.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { conflict, invalid } from "../../core/errors.js";
@@ -13,9 +14,15 @@ const APPS = ["field-android", "van-android"];
  * the sign-in already checked against its key id) so Setup > Phones can list it under "Phones waiting to be
  * registered". Only a person's FIRST phone for that app waits here; a replacement keeps the controlled handover.
  * Never fails the sign-in: anything unusual simply records nothing. Caller owns the transaction.
- * @param {any} t @param {string} userId @param {string} app @param {any} key
+ * @param {any} t @param {string} userId @param {string} app @param {any} key @param {Headers} [headers]
  */
-export async function noteWaitingPhone(t, userId, app, key) {
+export async function noteWaitingPhone(
+  t,
+  userId,
+  app,
+  key,
+  headers = new Headers(),
+) {
   if (!APPS.includes(app) || typeof key?.publicKeySpki !== "string") return;
   const profile = await loadProfile(t, userId);
   if (!profile || profile.status !== "active" || !profile.orgUnitId) return;
@@ -38,10 +45,11 @@ export async function noteWaitingPhone(t, userId, app, key) {
   if (!stored) return;
   const [waiting] =
     await t`select id from phone_registration_requests where profile_id=${profile.id} and app=${app} and key_id=${key.keyId} and status='waiting'`;
+  const { manufacturer, model } = phoneHardware(headers);
   if (waiting)
-    await t`update phone_registration_requests set last_seen_at=now() where id=${waiting.id}`;
+    await t`update phone_registration_requests set last_seen_at=now(),manufacturer=coalesce(${manufacturer},manufacturer),model=coalesce(${model},model) where id=${waiting.id}`;
   else
-    await t`insert into phone_registration_requests(profile_id,app,key_id,public_key_spki) values(${profile.id},${app},${key.keyId},${key.publicKeySpki})`;
+    await t`insert into phone_registration_requests(profile_id,app,key_id,public_key_spki,manufacturer,model) values(${profile.id},${app},${key.keyId},${key.publicKeySpki},${manufacturer},${model})`;
 }
 
 /** The short code both phone apps show on their Register screen (first 16 of the key id, in groups of 4). @param {string} keyId */
@@ -94,6 +102,8 @@ export async function registerWaitingPhone(c) {
     app: r.app,
     inventoryTag: label,
     publicKeySpki: r.public_key_spki,
+    manufacturer: r.manufacturer,
+    model: r.model,
   });
   await c.db`update phone_registration_requests set status='registered',decided_at=now(),decided_by=${c.actor.subject},device_id=${deviceId} where id=${r.id}`;
   await c.db`update phone_registration_requests set status='superseded',decided_at=now(),decided_by=${c.actor.subject} where profile_id=${r.profile_id} and status='waiting'`;

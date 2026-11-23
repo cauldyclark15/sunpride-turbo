@@ -1,4 +1,5 @@
 import { tx } from "@sunpride/db/client";
+import { phoneHardware } from "./phone-hardware.js";
 import { requirePhoneCustody } from "./phone-custody.js";
 import {
   recordDeviceAssessment,
@@ -240,10 +241,13 @@ export async function verifyDeviceProof(ctx) {
   const name = h.get("x-app-version-name");
   const cleanName =
     code !== null && name && /^[0-9A-Za-z._+-]{1,40}$/.test(name) ? name : null;
-  if (code !== null)
-    await ctx.db`update registered_devices set last_seen_at = now(), app_version_code = ${code}, app_version_name = ${cleanName}, app_version_seen_at = now() where id = ${device.id}`;
-  else
-    await ctx.db`update registered_devices set last_seen_at = now() where id = ${device.id}`;
+  const { manufacturer, model } = phoneHardware(h);
+  await ctx.db`update registered_devices set last_seen_at=now(),
+    manufacturer=coalesce(${manufacturer},manufacturer), model=coalesce(${model},model),
+    app_version_code=coalesce(${code},app_version_code),
+    app_version_name=case when ${code}::int is not null then ${cleanName} else app_version_name end,
+    app_version_seen_at=case when ${code}::int is not null then now() else app_version_seen_at end
+    where id=${device.id}`;
   ctx.device = device;
   return device;
 }

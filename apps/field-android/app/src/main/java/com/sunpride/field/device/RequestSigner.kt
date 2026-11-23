@@ -24,7 +24,8 @@ object RequestSigner {
         path: String,
         body: ByteArray,
         nonce: String,
-        timestamp: Long
+        timestamp: Long,
+        phoneHeaders: Map<String, String> = com.sunpride.integrity.PhoneHardware.headers()
     ): Map<String, String> {
         require(path in PATHS) { "Unsupported mobile path" }
         require(NONCE.matches(nonce)) { "Invalid challenge nonce" }
@@ -35,7 +36,7 @@ object RequestSigner {
             "x-device-id" to deviceId, "x-device-nonce" to nonce,
             "x-device-timestamp" to timestamp.toString(),
             "x-device-signature" to signer.sign("POST|$path|$digest|$nonce|$timestamp")
-        )
+        ) + phoneHeaders
         return linkedMapOf(
             "Content-Type" to "application/json",
             "x-mobile-contract-version" to "1",

@@ -387,8 +387,12 @@ export function DevicesAdmin() {
               >
                 <PhoneCode value={device.inventoryTag} />
                 <p className="text-[13px] text-muted">
-                  {device.employeeName ?? "Unassigned"} · {platformLabel(device.platform)}{" "}
-                  {device.osVersion} · app {device.appVersion}
+                  {device.employeeName ?? "Unassigned"}
+                </p>
+                <p className="text-[13px] text-muted">
+                  {platformLabel(device.platform)} · {device.model}
+                  {device.osVersion ? ` · ${device.osVersion}` : ""}
+                  {device.appVersion ? ` · app ${device.appVersion}` : ""}
                 </p>
                 <div className="flex items-center gap-2">
                   <StatusPill tone={statusTone(device.status)}>

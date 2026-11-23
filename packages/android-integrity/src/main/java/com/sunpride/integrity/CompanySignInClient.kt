@@ -36,6 +36,7 @@ class CompanySignInClient(private val origin: String, private val app: String,
     }
     private fun call(path: String, body: JSONObject? = null): JSONObject {
         val request = Request.Builder().url(origin.trimEnd('/')+path)
+            .apply { PhoneHardware.headers().forEach { (k,v) -> header(k,v) } }
             .apply { if (body != null) post(body.toString().toRequestBody("application/json".toMediaType())) }.build()
         return http.newCall(request).execute().use { response ->
             val source = checkNotNull(response.body).source()
