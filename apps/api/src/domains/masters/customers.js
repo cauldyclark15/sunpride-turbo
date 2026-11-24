@@ -501,8 +501,10 @@ export async function saveCustomer(c, b, opts = {}) {
     merged.salesPartnerCode = await defaultSalesPartner(c, lists);
   let draft = validateCustomer(merged, {
     level: opts.fieldCapture ? "field" : pendingEdit ? "draft" : "complete",
+    // SP-0250 partial saves keep the stored name unless parts are being edited.
     requireNameParts:
-      opts.requireNameParts || CUSTOMER_NAME_FIELDS.some((f) => f.key in input),
+      (opts.requireNameParts && !pendingEdit) ||
+      CUSTOMER_NAME_FIELDS.some((f) => f.key in input),
     lists,
     geography: geo,
   });
@@ -558,10 +560,24 @@ export async function saveCustomer(c, b, opts = {}) {
           }));
   }
   if (!draft.ok) invalid(draft);
+  // A partial (draft-level) save may leave name parts blank but must still keep a name.
+  if (!text(draft.value.customerName))
+    invalid({
+      errors: [
+        {
+          field: "firstName",
+          label: "First Name",
+          section: "Customer General Information",
+          code: "required",
+          message: "First Name is required.",
+        },
+      ],
+    });
   const complete = validateCustomer(merged, {
     level: "complete",
     requireNameParts:
-      opts.requireNameParts || CUSTOMER_NAME_FIELDS.some((f) => f.key in input),
+      (opts.requireNameParts && !pendingEdit) ||
+      CUSTOMER_NAME_FIELDS.some((f) => f.key in input),
     lists,
     geography: geo,
   });

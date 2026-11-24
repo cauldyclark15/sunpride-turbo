@@ -298,6 +298,8 @@ test("SP-0250 complete then approve: current admin-only permission applies to ol
   const customer = {
     registeredName: "Sample store",
     customerName: "Sample owner",
+    firstName: "Sample",
+    lastName: "owner",
     mobileNo: "09171234567",
     taxClassificationCode: "1",
     countryCode: "PH",

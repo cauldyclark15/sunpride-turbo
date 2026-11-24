@@ -199,7 +199,13 @@ test("SP-0229 customer upload saves all typed answers; list/detail and canonical
   const changed = await call(
     "office",
     `customers/${customerId}`,
-    { customer: { tradeName: "Sample edited" } },
+    {
+      customer: {
+        tradeName: "Sample edited",
+        firstName: "Sample",
+        lastName: "Owner",
+      },
+    },
     "PUT",
   );
   expect(changed.status).toBe(200);
@@ -252,7 +258,7 @@ test("SP-0229 required customers match any chosen channel or type, otherwise bla
   const saved = await call(
     "office",
     `customers/${customerId}`,
-    { customer: { customFields: {} } },
+    { customer: { customFields: {}, firstName: "Sample", lastName: "Owner" } },
     "PUT",
   );
   expect(saved.status).toBe(200);
@@ -296,6 +302,9 @@ test("SP-0229 signed Field capture downloads ordered schema and persists answers
   for (const [name] of PROFILE_COLUMNS) customer[name] = stored[name];
   Object.assign(customer, {
     customerName: "Sample Field Owner",
+    firstName: "Sample",
+    middleName: "Field",
+    lastName: "Owner",
     registeredName: "Sample Field Store",
     customerAddress: stored.customerAddress,
     shipTos: stored.shipTos,
