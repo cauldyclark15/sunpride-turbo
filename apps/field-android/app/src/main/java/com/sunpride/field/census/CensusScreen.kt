@@ -97,6 +97,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     val editKey = editing?.outletId
     val keep = draftHolder
     val draftEpoch = remember(backend) { backend?.authorizationEpoch }
+    val draftSession = remember(keep) { keep.session }
     // SP-0196: a rebuilt screen starts from the form kept above it, never from an older phone copy.
     val held = if (edit) null else keep.draft
     // QA retest: an explicit per-store key, so a value saved earlier on this screen (for example an empty
@@ -140,6 +141,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     var draftLoaded by remember { mutableStateOf(!edit && keep.loaded) }
     var draftRestored by remember { mutableStateOf(held != null && !held.isEmpty()) }
     var savedDrafts by remember { mutableStateOf(keep.customers.saved) }
+    var showDrafts by remember { mutableStateOf(held == null && keep.customers.saved.isNotEmpty()) }
     var savedNotice by keep::savedNotice
     val keyRequesters = remember { mutableMapOf<String, BringIntoViewRequester>() }
     fun requester(key: String) = keyRequesters.getOrPut(key) { BringIntoViewRequester() }
@@ -160,8 +162,11 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             // Load phone drafts independently of setup downloads: saving a draft never needs a connection.
             // The phone copy only matters when nothing is kept above the screen (the app was closed since).
             if (!edit && backend != null && !draftLoaded && !keep.loaded) {
-                keep.restore(withContext(Dispatchers.IO) { backend.customerDraft() })
+                val json = withContext(Dispatchers.IO) { backend.customerDraft() }
+                check(keep.session == draftSession && backend.authorizationEpoch == draftEpoch)
+                keep.restore(json)
                 savedDrafts = keep.customers.saved
+                showDrafts = keep.customers.active == null && savedDrafts.isNotEmpty()
                 val kept = keep.draft
                 if (kept != null && (!kept.isEmpty() || keep.customers.activeId != null)) {
                     form = kept.form.let { if (it.customerName.isBlank()) it.copy(customerName = initialName.take(200)) else it }
@@ -171,30 +176,38 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             draftLoaded = true
             config = runCatching { withContext(Dispatchers.IO) { backend?.censusConfig() } }.getOrNull()
             history = runCatching { withContext(Dispatchers.IO) { backend?.censusSaved().orEmpty() } }.getOrDefault(emptyList())
-            message = if (config == null) "Connect once to download the customer setup, then add customers offline."
-                else if (!edit && CustomerCapture.setup(config) == null) "Connect once to download the customer lists, then add customers offline."
+            message = if (config == null) "Connect once to download the customer setup. You can still save drafts."
+                else if (!edit && CustomerCapture.setup(config) == null) "Connect once to download the customer lists. You can still save drafts."
                 else if (draftRestored) DRAFT_KEPT
                 else "Saved customers stay encrypted on this phone until the next sync."
-        } catch (_: Exception) {
+        } catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
             message = if (!edit && !keep.loaded) "Could not open your customer drafts. Go back and try again; your saved drafts have not been changed."
                 else "Customer setup is unavailable. Connect and refresh your signed-in account."
         }
     }
     // SP-0176: keep the draft on every change (debounced), and once more when the screen closes.
     val latestDraft by rememberUpdatedState(CustomerCapture.Draft(form, fix, jpeg))
-    val draftAllowed by rememberUpdatedState(draftLoaded && !edit && savedNotice == null && !savingDraft)
+    val draftAllowed by rememberUpdatedState(draftLoaded && !edit && savedNotice == null && !savingDraft && !busy && !showDrafts && keep.session == draftSession)
     // SP-0196: every change is kept above the screen at once; the phone copy follows (numbered, newest wins).
     SideEffect { if (draftAllowed) keep.keep(CustomerCapture.Draft(form, fix, jpeg)) }
     fun persistDraft(json: String?, ticket: Long) {
         val b = backend ?: error("Customer draft storage unavailable")
         check(b.authorizationEpoch == draftEpoch) { "Session changed" }
-        check(keep.persist(ticket) { b.saveCustomerDraft(json) }) { "A newer customer draft was already saved." }
+        check(keep.persist(ticket) {
+            check(keep.session == draftSession && b.authorizationEpoch == draftEpoch) { "Session changed" }
+            b.saveCustomerDraft(json)
+        }) { "A newer customer draft was already saved." }
     }
-    LaunchedEffect(form, fix, jpeg, draftLoaded, savingDraft) {
+    LaunchedEffect(form, fix, jpeg, draftLoaded, savingDraft, busy, showDrafts) {
         if (!draftAllowed || backend == null) return@LaunchedEffect
         delay(400)
         val json = keep.customers.keep(latestDraft).json(); val ticket = keep.ticket()
-        runCatching { withContext(Dispatchers.IO) { persistDraft(json, ticket) } }
+        try { withContext(Dispatchers.IO) { persistDraft(json, ticket) } }
+        catch (e: Exception) {
+            if (e is kotlinx.coroutines.CancellationException) throw e
+            message = "Could not keep your latest changes. Tap Save as draft to try again."
+        }
     }
     DisposableEffect(backend) {
         onDispose {
@@ -202,12 +215,6 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 val json = keep.customers.json(); val ticket = keep.ticket()
                 Thread { runCatching { persistDraft(json, ticket) } }.start() }
         }
-    }
-    /** Saved or discarded: nothing is kept above the screen, and the phone copy is cleared after any older write. */
-    fun dropDraft() {
-        keep.clear(); savedDrafts = keep.customers.saved
-        val json = keep.customers.json(); val ticket = keep.ticket()
-        scope.launch { runCatching { withContext(Dispatchers.IO) { persistDraft(json, ticket) } } }
     }
     // Sales Organization defaults from the agent's assignment once the setup is known.
     LaunchedEffect(setup) { if (setup != null && form.salesOrgCode.isEmpty()) form = CustomerCapture.start(setup, form.customerName).let { form.copy(salesOrgCode = it.salesOrgCode) } }
@@ -318,49 +325,81 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             municipalityCode = form.municipalityCode) else CustomerCapture.start(setup)
         formErrors = emptyMap()
     }
-    fun saveAsDraft() {
-        if (busy || !draftLoaded || backend == null) return
-        val next = keep.customers.save(CustomerCapture.Draft(form, fix, jpeg))
+    fun storeDrafts(next: CustomerDrafts, notice: String, list: Boolean = false, after: () -> Unit = {}) {
+        if (busy || !draftLoaded || backend == null || keep.session != draftSession) return
         val json = next.json(); val ticket = keep.ticket()
         busy = true; savingDraft = true
         scope.launch {
             try {
-                withContext(Dispatchers.IO) { persistDraft(json, ticket) }
-                keep.replace(next); savedDrafts = next.saved
-                reset(keepLocation = false); draftRestored = false
-                message = DRAFT_SAVED
+                // Finish a requested phone write even if Back closes the screen during IO.
+                withContext(kotlinx.coroutines.NonCancellable) {
+                    withContext(Dispatchers.IO) { persistDraft(json, ticket) }
+                    check(keep.session == draftSession && backend.authorizationEpoch == draftEpoch)
+                    keep.replace(next); savedDrafts = next.saved
+                    reset(keepLocation = false); camera = false; draftRestored = false; showDrafts = list
+                    message = notice
+                    after()
+                }
             } catch (e: Exception) {
                 if (e is kotlinx.coroutines.CancellationException) throw e
                 saveNote = "Could not save the draft. Your entries are still here. Try again."
             } finally { busy = false; savingDraft = false }
         }
     }
+    fun saveAsDraft() {
+        focus.clearFocus()
+        storeDrafts(keep.customers.save(CustomerCapture.Draft(form, fix, jpeg)), DRAFT_SAVED, list = true)
+    }
+    fun browseDrafts() {
+        focus.clearFocus()
+        val d = CustomerCapture.Draft(form, fix, jpeg)
+        val next = if (!d.isEmpty() || keep.customers.activeId != null) keep.customers.save(d)
+            else keep.customers.copy(active = null)
+        storeDrafts(next, "Open a draft to continue, or add another customer.", list = true)
+    }
+    fun discardDraft(after: () -> Unit = {}) {
+        storeDrafts(keep.customers.clear(), "Started again. This draft was discarded; your other drafts were kept.", after = after)
+    }
     fun openDraft(id: String) {
         if (busy) return
         val next = keep.customers.open(id)
         val d = checkNotNull(next.active)
-        keep.replace(next)
+        reset(keepLocation = false); keep.replace(next)
         form = d.form; fix = d.fix; jpeg = d.photo; mode = if (d.fix == null) "" else "gps"
-        formErrors = emptyMap(); attempted = false; saveNote = null; staleRetry = false
+        camera = false; showDrafts = false
         draftRestored = true; message = DRAFT_KEPT
     }
     fun queue(p: JSONObject) {
         val backendNow = backend ?: return
+        val completed = keep.customers.clear(); val ticket = keep.ticket()
         busy = true // synchronously: a second tap can never reach the cleared form
         scope.launch {
             try {
                 CensusRules.validate(p)
-                withContext(Dispatchers.IO) { backendNow.queueCensus(p) }
+                withContext(kotlinx.coroutines.NonCancellable) {
+                    withContext(Dispatchers.IO) {
+                        check(keep.persist(ticket) {
+                            check(keep.session == draftSession && backendNow.authorizationEpoch == draftEpoch)
+                            if (CensusRules.isChange(p)) backendNow.queueCensus(p)
+                            else backendNow.queueCustomer(p, completed.json())
+                        })
+                    }
+                    if (!CensusRules.isChange(p)) {
+                        check(keep.session == draftSession && backendNow.authorizationEpoch == draftEpoch)
+                        keep.replace(completed); savedDrafts = completed.saved
+                        reset(); draftRestored = false
+                        savedNotice = if (isOnline(context)) SAVED_ONLINE else SAVED_OFFLINE
+                    }
+                }
                 onQueued?.invoke()
-                history = withContext(Dispatchers.IO) { backendNow.censusSaved() }
+                history = runCatching { withContext(Dispatchers.IO) { backendNow.censusSaved() } }.getOrDefault(history)
                 if (CensusRules.isChange(p)) {
                     message = "Change saved on phone. The office checks it first."
                     onChangeSaved?.invoke()
                     return@launch
                 }
                 message = "Customer saved on this phone. The CDM reviews and verifies it after sync."
-                savedNotice = if (isOnline(context)) SAVED_ONLINE else SAVED_OFFLINE
-                reset(); draftRestored = false; dropDraft()
+
             } catch (e: Exception) {
                 message = if (e is IllegalArgumentException) e.message ?: "Complete every field." else "Could not save. Check your offline recording access and retry."
                 saveNote = message
@@ -472,18 +511,21 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 glyph = if (config == null) GlyphKind.INFO else GlyphKind.LOCK, textTag = "census-message")
             if (!edit && draftLoaded) {
                 StatusChip("Draft · not sent for approval", Look.Tone.NEUTRAL, textTag = "customer-draft-state")
-                if (savedDrafts.isNotEmpty() && CustomerCapture.Draft(form, fix, jpeg).isEmpty() && keep.customers.activeId == null) {
-                    SectionCard("Draft customers") {
+                if (showDrafts) {
+                    SectionCard("Drafts") {
                         Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Saved on this phone. Open a draft to finish it, or enter another customer below.", style = MaterialTheme.typography.bodySmall)
+                            Text("Saved on this phone. Open a draft to finish it, then tap Submit for approval.", style = MaterialTheme.typography.bodySmall)
+                            if (savedDrafts.isEmpty()) Text("No saved drafts yet.", modifier = Modifier.testTag("customer-drafts-empty"))
                             savedDrafts.forEach { entry ->
-                                TonalButton("${entry.name} · Edit draft", { openDraft(entry.id) },
+                                TonalButton(entry.name, { openDraft(entry.id) },
                                     Modifier.fillMaxWidth().testTag("customer-draft-${entry.id}"), !busy)
                             }
                         }
                     }
-                }
+                } else SecondaryButton("Drafts (${savedDrafts.size})", ::browseDrafts,
+                    Modifier.fillMaxWidth().testTag("customer-drafts"), !busy)
             }
+            if (edit || !showDrafts) {
             if (!edit) CustomerSections(setup, geography, form, { formErrors = formErrors - changedKeys(form, it); form = it }, customerMarks, ::requester,
                 geoNote, fix, busy, ::useMyLocation, locationNote)
             if (edit) {
@@ -591,11 +633,15 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                     }
                 }
             }
+            }
         }
         ActionBar {
+            if (showDrafts && !edit) PrimaryBottomButton("Add another customer", {
+                reset(keepLocation = false); showDrafts = false
+            }, Modifier.fillMaxWidth().testTag("customer-drafts-new"), !busy)
+            else {
             if (!edit && draftLoaded && (!CustomerCapture.Draft(form, fix, jpeg).isEmpty() || keep.customers.activeId != null))
-                TextButton({ reset(keepLocation = false); draftRestored = false; message = "Started again. The customer draft was discarded."
-                    dropDraft() },
+                TextButton({ discardDraft() },
                     Modifier.fillMaxWidth().testTag("census-discard"), enabled = !busy) { Text("Discard and start again") }
             val note = saveNote ?: if (marked.isNotEmpty()) CensusRules.missingSummary(marked.size)
                 else if (customerMarks.isNotEmpty()) CensusRules.missingSummary(customerMarks.size) else null
@@ -605,6 +651,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 !busy && draftLoaded && backend != null && !camera)
             PrimaryBottomButton(if (refreshing) "Checking your location…" else if (edit) "Save changes" else "Submit for approval", ::save,
                 Modifier.fillMaxWidth().testTag("census-save"), !busy && (edit || (draftLoaded && setup != null)) && !camera)
+            }
         }
     }
     savedNotice?.let { text ->
@@ -637,8 +684,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             }
             PrimaryBottomButton("It's this customer", {
                 val outlet = duplicates.firstOrNull { d -> d.kind == "outlet" && stores.any { it.outletId == d.id } }
-                reset(); dropDraft(); message = "Not saved. That customer is already in the list."
-                outlet?.let { o -> onOpenStore?.invoke(o.id) }
+                discardDraft { outlet?.let { o -> onOpenStore?.invoke(o.id) } }
             }, Modifier.fillMaxWidth().testTag("census-dup-same"))
             SecondaryButton("It's a different customer", {
                 val ids = duplicates.map { it.id }; pending?.let { queue(build(ids)) }
@@ -649,7 +695,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
 internal const val SAVED_ONLINE = "Customer saved. Sent to the office for approval."
 internal const val SAVED_OFFLINE = "Saved. It will send when you have signal."
 internal const val DRAFT_KEPT = "Your customer draft was kept. Complete it and tap Submit for approval, or save it as a draft again."
-internal const val DRAFT_SAVED = "Draft saved on this phone. It has not been sent for approval. Open it under Draft customers to continue later."
+internal const val DRAFT_SAVED = "Draft saved on this phone. It has not been sent for approval. Open it from Drafts to continue later."
 private fun isOnline(context: android.content.Context): Boolean = runCatching {
     val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
     val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false

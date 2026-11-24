@@ -119,8 +119,9 @@ class CustomerDraftsTest {
     @Test fun signOutRetiresPendingPhoneWrites() {
         val holder = CustomerDraftHolder()
         holder.keep(partial())
-        val ticket = holder.ticket()
+        val ticket = holder.ticket(); val session = holder.session
         holder.reset()
+        assertTrue(holder.session > session)
         var wrote = false
         assertFalse(holder.persist(ticket) { wrote = true })
         assertFalse(wrote)

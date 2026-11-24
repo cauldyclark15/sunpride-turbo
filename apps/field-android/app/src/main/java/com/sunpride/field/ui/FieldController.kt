@@ -151,6 +151,11 @@ interface FieldBackend {
     fun censusSaved(): List<com.sunpride.field.census.CensusRules.Saved> =
         censusHistory().map { com.sunpride.field.census.CensusRules.Saved(it.first, it.second, null) }
     fun queueCensus(payload: JSONObject) { error("Census unavailable") }
+    /** SP-0244: production atomically queues the customer and removes only its draft. */
+    fun queueCustomer(payload: JSONObject, remainingDrafts: String?) {
+        queueCensus(payload)
+        saveCustomerDraft(remainingDrafts)
+    }
     /** SP-0170 Add customer: PSGC geography kept on this phone (national pack + barangays of [provinces] and of
      * every province fetched before). Downloads what is missing or older than 30 days when online. */
     fun customerGeography(provinces: List<String>): com.sunpride.field.census.CustomerCapture.Geography? = null
@@ -531,7 +536,7 @@ class LiveFieldBackend(
         val partition = storedScope() ?: error("No verified local partition")
         val epoch = authorizationEpoch
         withStore { store -> store.retailTransaction {
-            check(epoch == authorizationEpoch && storedScope() == partition) { "Session changed" }
+            check(epoch == authorizationEpoch && storedScope() == partition && !store.isHeld()) { "Session changed" }
             if (json == null) store.blockLocalCache(CUSTOMER_DRAFT, "draft", "discarded", System.currentTimeMillis())
             else store.putLocalCache(CUSTOMER_DRAFT, "draft", json, System.currentTimeMillis(), "draft")
             val saved = store.localCache(CUSTOMER_DRAFT, "draft")?.takeUnless { it.tombstone }?.json
@@ -627,6 +632,17 @@ class LiveFieldBackend(
             val at = System.currentTimeMillis()
             store.enqueue(com.sunpride.field.census.CensusRules.intent(scope, payload, at), at)
         }
+        runCatching { com.sunpride.field.sync.work.SyncWork.enqueue(context) }
+    }
+    override fun queueCustomer(payload: JSONObject, remainingDrafts: String?) {
+        val partition = storedScope() ?: error("No verified local partition")
+        val epoch = authorizationEpoch
+        withStore { store -> store.retailTransaction {
+            check(epoch == authorizationEpoch && storedScope() == partition) { "Session changed" }
+            val at = System.currentTimeMillis()
+            store.enqueueCustomerCapture(com.sunpride.field.census.CensusRules.intent(partition, payload, at), remainingDrafts, at)
+            check(epoch == authorizationEpoch && storedScope() == partition) { "Session changed" }
+        } }
         runCatching { com.sunpride.field.sync.work.SyncWork.enqueue(context) }
     }
     override fun photoTypes(): List<com.sunpride.field.storage.PhotoType> {

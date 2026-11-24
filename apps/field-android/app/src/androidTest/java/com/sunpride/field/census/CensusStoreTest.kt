@@ -52,6 +52,46 @@ class CensusStoreTest {
         assertFalse(disk.contains("F-011 encrypted census marker"))
         Unit
     }
+    @Test fun customerDraftBookSurvivesEncryptedReopenAndBootstrapAndIsPartitioned() = runBlocking {
+        val target = store()
+        val snapshot = ScopedSnapshot("{}", null, emptyList(), emptyList(), emptyList(), emptyList())
+        target.swap(target.stage(snapshot), "draft-cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        val draft = CustomerCapture.Draft(CustomerCapture.Form(customerName = "SP244 private draft marker"), null, null)
+        val book = CustomerDrafts().save(draft).save(draft.copy(form = CustomerCapture.Form()))
+        target.putLocalCache("local.customerdraft", "draft", book.json()!!, 1001, "draft")
+        assertTrue(target.pending().isEmpty()) // not a submitted customer
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        val reopened = store()
+        reopened.swap(reopened.stage(snapshot), "new-cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        assertEquals(2, CustomerDrafts.parse(reopened.localCache("local.customerdraft", "draft")!!.json).saved.size)
+        assertNull(RoomFieldStore(db, scope.copy(account = "other")).localCache("local.customerdraft", "draft"))
+        assertNull(RoomFieldStore(db, scope.copy(fingerprint = "other")).localCache("local.customerdraft", "draft"))
+        val disk = context.getDatabasePath(PassphraseVault.DB_NAME).readBytes().toString(Charsets.ISO_8859_1)
+        assertFalse(disk.contains("SP244 private draft marker"))
+        Unit
+    }
+
+    @Test fun finalSaveAndDraftRemovalCommitOrRollBackTogether() = runBlocking {
+        val target = store()
+        val snapshot = ScopedSnapshot("{}", null, emptyList(), emptyList(), emptyList(), emptyList())
+        target.swap(target.stage(snapshot), "draft-cursor", Long.MAX_VALUE, Long.MAX_VALUE)
+        val draft = CustomerCapture.Draft(CustomerCapture.Form(), null, null)
+        val book = CustomerDrafts().save(draft).save(draft)
+        val original = book.json()!!
+        target.putLocalCache("local.customerdraft", "draft", original, 1001, "draft")
+        val intent = CensusRules.intent(scope, payload(), 1002)
+        // Simulate failure updating the draft record AFTER enqueue: the intent/outbox must roll back too.
+        assertThrows(IllegalArgumentException::class.java) { runBlocking { target.enqueueCustomerCapture(intent, "", 1002) } }
+        assertTrue(target.pending().isEmpty())
+        assertEquals(original, target.localCache("local.customerdraft", "draft")!!.json)
+        val remaining = book.open(book.saved.first().id).clear().json()
+        target.enqueueCustomerCapture(intent, remaining, 1003)
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        assertEquals(intent.serializedOperation, store().pending().single().first.serializedOperation)
+        assertEquals(listOf(book.saved.last().id), CustomerDrafts.parse(store().localCache("local.customerdraft", "draft")!!.json).saved.map { it.id })
+        Unit
+    }
+
     @Test fun f011CaptureAndOutboxRollbackTogetherAtTheExistingStoreTransactionBoundary() = runBlocking {
         val store = store()
         val snapshot = ScopedSnapshot("{}", null, emptyList(), emptyList(), emptyList(), emptyList())

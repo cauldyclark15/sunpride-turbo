@@ -513,6 +513,16 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     }
     override suspend fun enqueue(intent: IntentRow, now: Long) = enqueueWithCheckpoint(intent, now) {}
 
+    /** SP-0244: a crash can never leave a submitted customer still listed as an unfinished draft. */
+    suspend fun enqueueCustomerCapture(intent: IntentRow, remainingDrafts: String?, now: Long) {
+        db.withTransaction {
+            enqueue(intent, now)
+            if (remainingDrafts == null) blockLocalCache("local.customerdraft", "draft", "completed", now)
+            else putLocalCache("local.customerdraft", "draft", remainingDrafts, now, "draft")
+            check(localCache("local.customerdraft", "draft")?.takeUnless { it.tombstone }?.json == remainingDrafts)
+        }
+    }
+
     /** Test seam: throwing after the intent insertion proves Room rolls back both rows. */
     internal suspend fun enqueueWithCheckpoint(intent: IntentRow, now: Long, checkpoint: () -> Unit) {
         require(intent.account == a && intent.deviceId == d && intent.scope == s)

@@ -20,6 +20,8 @@ class CustomerDraftHolder {
     private val lock = Any()
     private var nextTicket = 0L
     private var written = 0L
+    @Volatile var session = 0L
+        private set
 
     /** The working form and explicitly saved drafts; persisted together in the existing encrypted phone row. */
     @Volatile var customers = CustomerDrafts()
@@ -50,8 +52,8 @@ class CustomerDraftHolder {
     }
 
     /** Sign-out: nothing of this session carries over. */
-    fun reset() {
-        synchronized(lock) { written = ++nextTicket }
+    fun reset() = synchronized(lock) {
+        written = ++nextTicket; session++
         customers = CustomerDrafts(); loaded = false; savedNotice = null
     }
 }

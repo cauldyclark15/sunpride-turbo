@@ -28,7 +28,11 @@ class SafeSurfacesAuditTest {
 
     @Test fun fld075SavedCustomerRefreshesThePillAndSyncScreen() {
         val census = File(main, "census/CensusScreen.kt").readText()
-        assertTrue(Regex("""queueCensus\(p\) \}\s*\n\s*onQueued\?\.invoke\(\)""").containsMatchIn(census))
+        // SP-0244: final Save now uses the atomic customer-and-draft operation, then refreshes waiting work.
+        val queue = census.substringAfter("fun queue(p: JSONObject)").substringBefore("fun build(")
+        assertTrue(queue.contains("backendNow.queueCustomer(p, completed.json())"))
+        assertTrue(queue.substringAfter("backendNow.queueCustomer(p, completed.json())")
+            .contains("onQueued?.invoke()"))
         val app = File(main, "ui/FieldApp.kt").readText()
         assertTrue(app.contains("onQueued = { controller.refreshCache() }"))
         assertTrue(app.contains("""LaunchedEffect(page) { if (page == "sync") controller.refreshCache() }"""))
