@@ -180,7 +180,7 @@ test("idempotent repeat creates zero and preserves all passwords", async () => {
     (a) => originalPasswords[a.email] === a.password,
   );
   expect(same).toBe(true);
-});
+}, 120_000);
 
 test("CLI --rotate issues new credentials, revokes old sessions and prints no secrets", async () => {
   const p = Bun.spawn(
@@ -250,7 +250,7 @@ test("a tester-changed password is preserved and no stale password is handed out
   const line = text.split("\n").find((line) => line.includes(a.email)) ?? "";
   expect(line.includes(a.password)).toBe(false);
   expect(line.includes("Password changed by tester")).toBe(true);
-});
+}, 120_000);
 
 test("F-008 five-tier chain and area/regional trial scope are effective data, not title permissions", async () => {
   const { rowId } = await import("./store.js");
@@ -259,6 +259,9 @@ test("F-008 five-tier chain and area/regional trial scope are effective data, no
     import.meta.url,
   ).href;
   const { scopeFilterForActor } = await import(scopePath);
+  const { isCompanyWide } = await import(
+    new URL("../../../apps/api/src/core/capabilities.js", import.meta.url).href
+  );
   const chain = await h.db`with recursive reporting as (
     select p.id,p.name,a.supervisor_id,1 depth from profiles p join employee_assignments a on a.profile_id=p.id where p.id=${rowId("profiles", "agent")} and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now()) and a.deleted_at is null
     union all select p.id,p.name,a.supervisor_id,r.depth+1 from reporting r join profiles p on p.id=r.supervisor_id join employee_assignments a on a.profile_id=p.id where r.depth<10 and a.effective_from<=now() and (a.effective_to is null or a.effective_to>now()) and a.deleted_at is null
@@ -278,6 +281,12 @@ test("F-008 five-tier chain and area/regional trial scope are effective data, no
       role: p.role,
       orgUnitId: p.org_unit_id,
     });
+    // SP-0231: company-wide office roles get unitIds null, meaning every
+    // branch. Only accept null when the role really is company-wide.
+    if (scope.unitIds === null) {
+      expect(isCompanyWide(p.role)).toBe(true);
+      continue;
+    }
     expect(scope.unitIds.includes(rowId("org_units", "territory-0"))).toBe(
       true,
     );

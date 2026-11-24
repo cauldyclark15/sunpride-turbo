@@ -30,6 +30,7 @@ const ALLOWED = new Set([
   "coverage_plan_outlets",
   "coverage_plan_territories",
   "coverage_plan_slots",
+  "coverage_daily_routes", // SP-0224: approval materializes dated daily routes
   "coverage_audit_events",
   "coverage_commands",
   "planned_visits",
@@ -39,6 +40,7 @@ const ALLOWED = new Set([
 const GUARDED = [
   "coverage_plans",
   "coverage_plan_slots",
+  "coverage_daily_routes", // SP-0224: approval materializes dated daily routes
   "planned_visits",
   "visit_executions",
   "van_trips",

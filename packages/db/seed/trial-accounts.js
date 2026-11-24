@@ -230,7 +230,7 @@ export async function createTrialAccounts(
     );
   await mkdir(dirname(recordPath), { recursive: true, mode: 0o700 });
   const lock = `${recordPath}.lock`;
-  await mkdir(lock, { mode: 0o700 });
+  await acquireLock(lock);
   try {
     /** @type {RecordFile} */ let record = { version: 1, databases: {} };
     try {
@@ -409,6 +409,40 @@ export async function createTrialAccounts(
     };
   } finally {
     await rm(lock, { recursive: true, force: true });
+  }
+}
+
+/** Directory lock owned by a pid. A lock left by a process that no longer
+ * runs (crash, kill) is reclaimed; a live owner is waited on briefly.
+ * @param {string} lock */
+async function acquireLock(lock) {
+  const owner = join(lock, "pid");
+  for (let attempt = 0; ; attempt++) {
+    try {
+      await mkdir(lock, { mode: 0o700 });
+      await writeFile(owner, String(process.pid), { mode: 0o600 });
+      return;
+    } catch (e) {
+      if (/** @type {any} */ (e)?.code !== "EEXIST") throw e;
+      const pid = Number(await readFile(owner, "utf8").catch(() => ""));
+      let alive = false;
+      if (pid > 0 && pid !== process.pid) {
+        try {
+          process.kill(pid, 0);
+          alive = true;
+        } catch (err) {
+          alive = /** @type {any} */ (err)?.code === "EPERM";
+        }
+      }
+      // No pid yet: owner may be mid-acquire; give it a moment before reclaiming.
+      if (!alive && (pid > 0 || attempt >= 20)) {
+        await rm(lock, { recursive: true, force: true });
+        continue;
+      }
+      if (attempt >= 600)
+        throw new Error(`Trial credential lock is held: ${lock}`);
+      await new Promise((r) => setTimeout(r, 100));
+    }
   }
 }
 
