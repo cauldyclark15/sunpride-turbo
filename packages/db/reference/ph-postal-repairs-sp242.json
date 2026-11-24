@@ -1,0 +1,1779 @@
+{
+  "revision": "SP-0242-2026-11-24",
+  "sources": {
+    "dbm-2025": {
+      "title": "DBM Philippine Government Directory, 2025 Update, Municipal Governments",
+      "url": "https://www.dbm.gov.ph/wp-content/uploads/AboutDBM/%5B2025-Update%5D-Philippine-Government-Directory.pdf",
+      "sha256": "ed4263661b57de36de4f054c4fa03d0d3436ad51f1319bb933cd6cc4adfcc197"
+    },
+    "phlpost": {
+      "name": "PHLPost ZIP code locator",
+      "url": "https://phlpost.gov.ph/zip-code-locator/",
+      "file": "packages/db/reference/phlpost-zip-locator-raw.json",
+      "sha256": "f6a4bb48aa5def63e32d259ec66c97fa6bf7570cd520c3274babeffbfe4a11ec",
+      "rows": 960
+    },
+    "marikina-2023": {
+      "title": "Marikina City Facts and Figures 2023, Barangay ZIP Code table (source: Marikina Central Post Office)",
+      "url": "https://marikina.gov.ph/facts/2023%20Facts%20and%20Figures.pdf",
+      "sha256": "4428d57afd43819907488a1d0bf9eef3293b271c7aa474d5db41bd776fc00f2e"
+    },
+    "kabankalan-2023": {
+      "url": "https://kabankalancity.gov.ph/wp-content/uploads/2023/10/Goods-2023-146.pdf",
+      "title": "City Government of Kabankalan, official address"
+    },
+    "isabela-2025": {
+      "url": "https://isawad.gov.ph/contact-us",
+      "title": "Isabela City Water District, official address"
+    },
+    "tondo-2025": {
+      "url": "https://bataanghmc.doh.gov.ph/wp-content/uploads/2025/10/NTP-PO-25-10-985-TRENDING-PRODUCTS-INC.pdf",
+      "title": "Bataan General Hospital and Medical Center, Tondo postal address"
+    },
+    "customs-tondo-2020": {
+      "url": "https://customs.gov.ph/wp-content/uploads/2023/02/MICP-AUCTION-AUGUST-4-2020.pdf",
+      "title": "Bureau of Customs, Manila International Container Port postal address"
+    },
+    "santa-cruz-2023": {
+      "url": "https://asti.dost.gov.ph/wp-content/uploads/NOA-5.pdf",
+      "title": "DOST ASTI, Santa Cruz postal address"
+    },
+    "customs-santa-cruz-2019": {
+      "url": "https://customs.gov.ph/wp-content/uploads/2023/04/NoticetoFile_18Nov2019.pdf",
+      "title": "Bureau of Customs, Santa Cruz postal addresses"
+    },
+    "dost-sampaloc-2025": {
+      "url": "https://www.pchrd.dost.gov.ph/wp-content/uploads/2025/05/iSULAT.pdf",
+      "title": "DOST PCHRD, Sampaloc postal address"
+    },
+    "prc-sampaloc": {
+      "url": "https://prc.gov.ph/uploaded/documents/applicationform.pdf",
+      "title": "Professional Regulation Commission, Sampaloc postal address"
+    },
+    "doj-ermita": {
+      "url": "https://doj.gov.ph/doj-action-center-dojac.html",
+      "title": "Department of Justice Action Center, Ermita postal address"
+    },
+    "sawata-name": {
+      "url": "https://ldr.senate.gov.ph/legislative%2Bissuances/Republic%20Act%20No.%2011814",
+      "title": "Republic Act No. 11814, San Isidro renamed Sawata"
+    }
+  },
+  "postalCodes": [
+    {
+      "municipalityCode": "0102811000",
+      "municipality": "Banna",
+      "province": "Ilocos Norte",
+      "postalCode": "2908",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Banna",
+      "pdfPage": 206
+    },
+    {
+      "municipalityCode": "0102902000",
+      "municipality": "Banayoyo",
+      "province": "Ilocos Sur",
+      "postalCode": "2708",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Banayoyo",
+      "pdfPage": 206
+    },
+    {
+      "municipalityCode": "0102911000",
+      "municipality": "Lidlidda",
+      "province": "Ilocos Sur",
+      "postalCode": "2723",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Lidlidda",
+      "pdfPage": 207
+    },
+    {
+      "municipalityCode": "0102916000",
+      "municipality": "Salcedo",
+      "province": "Ilocos Sur",
+      "postalCode": "2711",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Salcedo",
+      "pdfPage": 207
+    },
+    {
+      "municipalityCode": "0102929000",
+      "municipality": "Sigay",
+      "province": "Ilocos Sur",
+      "postalCode": "2719",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Sigay",
+      "pdfPage": 207
+    },
+    {
+      "municipalityCode": "0103311000",
+      "municipality": "Naguilian",
+      "province": "La Union",
+      "postalCode": "2511",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Naguilian",
+      "pdfPage": 208
+    },
+    {
+      "municipalityCode": "0103319000",
+      "municipality": "Sudipen",
+      "province": "La Union",
+      "postalCode": "2520",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Sudipen",
+      "pdfPage": 208
+    },
+    {
+      "municipalityCode": "0203120000",
+      "municipality": "Naguilian",
+      "province": "Isabela",
+      "postalCode": "3302",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Naguilian",
+      "pdfPage": 212
+    },
+    {
+      "municipalityCode": "0205014000",
+      "municipality": "Villaverde",
+      "province": "Nueva Vizcaya",
+      "postalCode": "3710",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Villaverde",
+      "pdfPage": 213
+    },
+    {
+      "municipalityCode": "0301403000",
+      "municipality": "City of Baliwag",
+      "province": "Bulacan",
+      "postalCode": "3006",
+      "area": null,
+      "source": "phlpost",
+      "sourceLabel": "Baliuag",
+      "note": "Explicit reviewed name alias, not fuzzy or nationwide name matching."
+    },
+    {
+      "municipalityCode": "0304909000",
+      "municipality": "General Mamerto Natividad",
+      "province": "Nueva Ecija",
+      "postalCode": "3125",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "General Mamerto Natividad",
+      "pdfPage": 215,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "0304917000",
+      "municipality": "Science City of Muñoz",
+      "province": "Nueva Ecija",
+      "postalCode": "3119",
+      "area": null,
+      "source": "phlpost",
+      "sourceLabel": "Muñoz",
+      "note": "Explicit reviewed name alias, not fuzzy or nationwide name matching."
+    },
+    {
+      "municipalityCode": "0304931000",
+      "municipality": "Talugtug",
+      "province": "Nueva Ecija",
+      "postalCode": "3118",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Talugtug",
+      "pdfPage": 216
+    },
+    {
+      "municipalityCode": "0401018000",
+      "municipality": "Mataasnakahoy",
+      "province": "Batangas",
+      "postalCode": "4223",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Mataas na Kahoy",
+      "pdfPage": 218,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "0402107000",
+      "municipality": "General Emilio Aguinaldo",
+      "province": "Cavite",
+      "postalCode": "4124",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "General Emilio Aguinaldo",
+      "pdfPage": 219,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "0402122000",
+      "municipality": "City of Trece Martires",
+      "province": "Cavite",
+      "postalCode": "4109",
+      "area": null,
+      "source": "phlpost",
+      "sourceLabel": "Trece Martirez City",
+      "note": "Explicit reviewed name alias, not fuzzy or nationwide name matching."
+    },
+    {
+      "municipalityCode": "0405636000",
+      "municipality": "Polillo",
+      "province": "Quezon",
+      "postalCode": "4339",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Polillo",
+      "pdfPage": 221
+    },
+    {
+      "municipalityCode": "0431200000",
+      "municipality": "City of Lucenaa/",
+      "province": "Quezon",
+      "postalCode": "4301",
+      "area": null,
+      "source": "phlpost",
+      "sourceLabel": "Lucena City",
+      "note": "Explicit reviewed name alias, not fuzzy or nationwide name matching."
+    },
+    {
+      "municipalityCode": "0504116000",
+      "municipality": "Pio V. Corpus",
+      "province": "Masbate",
+      "postalCode": "5406",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Pio V. Corpuz",
+      "pdfPage": 228,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "0600402000",
+      "municipality": "Balete",
+      "province": "Aklan",
+      "postalCode": "5614",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Balete",
+      "pdfPage": 229
+    },
+    {
+      "municipalityCode": "0600602000",
+      "municipality": "Barbaza",
+      "province": "Antique",
+      "postalCode": "5706",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Barbaza",
+      "pdfPage": 230
+    },
+    {
+      "municipalityCode": "0600609000",
+      "municipality": "Laua-An",
+      "province": "Antique",
+      "postalCode": "5705",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Laua-an",
+      "pdfPage": 230
+    },
+    {
+      "municipalityCode": "0600612000",
+      "municipality": "Patnongon",
+      "province": "Antique",
+      "postalCode": "5702",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Patnongon",
+      "pdfPage": 230
+    },
+    {
+      "municipalityCode": "0600614000",
+      "municipality": "San Remigio",
+      "province": "Antique",
+      "postalCode": "5714",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "San Remigio",
+      "pdfPage": 230
+    },
+    {
+      "municipalityCode": "0600618000",
+      "municipality": "Valderrama",
+      "province": "Antique",
+      "postalCode": "5703",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Valderrama",
+      "pdfPage": 230
+    },
+    {
+      "municipalityCode": "0601912000",
+      "municipality": "Pontevedra",
+      "province": "Capiz",
+      "postalCode": "5802",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Pontevedra",
+      "pdfPage": 231
+    },
+    {
+      "municipalityCode": "0601913000",
+      "municipality": "President Roxas",
+      "province": "Capiz",
+      "postalCode": "5803",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "President Roxas",
+      "pdfPage": 231
+    },
+    {
+      "municipalityCode": "0601915000",
+      "municipality": "Sapi-An",
+      "province": "Capiz",
+      "postalCode": "5806",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Sapi-an",
+      "pdfPage": 231
+    },
+    {
+      "municipalityCode": "0601916000",
+      "municipality": "Sigma",
+      "province": "Capiz",
+      "postalCode": "5816",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Sigma",
+      "pdfPage": 231
+    },
+    {
+      "municipalityCode": "0603015000",
+      "municipality": "Concepcion",
+      "province": "Iloilo",
+      "postalCode": "5013",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Concepcion",
+      "pdfPage": 232
+    },
+    {
+      "municipalityCode": "0607904000",
+      "municipality": "San Lorenzo",
+      "province": "Guimaras",
+      "postalCode": "5047",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "San Lorenzo",
+      "pdfPage": 231
+    },
+    {
+      "municipalityCode": "0607905000",
+      "municipality": "Sibunag",
+      "province": "Guimaras",
+      "postalCode": "5048",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Sibunag",
+      "pdfPage": 231
+    },
+    {
+      "municipalityCode": "0701201000",
+      "municipality": "Alburquerque",
+      "province": "Bohol",
+      "postalCode": "6302",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Alburquerque",
+      "pdfPage": 235
+    },
+    {
+      "municipalityCode": "0701204000",
+      "municipality": "Antequera",
+      "province": "Bohol",
+      "postalCode": "6335",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Antequera",
+      "pdfPage": 235
+    },
+    {
+      "municipalityCode": "0701213000",
+      "municipality": "Catigbian",
+      "province": "Bohol",
+      "postalCode": "6343",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Catigbian",
+      "pdfPage": 235
+    },
+    {
+      "municipalityCode": "0701216000",
+      "municipality": "Cortes",
+      "province": "Bohol",
+      "postalCode": "6341",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Cortes",
+      "pdfPage": 235
+    },
+    {
+      "municipalityCode": "0701217000",
+      "municipality": "Dagohoy",
+      "province": "Bohol",
+      "postalCode": "6322",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Dagohoy",
+      "pdfPage": 235
+    },
+    {
+      "municipalityCode": "0701226000",
+      "municipality": "Getafe",
+      "province": "Bohol",
+      "postalCode": "6334",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Getafe",
+      "pdfPage": 236
+    },
+    {
+      "municipalityCode": "0701232000",
+      "municipality": "Maribojoc",
+      "province": "Bohol",
+      "postalCode": "6336",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Maribojoc",
+      "pdfPage": 236
+    },
+    {
+      "municipalityCode": "0701235000",
+      "municipality": "President Carlos P. Garcia",
+      "province": "Bohol",
+      "postalCode": "6346",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "President Carlos P. Garcia",
+      "pdfPage": 236,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "0702210000",
+      "municipality": "Barili",
+      "province": "Cebu",
+      "postalCode": "6036",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Barili",
+      "pdfPage": 237
+    },
+    {
+      "municipalityCode": "0702221000",
+      "municipality": "Daanbantayan",
+      "province": "Cebu",
+      "postalCode": "6013",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Daanbantayan",
+      "pdfPage": 237
+    },
+    {
+      "municipalityCode": "0702237000",
+      "municipality": "Pinamungajan",
+      "province": "Cebu",
+      "postalCode": "6039",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Pinamungajan",
+      "pdfPage": 237
+    },
+    {
+      "municipalityCode": "0702243000",
+      "municipality": "San Remigio",
+      "province": "Cebu",
+      "postalCode": "6011",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "San Remigio",
+      "pdfPage": 238
+    },
+    {
+      "municipalityCode": "0702253000",
+      "municipality": "Tudela",
+      "province": "Cebu",
+      "postalCode": "6051",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Tudela",
+      "pdfPage": 238
+    },
+    {
+      "municipalityCode": "0802607000",
+      "municipality": "General Macarthur",
+      "province": "Eastern Samar",
+      "postalCode": "6805",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "General MacArthur",
+      "pdfPage": 239,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "0802612000",
+      "municipality": "Lawaan",
+      "province": "Eastern Samar",
+      "postalCode": "6813",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Lawaan",
+      "pdfPage": 239
+    },
+    {
+      "municipalityCode": "0802615000",
+      "municipality": "Maydolong",
+      "province": "Eastern Samar",
+      "postalCode": "6802",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Maydolong",
+      "pdfPage": 239
+    },
+    {
+      "municipalityCode": "0802618000",
+      "municipality": "Quinapondan",
+      "province": "Eastern Samar",
+      "postalCode": "6810",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Quinapondan",
+      "pdfPage": 239
+    },
+    {
+      "municipalityCode": "0802621000",
+      "municipality": "San Policarpo",
+      "province": "Eastern Samar",
+      "postalCode": "6821",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "San Policarpo",
+      "pdfPage": 239
+    },
+    {
+      "municipalityCode": "0803740000",
+      "municipality": "Palompon",
+      "province": "Leyte",
+      "postalCode": "6538",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Palompon",
+      "pdfPage": 240
+    },
+    {
+      "municipalityCode": "0804809000",
+      "municipality": "Lapinig",
+      "province": "Northern Samar",
+      "postalCode": "6423",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Lapinig",
+      "pdfPage": 241
+    },
+    {
+      "municipalityCode": "0804810000",
+      "municipality": "Las Navas",
+      "province": "Northern Samar",
+      "postalCode": "6420",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Las Navas",
+      "pdfPage": 241
+    },
+    {
+      "municipalityCode": "0804822000",
+      "municipality": "Silvino Lobos",
+      "province": "Northern Samar",
+      "postalCode": "6414",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Silvino Lobos",
+      "pdfPage": 241
+    },
+    {
+      "municipalityCode": "0806022000",
+      "municipality": "Paranas",
+      "province": "Samar",
+      "postalCode": "6703",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Paranas",
+      "pdfPage": 242
+    },
+    {
+      "municipalityCode": "0806402000",
+      "municipality": "Bontoc",
+      "province": "Southern Leyte",
+      "postalCode": "6604",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Bontoc",
+      "pdfPage": 242
+    },
+    {
+      "municipalityCode": "0806412000",
+      "municipality": "Saint Bernard",
+      "province": "Southern Leyte",
+      "postalCode": "6616",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Saint Bernard",
+      "pdfPage": 243
+    },
+    {
+      "municipalityCode": "0806419000",
+      "municipality": "Limasawa",
+      "province": "Southern Leyte",
+      "postalCode": "6618",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Limasawa",
+      "pdfPage": 243
+    },
+    {
+      "municipalityCode": "0807803000",
+      "municipality": "Cabucgayan",
+      "province": "Biliran",
+      "postalCode": "6550",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Cabucgayan",
+      "pdfPage": 238
+    },
+    {
+      "municipalityCode": "0906603000",
+      "municipality": "Kalingalan Caluang",
+      "province": "Sulu",
+      "postalCode": "7416",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Kalingalan Caluang",
+      "pdfPage": 246,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "0906606000",
+      "municipality": "Hadji Panglima Tahil",
+      "province": "Sulu",
+      "postalCode": "7413",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Hadji Panglima Tahil",
+      "pdfPage": 246,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "0906607000",
+      "municipality": "Old Panamao",
+      "province": "Sulu",
+      "postalCode": "7402",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Panamao",
+      "pdfPage": 246,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "0906608000",
+      "municipality": "Pangutaran",
+      "province": "Sulu",
+      "postalCode": "7414",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Pangutaran",
+      "pdfPage": 246
+    },
+    {
+      "municipalityCode": "0906618000",
+      "municipality": "Pandami",
+      "province": "Sulu",
+      "postalCode": "7400",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Pandami",
+      "pdfPage": 246
+    },
+    {
+      "municipalityCode": "0906619000",
+      "municipality": "Omar",
+      "province": "Sulu",
+      "postalCode": "7404",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Omar",
+      "pdfPage": 246
+    },
+    {
+      "municipalityCode": "0907211000",
+      "municipality": "Pres. Manuel A. Roxas",
+      "province": "Zamboanga del Norte",
+      "postalCode": "7102",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "President Manuel A. Roxas",
+      "pdfPage": 244,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "0907214000",
+      "municipality": "Sergio Osmeña Sr.",
+      "province": "Zamboanga del Norte",
+      "postalCode": "7108",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Sergio Osmeña Sr.",
+      "pdfPage": 244
+    },
+    {
+      "municipalityCode": "0907220000",
+      "municipality": "Sirawai",
+      "province": "Zamboanga del Norte",
+      "postalCode": "7121",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Sirawai",
+      "pdfPage": 244
+    },
+    {
+      "municipalityCode": "0907225000",
+      "municipality": "Godod",
+      "province": "Zamboanga del Norte",
+      "postalCode": "7126",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Godod",
+      "pdfPage": 243
+    },
+    {
+      "municipalityCode": "0907226000",
+      "municipality": "Leon T. Postigo",
+      "province": "Zamboanga del Norte",
+      "postalCode": "7125",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Leon T. Postigo",
+      "pdfPage": 243
+    },
+    {
+      "municipalityCode": "0907317000",
+      "municipality": "Margosatubig",
+      "province": "Zamboanga del Sur",
+      "postalCode": "7035",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Margosatubig",
+      "pdfPage": 244
+    },
+    {
+      "municipalityCode": "0907340000",
+      "municipality": "Sominot",
+      "province": "Zamboanga del Sur",
+      "postalCode": "7022",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Sominot",
+      "pdfPage": 245
+    },
+    {
+      "municipalityCode": "0907341000",
+      "municipality": "Vincenzo A. Sagun",
+      "province": "Zamboanga del Sur",
+      "postalCode": "7036",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Vincenzo A. Sagun",
+      "pdfPage": 245,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "0907344000",
+      "municipality": "Tigbao",
+      "province": "Zamboanga del Sur",
+      "postalCode": "7043",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Tigbao",
+      "pdfPage": 245
+    },
+    {
+      "municipalityCode": "0908301000",
+      "municipality": "Alicia",
+      "province": "Zamboanga Sibugay",
+      "postalCode": "7040",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Alicia",
+      "pdfPage": 245
+    },
+    {
+      "municipalityCode": "0908309000",
+      "municipality": "Naga",
+      "province": "Zamboanga Sibugay",
+      "postalCode": "7004",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Naga",
+      "pdfPage": 245
+    },
+    {
+      "municipalityCode": "0908312000",
+      "municipality": "Roseller Lim",
+      "province": "Zamboanga Sibugay",
+      "postalCode": "7002",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Roseller Lim",
+      "pdfPage": 245
+    },
+    {
+      "municipalityCode": "0990101000",
+      "municipality": "City of Isabela",
+      "province": "City of Isabela",
+      "postalCode": "7300",
+      "area": null,
+      "source": "isabela-2025",
+      "sourceLabel": "Isabela City Water District, Isabela City, 7300 Basilan Province"
+    },
+    {
+      "municipalityCode": "1001305000",
+      "municipality": "Impasug-ong",
+      "province": "Bukidnon",
+      "postalCode": "8702",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Impasug-ong",
+      "pdfPage": 247
+    },
+    {
+      "municipalityCode": "1001322000",
+      "municipality": "Cabanglasan",
+      "province": "Bukidnon",
+      "postalCode": "8723",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Cabanglasan",
+      "pdfPage": 246
+    },
+    {
+      "municipalityCode": "1004210000",
+      "municipality": "City of Ozamiz",
+      "province": "Misamis Occidental",
+      "postalCode": "7200",
+      "area": null,
+      "source": "phlpost",
+      "sourceLabel": "Ozamis City",
+      "note": "Explicit reviewed name alias, not fuzzy or nationwide name matching."
+    },
+    {
+      "municipalityCode": "1004217000",
+      "municipality": "Don Victoriano",
+      "province": "Misamis Occidental",
+      "postalCode": "7200",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Don Victoriano",
+      "pdfPage": 248
+    },
+    {
+      "municipalityCode": "1102317000",
+      "municipality": "Island Garden City of Samal",
+      "province": "Davao del Norte",
+      "postalCode": "8119",
+      "area": null,
+      "source": "phlpost",
+      "sourceLabel": "Samal",
+      "note": "Explicit reviewed name alias, not fuzzy or nationwide name matching."
+    },
+    {
+      "municipalityCode": "1102324000",
+      "municipality": "Sawata",
+      "province": "Davao del Norte",
+      "postalCode": "8121",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "San Isidro",
+      "pdfPage": 250,
+      "note": "San Isidro renamed Sawata by Republic Act No. 11814 (Senate legislative library)."
+    },
+    {
+      "municipalityCode": "1102506000",
+      "municipality": "Governor Generoso",
+      "province": "Davao Oriental",
+      "postalCode": "8210",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Governor Generoso",
+      "pdfPage": 251,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "1204713000",
+      "municipality": "President Roxas",
+      "province": "Cotabato",
+      "postalCode": "9405",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "President Roxas",
+      "pdfPage": 252
+    },
+    {
+      "municipalityCode": "1206508000",
+      "municipality": "Lambayong",
+      "province": "Sultan Kudarat",
+      "postalCode": "9802",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Lambayong",
+      "pdfPage": 253
+    },
+    {
+      "municipalityCode": "1206510000",
+      "municipality": "President Quirino",
+      "province": "Sultan Kudarat",
+      "postalCode": "9804",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "President Quirino",
+      "pdfPage": 253
+    },
+    {
+      "municipalityCode": "1380601000",
+      "municipality": "Tondo I/II, City of Manila",
+      "province": "NCR, City of Manila, First District",
+      "postalCode": "1012",
+      "area": null,
+      "source": "tondo-2025",
+      "sourceLabel": "Tondo, Manila 1012"
+    },
+    {
+      "municipalityCode": "1380601000",
+      "municipality": "Tondo I/II, City of Manila",
+      "province": "NCR, City of Manila, First District",
+      "postalCode": "1013",
+      "area": null,
+      "source": "customs-tondo-2020",
+      "sourceLabel": "North Harbor, Tondo, Manila 1013"
+    },
+    {
+      "municipalityCode": "1380605000",
+      "municipality": "Santa Cruz, City of Manila",
+      "province": "NCR, City of Manila, First District",
+      "postalCode": "1003",
+      "area": null,
+      "source": "customs-santa-cruz-2019",
+      "sourceLabel": "Santa Cruz, Manila, Philippines 1003"
+    },
+    {
+      "municipalityCode": "1380605000",
+      "municipality": "Santa Cruz, City of Manila",
+      "province": "NCR, City of Manila, First District",
+      "postalCode": "1014",
+      "area": null,
+      "source": "santa-cruz-2023",
+      "sourceLabel": "Santa Cruz, Manila 1014"
+    },
+    {
+      "municipalityCode": "1380606000",
+      "municipality": "Sampaloc, City of Manila",
+      "province": "NCR, City of Manila, First District",
+      "postalCode": "1008",
+      "area": null,
+      "source": "prc-sampaloc",
+      "sourceLabel": "P. Paredes St., Sampaloc 1008 Manila"
+    },
+    {
+      "municipalityCode": "1380606000",
+      "municipality": "Sampaloc, City of Manila",
+      "province": "NCR, City of Manila, First District",
+      "postalCode": "1015",
+      "area": null,
+      "source": "dost-sampaloc-2025",
+      "sourceLabel": "España Boulevard, Sampaloc, Manila 1015"
+    },
+    {
+      "municipalityCode": "1380608000",
+      "municipality": "Ermita, City of Manila",
+      "province": "NCR, City of Manila, First District",
+      "postalCode": "1000",
+      "area": null,
+      "source": "doj-ermita",
+      "sourceLabel": "Ermita, Manila 1000"
+    },
+    {
+      "municipalityCode": "1380700000",
+      "municipality": "City of Marikina",
+      "province": "NCR, Second District",
+      "postalCode": "1800",
+      "area": "Marikina Central Post Office & Sto. Niño",
+      "source": "marikina-2023",
+      "sourceLabel": "Marikina Central Post Office & Sto. Niño"
+    },
+    {
+      "municipalityCode": "1380700000",
+      "municipality": "City of Marikina",
+      "province": "NCR, Second District",
+      "postalCode": "1801",
+      "area": "San Roque & Kalumpang",
+      "source": "marikina-2023",
+      "sourceLabel": "San Roque & Kalumpang"
+    },
+    {
+      "municipalityCode": "1380700000",
+      "municipality": "City of Marikina",
+      "province": "NCR, Second District",
+      "postalCode": "1802",
+      "area": "Industrial Valley Complex",
+      "source": "marikina-2023",
+      "sourceLabel": "Industrial Valley Complex"
+    },
+    {
+      "municipalityCode": "1380700000",
+      "municipality": "City of Marikina",
+      "province": "NCR, Second District",
+      "postalCode": "1803",
+      "area": "Barangka & Tañong",
+      "source": "marikina-2023",
+      "sourceLabel": "Barangka & Tañong"
+    },
+    {
+      "municipalityCode": "1380700000",
+      "municipality": "City of Marikina",
+      "province": "NCR, Second District",
+      "postalCode": "1804",
+      "area": "Jesus dela Peña",
+      "source": "marikina-2023",
+      "sourceLabel": "Jesus dela Peña"
+    },
+    {
+      "municipalityCode": "1380700000",
+      "municipality": "City of Marikina",
+      "province": "NCR, Second District",
+      "postalCode": "1805",
+      "area": "Malanday",
+      "source": "marikina-2023",
+      "sourceLabel": "Malanday"
+    },
+    {
+      "municipalityCode": "1380700000",
+      "municipality": "City of Marikina",
+      "province": "NCR, Second District",
+      "postalCode": "1806",
+      "area": "North West of Marikina River",
+      "source": "marikina-2023",
+      "sourceLabel": "North West of Marikina River"
+    },
+    {
+      "municipalityCode": "1380700000",
+      "municipality": "City of Marikina",
+      "province": "NCR, Second District",
+      "postalCode": "1807",
+      "area": "Concepcion I & Tumana",
+      "source": "marikina-2023",
+      "sourceLabel": "Concepcion I & Tumana"
+    },
+    {
+      "municipalityCode": "1380700000",
+      "municipality": "City of Marikina",
+      "province": "NCR, Second District",
+      "postalCode": "1808",
+      "area": "Nangka",
+      "source": "marikina-2023",
+      "sourceLabel": "Nangka"
+    },
+    {
+      "municipalityCode": "1380700000",
+      "municipality": "City of Marikina",
+      "province": "NCR, Second District",
+      "postalCode": "1809",
+      "area": "Parang & Fortune",
+      "source": "marikina-2023",
+      "sourceLabel": "Parang & Fortune"
+    },
+    {
+      "municipalityCode": "1380700000",
+      "municipality": "City of Marikina",
+      "province": "NCR, Second District",
+      "postalCode": "1810",
+      "area": "Marikina Heights",
+      "source": "marikina-2023",
+      "sourceLabel": "Marikina Heights"
+    },
+    {
+      "municipalityCode": "1380700000",
+      "municipality": "City of Marikina",
+      "province": "NCR, Second District",
+      "postalCode": "1811",
+      "area": "Concepcion II",
+      "source": "marikina-2023",
+      "sourceLabel": "Concepcion II"
+    },
+    {
+      "municipalityCode": "1606808000",
+      "municipality": "Cortes",
+      "province": "Surigao del Sur",
+      "postalCode": "8313",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Cortes",
+      "pdfPage": 255
+    },
+    {
+      "municipalityCode": "1705323000",
+      "municipality": "Dr. Jose P. Rizal",
+      "province": "Palawan",
+      "postalCode": "5323",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Rizal",
+      "pdfPage": 224,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "1804507000",
+      "municipality": "Cauayan",
+      "province": "Negros Occidental",
+      "postalCode": "6112",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Cauayan",
+      "pdfPage": 233
+    },
+    {
+      "municipalityCode": "1804508000",
+      "municipality": "Enrique B. Magalona",
+      "province": "Negros Occidental",
+      "postalCode": "6118",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Enrique B. Magalona",
+      "pdfPage": 233,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "1804512000",
+      "municipality": "Hinoba-an",
+      "province": "Negros Occidental",
+      "postalCode": "6114",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Hinoba-an",
+      "pdfPage": 233
+    },
+    {
+      "municipalityCode": "1804515000",
+      "municipality": "City of Kabankalan",
+      "province": "Negros Occidental",
+      "postalCode": "6111",
+      "area": null,
+      "source": "kabankalan-2023",
+      "sourceLabel": "City Government of Kabankalan, 6111 Negros Occidental"
+    },
+    {
+      "municipalityCode": "1804517000",
+      "municipality": "La Castellana",
+      "province": "Negros Occidental",
+      "postalCode": "6131",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "La Castellana",
+      "pdfPage": 233
+    },
+    {
+      "municipalityCode": "1804530000",
+      "municipality": "Valladolid",
+      "province": "Negros Occidental",
+      "postalCode": "6103",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Valladolid",
+      "pdfPage": 234
+    },
+    {
+      "municipalityCode": "1804532000",
+      "municipality": "Salvador Benedicto",
+      "province": "Negros Occidental",
+      "postalCode": "6117",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Salvador Benedicto",
+      "pdfPage": 234,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "1804601000",
+      "municipality": "Amlan",
+      "province": "Negros Oriental",
+      "postalCode": "6203",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Amlan",
+      "pdfPage": 234
+    },
+    {
+      "municipalityCode": "1804603000",
+      "municipality": "Bacong",
+      "province": "Negros Oriental",
+      "postalCode": "6216",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Bacong",
+      "pdfPage": 234
+    },
+    {
+      "municipalityCode": "1804624000",
+      "municipality": "Vallehermoso",
+      "province": "Negros Oriental",
+      "postalCode": "6224",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Vallehermoso",
+      "pdfPage": 234
+    },
+    {
+      "municipalityCode": "1806101000",
+      "municipality": "Enrique Villanueva",
+      "province": "Siquijor",
+      "postalCode": "6230",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Enrique Villanueva",
+      "pdfPage": 234
+    },
+    {
+      "municipalityCode": "1900708000",
+      "municipality": "Akbar",
+      "province": "Basilan",
+      "postalCode": "7307",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Akbar",
+      "pdfPage": 256
+    },
+    {
+      "municipalityCode": "1900709000",
+      "municipality": "Al-Barka",
+      "province": "Basilan",
+      "postalCode": "7308",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Al-barka",
+      "pdfPage": 256
+    },
+    {
+      "municipalityCode": "1900710000",
+      "municipality": "Hadji Mohammad Ajul",
+      "province": "Basilan",
+      "postalCode": "7309",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Hadji Mohammad Ajul",
+      "pdfPage": 256,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "1900711000",
+      "municipality": "Ungkaya Pukan",
+      "province": "Basilan",
+      "postalCode": "7311",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Ungkaya Pukan",
+      "pdfPage": 256
+    },
+    {
+      "municipalityCode": "1900712000",
+      "municipality": "Hadji Muhtamad",
+      "province": "Basilan",
+      "postalCode": "7310",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Hadji Muhtamad",
+      "pdfPage": 256
+    },
+    {
+      "municipalityCode": "1900713000",
+      "municipality": "Tabuan-Lasa",
+      "province": "Basilan",
+      "postalCode": "7312",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Tabuan-Lasa",
+      "pdfPage": 256
+    },
+    {
+      "municipalityCode": "1903601000",
+      "municipality": "Bacolod-Kalawi",
+      "province": "Lanao del Sur",
+      "postalCode": "9316",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Bacolod-Kalawi",
+      "pdfPage": 256
+    },
+    {
+      "municipalityCode": "1903602000",
+      "municipality": "Balabagan",
+      "province": "Lanao del Sur",
+      "postalCode": "9302",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Balabagan",
+      "pdfPage": 256
+    },
+    {
+      "municipalityCode": "1903610000",
+      "municipality": "Kapai",
+      "province": "Lanao del Sur",
+      "postalCode": "9709",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Kapai",
+      "pdfPage": 257
+    },
+    {
+      "municipalityCode": "1903616000",
+      "municipality": "Marantao",
+      "province": "Lanao del Sur",
+      "postalCode": "9711",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Marantao",
+      "pdfPage": 257
+    },
+    {
+      "municipalityCode": "1903618000",
+      "municipality": "Masiu",
+      "province": "Lanao del Sur",
+      "postalCode": "9706",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Masiu",
+      "pdfPage": 257
+    },
+    {
+      "municipalityCode": "1903624000",
+      "municipality": "Ditsaan-Ramain",
+      "province": "Lanao del Sur",
+      "postalCode": "9713",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Ditsaan-Ramain",
+      "pdfPage": 257
+    },
+    {
+      "municipalityCode": "1903631000",
+      "municipality": "Marogong",
+      "province": "Lanao del Sur",
+      "postalCode": "9303",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Marogong",
+      "pdfPage": 257
+    },
+    {
+      "municipalityCode": "1903635000",
+      "municipality": "Picong",
+      "province": "Lanao del Sur",
+      "postalCode": "9301",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Picong",
+      "pdfPage": 257
+    },
+    {
+      "municipalityCode": "1903637000",
+      "municipality": "Amai Manabilang",
+      "province": "Lanao del Sur",
+      "postalCode": "9320",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Amai Manabilang",
+      "pdfPage": 256
+    },
+    {
+      "municipalityCode": "1903639000",
+      "municipality": "Kapatagan",
+      "province": "Lanao del Sur",
+      "postalCode": "9322",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Kapatagan",
+      "pdfPage": 257
+    },
+    {
+      "municipalityCode": "1903640000",
+      "municipality": "Sultan Dumalondong",
+      "province": "Lanao del Sur",
+      "postalCode": "9324",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Sultan Dumalondong",
+      "pdfPage": 258,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "1903641000",
+      "municipality": "Lumbaca-Unayan",
+      "province": "Lanao del Sur",
+      "postalCode": "9323",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Lumbaca-Unayan",
+      "pdfPage": 257
+    },
+    {
+      "municipalityCode": "1907001000",
+      "municipality": "Panglima Sugala",
+      "province": "Tawi-Tawi",
+      "postalCode": "7501",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Panglima Sugala",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1907003000",
+      "municipality": "Mapun",
+      "province": "Tawi-Tawi",
+      "postalCode": "7508",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Mapun",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1907004000",
+      "municipality": "Simunul",
+      "province": "Tawi-Tawi",
+      "postalCode": "7505",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Simunul",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1907007000",
+      "municipality": "Tandubas",
+      "province": "Tawi-Tawi",
+      "postalCode": "7502",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Tandubas",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1907008000",
+      "municipality": "Turtle Islands",
+      "province": "Tawi-Tawi",
+      "postalCode": "7507",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Turtle Islands",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1907011000",
+      "municipality": "Sibutu",
+      "province": "Tawi-Tawi",
+      "postalCode": "7510",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Sibutu",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1908704000",
+      "municipality": "Datu Blah T. Sinsuat",
+      "province": "Maguindanao del Norte",
+      "postalCode": "9623",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Datu Blah T. Sinsuat",
+      "pdfPage": 258,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "1908706000",
+      "municipality": "Kabuntalan",
+      "province": "Maguindanao del Norte",
+      "postalCode": "9606",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Kabuntalan",
+      "pdfPage": 258
+    },
+    {
+      "municipalityCode": "1908708000",
+      "municipality": "Northern Kabuntalan",
+      "province": "Maguindanao del Norte",
+      "postalCode": "9630",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Northern Kabuntalan",
+      "pdfPage": 258,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "1908709000",
+      "municipality": "Parang",
+      "province": "Maguindanao del Norte",
+      "postalCode": "9604",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Parang",
+      "pdfPage": 258
+    },
+    {
+      "municipalityCode": "1908711000",
+      "municipality": "Sultan Mastura",
+      "province": "Maguindanao del Norte",
+      "postalCode": "9636",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Sultan Mastura",
+      "pdfPage": 258
+    },
+    {
+      "municipalityCode": "1908712000",
+      "municipality": "Talitay",
+      "province": "Maguindanao del Norte",
+      "postalCode": "9637",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Talitay",
+      "pdfPage": 258
+    },
+    {
+      "municipalityCode": "1908803000",
+      "municipality": "Datu Abdullah Sangki",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9621",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Datu Abdullah Sangki",
+      "pdfPage": 258,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "1908804000",
+      "municipality": "Datu Anggal Midtimbang",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9622",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Datu Anggal Midtimbang",
+      "pdfPage": 258,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "1908805000",
+      "municipality": "Datu Hoffer Ampatuan",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9624",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Datu Hoffer Ampatuan",
+      "pdfPage": 258,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "1908808000",
+      "municipality": "Datu Salibo",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9625",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Datu Salibo",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1908809000",
+      "municipality": "Datu Saudi Ampatuan",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9626",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Datu Saudi Ampatuan",
+      "pdfPage": 259,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "1908810000",
+      "municipality": "Datu Unsay",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9627",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Datu Unsay",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1908811000",
+      "municipality": "Gen. S.K. Pendatun",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9618",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Gen. S. K. Pendatun",
+      "pdfPage": 259,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    },
+    {
+      "municipalityCode": "1908812000",
+      "municipality": "Guindulungan",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9628",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Guindulungan",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1908813000",
+      "municipality": "Mamasapano",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9629",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Mamasapano",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1908814000",
+      "municipality": "Mangudadatu",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9620",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Mangudadatu",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1908815000",
+      "municipality": "Pagagawan",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9631",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Pagagawan",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1908817000",
+      "municipality": "Paglat",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9632",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Paglat",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1908818000",
+      "municipality": "Pandag",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9633",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Pandag",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1908819000",
+      "municipality": "Rajah Buayan",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9634",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Rajah Buayan",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1908820000",
+      "municipality": "Shariff Aguak",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9608",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Shariff Aguak",
+      "pdfPage": 259
+    },
+    {
+      "municipalityCode": "1908821000",
+      "municipality": "Shariff Saydona Mustapha",
+      "province": "Maguindanao del Sur",
+      "postalCode": "9635",
+      "area": null,
+      "source": "dbm-2025",
+      "sourceLabel": "Shariff S. Mustapha",
+      "pdfPage": 259,
+      "note": "Reviewed spelling, shortened or continued table label; matched within the named province."
+    }
+  ],
+  "unresolved": [
+    {
+      "municipalityCode": "1999901000",
+      "municipality": "Kapalawan",
+      "province": "Maguindanao del Sur",
+      "reason": "No ZIP code published in DBM 2025 Directory, Special Geographic Area table (PDF page 260; printed page 258); shown as ----. Do not infer one from a former parent municipality."
+    },
+    {
+      "municipalityCode": "1999902000",
+      "municipality": "Old Kaabakan",
+      "province": "Maguindanao del Sur",
+      "reason": "No ZIP code published in DBM 2025 Directory, Special Geographic Area table (PDF page 260; printed page 258); shown as ----. Do not infer one from a former parent municipality."
+    },
+    {
+      "municipalityCode": "1999903000",
+      "municipality": "Kadayangan",
+      "province": "Maguindanao del Sur",
+      "reason": "No ZIP code published in DBM 2025 Directory, Special Geographic Area table (PDF page 260; printed page 258); shown as ----. Do not infer one from a former parent municipality."
+    },
+    {
+      "municipalityCode": "1999904000",
+      "municipality": "Nabalawag",
+      "province": "Maguindanao del Sur",
+      "reason": "No ZIP code published in DBM 2025 Directory, Special Geographic Area table (PDF page 260; printed page 258); shown as ----. Do not infer one from a former parent municipality."
+    },
+    {
+      "municipalityCode": "1999905000",
+      "municipality": "Pahamuddin",
+      "province": "Maguindanao del Sur",
+      "reason": "No ZIP code published in DBM 2025 Directory, Special Geographic Area table (PDF page 260; printed page 258); shown as ----. Do not infer one from a former parent municipality."
+    },
+    {
+      "municipalityCode": "1999906000",
+      "municipality": "Malidegao",
+      "province": "Maguindanao del Sur",
+      "reason": "No ZIP code published in DBM 2025 Directory, Special Geographic Area table (PDF page 260; printed page 258); shown as ----. Do not infer one from a former parent municipality."
+    },
+    {
+      "municipalityCode": "1999907000",
+      "municipality": "Ligawasan",
+      "province": "Maguindanao del Sur",
+      "reason": "No ZIP code published in DBM 2025 Directory, Special Geographic Area table (PDF page 260; printed page 258); shown as ----. Do not infer one from a former parent municipality."
+    },
+    {
+      "municipalityCode": "1999908000",
+      "municipality": "Tugunan",
+      "province": "Maguindanao del Sur",
+      "reason": "No ZIP code published in DBM 2025 Directory, Special Geographic Area table (PDF page 260; printed page 258); shown as ----. Do not infer one from a former parent municipality."
+    }
+  ]
+}

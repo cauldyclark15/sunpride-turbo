@@ -278,7 +278,6 @@ private const val STORE_CHANGES = "local.storechanges"
 /** SP-0170 offline PSGC geography for Add customer (public reference data; see docs/runbooks/CUSTOMER_MASTER.md). */
 private const val GEOGRAPHY = "local.geography"
 private const val CUSTOMER_DRAFT = "local.customerdraft"
-private const val GEOGRAPHY_MAX_AGE_MS = 30L * 24 * 3600_000
 private val PSGC = Regex("^[0-9]{10}$")
 private const val STORE_SEEN = "local.storeseen"
 
@@ -563,10 +562,9 @@ class LiveFieldBackend(
             val now = System.currentTimeMillis()
             suspend fun cachedOrFetch(key: String, path: String): String? {
                 val saved = store.localCache(GEOGRAPHY, key)?.takeUnless { it.tombstone }
-                if (saved?.json != null && now - saved.revision in 0 until GEOGRAPHY_MAX_AGE_MS) return saved.json
-                val live = runCatching { functions.api.get(path).toString() }.getOrNull()
-                if (live != null) runCatching { store.putLocalCache(GEOGRAPHY, key, live, now, "") }
-                return live ?: saved?.json
+                return com.sunpride.field.census.CustomerGeographyCache.load(key, now, saved?.json, saved?.revision,
+                    fetch = { functions.api.get(path).toString() },
+                    save = { live -> store.putLocalCache(GEOGRAPHY, key, live, now, "") })
             }
             val pack = cachedOrFetch("pack", "/api/v1/geography/pack") ?: return@withStore null
             val postalPack = com.sunpride.field.census.CustomerPostalPack.upgrade(pack,

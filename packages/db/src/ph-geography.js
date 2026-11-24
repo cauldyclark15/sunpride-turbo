@@ -8,15 +8,85 @@ export const GEOGRAPHY_FILE = new URL(
   import.meta.url,
 );
 
+export const POSTAL_REPAIRS_FILE = new URL(
+  "../reference/ph-postal-repairs-sp242.json",
+  import.meta.url,
+);
+
+/** Apply reviewed PSGC-keyed additions; never infer a town from its name or parent.
+ * @param {any} geography @param {any} repairs */
+export function withPostalRepairs(geography, repairs) {
+  const municipalities = new Map(
+    geography.municipalities.map((/** @type {any} */ m) => [m.code, m]),
+  );
+  const postal = new Map(
+    geography.postalCodes.map((/** @type {any[]} */ r) => [
+      `${r[0]}:${r[1]}`,
+      r,
+    ]),
+  );
+  const seen = new Set();
+  for (const r of repairs.postalCodes) {
+    const municipality = /** @type {any} */ (
+      municipalities.get(r.municipalityCode)
+    );
+    const key = `${r.municipalityCode}:${r.postalCode}`;
+    if (
+      !municipality ||
+      municipality.name !== r.municipality ||
+      !/^[0-9]{4}$/.test(r.postalCode) ||
+      !repairs.sources[r.source] ||
+      seen.has(key)
+    )
+      throw new Error(`Invalid reviewed postal mapping: ${key}`);
+    seen.add(key);
+    // Existing published entries remain authoritative.
+    if (!postal.has(key))
+      postal.set(key, [r.municipalityCode, r.postalCode, r.area, r.source]);
+  }
+  const postalCodes = [...postal.values()].sort((a, b) =>
+    `${a[0]}:${a[1]}`.localeCompare(`${b[0]}:${b[1]}`),
+  );
+  return {
+    ...geography,
+    source: {
+      ...geography.source,
+      postalRevision: repairs.revision,
+      postalRepairs: {
+        sources: repairs.sources,
+        unresolved: repairs.unresolved,
+      },
+    },
+    counts: {
+      ...geography.counts,
+      postalCodes: postalCodes.length,
+      municipalitiesWithPostal: new Set(postalCodes.map((r) => r[0])).size,
+    },
+    postalCodes,
+  };
+}
+
 /** @param {any} [json] */
 export async function readGeographyJson(json) {
-  return json ?? JSON.parse(await Bun.file(GEOGRAPHY_FILE).text());
+  if (json) return json;
+  return withPostalRepairs(
+    JSON.parse(await Bun.file(GEOGRAPHY_FILE).text()),
+    JSON.parse(await Bun.file(POSTAL_REPAIRS_FILE).text()),
+  );
+}
+
+/** @param {any} geography */
+export function geographyRelease(geography) {
+  const base = geography.source.psgc.release;
+  return geography.source.postalRevision
+    ? `${base} / ${geography.source.postalRevision}`
+    : base;
 }
 
 /** @param {any} db @param {{json?:any,actor?:string}} [opts] */
 export async function loadPhGeography(db, opts = {}) {
   const g = await readGeographyJson(opts.json);
-  const release = g.source.psgc.release;
+  const release = geographyRelease(g);
   const actor = opts.actor ?? "system:geography";
   const barangays = Object.entries(
     /** @type {Record<string,[string,string][]>} */ (g.barangays),
@@ -31,8 +101,6 @@ export async function loadPhGeography(db, opts = {}) {
     // Earlier loads sent missing values as the text "null" (driver array of nulls); repair them.
     await t`update ph_postal_codes set area=null where area='null'`;
     await t`update ph_municipalities set city_class=null where city_class='null'`;
-    if (done && n === barangays.length)
-      return { release, loaded: false, ...g.counts };
     /** @param {any[]} rows @param {number} i */
     // Missing values travel as "" and become NULL in SQL (a null array element arrives as "null").
     const col = (rows, i) =>
@@ -40,6 +108,14 @@ export async function loadPhGeography(db, opts = {}) {
         rows.map((r) => r[i] ?? ""),
         "TEXT",
       );
+    if (done && n === barangays.length) {
+      // A PSGC release/count alone says nothing about its separately sourced postal list.
+      // Check keys, not just a count: another city's extra entry can hide a missing one.
+      const [missing] =
+        await t`select 1 from unnest(${col(g.postalCodes, 0)}::text[],${col(g.postalCodes, 1)}::text[]) as expected(m,c)
+        where not exists (select 1 from ph_postal_codes p where p.municipality_code=expected.m and p.postal_code=expected.c) limit 1`;
+      if (!missing) return { release, loaded: false, ...g.counts };
+    }
     const regions = g.regions.map((/** @type {any} */ r) => [r.code, r.name]);
     await t`insert into ph_regions(code,name) select * from unnest(${col(regions, 0)}::text[],${col(regions, 1)}::text[])
       on conflict(code) do update set name=excluded.name where ph_regions.name is distinct from excluded.name`;
