@@ -131,6 +131,8 @@ function complete(): Draft {
   Object.assign(draft.values, {
     registeredName: "Sample Registered Name",
     customerName: "Sample Customer",
+    firstName: "Sample",
+    lastName: "Customer",
     customerAddress: "Sample Address",
     mobileNo: "09171234567",
     taxClassificationCode: "1",
@@ -374,6 +376,88 @@ it("SP-0223 read-only people cannot change visit frequency on the customer scree
   expect(html).toContain("1 visit/month");
   expect(html).not.toContain("Save visit frequency");
   expect(view().canEdit).toBe(false);
+});
+
+describe("SP-0240 separate names on customer enrollment", () => {
+  it.each(["new", "prospect", "active"] as const)(
+    "requires First and Last Name for a %s customer but leaves Middle Name optional",
+    async (status) => {
+      if (status !== "new") state.customer = customer(complete(), status);
+      const html = render();
+      expect(html).not.toContain('id="cm-customerName"');
+      for (const [key, label, required] of [
+        ["firstName", "First Name", true],
+        ["middleName", "Middle Name", false],
+        ["lastName", "Last Name", true],
+      ] as const) {
+        expect(html).toContain(`for="cm-${key}"`);
+        expect(html).toContain(label);
+        expect(state.inputs.get(`cm-${key}`)?.["aria-required"]).toBe(
+          required || undefined,
+        );
+      }
+      view().onChange(complete());
+      render();
+      const change = (key: string, value: string) => {
+        (
+          state.inputs.get(`cm-${key}`)!.onChange as (e: {
+            target: { value: string };
+          }) => void
+        )({ target: { value } });
+        render();
+      };
+      change("firstName", " \t ");
+      change("lastName", "");
+      await view().onSave?.();
+      render();
+      expect(state.mutate).not.toHaveBeenCalled();
+      expect(view().errors).toMatchObject({
+        firstName: "First Name is required.",
+        lastName: "Last Name is required.",
+      });
+      expect(view().errors.middleName).toBeUndefined();
+      change("firstName", "mARÍA jOSÉ");
+      change("lastName", "de la cruz");
+      await view().onSave?.();
+      render();
+      expect(state.mutate).toHaveBeenCalledTimes(1);
+      expect(state.mutate.mock.calls[0]![1].customer).toMatchObject({
+        firstName: "María José",
+        middleName: null,
+        lastName: "De La Cruz",
+        customerName: "María José De La Cruz",
+      });
+    },
+  );
+  it("restores separately saved names without guessing the order of old full names", () => {
+    state.customer = {
+      ...customer(complete()),
+      firstName: "María José",
+      middleName: "Peña",
+      lastName: "O’Neil",
+      customerName: "María José Peña O’Neil",
+    };
+    render();
+    expect(view().draft.values).toMatchObject({
+      firstName: "María José",
+      middleName: "Peña",
+      lastName: "O’Neil",
+    });
+    state.values = [];
+    state.customer = {
+      ...customer(complete()),
+      firstName: null,
+      middleName: null,
+      lastName: null,
+      customerName: "CRUZ, María José",
+    };
+    expect(render()).toContain("Previous Customer Name: CRUZ, María José");
+    expect(view().draft.values).toMatchObject({
+      firstName: "",
+      middleName: "",
+      lastName: "",
+    });
+  });
 });
 
 describe("SP-0214 Street 1 on customer enrollment", () => {

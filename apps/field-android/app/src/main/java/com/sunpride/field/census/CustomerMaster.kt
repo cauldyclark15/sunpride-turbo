@@ -81,7 +81,27 @@ object CustomerMaster {
     )
     val CUSTOMER_FIELDS = FIELDS.filter { !it.shipTo }
     val SHIP_TO_FIELDS = FIELDS.filter { it.shipTo }
-    fun field(key: String): Field = CUSTOMER_FIELDS.first { it.key == key }
+    val NAME_FIELDS = listOf(
+        f("firstName", "First Name", GENERAL, true, Kind.TEXT, max = 200),
+        f("middleName", "Middle Name", GENERAL, false, Kind.TEXT, max = 200),
+        f("lastName", "Last Name", GENERAL, true, Kind.TEXT, max = 200),
+    )
+    fun field(key: String): Field = (CUSTOMER_FIELDS + NAME_FIELDS).first { it.key == key }
+    fun fullName(input: Map<String, Any?>): String = NAME_FIELDS.mapNotNull { (input[it.key] as? String)?.trim()?.takeIf(String::isNotEmpty) }.joinToString(" ")
+    fun nameErrors(input: Map<String, Any?>, required: Boolean = true): List<Error> = buildList {
+        for (f in NAME_FIELDS) {
+            val raw = input[f.key]; val s = (raw as? String)?.trim().orEmpty()
+            val message = when {
+                raw != null && raw !is String -> "Enter ${f.label}."
+                required && f.required && s.isEmpty() -> "${f.label} is required."
+                s.length > 200 -> "${f.label} must be 200 characters or fewer."
+                else -> ""
+            }
+            if (message.isNotEmpty()) add(Error(if (s.length > 200) "too_long" else "required", f.key, f.label, f.section, message))
+        }
+        if (fullName(input).length > 200) add(Error("too_long", "lastName", "Last Name", GENERAL,
+            "First Name, Middle Name and Last Name together must be 200 characters or fewer."))
+    }
     fun shipToField(key: String): Field = SHIP_TO_FIELDS.first { it.key == key }
 
     /** SP-0184: agents complete the entire enrollment sheet; CDMs review it after sync. */

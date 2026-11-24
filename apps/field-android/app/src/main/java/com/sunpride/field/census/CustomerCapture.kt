@@ -10,7 +10,7 @@ import java.util.Locale
  * contract's `customer` object. Pure logic; CensusScreen renders it. */
 object CustomerCapture {
     // SP-0182: same free-text policy as the web. Emails, list keys and identifiers keep their case.
-    private val titleCaseFields = CustomerMaster.FIELDS.filter {
+    private val titleCaseFields = (CustomerMaster.FIELDS + CustomerMaster.NAME_FIELDS).filter {
         it.kind == CustomerMaster.Kind.TEXT && !it.key.endsWith("Code") && it.key != "clusterNo"
     }.map { it.key }.toSet()
     private val words = Regex("\\p{L}[\\p{L}\\p{M}]*(?:['’][\\p{L}\\p{M}]+)*")
@@ -104,6 +104,7 @@ object CustomerCapture {
     /** What the agent typed and picked. Codes are "" until chosen. */
     data class Form(
         val registeredName: String = "", val tradeName: String = "", val customerName: String = "", val email: String = "",
+        val firstName: String = "", val middleName: String = "", val lastName: String = "",
         val mobileNo: String = "", val telNo: String = "", val tin: String = "",
         val regionCode: String = "", val provinceCode: String = "", val municipalityCode: String = "", val barangayCode: String = "",
         val houseNo: String = "", val street1: String = "", val street2: String = "", val floor: String = "", val roomStallNo: String = "",
@@ -138,6 +139,7 @@ object CustomerCapture {
         /** The customer-object values (contract §1 keys), blank ones left out. */
         fun values(): LinkedHashMap<String, String> = linkedMapOf(
             "registeredName" to registeredName, "tradeName" to tradeName, "customerName" to customerName, "email" to email,
+            "firstName" to firstName, "middleName" to middleName, "lastName" to lastName,
             "mobileNo" to mobileNo, "telNo" to telNo, "tin" to tin, "regionCode" to regionCode, "provinceCode" to provinceCode,
             "municipalityCode" to municipalityCode, "barangayCode" to barangayCode, "houseNo" to houseNo, "street1" to street1,
             "street2" to street2, "floor" to floor, "roomStallNo" to roomStallNo, "postalCode" to postalCode,
@@ -177,6 +179,7 @@ object CustomerCapture {
         val o = JSONObject(text ?: return null); if (o.optInt("version") != 1) return null
         val v = o.getJSONObject("form"); fun g(k: String) = v.optString(k, "")
         val form = Form(customFields = EnrollmentFields.values(o.optJSONObject("customFields")), registeredName = g("registeredName"), tradeName = g("tradeName"), customerName = g("customerName"),
+            firstName = g("firstName"), middleName = g("middleName"), lastName = g("lastName"),
             email = g("email"), mobileNo = g("mobileNo"), telNo = g("telNo"), tin = g("tin"), regionCode = g("regionCode"),
             provinceCode = g("provinceCode"), municipalityCode = g("municipalityCode"), barangayCode = g("barangayCode"),
             houseNo = g("houseNo"), street1 = g("street1"), street2 = g("street2"), floor = g("floor"), roomStallNo = g("roomStallNo"),
@@ -219,7 +222,8 @@ object CustomerCapture {
         return out
     }
     /** SP-0196: the store's name for lists and the outlet: Registered Name (the store), else Customer Name. */
-    fun storeName(f: Form): String = normalizeText("registeredName", f.registeredName.trim()).ifEmpty { normalizeText("customerName", f.customerName.trim()) }
+    fun customerName(f: Form): String = CustomerMaster.fullName(f.values()).ifEmpty { f.customerName.trim() }
+    fun storeName(f: Form): String = normalizeText("registeredName", f.registeredName.trim()).ifEmpty { normalizeText("customerName", customerName(f)) }
     /** The store name and owner of a saved Add customer payload (older saves sent the owner as `name`). */
     fun savedNames(p: JSONObject): Pair<String, String?> {
         val c = p.optJSONObject("customer")
@@ -265,7 +269,7 @@ object CustomerCapture {
     fun missing(f: Form, s: Setup?, g: Geography?, hasFix: Boolean, hasPhoto: Boolean): List<Missing> = buildList {
         val values = f.values()
         val app = s?.let { applicability(it, f) }
-        for (key in CustomerMaster.FIELD_CAPTURE) {
+        for (key in CustomerMaster.FIELD_CAPTURE.flatMap { if (it == "customerName") listOf("firstName", "middleName", "lastName") else listOf(it) }) {
             val field = CustomerMaster.field(key)
             if (!field.required || key == "customerAddress" || (field.adp && f.distributionChannelCode != CustomerMaster.ADP_CHANNEL)) continue
             if (key == "customerGroup1Code" && app?.group1 == false) continue
@@ -303,7 +307,7 @@ object CustomerCapture {
     }
     fun shipTo(f: Form, g: Geography?): Map<String, Any?> = linkedMapOf(
         "sameAsCustomer" to f.sameAsCustomer,
-        "shipToParty" to normalizeText("shipToParty", if (f.sameAsCustomer) f.customerName.trim() else f.shipToParty.trim()),
+        "shipToParty" to normalizeText("shipToParty", if (f.sameAsCustomer) customerName(f) else f.shipToParty.trim()),
         "shipToAddress" to if (f.sameAsCustomer) address(f, g) else normalizeText("shipToAddress", f.shipToAddress.trim()),
         "contactPerson" to normalizeText("contactPerson", f.contactPerson.trim()),
         "mobileNo" to if (f.sameAsCustomer) f.mobileNo.trim() else f.shipToMobileNo.trim(),
@@ -313,8 +317,9 @@ object CustomerCapture {
     /** The shared draft rules (formats, lists, dependencies), as the server checks them. */
     fun draftErrors(f: Form, s: Setup, g: Geography?, latitude: Double?, longitude: Double?): List<CustomerMaster.Error> {
         val input = HashMap<String, Any?>(f.values()); input["latitude"] = latitude; input["longitude"] = longitude
+        input["customerName"] = customerName(f)
         input["shipTos"] = listOf(shipTo(f, g))
-        return CustomerMaster.validate(input, "draft", s.index, g?.resolve(f)).errors.map { error ->
+        return (CustomerMaster.nameErrors(input, required = false) + CustomerMaster.validate(input, "draft", s.index, g?.resolve(f)).errors).map { error ->
             val key = when (error.field) {
                 "shipTos[0].mobileNo" -> if (f.sameAsCustomer) "mobileNo" else "shipToMobileNo"
                 "shipTos[0].email" -> if (f.sameAsCustomer) "email" else "shipToEmail"
@@ -330,6 +335,8 @@ object CustomerCapture {
         // Normalize at submission as well as blur: restored drafts and Save from a focused field are covered.
         // SP-0220: Customer Address is no longer a separate field; the server builds it from Street 1 and the location.
         f.values().forEach { (k, v) -> if (k != "customerAddress") o.put(k, normalizeText(k, v)) }
+        for (field in CustomerMaster.NAME_FIELDS) o.put(field.key, normalizeText(field.key, f.values()[field.key].orEmpty()))
+        o.put("customerName", normalizeText("customerName", customerName(f)))
         builtAddress(f, g).takeIf { it.isNotEmpty() }?.let { o.put("customerAddress", it) }
         o.put("shipTos", JSONArray().put(JSONObject(shipTo(f, g))))
         if (f.customFields.isNotEmpty()) o.put("customFields", JSONObject(f.customFields))
@@ -356,7 +363,7 @@ object CustomerCapture {
     fun validate(p: JSONObject) {
         require(uuid.matches(p.getString("captureId"))) { "Open Add customer again." }
         val c = p.getJSONObject("customer")
-        val allowed = CustomerMaster.CUSTOMER_FIELDS.map { it.key }.toSet() + setOf("shipTos", "customFields")
+        val allowed = (CustomerMaster.CUSTOMER_FIELDS + CustomerMaster.NAME_FIELDS).map { it.key }.toSet() + setOf("shipTos", "customFields")
         c.keys().forEach { k -> require(k in allowed) { "Unknown customer field $k." } }
         require(p.getString("name").trim().length in 1..200) { "Registered Name is required." }
         require(p.getString("address").trim().length in 1..500) { "Fill Street 1 and the location." }
@@ -376,6 +383,8 @@ object CustomerCapture {
         }
         val location = p.optJSONObject("location")
         input["latitude"] = location?.getDouble("latitude"); input["longitude"] = location?.getDouble("longitude")
+        val nameErrors = if (CustomerMaster.NAME_FIELDS.any { c.has(it.key) }) CustomerMaster.nameErrors(input) else emptyList()
+        require(nameErrors.isEmpty()) { nameErrors.first().message }
         val errors = CustomerMaster.validate(input, "field", CustomerMaster.ReferenceIndex(emptyList()), null).errors
             // Reference lists are unavailable here; the form and server check conditional groups.
             .filter { (it.field == "postalCode" || it.code !in setOf("invalid_option", "not_for_sales_org", "not_for_channel", "not_for_group1", "not_applicable", "choose_parent_first")) &&

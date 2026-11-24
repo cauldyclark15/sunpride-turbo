@@ -60,6 +60,8 @@ async function call(role, method, path, body, key) {
 const customer = (over = {}) => ({
   registeredName: "Tindahan ni Aling Rosa Inc.",
   customerName: "Aling Rosa Store",
+  firstName: "Aling Rosa",
+  lastName: "Store",
   contactPerson: "Rosa",
   mobileNo: "+639171234567",
   email: "Rosa@Example.PH",
@@ -404,7 +406,8 @@ describe("SP-0170 customer writer", () => {
     const original = await readCustomer(h.db, id);
     const r = await call("admin", "PUT", `/api/v1/customers/${id}`, {
       customer: {
-        customerName: "Aling Rosa Mini Mart",
+        firstName: "Aling Rosa",
+        lastName: "Mini Mart",
         creditLimit: 20000,
         shipTos: [
           { sameAsCustomer: true, contactPerson: "Rosa" },
@@ -531,7 +534,10 @@ describe("SP-0170 customer writer", () => {
     );
     expect(await readCustomer(h.db, id)).toEqual(incomplete);
     const finished = await call("admin", "PUT", `/api/v1/customers/${id}`, {
-      customer: { registeredName: saved.registeredName, street1: saved.street1 },
+      customer: {
+        registeredName: saved.registeredName,
+        street1: saved.street1,
+      },
     });
     expect(finished.status).toBe(200);
     expect(finished.body.completeness).toBe("complete");
@@ -647,10 +653,25 @@ describe("SP-0170 customer writer", () => {
     /** @param {string} q */
     const codes = async (q) =>
       (
-        await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent(q)}`)
+        await call(
+          "admin",
+          "GET",
+          `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent(q)}`,
+        )
       ).body.rows.map((/** @type {any} */ r) => r.code);
-    for (const q of ["SMP-C0069", "SMP-CO069", "smpc0069", "smp c 0069", "SMP-C-0069", "c0069", "C0O69"])
-      expect([q, await codes(q)]).toEqual([q, expect.arrayContaining(["SMP-C0069"])]);
+    for (const q of [
+      "SMP-C0069",
+      "SMP-CO069",
+      "smpc0069",
+      "smp c 0069",
+      "SMP-C-0069",
+      "c0069",
+      "C0O69",
+    ])
+      expect([q, await codes(q)]).toEqual([
+        q,
+        expect.arrayContaining(["SMP-C0069"]),
+      ]);
     expect(await codes("SMP-C0070")).not.toContain("SMP-C0069");
     expect(await codes("SMP-C690")).not.toContain("SMP-C0069");
     // Wildcards stay literal (EDGE-005).
@@ -665,7 +686,8 @@ describe("SP-0170 customer writer", () => {
       {
         custodianOrgUnitId: UNIT,
         customer: customer({
-          customerName: "Aling Nena Sari-Sari Store",
+          firstName: "Aling Nena",
+          lastName: "Sari-Sari Store",
           registeredName: "Nena Dela Paz",
           mobileNo: "09185550199",
           // Keep a distinct valid pin so duplicate assertions still isolate name/phone.
@@ -680,40 +702,107 @@ describe("SP-0170 customer writer", () => {
     /** @param {string} q */
     const names = async (q) =>
       (
-        await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent(q)}`)
+        await call(
+          "admin",
+          "GET",
+          `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent(q)}`,
+        )
       ).body.rows.map((/** @type {any} */ r) => r.customerName);
-    for (const q of ["Aling Nina", "alingnena", "aling-nena", "ALING  NENA", "sari sari aling"])
-      expect([q, await names(q)]).toEqual([q, expect.arrayContaining(["Aling Nena Sari-Sari Store"])]);
-    expect(await names("Mang Kanor")).not.toContain("Aling Nena Sari-Sari Store");
+    for (const q of [
+      "Aling Nina",
+      "alingnena",
+      "aling-nena",
+      "ALING  NENA",
+      "sari sari aling",
+    ])
+      expect([q, await names(q)]).toEqual([
+        q,
+        expect.arrayContaining(["Aling Nena Sari-Sari Store"]),
+      ]);
+    expect(await names("Mang Kanor")).not.toContain(
+      "Aling Nena Sari-Sari Store",
+    );
     // "Who added what": the creator and the Manila day are listed and filterable.
-    const list = await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent("Aling Nena")}`);
-    const row = list.body.rows.find((/** @type {any} */ r) => r.id === made.body.id);
+    const list = await call(
+      "admin",
+      "GET",
+      `/api/v1/customers?limit=200&offset=0&q=${encodeURIComponent("Aling Nena")}`,
+    );
+    const row = list.body.rows.find(
+      (/** @type {any} */ r) => r.id === made.body.id,
+    );
     expect(row.addedAt).toBeGreaterThan(0);
     expect(Array.isArray(list.body.adders)).toBe(true);
-    const today = new Date(Date.now() + 8 * 3_600_000).toISOString().slice(0, 10);
-    const onDay = await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&addedOn=${today}`);
-    expect(onDay.body.rows.map((/** @type {any} */ r) => r.id)).toContain(made.body.id);
-    const otherDay = await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&addedOn=2020-01-01`);
-    expect(otherDay.body.rows.map((/** @type {any} */ r) => r.id)).not.toContain(made.body.id);
+    const today = new Date(Date.now() + 8 * 3_600_000)
+      .toISOString()
+      .slice(0, 10);
+    const onDay = await call(
+      "admin",
+      "GET",
+      `/api/v1/customers?limit=200&offset=0&addedOn=${today}`,
+    );
+    expect(onDay.body.rows.map((/** @type {any} */ r) => r.id)).toContain(
+      made.body.id,
+    );
+    const otherDay = await call(
+      "admin",
+      "GET",
+      `/api/v1/customers?limit=200&offset=0&addedOn=2020-01-01`,
+    );
+    expect(
+      otherDay.body.rows.map((/** @type {any} */ r) => r.id),
+    ).not.toContain(made.body.id);
     if (row.addedById) {
-      const by = await call("admin", "GET", `/api/v1/customers?limit=200&offset=0&addedBy=${row.addedById}`);
-      expect(by.body.rows.map((/** @type {any} */ r) => r.id)).toContain(made.body.id);
+      const by = await call(
+        "admin",
+        "GET",
+        `/api/v1/customers?limit=200&offset=0&addedBy=${row.addedById}`,
+      );
+      expect(by.body.rows.map((/** @type {any} */ r) => r.id)).toContain(
+        made.body.id,
+      );
     }
-    expect((await call("admin", "GET", "/api/v1/customers?addedOn=nope")).status).toBe(400);
+    expect(
+      (await call("admin", "GET", "/api/v1/customers?addedOn=nope")).status,
+    ).toBe(400);
     // Duplicate check (the office Add form and the phone call the same endpoint).
     await h.db`delete from rate_limits where bucket_key like 'dupcheck:%'`;
     /** @param {any} body */
     const dup = async (body) =>
-      (await call("admin", "POST", "/api/v1/masters/census/duplicate-check", body)).body.candidates
+      (
+        await call(
+          "admin",
+          "POST",
+          "/api/v1/masters/census/duplicate-check",
+          body,
+        )
+      ).body.candidates
         .filter((/** @type {any} */ c) => c.id === made.body.id)
         .map((/** @type {any} */ c) => c.reasons);
-    expect(await dup({ name: "Totally different", phone: "+63 918 555 0199" })).toEqual([["phone"]]);
+    expect(
+      await dup({ name: "Totally different", phone: "+63 918 555 0199" }),
+    ).toEqual([["phone"]]);
     expect(await dup({ name: "Aling Nina Store" })).toEqual([["name"]]);
     expect(await dup({ name: "alingnena" })).toEqual([["name"]]);
     // The field app's body (name, phone, GPS point; no new APK needed).
-    expect(await dup({ name: "Aling Nina", latitude: 10.3312, longitude: 123.9056 })).toEqual([["name"]]);
-    expect(await dup({ name: "Other", phone: "09185550199", latitude: 10.3312, longitude: 123.9056 })).toEqual([["phone"]]);
-    expect(await dup({ name: "Aling Nina", barangay: "Somewhere Else", municipality: "Far City" })).toEqual([]);
+    expect(
+      await dup({ name: "Aling Nina", latitude: 10.3312, longitude: 123.9056 }),
+    ).toEqual([["name"]]);
+    expect(
+      await dup({
+        name: "Other",
+        phone: "09185550199",
+        latitude: 10.3312,
+        longitude: 123.9056,
+      }),
+    ).toEqual([["phone"]]);
+    expect(
+      await dup({
+        name: "Aling Nina",
+        barangay: "Somewhere Else",
+        municipality: "Far City",
+      }),
+    ).toEqual([]);
   });
   test("list, filters and permissions", async () => {
     const list = await call(
@@ -908,6 +997,8 @@ describe("SP-0170 customer writer", () => {
       `/api/v1/customers/${outletId}`,
       {
         customer: {
+          firstName: "Ana",
+          lastName: "Santos",
           registeredName: "Ana Santos",
           taxClassificationCode: "1",
           customerGroupCode: "74",
@@ -956,12 +1047,21 @@ describe("SP-0170 customer writer", () => {
     // SP-0176: the proposing agent's phone gets the decision WITH the final Customer Code in one read.
     const [enrol] =
       await h.db`select client_request_id from outlet_enrolments where outlet_id=${outletId}`;
-    const mine = await call("agent", "GET", "/api/v1/masters/census/my-changes");
+    const mine = await call(
+      "agent",
+      "GET",
+      "/api/v1/masters/census/my-changes",
+    );
     expect(
       mine.body.customers.find(
-        (/** @type {any} */ c) => c.captureId === String(enrol.client_request_id),
+        (/** @type {any} */ c) =>
+          c.captureId === String(enrol.client_request_id),
       ),
-    ).toMatchObject({ outletId, decision: "accepted", code: approved.body.code });
+    ).toMatchObject({
+      outletId,
+      decision: "accepted",
+      code: approved.body.code,
+    });
   });
   test("an approver or office admin can reject a field capture (old New store approvals' Reject): inactive, no accounting customer", async () => {
     const captureId = crypto.randomUUID();
@@ -1023,22 +1123,36 @@ describe("SP-0170 customer writer", () => {
     const [me] =
       await h.db`select id from profiles where email='agent@sunpride.test'`;
     expect(
-      (await addedByProfileOutlets(h.db, me.id)).map((/** @type {any} */ o) => o.id),
+      (await addedByProfileOutlets(h.db, me.id)).map(
+        (/** @type {any} */ o) => o.id,
+      ),
     ).not.toContain(outletId);
     // E2E-008: the proposing agent's phone learns the rejection and its reason (Saved customers row).
-    const mine = await call("agent", "GET", "/api/v1/masters/census/my-changes");
+    const mine = await call(
+      "agent",
+      "GET",
+      "/api/v1/masters/census/my-changes",
+    );
     expect(mine.status).toBe(200);
     expect(
-      mine.body.customers.find((/** @type {any} */ c) => c.captureId === captureId),
+      mine.body.customers.find(
+        (/** @type {any} */ c) => c.captureId === captureId,
+      ),
     ).toMatchObject({
       outletId,
       decision: "rejected",
       reason: "Duplicate of an existing store",
       code: null,
     });
-    const other = await call("manager", "GET", "/api/v1/masters/census/my-changes");
+    const other = await call(
+      "manager",
+      "GET",
+      "/api/v1/masters/census/my-changes",
+    );
     expect(
-      (other.body.customers ?? []).some((/** @type {any} */ c) => c.captureId === captureId),
+      (other.body.customers ?? []).some(
+        (/** @type {any} */ c) => c.captureId === captureId,
+      ),
     ).toBe(false);
     // Only a pending field capture can be rejected.
     expect(
@@ -1129,6 +1243,117 @@ describe("SP-0246 postal codes", () => {
         area: "Baesa",
       }),
     );
+  });
+});
+
+describe("SP-0240 separate customer names", () => {
+  test("required names refuse missing/blank input with no writes, then save, reopen and edit independently", async () => {
+    const count = async () =>
+      (await h.db`select count(*)::int n from outlets`)[0].n;
+    const before = await count();
+    for (const missing of [undefined, null, "", " \t "]) {
+      const bad = await call("admin", "POST", "/api/v1/customers", {
+        custodianOrgUnitId: UNIT,
+        customer: customer({
+          firstName: missing,
+          lastName: missing,
+          middleName: "",
+          customerName: "Must not bypass required parts",
+        }),
+      });
+      expect(bad.status, JSON.stringify(bad.body)).toBe(422);
+      expect(
+        bad.body.error.details.errors.map((/** @type {any} */ e) => e.field),
+      ).toEqual(["firstName", "lastName"]);
+    }
+    expect(await count()).toBe(before);
+    const made = await call(
+      "admin",
+      "POST",
+      "/api/v1/customers",
+      {
+        custodianOrgUnitId: UNIT,
+        customer: customer({
+          firstName: " María José ",
+          middleName: " ",
+          lastName: " de la Cruz ",
+          customerName: "Wrong Order",
+        }),
+      },
+      crypto.randomUUID(),
+    );
+    expect(made.status, JSON.stringify(made.body)).toBe(200);
+    const id = made.body.id;
+    const expected = {
+      firstName: "María José",
+      middleName: null,
+      lastName: "de la Cruz",
+      customerName: "María José de la Cruz",
+    };
+    expect(made.body).toMatchObject(expected);
+    expect(
+      (await call("admin", "GET", `/api/v1/customers/${id}`)).body,
+    ).toMatchObject(expected);
+    expect((await accounting(id))[0].name).toBe(expected.customerName);
+    expect(made.body.shipTos[0].shipToParty).toBe(expected.customerName);
+    expect(
+      (
+        await h.db`select first_name,middle_name,last_name from customer_profiles where outlet_id=${id}`
+      )[0],
+    ).toEqual({
+      first_name: "María José",
+      middle_name: null,
+      last_name: "de la Cruz",
+    });
+    const edited = await call("admin", "PUT", `/api/v1/customers/${id}`, {
+      customer: { middleName: " Peña ", lastName: " O’Neil " },
+    });
+    expect(edited.status, JSON.stringify(edited.body)).toBe(200);
+    expect(edited.body).toMatchObject({
+      firstName: "María José",
+      middleName: "Peña",
+      lastName: "O’Neil",
+      customerName: "María José Peña O’Neil",
+    });
+    expect((await accounting(id))[0].name).toBe("María José Peña O’Neil");
+    expect(edited.body.shipTos[0].shipToParty).toBe("María José Peña O’Neil");
+    const reopened = (await call("admin", "GET", `/api/v1/customers/${id}`))
+      .body;
+    const refused = await call("admin", "PUT", `/api/v1/customers/${id}`, {
+      customer: { firstName: " " },
+    });
+    expect(refused.status).toBe(422);
+    expect(
+      (await call("admin", "GET", `/api/v1/customers/${id}`)).body,
+    ).toEqual(reopened);
+    const cleared = await call("admin", "PUT", `/api/v1/customers/${id}`, {
+      customer: { middleName: null },
+    });
+    expect(cleared.status).toBe(200);
+    expect(cleared.body).toMatchObject({
+      firstName: "María José",
+      middleName: null,
+      lastName: "O’Neil",
+      customerName: "María José O’Neil",
+    });
+    const found = await call(
+      "admin",
+      "GET",
+      `/api/v1/customers?q=${encodeURIComponent("María José O’Neil")}`,
+    );
+    expect(found.body.rows.map((/** @type {any} */ r) => r.id)).toContain(id);
+  });
+  test("legacy names remain intact without guessed parts until the office explicitly supplies them", async () => {
+    const [row] =
+      await h.db`select o.id,o.name from outlets o join customer_profiles p on p.outlet_id=o.id where p.first_name is null and o.status<>'inactive' and o.deleted_at is null limit 1`;
+    expect(row).toBeDefined();
+    const read = await readCustomer(h.db, row.id);
+    expect(read).toMatchObject({
+      customerName: row.name,
+      firstName: null,
+      middleName: null,
+      lastName: null,
+    });
   });
 });
 

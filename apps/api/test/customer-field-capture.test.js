@@ -222,6 +222,13 @@ test("geography pack: national levels in one request, barangays per province", a
 
 test("Add customer capture becomes a prospect customer with a complete pending profile; replay is idempotent", async () => {
   const p = capture();
+  // SP-0240: the names entered separately on the phone reach the same canonical record.
+  p.customer = {
+    ...p.customer,
+    firstName: "Aling Nena",
+    middleName: "",
+    lastName: "Store",
+  };
   const opId = crypto.randomUUID();
   const first = await rep.push(p, opId);
   if (first.status !== "applied") console.log(JSON.stringify(first));
@@ -231,6 +238,9 @@ test("Add customer capture becomes a prospect customer with a complete pending p
   expect(enrolment.status).toBe("pending");
   const c = await readCustomer(h.db, enrolment.outlet_id);
   expect(c).toMatchObject({
+    firstName: "Aling Nena",
+    middleName: null,
+    lastName: "Store",
     customerName: "Aling Nena Store",
     tradeName: "Nena's",
     completeness: "complete",

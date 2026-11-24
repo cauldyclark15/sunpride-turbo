@@ -7,6 +7,9 @@ import { optionalReason } from "../../core/reason.js";
 // Store creation, pins and deactivation reuse the existing outlet writers (org/outlets.js).
 import {
   FIELDS,
+  CUSTOMER_NAME_FIELDS,
+  formatCustomerName,
+  hasCustomerNameParts,
   formatAddress,
   optionLabel,
   referenceIndex,
@@ -33,6 +36,9 @@ import { get, replaceInterval, rule, uuid } from "../org/model.js";
 
 /** Profile columns <-> API keys (customer fields kept on customer_profiles). */
 export const PROFILE_COLUMNS = /** @type {const} */ ([
+  ["firstName", "first_name"],
+  ["middleName", "middle_name"],
+  ["lastName", "last_name"],
   ["registeredName", "registered_name"],
   ["tradeName", "trade_name"],
   ["email", "email"],
@@ -380,6 +386,8 @@ export async function syncAccountingCustomer(c, outletId) {
 /** Fill server-derived values: Country default, PSGC names, the one-line Customer Address and
  * the first ship-to when "same as customer" is ticked. @param {any} db @param {Record<string, any>} merged @param {Record<string, any>} input @param {Record<string, any>|null} existing */
 export async function derive(db, merged, input, existing) {
+  if (hasCustomerNameParts(merged))
+    merged.customerName = formatCustomerName(merged);
   if (!merged.countryCode) merged.countryCode = "PH";
   const geo = await resolveGeography(db, merged);
   merged.regionName = geo.region?.name ?? null;
@@ -422,7 +430,7 @@ export async function derive(db, merged, input, existing) {
  * field (SP-0213). Field captures, when incomplete (SP-0188), are kept as a draft with the agent's
  * submitted values and the missing fields so the office can finish it in the same CDM review.
  * Stores full completeness separately. Returns the customer id.
- * @param {any} c @param {Record<string, any>} b @param {{outletId?:string, fieldCapture?:boolean, importedCode?:string}} [opts]
+ * @param {any} c @param {Record<string, any>} b @param {{outletId?:string, fieldCapture?:boolean, importedCode?:string, requireNameParts?:boolean}} [opts]
  */
 export async function saveCustomer(c, b, opts = {}) {
   const input = b.customer ?? b;
@@ -493,6 +501,8 @@ export async function saveCustomer(c, b, opts = {}) {
     merged.salesPartnerCode = await defaultSalesPartner(c, lists);
   let draft = validateCustomer(merged, {
     level: opts.fieldCapture ? "field" : pendingEdit ? "draft" : "complete",
+    requireNameParts:
+      opts.requireNameParts || CUSTOMER_NAME_FIELDS.some((f) => f.key in input),
     lists,
     geography: geo,
   });
@@ -550,6 +560,8 @@ export async function saveCustomer(c, b, opts = {}) {
   if (!draft.ok) invalid(draft);
   const complete = validateCustomer(merged, {
     level: "complete",
+    requireNameParts:
+      opts.requireNameParts || CUSTOMER_NAME_FIELDS.some((f) => f.key in input),
     lists,
     geography: geo,
   });
@@ -665,7 +677,11 @@ export async function saveCustomer(c, b, opts = {}) {
   );
   // Analytics tiles are gated by the outlets fingerprint: a profile change must move it too.
   await c.db`update outlets set updated_at=now() where id=${outletId}`;
-  if (Array.isArray(input.shipTos) || !hadProfile) {
+  if (
+    Array.isArray(input.shipTos) ||
+    !hadProfile ||
+    v.customerName !== existing?.customerName
+  ) {
     await c.db`update customer_ship_tos set deleted_at=now() where outlet_id=${outletId} and deleted_at is null`;
     for (const [i, s] of (v.shipTos ?? []).entries())
       await c.db`insert into customer_ship_tos(outlet_id,ordinal,ship_to_party,ship_to_address,contact_person,mobile_no,email,same_as_customer,updated_by)
@@ -719,6 +735,9 @@ export async function approveCustomer(c, outletId, b) {
   const lists = await referenceRows(c.db);
   const result = validateCustomer(customer, {
     level: "complete",
+    requireNameParts: CUSTOMER_NAME_FIELDS.some((f) =>
+      customer.fieldMissing?.some((/** @type {any} */ e) => e.field === f.key),
+    ),
     lists,
     geography: await resolveGeography(c.db, customer),
   });

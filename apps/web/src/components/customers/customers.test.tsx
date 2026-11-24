@@ -119,7 +119,8 @@ const fill = (d: Draft, pairs: [string, string, string?][]) =>
 function completeDraft(): Draft {
   let d = fill(emptyDraft(), [
     ["registeredName", "Rosa Dela Cruz"],
-    ["customerName", "Aling Rosa Store"],
+    ["firstName", "Aling Rosa"],
+    ["lastName", "Store"],
     ["mobileNo", "09171234567"],
     ["taxClassificationCode", "1"],
     ["regionCode", "0700000000", "Region VII (Central Visayas)"],

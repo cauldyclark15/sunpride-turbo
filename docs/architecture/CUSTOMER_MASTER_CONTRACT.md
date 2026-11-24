@@ -14,6 +14,19 @@ Shared rules: `@sunpride/customer-master` (pure JS; import it on web for live fo
 upload previews). It exports `FIELDS`, `SECTIONS`, `validateCustomer`, `formatAddress`,
 `optionLabel`, `normalizeTin`, `normalizePhMobile`, `shipToFromCustomer`, `ERROR_CODES`.
 
+## SP-0240: individual names on enrollment
+
+Web and Android enrollment replace the Customer Name input with `firstName` (First Name, required),
+`middleName` (Middle Name, optional), and `lastName` (Last Name, required). Values are retained separately
+in `customer_profiles`; `customerName` / `outlets.name` is generated in first–middle–last order for existing
+readers, search, duplicate checks, accounting and copied ship-to names. Combined names are limited to
+200 characters, without truncation. Ordinary office saves validate both required parts.
+
+The original sheet/import field list below remains unchanged. Older customer names and queued phone
+saves are not split or guessed; file uploads retain their original single-name contract. The editor
+shows the previous name for reference and asks for the separate names before saving. Existing
+field-capture recovery still retains incomplete submissions for completion, rather than losing work.
+
 ## 1. Field keys and the client's labels (sheet order)
 
 Labels are the client's exact wording; use them in forms, upload headers and messages.

@@ -1,5 +1,6 @@
 // SP-0170: one validation of the client's customer record for API, web and uploads.
 // Pure JS (no I/O): the caller passes the reference rows and the resolved geography records.
+import { hasCustomerNameParts, validateCustomerName } from "./customer-name.js";
 import {
   ADP_CHANNEL,
   CUSTOMER_FIELDS,
@@ -174,7 +175,7 @@ export function applicability(index, c) {
  * and dependencies of whatever is filled; only Customer Name required), `field` (the full agent
  * enrollment, including ship-to and conditional ADP), or `complete` (office saves/approval/uploads).
  * @param {Record<string, any>} input
- * @param {{level?:Level, lists:ReferenceRow[]|ReferenceIndex, geography?:ResolvedGeography|null}} ctx
+ * @param {{level?:Level, lists:ReferenceRow[]|ReferenceIndex, geography?:ResolvedGeography|null, requireNameParts?:boolean}} ctx
  * @returns {{ok:boolean, level:Level, errors:CustomerError[], value:Record<string, any>}}
  */
 export function validateCustomer(input, ctx) {
@@ -194,9 +195,17 @@ export function validateCustomer(input, ctx) {
       message,
       ...(i === undefined ? {} : { index: i }),
     });
+  const structuredName = ctx.requireNameParts || hasCustomerNameParts(input);
+  if (structuredName) {
+    const name = validateCustomerName(input, level !== "draft");
+    Object.assign(value, name.value);
+    errors.push(...name.errors);
+    input = { ...input, customerName: name.value.customerName };
+  }
   const app = applicability(index, input);
   /** @param {FieldSpecRef} f */
   const isRequired = (f) => {
+    if (f.key === "customerName" && structuredName) return false;
     if (level === "draft") return f.key === "customerName";
     if (level === "field" && !f.shipTo && !FIELD_CAPTURE.includes(f.key))
       return false;
@@ -271,6 +280,7 @@ export function validateCustomer(input, ctx) {
   };
 
   for (const f of CUSTOMER_FIELDS) {
+    if (f.key === "customerName" && structuredName) continue;
     if (f.kind === "list" || f.kind === "geo") {
       const v = text(input[f.key]);
       if (!v && isRequired(f)) fail("required", f, `${f.label} is required.`);

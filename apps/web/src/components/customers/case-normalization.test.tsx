@@ -127,17 +127,17 @@ describe("SP-0182 customer text casing", () => {
       draft = next;
     });
     form(draft, onChange);
-    const change = captured.get("cm-customerName")!.onChange as (e: {
+    const change = captured.get("cm-firstName")!.onChange as (e: {
       target: { value: string };
     }) => void;
     change({ target: { value: "aLiNg rOsA sToRe" } });
-    expect(draft.values.customerName).toBe("aLiNg rOsA sToRe");
+    expect(draft.values.firstName).toBe("aLiNg rOsA sToRe");
     form(draft, onChange);
-    blur("cm-customerName", draft.values.customerName!);
-    expect(draft.values.customerName).toBe("Aling Rosa Store");
+    blur("cm-firstName", draft.values.firstName!);
+    expect(draft.values.firstName).toBe("Aling Rosa Store");
     expect(form(draft, onChange)).toContain('value="Aling Rosa Store"');
     onChange.mockClear();
-    blur("cm-customerName", "Aling Rosa Store");
+    blur("cm-firstName", "Aling Rosa Store");
     expect(onChange).not.toHaveBeenCalled();
   });
 
@@ -183,6 +183,8 @@ describe("SP-0182 customer text casing", () => {
     draft.code = "SAP-abC001";
     for (const f of FIELDS.filter((f) => f.kind === "text" && !f.shipTo))
       draft.values[f.key] = "mIXed TEXT";
+    draft.values.firstName = "mIXed";
+    draft.values.lastName = "TEXT";
     draft.values.email = "Mixed.Case@Example.COM";
     draft.shipTos[0]!.contactPerson = "ROSA DELA CRUZ";
     draft.shipTos[1] = {
@@ -246,7 +248,7 @@ describe("SP-0182 customer text casing", () => {
   it("does not change read-only field access", () => {
     const onChange = vi.fn();
     const html = form(emptyDraft(), onChange, true);
-    expect(captured.get("cm-customerName")!.disabled).toBe(true);
+    expect(captured.get("cm-firstName")!.disabled).toBe(true);
     expect(captured.get("cm-shipTos-0--contactPerson")!.disabled).toBe(true);
     expect(html).not.toContain("when you leave a field");
     expect(onChange).not.toHaveBeenCalled();

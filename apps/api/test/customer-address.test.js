@@ -79,6 +79,8 @@ describe("SP-0220 customer addresses", () => {
       customer: {
         registeredName: "Sample Address Store Inc.",
         customerName: "Sample Address Store",
+        firstName: "Sample Address",
+        lastName: "Store",
         customerAddress: reportedAddress,
         mobileNo: "09171234567",
         taxClassificationCode: "1",
