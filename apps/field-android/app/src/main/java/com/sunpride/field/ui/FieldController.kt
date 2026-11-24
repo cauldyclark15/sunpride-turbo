@@ -560,7 +560,10 @@ class LiveFieldBackend(
                 return live ?: saved?.json
             }
             val pack = cachedOrFetch("pack", "/api/v1/geography/pack") ?: return@withStore null
-            var geography = com.sunpride.field.census.CustomerCapture.Geography.parse(JSONObject(pack))
+            val postalPack = com.sunpride.field.census.CustomerPostalPack.upgrade(pack,
+                fetch = { functions.api.get("/api/v1/geography/pack").toString() },
+                save = { live -> store.putLocalCache(GEOGRAPHY, "pack", live, now, "") })
+            var geography = com.sunpride.field.census.CustomerCapture.Geography.parse(JSONObject(postalPack))
             val known = store.localCache(GEOGRAPHY, "provinces")?.takeUnless { it.tombstone }?.json
                 ?.let { runCatching { org.json.JSONArray(it) }.getOrNull() }
                 ?.let { a -> (0 until a.length()).mapNotNull { a.opt(it) as? String } }.orEmpty()

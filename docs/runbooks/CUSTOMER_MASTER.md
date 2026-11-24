@@ -107,7 +107,8 @@ the town list. Selecting a barangay fills the town's only ZIP or an unambiguous 
 area. Multiple ZIPs without a known area stay blank rather than guessing. Changing town or
 barangay clears the previous ZIP; manual entries and clearing are kept until the next address
 selection. Both forms allow list search and manual entry. The Android pack includes postal
-area names; the SP-0242 online refresh picks them up while retaining its saved pack offline.
+area names; an older saved pack is upgraded on the next online setup request, with the old
+pack retained offline. This metadata upgrade leaves the normal geography-cache policy intact.
 The iOS form has a free-text address, not structured Barangay/Postal Code controls, and does
 not require a ZIP. Missing town reference data does not prevent saving.
 
