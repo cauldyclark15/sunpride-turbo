@@ -508,7 +508,7 @@ test("F-011 JPEG validation decodes a real image and rejects header-only or over
   ).toThrow();
   expect(() => validateCensusJpeg(new Uint8Array(160 * 1024 + 1))).toThrow();
 });
-test("F-011 signed census capture enforces under-50m GPS, offline replay and separate reviewed outlet creation", async () => {
+test("F-011 signed census capture accepts weak GPS, offline replay and separate reviewed outlet creation", async () => {
   const password = "census-test-only-password",
     email = `census-${crypto.randomUUID()}@example.com`;
   const userId = await createUser(h, email, password),
@@ -581,18 +581,7 @@ test("F-011 signed census capture enforces under-50m GPS, offline replay and sep
       scopeId: unitId,
       operations: [operation],
     });
-  for (const accuracy of [50, 51]) {
-    const invalid = await push({
-      ...op,
-      clientOpId: crypto.randomUUID(),
-      payload: {
-        ...payload,
-        captureId: crypto.randomUUID(),
-        location: { ...payload.location, accuracyMeters: accuracy },
-      },
-    });
-    expect(invalid.body.results[0].status).toBe("rejected");
-  }
+  // SP-0243: weak readings (50 m and over, up to 500 m) no longer block a new customer; covered in census-gathering tests.
   const sent = await push(op);
   expect(sent.res.status).toBe(200);
   expect(sent.body.results[0].status).toBe("applied");
