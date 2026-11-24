@@ -67,7 +67,7 @@ class CustomerDraftScreenTest {
         rule.onNodeWithTag("customer-customerName").assertTextContains("First customer")
         rule.onNodeWithTag("census-save").performClick()
         waitTag("customer-missing-registeredName")
-        rule.onNodeWithTag("customer-missing-coordinates").performScrollTo().assertExists()
+        rule.onNodeWithTag("customer-missing-coordinates").assertDoesNotExist() // SP-0243: location never blocks final Save.
         rule.onNodeWithTag("customer-missing-photo").performScrollTo().assertExists()
         assertTrue(backend.queued.isEmpty())
         rule.onNodeWithTag("customer-save-draft").performClick()

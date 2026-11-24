@@ -334,6 +334,44 @@ final class CensusCaptureTests: XCTestCase {
         }
     }
 
+    func testDraftsSurviveSnapshotRefreshAndBothCachePurgesWhileHeldDraftsStayInaccessible() throws {
+        let snapshot = try XCTUnwrap(store.snapshot(for: partition))
+        let expiry = Int64(clock.now.addingTimeInterval(3_600).timeIntervalSince1970 * 1000)
+        var first = CensusCapture.Draft(); first.name = "First unfinished customer"
+        let second = CensusCapture.Draft()
+        try store.saveCustomerDraft(first, for: partition, now: clock.now)
+        try store.saveCustomerDraft(second, for: partition, now: clock.now)
+        let ids = Set([first.captureId, second.captureId])
+        let cacheEntity = "local.censusconfig"
+        func refresh() throws {
+            try store.saveSnapshot(snapshot, cursor: "renewed", leaseExpiresAt: expiry,
+                                   cacheExpiresAt: expiry, for: partition)
+        }
+        try store.putLocalCache(entity: cacheEntity, key: "setup", body: Data("old setup".utf8),
+                                savedAt: 1, keepPrefix: "setup", for: partition)
+        try refresh()
+        XCTAssertEqual(Set(try store.customerDrafts(for: partition).map(\.captureId)), ids)
+        XCTAssertNil(try store.localCache(entity: cacheEntity, key: "setup", for: partition))
+        for allAccounts in [false, true] {
+            try store.putLocalCache(entity: cacheEntity, key: "setup", body: Data("private setup".utf8),
+                                    savedAt: 2, keepPrefix: "setup", for: partition)
+            if allAccounts { try store.purgeAllCachesForReview() }
+            else { try store.purgeCacheForReview(partition) }
+            XCTAssertThrowsError(try store.customerDrafts(for: partition))
+            XCTAssertNil(try store.snapshot(for: partition))
+            XCTAssertNil(try store.localCache(entity: cacheEntity, key: "setup", for: partition))
+            store.close()
+            store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
+            XCTAssertThrowsError(try store.customerDrafts(for: partition))
+            try refresh()
+            XCTAssertThrowsError(try store.customerDrafts(for: partition), "a snapshot alone cannot release held work")
+            // Substitute the existing same-account/device/scope verification boundary.
+            try store.releaseHeld(partition)
+            XCTAssertEqual(Set(try store.customerDrafts(for: partition).map(\.captureId)), ids)
+            XCTAssertTrue(try store.pendingOutbox(for: partition).isEmpty)
+        }
+    }
+
     func testDraftEditsRetainIdentityEvidenceAndAllOtherCustomers() throws {
         let session = try XCTUnwrap(model.customerDraftSession)
         var first = try draft(); first.resolved = PlaceAddress(formattedAddress: "Typed address", street: "Street", city: "Cebu")

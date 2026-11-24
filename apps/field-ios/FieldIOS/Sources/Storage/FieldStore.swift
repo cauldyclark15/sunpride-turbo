@@ -623,8 +623,8 @@ final class EncryptedFieldStore: FieldLocalStore {
             try run("UPDATE partitions SET generation=?,cursor=?,lease_expiry=?,cache_expiry=? WHERE \(Self.predicate)",
                     [.integer(generation), .text(cursor), .integer(leaseExpiresAt), .integer(cacheExpiresAt)] + p(partition))
             try run("DELETE FROM snapshot WHERE \(Self.predicate) AND generation<>?", p(partition) + [.integer(generation)])
-            try run("DELETE FROM delta WHERE \(Self.predicate)", p(partition))
-            // Intents, outbox, acks and sync health are deliberately untouched.
+            try run("DELETE FROM delta WHERE \(Self.predicate) AND entity<>?", p(partition) + [.text(Self.customerDraftEntity)])
+            // Phone-authored customer drafts, intents, outbox, acks and sync health are deliberately untouched.
         }
         try protectFiles()
     }
@@ -1052,9 +1052,12 @@ final class EncryptedFieldStore: FieldLocalStore {
         // Tests only: the cache DELETE fails (rolled back) while reads and a separate hold still work.
         if purgeFailsForTests { throw StoreError.invalidInput }
         #endif
-        for table in ["snapshot", "call_sheets", "order_terms", "reference_data", "delta"] {
+        for table in ["snapshot", "call_sheets", "order_terms", "reference_data"] {
             try run("DELETE FROM \(table) WHERE \(clause)", values)
         }
+        // Drafts are the person's own unsent work, not disposable server cache. The partition hold
+        // below blocks opening them until the same account/device/scope is verified again.
+        try run("DELETE FROM delta WHERE (\(clause)) AND entity<>?", values + [.text(Self.customerDraftEntity)])
         try run("UPDATE partitions SET held=1,cursor=NULL,lease_expiry=NULL,cache_expiry=NULL WHERE \(clause)", values)
     }
     func releaseHeld(_ partition: StorePartition) throws {
