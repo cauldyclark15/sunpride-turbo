@@ -148,10 +148,10 @@ object CustomerCapture {
     /** SP-0176: the unsaved Add customer form kept on the phone (survives Back and an app restart) until it is
      * saved or discarded: every typed/picked value, the GPS fix and the storefront photo. */
     data class Draft(val form: Form, val fix: JSONObject?, val photo: ByteArray?) {
-        /** Nothing typed yet (the defaulted Sales Organization and a name carried from the search do not count). */
+        /** A name alone is useful draft work too; only untouched default values do not count. */
         fun isEmpty() = form.customFields.values.all { it.isBlank() } && fix == null && photo == null && form.contactPerson.isBlank() && form.sameAsCustomer &&
             listOf(form.shipToParty, form.shipToAddress, form.shipToMobileNo, form.shipToEmail).all { it.isBlank() } &&
-            form.values().all { (key, value) -> key == "salesOrgCode" || key == "customerName" || (key == "countryCode" && value == "PH") }
+            form.values().all { (key, value) -> key == "salesOrgCode" || (key == "countryCode" && value == "PH") }
     }
     fun draftJson(d: Draft): String {
         val values = JSONObject(); d.form.values().forEach { (k, v) -> values.put(k, v) }

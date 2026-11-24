@@ -65,7 +65,8 @@ class AddStoreSmoothTest {
     }
 
     @Test fun anUntouchedFormIsNoDraft() {
-        assertTrue(CustomerCapture.Draft(CustomerCapture.Form(customerName = "From search", salesOrgCode = "1000"), null, null).isEmpty())
+        assertTrue(CustomerCapture.Draft(CustomerCapture.Form(salesOrgCode = "1000"), null, null).isEmpty())
+        assertFalse(CustomerCapture.Draft(CustomerCapture.Form(customerName = "From search", salesOrgCode = "1000"), null, null).isEmpty())
         assertFalse(CustomerCapture.Draft(CustomerCapture.Form(tradeName = "T"), null, null).isEmpty())
         assertFalse(CustomerCapture.Draft(CustomerCapture.Form(), JSONObject(), null).isEmpty())
     }

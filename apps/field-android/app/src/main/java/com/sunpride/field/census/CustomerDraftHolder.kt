@@ -21,19 +21,22 @@ class CustomerDraftHolder {
     private var nextTicket = 0L
     private var written = 0L
 
-    /** The latest form, photo and location fix; null once saved or discarded (or before anything was kept). */
-    @Volatile var draft: CustomerCapture.Draft? = null
+    /** The working form and explicitly saved drafts; persisted together in the existing encrypted phone row. */
+    @Volatile var customers = CustomerDrafts()
         private set
+    val draft: CustomerCapture.Draft? get() = customers.active
+    fun restore(json: String?) { customers = CustomerDrafts.parse(json); loaded = true }
+    fun replace(next: CustomerDrafts) { customers = next; loaded = true }
     /** True once this session's form state is known here (kept, saved or discarded): the phone copy is not re-read. */
     @Volatile var loaded: Boolean = false
         private set
     /** The "Customer saved" message while it is showing, so a rebuilt screen still shows it until OK. */
     var savedNotice: String? by mutableStateOf(null)
 
-    fun keep(d: CustomerCapture.Draft) { draft = d; loaded = true }
+    fun keep(d: CustomerCapture.Draft) { customers = customers.keep(d); loaded = true }
 
-    /** Saved or discarded: the next Add customer starts empty. */
-    fun clear() { draft = null; loaded = true }
+    /** Submitted or discarded: remove only the open draft, keeping the rest of the draft list. */
+    fun clear() { customers = customers.clear(); loaded = true }
 
     /** A number for a phone write, taken when its snapshot is taken. */
     fun ticket(): Long = synchronized(lock) { ++nextTicket }
@@ -47,5 +50,8 @@ class CustomerDraftHolder {
     }
 
     /** Sign-out: nothing of this session carries over. */
-    fun reset() { draft = null; loaded = false; savedNotice = null }
+    fun reset() {
+        synchronized(lock) { written = ++nextTicket }
+        customers = CustomerDrafts(); loaded = false; savedNotice = null
+    }
 }

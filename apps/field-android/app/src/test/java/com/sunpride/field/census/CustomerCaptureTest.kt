@@ -59,6 +59,25 @@ class CustomerCaptureTest {
         .put("fixTime", 5000L).put("provider", "gps").put("mockSignal", false)
     private val jpeg = Base64.getEncoder().encodeToString(byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xd9.toByte()))
 
+    @Test fun draftCanBeEditedButCompletenessIsStillRequiredBeforeApprovalSubmission() {
+        val missingStreet = complete().copy(street1 = "", mobileNo = "0917")
+        val draft = CustomerCapture.Draft(missingStreet, fix, Base64.getDecoder().decode(jpeg))
+        val stored = CustomerDrafts.parse(CustomerDrafts().save(draft).json())
+        val reopened = stored.open(stored.saved.single().id)
+        val form = reopened.active!!.form
+        assertTrue(CustomerCapture.missing(form, setup, geography, true, true).any { it.key == "street1" })
+        val premature = CustomerCapture.payload(UUID.randomUUID().toString(), form, geography, 5000L, fix, jpeg)
+        assertThrows(IllegalArgumentException::class.java) { CensusRules.validate(premature) }
+        val corrected = form.copy(street1 = "Gorordo Ave", mobileNo = "09175550101")
+        assertTrue(CustomerCapture.missing(corrected, setup, geography, true, true).isEmpty())
+        assertTrue(CustomerCapture.draftErrors(corrected, setup, geography, 10.3312, 123.9056).isEmpty())
+        val submitted = CustomerCapture.payload(UUID.randomUUID().toString(), corrected, geography, 5000L, fix, jpeg)
+        val intent = CensusRules.intent(StoreScope("account", "device", "scope"), submitted, 5000L)
+        assertEquals(CensusRules.KIND, intent.kind)
+        assertEquals("Gorordo Ave", JSONObject(intent.serializedOperation).getJSONObject("payload").getJSONObject("customer").getString("street1"))
+        assertTrue(reopened.keep(draft.copy(form = corrected)).clear().saved.isEmpty())
+    }
+
     @Test fun setupReadsListsAndDefaultsTheAgentsSalesOrganization() {
         assertEquals("1000", setup.salesOrgCode)
         assertEquals(listOf("0702200000"), setup.provinceCodes)

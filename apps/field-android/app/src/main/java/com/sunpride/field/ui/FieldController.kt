@@ -140,10 +140,10 @@ interface FieldBackend {
     fun catalogueImage(image:com.sunpride.catalogue.CatalogueImage):ByteArray? = null
     fun warmCatalogueImages(isActive:()->Boolean = {true}) {}
     fun censusConfig(): JSONObject? = null
-    /** SP-0176: the unsaved Add customer form (JSON), kept on this phone until it is saved or discarded. */
+    /** The working Add customer form and SP-0241 saved drafts, encrypted and scoped to this phone account. */
     fun customerDraft(): String? = null
-    /** SP-0176: save ([json] non-null) or drop (null) the unsaved Add customer form. */
-    fun saveCustomerDraft(json: String?) {}
+    /** Persist the draft book without queueing an enrollment for approval. */
+    fun saveCustomerDraft(json: String?) { error("Customer draft storage unavailable") }
     /** SP-0176: download the Add customer lists and geography while online so the form works offline later. */
     fun warmCustomerSetup() {}
     fun censusHistory(): List<Pair<String, String>> = emptyList()
@@ -528,11 +528,16 @@ class LiveFieldBackend(
         store.localCache(CUSTOMER_DRAFT, "draft")?.takeUnless { it.tombstone }?.json
     }
     override fun saveCustomerDraft(json: String?) {
-        if (storedScope() == null) return
-        withStore { store ->
+        val partition = storedScope() ?: error("No verified local partition")
+        val epoch = authorizationEpoch
+        withStore { store -> store.retailTransaction {
+            check(epoch == authorizationEpoch && storedScope() == partition) { "Session changed" }
             if (json == null) store.blockLocalCache(CUSTOMER_DRAFT, "draft", "discarded", System.currentTimeMillis())
             else store.putLocalCache(CUSTOMER_DRAFT, "draft", json, System.currentTimeMillis(), "draft")
-        }
+            val saved = store.localCache(CUSTOMER_DRAFT, "draft")?.takeUnless { it.tombstone }?.json
+            check(saved == json) { "Customer draft was not saved" }
+            check(epoch == authorizationEpoch && storedScope() == partition) { "Session changed" }
+        } }
     }
     override fun warmCustomerSetup() {
         val config = runCatching { censusConfig() }.getOrNull() ?: return
