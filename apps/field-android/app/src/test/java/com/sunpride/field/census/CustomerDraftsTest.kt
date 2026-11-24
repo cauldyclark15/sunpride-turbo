@@ -39,6 +39,26 @@ class CustomerDraftsTest {
         assertEquals(partial("Two").form, saved.saved.single { it.id != id }.draft.form)
     }
 
+    @Test fun separateNamesSurviveSavedDraftReopenAndIndependentEdits() {
+        val first = partial("One").copy(form = partial("One").form.copy(
+            firstName = "María José", middleName = "Peña", lastName = "O’Neil"))
+        val second = partial("Two").copy(form = partial("Two").form.copy(firstName = "Ana", lastName = "Cruz"))
+        val saved = CustomerDrafts.parse(CustomerDrafts().save(first).save(second).json())
+        val id = saved.saved.first().id
+        val open = saved.open(id)
+        assertEquals(first.form, open.active!!.form)
+        val edited = open.active.copy(form = open.active.form.copy(middleName = "", lastName = "Reyes"))
+        val restarted = CustomerDrafts.parse(open.save(edited).json())
+        assertEquals(edited.form, restarted.open(id).active!!.form)
+        assertEquals(second.form, restarted.saved.single { it.id != id }.draft.form)
+        assertEquals("María José Reyes", CustomerCapture.customerName(restarted.open(id).active!!.form))
+        val unfinished = edited.copy(form = edited.form.copy(firstName = " \t "))
+        val restored = CustomerDrafts.parse(CustomerDrafts().save(unfinished).json()).saved.single().draft
+        // Draft serialization trims surrounding whitespace, including a whitespace-only name.
+        assertEquals(unfinished.form.copy(firstName = ""), restored.form)
+        assertTrue(CustomerCapture.missing(restored.form, null, null, false, false).any { it.key == "firstName" })
+    }
+
     @Test fun appRestartRestoresTheOpenDraftAndAllOfItsEvidence() {
         val d = partial().copy(fix = JSONObject().put("latitude", 10.3).put("longitude", 123.9),
             photo = byteArrayOf(-1, -40, 1, 2, -1, -39))

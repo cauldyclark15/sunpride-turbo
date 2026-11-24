@@ -185,7 +185,15 @@ test("SP-0223 upload uses the same representation; omitted frequency preserves t
   const changed = await call(
     "office",
     `customers/${id}`,
-    { customer: { visitFrequency: "3 times a month" } },
+    {
+      // SP-0240: opening an imported customer in the enrollment editor requires
+      // the office to enter the names separately before saving other changes.
+      customer: {
+        firstName: "Frequency sample",
+        lastName: "customer",
+        visitFrequency: "3 times a month",
+      },
+    },
     "PUT",
   );
   expect(changed.status).toBe(200);
