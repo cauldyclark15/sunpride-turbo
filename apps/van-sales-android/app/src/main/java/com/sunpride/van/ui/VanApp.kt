@@ -42,6 +42,7 @@ import kotlinx.coroutines.delay
     }
     // A suspended timer does not spin or block Compose. Checks stop on leaving this state.
     LaunchedEffect(controller,controller.enrollment,controller.mustChangePassword) {
+        if (controller.enrollment == EnrollmentState.Unregistered && !controller.mustChangePassword) controller.checkAgain()
         while (!controller.mustChangePassword) {
             if (!(controller.enrollment == EnrollmentState.Unregistered || controller.enrollment == EnrollmentState.Removed ||
             controller.session.signedIn && controller.enrollment == EnrollmentState.SignedOut)) break
@@ -182,13 +183,12 @@ import kotlinx.coroutines.delay
         if (removed) CallSupervisorButton(c,"removed-call")
         SectionCard("Phone code") { Text(c.fingerprint, style = MaterialTheme.typography.titleMedium, fontFamily = FontFamily.Monospace, modifier = Modifier.testTag("fingerprint")) }
         if (!removed) com.sunpride.integrity.ReplacementPairing(c::replacementCode)
-        if (!removed) c.publicKey?.let { key ->
+        if (!removed && c.publicKey != null) {
             val context = LocalContext.current
-            ListRow("Send phone key","Share it with your supervisor to register this phone","share-phone-key",onClick = {
+            ListRow("Send phone code","Share the short phone code with your supervisor","share-phone-key",onClick = {
                 context.startActivity(Intent.createChooser(Intent(Intent.ACTION_SEND).setType("text/plain")
-                    .putExtra(Intent.EXTRA_TEXT,"Sunpride Van phone key: $key"),"Send phone key").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+                    .putExtra(Intent.EXTRA_TEXT,c.fingerprint),"Send phone code").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
             })
-            Text(key,style = MaterialTheme.typography.bodySmall,fontFamily = FontFamily.Monospace,modifier = Modifier.testTag("phone-key"))
         }
         Text("We will check again automatically.",style = MaterialTheme.typography.bodyMedium)
         ListRow("Test printer & scanner","Check this handheld while you wait","enrollment-printer",onClick = { c.open(Page.PRINTER) })

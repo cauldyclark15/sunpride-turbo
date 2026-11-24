@@ -8,8 +8,7 @@ import androidx.activity.compose.setContent
 import androidx.compose.ui.graphics.toArgb
 import com.sunpride.van.data.VanRepository
 import com.sunpride.van.device.KeystoreDeviceKey
-import com.sunpride.van.device.hex
-import com.sunpride.van.device.sha256
+import com.sunpride.van.device.fingerprint
 import com.sunpride.van.ui.*
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -41,7 +40,7 @@ class MainActivity : ComponentActivity() {
             }) {
             withContext(Dispatchers.IO) {
                 val alias = if (mode != null) "sunpride-van-stub-device-p256-v1" else KeystoreDeviceKey.DEFAULT_ALIAS
-                hex(sha256(KeystoreDeviceKey.loadOrCreate(applicationContext,alias).publicKeySpki)).uppercase().chunked(4).joinToString(" ")
+                fingerprint(KeystoreDeviceKey.loadOrCreate(applicationContext,alias).publicKeySpki).uppercase()
             }
         }
         val scannerInput = com.sunpride.van.scanning.ScannerInput(applicationContext).also { scanner = it }

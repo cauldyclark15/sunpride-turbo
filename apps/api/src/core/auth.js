@@ -528,6 +528,25 @@ async function nativeMe(ctx) {
     throw invalid("X-App does not match the session");
   if (keyId !== null && !HEX64_RE.test(keyId))
     throw invalid("Invalid X-Device-Key-Id");
+  // A waiting phone can repair an old sign-in without signing out. Only its
+  // session's own key may advertise a registration request; binding still proves possession.
+  const publicKeySpki = ctx.req.headers.get("x-device-public-key");
+  if (publicKeySpki !== null) {
+    if (!keyId || keyId !== ctx.session?.deviceKeyId)
+      throw invalid("Phone key does not match the signed-in phone");
+    readDeviceKey({ keyId, publicKeySpki });
+    await tx(ctx.db, async (t) => {
+      await lockPhoneKey(t, keyId);
+      await requirePhoneCustody(t, actor.userId, String(app), keyId);
+      await noteWaitingPhone(
+        t,
+        actor.userId,
+        String(app),
+        { keyId, publicKeySpki },
+        ctx.req.headers,
+      );
+    });
+  }
   /** @type {any} */
   let device = null;
   if (keyId) {

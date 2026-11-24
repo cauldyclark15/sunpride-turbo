@@ -36,6 +36,7 @@ class ServerFunctionsTest {
                 else -> {
                     functionRequests += request.path!! to request.getHeader("Authorization")!!
                     lastBody = request.body.readUtf8()
+                    lastPublicKey = request.getHeader("X-Device-Public-Key")
                     functionResponses.removeFirst()
                 }
             }
@@ -48,6 +49,7 @@ class ServerFunctionsTest {
     }
     @After fun tearDown() { server.shutdown() }
     private var lastBody = ""
+    private var lastPublicKey: String? = null
 
     @Test fun encodesPathArgsFormatAndDecodesValue() {
         functionResponses += MockResponse().setBody("""{"version":2,"device":{"id":"d1","status":"active","bound":false,"allowedApp":"field-android"}}""")
@@ -56,6 +58,17 @@ class ServerFunctionsTest {
         assertEquals("/api/me", functionRequests.single().first)
         assertTrue(functionRequests.single().second.startsWith("Bearer spa_"))
         assertEquals("", lastBody)
+    }
+    @Test fun enrollmentChecksResendThePublicKeyWithoutAnotherSignInIncludingAfter401() {
+        functionResponses += MockResponse().setResponseCode(401)
+        repeat(2) { functionResponses += MockResponse().setBody("""{"version":2,"device":null}""") }
+        val devices = ServerDeviceApi(functions)
+        repeat(2) {
+            assertNull(devices.mine("test-public-key"))
+            assertEquals("test-public-key", lastPublicKey)
+        }
+        assertEquals(listOf("/api/me", "/api/me", "/api/me"), functionRequests.map { it.first })
+        assertEquals(2, tokensIssued)
     }
     @Test fun mutationsUseDeviceEndpoint() {
         functionResponses += MockResponse().setBody("""{"version":2,"nonce":"nonce","expiresAt":123}""")

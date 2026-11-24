@@ -119,6 +119,66 @@ for (const app of ["field-android", "van-android"])
       403,
     );
   });
+for (const app of ["field-android", "van-android"]) {
+  test(`SP-0248 ${app} company sign-in records a normal employee's waiting phone`, async () => {
+    const [user] =
+      await h.db`insert into users(email,password_hash) values(${`${app}@company-waiting.test`},${await Bun.password.hash(password)}) returning id`;
+    const [seller] =
+      await h.db`insert into profiles(user_id,auth_subject,name,email,role,status,org_unit_id)
+      values(${user.id},${user.id},'SAMPLE company employee',${`${app}@company-waiting.test`},'sales','active',${profile.orgUnitId}) returning id`;
+    await h.db`insert into employee_assignments(profile_id,org_unit_id,role,effective_from,actor_subject,reason)
+      values(${seller.id},${profile.orgUnitId},'sales',now()-interval '1 day','TEST','TEST')`;
+    const linked = await api("/api/v1/integrity/identity/link", {
+      issuer,
+      subject: `test-${app}`,
+      profileId: seller.id,
+      sourceRef: "TEST waiting-phone identity",
+    });
+    expect(linked.status).toBe(200);
+    const key = await deviceKey();
+    const started = await api(
+      "/api/auth/oidc/native/start",
+      {
+        version: 2,
+        app,
+        provider: "sample_company",
+        deviceKey: key,
+        integrity: { rooted: false, tampered: false },
+      },
+      "",
+    );
+    expect(started.status).toBe(200);
+    const start = started.body;
+    // Substitute only the successful provider callback; redemption/session/request writes are real.
+    await h.db`update native_oidc_requests set user_id=${user.id},identity_id=${linked.body.id} where id=${start.requestId}`;
+    const redeemed = await api(
+      "/api/auth/oidc/native/poll",
+      {
+        requestId: start.requestId,
+        pollSecret: start.pollSecret,
+        signature: await key.sign(`SSO|${start.requestId}|${start.pollSecret}`),
+      },
+      "",
+    );
+    expect(redeemed.status).toBe(200);
+    expect(redeemed.body.status).toBe("signed_in");
+    const fleet = await api("/api/v1/integrity/fleet");
+    expect(
+      fleet.body.waiting.find(
+        (/** @type {any} */ r) => r.personId === seller.id,
+      ),
+    ).toMatchObject({
+      app,
+      phoneCode: (
+        key.keyId.slice(0, 16).toUpperCase().match(/.{4}/g) ?? []
+      ).join(" "),
+    });
+    expect(
+      await h.db`select id from registered_devices where profile_id=${seller.id}`,
+    ).toHaveLength(0);
+  });
+}
+
 test("F-007 office identity history, exact-subject conflict and retired-link denial", async () => {
   const history = await api("/api/v1/integrity/identity");
   expect(history.status).toBe(200);

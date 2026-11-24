@@ -118,7 +118,38 @@ it.each(["", "   "])(
         profileId: "p1",
         app: "field-android",
         inventoryTag: undefined,
-        publicKeySpki: "cGhvbmU=",
+        phoneCode: "cGhvbmU=",
+      },
+      expect.objectContaining({ invalidate: WAITING_PHONE_INVALIDATE }),
+    );
+  },
+);
+
+it.each(["3CB8 F416 075F A4E6", "3cb8f416075fa4e6"])(
+  "SP-0248 the manual form sends the short phone code (%s), never asks for a long key",
+  (code) => {
+    const html = renderToStaticMarkup(createElement(WaitingPhones));
+    expect(html).toContain("tap Check again");
+    expect(html).toContain("short 16-character");
+    expect(html).not.toContain("press Copy code");
+    const form = new FormData();
+    form.set("person", "p1");
+    form.set("app", "field-android");
+    form.set("code", code);
+    vi.stubGlobal("FormData", function () {
+      return form;
+    });
+    state.submit!({
+      preventDefault: vi.fn(),
+      currentTarget: {},
+    } as unknown as FormEvent<HTMLFormElement>);
+    expect(state.mutate).toHaveBeenCalledWith(
+      "/api/v1/people/devices/register",
+      {
+        profileId: "p1",
+        app: "field-android",
+        inventoryTag: undefined,
+        phoneCode: code.replace(/\s+/g, ""),
       },
       expect.objectContaining({ invalidate: WAITING_PHONE_INVALIDATE }),
     );

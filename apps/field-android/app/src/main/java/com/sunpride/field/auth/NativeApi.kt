@@ -16,7 +16,7 @@ class NativeApi(private val environment: AppEnvironment, private val auth: AuthC
     fun image(image:com.sunpride.catalogue.CatalogueImage):ByteArray? =
         if(!environment.isReady)null else catalogueImages.fetch(environment.apiOrigin,image,auth::accessToken,auth::invalidateAccessToken)
     var onDeviceControl: ((JSONObject) -> Unit)? = null
-    fun me(): JSONObject = request("GET", "/api/me", null)
+    fun me(publicKey: String? = null): JSONObject = request("GET", "/api/me", null, publicKey = publicKey)
     fun post(path: String, body: JSONObject): JSONObject = request("POST", path,
         JSONObject(body.toString()).apply { if(path == "/api/devices/challenge") put("integrity",com.sunpride.integrity.DeviceIntegrity.report()) }.toString().toByteArray())
     fun get(path: String): JSONObject = request("GET", path, null)
@@ -24,7 +24,7 @@ class NativeApi(private val environment: AppEnvironment, private val auth: AuthC
         request("POST", path, body.toString().toByteArray(Charsets.UTF_8), signer, deviceId)
 
     private fun request(method: String, path: String, bytes: ByteArray?, signer: DeviceSigner? = null,
-        deviceId: String? = null): JSONObject {
+        deviceId: String? = null, publicKey: String? = null): JSONObject {
         if (!environment.isReady) throw AuthFailure(AuthFailure.Kind.NOT_CONFIGURED)
         for (attempt in 0..1) {
             val token = auth.accessToken(attempt > 0)
@@ -36,6 +36,7 @@ class NativeApi(private val environment: AppEnvironment, private val auth: AuthC
             val request = Request.Builder().url(environment.apiOrigin.trimEnd('/') + path)
                 .header("Authorization", "Bearer $token").header("X-App", APP)
                 .apply { auth.deviceKeyId()?.let { header("X-Device-Key-Id", it) }; proof.forEach { (k, v) -> header(k, v) } }
+                .apply { publicKey?.let { header("X-Device-Public-Key", it) } }
                 .method(method, bytes?.toRequestBody(JSON_MEDIA)).build()
             try {
                 http.newCall(request).execute().use { response ->

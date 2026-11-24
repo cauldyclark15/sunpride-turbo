@@ -545,10 +545,11 @@ export function WaitingPhones() {
         Phones waiting to be registered
       </h2>
       <p className="text-sm text-muted">
-        Ask the person to sign in on the new Field or Van phone. Find their name
-        here, then press Register. Their phone opens by itself within a minute.
-        Any older phones for that app are turned off automatically. No asset
-        tag, replacement code or old-phone work check is needed.
+        Ask the person to sign in on the new Field or Van phone, or tap Check
+        again if it is already waiting. Find their name here, then press
+        Register. Their phone opens by itself within a minute. Any older phones
+        for that app are turned off automatically. No asset tag, replacement
+        code or old-phone work check is needed.
       </p>
       {result.error ? <p role="alert">{result.error.message}</p> : null}
       {!result.data ? (
@@ -648,15 +649,16 @@ export function WaitingPhones() {
                 profileId: f.get("person"),
                 app: f.get("app"),
                 inventoryTag: String(f.get("tag") ?? "").trim() || undefined,
-                publicKeySpki: String(f.get("code") ?? "").replace(/\s+/g, ""),
+                phoneCode: String(f.get("code") ?? "").replace(/\s+/g, ""),
               },
               "Phone registered. It opens by itself within a minute.",
             );
           }}
         >
           <p>
-            On the phone, press Copy code and send it to you. Paste the whole
-            code here.
+            On the phone, tap Check again first. Enter the short 16-character
+            phone code shown on its Register screen, with or without spaces. You
+            do not need the long support key.
           </p>
           <label>
             Person
@@ -678,7 +680,7 @@ export function WaitingPhones() {
           </label>
           <label>
             Phone code
-            <textarea name="code" className={input} required rows={3} />
+            <textarea name="code" className={input} required rows={1} />
           </label>
           <label>
             Phone label (optional)

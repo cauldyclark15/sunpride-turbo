@@ -67,7 +67,7 @@ class RestDeviceApi(private val api: NativeApi) : DeviceApi {
         private set
     override fun mine(publicKey: String): DeviceRecord? {
         val keyId = hex(sha256(unbase64(publicKey)))
-        val o = api.request("/api/me", headers = mapOf("X-App" to APP,"X-Device-Key-Id" to keyId))
+        val o = api.request("/api/me", headers = mapOf("X-App" to APP,"X-Device-Key-Id" to keyId,"X-Device-Public-Key" to publicKey))
         // SP-0187: nothing past /api/me is allowed until a new password is set; ask for it before registering.
         if (o.optBoolean("mustChangePassword",false)) throw AuthFailure(AuthFailure.Kind.PASSWORD_CHANGE_REQUIRED)
         if (o.optBoolean("handoverRequired")) throw NativeApiFailure("device_handover_required",409)

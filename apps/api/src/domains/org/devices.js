@@ -112,10 +112,29 @@ export async function registerDevice(c, b) {
   if (!["field-android", "van-android", "field-ios"].includes(b.app))
     rule("Choose a phone app");
 
-  const publicKey = required(b.publicKeySpki, "Public key", 512);
+  const unknownPhone =
+    "This phone is not known yet. On the phone tap Check again, then it appears in the list above.";
+  const supplied = b.phoneCode ?? b.publicKeySpki;
+  if (typeof supplied !== "string" || !supplied.trim() || supplied.length > 512)
+    rule(unknownPhone);
+  let publicKey = supplied.replace(/\s+/g, "");
+  let requestId = null;
+  if (/^[a-f0-9]{16}$/i.test(publicKey)) {
+    const matches =
+      await c.db`select id,public_key_spki from phone_registration_requests
+      where profile_id=${person.id} and app=${b.app} and status='waiting'
+      and left(key_id,16)=${publicKey.toLowerCase()} limit 2`;
+    if (!matches.length) rule(unknownPhone);
+    if (matches.length !== 1)
+      rule(
+        "More than one phone matches. Choose the phone from the waiting list above.",
+      );
+    publicKey = matches[0].public_key_spki;
+    requestId = matches[0].id;
+  }
   const bytes = Buffer.from(publicKey, "base64");
   if (bytes.toString("base64") !== publicKey || bytes.length > 256)
-    rule("Invalid public key");
+    rule(unknownPhone);
   try {
     await crypto.subtle.importKey(
       "spki",
@@ -125,7 +144,7 @@ export async function registerDevice(c, b) {
       ["verify"],
     );
   } catch {
-    rule("Invalid P-256 public key");
+    rule(unknownPhone);
   }
   const keyId = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
   const label = typeof b.inventoryTag === "string" ? b.inventoryTag.trim() : "";
@@ -136,6 +155,14 @@ export async function registerDevice(c, b) {
   );
   await lockPhoneKey(c.db, keyId);
   await c.db`select pg_advisory_xact_lock(hashtext(${`device-person:${person.id}`}))`;
+  if (requestId) {
+    const [waiting] =
+      await c.db`select 1 from phone_registration_requests where id=${requestId} and status='waiting' for update`;
+    if (!waiting)
+      rule(
+        "This phone was already registered or rejected. Refresh the waiting list above.",
+      );
+  }
   const existing =
     await c.db`select id,profile_id,status,public_key_spki from registered_devices where key_id=${keyId} for update`;
   if (existing.length)
@@ -154,6 +181,10 @@ export async function registerDevice(c, b) {
   const [row] =
     await c.db`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id,status,manufacturer,model)
     values(${person.id},${b.app},${b.app === "field-ios" ? "ios" : "android"},${tag},${publicKey},${keyId},${person.org_unit_id},'active',${hardware.manufacturer},${hardware.model}) returning id`;
+  await c.db`update phone_registration_requests set status='registered',decided_at=now(),decided_by=${c.actor?.subject},device_id=${row.id}
+    where profile_id=${person.id} and app=${b.app} and key_id=${keyId} and status='waiting'`;
+  await c.db`update phone_registration_requests set status='superseded',decided_at=now(),decided_by=${c.actor?.subject}
+    where profile_id=${person.id} and app=${b.app} and status='waiting'`;
   await c.db`insert into audit_logs(subject,action,entity_type,entity_id,details)
     values(${c.actor?.subject},'device.registered','device',${row.id},'registered')`;
   return { deviceId: row.id };

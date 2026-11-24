@@ -22,7 +22,7 @@ class ServerFunctions(
     val api = NativeApi(environment, auth, http)
     var signer: (() -> com.sunpride.field.device.DeviceSigner)? = null
     fun query(path: String, args: JSONObject): Any? {
-        val me = api.me()
+        val me = api.me(if (path == "mobile/devices:mine") args.optString("publicKey").takeIf { it.isNotBlank() } else null)
         if (me.optBoolean("handoverRequired")) throw ServerError("device_handover_required")
         if (path == "mobile/devices:mine") return me.optJSONObject("device")?.let { d ->
             JSONObject(d.toString()).put("deviceId", d.getString("id"))

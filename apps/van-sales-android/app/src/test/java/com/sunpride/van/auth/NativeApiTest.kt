@@ -31,6 +31,19 @@ class NativeApiTest {
         assertTrue(api.request("/api/me",headers=mapOf("X-App" to "van-android","X-Device-Key-Id" to "test-key")).isNull("device"))
         val r=requests.single(); assertEquals("GET",r.method); assertEquals("van-android",r.getHeader("X-App")); assertEquals("test-key",r.getHeader("X-Device-Key-Id")); assertEquals("Bearer fake-access-1",r.getHeader("Authorization"))
     }
+    @Test fun enrollmentChecksResendThePublicKeyAndDigestWithoutAnotherSignInIncludingAfter401() {
+        replies+=MockResponse().setResponseCode(401)
+        repeat(2) { replies+=MockResponse().setBody("""{"version":2,"device":null,"profile":{"id":"p","subject":"u","active":true},"scope":{"id":"s","fingerprint":"f","epoch":"e"}}""") }
+        val devices=RestDeviceApi(api)
+        repeat(2) { assertNull(devices.mine("AQID")) }
+        assertEquals(3,requests.size)
+        requests.forEach { r ->
+            assertEquals("/api/me",r.path)
+            assertEquals("AQID",r.getHeader("X-Device-Public-Key"))
+            assertEquals(com.sunpride.van.device.hex(com.sunpride.van.device.sha256(byteArrayOf(1,2,3))),r.getHeader("X-Device-Key-Id"))
+        }
+        assertEquals(2,refreshes)
+    }
     @Test fun commandsUseExactRestPathAndBody() {
         replies+=MockResponse().setBody("{\"version\":2,\"nonce\":\"n\"}")
         api.request("/api/devices/challenge",JSONObject().put("version",2).put("deviceId","d"))

@@ -185,7 +185,8 @@ fun FieldApp(
     LaunchedEffect(controller, page, controller.state) {
         if (page == "team" && controller.state is EnrollmentState.Ready) controller.loadTeam()
     }
-    LaunchedEffect(controller, controller.state) {
+    LaunchedEffect(controller, controller.state, controller.mustChangePassword) {
+        if (controller.state == EnrollmentState.Unregistered && !controller.mustChangePassword) controller.checkAgain(quiet = true)
         while (controller.state == EnrollmentState.Unregistered && !controller.mustChangePassword) {
             delay(com.sunpride.field.auth.Enrollment.POLL_INTERVAL_MS)
             controller.checkAgain(quiet = true)
@@ -747,7 +748,7 @@ fun EnrollmentScreen(state: EnrollmentState, key: DeviceKeyInfo?, busy: Boolean,
                         Text(key.fingerprint.filter { it.isLetterOrDigit() }.chunked(4).joinToString(" "),
                             fontFamily = FontFamily.Monospace, style = MaterialTheme.typography.titleLarge,
                             modifier = Modifier.testTag("key-fingerprint"))
-                        TonalButton(if (expanded) "Hide full code" else "Show full code", { expanded = !expanded },
+                        TonalButton(if (expanded) "Hide support key" else "Show support key", { expanded = !expanded },
                             Modifier.testTag("show-full-code"))
                         if (expanded) SelectionContainer { Text(key.publicKey, fontFamily = FontFamily.Monospace,
                             style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("public-key")) }
@@ -764,9 +765,9 @@ fun EnrollmentScreen(state: EnrollmentState, key: DeviceKeyInfo?, busy: Boolean,
         }
         ActionBar {
             if (state == EnrollmentState.Unregistered) {
-                PrimaryBottomButton("Copy code", {
+                PrimaryBottomButton("Copy phone code", {
                     key?.let { (context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager)
-                        .setPrimaryClip(ClipData.newPlainText("Phone code", it.publicKey)) }
+                        .setPrimaryClip(ClipData.newPlainText("Phone code", it.fingerprint.filter { c -> c.isLetterOrDigit() }.chunked(4).joinToString(" "))) }
                 }, Modifier.testTag("copy-key"), key != null)
                 SecondaryButton("Check again", onCheck, Modifier.fillMaxWidth().testTag("check-again"), !busy)
             } else {

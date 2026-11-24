@@ -40,6 +40,7 @@ async function setup() {
     expect(login.status).toBe(200);
     const cookie = (login.headers.get("set-cookie") ?? "").split(";")[0];
     return {
+      cookie,
       fleet: async () => {
         const r = await h.fetch("/api/v1/integrity/fleet", {
           headers: { cookie },
@@ -65,6 +66,291 @@ async function setup() {
   };
   return { h, person, office, other };
 }
+
+for (const app of ["field-android", "van-android"]) {
+  test(`SP-0248 ${app} repairs a missing waiting request from the same session, refreshes it and registers from the list`, async () => {
+    const { h, person, office } = await setup();
+    try {
+      const seller = await person("stuck-sales@example.test", "sales");
+      await person("stuck-office@example.test", "admin");
+      const admin = await office("stuck-office@example.test");
+      const otherApp =
+        app === "field-android" ? "van-android" : "field-android";
+      const oldKey = await deviceKey();
+      const old = await admin.request("/api/v1/people/devices/register", {
+        profileId: seller.profile.id,
+        app: otherApp,
+        publicKeySpki: oldKey.publicKeySpki,
+      });
+      expect(old.status).toBe(200);
+      const oldId = (await old.json()).deviceId;
+      const key = await deviceKey();
+      // An older installed build signed in without leaving a public key/request.
+      const phone = await nativeSignIn(
+        h,
+        seller.email,
+        "test-only-waiting-password",
+        app,
+        { keyId: key.keyId },
+      );
+      expect(phone.res.status).toBe(200);
+      expect((await admin.fleet()).waiting).toHaveLength(0);
+      const check = () =>
+        h.fetch("/api/me", {
+          headers: {
+            authorization: `Bearer ${phone.body.accessToken}`,
+            "x-app": app,
+            "x-device-key-id": key.keyId,
+            "x-device-public-key": key.publicKeySpki,
+          },
+        });
+      const results = await Promise.all([check(), check(), check()]);
+      expect(results.map((r) => r.status)).toEqual([200, 200, 200]);
+      for (const response of results)
+        expect((await response.json()).device).toBeNull();
+      const [waiting] = (await admin.fleet()).waiting;
+      expect(waiting.personId).toBe(seller.profile.id);
+      expect(waiting.app).toBe(app);
+      expect(
+        await h.db`select id from phone_registration_requests where profile_id=${seller.profile.id} and status='waiting'`,
+      ).toHaveLength(1);
+      await h.db`update phone_registration_requests set last_seen_at=now()-interval '31 days' where id=${waiting.id}`;
+      expect((await admin.fleet()).waiting).toHaveLength(0);
+      expect((await check()).status).toBe(200);
+      const refreshed = (await admin.fleet()).waiting;
+      expect(refreshed).toHaveLength(1);
+      expect(refreshed[0].id).toBe(waiting.id);
+      expect(refreshed[0].lastSeenAt).toBeGreaterThan(Date.now() - 60_000);
+      const registered = await admin.post("register", {
+        requestId: waiting.id,
+      });
+      expect(registered.status).toBe(200);
+      const deviceId = (await registered.json()).deviceId;
+      expect((await (await check()).json()).device.id).toBe(deviceId);
+      // Match both native clients: first challenge supplies the OS assessment
+      // because no registered device existed when this session signed in.
+      const assessed = await h.fetch("/api/devices/challenge", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${phone.body.accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          version: 2,
+          deviceId,
+          integrity: { rooted: false, tampered: false },
+        }),
+      });
+      expect(assessed.status).toBe(200);
+      expect(
+        (await bind(h, phone.body.accessToken, deviceId, key)).res.status,
+      ).toBe(200);
+      expect((await (await check()).json()).device.bound).toBe(true);
+      expect((await admin.fleet()).waiting).toHaveLength(0);
+      expect(
+        (await h.db`select status from registered_devices where id=${oldId}`)[0]
+          .status,
+      ).toBe("active");
+      expect(
+        await h.db`select id from sessions where user_id=${seller.userId} and app=${app}`,
+      ).toHaveLength(1);
+    } finally {
+      await h.close();
+    }
+  });
+
+  test(`SP-0248 ${app} accepts short codes with or without spaces and refuses unknown/wrong-person/wrong-app codes plainly`, async () => {
+    const { h, person, office, other } = await setup();
+    try {
+      const seller = await person("short-sales@example.test", "sales");
+      const wrong = await person("short-other@example.test", "sales");
+      const far = await person("short-far@example.test", "sales", other);
+      await person("short-office@example.test", "admin");
+      const admin = await office("short-office@example.test");
+      const key = await deviceKey();
+      await nativeSignIn(
+        h,
+        seller.email,
+        "test-only-waiting-password",
+        app,
+        key,
+      );
+      const short = key.keyId.slice(0, 16).toUpperCase();
+      const unknown =
+        "This phone is not known yet. On the phone tap Check again, then it appears in the list above.";
+      for (const body of [
+        { profileId: seller.profile.id, app, phoneCode: "0000 0000 0000 0000" },
+        { profileId: wrong.profile.id, app, phoneCode: short },
+        {
+          profileId: seller.profile.id,
+          app: app === "field-android" ? "van-android" : "field-android",
+          phoneCode: short,
+        },
+        { profileId: seller.profile.id, app, phoneCode: "not-a-phone-key" },
+      ]) {
+        const response = await admin.request(
+          "/api/v1/people/devices/register",
+          body,
+        );
+        expect(response.status).toBe(422);
+        expect((await response.json()).error.message).toBe(unknown);
+      }
+      // Office roles may manage people across branches; a different person still
+      // cannot claim this person's short code.
+      const foreign = await admin.request("/api/v1/people/devices/register", {
+        profileId: far.profile.id,
+        app,
+        phoneCode: short,
+      });
+      expect(foreign.status).toBe(422);
+      expect((await foreign.json()).error.message).toBe(unknown);
+      for (const spaced of [true, false]) {
+        const next = spaced ? key : await deviceKey();
+        if (!spaced)
+          await nativeSignIn(
+            h,
+            seller.email,
+            "test-only-waiting-password",
+            app,
+            next,
+          );
+        const code = next.keyId.slice(0, 16);
+        const result = await admin.request("/api/v1/people/devices/register", {
+          profileId: seller.profile.id,
+          app,
+          // Accept the old web payload too while it is being updated.
+          ...(spaced
+            ? {
+                publicKeySpki: (code.toUpperCase().match(/.{4}/g) ?? []).join(
+                  " ",
+                ),
+              }
+            : { phoneCode: code }),
+        });
+        expect(result.status).toBe(200);
+        const deviceId = (await result.json()).deviceId;
+        expect(
+          (
+            await h.db`select key_id from registered_devices where id=${deviceId}`
+          )[0].key_id,
+        ).toBe(next.keyId);
+        const [request] =
+          await h.db`select status,device_id from phone_registration_requests where profile_id=${seller.profile.id} and key_id=${next.keyId}`;
+        expect(request.status).toBe("registered");
+        expect(request.device_id).toBe(deviceId);
+        expect((await admin.fleet()).waiting).toHaveLength(0);
+      }
+    } finally {
+      await h.close();
+    }
+  });
+}
+
+test("SP-0248 a registration check cannot advertise another session key or a mismatched public key", async () => {
+  const { h, person } = await setup();
+  try {
+    const seller = await person("mismatch-sales@example.test", "sales");
+    const key = await deviceKey(),
+      foreign = await deviceKey();
+    const phone = await nativeSignIn(
+      h,
+      seller.email,
+      "test-only-waiting-password",
+      "field-android",
+      { keyId: key.keyId },
+    );
+    for (const [keyId, publicKey] of [
+      [foreign.keyId, foreign.publicKeySpki],
+      [key.keyId, foreign.publicKeySpki],
+      [key.keyId, "AQID"],
+    ]) {
+      const response = await h.fetch("/api/me", {
+        headers: {
+          authorization: `Bearer ${phone.body.accessToken}`,
+          "x-app": "field-android",
+          "x-device-key-id": keyId,
+          "x-device-public-key": publicKey,
+        },
+      });
+      expect(response.status).toBe(400);
+    }
+    expect(
+      await h.db`select id from phone_registration_requests where profile_id=${seller.profile.id}`,
+    ).toHaveLength(0);
+  } finally {
+    await h.close();
+  }
+});
+
+test("SP-0248 a newly waiting phone refreshes an already-open office waiting list", async () => {
+  const { h, person, office } = await setup();
+  /** @type {WebSocket|undefined} */ let ws;
+  try {
+    await h.app.realtime.start();
+    const seller = await person("live-waiting-sales@example.test", "sales");
+    await person("live-waiting-office@example.test", "admin");
+    const admin = await office("live-waiting-office@example.test");
+    const key = await deviceKey();
+    const phone = await nativeSignIn(
+      h,
+      seller.email,
+      "test-only-waiting-password",
+      "field-android",
+      { keyId: key.keyId },
+    );
+    ws = new WebSocket(
+      h.origin.replace("http", "ws") + "/ws",
+      /** @type {any} */ ({ headers: { cookie: admin.cookie } }),
+    );
+    const socket = ws;
+    await new Promise((resolve, reject) => {
+      socket.addEventListener("open", () => resolve(undefined), { once: true });
+      socket.addEventListener(
+        "error",
+        () => reject(Error("WebSocket failed")),
+        { once: true },
+      );
+    });
+    /** @param {string} type */
+    const next = (type) =>
+      new Promise((resolve, reject) => {
+        const timeout = setTimeout(() => {
+          socket.removeEventListener("message", onMessage);
+          reject(Error(`No ${type} event`));
+        }, 3000);
+        /** @param {MessageEvent} event */
+        const onMessage = (event) => {
+          const data = JSON.parse(String(event.data));
+          if (data.type !== type) return;
+          clearTimeout(timeout);
+          socket.removeEventListener("message", onMessage);
+          resolve(data);
+        };
+        socket.addEventListener("message", onMessage);
+      });
+    const subscribed = next("subscribed");
+    socket.send(JSON.stringify({ type: "subscribe", topics: ["integrity"] }));
+    expect((await subscribed).topics).toEqual(["integrity"]);
+    const changed = next("invalidate");
+    const response = await h.fetch("/api/me", {
+      headers: {
+        authorization: `Bearer ${phone.body.accessToken}`,
+        "x-app": "field-android",
+        "x-device-key-id": key.keyId,
+        "x-device-public-key": key.publicKeySpki,
+      },
+    });
+    expect(response.status).toBe(200);
+    expect(await changed).toMatchObject({
+      type: "invalidate",
+      topic: "integrity",
+    });
+    expect((await admin.fleet()).waiting).toHaveLength(1);
+  } finally {
+    ws?.close();
+    await h.close();
+  }
+});
 
 test("SP-0174 office registers a waiting first phone from Setup > Phones; the phone then finds itself registered", async () => {
   const { h, person, office } = await setup();

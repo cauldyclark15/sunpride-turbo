@@ -1,6 +1,7 @@
 import { phoneHardware } from "../../core/phone-hardware.js";
 import { lockPhoneKey } from "../../core/phone-custody.js";
 import { loadProfile } from "../../core/hooks.js";
+import { publish } from "../../core/realtime.js";
 import { requireCapability } from "../../core/capabilities.js";
 import { conflict, invalid } from "../../core/errors.js";
 import { isUuid } from "../../core/util.js";
@@ -12,7 +13,7 @@ const APPS = ["field-android", "van-android"];
 
 /**
  * SP-0174: a person signed in on a phone the office has not registered. Remember the phone (its public key, which
- * the sign-in already checked against its key id) so Setup > Phones can list it under "Phones waiting to be
+ * sign-in or a registration-screen check validated) so Setup > Phones can list it under "Phones waiting to be
  * registered". A replacement waits here too; the office approves it in the same way.
  * Never fails the sign-in: anything unusual simply records nothing. Caller owns the transaction.
  * @param {any} t @param {string} userId @param {string} app @param {any} key @param {Headers} [headers]
@@ -46,12 +47,19 @@ export async function noteWaitingPhone(
     await t`select 1 from profiles where id=${profile.id} and deleted_at is null`;
   if (!stored) return;
   const [waiting] =
-    await t`select id from phone_registration_requests where profile_id=${profile.id} and app=${app} and key_id=${key.keyId} and status='waiting'`;
+    await t`select id,last_seen_at from phone_registration_requests where profile_id=${profile.id} and app=${app} and key_id=${key.keyId} and status='waiting'`;
   const { manufacturer, model } = phoneHardware(headers);
   if (waiting)
     await t`update phone_registration_requests set last_seen_at=now(),manufacturer=coalesce(${manufacturer},manufacturer),model=coalesce(${model},model) where id=${waiting.id}`;
   else
     await t`insert into phone_registration_requests(profile_id,app,key_id,public_key_spki,manufacturer,model) values(${profile.id},${app},${key.keyId},${key.publicKeySpki},${manufacturer},${model})`;
+  // Wake an already-open Setup > Phones page too. Repeated ten-second checks
+  // refresh last-seen without making the office reload the whole fleet each time.
+  if (
+    !waiting ||
+    Date.now() - new Date(waiting.last_seen_at).getTime() > 60_000
+  )
+    await publish(t, "integrity");
 }
 
 /** The short code both phone apps show on their Register screen (first 16 of the key id, in groups of 4). @param {string} keyId */

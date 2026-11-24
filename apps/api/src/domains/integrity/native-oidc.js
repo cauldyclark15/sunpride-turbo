@@ -1,5 +1,7 @@
 import { tx } from "@sunpride/db/client";
 import { recordPhoneHardware } from "../../core/phone-hardware.js";
+import { lockPhoneKey, requirePhoneCustody } from "../../core/phone-custody.js";
+import { noteWaitingPhone } from "./waiting-phones.js";
 import { createAccess, createSession } from "../../core/auth.js";
 import { verifySignature } from "../../core/devices.js";
 import { autoApproveSuperadminPhone } from "./superadmin-phones.js";
@@ -111,11 +113,23 @@ export function installNativeOidc(router) {
           await t`select id from users where id=${r.user_id} and disabled_at is null for update`;
         const profile = user ? await loadProfile(t, user.id) : null;
         if (!profile || profile.status !== "active") throw forbidden();
+        await lockPhoneKey(t, r.key_id);
+        await requirePhoneCustody(t, user.id, r.app, r.key_id);
         await refuseRevokedPhone(t, user.id, r.app, r.key_id);
         await registerSamplePhone(t, user.id, r.app, {
           keyId: r.key_id,
           publicKeySpki: r.public_key_spki,
         });
+        await noteWaitingPhone(
+          t,
+          user.id,
+          r.app,
+          {
+            keyId: r.key_id,
+            publicKeySpki: r.public_key_spki,
+          },
+          c.req.headers,
+        );
         // SP-0193: company sign-in approves a super_admin's phone at once too.
         await autoApproveSuperadminPhone(t, user.id, r.app, {
           keyId: r.key_id,
