@@ -8,7 +8,7 @@ import { registerDevice } from "../org/devices.js";
 import { scopeFilterForActor } from "../org/scope.js";
 import { audit } from "./governance.js";
 
-const APPS = ["field-android", "van-android"];
+const APPS = ["field-android", "van-android", "field-ios"];
 
 /**
  * SP-0174: a person signed in on a phone the office has not registered. Remember the phone (its public key, which

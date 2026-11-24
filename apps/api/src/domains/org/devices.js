@@ -3,6 +3,7 @@ import {
   phoneModelLabel,
 } from "../../core/phone-hardware.js";
 import { requireCapability } from "../../core/capabilities.js";
+import { queuePhoneCommand } from "../../core/phone-commands.js";
 import { lockPhoneKey } from "../../core/phone-custody.js";
 import { access } from "./readers.js";
 import {
@@ -90,11 +91,11 @@ export async function deviceCommand(c, action, b) {
  * @param {string} app @param {string|null} [exceptId] */
 async function replacePhones(c, person, app, exceptId = null) {
   const old =
-    await c.db`select id,key_id from registered_devices where profile_id=${person.id}
+    await c.db`select id,key_id,profile_id,app from registered_devices where profile_id=${person.id}
     and app=${app} and status<>'revoked' and (${exceptId}::uuid is null or id<>${exceptId}) order by id for update`;
   for (const d of old) {
     await access(c, "devices", d.id, "phones.manage");
-    await c.db`update registered_devices set status='revoked' where id=${d.id}`;
+    await queuePhoneCommand(c.db, d, "remove", c.actor?.subject ?? "system:phone");
     await c.db`update sessions set revoked_at=now() where user_id=${person.user_id} and app=${app}
       and device_key_id=${d.key_id} and revoked_at is null`;
     await c.db`update device_challenges set consumed_at=now() where device_id=${d.id} and consumed_at is null`;

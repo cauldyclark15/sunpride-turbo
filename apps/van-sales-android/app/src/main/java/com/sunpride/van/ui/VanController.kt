@@ -394,6 +394,9 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun replacementCode(): org.json.JSONObject = repository.replacementCode()
     fun sapMasters(refresh: Boolean): org.json.JSONObject? = repository.sapMasters(refresh)
     fun sapMasterLifetime(): String? = repository.sapMasterLifetime()
+    var officeUpdate by mutableStateOf(false); private set
+    fun dismissOfficeUpdate() { officeUpdate=false }
+    fun phonePulse() = command { repository.phoneControls(); officeUpdate=repository.officeUpdateRequested.value }
     fun appUpdates(): com.sunpride.integrity.AppUpdateClient = repository.appUpdates()
     fun signCompanyMessage(message: String): String = repository.signCompanyMessage(message)
     fun companySignIn(tokens: org.json.JSONObject) = command {

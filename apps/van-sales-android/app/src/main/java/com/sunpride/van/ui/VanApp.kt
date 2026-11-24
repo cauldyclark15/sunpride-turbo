@@ -49,6 +49,9 @@ import kotlinx.coroutines.delay
             if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) controller.checkAgain()
         }
     }
+    LaunchedEffect(controller) {
+        while(true) { delay(com.sunpride.integrity.PhoneCommands.POLL_MS); controller.phonePulse() }
+    }
     // SP-0137: permission or the location switch may have changed in Settings while the app was away.
     DisposableEffect(lifecycle,controller) {
         val observer = LifecycleEventObserver { _,event -> if (event == Lifecycle.Event.ON_RESUME) controller.refreshSharing() }
@@ -72,6 +75,12 @@ import kotlinx.coroutines.delay
             // SP-0146 v2 messaging: the shared chat module, opened from Home; Back inside it steps back, Back on its list returns Home.
             com.sunpride.van.chat.VanChat.open && !controller.storeMode -> com.sunpride.van.chat.VanMessages(chatTap)
             else -> AppShell(controller) { MainContent(controller) }
+        }
+        if(controller.officeUpdate && controller.session.signedIn) {
+            AlertDialog(onDismissRequest=controller::dismissOfficeUpdate,
+                title={Text("Please update the app")},text={Text("The office asked you to get the latest version. Your saved work stays on this phone.")},
+                confirmButton={TextButton(onClick={controller.dismissOfficeUpdate();controller.open(Page.ACCOUNT)}) {Text("Download update")}},
+                dismissButton={TextButton(onClick=controller::dismissOfficeUpdate) {Text("Later")}})
         }
         // IP-P0: asked after every print, on whichever screen the cashier is on.
         controller.printQuestionSaleId?.let { DidItPrintSheet(controller) }

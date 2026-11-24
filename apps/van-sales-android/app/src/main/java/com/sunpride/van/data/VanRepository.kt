@@ -323,7 +323,34 @@ class VanRepository private constructor(private val context: Context, private va
         JSONObject().put("sha256",hex(sha256(bytes))).put("base64",Base64.getEncoder().encodeToString(bytes)).toString()
     }
     private fun loadSigner(): DeviceSigner = signer ?: KeystoreDeviceKey.loadOrCreate(context,if(stubMode != null) "sunpride-van-stub-device-p256-v1" else KeystoreDeviceKey.DEFAULT_ALIAS).also { signer = it }
+    private val checkingPhone = java.util.concurrent.atomic.AtomicBoolean(false)
+    val officeUpdateRequested = MutableStateFlow(false)
+    private fun phoneControlsLocked(): Boolean {
+        if(stubMode != null || !auth.isSignedIn || !checkingPhone.compareAndSet(false,true)) return false
+        try {
+            officeUpdateRequested.value = index.getInt("officeUpdateVersion",-1)==BuildConfig.VERSION_CODE
+            return auth.phoneCommands({ runBlocking { current.value?.syncStatus?.first()?.let {it.queued+it.sending+it.held} ?: 0 } }) { kind ->
+                when(kind) {
+                    "sign_out", "remove" -> {
+                        try { runBlocking { current.value?.hold() } } finally {
+                            current.value=null; gateway=null; enrollment.value=EnrollmentState.SignedOut;session.value=SessionState()
+                            auth.signOut();runCatching { com.sunpride.van.chat.VanChat.signOut(context) }
+                        }
+                    }
+                    "update" -> { check(index.edit().putInt("officeUpdateVersion",BuildConfig.VERSION_CODE).commit()); officeUpdateRequested.value=true }
+                    "refresh", "resend" -> runBlocking {
+                        check(enroll() is EnrollmentState.Ready) {"Register this phone first"}
+                        val st=store()
+                        VanSync(st,checkNotNull(gateway),evidence=st.evidence).syncNow()
+                    }
+                }
+            }
+        } catch (_: Exception) { return !auth.isSignedIn }
+        finally { checkingPhone.set(false) }
+    }
+    suspend fun phoneControls(): Boolean = authLock.withLock { withContext(Dispatchers.IO) { phoneControlsLocked() } }
     private suspend fun enroll(): EnrollmentState {
+        if(phoneControlsLocked()) throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED)
         if (stubMode != null) {
             val state = when(stubMode) { "unregistered" -> EnrollmentState.Unregistered; "revoked" -> EnrollmentState.Removed; else -> EnrollmentState.Ready("stub-van-device") }
             enrollment.value = state

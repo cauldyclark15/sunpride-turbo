@@ -18,6 +18,8 @@ final class AppModel {
         }
     }
 
+    private(set) var officeUpdateURL: URL?
+    @ObservationIgnored private var checkingPhoneControls = false
     private(set) var signedIn = false
     private(set) var busy = false
     private(set) var signInError: String?
@@ -212,6 +214,7 @@ final class AppModel {
         enrollment.onSessionEnded = { [weak self] in
             Task { @MainActor in await self?.sessionEnded() }
         }
+        enrollment.beforeCheck = { [weak self] in await self?.checkPhoneControls() ?? false }
         liveLocation.upload = { [weak self] in await self?.uploadLocation() }
         liveLocation.openVisitId = { [weak self] in self?.openCallVisitId() }
     }
@@ -882,6 +885,7 @@ final class AppModel {
     }
 
     func syncNow() async {
+        if await checkPhoneControls() { return }
         guard !bootstrapping, !Task.isCancelled, !isOffline, case .ready(let deviceId) = enrollment.state,
               let key = enrollment.key, let site, let functions, let http else { return }
         bootstrapping = true; syncing = true; breadcrumb(.syncStarted); refreshToday()
@@ -1171,6 +1175,37 @@ final class AppModel {
         default: break
         }
     }
+
+    /// SP-0249: online office requests. Every completed effect is acknowledged, never just a pickup.
+    @discardableResult
+    func checkPhoneControls() async -> Bool {
+        guard signedIn, !isOffline, !checkingPhoneControls else { return false }
+        checkingPhoneControls = true
+        defer { checkingPhoneControls = false }
+        let savedCount = (syncStatus?.queued ?? 0) + (syncStatus?.held ?? 0) + (syncStatus?.needsReview ?? 0)
+        do {
+            return try await auth.phoneCommands(unsent: { savedCount }) { kind, link in
+                switch kind {
+                case "sign_out", "remove": await self.signOut()
+                case "update":
+                    guard let link else { throw MobileError.invalidResponse }
+                    try self.secrets.save(Data(link.absoluteString.utf8), for: "office.updateLink")
+                    self.officeUpdateURL = link
+                case "refresh", "resend":
+                    guard self.enrollment.state.isReady else { throw MobileError.notSignedIn }
+                    if kind == "refresh" { self.freshThisLaunch = false }
+                    await self.syncNow()
+                    guard self.freshThisLaunch, self.syncMessage == nil else { throw MobileError.offline }
+                    if kind == "refresh" {
+                        let config = await self.loadCensusConfig()
+                        guard config.config != nil, !config.saved else { throw MobileError.offline }
+                    }
+                default: break
+                }
+            }
+        } catch { return !signedIn }
+    }
+    func dismissOfficeUpdate() { officeUpdateURL = nil }
 
     func signOut() async {
         // SP-0138: sharing stops before the session goes (a final stop ping stays buffered, encrypted).

@@ -119,6 +119,15 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
         }
         throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED)
     }
+    /** Office commands use the stored session directly, including the one the office just ended. */
+    fun phoneCommands(unsent: () -> Int, apply: (String) -> Unit): Boolean {
+        val session = vault.readSession() ?: return false
+        val key = deviceKeyId() ?: return false
+        return com.sunpride.integrity.PhoneCommands.run(
+            { acks -> com.sunpride.integrity.PhoneCommands.check(http,environment.apiOrigin,session,NativeApi.APP,key,
+                com.sunpride.field.BuildConfig.VERSION_NAME,unsent(),acks,phoneHeaders()) },
+            { vault.readSession() == session }, apply)
+    }
     @Synchronized fun invalidateAccessToken() { access = null; refreshAt = 0 }
     fun signOut(): Boolean {
         val session = vault.readSession()

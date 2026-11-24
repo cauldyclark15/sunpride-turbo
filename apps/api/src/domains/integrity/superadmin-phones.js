@@ -1,6 +1,7 @@
 import { loadProfile } from "../../core/hooks.js";
 import { sha256Hex } from "../../core/util.js";
 import { phoneCode } from "./waiting-phones.js";
+import { queuePhoneCommand } from "../../core/phone-commands.js";
 
 /** Handheld apps whose phones a super_admin registers by signing in (never the office iPhone app). */
 const APPS = ["field-android", "van-android", "field-ios"];
@@ -26,19 +27,19 @@ export async function autoApproveSuperadminPhone(t, userId, app, key) {
   if (!profile || profile.status !== "active" || !profile.orgUnitId)
     return null;
   const [stored] =
-    await t`select id,role,status,org_unit_id,phone_auto_approve from profiles where id=${profile.id} and deleted_at is null`;
+    await t`select id,role,status,org_unit_id,phone_auto_approve,phone_office_auto_accept from profiles where id=${profile.id} and deleted_at is null`;
   // SP-0209: a store-review account flagged by create-play-reviewer.js is treated like the owner here.
   const review =
     stored?.phone_auto_approve === true && stored.role !== "super_admin";
   if (
     !stored ||
-    (profile.role !== "super_admin" && !review) ||
+    (profile.role !== "super_admin" && !review && !stored.phone_office_auto_accept) ||
     stored.role !== profile.role ||
     stored.status !== "active" ||
     stored.org_unit_id !== profile.orgUnitId
   )
     return null;
-  await t`select pg_advisory_xact_lock(hashtext(${`superadmin-phone:${profile.id}:${app}:${keyId}`}))`;
+  await t`select pg_advisory_xact_lock(hashtext(${`device-person:${profile.id}`}))`;
   // Any row for this key (any person, any status) means the office already decided about this phone.
   const [known] =
     await t`select 1 from registered_devices where key_id=${keyId} and app=${app} limit 1`;
@@ -64,10 +65,15 @@ export async function autoApproveSuperadminPhone(t, userId, app, key) {
   } catch {
     return null;
   }
-  const tag = `${review ? "Review" : "Owner"} phone ${phoneCode(keyId)}${app === "field-android" ? "" : ` (${app})`}`;
+  const extra = review || profile.role === "super_admin";
+  if (!extra) {
+    const old = await t`select * from registered_devices where profile_id=${profile.id} and app=${app} and status<>'revoked' order by id for update`;
+    for (const d of old) await queuePhoneCommand(t, d, "remove", userId);
+  }
+  const tag = `${review ? "Review" : extra ? "Owner" : "Accepted"} phone ${phoneCode(keyId)}${app === "field-android" ? "" : ` (${app})`}`;
   const [device] =
     await t`insert into registered_devices(profile_id,app,platform,inventory_tag,public_key_spki,key_id,org_unit_id,status,superadmin_auto)
-    values(${profile.id},${app},${app === "field-ios" ? "ios" : "android"},${tag},${spki},${keyId},${profile.orgUnitId},'active',true)
+    values(${profile.id},${app},${app === "field-ios" ? "ios" : "android"},${tag},${spki},${keyId},${profile.orgUnitId},'active',${extra})
     returning id`;
   // Same bookkeeping as an admin registering a waiting phone (waiting-phones.js), with the owner as the decider.
   if (waiting)
@@ -78,10 +84,10 @@ export async function autoApproveSuperadminPhone(t, userId, app, key) {
       {
         app,
         request: waiting?.id ?? null,
-        reason: review ? REVIEW_AUTO_REASON : SUPERADMIN_AUTO_REASON,
+        reason: review ? REVIEW_AUTO_REASON : extra ? SUPERADMIN_AUTO_REASON : "office_auto_accept",
         note: review
           ? "store-review account auto-approval"
-          : "superadmin auto-approval",
+          : extra ? "superadmin auto-approval" : "Office enabled automatic acceptance",
       },
     )})`;
   return device.id;

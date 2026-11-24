@@ -17,6 +17,7 @@ import { Drawer } from "./cockpit/kit/drawer";
 import { ResetPasswordAction, canResetPassword } from "./people/reset-password";
 import { AppModeChoice, BulkAppMode, appModePill } from "./people/app-mode";
 import { ShareFieldAppCard } from "./app-links/app-links";
+import { PersonPhoneActions } from "./phone-controls";
 import {
   invitationEmailLabel,
   invitationEmailNotice,
@@ -417,6 +418,7 @@ export function PeopleAdmin() {
               }}
             />
           ) : null}
+          {permissions?.capabilities.includes("phones.manage") ? <PersonPhoneActions profileId={row._id} name={row.name || row.email} /> : null}
           {editOrHistory(row)}
         </span>
       ),

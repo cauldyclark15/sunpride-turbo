@@ -149,6 +149,15 @@ class AuthClient(
     /** SP-0187: the forced change; [current] defaults to the temporary password kept in memory since sign-in. */
     @Synchronized fun setNewPassword(current: String?, next: String, confirm: String) =
         changePassword(current?.takeIf { it.isNotEmpty() } ?: temporary.orEmpty(),next,confirm)
+    /** Kept separate from access-token refresh so a removed phone can confirm its sign-out. */
+    fun phoneCommands(unsent: () -> Int, apply: (String) -> Unit): Boolean {
+        val session = vault.readSession() ?: return false
+        val key = deviceKey()?.optString("keyId") ?: return false
+        return com.sunpride.integrity.PhoneCommands.run(
+            { acks -> com.sunpride.integrity.PhoneCommands.check(http,environment.siteUrl,session,RestDeviceApi.APP,key,
+                com.sunpride.van.BuildConfig.VERSION_NAME,unsent(),acks,phoneHeaders()) },
+            { vault.readSession() == session }, apply)
+    }
     @Synchronized fun invalidateAccessToken() { access = null; refreshAt = 0 }
     fun signOut(): Boolean {
         val session = vault.readSession()

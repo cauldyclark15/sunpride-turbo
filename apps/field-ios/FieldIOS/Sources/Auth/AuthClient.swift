@@ -126,6 +126,45 @@ final class AuthClient {
         return Date(timeIntervalSince1970: exp)
     }
 
+    /// SP-0249: only this phone's control requests, even after the office ended its session.
+    /// The captured credential can acknowledge a terminal action after the local vault has been wiped.
+    func phoneCommands(unsent: () -> Int, apply: (String, URL?) async throws -> Void) async throws -> Bool {
+        guard let data = try store.read(StoreAccount.session), let session = String(data: data, encoding: .utf8) else { return false }
+        let ticket = epoch
+        let phoneKey = try keyId
+        func check(_ acks: [String]) async throws -> [[String: Any]] {
+            var request = URLRequest(url: site.appending(path: "api/auth/phone-check"))
+            request.httpMethod = "POST"
+            request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+            request.setValue("Bearer \(session)", forHTTPHeaderField: "Authorization")
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "unknown"
+            request.httpBody = try NativeV2.bytes(["version": 2, "app": NativeV2.app, "keyId": phoneKey,
+                "appVersion": version, "unsentCount": max(0, min(1_000_000, unsent())), "acks": acks])
+            let (data, response) = try await http.send(request)
+            guard (200..<300).contains(response.statusCode), data.count <= 64_000,
+                  let commands = try NativeV2.validate(data)["commands"] as? [[String: Any]], commands.count <= 20 else { throw MobileError.invalidResponse }
+            return commands
+        }
+        let commands = try await check([])
+        for command in commands {
+            try Task.checkCancellation()
+            guard ticket == epoch, hasSession else { throw CancellationError() }
+            guard let id = command["id"] as? String, UUID(uuidString: id) != nil, let kind = command["kind"] as? String else { throw MobileError.invalidResponse }
+            guard ["sign_out", "remove", "refresh", "resend", "update"].contains(kind) else { continue }
+            var link: URL?
+            if kind == "update" {
+                guard let raw = command["downloadUrl"] as? String, let url = URL(string: raw), url.scheme == "https",
+                      url.host != nil, url.user == nil, url.password == nil else { throw MobileError.invalidResponse }
+                link = url
+            }
+            try await apply(kind, link)
+            if kind == "sign_out" || kind == "remove" { _ = try? await check([id]); return true }
+            guard ticket == epoch, hasSession else { throw CancellationError() }
+            _ = try await check([id])
+        }
+        return false
+    }
+
     /// Drops the in-memory JWT (e.g. after a 401 from the server) without touching the session.
     func invalidateToken() { clearMemory() }
 

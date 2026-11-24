@@ -22,6 +22,16 @@ struct SignInShell: View {
                 NavigationStack { page }
             }
         }
+        .task {
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(60))
+                if !Task.isCancelled { await model.checkPhoneControls() }
+            }
+        }
+        .alert("Please update the app", isPresented: Binding(get: { model.signedIn && model.officeUpdateURL != nil }, set: { if !$0 { model.dismissOfficeUpdate() } })) {
+            if let link = model.officeUpdateURL { Button("Download update") { UIApplication.shared.open(link) } }
+            Button("Later", role: .cancel) { model.dismissOfficeUpdate() }
+        } message: { Text("The office asked you to get the latest version. Your saved work stays on this phone.") }
         .sheet(isPresented: $showSyncStatus) { SyncStatusDetail(model: model) }
         .sheet(isPresented: $showAccount) { AccountScreen(model: model) }
         .sheet(isPresented: Binding(get: { model.liveLocation.consentRequested && model.signedIn },

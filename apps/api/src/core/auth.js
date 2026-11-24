@@ -540,7 +540,6 @@ async function nativeMe(ctx) {
     // on its next check, from the key its own sign-in already proved. Only this session's own key qualifies.
     if (
       !rows.length &&
-      actor.role === "super_admin" &&
       keyId === ctx.session?.deviceKeyId &&
       (await tx(ctx.db, (t) =>
         autoApproveSuperadminPhone(t, actor.userId, String(app), { keyId }),

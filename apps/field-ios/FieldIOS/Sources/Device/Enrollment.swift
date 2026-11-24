@@ -85,6 +85,7 @@ final class Enrollment {
     private let pollInterval: Duration
     /// Invoked when the server no longer accepts the session (the app must return to sign-in).
     @ObservationIgnored var onSessionEnded: (() -> Void)?
+    @ObservationIgnored var beforeCheck: (() async -> Bool)?
     @ObservationIgnored private var pollTask: Task<Void, Never>?
     @ObservationIgnored private var checkInFlight = false
 
@@ -118,6 +119,7 @@ final class Enrollment {
         guard let key, !checkInFlight else { return }
         checkInFlight = true
         defer { checkInFlight = false; updatePolling() }
+        if await beforeCheck?() == true { return }
         if state == .signedOut || state == .unverified { state = .checking }
         do {
             let found = try await registry.mine(publicKey: key.publicKeyBase64)
