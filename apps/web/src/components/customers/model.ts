@@ -478,6 +478,8 @@ export function toPayload(d: Draft, a?: { adp: boolean }) {
   // SP-0220: Customer Address is no longer typed; the server builds it from Street 1 and the
   // location fields (an older custom address is kept until those change).
   delete customer.customerAddress;
+  // SP-0252: Sales Partner is set by the server (the person who added the customer).
+  delete customer.salesPartnerCode;
   if (customer.creditLimit !== null && customer.creditLimit !== undefined)
     customer.creditLimit = Number(
       String(customer.creditLimit).replace(/,/g, ""),

@@ -129,27 +129,85 @@ const refDto = (r) => ({
 
 /** Active reference rows plus the Sales Partner fallback (SPEC rule 7): while Sunpride's
  * "List of Agents" is empty, Sales Partner offers our active field/van sales employees.
+ * SP-0252: Sales Partner is set by the server to the person who added the customer (any role),
+ * so every person already used as a Sales Partner is on the list too: their name shows and
+ * the value never blocks a save or an approval.
  * @param {any} db */
 export async function referenceRows(db) {
   const rows = (
     await db`select * from customer_reference_values where active order by list, sales_org_code, channel_code, group1_code, sort_order`
   ).map(refDto);
-  if (!rows.some((/** @type {any} */ r) => r.list === "sales_partner")) {
+  const partners = new Set(
+    rows
+      .filter((/** @type {any} */ r) => r.list === "sales_partner")
+      .map((/** @type {any} */ r) => r.code),
+  );
+  if (!partners.size) {
     const people =
       await db`select coalesce(employee_code, id::text) as code, name from profiles where role='sales' and status='active' and deleted_at is null order by name limit 1000`;
-    for (const p of people)
+    for (const p of people) {
+      partners.add(p.code);
       rows.push(refDto({ list: "sales_partner", code: p.code, name: p.name }));
+    }
   }
+  const used =
+    await db`select distinct on (coalesce(pr.employee_code, pr.id::text)) coalesce(pr.employee_code, pr.id::text) as code, pr.name
+      from profiles pr where coalesce(pr.employee_code, pr.id::text) in (select sales_partner_code from customer_profiles where sales_partner_code is not null and deleted_at is null)
+      order by coalesce(pr.employee_code, pr.id::text), (pr.deleted_at is null) desc`;
+  for (const p of used)
+    if (!partners.has(p.code)) {
+      partners.add(p.code);
+      rows.push(refDto({ list: "sales_partner", code: p.code, name: p.name }));
+    }
   return rows;
 }
 
-/** The saving person's Sales Partner code, when they are on the Sales Partner list.
- * @param {any} c @param {any[]} lists @returns {Promise<string|null>} */
-export async function defaultSalesPartner(c, lists) {
-  const profileId = c.actor?.profileId;
+/** A person as a Sales Partner entry ({code, name}), or null. @param {any} db @param {string|null|undefined} profileId */
+async function partnerOf(db, profileId) {
   if (!profileId) return null;
   const [p] =
-    await c.db`select coalesce(employee_code, id::text) as code from profiles where id=${profileId} and deleted_at is null`;
+    await db`select coalesce(employee_code, id::text) as code, name from profiles where id=${profileId}`;
+  return p ?? null;
+}
+
+/** SP-0252: the person shown as "Added by" (phone/van Add customer proposer, the agent of a
+ * gathered store the office accepted, else the office user who created it) as a Sales Partner.
+ * @param {any} db @param {string} outletId */
+export async function addedByPartner(db, outletId) {
+  const [r] = await db`select coalesce(
+      (select e.proposed_by_profile_id from outlet_enrolments e where e.outlet_id=o.id and e.deleted_at is null and e.proposed_by_profile_id is not null order by e.proposed_at limit 1),
+      (select cc.actor_profile_id from census_reviews rv join census_captures cc on cc.id=rv.capture_id where rv.outlet_id=o.id and rv.decision='accept' order by cc.captured_at limit 1),
+      (select pr.id from profiles pr where o.created_by in (pr.user_id::text, pr.auth_subject) order by pr.id limit 1)
+    ) as pid from outlets o where o.id=${outletId}`;
+  return partnerOf(db, r?.pid);
+}
+
+/** SP-0252: on approval, a waiting customer with no Sales Partner gets the "Added by" person.
+ * Never overwrites one already set. Returns true when it filled one. @param {any} db @param {string} outletId */
+export async function fillSalesPartner(db, outletId) {
+  const partner = await addedByPartner(db, outletId);
+  if (!partner) return false;
+  const rows =
+    await db`update customer_profiles set sales_partner_code=${partner.code} where outlet_id=${outletId} and deleted_at is null and sales_partner_code is null returning outlet_id`;
+  return rows.length > 0;
+}
+
+/** Make sure `p` is on the Sales Partner list used for validation and names. @param {any[]} lists @param {{code:string,name:string}|null} p */
+function withPartner(lists, p) {
+  if (
+    p &&
+    !lists.some(
+      (/** @type {any} */ r) => r.list === "sales_partner" && r.code === p.code,
+    )
+  )
+    lists.push(refDto({ list: "sales_partner", code: p.code, name: p.name }));
+  return lists;
+}
+
+/** Customer uploads only: the uploader's code when they are on the Sales Partner list.
+ * @param {any} c @param {any[]} lists @returns {Promise<string|null>} */
+export async function defaultSalesPartner(c, lists) {
+  const p = await partnerOf(c.db, c.actor?.profileId);
   if (!p) return null;
   return lists.some(
     (/** @type {any} */ r) => r.list === "sales_partner" && r.code === p.code,
@@ -430,7 +488,7 @@ export async function derive(db, merged, input, existing) {
  * field (SP-0213). Field captures, when incomplete (SP-0188), are kept as a draft with the agent's
  * submitted values and the missing fields so the office can finish it in the same CDM review.
  * Stores full completeness separately. Returns the customer id.
- * @param {any} c @param {Record<string, any>} b @param {{outletId?:string, fieldCapture?:boolean, importedCode?:string, requireNameParts?:boolean}} [opts]
+ * @param {any} c @param {Record<string, any>} b @param {{outletId?:string, fieldCapture?:boolean, importedCode?:string, requireNameParts?:boolean, fromUpload?:boolean}} [opts]
  */
 export async function saveCustomer(c, b, opts = {}) {
   const input = b.customer ?? b;
@@ -494,11 +552,22 @@ export async function saveCustomer(c, b, opts = {}) {
   const customFields = custom.value;
   const geo = await derive(c.db, merged, input, existing);
   const lists = await referenceRows(c.db);
-  // Sales Partner (client sheet: "pre-determined based on who saved the customer profile"):
-  // a new customer record defaults it to the person saving it (the salesman on the phone's
-  // Add customer) when that person is on the Sales Partner list. The office can change it.
-  if (!hadProfile && !merged.salesPartnerCode)
-    merged.salesPartnerCode = await defaultSalesPartner(c, lists);
+  // Sales Partner (client sheet: "pre-determined based on who saved the customer profile").
+  // SP-0252: the server sets it, nobody picks it: a new customer gets the person who added it
+  // (the same person as "Added by"); later saves keep it. Whatever a phone or an older web
+  // page sends is ignored. Customer uploads still carry the client's own List of Agents code.
+  if (opts.fromUpload) {
+    if (!hadProfile && !merged.salesPartnerCode)
+      merged.salesPartnerCode = await defaultSalesPartner(c, lists);
+  } else if (hadProfile)
+    merged.salesPartnerCode = existing?.salesPartnerCode ?? null;
+  else {
+    const partner =
+      (opts.outletId ? await addedByPartner(c.db, opts.outletId) : null) ??
+      (await partnerOf(c.db, c.actor?.profileId));
+    merged.salesPartnerCode = partner?.code ?? null;
+    withPartner(lists, partner);
+  }
   let draft = validateCustomer(merged, {
     level: opts.fieldCapture ? "field" : pendingEdit ? "draft" : "complete",
     // SP-0250 partial saves keep the stored name unless parts are being edited.
@@ -741,12 +810,22 @@ export async function saveCustomer(c, b, opts = {}) {
 
 /** Approval/activation: only a `complete` customer becomes active (SPEC rule 10). A pending
  * field enrolment is decided through the existing enrolment writer (two-person rule kept).
- * @param {any} c @param {string} outletId @param {{reason?:string}} b */
-export async function approveCustomer(c, outletId, b) {
+ * @param {any} c @param {string} outletId @param {{reason?:string}} b @param {{fillSalesPartner?:boolean}} [opts] */
+export async function approveCustomer(c, outletId, b, opts = {}) {
   await requireCapability(c, "outlet.enrol.approve");
   await access(c, "outlets", outletId, "outlet.enrol.approve");
-  const customer = await readCustomer(c.db, outletId);
+  let customer = await readCustomer(c.db, outletId);
   if (customer.status === "inactive") rule("This customer is inactive.");
+  // SP-0252: a customer still waiting without a Sales Partner gets the person shown as
+  // "Added by" when it is approved. A Sales Partner already set is never changed.
+  if (
+    opts.fillSalesPartner !== false &&
+    !customer.salesPartnerCode &&
+    (customer.status === "prospect" ||
+      customer.enrolmentStatus === "provisional") &&
+    (await fillSalesPartner(c.db, outletId))
+  )
+    customer = await readCustomer(c.db, outletId);
   await checkEnrollment(c.db, customer);
   const lists = await referenceRows(c.db);
   const result = validateCustomer(customer, {

@@ -1161,6 +1161,80 @@ describe("SP-0170 customer writer", () => {
   });
 });
 
+describe("SP-0252 automatic Sales Partner", () => {
+  /** @param {string} role */
+  const partnerOf = async (role) =>
+    (
+      await h.db`select coalesce(employee_code,id::text) as code,name from profiles where email=${`${role}@sunpride.test`}`
+    )[0];
+  test("a new customer gets the person who added it, even an admin; nobody can change it", async () => {
+    const admin = await partnerOf("admin");
+    const made = await call("admin", "POST", "/api/v1/customers", {
+      custodianOrgUnitId: UNIT,
+      customer: customer({
+        firstName: "Partner",
+        lastName: "Auto",
+        salesPartnerCode: "SOMEONE-ELSE",
+      }),
+    });
+    if (made.status !== 200) console.log(JSON.stringify(made.body));
+    expect(made.status).toBe(200);
+    expect(made.body.salesPartnerCode).toBe(admin.code);
+    expect(made.body.salesPartnerName).toBe(admin.name);
+    const manager = await partnerOf("manager");
+    const edited = await call(
+      "admin",
+      "PUT",
+      `/api/v1/customers/${made.body.id}`,
+      { customer: { salesPartnerCode: manager.code, creditLimit: 1000 } },
+    );
+    expect(edited.status).toBe(200);
+    expect(edited.body.salesPartnerCode).toBe(admin.code);
+    // An admin-added Sales Partner never blocks approval.
+    const ok = await call(
+      "manager",
+      "POST",
+      `/api/v1/customers/${made.body.id}/approve`,
+      { reason: "Checked" },
+    );
+    expect(ok.status).toBe(200);
+    expect(ok.body.status).toBe("active");
+    expect(ok.body.salesPartnerCode).toBe(admin.code);
+  });
+  test("a waiting customer without one gets Added by on approval; one already set is kept", async () => {
+    const admin = await partnerOf("admin");
+    const manager = await partnerOf("manager");
+    /** @param {string} last */
+    const make = async (last) => {
+      const r = await call("admin", "POST", "/api/v1/customers", {
+        custodianOrgUnitId: UNIT,
+        customer: customer({ firstName: "Waiting", lastName: last }),
+      });
+      expect(r.status).toBe(200);
+      return r.body.id;
+    };
+    const empty = await make("Empty");
+    const chosen = await make("Chosen");
+    // As customers saved before this change: one with no Sales Partner, one the office picked.
+    await h.db`update customer_profiles set sales_partner_code=null where outlet_id=${empty}`;
+    await h.db`update customer_profiles set sales_partner_code=${manager.code} where outlet_id=${chosen}`;
+    expect((await readCustomer(h.db, empty)).salesPartnerCode).toBeNull();
+    for (const id of [empty, chosen])
+      expect(
+        (
+          await call("manager", "POST", `/api/v1/customers/${id}/approve`, {
+            reason: "Checked",
+          })
+        ).status,
+      ).toBe(200);
+    expect((await readCustomer(h.db, empty)).salesPartnerCode).toBe(admin.code);
+    expect(await readCustomer(h.db, chosen)).toMatchObject({
+      salesPartnerCode: manager.code,
+      salesPartnerName: manager.name,
+    });
+  });
+});
+
 describe("SP-0246 postal codes", () => {
   test("Laua-An can be created, reopened, edited and approved without a ZIP; unlisted ZIPs survive", async () => {
     const [town] =

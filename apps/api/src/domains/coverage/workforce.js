@@ -760,6 +760,11 @@ export async function decideProspect(c, b) {
       b.confirmDistinct !== true
     )
       throw invalid("Confirm that reviewed candidates are different stores");
+    // SP-0252: an approved store's Sales Partner is the person who added it, when not set yet.
+    if (b.decision === "approve_distinct") {
+      const { fillSalesPartner } = await import("../masters/customers.js");
+      await fillSalesPartner(db, r.outlet_id);
+    }
     await enrolmentCommand(ctx, "decide", {
       enrolmentId: r.id,
       decision: b.decision === "approve_distinct" ? "approved" : "rejected",

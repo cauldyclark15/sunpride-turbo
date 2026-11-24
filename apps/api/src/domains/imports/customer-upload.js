@@ -421,7 +421,7 @@ async function writeRow(c, entry, row, lookups, run) {
         customer: writerInput(item, row, lookups.index, existing),
         reason,
       },
-      { outletId: current.id },
+      { outletId: current.id, fromUpload: true },
     );
   } else {
     action = "new";
@@ -432,10 +432,15 @@ async function writeRow(c, entry, row, lookups, run) {
         custodianOrgUnitId: c.actor.orgUnitId,
         reason,
       },
-      { importedCode: item.code },
+      { importedCode: item.code, fromUpload: true },
     );
     if (roleHas(c.actor.role, "outlet.enrol.approve"))
-      await approveCustomer(c, outletId, { reason });
+      await approveCustomer(
+        c,
+        outletId,
+        { reason },
+        { fillSalesPartner: false },
+      );
   }
   await writeAudit(c.db, {
     subject: c.actor.userId,

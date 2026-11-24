@@ -176,6 +176,29 @@ export function CustomerForm({
     const id = fieldId(f.key);
     const value = draft.values[f.key] ?? "";
     const invalid = Boolean(errors[f.key]);
+    if (f.key === "salesPartnerCode") {
+      // SP-0252: set automatically to the person who added the customer; never picked here.
+      const chosen = value
+        ? optionsFor(index, "sales_partner", draft).find(
+            (o) => o.code === value,
+          )
+        : undefined;
+      return (
+        <p
+          id={id}
+          data-testid="sales-partner-text"
+          className="py-2 text-sm text-foreground"
+        >
+          {value ? (
+            (chosen?.name ?? value)
+          ) : (
+            <span className="text-muted">
+              Set automatically to the person who adds this customer
+            </span>
+          )}
+        </p>
+      );
+    }
     if (f.kind === "list") {
       const list = f.list as string;
       const opts = optionsFor(index, list, draft).map((o) => ({

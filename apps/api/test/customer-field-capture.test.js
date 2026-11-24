@@ -228,6 +228,7 @@ test("Add customer capture becomes a prospect customer with a complete pending p
     firstName: "Aling Nena",
     middleName: "",
     lastName: "Store",
+    salesPartnerCode: "SOMEONE-ELSE",
   };
   const opId = crypto.randomUUID();
   const first = await rep.push(p, opId);
@@ -256,14 +257,11 @@ test("Add customer capture becomes a prospect customer with a complete pending p
     sameAsCustomer: true,
     contactPerson: "Nena Cruz",
   });
-  // Sales Partner = the salesman who saved it (client form: "pre-determined based on who saved
-  // the customer profile"), from the Sales Partner list (List of Agents, else sales employees).
+  // SP-0252: Sales Partner = the salesman who added it, always; a value the phone sends is ignored.
   const [me] =
     await h.db`select coalesce(employee_code,id::text) as code from profiles where user_id=${rep.userId}`;
-  const [agents] =
-    await h.db`select count(*)::int n from customer_reference_values where list='sales_partner' and active`;
-  expect(c.salesPartnerCode).toBe(agents.n ? null : me.code);
-  if (!agents.n) expect(c.salesPartnerName).toBe("Capture rep");
+  expect(c.salesPartnerCode).toBe(me.code);
+  expect(c.salesPartnerName).toBe("Capture rep");
   // No census review row: CDMs review it directly as a customer.
   expect(
     (await h.db`select 1 from census_captures where id=${p.captureId}`).length,

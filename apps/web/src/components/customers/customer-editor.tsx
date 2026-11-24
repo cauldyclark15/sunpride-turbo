@@ -790,10 +790,10 @@ export function CustomerEditorView({
           className="rounded-lg border border-border bg-default-soft px-3 py-2 text-[13px] text-foreground"
         >
           The agent completes all enrollment details, including Tax
-          Classification, Sales Office, Sales Partner, Payment Arrangement,
-          Delivery Arrangement and, for Distribution Channel 40, ADP Specific
-          details. The CDM reviews and verifies the profile before approving or
-          rejecting it. No Admin completion step is needed.
+          Classification, Sales Office, Payment Arrangement, Delivery
+          Arrangement and, for Distribution Channel 40, ADP Specific details.
+          The CDM reviews and verifies the profile before approving or rejecting
+          it. No Admin completion step is needed.
         </p>
       ) : null}
       {message ? (

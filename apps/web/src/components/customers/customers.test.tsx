@@ -361,6 +361,37 @@ describe("customer form follows the client's sheet", () => {
   });
 });
 
+describe("SP-0252 Sales Partner is automatic, not a dropdown", () => {
+  const withAgent = indexReference([
+    ...LISTS,
+    ref("sales_partner", "EMP-7", "Juan Agent"),
+    ref("sales_partner", "EMP-8", "Other Agent"),
+  ]);
+  it("shows the saved Sales Partner as text, with no dropdown to change it", () => {
+    const html = renderToStaticMarkup(
+      <CustomerForm
+        draft={fill(emptyDraft(), [["salesPartnerCode", "EMP-7"]])}
+        onChange={() => undefined}
+        index={withAgent}
+        geo={GEO}
+      />,
+    );
+    expect(html).toContain('data-testid="sales-partner-text"');
+    expect(html).toContain("Juan Agent");
+    expect(html).not.toContain('<select id="cm-salesPartnerCode"');
+    expect(html).not.toContain("Other Agent");
+  });
+  it("a new customer says it is set automatically", () => {
+    expect(form(emptyDraft())).toContain(
+      "Set automatically to the person who adds this customer",
+    );
+  });
+  it("never sends Sales Partner when saving", () => {
+    const d = fill(completeDraft(), [["salesPartnerCode", "EMP-8"]]);
+    expect(toPayload(d)).not.toHaveProperty("salesPartnerCode");
+  });
+});
+
 describe("dependent dropdowns reset what was chosen under them", () => {
   it("Sales Organization clears office, channel, plant and both groups", () => {
     const d = completeDraft();
