@@ -10,7 +10,7 @@ import org.junit.Test
 
 class FieldUpdatesTest {
     private val pkg = "com.sunpride.field.beta"
-    private fun manifest(version: Int = 12, minimum: Int = 0, packageName: String = pkg, url: String = "https://drive.google.com/file/d/SAMPLE/view") =
+    private fun manifest(version: Int = 12, minimum: Int = 0, packageName: String = pkg, url: String = "https://drive.google.com/file/d/SAMPLE/view?usp=drivesdk") =
         JSONObject().put("app", "field").put("package_name", packageName).put("version_code", version)
             .put("version_name", "1.0.0-beta.$version").put("minimum_supported_version_code", minimum).put("download_url", url).toString()
 
@@ -30,6 +30,20 @@ class FieldUpdatesTest {
             manifest(url = "http://drive.google.com/file/d/SAMPLE/view"), manifest(url = "https://evil.example/app.apk"),
             manifest(url = "https://drive.google.com.evil.example/file/d/SAMPLE/view"), manifest(url = "https://u:p@drive.google.com/file/d/SAMPLE/view"))) {
             assertThrows(IllegalArgumentException::class.java) { FieldUpdateInfo.decode(raw, pkg, 10) }
+        }
+    }
+
+    @Test fun drivePublisherLinksKeepOnlyKnownSharingParameters() {
+        for (suffix in listOf("", "?usp=drivesdk", "?usp=sharing")) {
+            val url = "https://drive.google.com/file/d/SAMPLE/view$suffix"
+            assertEquals(url, FieldUpdateInfo.decode(manifest(url = url), pkg, 10)!!.download)
+        }
+        for (url in listOf("https://drive.google.com/file/d/SAMPLE/view?redirect=bad",
+            "https://drive.google.com/file/d/SAMPLE/view?usp=drivesdk&redirect=bad",
+            "https://drive.google.com/file/d/SAMPLE/view?usp=drivesdk&usp=sharing",
+            "https://drive.google.com/file/d/SAMPLE/view?usp=unknown",
+            "https://sunpride.cauldnclark.com/downloads/field-12.apk?usp=drivesdk")) {
+            assertThrows(IllegalArgumentException::class.java) { FieldUpdateInfo.decode(manifest(url = url), pkg, 10) }
         }
     }
 

@@ -18,9 +18,10 @@ data class FieldUpdateInfo(val version: Int, val name: String, val download: Str
             require(version in 1..Int.MAX_VALUE.toLong() && minimum in 0..version)
             val name = o.getString("version_name"); require(name.isNotBlank() && name.length <= 100)
             val download = o.getString("download_url"); val u = URI(download)
-            require(download.length <= 1000 && u.scheme == "https" && u.rawUserInfo == null && u.port == -1 && u.rawFragment == null && u.rawQuery == null)
-            require((u.host == "drive.google.com" && Regex("/file/d/[A-Za-z0-9_-]+/view").matches(u.rawPath)) ||
-                (u.host == "sunpride.cauldnclark.com" && Regex("/downloads/[A-Za-z0-9._/-]+\\.apk").matches(u.rawPath)))
+            require(download.length <= 1000 && u.scheme == "https" && u.rawUserInfo == null && u.port == -1 && u.rawFragment == null)
+            require((u.host == "drive.google.com" && Regex("/file/d/[A-Za-z0-9_-]+/view").matches(u.rawPath) &&
+                u.rawQuery in listOf(null, "usp=drivesdk", "usp=sharing")) ||
+                (u.host == "sunpride.cauldnclark.com" && Regex("/downloads/[A-Za-z0-9._/-]+\\.apk").matches(u.rawPath) && u.rawQuery == null))
             return if (version <= installed) null else FieldUpdateInfo(version.toInt(), name, download, minimum.toInt())
         }
     }

@@ -23,7 +23,7 @@ export function fieldDownloadUrl(value) {
     !(
       (u.hostname === "drive.google.com" &&
         /^\/file\/d\/[A-Za-z0-9_-]+\/view$/.test(u.pathname) &&
-        !u.search) ||
+        (!u.search || /^\?usp=(drivesdk|sharing)$/.test(u.search))) ||
       (u.hostname === "sunpride.cauldnclark.com" &&
         /^\/downloads\/[A-Za-z0-9._/-]+\.apk$/.test(u.pathname) &&
         !u.search)

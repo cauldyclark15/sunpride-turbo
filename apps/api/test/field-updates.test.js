@@ -1,9 +1,7 @@
 import { test, expect } from "bun:test";
 import { startHarness } from "./harness.js";
-import {
-  installFieldUpdates,
-  fieldDownloadUrl,
-} from "../src/domains/integrity/field-updates.js";
+import { fieldDownloadUrl } from "../src/domains/integrity/field-updates.js";
+import { install } from "../src/domains/integrity/index.js";
 
 const token = "sample-publisher-credential-for-SP0245-only";
 /** @param {number} version @param {Record<string,any>} [extra] */
@@ -11,7 +9,7 @@ const build = (version, extra = {}) => ({
   app: "field",
   version_code: version,
   version_name: `1.0.0-beta.${version}`,
-  download_url: `https://drive.google.com/file/d/SAMPLE_${version}/view`,
+  download_url: `https://drive.google.com/file/d/SAMPLE_${version}/view?usp=drivesdk`,
   notes: "SAMPLE update",
   git_sha: "a".repeat(40),
   ...extra,
@@ -19,7 +17,7 @@ const build = (version, extra = {}) => ({
 
 test("publisher hook, version discovery, optional/required policy, replay and isolated packages", async () => {
   const h = await startHarness({
-    installers: [installFieldUpdates],
+    installers: [install],
     env: { SP_APP_RELEASE_TOKEN: token + "\n" },
   });
   try {
@@ -136,9 +134,17 @@ test("download targets refuse unsafe or unrelated links", () => {
     "https://drive.google.com.evil.example/file/d/SAMPLE/view",
     "https://u:p@drive.google.com/file/d/SAMPLE/view",
     "https://drive.google.com/file/d/SAMPLE/view?redirect=bad",
+    "https://drive.google.com/file/d/SAMPLE/view?usp=drivesdk&redirect=bad",
+    "https://drive.google.com/file/d/SAMPLE/view?usp=drivesdk&usp=sharing",
+    "https://drive.google.com/file/d/SAMPLE/view?usp=unknown",
+    "https://sunpride.cauldnclark.com/downloads/field-10.apk?usp=drivesdk",
     "https://sunpride.cauldnclark.com/api/v1/private.apk",
   ])
     expect(() => fieldDownloadUrl(url)).toThrow();
+  for (const suffix of ["", "?usp=drivesdk", "?usp=sharing"]) {
+    const url = `https://drive.google.com/file/d/SAMPLE/view${suffix}`;
+    expect(fieldDownloadUrl(url)).toBe(url);
+  }
   expect(
     fieldDownloadUrl("https://sunpride.cauldnclark.com/downloads/field-10.apk"),
   ).toContain("/downloads/");
