@@ -1092,13 +1092,30 @@ final class AppModel {
         }
     }
 
-    /// Queue one capture in the encrypted outbox (works offline), then send soon when online.
-    func queueCensus(_ draft: CensusCapture.Draft) throws {
-        guard let partition = activeStoragePartition else { throw StoreError.heldForReview }
-        let store = try storage(for: partition)
+    struct CustomerDraftSession: Equatable {
+        let epoch: UInt64
+        let partition: StorePartition
+    }
+    var customerDraftSession: CustomerDraftSession? {
+        guard signedIn, let partition = activeStoragePartition else { return nil }
+        return CustomerDraftSession(epoch: teamEpoch, partition: partition)
+    }
+    func customerDrafts(session: CustomerDraftSession) throws -> [CensusCapture.Draft] {
+        guard session == customerDraftSession, let store = fieldStore else { throw StoreError.heldForReview }
+        return try store.customerDrafts(for: session.partition)
+    }
+    func saveCustomerDraft(_ draft: CensusCapture.Draft, session: CustomerDraftSession) throws {
+        guard session == customerDraftSession, let store = fieldStore else { throw StoreError.heldForReview }
+        try store.saveCustomerDraft(draft, for: session.partition, now: now())
+    }
+
+    /// Queue one complete capture and remove its draft atomically, then send soon when online.
+    func queueCensus(_ draft: CensusCapture.Draft, session: CustomerDraftSession? = nil) throws {
+        guard signedIn, let partition = activeStoragePartition, let store = fieldStore,
+              session == nil || session == customerDraftSession else { throw StoreError.heldForReview }
         let timestamp = now()
         let payload = try CensusCapture.payload(draft, now: timestamp)
-        try store.enqueue(try CensusCapture.intent(payload), for: partition, now: timestamp)
+        try store.enqueueCustomerCapture(try CensusCapture.intent(payload), for: partition, now: timestamp)
         didQueueWork()
     }
 

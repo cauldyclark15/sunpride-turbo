@@ -30,6 +30,10 @@ struct AddStoreScreen: View {
     @State private var loading = true
     @State private var savedCopy = false
     @State private var draft = CensusCapture.Draft()
+    @State private var drafts: [CensusCapture.Draft] = []
+    @State private var draftsLoaded = false
+    @State private var draftSession: AppModel.CustomerDraftSession?
+    @State private var showDrafts = false
     @State private var message: String?
     @State private var busy = false
 
@@ -84,7 +88,22 @@ struct AddStoreScreen: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 16) {
                 header
-                if loading {
+                if draftsLoaded && !showDrafts {
+                    SecondaryButton(title: "Drafts (\(drafts.count))", disabled: busy || locating, fullWidth: true) { browseDrafts() }
+                        .accessibilityIdentifier("customerDrafts")
+                }
+                if showDrafts {
+                    SectionCard(title: "Drafts") {
+                        VStack(alignment: .leading, spacing: 12) {
+                            note("Saved on this phone. Open one to finish it, then tap Save store.")
+                            ForEach(drafts, id: \.captureId) { saved in
+                                SecondaryButton(title: saved.draftTitle, fullWidth: true) { openDraft(saved) }
+                                    .accessibilityIdentifier("customerDraft-\(saved.captureId.uuidString)")
+                            }
+                            if drafts.isEmpty { note("No saved drafts yet.") }
+                        }.padding(16)
+                    }
+                } else if loading {
                     ProgressView().frame(maxWidth: .infinity).padding()
                 } else if let config {
                     if savedCopy {
@@ -96,9 +115,11 @@ struct AddStoreScreen: View {
                     locationCard(config)
                     photoCard
                 } else {
-                    Text("Connect to the internet once to download the store gathering setup. After that you can add stores offline.")
+                    Text("Connect once to download the store gathering setup. You can still save drafts.")
                         .font(SunprideTokens.TypeStyle.body).foregroundStyle(SunprideTokens.text)
                         .accessibilityIdentifier("addStoreNoSetup")
+                    storeCard(CensusConfig(batches: [], channels: [], subchannels: [], defaultBatch: nil,
+                                           addressSearch: false, supportsGathering: false))
                 }
                 if let message {
                     Text(message).font(SunprideTokens.TypeStyle.meta).foregroundStyle(SunprideTokens.text)
@@ -129,8 +150,12 @@ struct AddStoreScreen: View {
         .scrollDismissesKeyboard(.immediately)
         .background(SunprideTokens.background)
         .safeAreaInset(edge: .bottom) {
-            if config != nil {
+            if !loading || draftsLoaded {
                 VStack(alignment: .leading, spacing: 8) {
+                    if showDrafts {
+                        PrimaryBottomButton(title: "Add another customer") { reset(); showDrafts = false }
+                            .accessibilityIdentifier("customerDraftNew")
+                    } else {
                     if let note = saveNote ?? (marked.isEmpty ? nil : CensusCapture.missingSummary(marked.count)) {
                         Text(note).font(SunprideTokens.TypeStyle.meta).foregroundStyle(SunprideTokens.dangerText)
                             .fixedSize(horizontal: false, vertical: true).accessibilityIdentifier("addStoreSaveNote")
@@ -139,8 +164,11 @@ struct AddStoreScreen: View {
                         SecondaryButton(title: "Try again", disabled: busy, fullWidth: true) { startSave() }
                             .accessibilityIdentifier("addStoreSaveRetry")
                     }
-                    PrimaryBottomButton(title: refreshing ? "Checking your location…" : busy ? "Checking…" : "Save store", disabled: busy) { tap { startSave() } }
+                    SecondaryButton(title: "Save as draft", disabled: busy || locating || !draftsLoaded, fullWidth: true) { saveAsDraft() }
+                        .accessibilityIdentifier("customerSaveDraft")
+                    PrimaryBottomButton(title: refreshing ? "Checking your location…" : busy ? "Checking…" : "Save store", disabled: busy || !draftsLoaded || config == nil) { tap { startSave() } }
                         .accessibilityIdentifier("addStoreSave")
+                    }
                 }
                 .frame(maxWidth: 520) // iPad: the button matches the form column, not the screen.
                 .padding(16).frame(maxWidth: .infinity).background(SunprideTokens.background)
@@ -158,10 +186,24 @@ struct AddStoreScreen: View {
         .navigationDestination(item: $openOutlet) { id in CustomerDetailScreen(model: model, outletId: id) }
         .task {
             if draft.name.isEmpty { draft.name = prefillName }
+            if !draftsLoaded {
+                do {
+                    guard let session = model.customerDraftSession else { throw StoreError.heldForReview }
+                    drafts = try model.customerDrafts(session: session); draftSession = session; draftsLoaded = true
+                    showDrafts = draft.isEmpty && !drafts.isEmpty
+                } catch { message = "Could not open your drafts. Go back and try again; your saved drafts have not been changed." }
+            }
             let result = await model.loadCensusConfig()
             config = result.config; savedCopy = result.saved && result.config != nil; loading = false
             if let config, !config.showsBatchPicker { draft.batchId = config.batches.first?.id }
             saved = model.censusCaptures()
+        }
+        .onChange(of: model.customerDraftSession) { _, current in
+            if let draftSession, current != draftSession {
+                reset(); drafts = []; draftsLoaded = false; showDrafts = false
+                saveTask?.cancel(); saveTask = nil
+                message = "Your signed-in account changed. Go back and reopen this page."
+            }
         }
         // Leaving mid-save (e.g. during "Checking your location…") cancels it: nothing is queued afterwards.
         .onDisappear { saveTask?.cancel(); saveTask = nil }
@@ -489,7 +531,9 @@ struct AddStoreScreen: View {
         guard let service = model.censusService else { return }
         let session = searchSession ?? UUID()
         do {
+            let id = draft.captureId
             let place = try await service.details(placeId: prediction.placeId, session: session)
+            guard draft.captureId == id else { return }
             draft.location = .places(place)
             draft.resolved = place.address
             draft.address = place.address.addressLine; autoAddress = draft.address
@@ -509,7 +553,9 @@ struct AddStoreScreen: View {
         case .authorized: showingCamera = UIImagePickerController.isSourceTypeAvailable(.camera)
         case .notDetermined:
             Task {
+                let id = draft.captureId
                 let granted = await AVCaptureDevice.requestAccess(for: .video)
+                guard draft.captureId == id else { return }
                 cameraAccess = AVCaptureDevice.authorizationStatus(for: .video)
                 if granted { showingCamera = true }
             }
@@ -536,10 +582,35 @@ struct AddStoreScreen: View {
         #endif
     }
 
+    private func saveAsDraft() {
+        guard !busy, !locating, draftsLoaded, let session = draftSession else { return }
+        do {
+            try model.saveCustomerDraft(draft, session: session)
+            drafts = try model.customerDrafts(session: session)
+            reset(); showDrafts = true
+            message = "Draft saved on this phone. Open it from Drafts to finish it later."
+        } catch { saveNote = "Could not save the draft. Your entries are still here. Try again." }
+    }
+    private func browseDrafts() {
+        guard !busy, !locating else { return }
+        if !draft.isEmpty { saveAsDraft() } else { showDrafts = true }
+    }
+    private func openDraft(_ saved: CensusCapture.Draft) {
+        reset(); draft = saved; showDrafts = false
+        switch saved.location {
+        case .gps(let got)?: fix = got; mode = .gps; lastFix = (got.latitude, got.longitude)
+        case .places?: mode = nil
+        case nil: break
+        }
+        areaLine = saved.resolved?.areaLine
+        autoAddress = saved.resolved?.addressLine
+        message = "Complete the required details and tap Save store, or save this draft again."
+    }
+
     /// One save at a time: `busy` is set synchronously here, before any await, so a second tap in the same
     /// frame (or during "Checking your location…") is ignored rather than starting a second save.
     private func startSave() {
-        guard !busy else { return }
+        guard !busy, draftsLoaded else { return }
         busy = true
         saveTask = Task { await save(); saveTask = nil }
     }
@@ -611,7 +682,9 @@ struct AddStoreScreen: View {
 
     private func commit() {
         do {
-            try model.queueCensus(draft)
+            guard let session = draftSession else { throw StoreError.heldForReview }
+            try model.queueCensus(draft, session: session)
+            drafts = try model.customerDrafts(session: session)
             let name = draft.name.trimmingCharacters(in: .whitespaces)
             reset()
             message = "\(name) saved on this phone. It is sent to the office for review when you are online."
@@ -627,6 +700,7 @@ struct AddStoreScreen: View {
         draft = CensusCapture.Draft()
         draft.batchId = batch
         fix = nil; mode = nil; gpsProblem = nil; addressNote = nil; areaLine = nil; autoAddress = nil
+        searchTask?.cancel(); searchTask = nil
         searchText = ""; predictions = []; searchSession = nil; candidates = []
         attempted = false; saveNote = nil; staleRetry = false; moved = nil
     }

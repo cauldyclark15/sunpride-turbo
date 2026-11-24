@@ -711,6 +711,9 @@ final class EncryptedFieldStore: FieldLocalStore {
         return now.timeIntervalSince1970 * 1000 < Double(expiry)
     }
     func enqueue(_ intent: VisitIntent, for partition: StorePartition, now: Date) throws {
+        try enqueue(intent, for: partition, now: now, finish: {})
+    }
+    private func enqueue(_ intent: VisitIntent, for partition: StorePartition, now: Date, finish: () throws -> Void) throws {
         guard ["visit.checkIn", "visit.activity", "visit.checkOut", CensusCapture.kind].contains(intent.kind),
               !intent.operationJSON.isEmpty else { throw StoreError.invalidInput }
         // Validate a single immutable serialized operation; no financial/unsupported kinds.
@@ -736,8 +739,39 @@ final class EncryptedFieldStore: FieldLocalStore {
             #endif
             try run("INSERT INTO outbox(subject,device,scope,request_id) VALUES (?,?,?,?)",
                     p(partition) + [.text(intent.requestId.uuidString.lowercased())])
+            try finish()
         }
         try protectFiles()
+    }
+
+    private static let customerDraftEntity = "local.customerdraft"
+    func customerDrafts(for partition: StorePartition) throws -> [CensusCapture.Draft] {
+        guard let (generation, held) = try state(partition), generation > 0, !held else { throw StoreError.heldForReview }
+        return try query("SELECT body FROM delta WHERE \(Self.predicate) AND entity=? ORDER BY revision DESC,id",
+                         p(partition) + [.text(Self.customerDraftEntity)]) {
+            let saved = try decode(CensusCapture.SavedDraft.self, Self.data($0, 0))
+            guard saved.version == 1 else { throw StoreError.invalidInput }
+            return saved.draft
+        }
+    }
+    /// No form/setup/location/photo validation: a draft is not an outbox operation.
+    func saveCustomerDraft(_ draft: CensusCapture.Draft, for partition: StorePartition, now: Date) throws {
+        let body = try encode(CensusCapture.SavedDraft(draft))
+        try transaction {
+            guard let (generation, held) = try state(partition), generation > 0, !held else { throw StoreError.heldForReview }
+            try run("INSERT OR REPLACE INTO delta(subject,device,scope,entity,id,revision,body) VALUES (?,?,?,?,?,?,?)",
+                    p(partition) + [.text(Self.customerDraftEntity), .text(draft.captureId.uuidString.lowercased()),
+                                    .integer(Int64(now.timeIntervalSince1970 * 1000)), body])
+        }
+        try protectFiles()
+    }
+    /// The submission and removal of its draft commit together, or both remain unchanged.
+    func enqueueCustomerCapture(_ intent: VisitIntent, for partition: StorePartition, now: Date) throws {
+        guard intent.kind == CensusCapture.kind else { throw StoreError.invalidInput }
+        try enqueue(intent, for: partition, now: now) {
+            try run("DELETE FROM delta WHERE \(Self.predicate) AND entity=? AND id=?",
+                    p(partition) + [.text(Self.customerDraftEntity), .text(intent.requestId.uuidString.lowercased())])
+        }
     }
     /// A dependent action cannot be a wire operation until the server returns the check-in's
     /// opaque visit ID. Save its local template and UUID atomically; materialize once before send.

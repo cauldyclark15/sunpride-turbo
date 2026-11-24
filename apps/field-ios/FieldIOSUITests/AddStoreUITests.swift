@@ -101,6 +101,39 @@ final class AddStoreUITests: XCTestCase {
         }
     }
 
+    func testSeveralIncompleteDraftsSurviveOfflineRelaunchAndFinalSaveStillChecksFields() {
+        let app = launch("registers")
+        signIn(app); openAddStore(app)
+        type(app, "addStoreName", "First customer draft")
+        dismissKeyboard(app)
+        app.buttons["customerSaveDraft"].tap()
+        XCTAssertTrue(app.buttons["customerDraftNew"].waitForExistence(timeout: 5))
+        app.buttons["customerDraftNew"].tap()
+        type(app, "addStoreName", "Second customer draft")
+        dismissKeyboard(app)
+        app.buttons["customerSaveDraft"].tap()
+        XCTAssertTrue(app.buttons["customerDraftNew"].waitForExistence(timeout: 5))
+        app.terminate()
+        app.launchEnvironment["FIELD_STUB_BACKEND"] = "offline"
+        app.launch()
+        openAddStore(app)
+        let first = app.buttons["First customer draft"]
+        XCTAssertTrue(first.waitForExistence(timeout: 10))
+        XCTAssertTrue(app.buttons["Second customer draft"].exists)
+        first.tap()
+        XCTAssertEqual(app.textFields["addStoreName"].value as? String, "First customer draft")
+        app.buttons["addStoreSave"].tap()
+        XCTAssertTrue(app.staticTexts["addStoreMissing-owner"].waitForExistence(timeout: 5))
+        reveal(app, app.staticTexts["addStoreMissing-location"])
+        XCTAssertTrue(app.staticTexts["addStoreMissing-location"].exists)
+        reveal(app, app.staticTexts["addStoreMissing-photo"])
+        XCTAssertTrue(app.staticTexts["addStoreMissing-photo"].exists)
+        app.buttons["customerSaveDraft"].tap()
+        XCTAssertTrue(app.buttons["customerDraftNew"].waitForExistence(timeout: 5))
+        XCTAssertTrue(app.buttons["First customer draft"].exists)
+        XCTAssertTrue(app.buttons["Second customer draft"].exists)
+    }
+
     func testUseMyLocationFillsTheAddressAndWarnsAboutAStoreOnThePhone() {
         let app = launch("registers")
         signIn(app)

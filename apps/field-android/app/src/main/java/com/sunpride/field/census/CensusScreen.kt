@@ -141,7 +141,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     var draftLoaded by remember { mutableStateOf(!edit && keep.loaded) }
     var draftRestored by remember { mutableStateOf(held != null && !held.isEmpty()) }
     var savedDrafts by remember { mutableStateOf(keep.customers.saved) }
-    var showDrafts by remember { mutableStateOf(held == null && keep.customers.saved.isNotEmpty()) }
+    var showDrafts by remember { mutableStateOf(held == null && initialName.isBlank() && keep.customers.saved.isNotEmpty()) }
     var savedNotice by keep::savedNotice
     val keyRequesters = remember { mutableMapOf<String, BringIntoViewRequester>() }
     fun requester(key: String) = keyRequesters.getOrPut(key) { BringIntoViewRequester() }
@@ -166,7 +166,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 check(keep.session == draftSession && backend.authorizationEpoch == draftEpoch)
                 keep.restore(json)
                 savedDrafts = keep.customers.saved
-                showDrafts = keep.customers.active == null && savedDrafts.isNotEmpty()
+                showDrafts = keep.customers.active == null && initialName.isBlank() && savedDrafts.isNotEmpty()
                 val kept = keep.draft
                 if (kept != null && (!kept.isEmpty() || keep.customers.activeId != null)) {
                     form = kept.form.let { if (it.customerName.isBlank()) it.copy(customerName = initialName.take(200)) else it }
@@ -211,7 +211,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     }
     DisposableEffect(backend) {
         onDispose {
-            if (draftAllowed && backend != null) { val d = latestDraft; keep.keep(d)
+            if (draftAllowed && !busy && !savingDraft && !showDrafts && savedNotice == null && backend != null) { val d = latestDraft; keep.keep(d)
                 val json = keep.customers.json(); val ticket = keep.ticket()
                 Thread { runCatching { persistDraft(json, ticket) } }.start() }
         }

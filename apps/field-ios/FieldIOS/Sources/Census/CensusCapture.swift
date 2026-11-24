@@ -44,7 +44,7 @@ struct CensusConfig: Equatable, Sendable {
 }
 
 /// Address parts shared by `places/details` and `places/reverse`.
-struct PlaceAddress: Equatable, Sendable {
+struct PlaceAddress: Codable, Equatable, Sendable {
     var formattedAddress: String
     var street: String?, barangay: String?, city: String?, province: String?, region: String?, postalCode: String?
 
@@ -83,7 +83,7 @@ struct PlacePrediction: Equatable, Sendable, Identifiable {
     var id: String { placeId }
 }
 
-struct PlaceDetails: Equatable, Sendable {
+struct PlaceDetails: Codable, Equatable, Sendable {
     let placeId: String; let address: PlaceAddress; let latitude: Double; let longitude: Double
 }
 
@@ -203,12 +203,12 @@ enum CensusCapture {
         }
     }
 
-    enum Location: Equatable, Sendable {
+    enum Location: Codable, Equatable, Sendable {
         case gps(VisitLocation)
         case places(PlaceDetails)
     }
 
-    struct Draft: Sendable {
+    struct Draft: Codable, Sendable {
         var captureId = UUID()
         var batchId: String?
         var name = "", address = "", ownerName = "", ownerPhone = ""
@@ -220,6 +220,19 @@ enum CensusCapture {
         var resolved: PlaceAddress?
         var photo: Data?
         var acknowledgedDuplicateIds: [String] = []
+        var isEmpty: Bool {
+            [name, address, ownerName, ownerPhone, landmark].allSatisfy { $0.isEmpty } &&
+                channelId == nil && subchannelId == nil && estimatedClass == "D" &&
+                location == nil && resolved == nil && photo == nil && acknowledgedDuplicateIds.isEmpty
+        }
+        var draftTitle: String { name.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? "Unnamed customer" : name }
+    }
+
+    /// Phone-only format, separate from the complete submission payload.
+    struct SavedDraft: Codable {
+        let version: Int
+        let draft: Draft
+        init(_ draft: Draft) { version = 1; self.draft = draft }
     }
 
     static func isJpeg(_ d: Data) -> Bool {

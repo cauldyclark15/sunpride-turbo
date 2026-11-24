@@ -303,6 +303,87 @@ final class CensusCaptureTests: XCTestCase {
         XCTAssertEqual(try store.pendingOutbox(for: partition).count, 4)
     }
 
+    func testIncompleteDraftsSurviveEncryptedCloseReopenWithoutSetupOrOutbox() throws {
+        let session = try XCTUnwrap(model.customerDraftSession)
+        var first = CensusCapture.Draft()
+        first.name = "SP244 private draft marker"; first.ownerPhone = "09"
+        first.address = "Partial street"; first.landmark = "Not finished"
+        let second = CensusCapture.Draft()
+        // Drafts remain writable after recording access expires, with no setup, photo or location.
+        clock.advance(7_200)
+        try model.saveCustomerDraft(first, session: session)
+        try model.saveCustomerDraft(second, session: session)
+        XCTAssertTrue(try store.pendingOutbox(for: partition).isEmpty)
+        XCTAssertTrue(try store.intents(for: partition).isEmpty)
+        model.enrollment.signedOut(); model = nil
+        store.close()
+        store = try EncryptedFieldStore(url: directory.appending(path: "field.sqlite"), secrets: secrets, keyAccount: "db")
+        let restored = try store.customerDrafts(for: partition)
+        XCTAssertEqual(Set(restored.map(\.captureId)), Set([first.captureId, second.captureId]))
+        let kept = try XCTUnwrap(restored.first { $0.captureId == first.captureId })
+        XCTAssertEqual(kept.ownerPhone, "09"); XCTAssertEqual(kept.address, "Partial street")
+        XCTAssertNil(kept.location); XCTAssertNil(kept.photo)
+        XCTAssertEqual(restored.first { $0.captureId == second.captureId }?.draftTitle, "Unnamed customer")
+        XCTAssertThrowsError(try CensusCapture.payload(kept, now: clock.now))
+        let disk = try Data(contentsOf: directory.appending(path: "field.sqlite"))
+        XCTAssertNil(disk.range(of: Data(first.name.utf8)))
+        // Leave tearDown its usual model to stop; the database has already proved a fresh open.
+        model = AppModel(auth: AuthClient(site: StubHTTP.site, store: secrets, http: StubHTTP.client()),
+                         registry: FakeRegistry(), store: secrets, localStore: store, now: clock.closure) {
+            SoftwareDeviceKey(key: P256.Signing.PrivateKey(), storage: .ephemeralTest)
+        }
+    }
+
+    func testDraftEditsRetainIdentityEvidenceAndAllOtherCustomers() throws {
+        let session = try XCTUnwrap(model.customerDraftSession)
+        var first = try draft(); first.resolved = PlaceAddress(formattedAddress: "Typed address", street: "Street", city: "Cebu")
+        first.acknowledgedDuplicateIds = ["existing"]
+        var second = CensusCapture.Draft(); second.name = "Other draft"
+        try model.saveCustomerDraft(first, session: session)
+        try model.saveCustomerDraft(second, session: session)
+        var reopened = try XCTUnwrap(model.customerDrafts(session: session).first { $0.captureId == first.captureId })
+        XCTAssertEqual(reopened.location, first.location); XCTAssertEqual(reopened.photo, first.photo)
+        XCTAssertEqual(reopened.resolved, first.resolved); XCTAssertEqual(reopened.acknowledgedDuplicateIds, ["existing"])
+        reopened.ownerName = "Updated owner"
+        try model.saveCustomerDraft(reopened, session: session)
+        let saved = try model.customerDrafts(session: session)
+        XCTAssertEqual(saved.count, 2)
+        XCTAssertEqual(saved.first { $0.captureId == first.captureId }?.ownerName, "Updated owner")
+        XCTAssertEqual(saved.first { $0.captureId == second.captureId }?.name, "Other draft")
+        let foreign = try StorePartition(subject: "test|other", deviceId: partition.deviceId, scope: partition.scope)
+        XCTAssertThrowsError(try store.customerDrafts(for: foreign))
+    }
+
+    func testFinalSaveChecksFieldsAndRemovesOnlyItsDraftAtomically() throws {
+        let session = try XCTUnwrap(model.customerDraftSession)
+        var first = CensusCapture.Draft(); first.name = "Finish later"
+        let second = CensusCapture.Draft()
+        try model.saveCustomerDraft(first, session: session)
+        try model.saveCustomerDraft(second, session: session)
+        XCTAssertThrowsError(try model.queueCensus(first, session: session))
+        XCTAssertEqual(try model.customerDrafts(session: session).count, 2)
+        let originalId = first.captureId
+        first = try draft(); first.captureId = originalId
+        store.failAfterIntentInsert = true
+        XCTAssertThrowsError(try model.queueCensus(first, session: session))
+        XCTAssertTrue(try store.pendingOutbox(for: partition).isEmpty)
+        XCTAssertEqual(try model.customerDrafts(session: session).count, 2)
+        store.failAfterIntentInsert = false
+        try model.queueCensus(first, session: session)
+        XCTAssertEqual(try store.pendingOutbox(for: partition).map(\.intent.requestId), [originalId])
+        XCTAssertEqual(try model.customerDrafts(session: session).map(\.captureId), [second.captureId])
+    }
+
+    func testHeldOrChangedSessionCannotClaimADraftWasSaved() throws {
+        let session = try XCTUnwrap(model.customerDraftSession)
+        try store.holdForReview(partition)
+        XCTAssertThrowsError(try model.saveCustomerDraft(CensusCapture.Draft(), session: session))
+        let changed = try StorePartition(subject: partition.subject, deviceId: partition.deviceId, scope: "new-scope")
+        _ = try model.storage(for: changed)
+        XCTAssertNotEqual(model.customerDraftSession, session)
+        XCTAssertThrowsError(try model.saveCustomerDraft(CensusCapture.Draft(), session: session))
+    }
+
     func testQueuesOfflineInTheEncryptedOutboxAndShowsSaved() throws {
         try model.queueCensus(try draft())
         let pending = try store.pendingOutbox(for: partition)
