@@ -7,8 +7,10 @@ import { normalizeError } from "../../lib/api/errors";
 
 /** SP-0185: an admin resets a person's password and sees the temporary one once. */
 
-export type ResetTarget = {
-  profileId: string;
+export type ResetTarget = (
+  | { profileId: string; invitationId?: never }
+  | { invitationId: string; profileId?: never }
+) & {
   name: string;
   email: string;
   role: string;
@@ -20,22 +22,15 @@ export type ResetResult = {
   expiresAt: number;
   emailed: boolean;
   email: string;
+  resetUrl: string;
+  resetExpiresAt: number;
+  accessDisabled: boolean;
+  selfReset: boolean;
 };
 
-/** Mirrors the server rules so the button only shows where it can work (the server decides). */
-export function canResetPassword(
-  target: Pick<ResetTarget, "profileId" | "role" | "status" | "email">,
-  canManage: boolean,
-  actorRole: string | null | undefined,
-  actorProfileId: string | null | undefined,
-) {
-  return (
-    canManage &&
-    target.status === "active" &&
-    target.profileId !== actorProfileId &&
-    !(target.role === "super_admin" && actorRole !== "super_admin") &&
-    !/\.sunpride\.invalid$|\.local$/i.test(target.email)
-  );
+/** Every People row is resettable by someone with People management access. */
+export function canResetPassword(canManage: boolean) {
+  return canManage;
 }
 
 export const emailLine = (result: Pick<ResetResult, "emailed" | "email">) =>
@@ -68,17 +63,22 @@ function Dialog({ title, children }: { title: string; children: ReactNode }) {
 export function ResetPasswordDialog({
   target,
   onClose,
-  send = (profileId) =>
-    mutate<ResetResult>("/api/v1/people/reset-password", { profileId }),
+  send = (person) =>
+    mutate<ResetResult>(
+      "/api/v1/people/reset-password",
+      person.profileId
+        ? { profileId: person.profileId }
+        : { invitationId: person.invitationId },
+    ),
 }: {
   target: ResetTarget;
   onClose: () => void;
-  send?: (profileId: string) => Promise<ResetResult>;
+  send?: (person: ResetTarget) => Promise<ResetResult>;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<ResetResult | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copied, setCopied] = useState<"link" | "password" | null>(null);
   const who = target.name || target.email;
 
   async function confirm() {
@@ -86,7 +86,7 @@ export function ResetPasswordDialog({
     setPending(true);
     setError(null);
     try {
-      setResult(await send(target.profileId));
+      setResult(await send(target));
     } catch (cause) {
       setError(normalizeError(cause).message);
     } finally {
@@ -94,22 +94,41 @@ export function ResetPasswordDialog({
     }
   }
 
-  async function copy(text: string) {
+  async function copy(text: string, kind: "link" | "password") {
     try {
       await navigator.clipboard.writeText(text);
-      setCopied(true);
+      setCopied(kind);
     } catch {
-      setCopied(false);
+      setCopied(null);
     }
   }
 
   if (result)
     return (
-      <Dialog title="Temporary password">
+      <Dialog title="Password reset ready">
         <p className="mt-2 text-sm text-muted">
-          Give this to {who}. It is shown only once.
+          Give this link to {who} to choose a password. It is shown only once.
         </p>
-        <div className="mt-4 flex items-center gap-3">
+        <div className="mt-4 grid gap-2">
+          <input
+            aria-label="Password reset link"
+            readOnly
+            value={result.resetUrl}
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+          />
+          <Button
+            size="sm"
+            variant="outline"
+            onPress={() => void copy(result.resetUrl, "link")}
+          >
+            {copied === "link" ? "Link copied" : "Copy link"}
+          </Button>
+          <p className="text-sm text-muted">The link expires in 60 minutes.</p>
+        </div>
+        <p className="mt-4 text-sm text-muted">
+          Or use this temporary password:
+        </p>
+        <div className="mt-2 flex items-center gap-3">
           <code
             data-testid="temporary-password"
             className="flex-1 rounded-lg border border-border bg-background px-3 py-2 text-center font-mono text-lg tracking-wider text-foreground"
@@ -119,9 +138,9 @@ export function ResetPasswordDialog({
           <Button
             size="sm"
             variant="outline"
-            onPress={() => void copy(result.temporaryPassword)}
+            onPress={() => void copy(result.temporaryPassword, "password")}
           >
-            {copied ? "Copied" : "Copy"}
+            {copied === "password" ? "Password copied" : "Copy password"}
           </Button>
         </div>
         <p
@@ -130,10 +149,22 @@ export function ResetPasswordDialog({
           {emailLine(result)}
         </p>
         <p className="mt-2 text-sm text-muted">{EXPIRY_LINE}</p>
+        {result.accessDisabled ? (
+          <p className="mt-2 text-sm font-medium">
+            Access stays turned off. Resetting the password does not turn it
+            back on.
+          </p>
+        ) : null}
         <div className="mt-6 flex justify-end">
-          <Button variant="primary" onPress={onClose}>
-            Done
-          </Button>
+          {result.selfReset ? (
+            <a href={result.resetUrl} className="text-sm underline">
+              Choose my password
+            </a>
+          ) : (
+            <Button variant="primary" onPress={onClose}>
+              Done
+            </Button>
+          )}
         </div>
       </Dialog>
     );
@@ -141,8 +172,9 @@ export function ResetPasswordDialog({
   return (
     <Dialog title="Reset password?">
       <p className="mt-2 text-sm leading-6 text-muted">
-        {who} will get a temporary password and will be signed out on every
-        device. They will choose their own password when they next sign in.
+        {who} will get a password reset link and a temporary password, and will
+        be signed out on every device. If they have not created an account yet,
+        one will be created for them. Access that is turned off stays off.
       </p>
       {error ? (
         <p role="alert" className="mt-3 text-sm text-danger">

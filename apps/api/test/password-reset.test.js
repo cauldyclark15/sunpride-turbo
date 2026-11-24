@@ -98,7 +98,9 @@ test("temporary password: 10 unambiguous characters, grouped, random", () => {
   const seen = new Set();
   for (let i = 0; i < 200; i++) {
     const p = temporaryPassword();
-    expect(p).toMatch(/^[A-HJKMNP-Z2-9]{4}-[A-HJKMNP-Z2-9]{4}-[A-HJKMNP-Z2-9]{2}$/);
+    expect(p).toMatch(
+      /^[A-HJKMNP-Z2-9]{4}-[A-HJKMNP-Z2-9]{4}-[A-HJKMNP-Z2-9]{2}$/,
+    );
     expect(p).not.toMatch(/[0O1lI]/);
     seen.add(p);
   }
@@ -173,7 +175,9 @@ test("reset link: sha256-only storage, single use, revokes every session, audits
   const token = await linkFor(p.email);
   const [row] =
     await h.db`select token_hash from password_reset_tokens where user_id=${p.userId} and used_at is null`;
-  expect(row.token_hash).toBe(new Bun.CryptoHasher("sha256").update(token).digest("hex"));
+  expect(row.token_hash).toBe(
+    new Bun.CryptoHasher("sha256").update(token).digest("hex"),
+  );
   const res = await post("/api/auth/reset-password", {
     token,
     newPassword: "chosen-by-link-1",
@@ -260,7 +264,9 @@ test("admin reset: temporary password once, emailed, sessions revoked, flag set,
   const body = /** @type {any} */ (await res.json());
   expect(body.emailed).toBe(true);
   expect(body.email).toBe(p.email);
-  expect(body.temporaryPassword).toMatch(/^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{2}$/);
+  expect(body.temporaryPassword).toMatch(
+    /^[A-Z2-9]{4}-[A-Z2-9]{4}-[A-Z2-9]{2}$/,
+  );
   const hours = (body.expiresAt - Date.now()) / 3_600_000;
   expect(hours).toBeGreaterThan(71.9);
   expect(hours).toBeLessThanOrEqual(72);
@@ -280,7 +286,9 @@ test("admin reset: temporary password once, emailed, sessions revoked, flag set,
   expect(audits[0].subject).toBe(a.userId);
   const deliveries =
     await h.db`select * from auth_email_deliveries where recipient=${p.email}`;
-  expect(deliveries.map((/** @type {any} */ d) => d.state)).toEqual(["accepted"]);
+  expect(deliveries.map((/** @type {any} */ d) => d.state)).toEqual([
+    "accepted",
+  ]);
   expect((await allSecretFreeRows()).includes(body.temporaryPassword)).toBe(
     false,
   );
@@ -304,27 +312,41 @@ test("admin reset permission matrix", async () => {
   const plain = await person();
   /** @type {Array<[string, string, string, number, string|null]>} */
   const cases = [
-    ["self", a.cookie, a.userId, 403, "reset_self"],
-    ["admin -> super admin", a.cookie, superTarget.userId, 403, "reset_not_allowed"],
+    ["admin -> super admin", a.cookie, superTarget.userId, 200, null],
     ["manager has no admin.manage", manager.cookie, plain.userId, 403, null],
-    ["admin outside scope (loosened, jc)", a.cookie, otherUnit.userId, 200, null],
-    ["disabled profile", a.cookie, disabledProfile.userId, 403, "reset_not_allowed"],
-    ["disabled user", a.cookie, disabledUser.userId, 403, "reset_not_allowed"],
-    ["agent user", a.cookie, agent.userId, 403, "reset_not_allowed"],
-    ["local system user", a.cookie, local.userId, 403, "reset_not_allowed"],
+    [
+      "admin outside scope (loosened, jc)",
+      a.cookie,
+      otherUnit.userId,
+      200,
+      null,
+    ],
+    ["disabled profile", a.cookie, disabledProfile.userId, 200, null],
+    ["disabled user", a.cookie, disabledUser.userId, 200, null],
+    ["agent user", a.cookie, agent.userId, 200, null],
+    ["local system user", a.cookie, local.userId, 200, null],
     ["super admin -> super admin", sa.cookie, superTarget.userId, 200, null],
     ["super admin -> other unit", sa.cookie, otherUnit.userId, 200, null],
     ["admin -> same unit", a.cookie, plain.userId, 200, null],
+    ["self", a.cookie, a.userId, 200, null],
   ];
   for (const [label, cookie, userId, status, code] of cases) {
     const res = await adminReset(cookie, { userId });
     expect(`${label}: ${res.status}`).toBe(`${label}: ${status}`);
-    if (code) expect(`${label}: ${await codeOf(res)}`).toBe(`${label}: ${code}`);
+    if (code)
+      expect(`${label}: ${await codeOf(res)}`).toBe(`${label}: ${code}`);
   }
-  // Refused resets changed nothing.
   const [still] =
     await h.db`select must_change_password from users where id=${agent.userId}`;
-  expect(still.must_change_password).toBe(false);
+  expect(still.must_change_password).toBe(true);
+  expect(
+    sent.some((mail) => mail.to === agent.email || mail.to === local.email),
+  ).toBe(false);
+  expect(
+    (
+      await h.db`select disabled_at from users where id=${disabledUser.userId}`
+    )[0].disabled_at,
+  ).not.toBeNull();
   expect(
     (await post("/api/v1/people/reset-password", { userId: plain.userId }))
       .status,
@@ -372,7 +394,9 @@ test("expired temporary password is refused at sign-in", async () => {
 test("native sign-in: old builds are refused without a session; new builds get mustChangePassword", async () => {
   const p = await resetPerson();
   const before = Number(
-    (await h.db`select count(*)::int as n from sessions where user_id=${p.userId}`)[0].n,
+    (
+      await h.db`select count(*)::int as n from sessions where user_id=${p.userId}`
+    )[0].n,
   );
   for (let i = 0; i < 12; i++) {
     const old = await nativeSignIn(h, p.email, p.temp);
@@ -381,7 +405,9 @@ test("native sign-in: old builds are refused without a session; new builds get m
   }
   // 12 refusals did not count as failed attempts (the budget is 10).
   const after = Number(
-    (await h.db`select count(*)::int as n from sessions where user_id=${p.userId}`)[0].n,
+    (
+      await h.db`select count(*)::int as n from sessions where user_id=${p.userId}`
+    )[0].n,
   );
   expect(after).toBe(before);
   const res = await post("/api/auth/sign-in", {
@@ -451,9 +477,7 @@ test("web: forced change blocks other routes, allows me/change-password/sign-out
   // No longer blocked (now a normal not-found answer instead of password_change_required).
   const open = await adminReset(cookie, { userId: crypto.randomUUID() });
   expect(await codeOf(open)).not.toBe("password_change_required");
-  expect(
-    (await post("/api/auth/sign-out", {}, { cookie })).status,
-  ).toBe(200);
+  expect((await post("/api/auth/sign-out", {}, { cookie })).status).toBe(200);
   expect((await webSignIn(p.email, "my-own-new-secret")).res.status).toBe(200);
 });
 
@@ -461,9 +485,7 @@ test("sign-out is allowed while a new password is required", async () => {
   const p = await resetPerson();
   const { cookie } = await webSignIn(p.email, p.temp);
   expect((await post("/api/auth/sign-out", {}, { cookie })).status).toBe(200);
-  expect(
-    (await h.fetch("/api/me", { headers: { cookie } })).status,
-  ).toBe(401);
+  expect((await h.fetch("/api/me", { headers: { cookie } })).status).toBe(401);
 });
 
 test("reset by link clears a pending temporary password", async () => {

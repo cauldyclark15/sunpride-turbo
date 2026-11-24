@@ -395,18 +395,7 @@ export function PeopleAdmin() {
       align: "right",
       render: (row) => (
         <span className="inline-flex justify-end gap-2">
-          {row.authSubject &&
-          canResetPassword(
-            {
-              profileId: row._id,
-              role: row.role,
-              status: row.status,
-              email: row.email,
-            },
-            canManage,
-            permissions?.role,
-            current?._id,
-          ) ? (
+          {canResetPassword(canManage) ? (
             <ResetPasswordAction
               target={{
                 profileId: row._id,
@@ -496,21 +485,33 @@ export function PeopleAdmin() {
       key: "remove",
       label: "",
       align: "right",
-      render: (row) =>
-        row.role === "super_admin" || row.status === "revoked" ? null : (
-          <span className="inline-flex justify-end gap-2">
-            {row.status === "pending" &&
-            (row.role !== "admin" || current?.role === "super_admin") ? (
-              <Button
-                size="sm"
-                variant="outline"
-                className="h-8 whitespace-nowrap"
-                isDisabled={pending}
-                onPress={() => void resendEmail(row._id)}
-              >
-                Resend email
-              </Button>
-            ) : null}
+      render: (row) => (
+        <span className="inline-flex justify-end gap-2">
+          {canResetPassword(canManage) ? (
+            <ResetPasswordAction
+              target={{
+                invitationId: row._id,
+                name: row.name?.trim() ?? "",
+                email: row.email,
+                role: row.role,
+                status: row.status,
+              }}
+            />
+          ) : null}
+          {row.role !== "super_admin" &&
+          row.status === "pending" &&
+          (row.role !== "admin" || current?.role === "super_admin") ? (
+            <Button
+              size="sm"
+              variant="outline"
+              className="h-8 whitespace-nowrap"
+              isDisabled={pending}
+              onPress={() => void resendEmail(row._id)}
+            >
+              Resend email
+            </Button>
+          ) : null}
+          {row.role !== "super_admin" && row.status !== "revoked" ? (
             <Button
               size="sm"
               variant="outline"
@@ -520,8 +521,9 @@ export function PeopleAdmin() {
             >
               Remove
             </Button>
-          </span>
-        ),
+          ) : null}
+        </span>
+      ),
     },
   ];
 

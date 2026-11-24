@@ -133,14 +133,23 @@ export function resetLinkMail(link) {
   };
 }
 
-/** @param {string} password @param {string} webUrl */
-export function temporaryPasswordMail(password, webUrl) {
+/** @param {string} password @param {string} webUrl @param {string} [resetUrl] */
+export function temporaryPasswordMail(password, webUrl, resetUrl) {
   return {
     subject: "Your new temporary Sunpride password",
     text: [
       "Hello,",
       "",
-      "Your Sunpride administrator reset your password. Your temporary password is:",
+      "Your Sunpride administrator reset your password.",
+      ...(resetUrl
+        ? [
+            "To choose your own password, open this link within 60 minutes:",
+            "",
+            resetUrl,
+            "",
+          ]
+        : []),
+      "You can also sign in with this temporary password:",
       "",
       password,
       "",

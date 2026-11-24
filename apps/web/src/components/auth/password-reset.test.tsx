@@ -282,32 +282,9 @@ describe("People: Reset password", () => {
     status: "active",
   };
 
-  it("is offered only where the server would allow it", () => {
-    expect(canResetPassword(target, true, "admin", "me")).toBe(true);
-    expect(canResetPassword(target, false, "manager", "me")).toBe(false);
-    expect(canResetPassword(target, true, "admin", "p1")).toBe(false);
-    expect(
-      canResetPassword({ ...target, role: "super_admin" }, true, "admin", "me"),
-    ).toBe(false);
-    expect(
-      canResetPassword(
-        { ...target, role: "super_admin" },
-        true,
-        "super_admin",
-        "me",
-      ),
-    ).toBe(true);
-    expect(
-      canResetPassword({ ...target, status: "disabled" }, true, "admin", "me"),
-    ).toBe(false);
-    expect(
-      canResetPassword(
-        { ...target, email: "bot@chat-agents.sunpride.invalid" },
-        true,
-        "admin",
-        "me",
-      ),
-    ).toBe(false);
+  it("is offered for every person when the caller manages People", () => {
+    expect(canResetPassword(true)).toBe(true);
+    expect(canResetPassword(false)).toBe(false);
   });
 
   it("confirms, then shows the temporary password once with Copy and the email line", async () => {
@@ -316,6 +293,10 @@ describe("People: Reset password", () => {
       expiresAt: Date.now() + 72 * 3600_000,
       emailed: true,
       email: "ana@example.test",
+      resetUrl: "https://web.example.test/reset-password?token=test-link",
+      resetExpiresAt: Date.now() + 3600_000,
+      accessDisabled: false,
+      selfReset: false,
     };
     const send = vi.fn(async () => result);
     const dialog = () =>
@@ -324,7 +305,7 @@ describe("People: Reset password", () => {
     expect(confirm).toContain("Reset password?");
     expect(confirm).not.toContain("K7PQ");
     await pressButton("Reset password");
-    expect(send).toHaveBeenCalledWith("p1");
+    expect(send).toHaveBeenCalledWith(target);
     const shown = render(dialog);
     expect(shown).toContain("K7PQ-M4XR-2W");
     expect(shown).toContain("Also sent to ana@example.test");
@@ -333,10 +314,83 @@ describe("People: Reset password", () => {
     );
     const writeText = vi.fn(async () => {});
     vi.stubGlobal("navigator", { clipboard: { writeText } });
-    await pressButton("Copy");
+    await pressButton("Copy password");
     expect(writeText).toHaveBeenCalledWith("K7PQ-M4XR-2W");
-    expect(render(dialog)).toContain("Copied");
+    expect(render(dialog)).toContain("Password copied");
+    await pressButton("Copy link");
+    expect(writeText).toHaveBeenLastCalledWith(result.resetUrl);
+    expect(render(dialog)).toContain("Link copied");
+    expect(shown).toContain("The link expires in 60 minutes.");
     expect(EXPIRY_LINE).toContain("3 days");
+  });
+
+  it.each(["profile", "invitation"])(
+    "posts the correct %s row identity and keeps the link visible without email",
+    async (kind) => {
+      const result: ResetResult = {
+        temporaryPassword: "K7PQ-M4XR-2W",
+        expiresAt: Date.now() + 72 * 3600_000,
+        emailed: false,
+        email: "chat@chat-agents.sunpride.invalid",
+        resetUrl: "https://web.example.test/reset-password?token=test-link",
+        resetExpiresAt: Date.now() + 3600_000,
+        accessDisabled: true,
+        selfReset: false,
+      };
+      const selected =
+        kind === "profile"
+          ? target
+          : { ...target, profileId: undefined, invitationId: "i1" };
+      const calls = stubFetch(() => json(200, result));
+      const dialog = () =>
+        createElement(ResetPasswordDialog, {
+          target: selected,
+          onClose: () => {},
+        });
+      render(dialog);
+      await pressButton("Reset password");
+      expect(calls).toEqual([
+        {
+          url: "/api/v1/people/reset-password",
+          body:
+            kind === "profile" ? { profileId: "p1" } : { invitationId: "i1" },
+        },
+      ]);
+      const shown = render(dialog);
+      expect(shown).toContain('aria-label="Password reset link"');
+      expect(shown).toContain(result.resetUrl);
+      expect(shown).toContain("Email could not be sent — send it yourself");
+      expect(shown).toContain("Access stays turned off.");
+      const writeText = vi.fn(async () => {});
+      vi.stubGlobal("navigator", { clipboard: { writeText } });
+      await pressButton("Copy link");
+      expect(writeText).toHaveBeenCalledWith(result.resetUrl);
+    },
+  );
+
+  it("offers a direct password choice after resetting your own row", async () => {
+    const result: ResetResult = {
+      temporaryPassword: "K7PQ-M4XR-2W",
+      expiresAt: Date.now() + 72 * 3600_000,
+      emailed: true,
+      email: target.email,
+      resetUrl: "https://web.example.test/reset-password?token=own-link",
+      resetExpiresAt: Date.now() + 3600_000,
+      accessDisabled: false,
+      selfReset: true,
+    };
+    const dialog = () =>
+      createElement(ResetPasswordDialog, {
+        target,
+        onClose: () => {},
+        send: async () => result,
+      });
+    render(dialog);
+    await pressButton("Reset password");
+    const shown = render(dialog);
+    expect(shown).toContain(`href="${result.resetUrl}"`);
+    expect(shown).toContain("Choose my password");
+    expect(shown).toContain("Copy link");
   });
 
   it("tells the admin to send it themselves when the email failed", () => {
@@ -350,7 +404,7 @@ describe("People: Reset password", () => {
       const { ApiError } = await import("../../lib/api/errors");
       throw new ApiError({
         code: "reset_not_allowed",
-        message: "Only a super admin can reset a super admin's password.",
+        message: "You do not have permission to manage People.",
       });
     });
     const dialog = () =>
@@ -358,7 +412,7 @@ describe("People: Reset password", () => {
     render(dialog);
     await pressButton("Reset password");
     expect(render(dialog)).toContain(
-      "Only a super admin can reset a super admin&#x27;s password.",
+      "You do not have permission to manage People.",
     );
   });
 });

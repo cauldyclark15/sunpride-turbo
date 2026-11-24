@@ -1,7 +1,7 @@
 import { tx } from "@sunpride/db/client";
 import { requireCapability } from "./capabilities.js";
-import { ApiError, forbidden, invalid, unauthenticated } from "./errors.js";
-import { loadProfile } from "./hooks.js";
+import { ApiError, invalid, unauthenticated } from "./errors.js";
+import { passwordResetTarget } from "../domains/org/password-reset-target.js";
 import { take, takeOrThrow } from "./rate.js";
 import { b64url, isPlainObject, isUuid, sha256Hex } from "./util.js";
 import {
@@ -44,7 +44,7 @@ export function temporaryPassword() {
   return `${s.slice(0, 4)}-${s.slice(4, 8)}-${s.slice(8)}`;
 }
 
-/** System and chat-agent logins cannot be reset. @param {string} email */
+/** Internal-only addresses cannot receive mail; admins can still copy their reset links. @param {string} email */
 export const isAgentEmail = (email) =>
   /\.sunpride\.invalid$|\.local$/i.test(email.trim());
 
@@ -81,9 +81,7 @@ export function installPasswordReset(router) {
     if (!email || email.length > 254 || !email.includes("@"))
       throw invalid("Enter a valid email");
     // Over the per-address budget: same answer, nothing sent.
-    if (
-      (await take(ctx.db, `forgot-email:${email}`, FORGOT_EMAIL_POLICY)) > 0
-    )
+    if ((await take(ctx.db, `forgot-email:${email}`, FORGOT_EMAIL_POLICY)) > 0)
       return { ok: true };
     const token = b64url(crypto.getRandomValues(new Uint8Array(32)));
     const created = await tx(ctx.db, async (t) => {
@@ -129,8 +127,7 @@ export function installPasswordReset(router) {
       algorithm: "argon2id",
     });
     return tx(ctx.db, async (t) => {
-      const [row] =
-        await t`select id, user_id from password_reset_tokens
+      const [row] = await t`select id, user_id from password_reset_tokens
                 where token_hash=${sha256Hex(token)} and used_at is null and expires_at > now()`;
       if (!row) throw bad;
       const [user] =
@@ -138,7 +135,7 @@ export function installPasswordReset(router) {
       // Re-read under the user lock: a concurrent use of the same link loses here.
       const [still] =
         await t`select 1 from password_reset_tokens where id=${row.id} and used_at is null`;
-      if (!user || user.disabled_at || !still) throw bad;
+      if (!user || !still) throw bad;
       await t`update users set password_hash=${hash}, must_change_password=false,
               temp_password_expires_at=null, updated_at=now() where id=${user.id}`;
       await t`update password_reset_tokens set used_at=now() where user_id=${user.id} and used_at is null`;
@@ -153,83 +150,62 @@ export function installPasswordReset(router) {
     const actor = await requireCapability(ctx, "admin.manage");
     const body = ctx.body;
     if (!isPlainObject(body)) throw invalid();
-    /** @type {string|null} */
-    let userId = null;
-    if (body.userId !== undefined && body.userId !== null) {
-      if (!isUuid(body.userId)) throw invalid("Choose a person");
-      userId = /** @type {string} */ (body.userId);
-    } else if (body.profileId !== undefined && body.profileId !== null) {
-      if (!isUuid(body.profileId)) throw invalid("Choose a person");
-      const [p] =
-        await ctx.db`select user_id from profiles where id=${body.profileId} and deleted_at is null`;
-      userId = p?.user_id ?? null;
-      if (!userId)
-        throw new ApiError(
-          "no_login",
-          422,
-          "This person has not created a login yet, so there is no password to reset.",
-        );
-    } else throw invalid("Choose a person");
-    if (userId === actor.userId)
-      throw forbidden(
-        "You cannot reset your own password here. Use Change password on your account page.",
-        "reset_self",
-      );
-    const target = await loadProfile(ctx.db, userId);
-    if (target?.role === "super_admin" && actor.role !== "super_admin")
-      throw forbidden(
-        "Only a super admin can reset a super admin's password.",
-        "reset_not_allowed",
-      );
-    // Scoped admins only reach people inside their own part of the company.
-    if (target?.orgUnitId)
-      await requireCapability(ctx, "admin.manage", target.orgUnitId);
-    if (target && target.status === "disabled")
-      throw forbidden(
-        "This person's access is turned off. Turn it back on first.",
-        "reset_not_allowed",
-      );
+    const selectors = ["userId", "profileId", "invitationId"].filter(
+      (key) => body[key] !== undefined && body[key] !== null,
+    );
+    if (selectors.length !== 1 || !isUuid(body[selectors[0]]))
+      throw invalid("Choose a person");
+    const target = { [selectors[0]]: body[selectors[0]] };
     const password = temporaryPassword();
     const hash = await Bun.password.hash(password, { algorithm: "argon2id" });
     const expiresAt = new Date(Date.now() + TEMP_PASSWORD_TTL_MS);
-    const email = await tx(ctx.db, async (t) => {
-      const [user] =
-        await t`select id, email, disabled_at from users where id=${userId} for update`;
-      if (!user)
-        throw new ApiError("not_found", 404, "This person was not found.");
-      if (user.disabled_at)
-        throw forbidden(
-          "This person's access is turned off. Turn it back on first.",
-          "reset_not_allowed",
-        );
-      const [agent] =
-        await t`select 1 from chat_agents where user_id=${userId} limit 1`;
-      if (agent || isAgentEmail(String(user.email)))
-        throw forbidden(
-          "This is a system account. Its password cannot be reset.",
-          "reset_not_allowed",
+    const token = b64url(crypto.getRandomValues(new Uint8Array(32)));
+    const resetExpiresAt = new Date(Date.now() + RESET_TOKEN_TTL_MS);
+    const resetUrl = `${publicWebUrl(ctx.env)}/reset-password?token=${token}`;
+    const user = await tx(ctx.db, async (t) => {
+      const user = await passwordResetTarget(t, target, actor.subject);
+      if (user.orgUnitId)
+        await requireCapability(
+          { ...ctx, db: t },
+          "admin.manage",
+          user.orgUnitId,
         );
       await t`update users set password_hash=${hash}, must_change_password=true,
-              temp_password_expires_at=${expiresAt}, updated_at=now() where id=${userId}`;
-      await t`update password_reset_tokens set used_at=now() where user_id=${userId} and used_at is null`;
-      await revokeAllSessions(t, /** @type {string} */ (userId));
+              temp_password_expires_at=${expiresAt}, updated_at=now() where id=${user.id}`;
+      await t`update password_reset_tokens set used_at=now() where user_id=${user.id} and used_at is null`;
+      await t`insert into password_reset_tokens(user_id,token_hash,expires_at)
+        values (${user.id},${sha256Hex(token)},${resetExpiresAt})`;
+      await revokeAllSessions(t, user.id);
       await t`insert into audit_logs(subject,action,entity_type,entity_id,details)
-              values (${actor.userId},'auth.password_reset_by_admin','user',${userId},'Temporary password issued')`;
-      return String(user.email);
+              values (${actor.userId},'auth.password_reset_by_admin','user',${user.id},'Password reset link and temporary password issued')`;
+      return user;
     });
-    const emailed = await sendAuthMail(ctx.db, ctx.env, {
-      to: email,
-      kind: "temporary_password",
-      ...temporaryPasswordMail(password, publicWebUrl(ctx.env)),
-    });
-    try {
-      await ctx.publish("me");
-    } catch {
-      // Realtime is a hint; revoked sessions already answer 401.
+    const email = String(user.email);
+    const emailed =
+      !isAgentEmail(email) &&
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) &&
+      (await sendAuthMail(ctx.db, ctx.env, {
+        to: email,
+        kind: "temporary_password",
+        ...temporaryPasswordMail(password, publicWebUrl(ctx.env), resetUrl),
+      }));
+    const selfReset = user.id === actor.userId;
+    if (!selfReset) {
+      try {
+        await ctx.publish("me");
+      } catch {
+        // Realtime is a hint; revoked sessions already answer 401.
+      }
     }
+    // Do not invalidate the requesting screen during a self-reset: let them copy the
+    // link first. Their sessions are already revoked, including on the next request.
     return {
       temporaryPassword: password,
       expiresAt: expiresAt.getTime(),
+      resetUrl,
+      resetExpiresAt: resetExpiresAt.getTime(),
+      accessDisabled: user.accessDisabled,
+      selfReset,
       emailed,
       email,
     };

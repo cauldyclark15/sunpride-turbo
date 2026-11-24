@@ -469,6 +469,32 @@ describe("People list", () => {
     expect(view).not.toContain(">Assign<");
     expect(view).toContain('aria-label="People pages"');
   });
+  it("SP-0247 offers Reset password on every row, including self, super admins, chat accounts, disabled and unlinked people", () => {
+    admin();
+    state.values["domains/profiles:current"] = { ...person, role: "admin" };
+    const rows = [
+      person,
+      { ...person, _id: "super", role: "super_admin" },
+      { ...person, _id: "disabled", status: "disabled" },
+      { ...person, _id: "unlinked", authSubject: undefined },
+      { ...person, _id: "chat", email: "chat@chat-agents.sunpride.invalid" },
+    ];
+    state.values["people/queries:list"] = {
+      page: rows,
+      continueCursor: "",
+      isDone: true,
+    };
+    expect(
+      html(createElement(PeopleAdmin)).match(/>Reset password<\/button>/g),
+    ).toHaveLength(rows.length);
+    state.values["lib/capabilities:currentPermissions"] = {
+      ...permissions,
+      capabilities: ["people.read"],
+    };
+    expect(html(createElement(PeopleAdmin))).not.toContain(
+      ">Reset password</button>",
+    );
+  });
   it("searches from ?q= as you type (the query gets the URL text) and pages with a cursor", () => {
     state.params = { section: "people", q: "ana" };
     const view = html(createElement(PeopleAdmin));
@@ -528,6 +554,9 @@ describe("People list", () => {
     expect(view).toContain("Check again");
     // the super admin's invitation cannot be removed; Jo's can
     expect(view.match(/>Remove<\/button>/g)).toHaveLength(1);
+    expect(view.match(/>Reset password<\/button>/g)).toHaveLength(
+      invitationsFixture.length,
+    );
     expect(
       state.queryCalls.find((call) => call.name === "people/queries:list")
         ?.args,
