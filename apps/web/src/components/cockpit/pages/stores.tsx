@@ -228,7 +228,13 @@ export function StoresPage() {
   const hidden: StoresTab[] = can("masterdata.manage") ? [] : ["settings"];
   const tab = readStoresTab(params, hidden);
   const canAdd = can("outlet.manage");
-  const canOpenEditor = can("outlet.read");
+  // Only roles that can change something open the editor (SP-0223/SP-0250);
+  // plain readers keep the read-only list.
+  const canOpenEditor =
+    canAdd ||
+    can("outlet.frequency.manage") ||
+    can("outlet.enrol.propose") ||
+    can("outlet.enrol.approve");
   const [adding, setAdding] = useState<string | null>(null);
   const canUpload = can("masterdata.manage");
   const [uploading, setUploading] = useState(false);

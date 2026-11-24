@@ -12,6 +12,7 @@ import {
 import { CustomerFrequencyEditor } from "./visit-frequency";
 import { FieldIncompleteNote } from "./field-incomplete";
 import dynamic from "next/dynamic";
+import { formatDateTime } from "../../lib/format";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { apiFetch, mutate, useApi } from "../../lib/api";
 import { DuplicatePanel, useDebounced } from "../store-gathering/add-store";
@@ -943,7 +944,7 @@ function CustomerHistory({ customer }: { customer: Customer }) {
       {(customer.history ?? []).map((entry) => (
         <section key={entry.id} className="mt-3 border-t border-border pt-2">
           <p>
-            {entry.actor} · {new Date(entry.at).toLocaleString()}
+            {entry.actor} · {formatDateTime(entry.at)}
           </p>
           <ul>
             {entry.changes.map((c) => (
