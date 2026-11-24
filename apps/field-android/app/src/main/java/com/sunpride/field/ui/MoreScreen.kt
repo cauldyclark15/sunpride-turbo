@@ -33,6 +33,7 @@ fun MoreScreen(
     status: SyncStatus, now: Long, onSync: () -> Unit, onAccount: () -> Unit, onSupport: () -> Unit,
     onCatalogue: () -> Unit, onWorkforce: (() -> Unit)?, onCollections: (() -> Unit)?, onIncentives: (() -> Unit)?,
     onSignOut: () -> Unit, modifier: Modifier = Modifier,
+    onProfiles: (() -> Unit)? = null,
     onCensus: (() -> Unit)? = null, onJointCall: (() -> Unit)? = null, onTeam: (() -> Unit)? = null,
     /** SP-0228: Selling on (or the owner): record cash sent through Palawan, Cebuana, GCash or a bank. */
     onRemitCash: (() -> Unit)? = null,
@@ -50,6 +51,8 @@ fun MoreScreen(
                 Modifier.testTag("catalogue-open"), onClick = onCatalogue)
             if (onCensus != null) { Rule(); ListRow("Add customer", "Works offline",
                 "shop", Modifier.testTag("census-open"), onClick = onCensus) }
+            if (onProfiles != null) { Rule(); ListRow("Submitted customers", "Complete details before approval. Needs internet", "shop",
+                Modifier.testTag("customer-profiles-open"), onClick = onProfiles) }
             if (onWorkforce != null) { Rule(); ListRow("Attendance", "Time in and out, prospects", "clock",
                 Modifier.testTag("workforce-open"), onClick = onWorkforce) }
             if (onCollections != null) { Rule(); ListRow("Collections", "Payments to collect", "cash",

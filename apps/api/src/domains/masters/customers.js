@@ -12,10 +12,12 @@ import {
   referenceIndex,
   shipToFromCustomer,
   validateCustomer,
+  validateEnrollment,
   visitFrequencyLabel,
 } from "@sunpride/customer-master";
 import { requireCapability } from "../../core/capabilities.js";
-import { checkEnrollment } from "./enrollment-form.js";
+import { checkEnrollment, readEnrollmentForm } from "./enrollment-form.js";
+import { customerEditAccess, customerChanges } from "./customer-edit.js";
 import { setCustomerFrequency } from "./customer-frequency.js";
 import { compactName, searchWordPatterns } from "./duplicates.js";
 import { ApiError } from "../../core/errors.js";
@@ -442,9 +444,14 @@ export async function saveCustomer(c, b, opts = {}) {
   // app builds) are dropped from the record but kept in the agent's submitted copy.
   if (unknown.length && !opts.fieldCapture)
     throw new ApiError("invalid_request", 400, `Unknown field: ${unknown[0]}`);
+  // Central writer gate also covers imports and callers outside the customer routes.
+  if (opts.outletId && !opts.fieldCapture)
+    await customerEditAccess(c, opts.outletId, true);
   const existing = opts.outletId
     ? await readCustomer(c.db, opts.outletId)
     : null;
+  const pendingEdit =
+    existing?.enrolmentStatus === "provisional" && !opts.fieldCapture;
   if (existing?.status === "inactive") rule("This customer is inactive.");
   /** @type {Record<string, any>} */ const merged = { ...(existing ?? {}) };
   for (const key of INPUT_KEYS) if (key in input) merged[key] = input[key];
@@ -462,7 +469,21 @@ export async function saveCustomer(c, b, opts = {}) {
         contactPerson: input.contactPerson ?? b.contactPerson ?? null,
       },
     ];
-  const customFields = await checkEnrollment(c.db, merged);
+  const enrollment = await readEnrollmentForm(c.db);
+  const custom = validateEnrollment(
+    enrollment.fields,
+    merged.customFields,
+    merged,
+  );
+  // Pending profiles may be completed a few fields at a time. Validate provided values,
+  // but do not make unrelated missing required answers block saving progress.
+  const customErrors = pendingEdit
+    ? custom.errors.filter((e) =>
+        text(merged.customFields?.[e.field.split(".")[1] ?? ""]),
+      )
+    : custom.errors;
+  if (customErrors.length) invalid({ errors: customErrors });
+  const customFields = custom.value;
   const geo = await derive(c.db, merged, input, existing);
   const lists = await referenceRows(c.db);
   // Sales Partner (client sheet: "pre-determined based on who saved the customer profile"):
@@ -471,7 +492,7 @@ export async function saveCustomer(c, b, opts = {}) {
   if (!hadProfile && !merged.salesPartnerCode)
     merged.salesPartnerCode = await defaultSalesPartner(c, lists);
   let draft = validateCustomer(merged, {
-    level: opts.fieldCapture ? "field" : "complete",
+    level: opts.fieldCapture ? "field" : pendingEdit ? "draft" : "complete",
     lists,
     geography: geo,
   });
@@ -510,20 +531,21 @@ export async function saveCustomer(c, b, opts = {}) {
         geography: await derive(c.db, merged, input, existing),
       });
     }
-  } else if (!opts.fieldCapture && existing?.fieldMissing) {
+  } else if (pendingEdit || (!opts.fieldCapture && existing?.fieldMissing)) {
     // The office finishing a field customer clears the flag once the field level is met.
     const field = validateCustomer(merged, {
-      level: "field",
+      level: "complete",
       lists,
       geography: geo,
     });
-    fieldMissing = field.ok
-      ? null
-      : field.errors.map((e) => ({
-          field: e.field,
-          label: e.label,
-          message: e.message,
-        }));
+    fieldMissing =
+      field.ok && !custom.errors.length
+        ? null
+        : [...field.errors, ...custom.errors].map((e) => ({
+            field: e.field,
+            label: e.label,
+            message: e.message,
+          }));
   }
   if (!draft.ok) invalid(draft);
   const complete = validateCustomer(merged, {
@@ -586,7 +608,7 @@ export async function saveCustomer(c, b, opts = {}) {
   const row = /** @type {Record<string, any>} */ ({
     outlet_id: outletId,
     custom_fields: customFields,
-    completeness: complete.ok ? "complete" : "draft",
+    completeness: complete.ok && !custom.errors.length ? "complete" : "draft",
     source: existing ? undefined : opts.fieldCapture ? "field" : "api",
     updated_by: actor?.subject ?? actor?.userId ?? "system:customer-master",
     region_name: merged.regionName,
@@ -629,7 +651,7 @@ export async function saveCustomer(c, b, opts = {}) {
     row.field_submitted = fieldSubmitted
       ? JSON.stringify(fieldSubmitted)
       : null;
-  } else if (existing?.fieldMissing)
+  } else if (pendingEdit || existing?.fieldMissing)
     row.field_missing = fieldMissing ? JSON.stringify(fieldMissing) : null;
   for (const k of Object.keys(row)) if (row[k] === undefined) delete row[k];
   const cols = Object.keys(row);
@@ -656,21 +678,32 @@ export async function saveCustomer(c, b, opts = {}) {
       !pin ||
       Math.abs(Number(pin.latitude) - v.latitude) > 1e-7 ||
       Math.abs(Number(pin.longitude) - v.longitude) > 1e-7
-    )
-      await pinCommand(c, "propose", {
-        outletId,
-        latitude: v.latitude,
-        longitude: v.longitude,
-        radiusMeters: 75,
-        source: opts.fieldCapture ? "field_customer" : "customer_master",
-        evidenceNote: "Geographical Coordinates from the customer record",
-        reason,
-      });
+    ) {
+      const pinId = await pinCommand(
+        c,
+        "propose",
+        {
+          outletId,
+          latitude: v.latitude,
+          longitude: v.longitude,
+          radiusMeters: 75,
+          source: opts.fieldCapture ? "field_customer" : "customer_master",
+          evidenceNote: "Geographical Coordinates from the customer record",
+          reason,
+        },
+        { customerEdit: pendingEdit },
+      );
+      if (pendingEdit)
+        await c.db`update outlet_enrolments set pin_id=${pinId} where outlet_id=${outletId} and status='pending' and deleted_at is null`;
+    }
   }
   // Field drafts get their accounting customer when the office approves them.
   if (!opts.fieldCapture) await syncAccountingCustomer(c, outletId);
+  const changes = existing
+    ? customerChanges(existing, await readCustomer(c.db, outletId))
+    : [];
   await c.db`insert into audit_logs(subject,action,entity_type,entity_id,details)
-    values(${row.updated_by},${existing ? "customer.update" : "customer.create"},'outlets',${outletId},${JSON.stringify({ reason, completeness: row.completeness })})`;
+    values(${row.updated_by},${existing ? "customer.update" : "customer.create"},'outlets',${outletId},${JSON.stringify({ reason, completeness: row.completeness, changes })})`;
   return outletId;
 }
 

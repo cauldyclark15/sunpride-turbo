@@ -267,6 +267,9 @@ struct MoreScreen: View {
                             }
                             .buttonStyle(.plain)
                             .accessibilityIdentifier("moreAddStore")
+                            NavigationLink { SubmittedCustomersScreen(model: model).fieldTabBarHidden() } label: {
+                                CalmListRow(symbol: "list.clipboard", title: "Submitted customers", meta: "Complete details before approval. Needs internet", trailing: "chevron.right")
+                            }.buttonStyle(.plain).accessibilityIdentifier("moreSubmittedCustomers")
                         }
                         if model.supervisor && features.contains(.team) {
                             NavigationLink { TeamScreen(model: model) } label: {

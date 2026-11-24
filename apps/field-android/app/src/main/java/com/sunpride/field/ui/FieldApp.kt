@@ -353,7 +353,7 @@ fun FieldApp(
             // SP-0147: Messages draws its own top bar (title, back, actions), so the app's bar steps aside there.
             // SP-0192: the Sell area draws its own selling header (title, sync badge), like the Van app's.
             if (com.sunpride.field.chat.FieldChat.appBarVisible(ready, page, chatAtRoot) && !(page == "sell" && sellHost != null)) {
-                val editStore = { censusEdit = customerId; go("census") }
+                val editStore = { censusEdit = customerId; go("customer-profiles") }
                 val spec = headerSpec(ready, locked, signedIn = controller.state != EnrollmentState.SignedOut, page = page,
                     visitOpen = visitOpen, controller = controller, routeCode = controller.today.routeCode,
                     editingStore = censusEdit != null, mode = mode).let {
@@ -447,6 +447,9 @@ fun FieldApp(
                 ready && page == "catalogue" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
                     com.sunpride.field.catalogue.FieldCatalogue(backend, { page = origin }, modifier)
                 }
+                ready && page == "customer-profiles" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
+                    com.sunpride.field.ui.customers.SubmittedCustomersScreen(backend, { page = origin }, modifier, censusEdit)
+                }
                 ready && page == "census" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
                     com.sunpride.field.census.CensusScreen(backend, location, { page = origin }, modifier,
                         stores = controller.today.customers, onOpenStore = { id -> customerId = id; page = "customer" },
@@ -473,6 +476,7 @@ fun FieldApp(
                     FieldFeature.TEAM in features, controller.canRemitCash).let { rows -> MoreScreen(modifier = modifier, status = status, now = now,
                     onSync = { go("sync") }, onAccount = { go("account") }, onSupport = { go("support") },
                     onCatalogue = { go("catalogue") },
+                    onProfiles = { censusEdit = null; go("customer-profiles") },
                     // SP-0195: Customer mapping keeps only Products, Add customer and Sync in its work rows.
                     onCensus = if (MoreRow.ADD_CUSTOMER in rows) ({ censusName = ""; censusEdit = null; go("census") }) else null,
                     onWorkforce = if (MoreRow.ATTENDANCE in rows) ({ controller.openWorkforce(); go("workforce") }) else null,
@@ -514,7 +518,7 @@ fun FieldApp(
                     onDial = { uri -> openDialer(context, uri) }, modifier = modifier,
                     onVisit = controller::openDiagnostic, visitEnabled = visits, now = minuteNow,
                     unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features,
-                    onEdit = if (visits && STORE_EDIT_ENABLED) ({ censusEdit = customerId; go("census") }) else null,
+                    onEdit = if (visits && STORE_EDIT_ENABLED) ({ censusEdit = customerId; go("customer-profiles") }) else null,
                     changeLabel = storeChanges[customer.outletId])
                 ready && page == "customer" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,

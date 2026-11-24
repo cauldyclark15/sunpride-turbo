@@ -117,7 +117,14 @@ beforeAll(async () => {
       `${who}@example.com`,
       "test-upload-password",
     );
-    store.set(user, { role, orgUnitId: unit, name: `${who} person` });
+    const profile = store.set(user, {
+      role,
+      orgUnitId: unit,
+      name: `${who} person`,
+    });
+    // Customer amendments reauthorize persisted people, not only this reader fixture hook.
+    await h.db`insert into profiles(id,user_id,auth_subject,name,email,role,org_unit_id,status) values(${profile.id},${user},${user},${profile.name},${`${who}@example.com`},${role},${unit},'active')`;
+    await h.db`insert into employee_assignments(profile_id,role,org_unit_id,effective_from,actor_subject,reason) values(${profile.id},${role},${unit},'2020-01-01',${user},'Sample customer upload assignment')`;
     cookies[who] = await signIn(`${who}@example.com`);
   }
 }, 240000);
@@ -649,7 +656,7 @@ describe("SP-0170 customer upload — interruption and resume", () => {
 
 describe("SP-0170 customer upload — scope", () => {
   // Loosened (jc): operations is company-wide, so an upload may update any branch's customer.
-  test("an operations user updates customers in any area; their new customers land in their area as prospects", async () => {
+  test("operations can create prospects but cannot update an approved customer (SP-0250)", async () => {
     await h.db`insert into outlets(organization_id,code,name,status,custodian_org_unit_id,created_by) values('sunpride','DVO-1','Davao store','active',${ids.davao},'fixture')`;
     const pre = await call(
       "ops",
@@ -659,14 +666,14 @@ describe("SP-0170 customer upload — scope", () => {
     expect(pre.status).toBe(200);
     expect(
       pre.body.errors.map((/** @type {any} */ e) => `${e.rowNumber}:${e.code}`),
-    ).toEqual([]);
+    ).toEqual(["3:customer_approved"]);
     const r = await call(
       "ops",
       "/runs",
-      file([row(2, { code: "OPS-1" }), row(3, { code: "DVO-1" })], "ops.xlsx"),
+      file([row(2, { code: "OPS-1" })], "ops.xlsx"),
     );
     const run = await finish(r.body.id);
-    expect(run.succeeded_count).toBe(2);
+    expect(run.succeeded_count).toBe(1);
     expect(run.failed_count).toBe(0);
     expect(await customerByCode("OPS-1")).toMatchObject({
       status: "prospect",
@@ -685,7 +692,7 @@ describe("SP-0170 customer upload — scope", () => {
     expect(other.status).toBe(200);
   }, 30000);
 
-  test("a store held by another area's territory is no longer refused to an operations user (loosened, jc)", async () => {
+  test("an approved store remains admin-only regardless of its territory (SP-0250)", async () => {
     // Custodian Cebu (the uploader's unit) but assigned to a Davao-owned territory: the
     // Customers list and PUT refuse it to the Cebu user, so the upload must refuse it too.
     const [t] =
@@ -702,6 +709,6 @@ describe("SP-0170 customer upload — scope", () => {
     expect(pre.status).toBe(200);
     expect(
       pre.body.errors.map((/** @type {any} */ e) => `${e.rowNumber}:${e.code}`),
-    ).toEqual([]);
+    ).toEqual(["2:customer_approved"]);
   }, 30000);
 });

@@ -59,7 +59,7 @@ async function as(key, path, body, requestKey = crypto.randomUUID()) {
   };
 }
 /** A person on a bound field phone. @param {string} role */
-async function fieldPerson(role = "sales") {
+async function fieldPerson(role = "admin") {
   const password = "store-edit-test-only-password",
     email = `se-${crypto.randomUUID()}@example.com`;
   const userId = await createUser(h, email, password),
@@ -199,7 +199,7 @@ test("store edit: approve updates the existing store, adds no store, moves the p
   );
   expect(batch).toBeTruthy();
 
-  const dup = await as("manager", "/api/v1/masters/census/review", {
+  const dup = await as("admin", "/api/v1/masters/census/review", {
     captureId: p.captureId,
     decision: "duplicate",
     outletId: id,
@@ -209,7 +209,7 @@ test("store edit: approve updates the existing store, adds no store, moves the p
   // WEB-173: the customer page reads the customer record, so it holds the old contact before approval.
   await h.db`insert into customer_profiles(outlet_id,mobile_no,updated_by) values(${id},'09000000000','fixture') on conflict (outlet_id) do update set mobile_no='09000000000'`;
   await h.db`insert into customer_ship_tos(outlet_id,ordinal,ship_to_party,contact_person,mobile_no,updated_by) values(${id},0,'Old party','Old contact','09000000000','fixture') on conflict (outlet_id,ordinal) where deleted_at is null do update set contact_person='Old contact',mobile_no='09000000000'`;
-  const ok = await as("manager", "/api/v1/masters/census/review", {
+  const ok = await as("admin", "/api/v1/masters/census/review", {
     captureId: p.captureId,
     decision: "accept",
     reason: "Checked with the owner",
@@ -278,7 +278,7 @@ test("store edit: reject leaves the store untouched", async () => {
     await h.db`select name,phone from outlet_contacts where outlet_id=${id} order by ordinal`;
   const p = change(id, { name: "Should Not Apply" });
   expect((await rep.push(p)).status).toBe("applied");
-  const noReason = await as("manager", "/api/v1/masters/census/review", {
+  const noReason = await as("admin", "/api/v1/masters/census/review", {
     captureId: p.captureId,
     decision: "reject",
     reason: "",
@@ -305,7 +305,7 @@ test("store edit: reject leaves the store untouched", async () => {
 });
 
 test("store edit: loosened (jc), the person who proposed a change can approve it", async () => {
-  const boss = await fieldPerson("manager");
+  const boss = await fieldPerson("admin");
   await signInAs("boss", boss.email, boss.password);
   const p = change(storeIds[2], { name: "Own Approval Try" });
   expect((await boss.push(p)).status).toBe("applied");
@@ -354,8 +354,8 @@ test("store edit: retry is idempotent, a changed retry is refused, nothing-chang
   // Same review sent twice with one request key: one review, one answer.
   const key = crypto.randomUUID();
   const body = { captureId: p.captureId, decision: "accept", reason: "ok" };
-  const a = await as("manager", "/api/v1/masters/census/review", body, key);
-  const b = await as("manager", "/api/v1/masters/census/review", body, key);
+  const a = await as("admin", "/api/v1/masters/census/review", body, key);
+  const b = await as("admin", "/api/v1/masters/census/review", body, key);
   expect(a.status).toBe(200);
   expect(b.body).toEqual(a.body);
   // The store now matches the proposal: sending it again changes nothing.
@@ -388,7 +388,7 @@ test("store edit: the phone learns the office's decision on its own changes", as
   ).toEqual([]);
   expect(
     (
-      await as("manager", "/api/v1/masters/census/review", {
+      await as("admin", "/api/v1/masters/census/review", {
         captureId: yes.captureId,
         decision: "accept",
         reason: "Checked",
@@ -397,7 +397,7 @@ test("store edit: the phone learns the office's decision on its own changes", as
   ).toBe(200);
   expect(
     (
-      await as("manager", "/api/v1/masters/census/review", {
+      await as("admin", "/api/v1/masters/census/review", {
         captureId: no.captureId,
         decision: "reject",
         reason: "Wrong store name",
@@ -432,9 +432,12 @@ test("store edit: the phone learns the office's decision on its own changes", as
 });
 
 test("store edit: an office move that is put back keeps the phone's scope, so its queued change still reaches the office (WEB-173)", async () => {
-  const rep = await fieldPerson();
+  const rep = await fieldPerson("sales");
   const [{ user_id: userId }] =
     await h.db`select user_id from profiles where id=${rep.profileId}`;
+  // SP-0250: sales can amend their own waiting profile, never an approved store.
+  await h.db`update outlets set status='prospect',created_by=${userId} where id=${storeIds[5]}`;
+  await h.db`update outlet_enrolments set proposed_by=${userId},proposed_by_profile_id=${rep.profileId} where outlet_id=${storeIds[5]} and status='pending' and deleted_at is null`;
   const fp = async () =>
     (await scopeOf(h.db, /** @type {any} */ (await actorFor(h.db, userId))))
       .fingerprint;
@@ -461,7 +464,8 @@ test("store edit: an office move that is put back keeps the phone's scope, so it
   // Same person, unit, role and reach: the phone keeps its partition (no held work).
   expect(await fp()).toBe(before);
   const p = change(storeIds[5], { name: "Moved And Back Store" });
-  expect((await rep.push(p)).status).toBe("applied");
+  const ack = await rep.push(p);
+  expect(ack.status, JSON.stringify(ack)).toBe("applied");
   const queue = await as("manager", "/api/v1/masters/census-queue");
   expect(
     queue.body.rows.some((/** @type {any} */ r) => r.id === p.captureId),
@@ -515,7 +519,7 @@ test("store edit: a structured address (SP-0220) is checked, built by the server
   const [cap] =
     await h.db`select address from census_captures where id=${p.captureId}`;
   expect(cap.address).toBe(expected);
-  const ok = await as("manager", "/api/v1/masters/census/review", {
+  const ok = await as("admin", "/api/v1/masters/census/review", {
     captureId: p.captureId,
     decision: "accept",
     reason: "Address checked",

@@ -139,6 +139,9 @@ interface FieldBackend {
     fun catalogueProducts(): List<com.sunpride.field.storage.CatalogProduct> = emptyList()
     fun catalogueImage(image:com.sunpride.catalogue.CatalogueImage):ByteArray? = null
     fun warmCatalogueImages(isActive:()->Boolean = {true}) {}
+    fun submittedCustomers(query: String, waitingOnly: Boolean, cursor: String?): JSONObject = error("Connect to view submitted customers")
+    fun customerProfile(id: String, preview: JSONObject? = null): JSONObject = error("Connect to open the customer")
+    fun saveCustomerProfile(id: String, body: JSONObject): JSONObject = error("Connect to save the customer")
     fun censusConfig(): JSONObject? = null
     /** The working Add customer form and SP-0241 saved drafts, encrypted and scoped to this phone account. */
     fun customerDraft(): String? = null
@@ -514,6 +517,12 @@ class LiveFieldBackend(
         check(epoch==authorizationEpoch) { "Session changed" }
         result
     }
+    override fun submittedCustomers(query: String, waitingOnly: Boolean, cursor: String?): JSONObject =
+        functions.api.get("/api/v1/customers?limit=50&q=${java.net.URLEncoder.encode(query, "UTF-8")}&awaitingApproval=$waitingOnly" +
+            (cursor?.let { "&cursor=${java.net.URLEncoder.encode(it, "UTF-8")}" } ?: ""))
+    override fun customerProfile(id: String, preview: JSONObject?): JSONObject =
+        if (preview == null) functions.api.get("/api/v1/customers/$id/editor") else functions.api.post("/api/v1/customers/$id/editor", preview)
+    override fun saveCustomerProfile(id: String, body: JSONObject): JSONObject = functions.api.post("/api/v1/customers/$id/amend", body)
     override fun censusConfig(): JSONObject? = withStore { store ->
         val cached = com.sunpride.field.census.CensusConfigCache.load(
             now=System.currentTimeMillis(),epoch={authorizationEpoch},

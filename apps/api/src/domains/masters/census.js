@@ -271,6 +271,8 @@ export async function storeSnapshot(db, outletId) {
  * @param {any} ctx @param {any} actor @param {any} p */
 async function captureChange(ctx, actor, p) {
   const targetId = uuid(p.targetOutletId);
+  const { customerEditAccess } = await import("./customer-edit.js");
+  await customerEditAccess(ctx, targetId, true);
   const { access } = await import("../org/readers.js");
   const outlet = await access(ctx, "outlets", targetId, "outlet.enrol.propose");
   if (outlet.deleted_at || outlet.status === "inactive")
@@ -344,6 +346,8 @@ async function captureChange(ctx, actor, p) {
  * @param {any} ctx @param {any} capture @param {any} actor @param {string} reason */
 async function applyChange(ctx, capture, actor, reason) {
   const id = capture.target_outlet_id;
+  const { customerEditAccess } = await import("./customer-edit.js");
+  await customerEditAccess(ctx, id, true);
   const [outlet] =
     await ctx.db`select id,status,deleted_at from outlets where id=${id} for update`;
   if (!outlet || outlet.deleted_at) rule("Store not found.");

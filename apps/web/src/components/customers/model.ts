@@ -64,6 +64,21 @@ export type Customer = Record<string, unknown> & {
   visitFrequencyPerMonth?: number | null;
   completeness: "draft" | "complete";
   enrolmentStatus: string | null;
+  canEdit?: boolean;
+  missingFields?: FieldMissing[];
+  history?: {
+    id: string;
+    at: number;
+    actor: string;
+    changes: {
+      field: string;
+      label: string;
+      before: unknown;
+      after: unknown;
+    }[];
+  }[];
+  historyTruncated?: boolean;
+  updatedAt?: number;
   customerName: string | null;
   customerAddress: string | null;
   addressCustom: boolean;
@@ -481,12 +496,15 @@ export function toPayload(d: Draft, a?: { adp: boolean }) {
 export function checkDraft(
   index: ReferenceIndex,
   d: Draft,
-  level: "draft" | "complete",
+  level: "draft" | "complete" | "pending",
 ): FieldErrors {
   const input = toPayload(d, applies(index, d));
   // The generated address is what the server will store.
   input.customerAddress = d.values.customerAddress ?? "";
-  const r = validateCustomer(input, { level, lists: index });
+  const r = validateCustomer(input, {
+    level: level === "pending" ? "draft" : level,
+    lists: index,
+  });
   // A "same as customer" ship-to repeats the customer's own fields: report those once, there.
   const copied = new Set(["shipToParty", "shipToAddress", "mobileNo", "email"]);
   const errors = r.errors.filter((e: { field: string; index?: number }) => {
@@ -499,7 +517,13 @@ export function checkDraft(
     d.customFields,
     input,
   );
-  return errorsToFields([...errors, ...custom.errors]);
+  const customErrors =
+    level === "pending"
+      ? custom.errors.filter((e) =>
+          (d.customFields?.[e.field.split(".")[1] ?? ""] ?? "").trim(),
+        )
+      : custom.errors;
+  return errorsToFields([...errors, ...customErrors]);
 }
 
 type ServerError = { field?: string; message?: string; label?: string };

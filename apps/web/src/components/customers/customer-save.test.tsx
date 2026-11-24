@@ -193,6 +193,107 @@ beforeEach(() => {
   state.mutate.mockReset().mockResolvedValue(customer(complete()));
 });
 
+it("SP-0250 the submitting salesman and CDM can save partial details while approval stays pending", async () => {
+  state.permissions = [];
+  state.customer = {
+    ...customer(complete()),
+    canEdit: true,
+    enrolmentStatus: "provisional",
+    updatedAt: 123,
+  };
+  const edited = setField(complete(), "street1", "");
+  const saved = {
+    ...state.customer,
+    street1: null,
+    completeness: "draft",
+    updatedAt: 124,
+  };
+  state.mutate.mockResolvedValue(saved);
+  render();
+  view().onChange(edited);
+  render();
+  expect(view().readOnly).toBe(false);
+  await view().onSave?.();
+  const html = render();
+  expect(state.mutate).toHaveBeenCalledWith(
+    "/api/v1/customers/customer",
+    expect.objectContaining({
+      expectedUpdatedAt: 123,
+      customer: expect.objectContaining({ street1: null }),
+    }),
+    expect.objectContaining({ method: "PUT" }),
+  );
+  expect(html).toContain("Still waiting for approval");
+  expect(view().errors.street1).toContain("required");
+});
+
+it("SP-0250 a newer read-only permission withdraws editing from an already open form", async () => {
+  state.permissions = [];
+  state.customer = {
+    ...customer(complete()),
+    canEdit: true,
+    enrolmentStatus: "provisional",
+  };
+  render();
+  expect(view().readOnly).toBe(false);
+  state.customer = {
+    ...state.customer,
+    status: "active",
+    enrolmentStatus: "approved",
+    canEdit: false,
+  };
+  render();
+  expect(view().readOnly).toBe(true);
+  await view().onSave?.();
+  expect(state.mutate).not.toHaveBeenCalled();
+});
+
+it("SP-0250 an approved profile is read-only even for a general store editor", async () => {
+  state.permissions = ["outlet.manage"];
+  state.customer = {
+    ...customer(complete(), "active"),
+    enrolmentStatus: "approved",
+    canEdit: false,
+  };
+  const html = render();
+  expect(view().readOnly).toBe(true);
+  expect(html).toContain("Read only");
+  await view().onSave?.();
+  expect(state.mutate).not.toHaveBeenCalled();
+});
+
+it("SP-0250 approval immediately retires the CDM's editing controls and keeps readable history", async () => {
+  state.customer = { ...customer(complete()), canEdit: true };
+  state.mutate.mockResolvedValue({
+    ...state.customer,
+    status: "active",
+    enrolmentStatus: "approved",
+    canEdit: false,
+    history: [
+      {
+        id: "change",
+        actor: "Sample salesman",
+        at: 123,
+        changes: [
+          {
+            field: "street1",
+            label: "Street 1",
+            before: null,
+            after: "Sample Road",
+          },
+        ],
+      },
+    ],
+  });
+  render();
+  await view().onApprove?.();
+  const html = render();
+  expect(view().readOnly).toBe(true);
+  expect(html).toContain("Change history");
+  expect(html).toContain("Sample salesman");
+  expect(html).toContain("Street 1: Not set → Sample Road");
+});
+
 it("SP-0243 the office sees Location not confirmed when a customer was saved without a pin", () => {
   state.customer = {
     ...customer(complete()),

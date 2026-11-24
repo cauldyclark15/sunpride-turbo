@@ -51,7 +51,7 @@ object BackNavigation {
         }
         s.ready && s.page == "customer" -> BackStep.ToPage("customers")
         s.ready && (s.page == "route" || s.page == "customers") -> BackStep.ToPage("home")
-        s.ready && (s.page == "team" || s.page == "census" || s.page == "catalogue" || s.page == "incentives") -> BackStep.ToPage(s.origin)
+        s.ready && (s.page == "team" || s.page == "customer-profiles" || s.page == "census" || s.page == "catalogue" || s.page == "incentives") -> BackStep.ToPage(s.origin)
         else -> BackStep.Exit
     }
 }

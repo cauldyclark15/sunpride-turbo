@@ -1026,6 +1026,17 @@ final class AppModel {
 
     private struct EmptyArgs: Encodable {}
 
+    // SP-0250: online only; stale sessions/scopes never publish or cache customer details.
+    func customerProfileRequest(_ method: String, _ path: String, query: [URLQueryItem] = [], body: Data? = nil) async throws -> Data {
+        guard signedIn, let functions else { throw MobileError.offline }
+        let epoch = teamEpoch
+        let (data, status) = try await functions.plain(method, path, query: query, body: body)
+        try Task.checkCancellation()
+        guard signedIn, epoch == teamEpoch else { throw CancellationError() }
+        guard status == 200 else { throw MobileError.rejected("Customer details could not be opened or saved. Reopen the profile and try again.") }
+        return data
+    }
+
     // MARK: SP-0164 customer gathering ("Add a store")
 
     /// Tests inject a fake; the app talks to our `/api/v1` (never Google directly).

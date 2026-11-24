@@ -104,7 +104,7 @@ export function CustomerEditor({
 }) {
   const { can } = usePermissions();
   const { profile } = useSession();
-  const canEdit = can("outlet.manage");
+  const canCreate = can("outlet.manage");
   const canApprove = can("outlet.enrol.approve");
   const loaded = useApi<Customer>(
     customerId ? ["customers", "one", customerId] : null,
@@ -112,7 +112,7 @@ export function CustomerEditor({
   );
   const { index, enrollmentFields, loaded: refLoaded } = useCustomerReference();
   const setup = useApi<Setup>(
-    canEdit && !customerId ? ["masters", "store-setup"] : null,
+    canCreate && !customerId ? ["masters", "store-setup"] : null,
     "/api/v1/masters/store-setup",
   );
   if (customerId && !loaded.data)
@@ -144,8 +144,9 @@ export function CustomerEditor({
         initialName={initialName}
         enrollmentFields={enrollmentFields}
         index={index}
-        canEdit={canEdit}
+        canEdit={loaded.data?.canEdit ?? canCreate}
         canApprove={canApprove}
+        canDeactivate={canCreate}
         myProfileId={profile?.id ?? null}
         setup={setup.data ?? null}
         onDone={onDone}
@@ -161,6 +162,7 @@ function EditorBody({
   index,
   canEdit,
   canApprove,
+  canDeactivate,
   myProfileId = null,
   setup,
   onDone,
@@ -171,12 +173,14 @@ function EditorBody({
   index: ReturnType<typeof indexReference>;
   canEdit: boolean;
   canApprove: boolean;
+  canDeactivate: boolean;
   myProfileId?: string | null;
   setup: Setup | null;
   onDone?: (customer: Customer) => void;
 }) {
   const [customer, setCustomer] = useState<Customer | null>(initial);
-  const readOnly = !canEdit || customer?.status === "inactive";
+  const editable = canEdit && (customer?.canEdit ?? true);
+  const readOnly = !editable || customer?.status === "inactive";
   const [formDraft, setDraft] = useState<Draft>(() => {
     const d = customer
       ? draftFromCustomer(customer)
@@ -433,7 +437,12 @@ function EditorBody({
   const matches = !customer && dupName.length >= 2 ? candidates : [];
 
   async function save(): Promise<Customer | null> {
-    const local = checkDraft(index, draft, "complete");
+    if (readOnly) return null;
+    const local = checkDraft(
+      index,
+      draft,
+      customer?.enrolmentStatus === "provisional" ? "pending" : "complete",
+    );
     if (Object.keys(local).length) {
       setErrors(local);
       setMessage({
@@ -455,6 +464,7 @@ function EditorBody({
             `/api/v1/customers/${encodeURIComponent(customer.id)}`,
             {
               customer: customerBody,
+              expectedUpdatedAt: customer.updatedAt,
             },
             {
               method: "PUT",
@@ -498,11 +508,21 @@ function EditorBody({
     const saved = await save();
     setBusy(false);
     if (saved) {
-      setErrors({});
+      setErrors(
+        awaitsApproval(saved)
+          ? checkDraft(
+              index,
+              { ...draftFromCustomer(saved), enrollmentFields },
+              "complete",
+            )
+          : {},
+      );
       setMessage({
         tone: "ok",
         text: customer
-          ? "Saved."
+          ? awaitsApproval(saved)
+            ? "Saved. Still waiting for approval."
+            : "Saved."
           : `Customer ${saved.code} created as a prospect.`,
       });
       onDone?.(saved);
@@ -608,8 +628,9 @@ function EditorBody({
       message={message}
       readOnly={readOnly}
       busy={busy}
-      canEdit={canEdit}
+      canEdit={editable}
       canApprove={canApprove}
+      canDeactivate={canDeactivate}
       myProfileId={myProfileId}
       pinSlot={pinSlot}
       duplicates={matches}
@@ -647,6 +668,7 @@ export function CustomerEditorView({
   busy,
   canEdit,
   canApprove,
+  canDeactivate = canEdit,
   pinSlot,
   duplicates = [],
   duplicatesAcknowledged = false,
@@ -676,6 +698,7 @@ export function CustomerEditorView({
   busy: boolean;
   canEdit: boolean;
   canApprove: boolean;
+  canDeactivate?: boolean;
   /** WEB-059: the signed-in person; their own proposal cannot be decided by them. */
   myProfileId?: string | null;
   pinSlot?: React.ReactNode;
@@ -750,6 +773,9 @@ export function CustomerEditorView({
             <span className="text-muted">· Read only</span>
           ) : null}
         </div>
+      ) : null}
+      {customer?.history?.length ? (
+        <CustomerHistory customer={customer} />
       ) : null}
       {customer?.fieldMissing?.length ? (
         <FieldIncompleteNote
@@ -844,7 +870,7 @@ export function CustomerEditorView({
           {(customer ? awaitsApproval(customer) : false) && canApprove
             ? ownNote
             : null}
-          {customer ? (
+          {customer && canDeactivate ? (
             deactivating ? (
               <span className="flex flex-wrap items-center gap-2">
                 <input
@@ -901,6 +927,35 @@ export function CustomerEditorView({
         </div>
       ) : null}
     </form>
+  );
+}
+
+function CustomerHistory({ customer }: { customer: Customer }) {
+  const value = (v: unknown) =>
+    v == null || v === ""
+      ? "Not set"
+      : typeof v === "string"
+        ? v
+        : JSON.stringify(v);
+  return (
+    <details className="rounded-lg border border-border p-3 text-sm">
+      <summary className="cursor-pointer font-medium">Change history</summary>
+      {(customer.history ?? []).map((entry) => (
+        <section key={entry.id} className="mt-3 border-t border-border pt-2">
+          <p>
+            {entry.actor} · {new Date(entry.at).toLocaleString()}
+          </p>
+          <ul>
+            {entry.changes.map((c) => (
+              <li key={c.field}>
+                {c.label}: {value(c.before)} → {value(c.after)}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+      {customer.historyTruncated ? <p>Showing the latest 50 changes.</p> : null}
+    </details>
   );
 }
 

@@ -181,6 +181,9 @@ struct CustomerDetailScreen: View {
             }
             .accessibilityIdentifier("customerCall")
         }
+        NavigationLink { SubmittedCustomersScreen(model: model, initialId: record.outletId).fieldTabBarHidden() } label: {
+            Text("Customer profile").frame(maxWidth: .infinity, minHeight: 48)
+        }.accessibilityIdentifier("customerProfile")
         if let visit = visitTarget(record) {
             NavigationLink { DiagnosticVisitScreen(model: model, visit: visit).fieldTabBarHidden() } label: {
                 Text(visitTitle(record)).font(SunprideTokens.TypeStyle.row)

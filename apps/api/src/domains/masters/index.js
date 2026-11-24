@@ -125,11 +125,11 @@ export function install(router, platform) {
     router.post(`/api/v1/masters/${name}`, async (/** @type {any} */ ctx) => {
       if (!isPlainObject(ctx.body)) rule("Enter a valid command.");
       const result = await tx(ctx.db, async (db) => {
+        await db`select pg_advisory_xact_lock(${ORG_LOCK})`;
         const c = { ...ctx, db, actor: await currentActor(db, ctx.actor) };
         const actor = await requireCapability(c, capability);
         if (name.startsWith("reference/")) {
           await requireNationalScope(c, ["admin"]);
-          await db`select pg_advisory_xact_lock(${ORG_LOCK})`;
           await db`select set_config('sunpride.actor',${actor.userId},true)`;
         }
         if (

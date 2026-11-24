@@ -136,6 +136,7 @@ async function loadLookups(db, actor) {
   const { unitIds } = await scopeFilterForActor(db, actor);
   return {
     lists,
+    canEditApproved: roleHas(actor.role, "admin.manage"),
     enrollmentForm: await readEnrollmentForm(db),
     index: referenceIndex(lists),
     /** @type {Omit<GeoData,'barangays'|'postalCodes'>} */
@@ -186,7 +187,7 @@ async function resolveRows(db, rows, lookups) {
   /** @type {UploadError[]} */ const errors = [...checked.errors];
   const codes = [...checked.items.values()].map((i) => i.code).filter(Boolean);
   const outlets = codes.length
-    ? await db`select o.id,o.code,o.status,cp.custom_fields,coalesce(s.owner_unit_id,o.custodian_org_unit_id) as owner_unit_id from outlets o left join analytics_store_scope s on s.id=o.id left join customer_profiles cp on cp.outlet_id=o.id and cp.deleted_at is null where o.organization_id=${ORGANIZATION} and o.deleted_at is null and o.code=any(${db.array(codes, "TEXT")}::text[])`
+    ? await db`select o.id,o.code,o.status,o.enrolment_status,cp.custom_fields,coalesce(s.owner_unit_id,o.custodian_org_unit_id) as owner_unit_id from outlets o left join analytics_store_scope s on s.id=o.id left join customer_profiles cp on cp.outlet_id=o.id and cp.deleted_at is null where o.organization_id=${ORGANIZATION} and o.deleted_at is null and o.code=any(${db.array(codes, "TEXT")}::text[])`
     : [];
   /** @type {Map<string, any>} */ const outletByCode = new Map(
     outlets.map((/** @type {any} */ o) => [o.code, o]),
@@ -248,6 +249,15 @@ async function resolveRows(db, rows, lookups) {
         fail(
           "customer_inactive",
           `Customer ${item.code} is inactive; an inactive customer cannot be updated by upload.`,
+        );
+      else if (
+        existing.status === "active" &&
+        existing.enrolment_status !== "provisional" &&
+        !lookups.canEditApproved
+      )
+        fail(
+          "customer_approved",
+          "Only admins can change an approved customer.",
         );
     }
     if (!bad.has(row.rowNumber))

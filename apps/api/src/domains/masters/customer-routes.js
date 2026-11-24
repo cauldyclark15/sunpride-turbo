@@ -13,6 +13,7 @@ import { ApiError } from "../../core/errors.js";
 import { canonicalJson, isPlainObject } from "../../core/util.js";
 import { currentActor } from "../van/access.js";
 import { access } from "../org/readers.js";
+import { ORG_LOCK } from "../org/identity.js";
 import { required, rule, uuid } from "../org/model.js";
 import {
   approveCustomer,
@@ -25,6 +26,12 @@ import {
   referenceRows,
   saveCustomer,
 } from "./customers.js";
+import {
+  applyCustomerEdits,
+  customerEditAccess,
+  customerEditor,
+  customerView,
+} from "./customer-edit.js";
 import { setCustomerFrequency } from "./customer-frequency.js";
 import { REFERENCE_LISTS } from "@sunpride/db/customer-reference";
 
@@ -41,6 +48,7 @@ export function installCustomers(router, platform) {
     router[method](path, async (/** @type {any} */ ctx) => {
       if (!isPlainObject(ctx.body)) rule("Enter the customer details.");
       const id = await tx(ctx.db, async (db) => {
+        await db`select pg_advisory_xact_lock(${ORG_LOCK})`;
         const c = {
           ...ctx,
           db,
@@ -49,6 +57,8 @@ export function installCustomers(router, platform) {
         };
         await db`select pg_advisory_xact_lock(4310420)`;
         await db`select set_config('sunpride.actor',${c.actor.userId ?? c.actor.subject ?? "system:customers"},true)`;
+        const updating = ["customers/update", "customers/amend"].includes(name);
+        if (updating) await customerEditAccess(c, uuid(c.params.id), true);
         const key = ctx.req.headers.get("idempotency-key");
         const digest = new Bun.CryptoHasher("sha256")
           .update(canonicalJson({ path: ctx.url.pathname, body: ctx.body }))
@@ -67,6 +77,15 @@ export function installCustomers(router, platform) {
             return prior.result.id;
           }
         }
+        if (updating && ctx.body.expectedUpdatedAt !== undefined) {
+          const current = await readCustomer(db, c.params.id);
+          if (ctx.body.expectedUpdatedAt !== current.updatedAt)
+            throw new ApiError(
+              "conflict",
+              409,
+              "This customer changed. Reopen it before saving your changes.",
+            );
+        }
         const value = await handler(c, ctx.body);
         if (key)
           await db`insert into master_command_receipts(actor_profile_id,command,request_key,payload_hash,result) values(${c.actor.profileId},${name},${key},${digest},${{ id: value }})`;
@@ -80,7 +99,7 @@ export function installCustomers(router, platform) {
       });
       for (const topic of ["masters", "outlets", "org"])
         await ctx.publish(topic);
-      return readCustomer(ctx.db, id);
+      return customerView(ctx, id);
     });
 
   router.get("/api/v1/customers", listCustomers);
@@ -197,10 +216,9 @@ export function installCustomers(router, platform) {
       return { customerIds: ids, updated: ids.length };
     },
   );
-  router.get("/api/v1/customers/:id", async (/** @type {any} */ ctx) => {
-    await access(ctx, "outlets", uuid(ctx.params.id), "outlet.read");
-    return readCustomer(ctx.db, ctx.params.id);
-  });
+  router.get("/api/v1/customers/:id", (/** @type {any} */ ctx) =>
+    customerView(ctx, uuid(ctx.params.id)),
+  );
   command("post", "/api/v1/customers", "customers/create", async (c, b) => {
     await requireCapability(
       c,
@@ -211,7 +229,7 @@ export function installCustomers(router, platform) {
   });
   command("put", "/api/v1/customers/:id", "customers/update", async (c, b) => {
     const id = uuid(c.params.id);
-    await access(c, "outlets", id, "outlet.manage");
+    await customerEditAccess(c, id, true);
     return saveCustomer(c, b, { outletId: id });
   });
   command(
@@ -234,6 +252,38 @@ export function installCustomers(router, platform) {
       const id = uuid(c.params.id);
       await access(c, "outlets", id, "outlet.manage");
       return deactivateCustomer(c, id, b);
+    },
+  );
+
+  router.get("/api/v1/customers/:id/editor", (/** @type {any} */ c) =>
+    customerEditor(c, uuid(c.params.id)),
+  );
+  router.post("/api/v1/customers/:id/editor", async (/** @type {any} */ c) => {
+    const current = await readCustomer(c.db, uuid(c.params.id));
+    await customerEditAccess(c, c.params.id);
+    if (
+      c.body?.expectedUpdatedAt !== undefined &&
+      c.body.expectedUpdatedAt !== current.updatedAt
+    )
+      throw new ApiError(
+        "conflict",
+        409,
+        "This customer changed. Reopen it before saving your changes.",
+      );
+    return customerEditor(c, c.params.id, c.body?.edits);
+  });
+  command(
+    "post",
+    "/api/v1/customers/:id/amend",
+    "customers/amend",
+    async (c, b) => {
+      const id = uuid(c.params.id);
+      const customer = await readCustomer(c.db, id);
+      return saveCustomer(
+        c,
+        { customer: applyCustomerEdits(customer, b.edits) },
+        { outletId: id },
+      );
     },
   );
 

@@ -137,6 +137,8 @@ export async function outletCommand(c, action, b) {
   const outlet = await access(c, "outlets", uuid(b.outletId), "outlet.manage");
   if (outlet.status === "inactive") rule("Inactive outlet");
   if (action === "edit") {
+    const { customerEditAccess } = await import("../masters/customer-edit.js");
+    await customerEditAccess(c, outlet.id, true);
     await update(c.db, "outlets", outlet.id, profileFields(b));
     await saveContacts(c, outlet.id, b.contacts);
     return null;
@@ -196,19 +198,21 @@ async function changeLink(c, b) {
   ).id;
 }
 
-/** @param {Ctx} c @param {string} action @param {Row} b */
-export async function pinCommand(c, action, b) {
-  const actor = await requireCapability(
-    c,
-    action === "propose" ? "outlet.manage" : "outlet.verify",
-  );
+/** @param {Ctx} c @param {string} action @param {Row} b @param {{customerEdit?:boolean}} [opts] */
+export async function pinCommand(c, action, b, opts = {}) {
+  const capability =
+    action === "propose"
+      ? opts.customerEdit
+        ? "outlet.enrol.propose"
+        : "outlet.manage"
+      : "outlet.verify";
+  const actor = await requireCapability(c, capability);
+  if (opts.customerEdit) {
+    const { customerEditAccess } = await import("../masters/customer-edit.js");
+    await customerEditAccess(c, uuid(b.outletId), true);
+  }
   if (action === "propose") {
-    const outlet = await access(
-      c,
-      "outlets",
-      uuid(b.outletId),
-      "outlet.manage",
-    );
+    const outlet = await access(c, "outlets", uuid(b.outletId), capability);
     if (outlet.status === "inactive") rule("Inactive outlet");
     validatePin(b);
     const from = b.effectiveFrom ?? c.now;

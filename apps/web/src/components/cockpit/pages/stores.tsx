@@ -228,7 +228,7 @@ export function StoresPage() {
   const hidden: StoresTab[] = can("masterdata.manage") ? [] : ["settings"];
   const tab = readStoresTab(params, hidden);
   const canAdd = can("outlet.manage");
-  const canOpenEditor = canAdd || can("outlet.frequency.manage");
+  const canOpenEditor = can("outlet.read");
   const [adding, setAdding] = useState<string | null>(null);
   const canUpload = can("masterdata.manage");
   const [uploading, setUploading] = useState(false);
@@ -298,7 +298,10 @@ export function StoresPage() {
           ) : null}
           <section className="grid gap-3" data-testid="new-prospects-section">
             <h2 className="text-[17px] font-semibold text-foreground">
-              {newTabHeading(can("outlet.enrol.approve"), canAdd)}
+              {newTabHeading(
+                can("outlet.enrol.approve"),
+                canAdd || can("outlet.enrol.propose"),
+              )}
             </h2>
             <CustomersListTab
               params={params}
