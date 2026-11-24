@@ -395,9 +395,9 @@ test("SP-0251 save without signal, later GPS, best-reading replacement, replay a
   expect((await rep.push(tag, id, "store.location")).status).toBe("rejected");
 }, 120000);
 
-test("SP-0251 iOS legacy capture keeps original bytes and receives its later reading before office approval", async () => {
-  const ios = await fieldRep("field-ios");
-  const config = (await ios.get("/api/v1/masters/census-config")).body;
+test("SP-0251 legacy Android capture keeps original bytes and receives its later reading before office approval", async () => {
+  const legacy = await fieldRep();
+  const config = (await legacy.get("/api/v1/masters/census-config")).body;
   const sub = config.subchannels[0];
   const p = capture({
     location: null,
@@ -406,14 +406,14 @@ test("SP-0251 iOS legacy capture keeps original bytes and receives its later rea
     estimatedClass: "C",
   });
   delete p.customer;
-  expect((await ios.push(p)).status).toBe("applied");
+  expect((await legacy.push(p)).status).toBe("applied");
   const tag = {
     captureId: p.captureId,
     deviceTime: Date.now(),
-    location: { ...capture().location, provider: "fused" },
+    location: capture().location,
   };
   expect(
-    (await ios.push(tag, crypto.randomUUID(), "store.location")).status,
+    (await legacy.push(tag, crypto.randomUUID(), "store.location")).status,
   ).toBe("applied");
   expect(
     (

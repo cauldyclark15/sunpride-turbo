@@ -17,7 +17,7 @@ object CustomerLocation {
         return latitude.isFinite() && latitude in -90.0..90.0 && longitude.isFinite() && longitude in -180.0..180.0 &&
             accuracy.isFinite() && accuracy > 0 && accuracy <= MAX_ACCURACY_METERS && time > 0 &&
             time <= at + CLOCK_DRIFT_MS && time >= at - MAX_AGE_MS && fix.opt("mockSignal") == false &&
-            fix.optString("provider") in listOf("gps", "fused", "network")
+            fix.optString("provider") == "gps"
     }
 
     /** Never lose an earlier good reading when a retry fails or returns a weaker reading. */

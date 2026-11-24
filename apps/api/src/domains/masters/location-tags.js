@@ -76,8 +76,7 @@ export async function locationTarget(c, p) {
 /** Signed follow-up op, independent of the original immutable save. It may wait offline.
  * @param {any} c @param {any} p */
 export async function tagLocation(c, p) {
-  if (!["field-android", "field-ios"].includes(c.app))
-    throw new OpRejected("unsupported_operation");
+  if (c.app !== "field-android") throw new OpRejected("unsupported_operation");
   const fresh = await currentActor(c.db, c.actor);
   const checked = await reauthorizeDevice(c.db, fresh, c.device.id);
   if (checked.device.app !== c.app)
@@ -95,9 +94,7 @@ export async function tagLocation(c, p) {
     l.accuracyMeters <= 0 ||
     l.accuracyMeters > 500 ||
     l.mockSignal !== false ||
-    !(c.app === "field-ios" ? ["gps", "fused"] : ["gps"]).includes(
-      l.provider,
-    ) ||
+    l.provider !== "gps" ||
     !Number.isSafeInteger(l.fixTime) ||
     Math.abs(at - l.fixTime) > 120000
   )

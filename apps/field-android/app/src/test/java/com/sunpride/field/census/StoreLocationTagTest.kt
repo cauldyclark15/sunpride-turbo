@@ -29,6 +29,18 @@ class StoreLocationTagTest {
         assertEquals(10.0, s.getJSONObject("best").getDouble("accuracyMeters"), 0.0)
         assertFalse(StoreLocationTag.active(s, at + 1))
     }
+    @Test fun restoredNetworkOrFusedReadingIsNeverSavedAsGps() {
+        val gps = fix(80.0)
+        for (provider in listOf("network", "fused")) {
+            val old = fix(5.0).put("provider", provider)
+            assertFalse(CustomerLocation.usable(old, at))
+            assertNull(CustomerLocation.best(old, null, at))
+            assertSame(gps, CustomerLocation.best(old, gps, at))
+            val session = StoreLocationTag.start("capture", null, old, at)
+            assertNull(session.optJSONObject("anchor"))
+            assertNull(session.optJSONObject("best"))
+        }
+    }
     @Test fun leavingStoreOrDrivingStopsWithoutAttachingWrongPoint() {
         val s = StoreLocationTag.start(null, "store", fix(), at)
         assertFalse(StoreLocationTag.accept(s, fix(20.0, 10.01), at))
