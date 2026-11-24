@@ -238,6 +238,7 @@ fun FieldApp(
         lifecycleOwner.lifecycle.addObserver(observer)
         onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
     }
+    val updates = rememberFieldUpdates(environment, offline, resumes, locked)
     LaunchedEffect(batteryGuide, ready, dayRefresh, dayState, page, resumes) {
         guideView = if (!ready || batteryGuide == null) null else runCatching {
             kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { batteryGuide.view() }
@@ -347,6 +348,7 @@ fun FieldApp(
             SwitchModeDialog(controller.appModes.modes, controller.appMode, onPick = controller::switchMode,
                 onDismiss = {}, required = true)
         Scaffold(contentWindowInsets = WindowInsets.safeDrawing, containerColor = MaterialTheme.colorScheme.background, topBar = {
+            Column {
             // SP-0147: Messages draws its own top bar (title, back, actions), so the app's bar steps aside there.
             // SP-0192: the Sell area draws its own selling header (title, sync badge), like the Van app's.
             if (com.sunpride.field.chat.FieldChat.appBarVisible(ready, page, chatAtRoot) && !(page == "sell" && sellHost != null)) {
@@ -379,6 +381,8 @@ fun FieldApp(
                             if (dayView != null) com.sunpride.field.ui.location.LocationIndicator(dayView)
                         }
                     }) else null)
+            }
+            if (!locked) FieldUpdateBanner(updates, controller.today.updateRequired)
             }
         }, bottomBar = {
             if (barVisible) FieldBottomBar(FieldNav.tabOf(page, mode), onSelect = { tab ->
@@ -413,14 +417,7 @@ fun FieldApp(
                     sapContent = {
                         FieldCreditControlPanel(controller::creditControl,controller::sapMasterLifetime)
                         com.sunpride.catalogue.SapMasterCopy(controller::sapMasters,controller::sapMasterLifetime)
-                        // SP-0207: updates come from Google Play only (no in-app APK download or install).
-                        SecondaryButton("Check for updates on Google Play", {
-                            val (market, web) = PlayStoreUpdate.uris(context.packageName)
-                            try {
-                                context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW, market.toUri())
-                                    .setPackage(PlayStoreUpdate.PLAY_PACKAGE).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-                            } catch (_: android.content.ActivityNotFoundException) { openLink(context, web) }
-                        }, Modifier.fillMaxWidth().testTag("app-updates"))
+                        FieldUpdateAccount(updates)
                     })
                 ready && page == "incentives" -> androidx.compose.runtime.key(backend?.authorizationEpoch) {
                     com.sunpride.field.ui.incentives.EarnedStatementsScreen(backend, { page = origin }, modifier)

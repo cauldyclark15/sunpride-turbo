@@ -63,6 +63,10 @@ spec:
             - {name: AUTH_EMAIL_PROVIDER, value: resend}
             - {name: AUTH_EMAIL_FROM, value: "Sunpride Support <support@cauldnclark.com>"}
             - {name: PUBLIC_WEB_URL, value: "https://sunpride.cauldnclark.com"}
+            # SP-0245: the existing APK publisher's credential, not a user/session credential.
+            - name: SP_APP_RELEASE_TOKEN
+              valueFrom:
+                secretKeyRef: {name: sunpride-app-release, key: SP_APP_RELEASE_TOKEN, optional: true}
           ports: [{containerPort: 4320}]
           lifecycle:
             # Keep serving while the ingress stops sending here; SIGTERM then drains in-flight requests.

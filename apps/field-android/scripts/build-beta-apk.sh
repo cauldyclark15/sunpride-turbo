@@ -20,7 +20,8 @@ if [[ "$(stat -f '%Lp' "$SIGNING" 2>/dev/null || stat -c '%a' "$SIGNING")" != "6
   exit 1
 fi
 
-"$PROJECT/gradlew" -p "$PROJECT" --console=plain :app:assembleBetaRelease
+# SP-0245: direct APK distribution gets the browser download action. bundleBetaRelease defaults to Play-only.
+"$PROJECT/gradlew" -p "$PROJECT" --console=plain -PSUNPRIDE_APK_DISTRIBUTION=true :app:assembleBetaRelease
 
 APK_DIR="$PROJECT/app/build/outputs/apk/beta/release"
 APK="$APK_DIR/app-beta-release.apk"

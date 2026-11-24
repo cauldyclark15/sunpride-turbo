@@ -29,6 +29,13 @@ fun endpoint(key: String): String = (providers.gradleProperty(key).orNull
 fun quoted(value: String) = "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 fun homePath(path: String) = if (path.startsWith("~/")) System.getProperty("user.home") + path.substring(1) else path
 
+// Direct APKs opt in; Play bundles always compile the Play-only action, with no sideload permission.
+val apkDistribution = providers.gradleProperty("SUNPRIDE_APK_DISTRIBUTION").orNull == "true"
+gradle.taskGraph.whenReady {
+    if (apkDistribution && allTasks.any { it.name.matches(Regex("bundle[A-Z].*(Release|Debug|Perf)|package[A-Z].*Bundle")) })
+        error("Play bundles must use SUNPRIDE_APK_DISTRIBUTION=false")
+}
+
 // Every flavor defaults to the Sunpride server origin; override with SUNPRIDE_<FLAVOR>_API_ORIGIN.
 val betaBuild = endpoint("SUNPRIDE_BETA_BUILD").ifEmpty { "1" }.toIntOrNull()?.takeIf { it in 1..9999 }
     ?: error("SUNPRIDE_BETA_BUILD must be a whole number from 1 to 9999")
@@ -123,6 +130,7 @@ android {
         targetCompatibility = JavaVersion.VERSION_17
     }
     kotlinOptions { jvmTarget = "17" }
+    sourceSets.getByName("main").java.srcDir(if (apkDistribution) "src/apk/java" else "src/play/java")
     sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/domain-contracts/native/retail"))
     testOptions { unitTests.isReturnDefaultValues = true }
     sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/native-promotions/src/main/kotlin"))

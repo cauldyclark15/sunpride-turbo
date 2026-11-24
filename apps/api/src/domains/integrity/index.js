@@ -32,6 +32,7 @@ import {
 import { takeOrThrow } from "../../core/rate.js";
 import { refusedCheckIn } from "./refused-attempt.js";
 import { installAppReleases } from "./app-releases.js";
+import { installFieldUpdates } from "./field-updates.js";
 import { sellingDeviceSql } from "../van/selling.js";
 
 /** @param {unknown} value @param {number} max @param {boolean} [trim] */
@@ -126,6 +127,7 @@ export function install(router, platform) {
   installOidc(router);
   installPairing(router);
   installAppReleases(router, platform);
+  installFieldUpdates(router);
   platform.registerOp("integrity.checkInRefused", refusedCheckIn);
   installMockIdp(router, platform);
   platform.registerTopic(

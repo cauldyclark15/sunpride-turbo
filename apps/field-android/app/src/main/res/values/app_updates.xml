@@ -1,0 +1,4 @@
+<resources>
+    <!-- Status text, not an action label (actions use Update / Not now). -->
+    <string name="app_update_available">New version available</string>
+</resources>
