@@ -115,7 +115,9 @@ export async function storeLocations(ctx) {
     from outlets o where o.status='active' and o.deleted_at is null
       and (${nationwide} or o.custodian_org_unit_id::text=any(${units}))`;
   const rows =
-    await ctx.db`select o.id,o.code,o.name,o.address,${pinned} located
+    await ctx.db`select o.id,o.code,o.name,o.address,${pinned} located,
+      (select latitude from outlet_pins p where p.outlet_id=o.id and p.status='verified' and p.deleted_at is null and p.effective_from<=now() and (p.effective_to is null or p.effective_to>now()) order by p.effective_from desc limit 1) latitude,
+      (select longitude from outlet_pins p where p.outlet_id=o.id and p.status='verified' and p.deleted_at is null and p.effective_from<=now() and (p.effective_to is null or p.effective_to>now()) order by p.effective_from desc limit 1) longitude
     from outlets o where o.status='active' and o.deleted_at is null
       and (${nationwide} or o.custodian_org_unit_id::text=any(${units}))
       and (${!missing} or not ${pinned})
@@ -130,6 +132,8 @@ export async function storeLocations(ctx) {
       name: r.name,
       address: r.address ?? "",
       located: Boolean(r.located),
+      latitude: r.latitude ?? null,
+      longitude: r.longitude ?? null,
     })),
     truncated: rows.length > limit,
   };

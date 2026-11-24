@@ -47,6 +47,7 @@
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
         </activity>
+        <service android:name=".census.StoreLocationService" android:exported="false" android:foregroundServiceType="location" />
         <service android:name=".location.LocationShareService" android:exported="false"
             android:foregroundServiceType="location" />
     </application>

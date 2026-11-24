@@ -1,4 +1,9 @@
 import { tx } from "@sunpride/db/client";
+import {
+  officeLocation,
+  tagLocation,
+  locationTarget,
+} from "./location-tags.js";
 import { referenceLog } from "./reference-log.js";
 import {
   channelSetup,
@@ -79,6 +84,35 @@ export function install(router, platform) {
       throw e;
     }
   });
+  platform.registerOp(
+    "store.location",
+    async (/** @type {any} */ ctx) => {
+      try {
+        return await tagLocation(ctx, ctx.payload);
+      } catch (e) {
+        if (e instanceof ApiError)
+          throw new OpRejected(
+            e.status === 403 ? "out_of_scope" : "invalid_request",
+          );
+        throw e;
+      }
+    },
+    async (
+      /** @type {any} */ db,
+      /** @type {any} */ actor,
+      /** @type {any} */ op,
+    ) => {
+      try {
+        await locationTarget({ db, actor, now: Date.now() }, op.payload);
+      } catch (e) {
+        if (e instanceof ApiError)
+          throw new OpRejected(
+            e.status === 403 ? "out_of_scope" : "invalid_request",
+          );
+        throw e;
+      }
+    },
+  );
   router.get("/api/v1/masters/reference-log", referenceLog);
   router.get("/api/v1/masters/channels", channelSetup);
   router.get("/api/v1/masters/places", placeSetup);
@@ -208,6 +242,7 @@ export function install(router, platform) {
   command("census/batches", "outlet.manage", createBatch);
   command("census/review", "outlet.verify", reviewCensus);
   command("stores/office-add", "outlet.manage", officeAddStore);
+  command("stores/location", "outlet.verify", officeLocation);
   router.get("/api/v1/masters/definitions", async (/** @type {any} */ ctx) => ({
     rows: (
       await definitionsAt(

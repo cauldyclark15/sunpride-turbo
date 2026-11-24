@@ -247,6 +247,13 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
                         // Persisted blob ID + immutable local template produce the same semantic operation on every retry.
                         op.getJSONObject("payload").getJSONObject("photo").put("blobId",photo.evidenceId)
                     }
+                } else if (intent.kind == com.sunpride.field.census.StoreLocationTag.KIND) {
+                    val capture = op.getJSONObject("payload").optString("captureId")
+                    if (capture.isNotBlank() && store.ack(capture) == null) {
+                        val parent = store.history().find { it.first.requestId == capture }
+                        if (parent == null || com.sunpride.field.storage.OutboxState.refused(parent.second.state)) store.recordRejection(intent.requestId, "dependency_missing")
+                        continue
+                    }
                 } else if (intent.kind != "visit.checkIn" && intent.kind != com.sunpride.field.census.CensusRules.KIND && intent.kind != com.sunpride.field.storage.MockAttempts.KIND) {
                     val deps = op.getJSONArray("dependsOn")
                     val dependency = deps.getString(0)

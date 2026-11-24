@@ -29,5 +29,5 @@ object CustomerLocation {
         return if (accuracy < 0 || (accuracy == 0 && next.getLong("fixTime") > old.getLong("fixTime"))) next else old
     }
 
-    const val UNCONFIRMED = "Location not confirmed. You can still save this customer."
+    const val UNCONFIRMED = "Location not tagged yet. You can still save this customer. Go outside or near the door; GPS works without signal but needs a clear sky."
 }

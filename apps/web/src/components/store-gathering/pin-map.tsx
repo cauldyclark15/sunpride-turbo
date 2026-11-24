@@ -46,6 +46,13 @@ async function leafletEngine(
     maxZoom: 19,
   }).addTo(map);
   const layer = L.layerGroup().addTo(map);
+  map.on("click", (event) => {
+    if (props().draggable)
+      props().onMove?.({
+        latitude: event.latlng.lat,
+        longitude: event.latlng.lng,
+      });
+  });
   return {
     draw(pin, others) {
       layer.clearLayers();
@@ -107,6 +114,13 @@ async function googleEngine(
     mapId: process.env.NEXT_PUBLIC_GOOGLE_MAPS_MAP_ID || "DEMO_MAP_ID",
     streetViewControl: false,
     mapTypeControl: false,
+  });
+  map.addListener("click", (event: google.maps.MapMouseEvent) => {
+    if (props().draggable && event.latLng)
+      props().onMove?.({
+        latitude: event.latLng.lat(),
+        longitude: event.latLng.lng(),
+      });
   });
   let drawn: google.maps.marker.AdvancedMarkerElement[] = [];
   const el = (html: string) => {

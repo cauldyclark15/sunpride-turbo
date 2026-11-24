@@ -129,6 +129,40 @@ class VisitSyncTest {
         runBlocking { store.enqueue(row, 1) }
         return row
     }
+    @Test fun locationFollowUpWaitsForCaptureAckAndNeverNeedsAVisitId() = runBlocking {
+        val store = Store(); val transport = Transport()
+        val original = enqueue(store, "visit.checkIn")
+        val op = JSONObject(original.serializedOperation).put("kind", com.sunpride.field.census.CensusRules.KIND)
+        store.rows[0] = original.copy(kind = com.sunpride.field.census.CensusRules.KIND, serializedOperation = op.toString()) to store.rows[0].second
+        val at = System.currentTimeMillis()
+        val fix = JSONObject().put("latitude", 10.0).put("longitude", 123.0).put("accuracyMeters", 10.0)
+            .put("fixTime", at).put("provider", "gps").put("mockSignal", false)
+        val session = com.sunpride.field.census.StoreLocationTag.start(original.requestId, null, null, at)
+        val tag = com.sunpride.field.census.StoreLocationTag.intent(identity, session, fix, at)
+        store.enqueue(tag, at)
+        transport.handler = { path, body -> if (path.endsWith("push")) 200 to pushResult(body.getJSONArray("operations")) else 200 to pull() }
+        engine(store, transport).sync()
+        val pushes = transport.sent.filter { it.first.endsWith("push") }.map { JSONObject(String(it.second)).getJSONArray("operations") }
+        assertEquals(2, pushes.size)
+        assertEquals(com.sunpride.field.census.CensusRules.KIND, pushes[0].getJSONObject(0).getString("kind"))
+        assertEquals(com.sunpride.field.census.StoreLocationTag.KIND, pushes[1].getJSONObject(0).getString("kind"))
+        assertEquals(original.requestId, pushes[1].getJSONObject(0).getJSONArray("dependsOn").getString(0))
+        assertFalse(pushes[1].getJSONObject(0).getJSONObject("payload").has("visitId"))
+        assertEquals(tag.serializedOperation, store.rows.last().first.serializedOperation)
+        assertTrue(store.rows.all { it.second.state == "done" })
+    }
+    @Test fun missingOriginalStoreFreezesOnlyItsFollowUp() = runBlocking {
+        val store = Store(); val transport = Transport(); val at = System.currentTimeMillis()
+        val fix = JSONObject().put("latitude", 10.0).put("longitude", 123.0).put("accuracyMeters", 10.0)
+            .put("fixTime", at).put("provider", "gps").put("mockSignal", false)
+        val session = com.sunpride.field.census.StoreLocationTag.start(UUID.randomUUID().toString(), null, null, at)
+        store.enqueue(com.sunpride.field.census.StoreLocationTag.intent(identity, session, fix, at), at)
+        transport.handler = { _, _ -> 200 to pull() }
+        engine(store, transport).sync()
+        assertEquals("review", store.rows.single().second.state)
+        assertEquals("dependency_missing", store.rows.single().second.rejectionCode)
+        assertFalse(transport.sent.any { it.first.endsWith("push") })
+    }
     @Test fun enrollmentPhotoSizedSavesAreSplitBeforeTheRequestLimit() = runBlocking {
         val store = Store(); val transport = Transport()
         repeat(2) {

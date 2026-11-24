@@ -519,7 +519,7 @@ fun FieldApp(
                     onVisit = controller::openDiagnostic, visitEnabled = visits, now = minuteNow,
                     unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features,
                     onEdit = if (visits && STORE_EDIT_ENABLED) ({ censusEdit = customerId; go("customer-profiles") }) else null,
-                    changeLabel = storeChanges[customer.outletId])
+                    changeLabel = storeChanges[customer.outletId], backend = backend)
                 ready && page == "customer" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,
                     onAddStore = if (visits) ({ typed -> censusName = typed; censusEdit = null; go("census") }) else null,

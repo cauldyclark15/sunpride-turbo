@@ -21,6 +21,7 @@ interface VisitLocation {
     suspend fun fixWithinAccuracy(maximumMeters: Double): JSONObject? = fix()
     /** New customers can use a weaker, older cached reading without changing visit checks. */
     suspend fun customerFix(): JSONObject? = fixWithinAccuracy(com.sunpride.field.census.CustomerLocation.MAX_ACCURACY_METERS)
+    fun cachedCustomerFix(): JSONObject? = null
     /** Fix plus the reason it is missing; fakes that only implement [fix] report NO_FIX. */
     suspend fun capture(): LocationCapture = LocationFix.fromJson(fix())
         ?.let { LocationCapture.Captured(it) } ?: LocationCapture.Unavailable(UnavailableReason.NO_FIX)
@@ -48,6 +49,13 @@ class AndroidVisitLocation(private val context: Context) : VisitLocation {
 
     override suspend fun capture(): LocationCapture = captureTarget(null)
 
+    override fun cachedCustomerFix(): JSONObject? {
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) return null
+        return try {
+            (context.getSystemService(Context.LOCATION_SERVICE) as LocationManager).getLastKnownLocation(LocationManager.GPS_PROVIDER)?.toFix()?.toJson()
+        } catch (_: SecurityException) { null } catch (_: IllegalArgumentException) { null }
+    }
+
     override suspend fun customerFix(): JSONObject? = try { captureTarget(500.0, customer = true).wire }
         catch (e: CancellationException) { throw e } catch (_: Exception) { null }
 
@@ -65,7 +73,9 @@ class AndroidVisitLocation(private val context: Context) : VisitLocation {
         }.firstOrNull { location -> System.currentTimeMillis()-location.time in 0..LocationPolicy.MAX_FIX_AGE_MS &&
             com.sunpride.integrity.DeviceIntegrity.mock(location, com.sunpride.field.BuildConfig.E2E_MOCK_LOCATION) }?.toFix()?.let { return LocationCapture.Captured(it) }
         val providers = buildList {
-            if (Build.VERSION.SDK_INT >= 31 && manager.hasProvider(LocationManager.FUSED_PROVIDER) &&
+            if (customer) {
+                if (precise && manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) add(LocationManager.GPS_PROVIDER)
+            } else if (Build.VERSION.SDK_INT >= 31 && manager.hasProvider(LocationManager.FUSED_PROVIDER) &&
                 manager.isProviderEnabled(LocationManager.FUSED_PROVIDER)) add(LocationManager.FUSED_PROVIDER)
             else {
                 if (precise && manager.isProviderEnabled(LocationManager.GPS_PROVIDER)) add(LocationManager.GPS_PROVIDER)

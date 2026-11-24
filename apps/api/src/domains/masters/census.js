@@ -626,6 +626,18 @@ export async function reviewCensus(ctx, p) {
   const [capture] =
     await ctx.db`select c.*,b.org_unit_id,pc.place_latitude,pc.place_longitude,(case when c.latitude is null then 'unconfirmed' when c.location_source='gps' then 'verified' when pc.capture_id is null then 'pending' else pc.status end) location_status from census_captures c join census_batches b on b.id=c.batch_id left join census_place_checks pc on pc.capture_id=c.id where c.id=${uuid(p.captureId)}`;
   if (!capture) rule("Capture not found.");
+  const [tag] =
+    await ctx.db`select * from store_location_tags where capture_id=${capture.id} order by accuracy_meters,recorded_at desc limit 1`;
+  if (
+    tag &&
+    (capture.latitude === null || tag.accuracy_meters < capture.accuracy_meters)
+  ) {
+    capture.latitude = tag.latitude;
+    capture.longitude = tag.longitude;
+    capture.accuracy_meters = tag.accuracy_meters;
+    capture.location_status = "verified";
+    capture.location_source = "gps";
+  }
   await requireCapability(ctx, "outlet.verify", capture.org_unit_id);
   if (!["accept", "reject", "duplicate"].includes(p.decision))
     rule("Choose a census decision.");
@@ -830,6 +842,21 @@ export async function censusQueue(ctx) {
     from census_batches b where (${unitIds === null} or org_unit_id::text=any(${ctx.db.array(unitIds ?? [], "TEXT")})) order by b.created_at desc limit 101`;
   const rows =
     await ctx.db`select c.id,c.name,c.address,c.accuracy_meters,c.captured_at,c.owner_name,c.owner_phone,c.estimated_class,p.name agent,b.name batch,coalesce(case when pc.status='verified' then pc.place_latitude end,c.latitude) latitude,coalesce(case when pc.status='verified' then pc.place_longitude end,c.longitude) longitude,c.location_source,c.formatted_address,c.address_components,c.landmark,c.duplicate_flag,c.duplicate_candidates,c.acknowledged_duplicate_ids,c.actor_profile_id,(case when c.latitude is null then 'unconfirmed' when c.location_source='gps' then 'verified' when pc.capture_id is null then 'pending' else pc.status end) location_status,c.latitude device_latitude,c.longitude device_longitude,pc.place_latitude,pc.place_longitude,ch.label channel,sc.label subchannel,c.kind,c.target_outlet_id,c.previous_values,(c.photo_file_id is not null) has_photo,t.code target_code from census_captures c left join outlets t on t.id=c.target_outlet_id join profiles p on p.id=c.actor_profile_id join census_batches b on b.id=c.batch_id left join census_place_checks pc on pc.capture_id=c.id left join lateral (select v.label from master_versions v where v.master_id=c.channel_id order by v.version desc limit 1) ch on true left join lateral (select v.label from master_versions v where v.master_id=c.subchannel_id order by v.version desc limit 1) sc on true left join census_reviews r on r.capture_id=c.id where r.id is null and (${unitIds === null} or b.org_unit_id::text=any(${ctx.db.array(unitIds ?? [], "TEXT")})) order by c.captured_at limit 101`;
+  for (const row of rows) {
+    if (row.kind === "change") continue;
+    const [tag] =
+      await ctx.db`select * from store_location_tags where capture_id=${row.id} order by accuracy_meters,recorded_at desc limit 1`;
+    if (
+      tag &&
+      (row.latitude === null || tag.accuracy_meters < row.accuracy_meters)
+    ) {
+      row.latitude = tag.latitude;
+      row.longitude = tag.longitude;
+      row.accuracy_meters = tag.accuracy_meters;
+      row.location_status = "verified";
+      row.location_source = "gps";
+    }
+  }
   return {
     batches: batches.slice(0, 100).map((/** @type {any} */ b) => ({
       ...b,

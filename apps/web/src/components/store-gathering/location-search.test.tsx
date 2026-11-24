@@ -4,7 +4,13 @@ import { describe, expect, it, vi } from "vitest";
 
 vi.mock("../../lib/api", () => ({
   apiFetch: vi.fn(),
-  useApi: () => ({ data: { rows: [], truncated: false, total: 0, missing: 0 } }),
+  useApi: () => ({
+    data: { rows: [], truncated: false, total: 0, missing: 0 },
+  }),
+}));
+
+vi.mock("../../lib/auth", () => ({
+  usePermissions: () => ({ can: () => false }),
 }));
 
 import { LocationCoverage } from "./location-coverage";
@@ -23,7 +29,13 @@ describe("WEB-165 Locations empty search", () => {
     const { LocationCoverageView } = await import("./location-coverage");
     const html = renderToStaticMarkup(
       createElement(LocationCoverageView, {
-        data: { rows: [], truncated: false, total: 0, located: 0, missing: 0 } as never,
+        data: {
+          rows: [],
+          truncated: false,
+          total: 0,
+          located: 0,
+          missing: 0,
+        } as never,
         missingOnly: false,
         onMissingOnly: () => {},
         term: "zzz",

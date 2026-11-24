@@ -90,6 +90,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     var history by remember { mutableStateOf<List<CensusRules.Saved>>(emptyList()) }
     var message by remember { mutableStateOf("Loading customer setup…") }
     var busy by remember { mutableStateOf(false) }
+    var locationJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var savingDraft by remember { mutableStateOf(false) }
     // Edit store: the same form, filled from the store; the office checks the changes before they replace the record.
     // E2E-010: keyed by the store, so the form fills from the customer even when the record arrives after the
@@ -266,8 +267,10 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         // E2E-010: on Edit the searched pin and the agent's own fix are kept side by side (both are sent).
         if (!edit || picked == null) { mode = "gps"; picked = null }
         predictions = emptyList()
-        scope.launch {
-            busy = true; locationNote = "Getting your location…"
+        locationJob?.cancel()
+        locationJob = scope.launch {
+            if (edit) busy = true
+            locationNote = StoreLocationTag.TIP
             try {
                 val got = if (edit) location.fixWithinAccuracy(50.0) else try { location.customerFix() }
                     catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
@@ -297,7 +300,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                     CensusPlaces.Result.Offline -> { reverse = null; locationNote = "Saved with your location; the address can be fixed later. Type the address." }
                     else -> { reverse = null; locationNote = "Type the address. Your location is saved." }
                 }
-            } finally { busy = false }
+            } finally { if (edit) busy = false }
         }
     }
     fun pick(p: CensusPlaces.Prediction) {
@@ -318,6 +321,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         }
     }
     fun reset(keepLocation: Boolean = true) {
+        locationJob?.cancel(); locationJob = null
         name = ""; address = ""; owner = ""; phone = ""; fix = null; jpeg = null; landmark = ""; mode = ""; picked = null
         reverse = null; autoAddress = null; query = ""; predictions = emptyList(); locationNote = null; searchNote = null
         duplicates = emptyList(); pending = null; attempted = false; saveNote = null; staleRetry = false; moved = null
@@ -392,6 +396,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                     }
                 }
                 onQueued?.invoke()
+                if (!CensusRules.isChange(p)) runCatching { backendNow.tagStoreLocation(captureId = p.getString("captureId"), initial = p.optJSONObject("location")) }
                 history = runCatching { withContext(Dispatchers.IO) { backendNow.censusSaved() } }.getOrDefault(history)
                 if (CensusRules.isChange(p)) {
                     message = "Change saved on phone. The office checks it first."
@@ -411,6 +416,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         val place = picked?.takeIf { mode == "places" }?.let {
             CensusRules.Place(it.placeId ?: "", it.latitude ?: Double.NaN, it.longitude ?: Double.NaN, it.formattedAddress, it.components.json())
         }
+        if (!edit) fix = CustomerLocation.best(fix, location.cachedCustomerFix(), System.currentTimeMillis())
         if (!edit) return CustomerCapture.payload(CensusRules.captureId(), form, geography, System.currentTimeMillis(),
             fix, jpeg?.let { Base64.getEncoder().encodeToString(it) }, acknowledged)
         if (edit) return CensusRules.changePayload(CensusRules.captureId(), editing!!.outletId, name,
@@ -631,6 +637,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                         Column(Modifier.fillMaxWidth().testTag("census-saved")) {
                             Text("${saved.name} · ${CensusRules.savedLabel(saved)}", style = MaterialTheme.typography.bodyMedium)
                             saved.owner?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant) }
+                            if (saved.locationMissing && saved.captureId != null && saved.decision?.accepted != false) TagStoreLocation(backend, captureId = saved.captureId)
                         }
                     }
                 }
