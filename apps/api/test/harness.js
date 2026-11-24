@@ -39,6 +39,15 @@ export async function dropTestDatabase(admin, name) {
   }
 }
 
+/** Clone only this lane's prepared database; never alter shared templates or role privileges.
+ * @param {string} lane @param {string|undefined} template */
+export function testDatabaseTemplate(lane, template) {
+  if (!template) return "";
+  if (!/^[a-z0-9_]+$/.test(lane) || template !== `sunpride_lane_${lane}`)
+    throw new Error("Test template must be this lane's database");
+  return ` template ${template}`;
+}
+
 /**
  * Throwaway database + migrated schema + API on a random free port.
  * @param {{ env?: Record<string,string|undefined>, installers?: any[], listen?: boolean, poolMax?: number, schedule?: boolean, port?: number }} [opts]
@@ -47,11 +56,14 @@ export async function startHarness(opts = {}) {
   resetHooks();
   clearSyncRegistry();
   clearJobHandlers();
+  const template = testDatabaseTemplate(LANE, process.env.SP_TEST_TEMPLATE_DB);
   const base = await laneUrl();
   const name = `sunpride_lane_${LANE}_t${crypto.randomUUID().replaceAll("-", "").slice(0, 12)}`;
-  const admin = createDb(base, { max: 1 });
-  await admin.unsafe(`create database ${name}`);
   const u = new URL(base);
+  // Connect the template-copy command elsewhere so our own connection cannot block cloning.
+  if (template) u.pathname = "/postgres";
+  const admin = createDb(u.toString(), { max: 1 });
+  await admin.unsafe(`create database ${name}${template}`);
   u.pathname = `/${name}`;
   const dbUrl = u.toString();
   const db = createDb(dbUrl, { max: opts.poolMax ?? 10 });

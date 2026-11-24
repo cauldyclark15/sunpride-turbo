@@ -83,11 +83,15 @@ class CensusStoreTest {
         // Simulate failure updating the draft record AFTER enqueue: the intent/outbox must roll back too.
         assertThrows(IllegalArgumentException::class.java) { runBlocking { target.enqueueCustomerCapture(intent, "", 1002) } }
         assertTrue(target.pending().isEmpty())
+        assertNull(target.localCache(StoreLocationTag.ENTITY, "session"))
         assertEquals(original, target.localCache("local.customerdraft", "draft")!!.json)
         val remaining = book.open(book.saved.first().id).clear().json()
         target.enqueueCustomerCapture(intent, remaining, 1003)
         db.close(); db = EncryptedFieldDatabase.open(context)
         assertEquals(intent.serializedOperation, store().pending().single().first.serializedOperation)
+        val session = JSONObject(store().localCache(StoreLocationTag.ENTITY, "session")!!.json!!)
+        assertEquals(JSONObject(intent.serializedOperation).getJSONObject("payload").getString("captureId"), session.getString("captureId"))
+        assertTrue(StoreLocationTag.active(session, 1004))
         assertEquals(listOf(book.saved.last().id), CustomerDrafts.parse(store().localCache("local.customerdraft", "draft")!!.json).saved.map { it.id })
         Unit
     }

@@ -1,6 +1,27 @@
 import { expect, test } from "bun:test";
 import { createDb } from "@sunpride/db/client";
-import { dropTestDatabase, startHarness } from "./harness.js";
+import {
+  dropTestDatabase,
+  startHarness,
+  testDatabaseTemplate,
+} from "./harness.js";
+
+test("SP-0251 extension template is opt-in and limited to the exact lane", () => {
+  expect(testDatabaseTemplate("sp251", undefined)).toBe("");
+  expect(testDatabaseTemplate("sp251", "sunpride_lane_sp251")).toBe(
+    " template sunpride_lane_sp251",
+  );
+  for (const template of [
+    "template1",
+    "sunpride",
+    "sunpride_lane_sp249",
+    "sunpride_lane_sp251; select 1",
+  ])
+    expect(() => testDatabaseTemplate("sp251", template)).toThrow("this lane");
+  expect(() => testDatabaseTemplate("sp251;", "sunpride_lane_sp251;")).toThrow(
+    "this lane",
+  );
+});
 
 const database = "sunpride_lane_core_t0123456789ab";
 const signalDenied = () =>

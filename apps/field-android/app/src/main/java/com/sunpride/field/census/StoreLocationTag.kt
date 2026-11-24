@@ -13,6 +13,13 @@ object StoreLocationTag {
     const val WINDOW = 15 * 60_000L
     const val TIP = "Go outside or near the door; GPS works without signal but needs a clear sky."
     const val MISSING = "Location not tagged yet"
+    /** Built from the queued bytes in the same transaction as Save, not from a later screen callback. */
+    fun forCapture(intent: IntentRow, now: Long): JSONObject? {
+        require(intent.kind == CensusRules.KIND)
+        val payload = JSONObject(intent.serializedOperation).getJSONObject("payload")
+        if (CensusRules.isChange(payload)) return null
+        return start(payload.getString("captureId"), null, payload.optJSONObject("location"), now)
+    }
     fun start(captureId: String?, outletId: String?, initial: JSONObject?, now: Long): JSONObject {
         require((captureId == null) != (outletId == null))
         val s = JSONObject().put("startedAt", now).put("captureId", captureId).put("outletId", outletId)

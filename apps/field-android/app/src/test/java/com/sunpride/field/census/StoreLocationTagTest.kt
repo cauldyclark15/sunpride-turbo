@@ -10,6 +10,26 @@ class StoreLocationTagTest {
     private fun fix(accuracy: Double = 70.0, lat: Double = 10.0, time: Long = at) = JSONObject()
         .put("latitude", lat).put("longitude", 123.0).put("accuracyMeters", accuracy)
         .put("fixTime", time).put("mockSignal", false).put("provider", "gps")
+    @Test fun saveSessionComesFromQueuedBytesWithoutWaitingForAnotherReading() {
+        val capture = "00000000-0000-4000-8000-000000000001"
+        val scope = StoreScope("person", "phone", "scope")
+        fun queued(location: JSONObject?, change: Boolean = false): com.sunpride.field.storage.IntentRow {
+            val payload = JSONObject().put("captureId", capture).put("location", location)
+            if (change) payload.put("kind", CensusRules.CHANGE)
+            val wire = JSONObject().put("payload", payload).toString()
+            return com.sunpride.field.storage.IntentRow(scope.account, scope.deviceId, scope.fingerprint,
+                capture, capture, CensusRules.KIND, wire, at)
+        }
+        val noFix = queued(null)
+        val bytes = noFix.serializedOperation
+        val restored = JSONObject(StoreLocationTag.forCapture(noFix, at)!!.toString())
+        assertEquals(capture, restored.getString("captureId"))
+        assertTrue(StoreLocationTag.active(restored, at + 1))
+        assertNull(restored.optJSONObject("best"))
+        assertEquals(bytes, noFix.serializedOperation)
+        assertEquals(70.0, StoreLocationTag.forCapture(queued(fix()), at)!!.getJSONObject("best").getDouble("accuracyMeters"), 0.0)
+        assertNull(StoreLocationTag.forCapture(queued(fix(), change = true), at))
+    }
     @Test fun missingReadingIsNotARequiredSaveFieldAndSessionSurvivesSerialization() {
         val s = StoreLocationTag.start("00000000-0000-4000-8000-000000000001", null, null, at)
         assertNull(s.optJSONObject("best"))

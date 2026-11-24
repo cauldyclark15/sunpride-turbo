@@ -513,10 +513,13 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     }
     override suspend fun enqueue(intent: IntentRow, now: Long) = enqueueWithCheckpoint(intent, now) {}
 
-    /** SP-0244: a crash can never leave a submitted customer still listed as an unfinished draft. */
+    /** Save, draft removal and the resumable GPS attempt commit together, even if the screen closes. */
     suspend fun enqueueCustomerCapture(intent: IntentRow, remainingDrafts: String?, now: Long) {
         db.withTransaction {
             enqueue(intent, now)
+            com.sunpride.field.census.StoreLocationTag.forCapture(intent, now)?.let { session ->
+                putLocalCache(com.sunpride.field.census.StoreLocationTag.ENTITY, "session", session.toString(), now, "session")
+            }
             if (remainingDrafts == null) blockLocalCache("local.customerdraft", "draft", "completed", now)
             else putLocalCache("local.customerdraft", "draft", remainingDrafts, now, "draft")
             check(localCache("local.customerdraft", "draft")?.takeUnless { it.tombstone }?.json == remainingDrafts)

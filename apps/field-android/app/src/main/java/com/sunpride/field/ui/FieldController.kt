@@ -691,6 +691,7 @@ class LiveFieldBackend(
             store.enqueueCustomerCapture(com.sunpride.field.census.CensusRules.intent(partition, payload, at), remainingDrafts, at)
             check(epoch == authorizationEpoch && storedScope() == partition) { "Session changed" }
         } }
+        com.sunpride.field.census.StoreLocationService.start(context)
         runCatching { com.sunpride.field.sync.work.SyncWork.enqueue(context) }
     }
     override fun photoTypes(): List<com.sunpride.field.storage.PhotoType> {

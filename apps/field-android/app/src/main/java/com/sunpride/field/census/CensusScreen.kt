@@ -396,7 +396,6 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                     }
                 }
                 onQueued?.invoke()
-                if (!CensusRules.isChange(p)) runCatching { backendNow.tagStoreLocation(captureId = p.getString("captureId"), initial = p.optJSONObject("location")) }
                 history = runCatching { withContext(Dispatchers.IO) { backendNow.censusSaved() } }.getOrDefault(history)
                 if (CensusRules.isChange(p)) {
                     message = "Change saved on phone. The office checks it first."
