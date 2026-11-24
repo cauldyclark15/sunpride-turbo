@@ -15,7 +15,7 @@ if [[ ! -f "$SIGNING" ]]; then
   printf 'No van beta signing key (%s). Create it once with:\n  bash apps/van-sales-android/scripts/create-beta-keystore.sh\n' "$SIGNING" >&2
   exit 1
 fi
-if [[ "$(stat -f '%Lp' "$SIGNING" 2>/dev/null || stat -c '%a' "$SIGNING")" != "600" ]]; then
+if [[ "$(stat -c '%a' "$SIGNING" 2>/dev/null || stat -f '%Lp' "$SIGNING")" != "600" ]]; then
   printf 'Refusing to use %s: it must be chmod 600.\n' "$SIGNING" >&2
   exit 1
 fi
