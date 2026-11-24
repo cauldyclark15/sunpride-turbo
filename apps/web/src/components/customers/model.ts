@@ -13,6 +13,7 @@ import {
   SHIP_TO_FIELDS,
   applicability,
   formatAddress,
+  suggestPostalCode,
   optionLabel,
   referenceIndex,
   validateCustomer,
@@ -34,7 +35,12 @@ export type RefOption = {
   active?: boolean;
 };
 
-export type GeoOption = { code: string; name: string; label?: string };
+export type GeoOption = {
+  code: string;
+  name: string;
+  label?: string;
+  area?: string | null;
+};
 
 export type ShipTo = {
   id?: string;
@@ -160,6 +166,7 @@ export const DEPENDENTS: Record<string, string[]> = {
   ],
   provinceCode: ["municipalityCode", "barangayCode", "postalCode"],
   municipalityCode: ["barangayCode", "postalCode"],
+  barangayCode: ["postalCode"],
 };
 
 export const ADP_KEYS = CUSTOMER_FIELDS.filter((f) => f.adp).map((f) => f.key);
@@ -315,6 +322,16 @@ export function setField(
     next.values.customerAddress = generatedAddress(next);
   }
   return next;
+}
+
+/** Apply only after a new barangay selection (never on reopen or after manual edits/clearing). */
+export function withSuggestedPostal(d: Draft, options: GeoOption[]): Draft {
+  if (!d.values.barangayCode) return d;
+  return setField(
+    d,
+    "postalCode",
+    suggestPostalCode(options, d.names.barangayCode) ?? "",
+  );
 }
 
 /** Ship-to list operations. The list always keeps at least one entry. */

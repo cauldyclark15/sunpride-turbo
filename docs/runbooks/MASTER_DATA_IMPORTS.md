@@ -120,7 +120,7 @@ field order, labels, required flags, remarks, tab names and list contents).
 | --- | --- |
 | Customer Code* | Up to 40 letters, numbers, `-`, `_`; stored upper-case; unique in the file. An existing code **updates** that customer (preview shows *New* / *Update*). |
 | Dropdown columns | `Description (Code)`, the code alone or the description alone; case/accents ignored; numbers that lost leading zeros in Excel still match (`3` → `0003`). Dependent lists checked against the Sales Organization / channel / Grp 1. |
-| Region, Province, Municipality, Barangay | PSGC name (case/accent-insensitive; `City of Cebu` = `Cebu City`; `Region VII (Central Visayas)` = `Central Visayas`) or the 10-digit PSGC code. Postal Code must be one of the municipality's ZIP codes. |
+| Region, Province, Municipality, Barangay | PSGC name (case/accent-insensitive; `City of Cebu` = `Cebu City`; `Region VII (Central Visayas)` = `Central Visayas`) or the 10-digit PSGC code. Postal Code is optional; blank is accepted, and any 4-digit ZIP may be entered even when absent from the town list (SP-0246). |
 | Geographical Coordinates | `latitude, longitude`; saved as a **pending** pin (two-person verification). |
 | Mobile No. (both) | `09…` / `+639…` (an Excel number `9171234567` is read as `09171234567`). |
 | Everything else | The `@sunpride/customer-master` rules at the `complete` level: Grp 1/Grp 2 only when the chain has them, ADP block only for channel 40, TIN, email, credit limit. |
@@ -175,7 +175,7 @@ File: `header_mismatch`, `empty_file`, `too_many_rows`, `unreadable_file`. Row: 
 customer-master codes (`required`, `invalid_option`, `not_for_sales_org`, `not_for_channel`,
 `not_for_group1`, `not_applicable`, `choose_parent_first`, `invalid_tin`, `invalid_mobile`,
 `invalid_email`, `invalid_coordinates`, `invalid_credit_limit`, `geography_mismatch`,
-`postal_code_mismatch`, `too_long`) plus `invalid_code`, `duplicate_in_file`, `ambiguous_option`,
+`too_long`) plus `invalid_code`, `duplicate_in_file`, `ambiguous_option`,
 `customer_out_of_scope`, `customer_inactive`, `conflict`, `write_failed`, `forbidden`, and
 `not_processed` in the report for rows an interrupted run never reached.
 

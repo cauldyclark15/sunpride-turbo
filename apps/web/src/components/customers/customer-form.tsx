@@ -21,6 +21,7 @@ import {
   resolvedShipTo,
   sectionFields,
   setField,
+  withSuggestedPostal,
   setShipTo,
   type Draft,
   type FieldErrors,
@@ -162,8 +163,14 @@ export function CustomerForm({
 }: CustomerFormProps) {
   const a = applies(index, draft);
   const marks = requiredMarks(index, draft);
-  const set = (key: string, value: string, name?: string) =>
-    onChange(setField(draft, key, value, name));
+  const set = (key: string, value: string, name?: string) => {
+    const next = setField(draft, key, value, name);
+    onChange(
+      key === "barangayCode" && value !== draft.values.barangayCode
+        ? withSuggestedPostal(next, geo.postalCodes)
+        : next,
+    );
+  };
 
   function control(f: FieldSpec) {
     const id = fieldId(f.key);
@@ -215,6 +222,34 @@ export function CustomerForm({
           placeholder={placeholder}
           onChange={(code) => set(f.key, code)}
         />
+      );
+    }
+    if (f.key === "postalCode") {
+      return (
+        <>
+          <input
+            id={id}
+            type="text"
+            inputMode="numeric"
+            maxLength={4}
+            list={`${id}-options`}
+            autoComplete="postal-code"
+            placeholder="Optional · search or type 4 digits"
+            className={`${inputClass} ${invalid ? "border-[#b4101f]" : "border-border"}`}
+            value={value}
+            disabled={readOnly}
+            aria-invalid={invalid || undefined}
+            aria-describedby={invalid ? `${id}-error` : undefined}
+            onChange={(e) => set(f.key, e.target.value)}
+          />
+          <datalist id={`${id}-options`}>
+            {geo.postalCodes.map((o) => (
+              <option key={o.code} value={o.code}>
+                {o.name || o.code}
+              </option>
+            ))}
+          </datalist>
+        </>
       );
     }
     if (f.kind === "geo") {

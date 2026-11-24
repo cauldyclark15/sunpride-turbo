@@ -172,7 +172,7 @@ export const FIELDS = [
     key: "postalCode",
     label: "Postal Code",
     section: L,
-    required: true,
+    required: false,
     kind: "geo",
   },
   {

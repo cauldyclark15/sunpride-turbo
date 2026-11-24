@@ -283,6 +283,7 @@ export function installCustomers(router, platform) {
     ).map((/** @type {any} */ r) => ({
       code: r.postal_code,
       name: r.area ? `${r.postal_code} ${r.area}` : r.postal_code,
+      area: r.area ?? null,
       source: r.source,
     })),
   );
@@ -295,13 +296,14 @@ export function installCustomers(router, platform) {
       await ctx.db`select release from ph_geography_releases order by created_at desc limit 1`;
     return {
       release: release?.release ?? null,
+      postalAreasVersion: 1,
       regions: await ctx.db`select code,name from ph_regions order by code`,
       provinces:
         await ctx.db`select code,name,region_code as "regionCode" from ph_provinces order by name`,
       municipalities:
         await ctx.db`select code,name,province_code as "provinceCode" from ph_municipalities order by name`,
       postalCodes:
-        await ctx.db`select municipality_code as "municipalityCode",postal_code as code from ph_postal_codes order by municipality_code,postal_code`,
+        await ctx.db`select municipality_code as "municipalityCode",postal_code as code,area from ph_postal_codes order by municipality_code,postal_code`,
     };
   });
   router.get(

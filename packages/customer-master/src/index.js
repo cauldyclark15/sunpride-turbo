@@ -4,3 +4,4 @@ export * from "./fields.js";
 export * from "./validate.js";
 export * from "./visit-frequency.js";
 export * from "./enrollment.js";
+export * from "./postal.js";

@@ -84,6 +84,13 @@ class CustomerMasterParityTest {
         }
     }
 
+    @Test fun postalSuggestionsAnswerLikeJs() {
+        for (c in objects(fixture.getJSONArray("postalSuggestions"))) {
+            val options = objects(c.getJSONArray("options")).map { CustomerCapture.PostalOption(it.getString("code"), str(it, "area")) }
+            assertEquals(c.toString(), str(c, "expected"), CustomerCapture.suggestPostalCode(options, str(c, "barangay")))
+        }
+    }
+
     @Test fun conditionalChainAnswersLikeJs() {
         for (c in objects(fixture.getJSONArray("chains"))) {
             val i = c.getJSONObject("input"); val e = c.getJSONObject("expected")

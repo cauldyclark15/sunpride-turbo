@@ -376,7 +376,7 @@ export function validateCustomer(input, ctx) {
       field("customerGroup1Code"),
     );
 
-  // Geography (rule 9): every level must belong to its parent; postal code to the municipality.
+  // Geography: every PSGC level must belong to its parent. Postal lists are suggestions only.
   const geo = ctx.geography ?? null;
   const gf = {
     region: field("regionCode"),
@@ -452,32 +452,10 @@ export function validateCustomer(input, ctx) {
           "Barangay is not in the chosen Municipality.",
         );
     }
-    if (value.postalCode) {
-      if (!/^\d{4}$/.test(value.postalCode))
-        fail(
-          "invalid_option",
-          gf.postal,
-          `Postal Code "${value.postalCode}" is not in the list.`,
-        );
-      else if (!value.municipalityCode)
-        fail(
-          "choose_parent_first",
-          gf.postal,
-          "Choose Municipality before Postal Code.",
-        );
-      else if (!(geo.postalCodes ?? []).includes(value.postalCode))
-        fail(
-          "postal_code_mismatch",
-          gf.postal,
-          `Postal Code ${value.postalCode} does not belong to the chosen Municipality.`,
-        );
-    }
-  } else if (value.postalCode && !/^\d{4}$/.test(value.postalCode))
-    fail(
-      "invalid_option",
-      gf.postal,
-      `Postal Code "${value.postalCode}" is not in the list.`,
-    );
+  }
+  // SP-0246: an incomplete town list must never prevent a save or a manual ZIP.
+  if (value.postalCode && !/^[0-9]{4}$/.test(value.postalCode))
+    fail("invalid_option", gf.postal, "Postal Code must be 4 digits.");
 
   // Geographical Coordinates (system-suggested; required for complete).
   const cf = field("coordinates");

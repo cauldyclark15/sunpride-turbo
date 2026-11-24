@@ -130,6 +130,44 @@ class CustomerCaptureTest {
         assertEquals("Apas", g.resolve(f).barangay?.name)
     }
 
+    @Test fun barangayAutofillUsesAreaMetadataAndNeverGuessesAmongUnknownAreas() {
+        val packWithAreas = JSONObject(pack.toString())
+        packWithAreas.getJSONArray("postalCodes").getJSONObject(1).put("area", "Alang-alang")
+        val g = CustomerCapture.Geography.parse(packWithAreas).withBarangays("0702200000", CustomerCapture.Geography.barangays(cebuBarangays))
+        val selected = complete().withMunicipality("0731100000", g).withBarangay("0731100001", g)
+        assertEquals("6014", selected.postalCode)
+        assertEquals("6014 Alang-alang", g.postalOptionsOf("0731100000").first().label)
+        assertEquals("", selected.withBarangay("unknown", g).postalCode)
+        assertEquals("6000", complete().copy(barangayCode = "", postalCode = "").withBarangay("0730600003", g).postalCode)
+        val manual = selected.copy(postalCode = "9999")
+        assertSame(manual, manual.withBarangay(manual.barangayCode, g))
+        assertEquals("9999", CustomerCapture.parseDraft(CustomerCapture.draftJson(CustomerCapture.Draft(manual, fix, null)))!!.form.postalCode)
+        assertEquals("", selected.withBarangay("", g).postalCode)
+    }
+
+    @Test fun postalCanBeBlankOrManualThroughSaveDraftAndOutbox() {
+        assertEquals("Postal Code", CustomerCapture.formLabel("postalCode"))
+        for (postal in listOf("", " \t ", "9999", "0123")) {
+            val f = complete().copy(postalCode = postal)
+            assertTrue(CustomerCapture.missing(f, setup, geography, true, true).isEmpty())
+            assertTrue(CustomerCapture.draftErrors(f, setup, geography, 10.33, 123.9).isEmpty())
+            val restored = CustomerCapture.parseDraft(CustomerCapture.draftJson(CustomerCapture.Draft(f, fix, null)))!!.form
+            val p = CustomerCapture.payload(UUID.randomUUID().toString(), restored, geography, 5000L, fix, jpeg)
+            CensusRules.validate(p)
+            assertEquals(postal.trim(), p.getJSONObject("customer").optString("postalCode"))
+        }
+        val p = CustomerCapture.payload(UUID.randomUUID().toString(), complete(), geography, 5000L, fix, jpeg)
+        for (blank in listOf(null, JSONObject.NULL, "", " \t ")) {
+            val c = JSONObject(p.toString())
+            if (blank == null) c.getJSONObject("customer").remove("postalCode") else c.getJSONObject("customer").put("postalCode", blank)
+            CensusRules.validate(c)
+        }
+        for (invalid in listOf("123", "12345", "6a00", "１２３４")) {
+            val c = JSONObject(p.toString()).also { it.getJSONObject("customer").put("postalCode", invalid) }
+            assertTrue(invalid, runCatching { CensusRules.validate(c) }.isFailure)
+        }
+    }
+
     @Test fun channelChainIsDependentAndClearsGroups() {
         val f = complete()
         assertTrue(CustomerCapture.channels(setup, f).any { it.label == "Route Sales (41)" })
@@ -155,10 +193,10 @@ class CustomerCaptureTest {
         assertEquals(emptyList<String>(), missing(food.withGroup1(g1)))
         // SP-0184: missing offline geography must not submit an incomplete profile for an Admin.
         val bohol = complete().withProvince("0704600000").withMunicipality("0701200000", geography)
-        assertEquals(listOf("barangayCode", "postalCode"), missing(bohol))
+        assertEquals(listOf("barangayCode"), missing(bohol))
         assertEquals(listOf("barangayCode"), missing(complete().copy(barangayCode = "")))
         val blank = CustomerCapture.missing(CustomerCapture.Form(), setup, geography, hasFix = false, hasPhoto = false)
-        assertEquals(listOf("registeredName", "customerName", "mobileNo", "taxClassificationCode", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "street1", "postalCode",
+        assertEquals(listOf("registeredName", "customerName", "mobileNo", "taxClassificationCode", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "street1",
             "salesOrgCode", "salesOfficeCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code", "customerGroupCode", "typeOfBusiness",
             "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode", "contactPerson", "photo"), blank.map { it.key })
         assertEquals("Registered Name is required.", blank.first().message)
@@ -171,7 +209,7 @@ class CustomerCaptureTest {
         assertEquals(listOf("email", "mobileNo", "tin"), CustomerCapture.draftErrors(bad, setup, geography, 10.33, 123.9).map { it.field })
         assertEquals("Mobile No. must be a Philippine mobile number: 09XXXXXXXXX or +639XXXXXXXXX.",
             CustomerCapture.draftErrors(bad, setup, geography, 10.33, 123.9).first { it.field == "mobileNo" }.message)
-        assertEquals(listOf("postal_code_mismatch"), CustomerCapture.draftErrors(complete().copy(postalCode = "6014"), setup, geography, 10.33, 123.9).map { it.code })
+        assertTrue(CustomerCapture.draftErrors(complete().copy(postalCode = "6014"), setup, geography, 10.33, 123.9).isEmpty())
     }
 
     @Test fun payloadCarriesTheCustomerObjectAndPassesTheOutboxCheck() {
@@ -267,7 +305,7 @@ class CustomerCaptureTest {
 
     @Test fun everyRequiredAgentFieldBlocksSaveIncludingWhitespaceAndMissingOfflineLists() {
         val required = listOf("registeredName", "customerName", "mobileNo", "regionCode", "provinceCode", "municipalityCode",
-            "barangayCode", "street1", "postalCode", "salesOrgCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code",
+            "barangayCode", "street1", "salesOrgCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code",
             "customerGroupCode", "typeOfBusiness", "contactPerson")
         for (key in required) for (blank in listOf("", " \t ")) {
             val draft = JSONObject(CustomerCapture.draftJson(CustomerCapture.Draft(complete(), fix, null)))
@@ -286,7 +324,7 @@ class CustomerCaptureTest {
     @Test fun outboxCannotQueueAnIncompleteCustomerEvenWithoutTheScreenCheck() {
         val ok = CustomerCapture.payload(UUID.randomUUID().toString(), complete(), geography, 5000L, fix, jpeg)
         for (key in listOf("registeredName", "customerName", "mobileNo", "regionCode", "provinceCode",
-            "municipalityCode", "barangayCode", "street1", "postalCode", "salesOrgCode", "distributionChannelCode", "customerGroupCode", "typeOfBusiness", "countryCode", "taxClassificationCode",
+            "municipalityCode", "barangayCode", "street1", "salesOrgCode", "distributionChannelCode", "customerGroupCode", "typeOfBusiness", "countryCode", "taxClassificationCode",
             "salesOfficeCode", "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode")) {
             for (blank in listOf(null, JSONObject.NULL, "", " \t ")) {
                 val p = JSONObject(ok.toString())

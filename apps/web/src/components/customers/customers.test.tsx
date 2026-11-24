@@ -32,6 +32,7 @@ import {
   removeShipTo,
   requiredMarks,
   setField,
+  withSuggestedPostal,
   setShipTo,
   toPayload,
   type Customer,
@@ -226,6 +227,52 @@ describe("Customers label (customer = store)", () => {
     // Filters: Sales Office narrowed to the chosen Sales Organization.
     expect(html).toContain("SFI Cebu (100)");
     expect(html).not.toContain("ARI Cebu (200)");
+  });
+});
+
+describe("SP-0246 optional postal suggestions", () => {
+  it("saves complete customers without a ZIP and accepts an unlisted four-digit ZIP", () => {
+    for (const postal of ["", " \t ", "9999", "0123"]) {
+      const d = setField(completeDraft(), "postalCode", postal);
+      expect(checkDraft(index, d, "complete")).toEqual({});
+      expect(toPayload(d).postalCode).toBe(postal.trim() || null);
+      expect(requiredMarks(index, d).postalCode).toBe(false);
+    }
+  });
+  it("uses the only town ZIP, or a known area, and clears the previous barrio's ZIP", () => {
+    const d = setField(
+      completeDraft(),
+      "barangayCode",
+      "new-barrio",
+      "New Barrio",
+    );
+    expect(d.values.postalCode).toBe("");
+    expect(withSuggestedPostal(d, GEO.postalCodes).values.postalCode).toBe(
+      "6000",
+    );
+    const areas = [
+      { code: "1001", name: "1001 New Barrio", area: "New Barrio" },
+      { code: "1002", name: "1002 Other", area: "Other" },
+    ];
+    const filled = withSuggestedPostal(d, areas);
+    expect(filled.values.postalCode).toBe("1001");
+    expect(filled.values.customerAddress).toContain("Cebu 1001");
+    const other = setField(filled, "barangayCode", "unknown", "Unknown");
+    expect(withSuggestedPostal(other, areas).values.postalCode).toBe("");
+    expect(withSuggestedPostal(d, []).values.postalCode).toBe("");
+  });
+  it("renders a searchable free-entry ZIP, including when the town list is empty", () => {
+    const html = form(setField(completeDraft(), "postalCode", "9999"));
+    expect(html).toMatch(
+      /<input[^>]*id="cm-postalCode"[^>]*list="cm-postalCode-options"[^>]*value="9999"/,
+    );
+    expect(html).toContain('<datalist id="cm-postalCode-options">');
+    expect(html).toContain('value="6000"');
+    const empty = form(emptyDraft(), { geo: { ...GEO, postalCodes: [] } });
+    const control =
+      empty.match(/<input[^>]*id="cm-postalCode"[^>]*>/)?.[0] ?? "";
+    expect(control).not.toMatch(/\sdisabled(?:=""|(?=[ >]))/);
+    expect(control).not.toMatch(/\srequired(?:=""|(?=[ >]))/);
   });
 });
 
@@ -673,9 +720,15 @@ describe("approval errors land next to the field", () => {
         onReject={() => undefined}
       />,
     );
-    expect(own).not.toMatch(/<button type="button"[^>]*disabled=""[^>]*>Approve</);
-    expect(own).not.toMatch(/<button type="button"[^>]*disabled=""[^>]*>Reject</);
-    expect(own).not.toContain("Another approver must decide your own proposal.");
+    expect(own).not.toMatch(
+      /<button type="button"[^>]*disabled=""[^>]*>Approve</,
+    );
+    expect(own).not.toMatch(
+      /<button type="button"[^>]*disabled=""[^>]*>Reject</,
+    );
+    expect(own).not.toContain(
+      "Another approver must decide your own proposal.",
+    );
     const other = renderToStaticMarkup(
       <CustomerEditorView
         customer={{ ...field, proposedByProfileId: "someone" } as Customer}

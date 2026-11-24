@@ -203,6 +203,56 @@ describe("SP-0170 customer upload — validation", () => {
     expect(r.body.newCount).toBe(2);
   });
 
+  test("SP-0246 blank and unlisted ZIPs preview, upload and reopen even with no town list", async () => {
+    const [town] =
+      await h.db`select m.code,m.region_code,m.province_code,b.code as barangay_code from ph_municipalities m join ph_barangays b on b.municipality_code=m.code where m.name='Laua-An' order by b.code limit 1`;
+    // The postal repair may already populate this town; explicitly exercise an empty list.
+    await h.db`delete from ph_postal_codes where municipality_code=${town.code}`;
+    const rows = ["", " \t ", "9999", "0123"].map((postalCode, i) =>
+      row(i + 2, {
+        code: `SP246-ZIP-${i}`,
+        customerName: `SP246 Sample ${i}`,
+        regionCode: town.region_code,
+        provinceCode: town.province_code,
+        municipalityCode: town.code,
+        barangayCode: town.barangay_code,
+        postalCode,
+      }),
+    );
+    const preview = await call("boss", "/preview", file(rows));
+    expect(preview.status).toBe(200);
+    expect(preview.body.errors).toEqual([]);
+    expect(preview.body.validCount).toBe(4);
+    const imported = await call(
+      "boss",
+      "/runs",
+      file(rows, "SP246-postal.xlsx"),
+    );
+    expect(imported.status).toBe(200);
+    const done = await finish(imported.body.id);
+    expect(done.succeeded_count).toBe(4);
+    expect(done.failed_count).toBe(0);
+    for (const r of rows)
+      expect((await customerByCode(r.values.code))?.postalCode).toBe(
+        /** @type {Record<string,string>} */ (r.values).postalCode.trim() ||
+          null,
+      );
+    for (const postalCode of ["123", "12345", "6a00"]) {
+      const bad = await call(
+        "boss",
+        "/preview",
+        file([row(2, { postalCode })]),
+      );
+      expect(bad.body.errors).toContainEqual(
+        expect.objectContaining({
+          column: "postalCode",
+          code: "invalid_option",
+          message: "Postal Code must be 4 digits.",
+        }),
+      );
+    }
+  });
+
   test("conditional and dependent rules: row + client label + value + message", async () => {
     const r = await call(
       "boss",
@@ -266,7 +316,6 @@ describe("SP-0170 customer upload — validation", () => {
         "Mobile No.:invalid_mobile",
         "TIN number:invalid_tin",
         "Barangay:geography_mismatch",
-        "Postal Code:postal_code_mismatch",
         "Geographical Coordinates:invalid_coordinates",
         "Credit Limit:invalid_credit_limit",
       ]),

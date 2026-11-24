@@ -19,6 +19,7 @@ const state = vi.hoisted(() => ({
   view: null as ViewProps | null,
   inputs: new Map<string, Record<string, unknown>>(),
   mutate: vi.fn(),
+  postalOptions: [] as { code: string; name: string; area?: string }[],
 }));
 
 // Retain local state across explicit SSR renders and invoke the actual editor callbacks.
@@ -70,12 +71,16 @@ vi.mock("../../lib/api", () => ({
                 units: [{ id: "area", name: "Sample area" }],
                 defaultUnitId: "area",
               }
-            : { options: [] },
+            : key[2] === "postal-codes"
+              ? { options: state.postalOptions }
+              : key[2] === "barangays"
+                ? { options: [{ code: "0730600003", name: "Apas" }] }
+                : { options: [] },
   }),
 }));
 function capture(type: unknown, props: Record<string, unknown>) {
   if (type === CustomerEditorView) state.view = props as ViewProps;
-  if (type === "input" && typeof props.id === "string")
+  if ((type === "input" || type === "select") && typeof props.id === "string")
     state.inputs.set(props.id, props);
 }
 vi.mock("react/jsx-runtime", async (original) => {
@@ -184,6 +189,7 @@ beforeEach(() => {
   state.permissions = null;
   state.view = null;
   state.inputs.clear();
+  state.postalOptions = [];
   state.mutate.mockReset().mockResolvedValue(customer(complete()));
 });
 
@@ -199,6 +205,45 @@ it("SP-0243 the office sees Location not confirmed when a customer was saved wit
   expect(html).not.toContain("Pin verified");
   state.permissions = [];
   expect(render()).toContain("Location not confirmed");
+});
+
+it("SP-0246 choosing a barangay fills its ZIP; a manual entry or clearing survives save", async () => {
+  state.postalOptions = [
+    { code: "6000", name: "6000 Apas", area: "Apas" },
+    { code: "6001", name: "6001 Other", area: "Other" },
+  ];
+  render();
+  view().onChange(setField(complete(), "barangayCode", ""));
+  render();
+  // Enter through the actual Barangay select, not a synthetic filled draft.
+  (state.inputs.get("cm-barangayCode")!.onChange as (e: unknown) => void)({
+    target: { value: "0730600003" },
+  });
+  render();
+  expect(view().draft.values.postalCode).toBe("6000");
+  // A town with just one ZIP fills it even without an area label.
+  state.postalOptions = [{ code: "6000", name: "6000" }];
+  view().onChange(setField(view().draft, "barangayCode", ""));
+  render();
+  (state.inputs.get("cm-barangayCode")!.onChange as (e: unknown) => void)({
+    target: { value: "0730600003" },
+  });
+  render();
+  expect(view().draft.values.postalCode).toBe("6000");
+  const type = (value: string) =>
+    (state.inputs.get("cm-postalCode")!.onChange as (e: unknown) => void)({
+      target: { value },
+    });
+  type("9999");
+  render();
+  expect(view().draft.values.postalCode).toBe("9999");
+  await view().onSave?.();
+  expect(state.mutate.mock.calls.at(-1)?.[1].customer.postalCode).toBe("9999");
+  render();
+  type("");
+  render();
+  await view().onSave?.();
+  expect(state.mutate.mock.calls.at(-1)?.[1].customer.postalCode).toBeNull();
 });
 
 it("SP-0223 Sales Head can set required visits while the rest of the customer stays read-only", () => {

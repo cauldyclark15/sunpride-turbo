@@ -837,19 +837,23 @@ private fun AddressFields(geography: CustomerCapture.Geography?, form: CustomerC
             if (form.provinceCode.isEmpty()) "Choose Province first" else "Choose…")
         val barangays = g?.barangaysOf(form.municipalityCode)
         CmPicker("barangayCode", geoOptions(barangays.orEmpty().map { it.code to it.name }), form.barangayCode,
-            { onChange(form.copy(barangayCode = it)) }, marks, requester,
+            { onChange(form.withBarangay(it, g)) }, marks, requester,
             when { form.municipalityCode.isEmpty() -> "Choose Municipality first"; barangays == null -> "Not on this phone yet"; else -> "Choose…" })
         CmText("houseNo", form.houseNo, { onChange(form.copy(houseNo = it)) }, marks, requester, 60)
         CmText("street1", form.street1, { onChange(form.copy(street1 = it)) }, marks, requester, 200)
         CmText("street2", form.street2, { onChange(form.copy(street2 = it)) }, marks, requester, 200)
         CmText("floor", form.floor, { onChange(form.copy(floor = it)) }, marks, requester, 60)
         CmText("roomStallNo", form.roomStallNo, { onChange(form.copy(roomStallNo = it)) }, marks, requester, 60)
-        val postal = g?.postalCodesOf(form.municipalityCode).orEmpty()
-        if (postal.isNotEmpty() || form.municipalityCode.isEmpty())
-            CmPicker("postalCode", postal.map { CustomerCapture.Option(it, it) }, form.postalCode, { onChange(form.copy(postalCode = it)) },
-                marks, requester, if (form.municipalityCode.isEmpty()) "Choose Municipality first" else "Choose…")
-        else CmText("postalCode", form.postalCode, { onChange(form.copy(postalCode = it.filter(Char::isDigit))) }, marks, requester, 4,
-            androidx.compose.ui.text.input.KeyboardType.Number)
+        // The town list is a convenience, never the only way to enter a ZIP.
+        CmText("postalCode", form.postalCode, { onChange(form.copy(postalCode = it)) }, marks, requester, 4,
+            androidx.compose.ui.text.input.KeyboardType.Number, hint = "Optional · type 4 digits")
+        val postal = g?.postalOptionsOf(form.municipalityCode).orEmpty()
+        var postalSearch by remember { mutableStateOf(false) }
+        if (postal.isNotEmpty()) TextButton(onClick = { postalSearch = true }, modifier = Modifier.testTag("customer-postalCode-list")) {
+            Text("Search postal list")
+        }
+        if (postalSearch) SearchPickerDialog("Postal Code", postal.map { it.code to it.label },
+            { onChange(form.copy(postalCode = it)); postalSearch = false }, { postalSearch = false }, "customer-postalCode")
     }
 }
 

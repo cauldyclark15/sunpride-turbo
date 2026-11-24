@@ -35,6 +35,7 @@ import {
   fieldErrorsFrom,
   indexReference,
   setField,
+  withSuggestedPostal,
   toPayload,
   type Customer,
   type Draft,
@@ -218,6 +219,7 @@ function EditorBody({
   const [reason, setReason] = useState("");
   const [suggestNote, setSuggestNote] = useState("");
   const saveKey = useRef("");
+  const pendingPostal = useRef<string | null>(null);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
 
   const v = draft.values;
@@ -249,7 +251,31 @@ function EditorBody({
     postalCodes: postal.data?.options ?? [],
   };
 
+  // Postal options can arrive after the barangay was chosen. Complete that selection once,
+  // scoped to its town/barangay, without overwriting a later manual entry or a cleared ZIP.
+  useEffect(() => {
+    const selection = `${v.municipalityCode}/${v.barangayCode}`;
+    if (!postal.data || pendingPostal.current !== selection) return;
+    pendingPostal.current = null;
+    const options = postal.data.options;
+    setDraft((current) =>
+      current.values.postalCode
+        ? current
+        : withSuggestedPostal(current, options),
+    );
+  }, [postal.data, v.municipalityCode, v.barangayCode]);
+
   function change(next: Draft) {
+    if (
+      next.values.municipalityCode !== v.municipalityCode ||
+      next.values.barangayCode !== v.barangayCode
+    ) {
+      pendingPostal.current =
+        next.values.barangayCode && !postal.data
+          ? `${next.values.municipalityCode}/${next.values.barangayCode}`
+          : null;
+    } else if (next.values.postalCode !== v.postalCode)
+      pendingPostal.current = null;
     setHasUnsavedChanges(true);
     saveKey.current = "";
     setDraft(next);
@@ -416,6 +442,9 @@ function EditorBody({
       });
       return null;
     }
+    // Saving freezes this request, including an intentionally blank ZIP. A late list response
+    // must not change a saved form without marking it as an unsaved edit.
+    pendingPostal.current = null;
     const customerBody = toPayload(draft, applies(index, draft));
     if (!saveKey.current) saveKey.current = crypto.randomUUID();
     const units = setup?.units ?? [];

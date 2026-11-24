@@ -11,6 +11,7 @@ import {
   SECTIONS,
   applicability,
   formatAddress,
+  suggestPostalCode,
   optionLabel,
   referenceIndex,
   validateCustomer,
@@ -181,7 +182,12 @@ const CASES = [
     { ...cebu, municipality: null },
     "draft",
   ],
-  ["postal mismatch", { ...good, postalCode: "6014" }, cebu, "draft"],
+  [
+    "manual postal outside list",
+    { ...good, postalCode: "6014" },
+    cebu,
+    "draft",
+  ],
   ["postal not 4 digits", { ...good, postalCode: "60" }, cebu, "draft"],
   ["postal without geography", { ...good, postalCode: "6a00" }, null, "draft"],
   ["region missing for province", { ...good, regionCode: "" }, cebu, "draft"],
@@ -260,6 +266,17 @@ export async function buildParity() {
       "field",
     ],
     ["field complete for CDM review", fieldInput, cebu, "field"],
+    ...["field", "complete"].flatMap((level) =>
+      [undefined, null, "", " \t ", "9999", "0123"].map(
+        (postalCode) =>
+          /** @type {typeof CASES[number]} */ ([
+            `optional postal ${level} ${String(postalCode)}`,
+            { ...fieldInput, postalCode },
+            { ...cebu, postalCodes: [] },
+            level,
+          ]),
+      ),
+    ),
     ["field complete ADP", adpInput, cebu, "field"],
     ["field missing ship-to", { ...fieldInput, shipTos: [] }, cebu, "field"],
     ...["shipToParty", "shipToAddress", "contactPerson", "mobileNo"].map(
@@ -382,6 +399,45 @@ export async function buildParity() {
     cases,
     chains,
     addresses,
+    postalSuggestions: [
+      { options: [], barangay: "Apas" },
+      { options: [{ code: "6000" }], barangay: "Apas" },
+      {
+        options: [
+          { code: "1001", area: " Brgy. Santo Niño " },
+          { code: "1002", area: "Other" },
+        ],
+        barangay: "SANTO NINO",
+      },
+      {
+        options: [{ code: "1001", area: "Kaybiga/Deparo" }, { code: "1002" }],
+        barangay: "Deparo",
+      },
+      {
+        options: [
+          { code: "1001", area: "Bagumbong/Pag-asa" },
+          { code: "1002" },
+        ],
+        barangay: "Pag Asa",
+      },
+      {
+        options: [
+          { code: "1001", area: "San Jose East" },
+          { code: "1002", area: "San Jose West" },
+        ],
+        barangay: "San Jose",
+      },
+      {
+        options: [
+          { code: "1001", area: "Apas" },
+          { code: "1002", area: "Apas" },
+        ],
+        barangay: "Apas",
+      },
+    ].map((c) => ({
+      ...c,
+      expected: suggestPostalCode(c.options, c.barangay),
+    })),
     labels,
   };
 }

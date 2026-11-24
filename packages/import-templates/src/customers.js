@@ -95,7 +95,7 @@ const HINTS = /** @type {Record<string,string>} */ ({
   money: "Amount in pesos, e.g. 15000.",
 });
 const POSTAL_HINT =
-  "4-digit ZIP code of the Municipality (PHLPost), e.g. 6000.";
+  "Optional. Leave blank or enter any 4-digit ZIP code, even if it is not in the list (e.g. 6000).";
 
 /** Column ids: the customer-master key; ship-to fields are prefixed so the two "Mobile No." and
  * "Email Address" columns stay distinct. @param {string} key */

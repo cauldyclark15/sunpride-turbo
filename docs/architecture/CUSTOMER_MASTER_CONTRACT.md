@@ -41,7 +41,7 @@ Dropdowns show `optionLabel(row)` = "Description (Code)", e.g. "General Trade (3
 | 17  | Customer Location            | Street 2                   | `street2`                 | no                                     | text                        |
 | 18  | Customer Location            | Floor                      | `floor`                   | no                                     | text                        |
 | 19  | Customer Location            | Room No. / Stall No.       | `roomStallNo`             | no                                     | text                        |
-| 20  | Customer Location            | Postal Code                | `postalCode`              | yes                                    | geo                         |
+| 20  | Customer Location            | Postal Code                | `postalCode`              | no (SP-0246)                           | optional 4-digit text       |
 | 21  | Customer Location            | Geographical Coordinates   | `coordinates`             | yes                                    | coordinates                 |
 | 22  | Customer Assignment          | Sales Organization         | `salesOrgCode`            | yes                                    | list `sales_organization`   |
 | 23  | Customer Assignment          | Sales Office               | `salesOfficeCode`         | yes                                    | list `sales_office`         |
@@ -91,6 +91,11 @@ Notes:
   original workbook's optional flag. House No., Street 2, Floor and Room No. / Stall No.
   remain optional. A custom Customer Address does not replace Street 1. Incomplete field
   capture recovery remains available (SP-0188), but approval requires Street 1.
+- SP-0246 makes Postal Code optional at every validation level, including uploads and approval.
+  Blank, omitted and cleared values are accepted. A nonblank value must be exactly four ASCII
+  digits; it need not appear in the municipality list. Choosing a barangay suggests the town's
+  only ZIP or a unique known area match; unknown or ambiguous areas remain blank. Forms keep
+  a manual ZIP or an intentional clearing until the next address selection.
 - `customerAddress` (Customer Address) is generated from the location parts with
   `formatAddress` — `Room/Stall, Floor, House No. Street 1, Street 2, Barangay, Municipality,
 Province Postal Code` — unless the user types one (then `addressCustom: true`). Sending
@@ -135,8 +140,9 @@ sameAsCustomer }]`, one or more. `sameAsCustomer: true` copies Customer Name, Cu
 - Dependent lists (rule 8): Sales Office, Distribution Channel and Delivering Plant must belong
   to the Sales Organization (ARI 2000 has only channels 20, 70, 80); Grp 1 must be under
   (Sales Org, Channel); Grp 2 under (Sales Org, Channel, Grp 1).
-- Geography (rule 9): Province in Region, Municipality in Province, Barangay in Municipality,
-  Postal Code one of the municipality's codes. Country is `PH` only.
+- Geography (rule 9): Province in Region, Municipality in Province, Barangay in Municipality.
+  Postal codes are optional four-digit text, not restricted to the municipality list (SP-0246).
+  Country is `PH` only.
 - Every saved record carries `completeness: "draft" | "complete"` (re-evaluated on each save).
 
 ## 3. Routes
@@ -300,7 +306,7 @@ Ship-to errors use `field: "shipTos[1].mobileNo"` and `index: 1`.
 | ---------------------- | --------------------------------------------------------------------------------------- |
 | `required`             | `<Label> is required.`                                                                  |
 | `too_long`             | over the field's max length                                                             |
-| `invalid_option`       | code not in the list (or PSGC code unknown)                                             |
+| `invalid_option`       | code not in the list, PSGC code unknown, or a nonblank ZIP not exactly four digits      |
 | `not_for_sales_org`    | Sales Office / Distribution Channel / Delivering Plant not under the Sales Organization |
 | `not_for_channel`      | Customer Grp 1 not under the Distribution Channel                                       |
 | `not_for_group1`       | Customer Grp 2 not under Customer Grp 1                                                 |
@@ -312,7 +318,7 @@ Ship-to errors use `field: "shipTos[1].mobileNo"` and `index: 1`.
 | `invalid_coordinates`  | latitude/longitude out of range or 0,0                                                  |
 | `invalid_credit_limit` | negative or not a number                                                                |
 | `geography_mismatch`   | Province/Municipality/Barangay not under its parent                                     |
-| `postal_code_mismatch` | Postal Code not one of the municipality's                                               |
+| `postal_code_mismatch` | Legacy compatibility code; no longer emitted for customer ZIPs (SP-0246)                |
 | `ship_to_required`     | `complete` needs at least one ship-to                                                   |
 
 Other: `400 invalid_request` (unknown field key, bad id, missing list filter), `403` (capability
@@ -335,9 +341,9 @@ of §1, including `shipTos` for an explicit delivery address) to:
 
 Offline setup for the phone: `GET /api/v1/masters/census-config` gains
 `customerMaster: { salesOrgCode, provinceCodes, lists: [{ list, salesOrgCode, channelCode,
-group1Code, code, name }] }`; `GET /api/v1/geography/pack` → `{ release, regions, provinces
+group1Code, code, name }] }`; `GET /api/v1/geography/pack` → `{ release, postalAreasVersion: 1, regions, provinces
 [{code,name,regionCode}], municipalities [{code,name,provinceCode}], postalCodes
-[{municipalityCode,code}] }`; `GET /api/v1/geography/pack/barangays?provinceCode=` →
+[{municipalityCode,code,area}] }`; `GET /api/v1/geography/pack/barangays?provinceCode=` →
 `{ provinceCode, barangays [{code,name,municipalityCode}] }` (all `outlet.read`).
 
 The store is created as today (provisional code, pending pin, pending enrolment) and its

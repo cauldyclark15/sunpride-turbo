@@ -73,7 +73,8 @@ describe("SP-0170 template = the client's Customer Information template", () => 
       // SP-0214 supersedes the original sheet's optional Street 1 flag.
       sheet.push({
         label,
-        required: label === "Street 1" || req === "Y",
+        required:
+          label !== "Postal Code" && (label === "Street 1" || req === "Y"),
         remark: remark ?? "",
       });
     }

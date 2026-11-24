@@ -46,7 +46,7 @@ object CustomerMaster {
         f("street2", "Street 2", LOCATION, false, Kind.TEXT, max = 200),
         f("floor", "Floor", LOCATION, false, Kind.TEXT, max = 60),
         f("roomStallNo", "Room No. / Stall No.", LOCATION, false, Kind.TEXT, max = 60),
-        f("postalCode", "Postal Code", LOCATION, true, Kind.GEO),
+        f("postalCode", "Postal Code", LOCATION, false, Kind.GEO),
         f("coordinates", "Geographical Coordinates", LOCATION, true, Kind.COORDINATES),
         f("salesOrgCode", "Sales Organization", ASSIGNMENT, true, Kind.LIST, "sales_organization"),
         f("salesOfficeCode", "Sales Office", ASSIGNMENT, true, Kind.LIST, "sales_office"),
@@ -262,7 +262,7 @@ object CustomerMaster {
         val region = field("regionCode"); val province = field("provinceCode"); val municipality = field("municipalityCode")
         val barangay = field("barangayCode"); val postal = field("postalCode")
         val postalCode = value["postalCode"] as String?
-        val fourDigits = Regex("^\\d{4}$")
+        val fourDigits = Regex("^[0-9]{4}$")
         if (geography != null) {
             val g = geography
             if (value["regionCode"] != null && g.region == null) fail("invalid_option", region, "Region \"${value["regionCode"]}\" is not in the list.")
@@ -281,13 +281,9 @@ object CustomerMaster {
                 else if (value["municipalityCode"] == null) fail("choose_parent_first", barangay, "Choose Municipality before Barangay.")
                 else if (g.barangay.municipalityCode != value["municipalityCode"]) fail("geography_mismatch", barangay, "Barangay is not in the chosen Municipality.")
             }
-            if (postalCode != null) {
-                if (!fourDigits.matches(postalCode)) fail("invalid_option", postal, "Postal Code \"$postalCode\" is not in the list.")
-                else if (value["municipalityCode"] == null) fail("choose_parent_first", postal, "Choose Municipality before Postal Code.")
-                else if (postalCode !in g.postalCodes) fail("postal_code_mismatch", postal, "Postal Code $postalCode does not belong to the chosen Municipality.")
-            }
-        } else if (postalCode != null && !fourDigits.matches(postalCode))
-            fail("invalid_option", postal, "Postal Code \"$postalCode\" is not in the list.")
+        }
+        if (postalCode != null && !fourDigits.matches(postalCode))
+            fail("invalid_option", postal, "Postal Code must be 4 digits.")
 
         val cf = field("coordinates")
         val lat = input["latitude"]; val lng = input["longitude"]

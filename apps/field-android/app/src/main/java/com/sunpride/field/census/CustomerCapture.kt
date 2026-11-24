@@ -51,7 +51,8 @@ object CustomerCapture {
      * plus barangays for the provinces fetched so far (the agent's area, and any picked while online). */
     class Geography(val regions: List<CustomerMaster.GeoRegion>, val provinces: List<CustomerMaster.GeoProvince>,
         val municipalities: List<CustomerMaster.GeoMunicipality>, private val postal: Map<String, List<String>>,
-        val barangaysByProvince: Map<String, List<CustomerMaster.GeoBarangay>> = emptyMap()) {
+        val barangaysByProvince: Map<String, List<CustomerMaster.GeoBarangay>> = emptyMap(),
+        private val postalAreas: Map<String, List<PostalOption>> = emptyMap()) {
         private val regionBy = regions.associateBy { it.code }
         private val provinceBy = provinces.associateBy { it.code }
         private val municipalityBy = municipalities.associateBy { it.code }
@@ -69,10 +70,14 @@ object CustomerCapture {
         }
         fun hasBarangays(provinceCode: String?) = provinceCode != null && barangaysByProvince.containsKey(provinceCode)
         fun postalCodesOf(municipalityCode: String?): List<String> = municipalityCode?.let { postal[it] }.orEmpty()
+        fun postalOptionsOf(municipalityCode: String?): List<PostalOption> = municipalityCode?.let { postalAreas[it] }
+            ?: postalCodesOf(municipalityCode).map { PostalOption(it) }
+        fun suggestedPostal(municipalityCode: String, barangayCode: String): String? =
+            suggestPostalCode(postalOptionsOf(municipalityCode), barangay(municipalityCode, barangayCode)?.name)
         fun barangay(municipalityCode: String?, code: String?): CustomerMaster.GeoBarangay? =
             code?.let { c -> barangaysOf(municipalityCode)?.firstOrNull { it.code == c } }
         fun withBarangays(provinceCode: String, rows: List<CustomerMaster.GeoBarangay>) =
-            Geography(regions, provinces, municipalities, postal, barangaysByProvince + (provinceCode to rows))
+            Geography(regions, provinces, municipalities, postal, barangaysByProvince + (provinceCode to rows), postalAreas)
         fun resolve(f: Form): CustomerMaster.ResolvedGeography = CustomerMaster.ResolvedGeography(region(f.regionCode),
             province(f.provinceCode), municipality(f.municipalityCode), barangay(f.municipalityCode, f.barangayCode),
             postalCodesOf(f.municipalityCode))
@@ -80,12 +85,13 @@ object CustomerCapture {
             /** GET /api/v1/geography/pack. */
             fun parse(pack: JSONObject): Geography {
                 fun rows(key: String) = pack.optJSONArray(key)?.let { a -> (0 until a.length()).mapNotNull { a.optJSONObject(it) } }.orEmpty()
-                val postal = linkedMapOf<String, MutableList<String>>()
-                rows("postalCodes").forEach { postal.getOrPut(it.optString("municipalityCode")) { mutableListOf() } += it.optString("code") }
+                val postal = rows("postalCodes").groupBy { it.optString("municipalityCode") }
+                    .mapValues { (_, values) -> values.map { PostalOption(it.optString("code"),
+                        if (it.isNull("area")) null else it.optString("area")) } }
                 return Geography(rows("regions").map { CustomerMaster.GeoRegion(it.getString("code"), it.getString("name")) },
                     rows("provinces").map { CustomerMaster.GeoProvince(it.getString("code"), it.getString("name"), it.getString("regionCode")) },
                     rows("municipalities").map { CustomerMaster.GeoMunicipality(it.getString("code"), it.getString("name"), it.getString("provinceCode")) },
-                    postal.mapValues { (_, v) -> v.distinct() })
+                    postal.mapValues { (_, v) -> v.map { it.code }.distinct() }, postalAreas = postal)
             }
             /** GET /api/v1/geography/pack/barangays?provinceCode=. */
             fun barangays(json: JSONObject): List<CustomerMaster.GeoBarangay> = json.optJSONArray("barangays")?.let { a ->
@@ -123,6 +129,8 @@ object CustomerCapture {
         /** A municipality with one postal code fills it in. */
         fun withMunicipality(code: String, geography: Geography?) = if (code == municipalityCode) this else
             copy(municipalityCode = code, barangayCode = "", postalCode = geography?.postalCodesOf(code)?.singleOrNull().orEmpty())
+        fun withBarangay(code: String, geography: Geography?) = if (code == barangayCode) this else
+            copy(barangayCode = code, postalCode = if (code.isEmpty()) "" else geography?.suggestedPostal(municipalityCode, code).orEmpty())
         fun withSalesOrg(code: String) = if (code == salesOrgCode) this else copy(salesOrgCode = code, distributionChannelCode = "", customerGroup1Code = "", customerGroup2Code = "",
             details = withoutAdp() - setOf("salesOfficeCode", "deliveringPlantCode"))
         fun withChannel(code: String) = if (code == distributionChannelCode) this else copy(distributionChannelCode = code, customerGroup1Code = "", customerGroup2Code = "", details = withoutAdp())
@@ -221,6 +229,21 @@ object CustomerCapture {
         return store to owner?.takeIf { !it.equals(store, ignoreCase = true) }
     }
 
+    data class PostalOption(val code: String, val area: String? = null) {
+        val label: String get() = if (area.isNullOrBlank()) code else "$code $area"
+    }
+    /** Same conservative area-name matching as @sunpride/customer-master/postal.js. */
+    fun suggestPostalCode(options: List<PostalOption>, barangayName: String?): String? {
+        fun key(name: String) = java.text.Normalizer.normalize(name, java.text.Normalizer.Form.NFD)
+            .replace(Regex("\\p{M}"), "").lowercase(Locale.ROOT).trim()
+            .replace(Regex("^(?:barangay|brgy)\\.?\\s+"), "").replace(Regex("[^a-z0-9]"), "")
+        val valid = options.filter { Regex("^[0-9]{4}$").matches(it.code) }
+        val codes = valid.map { it.code }.distinct()
+        if (codes.size == 1) return codes.single()
+        val wanted = key(barangayName.orEmpty()).takeIf { it.isNotEmpty() } ?: return null
+        return valid.filter { o -> o.area.orEmpty().split(Regex("[/&+,;]")).any { key(it) == wanted } }
+            .map { it.code }.distinct().singleOrNull()
+    }
     data class Option(val code: String, val label: String)
     fun refOptions(rows: List<CustomerMaster.RefRow>) = rows.distinctBy { it.code }.map { Option(it.code, CustomerMaster.optionLabel(it)) }
     fun salesOrgs(s: Setup) = refOptions(s.options("sales_organization"))
@@ -355,7 +378,7 @@ object CustomerCapture {
         input["latitude"] = location?.getDouble("latitude"); input["longitude"] = location?.getDouble("longitude")
         val errors = CustomerMaster.validate(input, "field", CustomerMaster.ReferenceIndex(emptyList()), null).errors
             // Reference lists are unavailable here; the form and server check conditional groups.
-            .filter { it.code !in setOf("invalid_option", "not_for_sales_org", "not_for_channel", "not_for_group1", "not_applicable", "choose_parent_first") &&
+            .filter { (it.field == "postalCode" || it.code !in setOf("invalid_option", "not_for_sales_org", "not_for_channel", "not_for_group1", "not_applicable", "choose_parent_first")) &&
                 !(it.code == "required" && it.field in setOf("coordinates", "customerGroup1Code", "customerGroup2Code")) }
         require(errors.isEmpty()) { errors.first().message }
         require(p.optString("locationSource", "gps") == "gps")

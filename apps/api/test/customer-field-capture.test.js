@@ -322,6 +322,36 @@ test("SP-0243 weak, old and absent location save through signed sync, including 
   }
 });
 
+test("SP-0246 signed field captures keep a complete profile with blank or unlisted ZIPs in Laua-An", async () => {
+  const own = await fieldRep();
+  const [town] =
+    await h.db`select m.code,m.region_code,m.province_code,b.code as barangay_code from ph_municipalities m join ph_barangays b on b.municipality_code=m.code where m.name='Laua-An' order by b.code limit 1`;
+  for (const postalCode of ["", "9999", "0123"]) {
+    const p = capture();
+    Object.assign(p.customer, {
+      regionCode: town.region_code,
+      provinceCode: town.province_code,
+      municipalityCode: town.code,
+      barangayCode: town.barangay_code,
+      postalCode,
+    });
+    const op = crypto.randomUUID();
+    expect((await own.push(p, op)).status).toBe("applied");
+    const [enrolment] =
+      await h.db`select outlet_id from outlet_enrolments where client_request_id=${p.captureId}`;
+    const stored = await readCustomer(h.db, enrolment.outlet_id);
+    expect(stored).toMatchObject({
+      postalCode: postalCode || null,
+      completeness: "complete",
+      fieldMissing: null,
+    });
+    expect((await own.push(p, op)).status).toBe("duplicate");
+    expect((await readCustomer(h.db, enrolment.outlet_id)).postalCode).toBe(
+      postalCode || null,
+    );
+  }
+});
+
 test("SP-0184 agents submit complete profiles directly for manager review, approval or rejection without Admin edits", async () => {
   const password = "sp184-reviewer-test-only-password";
   const email = `cdm-${crypto.randomUUID()}@example.com`;
@@ -465,7 +495,6 @@ test("SP-0188 missing agent fields are kept as an incomplete customer for the of
     "mobileNo",
     "regionCode",
     "street1",
-    "postalCode",
     "distributionChannelCode",
     "customerGroupCode",
     "typeOfBusiness",

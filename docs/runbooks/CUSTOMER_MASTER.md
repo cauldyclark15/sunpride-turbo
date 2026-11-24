@@ -19,7 +19,7 @@ Plan and decisions: `~/cnc/_plans/sunpride-customer-master/SPEC.md`. API contrac
 | Accounting customer           | `customers` row with the **same code**, kept by the writer in the same transaction; `outlet_customer_links` current link                                                                                                                                                                                   |
 | Dropdown lists                | `customer_reference_values` (one table; parents in `sales_org_code`, `channel_code`, `group1_code`; `active`, `source`, `updated_by`, audit rows)                                                                                                                                                          |
 | Geography                     | `ph_regions`, `ph_provinces`, `ph_municipalities`, `ph_barangays`, `ph_postal_codes`, `ph_geography_releases`                                                                                                                                                                                              |
-| Rules                         | `packages/customer-master` (shared pure JS: labels, conditional required, TIN, PH mobile, email, coordinates, credit limit, dependent lists, postal code ↔ municipality)                                                                                                                                   |
+| Rules                         | `packages/customer-master` (shared pure JS: labels, conditional required, TIN, PH mobile, email, coordinates, credit limit, dependent lists, optional four-digit postal codes)                                                                                                                             |
 | Writer / routes               | `apps/api/src/domains/masters/customers.js`, `customer-routes.js` (installed by the masters domain)                                                                                                                                                                                                        |
 
 `outlets.channel` is no longer a business category: it is the **price-list / call-flow key**
@@ -92,13 +92,24 @@ Offline data, smallest correct set:
   `provinceCodes`, and of any province picked while online. When a province's barangays are not
   on the phone, Barangay is left for the office (not required at capture).
 - Field-required at capture (beyond the shared `draft` rules): Customer Name, Mobile No., Region,
-  Province, Municipality, Barangay (when on the phone), Postal Code (when the municipality has
-  one), Geographical Coordinates (GPS ±<50 m), Sales Organization, Distribution Channel, Customer
+  Province, Municipality, Barangay (when on the phone), Geographical Coordinates (GPS ±<50 m), Sales Organization, Distribution Channel, Customer
   Grp 1/Grp 2 (when the chain has them), Customer Group, Type of Business, Contact Person, and the
   storefront photo the enrolment needs.
 - The Kotlin port of the rules (`apps/field-android/.../census/CustomerMaster.kt`) is held to
   the JS package by `packages/customer-master/fixtures/android-parity.json` (regenerate with
   `bun packages/customer-master/scripts/android-parity.js`; both sides test it).
+
+## Postal Code (SP-0246)
+
+Postal Code is optional in the website, Android customer form, uploads and shared validation,
+including approval. A nonblank value must contain exactly four digits; it need not appear in
+the town list. Selecting a barangay fills the town's only ZIP or an unambiguous matching postal
+area. Multiple ZIPs without a known area stay blank rather than guessing. Changing town or
+barangay clears the previous ZIP; manual entries and clearing are kept until the next address
+selection. Both forms allow list search and manual entry. The Android pack includes postal
+area names; the SP-0242 online refresh picks them up while retaining its saved pack offline.
+The iOS form has a free-text address, not structured Barangay/Postal Code controls, and does
+not require a ZIP. Missing town reference data does not prevent saving.
 
 ## Lifecycle
 

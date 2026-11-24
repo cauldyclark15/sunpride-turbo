@@ -87,7 +87,7 @@ describe("client field list", () => {
         // SP-0214 made Street 1 required; SP-0220 dropped the separate Customer Address.
         f.field === "Street 1"
           ? true
-          : f.field === "Customer Address"
+          : ["Customer Address", "Postal Code"].includes(f.field)
             ? false
             : f.required,
       ]),
@@ -412,12 +412,37 @@ describe("formats (rule 10)", () => {
 });
 
 describe("geography (rule 9)", () => {
-  test("postal code must belong to the municipality", () => {
-    const r = validateCustomer(complete({ postalCode: "6014" }), {
-      lists,
-      geography: cebu,
-    });
-    expect(codes(r)).toEqual(["postalCode:postal_code_mismatch"]);
+  test("SP-0246 postal code is optional at every level, with or without a town list", () => {
+    for (const level of /** @type {const} */ (["draft", "field", "complete"])) {
+      for (const postalCodes of [[], ["6000"]]) {
+        for (const postalCode of [
+          undefined,
+          null,
+          "",
+          " \t ",
+          "9999",
+          "0123",
+        ]) {
+          const r = validateCustomer(complete({ postalCode }), {
+            level,
+            lists,
+            geography: { ...cebu, postalCodes },
+          });
+          expect(r.errors).toEqual([]);
+          expect(r.value.postalCode).toBe(postalCode?.trim() || null);
+        }
+      }
+    }
+  });
+  test("SP-0246 manual ZIPs still need exactly four ASCII digits", () => {
+    for (const postalCode of ["123", "12345", "6a00", "１２３４"]) {
+      const r = validateCustomer(complete({ postalCode }), {
+        lists,
+        geography: cebu,
+      });
+      expect(codes(r)).toEqual(["postalCode:invalid_option"]);
+      expect(r.errors[0].message).toBe("Postal Code must be 4 digits.");
+    }
   });
   test("each level must sit under its parent", () => {
     const r = validateCustomer(complete(), {

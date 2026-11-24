@@ -459,7 +459,7 @@ describe("SP-0170 customer writer", () => {
       { street1: null },
       { street1: "" },
       { street1: " \t " },
-      { postalCode: "" },
+      { postalCode: "123" },
       { salesOfficeCode: null },
       { customerGroup2Code: " " },
       { paymentTermsCode: "" },
@@ -578,7 +578,6 @@ describe("SP-0170 customer writer", () => {
       "Distribution Channel:not_for_sales_org",
       "Mobile No.:invalid_mobile",
       "Mobile No.:invalid_mobile",
-      "Postal Code:postal_code_mismatch",
       "Sales Office:not_for_sales_org",
     ]);
   });
@@ -843,7 +842,7 @@ describe("SP-0170 customer writer", () => {
           municipalityCode: "0730600000",
           barangayCode: "0730600003",
           street1: "Gorordo Ave",
-          postalCode: "6000",
+          postalCode: null,
         },
       },
     );
@@ -854,7 +853,9 @@ describe("SP-0170 customer writer", () => {
     expect(draft).toMatchObject({
       completeness: "complete",
       distributionChannelName: "Route Sales",
-      customerAddress: "Gorordo Ave, Apas, City of Cebu, Cebu 6000",
+      customerAddress: "Gorordo Ave, Apas, City of Cebu, Cebu",
+      postalCode: null,
+      fieldMissing: null,
       legacyChannel: "41",
     });
     expect(draft.shipTos).toEqual([
@@ -1043,6 +1044,91 @@ describe("SP-0170 customer writer", () => {
     expect(
       (await call("manager", "POST", path, { reason: "Again" })).status,
     ).toBe(422);
+  });
+});
+
+describe("SP-0246 postal codes", () => {
+  test("Laua-An can be created, reopened, edited and approved without a ZIP; unlisted ZIPs survive", async () => {
+    const [town] =
+      await h.db`select m.code,m.province_code,m.region_code,b.code as barangay_code from ph_municipalities m join ph_barangays b on b.municipality_code=m.code where m.name='Laua-An' order by b.code limit 1`;
+    expect(town).toBeDefined();
+    // Keep the empty-list regression even when the municipality repair is already installed.
+    await h.db`delete from ph_postal_codes where municipality_code=${town.code}`;
+    const zips = await call(
+      "admin",
+      "GET",
+      `/api/v1/geography/postal-codes?municipalityCode=${town.code}`,
+    );
+    expect(zips.body.options).toEqual([]);
+    for (const postalCode of [undefined, null, "", " \t ", "9999", "0123"]) {
+      const made = await call("admin", "POST", "/api/v1/customers", {
+        custodianOrgUnitId: UNIT,
+        customer: customer({
+          customerName: "SP246 Sample Customer",
+          regionCode: town.region_code,
+          provinceCode: town.province_code,
+          municipalityCode: town.code,
+          barangayCode: town.barangay_code,
+          postalCode,
+        }),
+      });
+      expect(made.status, JSON.stringify(made.body)).toBe(200);
+      const expected = postalCode?.trim() || null;
+      const reopened = await call(
+        "admin",
+        "GET",
+        `/api/v1/customers/${made.body.id}`,
+      );
+      expect(reopened.body).toMatchObject({
+        postalCode: expected,
+        completeness: "complete",
+      });
+      expect(
+        (
+          await call(
+            "admin",
+            "POST",
+            `/api/v1/customers/${made.body.id}/approve`,
+            {},
+          )
+        ).status,
+      ).toBe(200);
+      const edited = await call(
+        "admin",
+        "PUT",
+        `/api/v1/customers/${made.body.id}`,
+        { customer: { postalCode: "7777" } },
+      );
+      expect(edited.status).toBe(200);
+      expect((await readCustomer(h.db, made.body.id)).postalCode).toBe("7777");
+      const cleared = await call(
+        "admin",
+        "PUT",
+        `/api/v1/customers/${made.body.id}`,
+        { customer: { postalCode: "" } },
+      );
+      expect(cleared.status).toBe(200);
+      expect((await readCustomer(h.db, made.body.id)).postalCode).toBeNull();
+    }
+  });
+  test("postal area names reach both web lists and the offline phone pack", async () => {
+    const zips = await call(
+      "admin",
+      "GET",
+      "/api/v1/geography/postal-codes?municipalityCode=1380100000",
+    );
+    expect(zips.body.options).toContainEqual(
+      expect.objectContaining({ code: "1401", area: "Baesa" }),
+    );
+    const pack = await call("admin", "GET", "/api/v1/geography/pack");
+    expect(pack.body.postalAreasVersion).toBe(1);
+    expect(pack.body.postalCodes).toContainEqual(
+      expect.objectContaining({
+        municipalityCode: "1380100000",
+        code: "1401",
+        area: "Baesa",
+      }),
+    );
   });
 });
 
