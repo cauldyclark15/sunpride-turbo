@@ -420,7 +420,7 @@ export async function derive(db, merged, input, existing) {
  * field (SP-0213). Field captures, when incomplete (SP-0188), are kept as a draft with the agent's
  * submitted values and the missing fields so the office can finish it in the same CDM review.
  * Stores full completeness separately. Returns the customer id.
- * @param {any} c @param {Record<string, any>} b @param {{outletId?:string, fieldCapture?:boolean}} [opts]
+ * @param {any} c @param {Record<string, any>} b @param {{outletId?:string, fieldCapture?:boolean, importedCode?:string}} [opts]
  */
 export async function saveCustomer(c, b, opts = {}) {
   const input = b.customer ?? b;
@@ -554,13 +554,9 @@ export async function saveCustomer(c, b, opts = {}) {
     outletId = /** @type {string} */ (
       await outletCommand(c, "create", {
         name: v.customerName,
-        // Customer Code: SAP number when known, else the one store-code allocator
-        // (editable by the office until SAP sync).
-        code:
-          typeof (b.code ?? input.code) === "string" &&
-          (b.code ?? input.code).trim()
-            ? (b.code ?? input.code)
-            : await allocate(c, "customer"),
+        // SP-0239: ordinary saves never accept a typed Customer Code. Only the
+        // customer-file importer may retain an existing external customer number.
+        code: opts.importedCode || (await allocate(c, "customer")),
         custodianOrgUnitId: unit,
         status: "prospect",
         address: v.customerAddress ?? undefined,
@@ -575,22 +571,7 @@ export async function saveCustomer(c, b, opts = {}) {
       fields.address = v.customerAddress;
     if (priceKey && priceKey !== existing?.legacyChannel)
       fields.channel = priceKey;
-    const newCode = b.code ?? input.code;
-    if (
-      typeof newCode === "string" &&
-      newCode.trim() &&
-      newCode.trim().toUpperCase() !== existing?.code
-    ) {
-      await requireCapability(c, "outlet.manage");
-      const code = newCode.trim().toUpperCase();
-      if (!/^[A-Z0-9][A-Z0-9_-]{0,39}$/.test(code))
-        rule("Invalid Customer Code.", "invalid_code");
-      const [taken] =
-        await c.db`select 1 from outlets where organization_id='sunpride' and code=${code} and id<>${outletId}`;
-      if (taken)
-        rule("Another customer already uses this Customer Code.", "code_taken");
-      fields.code = code;
-    }
+    // Existing numbers stay unchanged, even if an older form sends a code.
     if (Object.keys(fields).length) {
       const sets = Object.keys(fields);
       await c.db.unsafe(

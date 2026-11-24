@@ -40,10 +40,7 @@ export async function officeAddStore(c, b) {
     typeof b.landmark === "string" && b.landmark.trim()
       ? required(b.landmark, "Landmark", 200)
       : null;
-  const code =
-    typeof b.code === "string" && b.code.trim()
-      ? b.code
-      : await allocate(c, "customer");
+  const code = await allocate(c, "customer");
   const reason = "Added from the office";
   const outletId = await outletCommand(c, "create", {
     name: b.name,

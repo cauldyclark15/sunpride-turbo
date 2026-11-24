@@ -1,4 +1,5 @@
 import { optionalReason } from "../../core/reason.js";
+import { allocate } from "./outlets.js";
 import {
   requireCapability,
   requireNationalScope,
@@ -155,8 +156,12 @@ export async function catalogCommand(c, action, b) {
       await update(c.db, "customers", uuid(b.customerId), values);
       return b.customerId;
     }
-    return (await insert(c.db, "customers", { ...values, code: code(b.code) }))
-      .id;
+    return (
+      await insert(c.db, "customers", {
+        ...values,
+        code: await allocate(c, "customer"),
+      })
+    ).id;
   }
   const product = await get(c.db, "products", uuid(b.productId));
   if (!product.active) rule("Inactive product");

@@ -43,6 +43,7 @@ import {
   teamCommand,
 } from "./commands.js";
 import {
+  allocate,
   assignmentCommand,
   enrolmentCommand,
   outletCommand,
@@ -506,8 +507,12 @@ export function install(router, platform) {
         (c, b) => geographyCommand(c, kind, action, b),
       );
   for (const action of ["create", "edit", "deactivate", "changeCustomerLink"])
-    command(`outlets/${action}`, "outlet.manage", (c, b) =>
-      outletCommand(c, action, b),
+    command(`outlets/${action}`, "outlet.manage", async (c, b) =>
+      outletCommand(
+        c,
+        action,
+        action === "create" ? { ...b, code: await allocate(c, "customer") } : b,
+      ),
     );
   for (const action of ["propose", "decide"])
     command(

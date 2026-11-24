@@ -113,8 +113,11 @@ Offline data, smallest correct set:
    accounting customer created/renamed to the same code.
 5. **Deactivate**: store `inactive` and accounting customer `active=false` together.
 
-Customer Code changes (office, before SAP sync) move the accounting customer's code in the same
-transaction; refused once the accounting customer has a SAP `external_id`.
+Customer Code is read-only (SP-0239). New office customers are numbered automatically;
+edits keep the existing number in both records. The office Add store and gathering-review
+paths use the same allocator, as do field approvals and legacy accounting-customer creation.
+Existing external numbers in customer-file uploads are retained; blank upload numbers are
+assigned automatically. No existing customer is renumbered by this change.
 
 ## Sample migration (0823, deterministic)
 

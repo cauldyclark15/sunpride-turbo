@@ -400,7 +400,8 @@ describe("SP-0170 customer writer", () => {
       },
     ]);
   });
-  test("update keeps the accounting customer in step; multiple ship-to; code change moves both", async () => {
+  test("SP-0239 update keeps both records in step and preserves their assigned number", async () => {
+    const original = await readCustomer(h.db, id);
     const r = await call("admin", "PUT", `/api/v1/customers/${id}`, {
       customer: {
         customerName: "Aling Rosa Mini Mart",
@@ -419,20 +420,20 @@ describe("SP-0170 customer writer", () => {
       code: "CM-ROSA-001",
     });
     expect(r.status).toBe(200);
-    expect(r.body.code).toBe("CM-ROSA-001");
+    expect(r.body.code).toBe(original.code);
     expect(r.body.shipTos.map((/** @type {any} */ s) => s.shipToParty)).toEqual(
       ["Aling Rosa Mini Mart", "Rosa Warehouse"],
     );
     expect(await accounting(id)).toEqual([
       {
-        code: "CM-ROSA-001",
+        code: original.code,
         name: "Aling Rosa Mini Mart",
         active: true,
         credit: 20000,
       },
     ]);
     const [{ n }] =
-      await h.db`select count(*)::int n from customers where code like 'CM-ROSA%' or name like 'Aling Rosa%'`;
+      await h.db`select count(*)::int n from customers where id=${original.accountingCustomerId} or name like 'Aling Rosa%'`;
     expect(n).toBe(1);
   });
   test("SP-0213 missing office details refuse create/update without changing saved records", async () => {
@@ -1042,5 +1043,155 @@ describe("SP-0170 customer writer", () => {
     expect(
       (await call("manager", "POST", path, { reason: "Again" })).status,
     ).toBe(422);
+  });
+});
+
+describe("SP-0239 automatic customer numbers", () => {
+  test("blank, typed and nested numbers cannot override generation; edits and approval preserve the assigned number", async () => {
+    const codes = new Set();
+    for (const typed of [
+      undefined,
+      null,
+      "",
+      "  ",
+      "SMP-C0069",
+      "invalid number!",
+    ]) {
+      const body = {
+        custodianOrgUnitId: UNIT,
+        customer: customer({
+          customerName: "SP239 Numbered Customer",
+          code: typed,
+        }),
+        code: typed,
+        importedCode: "NOT-AN-IMPORT",
+      };
+      const made = await call("admin", "POST", "/api/v1/customers", body);
+      expect(made.status, JSON.stringify(made.body)).toBe(200);
+      expect(made.body.code).toMatch(/^SP\d{6}$/);
+      expect(codes.has(made.body.code)).toBe(false);
+      codes.add(made.body.code);
+      expect((await accounting(made.body.id))[0].code).toBe(made.body.code);
+      const edited = await call(
+        "admin",
+        "PUT",
+        `/api/v1/customers/${made.body.id}`,
+        {
+          code: "REPLACEMENT",
+          customer: { tradeName: "SP239 Updated", code: "NESTED-REPLACEMENT" },
+        },
+      );
+      expect(edited.status).toBe(200);
+      expect(edited.body.code).toBe(made.body.code);
+      expect((await accounting(made.body.id))[0].code).toBe(made.body.code);
+      const approved = await call(
+        "admin",
+        "POST",
+        `/api/v1/customers/${made.body.id}/approve`,
+        {},
+      );
+      expect(approved.status).toBe(200);
+      expect(approved.body.code).toBe(made.body.code);
+    }
+    expect(codes.size).toBe(6);
+  });
+
+  test("skips historical store numbers and unlinked accounting numbers without changing their owners", async () => {
+    const [settings] =
+      await h.db`select * from outlet_code_settings where organization_id='sunpride'`;
+    const candidate = (/** @type {number} */ n) =>
+      `${settings.prefix}${String(n).padStart(settings.digits, "0")}`;
+    const start = Number(settings.next_sequence);
+    const [oldStore] =
+      await h.db`insert into outlets(organization_id,code,name,status,custodian_org_unit_id,created_by,deleted_at)
+      values('sunpride',${candidate(start)},'SP239 Historical Store','inactive',${UNIT},'test:SP-0239',now()) returning id`;
+    const [oldAccount] =
+      await h.db`insert into customers(code,name,channel,territory,credit_limit,active,deleted_at)
+      values(${candidate(start + 1)},'SP239 Existing Account','41','UNASSIGNED',0,false,now()) returning id`;
+    const made = await call("admin", "POST", "/api/v1/customers", {
+      custodianOrgUnitId: UNIT,
+      customer: customer({ customerName: "SP239 Collision Check" }),
+    });
+    expect(made.status, JSON.stringify(made.body)).toBe(200);
+    expect(made.body.code).toBe(candidate(start + 2));
+    expect(made.body.accountingCustomerId).not.toBe(oldAccount.id);
+    const [kept] =
+      await h.db`select name,code,active,deleted_at is not null deleted from customers where id=${oldAccount.id}`;
+    expect(kept).toEqual({
+      name: "SP239 Existing Account",
+      code: candidate(start + 1),
+      active: false,
+      deleted: true,
+    });
+    const [store] =
+      await h.db`select code,deleted_at is not null deleted from outlets where id=${oldStore.id}`;
+    expect(store).toEqual({ code: candidate(start), deleted: true });
+  });
+
+  test("simultaneous creates and retries return unique persisted numbers across all creation routes", async () => {
+    const body = {
+      custodianOrgUnitId: UNIT,
+      customer: customer({ customerName: "SP239 Concurrent" }),
+    };
+    const key = crypto.randomUUID();
+    const [first, replay, second, legacyStore, legacyAccount] =
+      await Promise.all([
+        call("admin", "POST", "/api/v1/customers", body, key),
+        call("admin", "POST", "/api/v1/customers", body, key),
+        call("admin", "POST", "/api/v1/customers", body, crypto.randomUUID()),
+        call(
+          "admin",
+          "POST",
+          "/api/v1/outlets/create",
+          {
+            custodianOrgUnitId: UNIT,
+            name: "SP239 Legacy Store",
+            code: "MANUAL-STORE",
+          },
+          crypto.randomUUID(),
+        ),
+        call(
+          "admin",
+          "POST",
+          "/api/v1/catalog/saveCustomer",
+          {
+            name: "SP239 Legacy Account",
+            code: "MANUAL-ACCOUNT",
+            channel: "41",
+            territory: "UNASSIGNED",
+            creditLimitCentavos: 0,
+          },
+          crypto.randomUUID(),
+        ),
+      ]);
+    for (const result of [first, replay, second, legacyStore, legacyAccount])
+      expect(result.status, JSON.stringify(result.body)).toBe(200);
+    expect(replay.body.id).toBe(first.body.id);
+    expect(replay.body.code).toBe(first.body.code);
+    expect(second.body.id).not.toBe(first.body.id);
+    const [store] =
+      await h.db`select code from outlets where id=${legacyStore.body}`;
+    const [account] =
+      await h.db`select code from customers where id=${legacyAccount.body}`;
+    const codes = [first.body.code, second.body.code, store.code, account.code];
+    expect(new Set(codes).size).toBe(4);
+    for (const code of codes) expect(code).toMatch(/^SP\d{6}$/);
+    for (const created of [first.body, second.body]) {
+      const detail = await call(
+        "admin",
+        "GET",
+        `/api/v1/customers/${created.id}`,
+      );
+      expect(detail.body.code).toBe(created.code);
+      expect((await accounting(created.id))[0].code).toBe(created.code);
+    }
+    const [before] =
+      await h.db`select next_sequence from outlet_code_settings where organization_id='sunpride'`;
+    expect(
+      (await call("admin", "POST", "/api/v1/customers", body, key)).body.id,
+    ).toBe(first.body.id);
+    const [after] =
+      await h.db`select next_sequence from outlet_code_settings where organization_id='sunpride'`;
+    expect(after).toEqual(before);
   });
 });

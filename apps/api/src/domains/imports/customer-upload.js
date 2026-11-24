@@ -415,12 +415,15 @@ async function writeRow(c, entry, row, lookups, run) {
     );
   } else {
     action = "new";
-    outletId = await saveCustomer(c, {
-      customer: writerInput(item, row, lookups.index, null),
-      code: item.code,
-      custodianOrgUnitId: c.actor.orgUnitId,
-      reason,
-    });
+    outletId = await saveCustomer(
+      c,
+      {
+        customer: writerInput(item, row, lookups.index, null),
+        custodianOrgUnitId: c.actor.orgUnitId,
+        reason,
+      },
+      { importedCode: item.code },
+    );
     if (roleHas(c.actor.role, "outlet.enrol.approve"))
       await approveCustomer(c, outletId, { reason });
   }

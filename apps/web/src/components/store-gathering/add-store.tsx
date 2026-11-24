@@ -256,7 +256,6 @@ export function AddStore({
           longitude: pin.longitude,
           placeId,
           landmark: f.get("landmark") || null,
-          code: f.get("code") || null,
           acknowledgedDuplicateIds: matches.map((c) => c.id),
         },
         {
@@ -429,10 +428,9 @@ export function AddStore({
               maxLength={200}
             />
           </label>
-          <label className="grid gap-1 text-xs">
-            Store code (leave blank to number it automatically)
-            <input className={field} name="code" autoComplete="off" />
-          </label>
+          <p className="text-xs text-muted">
+            The Customer Code is assigned automatically when saved.
+          </p>
         </div>
         <div className="grid content-start gap-3">
           <PinMap

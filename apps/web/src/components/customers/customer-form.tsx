@@ -146,8 +146,6 @@ export type CustomerFormProps = {
   geo: GeoLists;
   errors?: FieldErrors;
   readOnly?: boolean;
-  /** Show the Customer Code box (system key) — editable until SAP sync. */
-  codeEditable?: boolean;
   /** Map + "suggest from address" for Geographical Coordinates. */
   pinSlot?: ReactNode;
 };
@@ -160,7 +158,6 @@ export function CustomerForm({
   geo,
   errors = {},
   readOnly = false,
-  codeEditable = true,
   pinSlot,
 }: CustomerFormProps) {
   const a = applies(index, draft);
@@ -360,10 +357,14 @@ export function CustomerForm({
           id="cm-code"
           className={`${inputClass} ${errors.code ? "border-[#b4101f]" : "border-border"} max-w-xs tabular-nums`}
           value={draft.code}
-          disabled={readOnly || !codeEditable}
-          placeholder="Numbered automatically"
-          onChange={(e) => onChange({ ...draft, code: e.target.value })}
+          readOnly
+          aria-describedby="cm-code-help"
+          placeholder="Assigned when saved"
         />
+        <p id="cm-code-help" className="text-[12px] text-muted">
+          Assigned automatically. Each customer has a unique number that cannot
+          be edited.
+        </p>
         <FieldError id="cm-code" message={errors.code} />
       </fieldset>
       {SECTIONS.map((section) => {

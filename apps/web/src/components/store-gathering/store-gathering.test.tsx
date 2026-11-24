@@ -152,12 +152,13 @@ describe("store gathering review views", () => {
       "Lahug, Cebu City",
       "Landmark: beside the chapel",
       "Nena Cruz",
-      "leave blank to number it automatically",
+      "The Customer Code is assigned automatically when approved.",
       "This might already be in the list",
       "accurate to about 12 m",
     ])
       expect(m).toContain(words);
     noIds(m);
+    expect(m).not.toContain('name="code"');
     const dup = html(
       createElement(CaptureDetail, {
         capture: {

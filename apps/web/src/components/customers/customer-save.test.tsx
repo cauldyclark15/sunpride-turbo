@@ -421,3 +421,36 @@ describe("SP-0213 customer Save required fields", () => {
     expect(view().errors).toEqual({});
   });
 });
+
+describe("SP-0239 automatic Customer Code", () => {
+  it.each(["new", "prospect", "active"] as const)(
+    "shows a read-only number and omits typed values from %s save requests",
+    async (status) => {
+      if (status !== "new") state.customer = customer(complete(), status);
+      const initial = render();
+      expect(state.inputs.get("cm-code")?.readOnly).toBe(true);
+      expect(state.inputs.get("cm-code")?.onChange).toBeUndefined();
+      expect(initial).toContain("Assigned automatically.");
+      const draft = complete();
+      draft.code = "TYPED-BY-OLD-FORM";
+      view().onChange(draft);
+      render();
+      const saved = {
+        ...customer(complete(), status === "active" ? "active" : "prospect"),
+        code: "SP000239",
+      };
+      state.mutate.mockResolvedValueOnce(saved);
+      await view().onSave?.();
+      const html = render();
+      expect(state.mutate).toHaveBeenCalledTimes(1);
+      const [path, body] = state.mutate.mock.calls[0]!;
+      expect(path).toBe(
+        status === "new" ? "/api/v1/customers" : "/api/v1/customers/customer",
+      );
+      expect(body).not.toHaveProperty("code");
+      expect(body.customer).not.toHaveProperty("code");
+      expect(state.inputs.get("cm-code")?.value).toBe("SP000239");
+      expect(html).toContain("SP000239");
+    },
+  );
+});

@@ -677,11 +677,8 @@ export async function reviewCensus(ctx, p) {
           "location_mismatch",
         );
     }
-    // Blank code: the existing customer code allocator (SP-0082) picks the next one.
-    const code =
-      typeof p.code === "string" && p.code.trim()
-        ? required(p.code, "New store code", 40)
-        : await allocate(ctx, "customer");
+    // SP-0239: customer numbers are always assigned by the shared allocator.
+    const code = await allocate(ctx, "customer");
     const [outlet] =
       await ctx.db`insert into outlets(organization_id,code,name,status,custodian_org_unit_id,classification,address,enrolment_status,created_by) values('sunpride',${code},${capture.name},'active',${capture.org_unit_id},${null},${capture.address},'approved',${actor.userId}) returning id`;
     outletId = outlet.id;

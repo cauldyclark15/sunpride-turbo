@@ -345,10 +345,9 @@ export function CaptureDetail({
           ))}
         </div>
         {decision === "accept" ? (
-          <label className="grid gap-1 text-xs">
-            Customer Code (leave blank to number it automatically)
-            <input className={field} name="code" autoComplete="off" />
-          </label>
+          <p className="text-xs text-muted">
+            The Customer Code is assigned automatically when approved.
+          </p>
         ) : null}
         {decision === "duplicate" ? (
           <label className="grid gap-1 text-xs">
@@ -647,7 +646,6 @@ export function StoreGatheringReview({
         {
           captureId: selected.id,
           decision,
-          code: decision === "accept" ? String(f.get("code") ?? "") : null,
           outletId: decision === "duplicate" ? (survivor?.id ?? null) : null,
           ...(decision === "accept" && pinChoice ? { pinChoice } : {}),
           reason: f.get("reason"),

@@ -20,6 +20,7 @@ import {
 import { outletOwnerUnit, territoryOwnerUnit } from "./scope.js";
 import { access } from "./readers.js";
 import { activeUnit, assertUnlocked } from "./commands.js";
+import { ORG_LOCK } from "./identity.js";
 
 /** @typedef {import('./model.js').Ctx} Ctx */
 /** @typedef {import('./model.js').Row} Row */
@@ -471,6 +472,10 @@ export async function assignmentCommand(c, action, b) {
 /** The one store-code allocator (SP-0082); census approval and office Add store reuse it.
  * @param {Ctx} c @param {'provisional'|'customer'} kind */
 export async function allocate(c, kind) {
+  // Customer-profile territory triggers and legacy commands take ORG_LOCK.
+  // Take it before the counter row too, so concurrent creation paths cannot
+  // hold the counter and organization locks in opposite orders.
+  await c.db`select pg_advisory_xact_lock(${ORG_LOCK})`;
   const [settings] =
     await c.db`insert into outlet_code_settings(organization_id,prefix,digits,next_sequence,next_provisional_sequence,updated_by) values('sunpride','SP',6,1,1,${c.actor?.subject}) on conflict(organization_id) do update set organization_id=excluded.organization_id returning *`;
   const field =
@@ -484,8 +489,11 @@ export async function allocate(c, kind) {
     await update(c.db, "outlet_code_settings", settings.id, {
       [field]: sequence + 1,
     });
+    // Reserve numbers already used by stores OR accounting customers, including
+    // inactive/deleted history. An unlinked imported account is not a new customer.
     const exists =
-      await c.db`select id from outlets where code=${value} and organization_id='sunpride'`;
+      await c.db`select id from outlets where code=${value} and organization_id='sunpride'
+        union all select id from customers where code=${value} limit 1`;
     if (!exists.length) return value;
   }
   rule("Unable to allocate a store code");

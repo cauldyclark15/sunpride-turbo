@@ -427,9 +427,6 @@ function EditorBody({
             `/api/v1/customers/${encodeURIComponent(customer.id)}`,
             {
               customer: customerBody,
-              ...(draft.code.trim() && draft.code.trim() !== customer.code
-                ? { code: draft.code.trim() }
-                : {}),
             },
             {
               method: "PUT",
@@ -442,7 +439,6 @@ function EditorBody({
             {
               custodianOrgUnitId: custodian,
               customer: customerBody,
-              ...(draft.code.trim() ? { code: draft.code.trim() } : {}),
             },
             {
               idempotencyKey: saveKey.current,

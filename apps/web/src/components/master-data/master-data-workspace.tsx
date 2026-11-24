@@ -172,7 +172,8 @@ export function MasterDataWorkspace({
         reason = String(data.get("reason") ?? "").trim(),
         code = String(data.get("code") ?? "").trim();
       if (!name) throw new Error("Name is required.");
-      if (!selected && !code) throw new Error("Code is required.");
+      if (!selected && editing.kind === "products" && !code)
+        throw new Error("Code is required.");
       const active = data.get("active") === "on";
       if (editing.kind === "products")
         await saveProduct({
@@ -195,7 +196,7 @@ export function MasterDataWorkspace({
             "Enter a peso credit limit with at most two decimal places.",
           );
         await saveCustomer({
-          ...(selected ? { customerId: selected.id } : { code }),
+          ...(selected ? { customerId: selected.id } : {}),
           name,
           channel: String(data.get("channel")),
           territory: String(data.get("territory")),
@@ -509,7 +510,15 @@ export function MasterDataWorkspace({
             onSubmit={submit}
             className="grid gap-3 sm:grid-cols-2"
           >
-            {!selected ? (
+            {editing.kind === "customers" ? (
+              <FormField label="Customer Code">
+                <input
+                  value={selected?.code ?? ""}
+                  readOnly
+                  placeholder="Assigned when saved"
+                />
+              </FormField>
+            ) : !selected ? (
               <FormField label="Code">
                 <input name="code" required />
               </FormField>

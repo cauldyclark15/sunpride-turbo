@@ -637,10 +637,13 @@ test("SP-0162 address-search capture: no Google in sync; job verifies within 50 
   const chosen = await as("manager", "/api/v1/masters/census/review", {
     captureId: far.captureId,
     decision: "accept",
+    code: "TYPED-NUMBER",
     pinChoice: "device",
     reason: "Agent's pin is right; confirmed with the owner",
   });
   expect(chosen.status).toBe(200);
+  expect(chosen.body.code).toMatch(/^SP\d{6}$/);
+  expect(chosen.body.code).not.toBe("TYPED-NUMBER");
   const [pin] =
     await h.db`select * from outlet_pins where outlet_id=${chosen.body.outletId}`;
   expect(pin.latitude).toBe(10.3184);
@@ -957,7 +960,7 @@ test("SP-0162 office Add store uses the outlet writer, proposes the office pin f
   expect(noPin.status).toBe(422);
 });
 
-test("WEB-050: office Add store keeps a supplied code, numbers a blank one, and refuses a reused code in words", async () => {
+test("SP-0239: office Add store always assigns a unique number, ignoring supplied or reused numbers", async () => {
   const setup = await as("admin", "/api/v1/masters/store-setup");
   const sub = setup.body.subchannels[0];
   /** @param {string} name @param {string|null} code @param {string} phone */
@@ -976,14 +979,17 @@ test("WEB-050: office Add store keeps a supplied code, numbers a blank one, and 
     });
   const first = await add("Code Kept Store", "TST-WEB-0001", "0917 000 5551");
   expect(first.status).toBe(200);
-  expect(first.body.code).toBe("TST-WEB-0001");
+  expect(first.body.code).toMatch(/^SP\d{6}$/);
   const blank = await add("Code Numbered Store", null, "0917 000 5552");
   expect(blank.status).toBe(200);
   expect(blank.body.code).toMatch(/^SP\d{6}$/);
   const again = await add("Code Reused Store", "TST-WEB-0001", "0917 000 5553");
-  expect(again.status).toBe(422);
-  expect(again.text).toContain("Store code TST-WEB-0001 is already used");
+  expect(again.status).toBe(200);
+  expect(again.body.code).toMatch(/^SP\d{6}$/);
+  expect(
+    new Set([first.body.code, blank.body.code, again.body.code]).size,
+  ).toBe(3);
   const rows =
-    await h.db`select count(*)::int n from outlets where code='TST-WEB-0001' or name='Code Reused Store'`;
-  expect(rows[0].n).toBe(1);
+    await h.db`select count(*)::int n from outlets where code='TST-WEB-0001'`;
+  expect(rows[0].n).toBe(0);
 });
