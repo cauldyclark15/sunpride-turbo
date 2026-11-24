@@ -258,9 +258,11 @@ export function CaptureDetail({
         <div>
           <dt className="text-xs text-muted">Location</dt>
           <dd>
-            {capture.location_source === "places"
-              ? "Pin from the address the agent searched"
-              : `Phone location, accurate to about ${Math.round(capture.accuracy_meters ?? 0)} m`}
+            {capture.latitude == null || capture.longitude == null
+              ? "Location not confirmed"
+              : capture.location_source === "places"
+                ? "Pin from the address the agent searched"
+                : `Phone location, accurate to about ${Math.round(capture.accuracy_meters ?? 0)} m`}
           </dd>
           {capture.location_status === "pending" ? (
             <dd className="text-xs text-muted" role="status">
@@ -776,10 +778,14 @@ export function StoreGatheringReview({
             onClose={() => setSelectedId(null)}
             map={
               <PinMap
-                pin={{
-                  latitude: selected.latitude,
-                  longitude: selected.longitude,
-                }}
+                pin={
+                  selected.latitude != null && selected.longitude != null
+                    ? {
+                        latitude: selected.latitude,
+                        longitude: selected.longitude,
+                      }
+                    : null
+                }
                 others={[
                   ...candidatePoints(candidates),
                   ...(selected.location_status === "mismatch" &&

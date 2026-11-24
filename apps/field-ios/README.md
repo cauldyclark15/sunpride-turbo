@@ -85,11 +85,12 @@ the store name) gathers a new store for the office to check: store name, owner n
 class A–D, a storefront photo (long edge 800 px, JPEG ≤ 160 KiB, no EXIF) and the store location. Same behaviour as
 Android SP-0163; the spec is `_plans/sunpride-inv-pos/CG-CONTRACT.md`. On in the beta (`FieldFeature.storeGathering`).
 
-- **Use my location**: the visit check-in location code (`LocationCapture`) takes a fresh fix; it is used only when it is
-  not simulated, better than ±50 m and within 2 minutes of the save time (otherwise "Move outside or wait for a better
-  signal" and **Try again**). The accuracy is shown ("±12 m"). Online, `GET /api/v1/places/reverse` fills the address and
-  the barangay/city line for the agent to confirm; offline the fix is kept and the note says "Saved with your location;
-  the address can be fixed later".
+- **Use my location** (SP-0243): the customer capture keeps the best non-simulated reading within ±500 m
+  and 30 minutes of the save time, including a cached reading. Retrying never replaces a better eligible reading
+  with a worse one. No usable reading does not block Save: the capture is queued without a pin and the office
+  sees **Location not confirmed**. Save never waits for another reading; ordinary visit checks are unchanged.
+  Online, `GET /api/v1/places/reverse` can fill the address for the agent to confirm; offline the fix is kept.
+  Age is checked against capture time when sent later, not against the time it finally reaches the office.
 - **Search address** (only when `census-config.addressSearch` is true): suggestions from `GET /api/v1/places/autocomplete`
   after 3 characters, 300 ms debounce, one session UUID per search, biased to the last fix; a pick calls
   `/api/v1/places/details` and shows "Pin from address". Offline: "Address search needs internet. Use my location instead."

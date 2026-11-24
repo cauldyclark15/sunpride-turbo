@@ -554,7 +554,7 @@ async function carryProposerAssignment(c, enrolment, outletId) {
   });
 }
 
-/** @param {Ctx} c @param {string} action @param {Row} b */
+/** @param {Ctx & {app?: string}} c @param {string} action @param {Row} b */
 export async function enrolmentCommand(c, action, b) {
   const actor = await requireCapability(
     c,
@@ -611,7 +611,13 @@ export async function enrolmentCommand(c, action, b) {
       };
     }
     const fields = profileFields(b);
-    validatePin(b);
+    // SP-0243: only a field customer capture may omit its pin; never invent coordinates.
+    const noPin =
+      ["field-android", "field-ios"].includes(c.app ?? "") &&
+      b.customer &&
+      b.latitude == null &&
+      b.longitude == null;
+    if (!noPin) validatePin(b);
     const photos = [
       ...new Set(/** @type {string[]} */ (b.photoStorageIds ?? [])),
     ];
@@ -637,19 +643,21 @@ export async function enrolmentCommand(c, action, b) {
     await saveContacts(c, outlet.id, [
       { name: b.contactName, phone: b.contactPhone },
     ]);
-    const pin = await insert(c.db, "outlet_pins", {
-      outlet_id: outlet.id,
-      latitude: b.latitude,
-      longitude: b.longitude,
-      radius_meters: 75,
-      source: "new_store_enrolment",
-      evidence_storage_id: photos[0] ?? b.cisStorageId,
-      evidence_note: b.note,
-      status: "pending",
-      effective_from: instant(c.now),
-      proposed_by: actor.subject,
-      proposed_at: instant(c.now),
-    });
+    const pin = noPin
+      ? null
+      : await insert(c.db, "outlet_pins", {
+          outlet_id: outlet.id,
+          latitude: b.latitude,
+          longitude: b.longitude,
+          radius_meters: 75,
+          source: "new_store_enrolment",
+          evidence_storage_id: photos[0] ?? b.cisStorageId,
+          evidence_note: b.note,
+          status: "pending",
+          effective_from: instant(c.now),
+          proposed_by: actor.subject,
+          proposed_at: instant(c.now),
+        });
     if (b.territoryId)
       await insert(c.db, "outlet_assignments", {
         outlet_id: outlet.id,
@@ -663,7 +671,8 @@ export async function enrolmentCommand(c, action, b) {
       outlet_id: outlet.id,
       org_unit_id: unit,
       territory_id: b.territoryId,
-      pin_id: pin.id,
+      pin_id: pin?.id ?? null,
+      location_evidence: b.locationEvidence ?? null,
       status: "pending",
       provisional_code: provisionalCode,
       cis_storage_id: b.cisStorageId,
@@ -716,8 +725,8 @@ export async function enrolmentCommand(c, action, b) {
     const { checkEnrollment } = await import("../masters/enrollment-form.js");
     await checkEnrollment(c.db, await readCustomer(c.db, outlet.id));
     assigned = await allocate(c, "customer");
-    const pin = await get(c.db, "outlet_pins", row.pin_id);
-    if (pin.status === "pending")
+    const pin = row.pin_id ? await get(c.db, "outlet_pins", row.pin_id) : null;
+    if (pin?.status === "pending")
       await pinCommand(c, "decide", {
         pinId: pin.id,
         decision: "verified",
@@ -740,8 +749,8 @@ export async function enrolmentCommand(c, action, b) {
       await update(c.db, "outlet_assignments", a.id, {
         effective_to: instant(Math.max(c.now, ms(a.effective_from) ?? c.now)),
       });
-    const pin = await get(c.db, "outlet_pins", row.pin_id);
-    if (pin.status === "pending")
+    const pin = row.pin_id ? await get(c.db, "outlet_pins", row.pin_id) : null;
+    if (pin?.status === "pending")
       await pinCommand(c, "decide", {
         pinId: pin.id,
         decision: "rejected",

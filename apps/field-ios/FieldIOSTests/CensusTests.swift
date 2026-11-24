@@ -194,13 +194,13 @@ final class CensusCaptureTests: XCTestCase {
 
     // Live test 2026-11-09: Save names every missing field, top first.
     func testMissingListsEveryRequiredFieldInFormOrder() throws {
-        XCTAssertEqual(CensusCapture.missing(CensusCapture.Draft()), CensusCapture.Field.allCases)
+        XCTAssertEqual(CensusCapture.missing(CensusCapture.Draft()), CensusCapture.Field.allCases.filter { $0 != .location })
         var d = try draft()
         XCTAssertEqual(CensusCapture.missing(d), [])
         d.ownerName = " "; d.subchannelId = nil
         XCTAssertEqual(CensusCapture.missing(d), [.owner, .subchannel])
         d = try draft(); d.ownerPhone = "123"; d.location = nil
-        XCTAssertEqual(CensusCapture.missing(d), [.phone, .location])
+        XCTAssertEqual(CensusCapture.missing(d), [.phone])
         XCTAssertEqual(CensusCapture.Field.channel.message, "Choose a channel")
         XCTAssertEqual(CensusCapture.missingSummary(2), "Fill in the 2 fields marked above")
         XCTAssertEqual(CensusCapture.missingSummary(1), "Fill in the field marked above")
@@ -210,8 +210,8 @@ final class CensusCaptureTests: XCTestCase {
 
     func testStaleFixAndMovedRules() throws {
         let now = Int64(clock.now.timeIntervalSince1970 * 1000)
-        XCTAssertFalse(CensusCapture.fixIsStale(try fix(ageMs: 120_000), at: now))
-        XCTAssertTrue(CensusCapture.fixIsStale(try fix(ageMs: 120_001), at: now))
+        XCTAssertFalse(CensusCapture.fixIsStale(try fix(ageMs: 1_800_000), at: now))
+        XCTAssertTrue(CensusCapture.fixIsStale(try fix(ageMs: 1_800_001), at: now))
         let a = try VisitLocation(latitude: 10.3157, longitude: 123.8854, accuracyMeters: 5, fixTime: now)
         let near = try VisitLocation(latitude: 10.3160, longitude: 123.8854, accuracyMeters: 5, fixTime: now) // ~33 m
         let far = try VisitLocation(latitude: 10.3163, longitude: 123.8854, accuracyMeters: 5, fixTime: now)  // ~67 m
@@ -224,11 +224,11 @@ final class CensusCaptureTests: XCTestCase {
         let at = Int64(now.timeIntervalSince1970 * 1000)
         guard case .captured(let first) = LocationCapture.stubOutcome("stale", now: now) else { return XCTFail() }
         XCTAssertTrue(CensusCapture.gpsUsable(first, at: at)); XCTAssertFalse(first.mockSignal)
-        XCTAssertTrue(CensusCapture.fixIsStale(first, at: at + 10_000))
+        XCTAssertFalse(CensusCapture.fixIsStale(first, at: at + 10_000))
         guard case .captured(let fresh) = LocationCapture.stubOutcome("stale-moved", now: now, refresh: true) else { return XCTFail() }
         XCTAssertTrue(CensusCapture.movedTooFar(first, fresh))
         guard case .captured(let weak) = LocationCapture.stubOutcome("stale-fail", now: now, refresh: true) else { return XCTFail() }
-        XCTAssertFalse(CensusCapture.gpsUsable(weak, at: at))
+        XCTAssertTrue(CensusCapture.gpsUsable(weak, at: at))
     }
 
     func testRefusesWeakMockOldFixesAndBadInput() throws {
@@ -236,11 +236,11 @@ final class CensusCaptureTests: XCTestCase {
             var d = try draft(); try change(&d)
             do { _ = try CensusCapture.payload(d, now: clock.now); return nil } catch { return error as? CensusCapture.Failure }
         }
-        XCTAssertEqual(try refused { $0.location = .gps(try fix(accuracy: 50)) }, .location, "must be under 50 m")
+        XCTAssertNil(try refused { $0.location = .gps(try fix(accuracy: 500)) })
         XCTAssertNil(try refused { $0.location = .gps(try fix(accuracy: 49.9)) })
-        XCTAssertEqual(try refused { $0.location = .gps(try fix(mock: true)) }, .location)
-        XCTAssertEqual(try refused { $0.location = .gps(try fix(ageMs: 121_000)) }, .location, "fix within 2 min")
-        XCTAssertEqual(try refused { $0.location = nil }, .location)
+        XCTAssertNil(try refused { $0.location = .gps(try fix(mock: true)) }, "unusable evidence is omitted, not a Save refusal")
+        XCTAssertNil(try refused { $0.location = .gps(try fix(ageMs: 1_800_000)) })
+        XCTAssertNil(try refused { $0.location = nil })
         XCTAssertEqual(try refused { $0.photo = nil }, .photo)
         XCTAssertEqual(try refused { $0.photo = Data([0xFF, 0xD8] + [UInt8](repeating: 0, count: 160 * 1024) + [0xFF, 0xD9]) }, .photo, "≤ 160 KiB")
         XCTAssertEqual(try refused { $0.photo = Data("not a jpeg".utf8) }, .photo)
@@ -283,6 +283,24 @@ final class CensusCaptureTests: XCTestCase {
         XCTAssertNil(a.province)
         XCTAssertEqual(Set(a.components.keys), ["street", "barangay", "city"])
         XCTAssertNil(PlaceAddress(wire: ["components": [:]]))
+    }
+
+    func testWeakOldMissingAndExpiredLocationsQueueWithoutFabricatedPins() throws {
+        let now = Int64(clock.now.timeIntervalSince1970 * 1000)
+        let weak = try fix(accuracy: 500, ageMs: 1_800_000)
+        let strong = try fix(accuracy: 20, ageMs: 600_000)
+        XCTAssertEqual(CensusCapture.bestFix(strong, weak, at: now), strong)
+        XCTAssertEqual(CensusCapture.bestFix(strong, nil, at: now), strong)
+        XCTAssertEqual(CensusCapture.bestFix(weak, strong, at: now), strong)
+        for reading in [weak, nil, try fix(accuracy: 501), try fix(ageMs: 1_800_001)] {
+            var d = try draft(); d.location = reading.map(CensusCapture.Location.gps)
+            let p = try CensusCapture.payload(d, now: clock.now)
+            XCTAssertTrue(CensusCapture.validStored(p, now: clock.now))
+            if reading == weak { XCTAssertNotNil(p["location"] as? [String: Any]) }
+            else { XCTAssertTrue(p["location"] is NSNull) }
+            try model.queueCensus(d)
+        }
+        XCTAssertEqual(try store.pendingOutbox(for: partition).count, 4)
     }
 
     func testQueuesOfflineInTheEncryptedOutboxAndShowsSaved() throws {

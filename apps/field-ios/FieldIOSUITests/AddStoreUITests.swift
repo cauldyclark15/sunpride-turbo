@@ -164,17 +164,32 @@ final class AddStoreUITests: XCTestCase {
         XCTAssertFalse(app.descendants(matching: .any)["addStoreSaved"].firstMatch.exists, "nothing queued")
     }
 
-    func testWeakSignalAsksToMoveOutside() {
+    func testWeakSignalIsKeptAndTheCustomerCanBeSaved() {
         let app = launch("registers", ["FIELD_STUB_LOCATION": "weak"])
         signIn(app)
         openAddStore(app)
+        fillDetails(app, name: "Weak signal store")
         tapButton(app, "addStoreUseLocation")
-        let problem = app.staticTexts["addStoreGpsProblem"]
-        XCTAssertTrue(problem.waitForExistence(timeout: 10))
-        XCTAssertTrue(problem.label.contains("±120 m"), problem.label)
-        XCTAssertTrue(problem.label.contains("Move outside or wait for a better signal"), problem.label)
-        XCTAssertTrue(app.buttons["addStoreGpsRetry"].exists)
-        shot(app, "weak-signal")
+        XCTAssertTrue(app.staticTexts["Your location · ±120 m"].waitForExistence(timeout: 10))
+        XCTAssertFalse(app.staticTexts["addStoreGpsProblem"].exists)
+        dismissKeyboard(app)
+        tapButton(app, "addStorePhoto")
+        shot(app, "weak-signal-kept")
+        saveAndExpectQueued(app)
+    }
+
+    func testNoLocationStillSavesForSendingLater() {
+        let app = launch("registers", ["FIELD_STUB_LOCATION": "off"])
+        signIn(app)
+        openAddStore(app)
+        fillDetails(app, name: "No signal store")
+        tapButton(app, "addStoreUseLocation")
+        XCTAssertTrue(app.staticTexts["addStoreGpsProblem"].waitForExistence(timeout: 10))
+        XCTAssertTrue(app.staticTexts["addStoreGpsProblem"].label.contains("Location not confirmed"))
+        type(app, "addStoreAddress", "12 Sample Street")
+        dismissKeyboard(app)
+        tapButton(app, "addStorePhoto")
+        saveAndExpectQueued(app)
     }
 
     func testOfflineUsesTheSavedSetupAndQueuesTheStore() {
@@ -293,13 +308,13 @@ final class AddStoreUITests: XCTestCase {
         app.buttons["addStoreSave"].tap()
         let owner = app.staticTexts["addStoreMissing-owner"]
         XCTAssertTrue(owner.waitForExistence(timeout: 5), "first missing field marked")
-        for f in ["channel", "subchannel", "location", "address"] {
+        for f in ["channel", "subchannel", "address"] {
             XCTAssertTrue(app.staticTexts["addStoreMissing-\(f)"].exists, f)
         }
         XCTAssertFalse(app.staticTexts["addStoreMissing-name"].exists)
         XCTAssertFalse(app.staticTexts["addStoreMissing-photo"].exists)
         XCTAssertEqual(app.staticTexts["addStoreMissing-channel"].label, "Choose a channel")
-        XCTAssertEqual(app.staticTexts["addStoreSaveNote"].label, "Fill in the 5 fields marked above")
+        XCTAssertEqual(app.staticTexts["addStoreSaveNote"].label, "Fill in the 4 fields marked above")
         // Scrolled up to the owner field: on screen, above the Save bar.
         let deadline = Date().addingTimeInterval(3)
         while !owner.isHittable && Date() < deadline { usleep(100_000) }
@@ -310,7 +325,7 @@ final class AddStoreUITests: XCTestCase {
         let gone = Date().addingTimeInterval(3)
         while owner.exists && Date() < gone { usleep(100_000) }
         XCTAssertFalse(owner.exists, "filling a field clears its mark")
-        XCTAssertEqual(app.staticTexts["addStoreSaveNote"].label, "Fill in the 4 fields marked above")
+        XCTAssertEqual(app.staticTexts["addStoreSaveNote"].label, "Fill in the 3 fields marked above")
     }
 
     /// Wait until the stub's 115-s-old fix passes the two-minute rule, then Save.
@@ -333,78 +348,52 @@ final class AddStoreUITests: XCTestCase {
         return app
     }
 
-    func testStaleFixIsRefreshedOnSaveAndKeepsTheConfirmedAddress() {
-        let app = staleSetup("stale")
+    private func saveAndExpectQueued(_ app: XCUIApplication) {
         app.buttons["addStoreSave"].tap()
-        let checking = app.buttons["Checking your location…"]
-        XCTAssertTrue(checking.waitForExistence(timeout: 3), "busy label while refreshing")
-        shot(app, "ux-checking-location")
-        XCTAssertTrue(app.staticTexts["duplicateTitle"].waitForExistence(timeout: 10) || app.staticTexts["addStoreMessage"].waitForExistence(timeout: 1))
-        if app.buttons["duplicateDifferent"].exists { app.buttons["duplicateDifferent"].tap() }
-        let message = app.staticTexts["addStoreMessage"]
-        XCTAssertTrue(message.waitForExistence(timeout: 5))
-        XCTAssertTrue(message.label.contains("saved on this phone"), message.label)
-        XCTAssertFalse(app.staticTexts["movedTitle"].exists, "11 m: the confirmed address is kept")
-    }
-
-    func testStaleFixThatMovedFarAsksToConfirmTheNewAddress() {
-        let app = staleSetup("stale-moved")
-        app.buttons["addStoreSave"].tap()
-        XCTAssertTrue(app.staticTexts["movedTitle"].waitForExistence(timeout: 10), "100 m: ask to confirm")
-        XCTAssertEqual(app.staticTexts["movedAddress"].label, "8 Osmeña Boulevard, Barangay Dos, Cebu City")
-        shot(app, "ux-location-moved")
-        app.buttons["movedUseNew"].tap()
-        if app.buttons["duplicateDifferent"].waitForExistence(timeout: 8) { app.buttons["duplicateDifferent"].tap() }
-        let message = app.staticTexts["addStoreMessage"]
-        XCTAssertTrue(message.waitForExistence(timeout: 5))
-        XCTAssertTrue(message.label.contains("saved on this phone"), message.label)
-    }
-
-    func testStaleFixThatCannotBeRefreshedShowsThePlainMessageAndRetry() {
-        let app = staleSetup("stale-fail")
-        app.buttons["addStoreSave"].tap()
-        XCTAssertTrue(app.buttons["addStoreSaveRetry"].waitForExistence(timeout: 10))
-        XCTAssertEqual(app.staticTexts["addStoreSaveNote"].label, "Couldn't get your location. Move to an open spot and tap Try again.")
-        XCTAssertFalse(app.descendants(matching: .any)["addStoreSaved"].firstMatch.exists, "nothing queued")
-    }
-
-    /// Review fix: a double tap on Save while the stale fix is refreshed runs one save, not two.
-    func testDoubleTapSaveDuringRefreshRunsOneSave() {
-        let app = staleSetup("stale", doubleTap: true)
-        app.buttons["addStoreSave"].tap()
-        XCTAssertTrue(app.buttons["Checking your location…"].waitForExistence(timeout: 3))
-        // The old code ran a second save that hit the busy fix and showed the failure note + Try again.
-        XCTAssertFalse(app.buttons["addStoreSaveRetry"].waitForExistence(timeout: 1.5), "no second save failing beside the first")
+        if app.buttons["duplicateDifferent"].waitForExistence(timeout: 5) { app.buttons["duplicateDifferent"].tap() }
         let message = app.staticTexts["addStoreMessage"]
         XCTAssertTrue(message.waitForExistence(timeout: 10))
         XCTAssertTrue(message.label.contains("saved on this phone"), message.label)
         XCTAssertFalse(app.buttons["addStoreSaveRetry"].exists)
-        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "addStoreSaved").count, 1, "one store queued")
+        XCTAssertFalse(app.staticTexts["movedTitle"].exists)
+        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "addStoreSaved").count, 1)
     }
 
-    /// Review fix: leaving during "Checking your location…" cancels the save; nothing is queued later.
-    func testLeavingDuringRefreshQueuesNothing() {
+    func testOlderReadingSavesWithoutRefreshingOrChangingTheAddress() {
         let app = staleSetup("stale")
-        app.buttons["addStoreSave"].tap()
-        XCTAssertTrue(app.buttons["Checking your location…"].waitForExistence(timeout: 3))
+        saveAndExpectQueued(app)
+        XCTAssertFalse(app.buttons["Checking your location…"].exists)
+    }
+
+    func testSaveKeepsTheReadingRatherThanRequestingADifferentSpot() {
+        let app = staleSetup("stale-moved")
+        saveAndExpectQueued(app)
+        XCTAssertFalse(app.staticTexts["movedAddress"].exists)
+    }
+
+    func testSaveDoesNotNeedAnotherReadingWhenTheNextAttemptWouldFail() {
+        let app = staleSetup("stale-fail")
+        saveAndExpectQueued(app)
+        XCTAssertFalse(app.staticTexts["addStoreSaveNote"].exists)
+    }
+
+    func testDoubleTapWithAnOlderReadingQueuesOnce() {
+        let app = staleSetup("stale", doubleTap: true)
+        saveAndExpectQueued(app)
+        XCTAssertFalse(app.staticTexts["addStoreSaveNote"].exists)
+    }
+
+    func testLeavingBeforeSaveQueuesNothing() {
+        let app = staleSetup("stale")
         app.buttons["BackButton"].tap()
         XCTAssertTrue(app.buttons["openAddStore"].waitForExistence(timeout: 5))
-        sleep(4) // past the 2-s stub fix: the old code saved here, in the background.
         openAddStore(app)
-        sleep(1)
-        XCTAssertFalse(app.descendants(matching: .any)["addStoreSaved"].firstMatch.exists, "nothing queued after leaving")
+        XCTAssertFalse(app.descendants(matching: .any)["addStoreSaved"].firstMatch.exists)
     }
 
-    /// Review fix: the "Your location changed" buttons save once even on a double tap.
-    func testMovedSheetDoubleTapSavesOnce() {
+    func testDoubleTapNeverRequiresAMovedLocationDecision() {
         let app = staleSetup("stale-moved", doubleTap: true)
-        app.buttons["addStoreSave"].tap()
-        XCTAssertTrue(app.staticTexts["movedTitle"].waitForExistence(timeout: 10))
-        app.buttons["movedKeep"].tap()
-        let message = app.staticTexts["addStoreMessage"]
-        XCTAssertTrue(message.waitForExistence(timeout: 8))
-        sleep(2)
-        XCTAssertEqual(app.descendants(matching: .any).matching(identifier: "addStoreSaved").count, 1, "one store queued")
-        XCTAssertFalse(app.staticTexts["addStoreSaveNote"].exists, "no second save on the emptied form")
+        saveAndExpectQueued(app)
+        XCTAssertFalse(app.staticTexts["movedTitle"].exists)
     }
 }

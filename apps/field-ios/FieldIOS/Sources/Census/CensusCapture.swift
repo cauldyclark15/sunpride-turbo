@@ -184,8 +184,9 @@ final class ServerCensusService: CensusService {
 enum CensusCapture {
     static let kind = "census.capture"
     static let maxPhotoBytes = 160 * 1024
-    static let maxAccuracyMeters = 50.0
-    static let maxFixSkewMs: Int64 = 120_000
+    static let maxAccuracyMeters = 500.0
+    static let maxFixSkewMs: Int64 = 1_800_000
+    static let unconfirmed = "Location not confirmed. You can still save this customer."
 
     enum Failure: Error, Equatable {
         case details, phone, channel, batch, location, photo, landmark
@@ -195,7 +196,7 @@ enum CensusCapture {
             case .phone: "Enter the owner's full phone number."
             case .channel: "Choose a channel and sub-channel."
             case .batch: "Choose a gathering batch."
-            case .location: "Set the store location: use your location (better than ±50 m) or search the address."
+            case .location: "Try Use my location again, or save without a location."
             case .photo: "Take a storefront photo."
             case .landmark: "Keep the landmark under 200 characters."
             }
@@ -226,7 +227,17 @@ enum CensusCapture {
     }
 
     static func gpsUsable(_ fix: VisitLocation, at: Int64) -> Bool {
-        !fix.mockSignal && fix.accuracyMeters > 0 && fix.accuracyMeters < maxAccuracyMeters && abs(at - fix.fixTime) <= maxFixSkewMs
+        !fix.mockSignal && fix.provider != "unknown" && fix.accuracyMeters > 0 && fix.accuracyMeters <= maxAccuracyMeters &&
+            fix.fixTime <= at + 120_000 && fix.fixTime >= at - maxFixSkewMs
+    }
+
+    /// Keep the best eligible reading, including an earlier cached reading when a retry fails.
+    static func bestFix(_ current: VisitLocation?, _ candidate: VisitLocation?, at: Int64) -> VisitLocation? {
+        let old = current.flatMap { gpsUsable($0, at: at) ? $0 : nil }
+        guard let next = candidate, gpsUsable(next, at: at) else { return old }
+        guard let old else { return next }
+        return next.accuracyMeters < old.accuracyMeters ||
+            (next.accuracyMeters == old.accuracyMeters && next.fixTime > old.fixTime) ? next : old
     }
 
     private static func isUUID(_ s: String) -> Bool { s.count == 36 && UUID(uuidString: s) != nil }
@@ -256,7 +267,6 @@ enum CensusCapture {
         if d.ownerPhone.filter({ $0.isASCII && $0.isNumber }).count < 7 { out.append(.phone) }
         if !(d.channelId.map(isUUID) ?? false) { out.append(.channel) }
         if !(d.subchannelId.map(isUUID) ?? false) { out.append(.subchannel) }
-        if d.location == nil { out.append(.location) }
         if t(d.address).isEmpty { out.append(.address) }
         if d.photo == nil { out.append(.photo) }
         return out
@@ -264,7 +274,7 @@ enum CensusCapture {
     static func missingSummary(_ count: Int) -> String {
         count == 1 ? "Fill in the field marked above" : "Fill in the \(count) fields marked above"
     }
-    /// Same two-minute rule as `gpsUsable`.
+    /// Customer readings stay eligible for thirty minutes.
     static func fixIsStale(_ fix: VisitLocation, at: Int64) -> Bool { abs(at - fix.fixTime) > maxFixSkewMs }
     static let movedMeters = 50.0
     /// The refreshed point moved far enough that the agent must check the address again.
@@ -292,8 +302,8 @@ enum CensusCapture {
         if let batch = batchId { p["batchId"] = batch }
         switch d.location {
         case .gps(let fix)?:
-            guard gpsUsable(fix, at: at) else { throw Failure.location }
             p["locationSource"] = "gps"
+            guard gpsUsable(fix, at: at) else { p["location"] = NSNull(); break }
             p["location"] = ["latitude": fix.latitude, "longitude": fix.longitude, "accuracyMeters": fix.accuracyMeters,
                              "provider": fix.provider, "mockSignal": false, "fixTime": fix.fixTime]
         case .places(let place)?:
@@ -301,7 +311,7 @@ enum CensusCapture {
             p["locationSource"] = "places"
             p["placeId"] = place.placeId
             p["location"] = ["latitude": place.latitude, "longitude": place.longitude]
-        case nil: throw Failure.location
+        case nil: p["locationSource"] = "gps"; p["location"] = NSNull()
         }
         if let r = d.resolved {
             p["addressComponents"] = r.components
@@ -323,21 +333,25 @@ enum CensusCapture {
     static func validStored(_ payload: [String: Any], now: Date) -> Bool {
         guard let id = payload["captureId"] as? String, UUID(uuidString: id) != nil,
               let at = (payload["deviceTime"] as? NSNumber)?.int64Value,
-              abs(Int64(now.timeIntervalSince1970 * 1000) - at) <= maxFixSkewMs,
+              abs(Int64(now.timeIntervalSince1970 * 1000) - at) <= 120_000,
               let photo = (payload["photoJpegBase64"] as? String).flatMap({ Data(base64Encoded: $0) }),
-              isJpeg(photo), photo.count <= maxPhotoBytes,
-              let l = payload["location"] as? [String: Any],
-              let lat = (l["latitude"] as? NSNumber)?.doubleValue, let lng = (l["longitude"] as? NSNumber)?.doubleValue,
-              lat.isFinite, abs(lat) <= 90, lng.isFinite, abs(lng) <= 180 else { return false }
+              isJpeg(photo), photo.count <= maxPhotoBytes else { return false }
+        let l = payload["location"] as? [String: Any]
+        if let l {
+            guard let lat = (l["latitude"] as? NSNumber)?.doubleValue, let lng = (l["longitude"] as? NSNumber)?.doubleValue,
+                  lat.isFinite, abs(lat) <= 90, lng.isFinite, abs(lng) <= 180 else { return false }
+        } else if payload["location"] != nil && !(payload["location"] is NSNull) { return false }
         for key in ["name", "address", "ownerName", "ownerPhone", "channelId", "subchannelId"] {
             guard let v = payload[key] as? String, !v.isEmpty else { return false }
         }
         switch payload["locationSource"] as? String {
-        case "places": return (payload["placeId"] as? String)?.isEmpty == false
+        case "places": return l != nil && (payload["placeId"] as? String)?.isEmpty == false
         case "gps", nil:
-            guard let acc = (l["accuracyMeters"] as? NSNumber)?.doubleValue, acc > 0, acc < maxAccuracyMeters,
+            guard let l else { return true }
+            guard let acc = (l["accuracyMeters"] as? NSNumber)?.doubleValue, acc > 0, acc <= maxAccuracyMeters,
                   l["mockSignal"] as? Bool == false, let fixTime = (l["fixTime"] as? NSNumber)?.int64Value,
-                  abs(at - fixTime) <= maxFixSkewMs else { return false }
+                  ["gps", "network", "fused"].contains(l["provider"] as? String ?? ""),
+                  fixTime > 0, fixTime <= at + 120_000, fixTime >= at - maxFixSkewMs else { return false }
             return true
         default: return false
         }

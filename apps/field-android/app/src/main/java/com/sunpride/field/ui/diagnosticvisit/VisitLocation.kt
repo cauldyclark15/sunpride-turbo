@@ -19,6 +19,8 @@ interface VisitLocation {
     suspend fun fix(): JSONObject?
     /** F-011 reuse the same provider, but do not stop at a fix too weak for census. */
     suspend fun fixWithinAccuracy(maximumMeters: Double): JSONObject? = fix()
+    /** New customers can use a weaker, older cached reading without changing visit checks. */
+    suspend fun customerFix(): JSONObject? = fixWithinAccuracy(com.sunpride.field.census.CustomerLocation.MAX_ACCURACY_METERS)
     /** Fix plus the reason it is missing; fakes that only implement [fix] report NO_FIX. */
     suspend fun capture(): LocationCapture = LocationFix.fromJson(fix())
         ?.let { LocationCapture.Captured(it) } ?: LocationCapture.Unavailable(UnavailableReason.NO_FIX)
@@ -46,7 +48,10 @@ class AndroidVisitLocation(private val context: Context) : VisitLocation {
 
     override suspend fun capture(): LocationCapture = captureTarget(null)
 
-    private suspend fun captureTarget(requiredAccuracy: Double?): LocationCapture {
+    override suspend fun customerFix(): JSONObject? = try { captureTarget(500.0, customer = true).wire }
+        catch (e: CancellationException) { throw e } catch (_: Exception) { null }
+
+    private suspend fun captureTarget(requiredAccuracy: Double?, customer: Boolean = false): LocationCapture {
         val precise = granted(Manifest.permission.ACCESS_FINE_LOCATION)
         val approximate = granted(Manifest.permission.ACCESS_COARSE_LOCATION)
         if (!precise && !approximate) return LocationCapture.Unavailable(UnavailableReason.PERMISSION_DENIED)
@@ -94,9 +99,15 @@ class AndroidVisitLocation(private val context: Context) : VisitLocation {
                         best = candidate
                         break
                     }
-                    val chosen = FixSelector.better(best, candidate, now)
-                    best = chosen
-                    if (FixSelector.reliable(chosen, now, requiredAccuracy)) break
+                    if (customer) {
+                        best = com.sunpride.field.census.CustomerLocation.best(best?.toJson(), candidate.toJson(), now)
+                            ?.let { LocationFix.fromJson(it) }
+                        if (best?.let { FixSelector.reliable(it, now, 50.0) } == true) break
+                    } else {
+                        val chosen = FixSelector.better(best, candidate, now)
+                        best = chosen
+                        if (FixSelector.reliable(chosen, now, requiredAccuracy)) break
+                    }
                 }
             }
         } finally {

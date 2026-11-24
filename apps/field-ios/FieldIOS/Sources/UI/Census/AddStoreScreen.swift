@@ -422,25 +422,21 @@ struct AddStoreScreen: View {
     private func useMyLocation(_ config: CensusConfig) async {
         mode = .gps; gpsProblem = nil; locating = true
         defer { locating = false }
-        let outcome = await locationCapture.capture()
+        let outcome = await locationCapture.capture(forCustomer: true)
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         switch outcome {
-        case .unavailable(let why):
-            gpsProblem = switch why {
-            case .permissionDenied: "Location is off for this app. Allow it in Settings, or search the address."
-            case .locationOff: "Turn on Location Services, or search the address."
-            case .noFix: "No location yet. Move outside or wait for a better signal, then try again."
-            }
+        case .unavailable:
+            gpsProblem = CensusCapture.bestFix(fix, nil, at: now) == nil
+                ? CensusCapture.unconfirmed : "Best available location kept. You can save this customer."
             return
         case .captured(let got):
             lastFix = (got.latitude, got.longitude)
-            if got.mockSignal { gpsProblem = "This location looks simulated and can't be used."; return }
-            guard CensusCapture.gpsUsable(got, at: now) else {
-                gpsProblem = "Signal ±\(Int(got.accuracyMeters.rounded())) m — needs better than ±50 m. Move outside or wait for a better signal, then try again."
+            guard let best = CensusCapture.bestFix(fix, got, at: now) else {
+                gpsProblem = CensusCapture.unconfirmed
                 return
             }
-            fix = got
-            draft.location = .gps(got)
+            fix = best
+            draft.location = .gps(best)
             draft.resolved = nil; areaLine = nil
         }
         guard config.addressSearch, let service = model.censusService, !model.isOffline, let fix else {
@@ -558,34 +554,10 @@ struct AddStoreScreen: View {
             scrollTarget = first; scrollTick += 1
             return
         }
-        // Use my location goes stale after two minutes: get a fresh fix instead of refusing.
-        // Address-search pins are not GPS fixes and keep today's path.
-        if case .gps(let old)? = draft.location, CensusCapture.fixIsStale(old, at: Int64(Date().timeIntervalSince1970 * 1000)) {
-            refreshing = true
-            #if DEBUG
-            LocationCapture.stubSaveRefresh = true
-            #endif
-            let outcome = await locationCapture.capture()
-            if Task.isCancelled { return }
-            refreshing = false
-            guard case .captured(let got) = outcome, CensusCapture.gpsUsable(got, at: Int64(Date().timeIntervalSince1970 * 1000)) else {
-                saveNote = Self.refreshFailed; staleRetry = true
-                return
-            }
-            fix = got; lastFix = (got.latitude, got.longitude)
-            draft.location = .gps(got)
-            if CensusCapture.movedTooFar(old, got) {
-                var address: PlaceAddress?
-                if config?.addressSearch == true, let service = model.censusService, !model.isOffline {
-                    address = (try? await service.reverse(latitude: got.latitude, longitude: got.longitude)) ?? nil
-                    if Task.isCancelled { return }
-                }
-                moved = Moved(meters: CensusDuplicates.distanceMeters(old.latitude, old.longitude, got.latitude, got.longitude) ?? 0,
-                              address: address)
-                saveNote = "Your location changed. Check the address, then save."
-                showingMoved = true
-                return
-            }
+        // SP-0243: Save never waits for GPS. Keep eligible evidence; otherwise send without a pin.
+        if case .gps(let old)? = draft.location,
+           !CensusCapture.gpsUsable(old, at: Int64(Date().timeIntervalSince1970 * 1000)) {
+            draft.location = nil
         }
         // Keep the address text the agent confirmed; drop Google's parts if the agent rewrote the address.
         if draft.address != autoAddress, case .gps? = draft.location { draft.resolved = nil }

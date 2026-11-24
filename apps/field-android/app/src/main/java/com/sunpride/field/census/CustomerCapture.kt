@@ -247,9 +247,8 @@ object CustomerCapture {
             if (!field.required || key == "customerAddress" || (field.adp && f.distributionChannelCode != CustomerMaster.ADP_CHANNEL)) continue
             if (key == "customerGroup1Code" && app?.group1 == false) continue
             if (key == "customerGroup2Code" && (app?.group1 == false || app?.group2 == false)) continue
-            if (key == "coordinates") {
-                if (!hasFix) add(Missing(key, "Tap Use my location to set the ${label(key)}."))
-            } else if (values[key].isNullOrBlank()) {
+            if (key == "coordinates") continue // SP-0243: best-effort location never blocks Save.
+            if (values[key].isNullOrBlank()) {
                 val download = if (key == "barangayCode" && g?.barangaysOf(f.municipalityCode) == null)
                     " Connect once to download this province's barangays." else ""
                 add(Missing(key, "${label(key)} is required.$download"))
@@ -277,7 +276,7 @@ object CustomerCapture {
             "shipToEmail" -> CustomerMaster.shipToField("email")
             else -> CustomerMaster.field(key)
         }
-        return field.label + if (field.required) " *" else ""
+        return field.label + if (field.required && key != "coordinates") " *" else ""
     }
     fun shipTo(f: Form, g: Geography?): Map<String, Any?> = linkedMapOf(
         "sameAsCustomer" to f.sameAsCustomer,
@@ -315,7 +314,7 @@ object CustomerCapture {
     }
 
     /** census.capture payload for a new customer (server: field enrolment + draft customer profile). */
-    fun payload(captureId: String, f: Form, g: Geography?, deviceTime: Long, gpsFix: JSONObject, photo: String,
+    fun payload(captureId: String, f: Form, g: Geography?, deviceTime: Long, gpsFix: JSONObject?, photo: String,
         acknowledged: List<String> = emptyList()): JSONObject {
         val customer = customer(f, g)
         // SP-0196: `name` is the store (Registered Name); the customer object keeps both names as entered.
@@ -323,7 +322,8 @@ object CustomerCapture {
         val p = JSONObject().put("captureId", captureId).put("name", name)
             .put("address", builtAddress(f, g).ifEmpty { name })
             .put("ownerName", normalizeText("contactPerson", f.contactPerson.trim())).put("ownerPhone", f.mobileNo.trim()).put("deviceTime", deviceTime)
-            .put("locationSource", "gps").put("location", gpsFix).put("photoJpegBase64", photo).put("customer", customer)
+            .put("locationSource", "gps").put("location", gpsFix?.takeIf { CustomerLocation.usable(it, deviceTime) } ?: JSONObject.NULL)
+            .put("photoJpegBase64", photo).put("customer", customer)
         if (acknowledged.isNotEmpty()) p.put("acknowledgedDuplicateIds", JSONArray(acknowledged.distinct().take(10)))
         return p
     }
@@ -351,19 +351,17 @@ object CustomerCapture {
             require(extra.length() <= 30) { "Too many additional fields." }
             extra.keys().forEach { key -> require(Regex("cf_[a-f0-9]{32}").matches(key) && extra.get(key) is String && extra.getString(key).length <= 140000) { "Check the additional information." } }
         }
-        val location = p.getJSONObject("location")
-        input["latitude"] = location.getDouble("latitude"); input["longitude"] = location.getDouble("longitude")
+        val location = p.optJSONObject("location")
+        input["latitude"] = location?.getDouble("latitude"); input["longitude"] = location?.getDouble("longitude")
         val errors = CustomerMaster.validate(input, "field", CustomerMaster.ReferenceIndex(emptyList()), null).errors
             // Reference lists are unavailable here; the form and server check conditional groups.
             .filter { it.code !in setOf("invalid_option", "not_for_sales_org", "not_for_channel", "not_for_group1", "not_applicable", "choose_parent_first") &&
-                !(it.code == "required" && it.field in setOf("customerGroup1Code", "customerGroup2Code")) }
+                !(it.code == "required" && it.field in setOf("coordinates", "customerGroup1Code", "customerGroup2Code")) }
         require(errors.isEmpty()) { errors.first().message }
-        val at = p.getLong("deviceTime"); val l = p.getJSONObject("location")
-        require(l.getDouble("latitude").isFinite() && l.getDouble("latitude") in -90.0..90.0)
-        require(l.getDouble("longitude").isFinite() && l.getDouble("longitude") in -180.0..180.0)
-        require(p.optString("locationSource", "gps") == "gps" && l.getDouble("accuracyMeters") > 0 && l.getDouble("accuracyMeters") < 50 &&
-            !l.getBoolean("mockSignal") && l.getString("provider") in listOf("gps", "fused", "network") &&
-            kotlin.math.abs(at - l.getLong("fixTime")) <= 120_000) { "Get a fresh GPS fix with accuracy under 50 m. Mock locations cannot be used." }
+        require(p.optString("locationSource", "gps") == "gps")
+        require(!p.has("location") || p.isNull("location") || CustomerLocation.usable(location, p.getLong("deviceTime"))) {
+            "Try Use my location again, or save without a location."
+        }
         val photo = Base64.getDecoder().decode(p.getString("photoJpegBase64"))
         require(photo.size in 4..CensusRules.MAX_PHOTO_BYTES && photo[0] == 0xff.toByte() && photo[1] == 0xd8.toByte() &&
             photo[photo.size - 2] == 0xff.toByte() && photo.last() == 0xd9.toByte()) { "Take a storefront photo." }

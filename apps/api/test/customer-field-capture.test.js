@@ -267,6 +267,61 @@ test("Add customer capture becomes a prospect customer with a complete pending p
   ).toBe(1);
 });
 
+test("SP-0243 weak, old and absent location save through signed sync, including delayed send and replay", async () => {
+  const at = Date.now() - 3 * 86400000;
+  const weak = {
+    ...capture().location,
+    accuracyMeters: 500,
+    fixTime: at - 1800000,
+  };
+  for (const location of [
+    weak,
+    null,
+    undefined,
+    { ...weak, fixTime: at - 1800001 },
+    { ...weak, accuracyMeters: 501 },
+  ]) {
+    const p = capture({ deviceTime: at, location });
+    const opId = crypto.randomUUID();
+    expect((await rep.push(p, opId)).status).toBe("applied");
+    const [e] =
+      await h.db`select * from outlet_enrolments where client_request_id=${p.captureId}`;
+    const customer = await readCustomer(h.db, e.outlet_id);
+    expect(customer.customerName).toBe(p.customer.customerName);
+    if (location === weak) {
+      expect(customer.latitude).toBe(weak.latitude);
+      expect(customer.pinStatus).toBe("pending");
+      expect(e.location_evidence).toEqual(weak);
+    } else {
+      expect(e.pin_id).toBeNull();
+      expect(customer.latitude).toBeNull();
+      expect(customer.longitude).toBeNull();
+      expect(customer.pinStatus).toBeNull();
+      expect(customer.completeness).toBe("draft");
+      expect(
+        (await h.db`select id from outlet_pins where outlet_id=${e.outlet_id}`)
+          .length,
+      ).toBe(0);
+    }
+    expect(["applied", "duplicate"]).toContain(
+      (await rep.push(p, opId)).status,
+    );
+    expect(
+      (
+        await h.db`select count(*)::int n from outlet_enrolments where client_request_id=${p.captureId}`
+      )[0].n,
+    ).toBe(1);
+  }
+  for (const location of [
+    { ...weak, latitude: 91 },
+    { ...weak, mockSignal: true },
+  ]) {
+    expect((await rep.push(capture({ deviceTime: at, location }))).status).toBe(
+      "rejected",
+    );
+  }
+});
+
 test("SP-0184 agents submit complete profiles directly for manager review, approval or rejection without Admin edits", async () => {
   const password = "sp184-reviewer-test-only-password";
   const email = `cdm-${crypto.randomUUID()}@example.com`;

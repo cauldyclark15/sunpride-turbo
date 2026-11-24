@@ -78,6 +78,30 @@ class CustomerCaptureTest {
         assertTrue(reopened.keep(draft.copy(form = corrected)).clear().saved.isEmpty())
     }
 
+    @Test fun weakOldAndMissingLocationSurviveDraftAndImmutableOutbox() {
+        val now = 2_000_000L
+        val weak = JSONObject(fix.toString()).put("accuracyMeters", 500.0).put("fixTime", now - 1_800_000L)
+        assertTrue(CustomerLocation.usable(weak, now))
+        assertTrue(CustomerCapture.missing(complete(), setup, geography, false, true).isEmpty())
+        assertTrue(CustomerCapture.draftErrors(complete(), setup, geography, null, null).isEmpty())
+        for (reading in listOf(weak, null, JSONObject(weak.toString()).put("fixTime", now - 1_800_001L),
+            JSONObject(weak.toString()).put("accuracyMeters", 501.0))) {
+            val kept = CustomerCapture.parseDraft(CustomerCapture.draftJson(CustomerCapture.Draft(complete(), reading, byteArrayOf(1, 2))))!!
+            assertEquals(complete(), kept.form)
+            val p = CustomerCapture.payload(UUID.randomUUID().toString(), kept.form, geography, now, kept.fix, jpeg)
+            CensusRules.validate(p)
+            val intent = CensusRules.intent(StoreScope("account", "device", "scope"), p, now)
+            val saved = JSONObject(intent.serializedOperation).getJSONObject("payload")
+            assertEquals(plain(p), plain(saved))
+            assertEquals(reading !== weak, saved.isNull("location"))
+        }
+        val strong = JSONObject(weak.toString()).put("accuracyMeters", 30.0)
+        assertSame(strong, CustomerLocation.best(strong, weak, now))
+        assertSame(strong, CustomerLocation.best(strong, null, now))
+        assertSame(strong, CustomerLocation.best(strong, JSONObject(weak.toString()).put("mockSignal", true), now))
+        assertSame(strong, CustomerLocation.best(weak, strong, now))
+    }
+
     @Test fun setupReadsListsAndDefaultsTheAgentsSalesOrganization() {
         assertEquals("1000", setup.salesOrgCode)
         assertEquals(listOf("0702200000"), setup.provinceCodes)
@@ -134,7 +158,7 @@ class CustomerCaptureTest {
         assertEquals(listOf("barangayCode", "postalCode"), missing(bohol))
         assertEquals(listOf("barangayCode"), missing(complete().copy(barangayCode = "")))
         val blank = CustomerCapture.missing(CustomerCapture.Form(), setup, geography, hasFix = false, hasPhoto = false)
-        assertEquals(listOf("registeredName", "customerName", "mobileNo", "taxClassificationCode", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "street1", "postalCode", "coordinates",
+        assertEquals(listOf("registeredName", "customerName", "mobileNo", "taxClassificationCode", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "street1", "postalCode",
             "salesOrgCode", "salesOfficeCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code", "customerGroupCode", "typeOfBusiness",
             "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode", "contactPerson", "photo"), blank.map { it.key })
         assertEquals("Registered Name is required.", blank.first().message)
@@ -328,7 +352,8 @@ class CustomerCaptureTest {
         assertTrue(refused(JSONObject(ok.toString()).also { it.getJSONObject("customer").put("nonsense", "x") }))
         assertTrue(refused(JSONObject(ok.toString()).put("ownerName", " ")))
         assertTrue(refused(JSONObject(ok.toString()).put("photoJpegBase64", "")))
-        assertTrue(refused(JSONObject(ok.toString()).also { it.getJSONObject("location").put("accuracyMeters", 80.0) }))
+        assertFalse(refused(JSONObject(ok.toString()).also { it.getJSONObject("location").put("accuracyMeters", 80.0) }))
+        assertTrue(refused(JSONObject(ok.toString()).also { it.getJSONObject("location").put("accuracyMeters", 501.0) }))
         assertTrue(refused(JSONObject(ok.toString()).also { it.getJSONObject("location").put("mockSignal", true) }))
         assertFalse(refused(ok))
     }

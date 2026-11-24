@@ -647,17 +647,17 @@ test("SP-0162 address-search capture: no Google in sync; job verifies within 50 
   const [pin] =
     await h.db`select * from outlet_pins where outlet_id=${chosen.body.outletId}`;
   expect(pin.latitude).toBe(10.3184);
-  // Missing place id is a plain invalid request; GPS rules unchanged.
+  // Missing place id is a plain invalid request; weaker GPS readings now save.
   expect((await rep.push(capture({ ...base, placeId: undefined }))).code).toBe(
     "invalid_request",
   );
   expect(
     (
       await rep.push(
-        capture({ location: { ...capture().location, accuracyMeters: 50 } }),
+        capture({ location: { ...capture().location, accuracyMeters: 500 } }),
       )
-    ).code,
-  ).toBe("invalid_request");
+    ).status,
+  ).toBe("applied");
   // A second capture at the same place is a "place" duplicate.
   await h.db`delete from rate_limits where bucket_key like 'dupcheck:%'`;
   const check = await as("manager", "/api/v1/masters/census/duplicate-check", {
@@ -668,6 +668,33 @@ test("SP-0162 address-search capture: no Google in sync; job verifies within 50 
     id: later.captureId,
     reasons: ["place"],
   });
+});
+
+test("SP-0243 iOS-style capture without a fix stays visible to the office and never fabricates a pin", async () => {
+  const rep = await fieldRep("field-ios");
+  const p = capture({ location: null });
+  expect((await rep.push(p)).status).toBe("applied");
+  const queue = await as("manager", "/api/v1/masters/census-queue");
+  expect(queue.status).toBe(200);
+  expect(
+    queue.body.rows.find((/** @type {any} */ r) => r.id === p.captureId),
+  ).toMatchObject({
+    latitude: null,
+    longitude: null,
+    accuracy_meters: null,
+    location_status: "unconfirmed",
+  });
+  const accepted = await as("manager", "/api/v1/masters/census/review", {
+    captureId: p.captureId,
+    decision: "accept",
+    reason: "Location can be confirmed later",
+  });
+  expect(accepted.status).toBe(200);
+  expect(
+    (
+      await h.db`select id from outlet_pins where outlet_id=${accepted.body.outletId}`
+    ).length,
+  ).toBe(0);
 });
 
 test("SP-0162 Google down: a places capture and a visit-style op in one push both get final acks", async () => {

@@ -353,15 +353,14 @@ function EditorBody({
               Place a pin to drag
             </button>
           ) : null}
-          {customer?.pinStatus ? (
-            <span className="text-[12px] text-muted">
-              Pin{" "}
-              {customer.pinStatus === "verified"
-                ? "verified"
-                : "waiting for a second person to verify"}
-            </span>
-          ) : null}
         </div>
+      ) : null}
+      {customer ? (
+        <p className="text-[12px] text-muted">
+          {customer.pinStatus === "verified"
+            ? "Pin verified"
+            : "Location not confirmed"}
+        </p>
       ) : null}
       {suggestNote ? (
         <p className="text-[12px] text-muted">{suggestNote}</p>

@@ -187,6 +187,20 @@ beforeEach(() => {
   state.mutate.mockReset().mockResolvedValue(customer(complete()));
 });
 
+it("SP-0243 the office sees Location not confirmed when a customer was saved without a pin", () => {
+  state.customer = {
+    ...customer(complete()),
+    latitude: null,
+    longitude: null,
+    pinStatus: null,
+  };
+  const html = render();
+  expect(html).toContain("Location not confirmed");
+  expect(html).not.toContain("Pin verified");
+  state.permissions = [];
+  expect(render()).toContain("Location not confirmed");
+});
+
 it("SP-0223 Sales Head can set required visits while the rest of the customer stays read-only", () => {
   state.permissions = ["outlet.frequency.manage"];
   state.customer = {

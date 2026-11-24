@@ -151,6 +151,7 @@ final class LocationCapture: NSObject, @preconcurrency CLLocationManagerDelegate
     private var best: VisitLocation?
     private var denied = false
     private var busy = false
+    private var customerCapture = false
 
     override init() {
         super.init()
@@ -163,10 +164,10 @@ final class LocationCapture: NSObject, @preconcurrency CLLocationManagerDelegate
     func captureIfAvailable() async -> VisitLocation? { await capture().fix }
 
     /// Fresh evidence for a Start or End. Never throws: a failure is a reason shown to the salesperson.
-    func capture() async -> LocationOutcome {
+    func capture(forCustomer: Bool = false) async -> LocationOutcome {
         guard !busy else { return .unavailable(.noFix) }
-        busy = true
-        defer { busy = false }
+        busy = true; customerCapture = forCustomer
+        defer { busy = false; customerCapture = false }
         #if DEBUG
         if StubBackend.scenario != nil {
             let mode = ProcessInfo.processInfo.environment["FIELD_STUB_LOCATION"]
@@ -196,7 +197,9 @@ final class LocationCapture: NSObject, @preconcurrency CLLocationManagerDelegate
             // Approximate location still records a (weak) fix; ask once for precise for this visit.
             _ = try? await manager.requestTemporaryFullAccuracyAuthorization(withPurposeKey: "VisitCheckIn")
         }
-        best = nil
+        best = forCustomer ? manager.location.flatMap { try? VisitLocation($0) }.flatMap {
+            CensusCapture.bestFix(nil, $0, at: Int64(Date().timeIntervalSince1970 * 1000))
+        } : nil
         denied = false
         let timeout = Task { @MainActor [weak self] in
             do { try await Task.sleep(for: LocationPolicy.captureBudget) } catch { return }
@@ -226,7 +229,7 @@ final class LocationCapture: NSObject, @preconcurrency CLLocationManagerDelegate
         let now = Int64(Date().timeIntervalSince1970 * 1000)
         for location in locations {
             guard let candidate = try? VisitLocation(location) else { continue }
-            best = FixSelector.better(best, candidate, at: now)
+            best = customerCapture ? CensusCapture.bestFix(best, candidate, at: now) : FixSelector.better(best, candidate, at: now)
         }
         if let best, FixSelector.reliable(best, at: now) { finish() }
     }

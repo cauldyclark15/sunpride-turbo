@@ -252,7 +252,9 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         (if (attempted) customerMissing().associate { it.key to it.message } else emptyMap()) + formErrors
     fun useMyLocation() {
         if (location.requiresPermission && ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)); return
+            if (edit || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+                locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)); return
+            }
         }
         // E2E-010: on Edit the searched pin and the agent's own fix are kept side by side (both are sent).
         if (!edit || picked == null) { mode = "gps"; picked = null }
@@ -260,7 +262,14 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         scope.launch {
             busy = true; locationNote = "Getting your location…"
             try {
-                val got = location.fixWithinAccuracy(50.0)
+                val got = if (edit) location.fixWithinAccuracy(50.0) else try { location.customerFix() }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
+                if (!edit) {
+                    fix = CustomerLocation.best(fix, got, System.currentTimeMillis())
+                    fix?.let { lastFix = it.getDouble("latitude") to it.getDouble("longitude") }
+                    locationNote = if (fix == null) CustomerLocation.UNCONFIRMED else "Best available location kept. You can save this customer."
+                    return@launch
+                }
                 val accuracy = got?.optDouble("accuracyMeters", Double.NaN) ?: Double.NaN
                 if (got == null || got.optBoolean("mockSignal") || !(accuracy > 0 && accuracy < 50)) {
                     fix = null
@@ -364,7 +373,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             CensusRules.Place(it.placeId ?: "", it.latitude ?: Double.NaN, it.longitude ?: Double.NaN, it.formattedAddress, it.components.json())
         }
         if (!edit) return CustomerCapture.payload(CensusRules.captureId(), form, geography, System.currentTimeMillis(),
-            fix ?: JSONObject(), jpeg?.let { Base64.getEncoder().encodeToString(it) } ?: "", acknowledged)
+            fix, jpeg?.let { Base64.getEncoder().encodeToString(it) } ?: "", acknowledged)
         if (edit) return CensusRules.changePayload(CensusRules.captureId(), editing!!.outletId, name,
             CensusRules.addressLine(form, geography).ifEmpty { form.street1 }, owner, phone,
             System.currentTimeMillis(), if (mode == "gps" || (mode == "places" && place != null)) fix?.takeIf { CensusRules.fixUsable(it) } else null,
@@ -405,7 +414,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         scope.launch {
             try {
                 // Use my location goes stale after two minutes: get a fresh fix instead of refusing. Address search is not a GPS fix.
-                if (mode == "gps" && CensusRules.fixIsStale(fix, System.currentTimeMillis())) {
+                if (edit && mode == "gps" && CensusRules.fixIsStale(fix, System.currentTimeMillis())) {
                     refreshing = true
                     val got = try { location.fixWithinAccuracy(50.0) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
                         finally { refreshing = false }
@@ -420,7 +429,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                         return@launch
                     }
                 }
-                if (mode == "gps" && fix == null) throw IllegalArgumentException("Tap Use my location and wait for a good signal.")
+                if (edit && mode == "gps" && fix == null) throw IllegalArgumentException("Tap Use my location and wait for a good signal.")
                 // E2E-010: a searched pin on Edit is sent with the agent's own fix, fetched now if none is fresh, so the
                 // office sees how far the new pin is from where the agent stood.
                 if (edit && mode == "places" && picked != null && (fix == null || CensusRules.fixIsStale(fix, System.currentTimeMillis()))) {
@@ -437,9 +446,9 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                     }
                     busy = false; queue(draft); return@launch
                 }
-                val loc = draft.getJSONObject("location")
+                val loc = draft.optJSONObject("location")
                 val dupName = if (edit) name else CustomerCapture.storeName(form); val dupPhone = if (edit) phone else form.mobileNo
-                val query = DuplicateRules.Store("", dupName, dupPhone, loc.getDouble("latitude"), loc.getDouble("longitude"), draft.optString("placeId").ifEmpty { null })
+                val query = DuplicateRules.Store("", dupName, dupPhone, loc?.getDouble("latitude"), loc?.getDouble("longitude"), draft.optString("placeId").ifEmpty { null })
                 val local = DuplicateRules.find(query, stores.map { DuplicateRules.Store(it.outletId, it.name, null, it.latitude, it.longitude, address = it.address) })
                 val server = places?.let { api -> withTimeoutOrNull(5_000) { withContext(Dispatchers.IO) {
                     api.duplicateCheck(dupName.trim(), dupPhone.trim(), query.latitude, query.longitude, query.placeId) } } }
@@ -828,6 +837,8 @@ private fun CustomerSections(setup: CustomerCapture.Setup?, geography: CustomerC
                 Text(CustomerCapture.formLabel("coordinates"), style = MaterialTheme.typography.labelMedium)
                 if (fix == null) PrimaryBottomButton("Use my location", useMyLocation, Modifier.fillMaxWidth().testTag("census-gps"), !busy)
                 else TonalButton("Use my location again", useMyLocation, Modifier.fillMaxWidth().testTag("census-gps"), !busy, glyph = GlyphKind.PIN)
+                if (!CustomerLocation.usable(fix, System.currentTimeMillis())) Text(CustomerLocation.UNCONFIRMED,
+                    style = MaterialTheme.typography.bodySmall, modifier = Modifier.testTag("customer-location-unconfirmed"))
                 fix?.let { StatusChip("%.6f, %.6f · ±%d m".format(java.util.Locale.US, it.getDouble("latitude"), it.getDouble("longitude"),
                     it.getDouble("accuracyMeters").toInt()), Look.Tone.GOOD, textTag = "census-accuracy") }
                 locationNote?.let { Text(it, style = MaterialTheme.typography.bodyMedium, modifier = Modifier.testTag("census-location-note")) }

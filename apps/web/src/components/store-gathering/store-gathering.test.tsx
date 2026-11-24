@@ -291,6 +291,18 @@ describe("address check before approval (SP-0162)", () => {
       Math.round(metersBetween(10.3157, 123.8854, 10.3184, 123.8854)),
     ).toBe(300);
   });
+  it("SP-0243 missing location is visible without claiming zero-metre accuracy", () => {
+    const m = detail({
+      ...places,
+      location_source: "gps",
+      latitude: null,
+      longitude: null,
+      accuracy_meters: null,
+      location_status: "unconfirmed",
+    });
+    expect(m).toContain("Location not confirmed");
+    expect(m).not.toContain("accurate to about 0 m");
+  });
   it("pending shows Checking the address… with Approve disabled", () => {
     const m = detail({ ...places, location_status: "pending" });
     expect(m).toContain("Checking the address…");

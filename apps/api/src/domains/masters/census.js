@@ -85,9 +85,9 @@ function readAcknowledged(v) {
   return [...new Set(v.map((/** @type {any} */ id) => uuid(id)))];
 }
 
-/** Location of a capture: a fresh non-mock GPS fix (default) or a searched Google place.
- * @param {any} p @param {number} at */
-function readLocation(p, at) {
+/** New customers use best-effort GPS; Edit customer keeps its existing evidence rules.
+ * @param {any} p @param {number} at @param {boolean} [newCustomer] */
+function readLocation(p, at, newCustomer = false) {
   const source = p.locationSource ?? "gps";
   if (!["gps", "places"].includes(source))
     rule("Choose how the location was set.");
@@ -100,20 +100,30 @@ function readLocation(p, at) {
     Math.abs(l.longitude) <= 180;
   /** @type {string|null} */ let placeId = null;
   if (source === "gps") {
+    if (newCustomer && (l === undefined || l === null))
+      return { source, placeId, l: null };
     if (
       !point ||
       !Number.isFinite(l.accuracyMeters) ||
       l.accuracyMeters <= 0 ||
-      l.accuracyMeters >= 50 ||
+      (!newCustomer && l.accuracyMeters >= 50) ||
       l.mockSignal !== false ||
       typeof l.provider !== "string" ||
       !l.provider.trim() ||
       l.provider.length > 80 ||
       /[\u0000-\u001f]/.test(l.provider) ||
       !Number.isSafeInteger(l.fixTime) ||
-      Math.abs(at - l.fixTime) > 120000
+      l.fixTime <= 0 ||
+      (!newCustomer && Math.abs(at - l.fixTime) > 120000)
     )
-      rule("Census needs a fresh, non-mock GPS fix with accuracy under 50 m.");
+      rule("Use a genuine phone location, or save without a location.");
+    if (
+      newCustomer &&
+      (l.accuracyMeters > 500 ||
+        at - l.fixTime > 1800000 ||
+        l.fixTime - at > 120000)
+    )
+      return { source, placeId, l: null };
   } else {
     placeId = required(p.placeId, "Address search place", 300);
     if (!point) rule("Choose an address from the search list.");
@@ -420,7 +430,7 @@ export async function captureCensus(ctx, p) {
     rule("Enter a complete owner phone number.");
   if (!["A", "B", "C", "D"].includes(p.estimatedClass))
     rule("Estimate class A, B, C or D.");
-  const { source, placeId, l } = readLocation(p, at);
+  const { source, placeId, l } = readLocation(p, at, true);
   const components = readComponents(p.addressComponents);
   const formattedAddress = optionalText(
     p.formattedAddress,
@@ -445,8 +455,8 @@ export async function captureCensus(ctx, p) {
       throw new OpRejected("idempotency_conflict");
     return { entityId: id, eventIds: [] };
   }
-  const latitude = l.latitude,
-    longitude = l.longitude;
+  const latitude = l?.latitude ?? null,
+    longitude = l?.longitude ?? null;
   // Address-search places are never checked against Google inside the sync op (no third
   // party in the transaction, no retryable refusal that would stall the phone's outbox).
   // The capture (append-only) keeps the phone's point; until the census.resolvePlace job
@@ -471,8 +481,8 @@ export async function captureCensus(ctx, p) {
     (/** @type {any} */ c) => !acknowledged.includes(c.id),
   );
   const file = await storeJpeg(ctx, id, bytes, actor);
-  const gps = source === "gps";
-  await ctx.db`insert into census_captures(id,batch_id,actor_profile_id,payload_hash,name,address,latitude,longitude,accuracy_meters,captured_at,owner_name,owner_phone,channel_id,subchannel_id,estimated_class,photo_file_id,location_provider,location_recorded_at,device_id,location_source,place_id,address_components,formatted_address,landmark,acknowledged_duplicate_ids,duplicate_candidates,duplicate_flag,app) values(${id},${batch.id},${actor.profileId},${hash},${name},${address},${latitude},${longitude},${gps ? l.accuracyMeters : null},${new Date(at)},${ownerName},${ownerPhone},${channel.id},${sub.id},${p.estimatedClass},${file.id},${gps ? l.provider : "places"},${new Date(gps ? l.fixTime : at)},${ctx.device.id},${source},${placeId},${components},${formattedAddress},${landmark},${acknowledged},${candidates},${flag},${ctx.app})`;
+  const gps = source === "gps" && l !== null;
+  await ctx.db`insert into census_captures(id,batch_id,actor_profile_id,payload_hash,name,address,latitude,longitude,accuracy_meters,captured_at,owner_name,owner_phone,channel_id,subchannel_id,estimated_class,photo_file_id,location_provider,location_recorded_at,device_id,location_source,place_id,address_components,formatted_address,landmark,acknowledged_duplicate_ids,duplicate_candidates,duplicate_flag,app) values(${id},${batch.id},${actor.profileId},${hash},${name},${address},${latitude},${longitude},${gps ? l.accuracyMeters : null},${new Date(at)},${ownerName},${ownerPhone},${channel.id},${sub.id},${p.estimatedClass},${file.id},${l ? (gps ? l.provider : "places") : null},${l ? new Date(gps ? l.fixTime : at) : null},${ctx.device.id},${source},${placeId},${components},${formattedAddress},${landmark},${acknowledged},${candidates},${flag},${ctx.app})`;
   if (pendingPlace)
     await ctx.enqueue({
       kind: RESOLVE_PLACE_JOB,
@@ -578,7 +588,7 @@ async function captureCustomer(ctx, actor, p) {
       ship0?.contactPerson,
     ) ?? "Not given";
   const contactPhone = firstText(40, p.ownerPhone, p.customer.mobileNo);
-  const { l } = readLocation(p, at);
+  const { l } = readLocation(p, at, true);
   const bytes = readJpeg(p.photoJpegBase64);
   const file = await storeJpeg(ctx, id, bytes, actor);
   const result = await enrolmentCommand(ctx, "propose", {
@@ -586,8 +596,9 @@ async function captureCustomer(ctx, actor, p) {
     address,
     contactName,
     contactPhone,
-    latitude: l.latitude,
-    longitude: l.longitude,
+    latitude: l?.latitude ?? null,
+    longitude: l?.longitude ?? null,
+    locationEvidence: l,
     photoStorageIds: [file.id],
     clientRequestId: id,
     note: "Captured through Add customer on the field app",
@@ -603,7 +614,7 @@ async function captureCustomer(ctx, actor, p) {
 export async function reviewCensus(ctx, p) {
   const actor = await requireCapability(ctx, "outlet.verify");
   const [capture] =
-    await ctx.db`select c.*,b.org_unit_id,pc.place_latitude,pc.place_longitude,(case when c.location_source='gps' then 'verified' when pc.capture_id is null then 'pending' else pc.status end) location_status from census_captures c join census_batches b on b.id=c.batch_id left join census_place_checks pc on pc.capture_id=c.id where c.id=${uuid(p.captureId)}`;
+    await ctx.db`select c.*,b.org_unit_id,pc.place_latitude,pc.place_longitude,(case when c.latitude is null then 'unconfirmed' when c.location_source='gps' then 'verified' when pc.capture_id is null then 'pending' else pc.status end) location_status from census_captures c join census_batches b on b.id=c.batch_id left join census_place_checks pc on pc.capture_id=c.id where c.id=${uuid(p.captureId)}`;
   if (!capture) rule("Capture not found.");
   await requireCapability(ctx, "outlet.verify", capture.org_unit_id);
   if (!["accept", "reject", "duplicate"].includes(p.decision))
@@ -685,7 +696,8 @@ export async function reviewCensus(ctx, p) {
     await ctx.db`update outlets set channel_id=${capture.channel_id},subchannel_id=${capture.subchannel_id},place_id=${capture.place_id ?? null},directions=${capture.landmark ?? null} where id=${outletId}`;
     await ctx.db`insert into outlet_contacts(outlet_id,ordinal,name,phone) values(${outletId},0,${capture.owner_name},${capture.owner_phone})`;
     await ctx.db`insert into outlet_photos(outlet_id,ordinal,file_id) values(${outletId},0,${capture.photo_file_id})`;
-    await ctx.db`insert into outlet_pins(outlet_id,latitude,longitude,radius_meters,source,evidence_storage_id,status,effective_from,proposed_by,proposed_at,verified_by,verified_at,reviewer_reason) values(${outletId},${capture.latitude},${capture.longitude},50,'census',${capture.photo_file_id},'verified',${new Date(ctx.now)},${capture.actor_profile_id},${capture.captured_at},${actor.userId},${new Date(ctx.now)},${reason})`;
+    if (capture.latitude !== null)
+      await ctx.db`insert into outlet_pins(outlet_id,latitude,longitude,radius_meters,source,evidence_storage_id,status,effective_from,proposed_by,proposed_at,verified_by,verified_at,reviewer_reason) values(${outletId},${capture.latitude},${capture.longitude},50,'census',${capture.photo_file_id},'verified',${new Date(ctx.now)},${capture.actor_profile_id},${capture.captured_at},${actor.userId},${new Date(ctx.now)},${reason})`;
   } else outletId = null;
   if (capture.kind === "change" && p.decision === "reject") outletId = null;
   await ctx.db`insert into census_reviews(capture_id,decision,outlet_id,actor_profile_id,reason) values(${capture.id},${p.decision},${outletId},${actor.profileId},${reason})`;
@@ -806,7 +818,7 @@ export async function censusQueue(ctx) {
     (select count(*)::int from census_captures c left join census_reviews r on r.capture_id=c.id where c.batch_id=b.id and r.id is null) pending
     from census_batches b where (${unitIds === null} or org_unit_id::text=any(${ctx.db.array(unitIds ?? [], "TEXT")})) order by b.created_at desc limit 101`;
   const rows =
-    await ctx.db`select c.id,c.name,c.address,c.accuracy_meters,c.captured_at,c.owner_name,c.owner_phone,c.estimated_class,p.name agent,b.name batch,coalesce(case when pc.status='verified' then pc.place_latitude end,c.latitude) latitude,coalesce(case when pc.status='verified' then pc.place_longitude end,c.longitude) longitude,c.location_source,c.formatted_address,c.address_components,c.landmark,c.duplicate_flag,c.duplicate_candidates,c.acknowledged_duplicate_ids,c.actor_profile_id,(case when c.location_source='gps' then 'verified' when pc.capture_id is null then 'pending' else pc.status end) location_status,c.latitude device_latitude,c.longitude device_longitude,pc.place_latitude,pc.place_longitude,ch.label channel,sc.label subchannel,c.kind,c.target_outlet_id,c.previous_values,(c.photo_file_id is not null) has_photo,t.code target_code from census_captures c left join outlets t on t.id=c.target_outlet_id join profiles p on p.id=c.actor_profile_id join census_batches b on b.id=c.batch_id left join census_place_checks pc on pc.capture_id=c.id left join lateral (select v.label from master_versions v where v.master_id=c.channel_id order by v.version desc limit 1) ch on true left join lateral (select v.label from master_versions v where v.master_id=c.subchannel_id order by v.version desc limit 1) sc on true left join census_reviews r on r.capture_id=c.id where r.id is null and (${unitIds === null} or b.org_unit_id::text=any(${ctx.db.array(unitIds ?? [], "TEXT")})) order by c.captured_at limit 101`;
+    await ctx.db`select c.id,c.name,c.address,c.accuracy_meters,c.captured_at,c.owner_name,c.owner_phone,c.estimated_class,p.name agent,b.name batch,coalesce(case when pc.status='verified' then pc.place_latitude end,c.latitude) latitude,coalesce(case when pc.status='verified' then pc.place_longitude end,c.longitude) longitude,c.location_source,c.formatted_address,c.address_components,c.landmark,c.duplicate_flag,c.duplicate_candidates,c.acknowledged_duplicate_ids,c.actor_profile_id,(case when c.latitude is null then 'unconfirmed' when c.location_source='gps' then 'verified' when pc.capture_id is null then 'pending' else pc.status end) location_status,c.latitude device_latitude,c.longitude device_longitude,pc.place_latitude,pc.place_longitude,ch.label channel,sc.label subchannel,c.kind,c.target_outlet_id,c.previous_values,(c.photo_file_id is not null) has_photo,t.code target_code from census_captures c left join outlets t on t.id=c.target_outlet_id join profiles p on p.id=c.actor_profile_id join census_batches b on b.id=c.batch_id left join census_place_checks pc on pc.capture_id=c.id left join lateral (select v.label from master_versions v where v.master_id=c.channel_id order by v.version desc limit 1) ch on true left join lateral (select v.label from master_versions v where v.master_id=c.subchannel_id order by v.version desc limit 1) sc on true left join census_reviews r on r.capture_id=c.id where r.id is null and (${unitIds === null} or b.org_unit_id::text=any(${ctx.db.array(unitIds ?? [], "TEXT")})) order by c.captured_at limit 101`;
   return {
     batches: batches.slice(0, 100).map((/** @type {any} */ b) => ({
       ...b,

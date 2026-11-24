@@ -24,7 +24,8 @@ export type Candidate = {
   score: number;
 };
 
-export type LocationStatus = "pending" | "verified" | "mismatch";
+export type LocationStatus =
+  "pending" | "verified" | "mismatch" | "unconfirmed";
 export type PinChoice = "device" | "place";
 
 /** Why Approve is not possible yet, or null when it is. Pending: still checking the
@@ -64,8 +65,8 @@ export type Capture = {
   estimated_class: string;
   agent: string;
   batch: string;
-  latitude: number;
-  longitude: number;
+  latitude: number | null;
+  longitude: number | null;
   location_source: "gps" | "places";
   /** Address-search pins are checked against Google after sync (SP-0162). */
   location_status?: LocationStatus;
@@ -164,7 +165,7 @@ export function sourceBadge(c: {
 }): string {
   if (c.location_source === "places") return "Address search";
   return c.accuracy_meters === null
-    ? "GPS"
+    ? "Location not confirmed"
     : `GPS ±${Math.round(c.accuracy_meters)} m`;
 }
 
