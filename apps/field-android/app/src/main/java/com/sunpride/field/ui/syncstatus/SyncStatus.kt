@@ -158,6 +158,7 @@ data class SyncStatus(
             "outlet.census", "outlet.change" -> "Store change"
             "order_intent", "order.intent" -> "Order"
             "census.capture" -> "New customer"
+            "store.location" -> "Store location"
             else -> "Saved work"
         }
 

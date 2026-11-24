@@ -186,7 +186,7 @@ enum CensusCapture {
     static let maxPhotoBytes = 160 * 1024
     static let maxAccuracyMeters = 500.0
     static let maxFixSkewMs: Int64 = 1_800_000
-    static let unconfirmed = "Location not confirmed. You can still save this customer."
+    static let unconfirmed = "Location not tagged yet. You can still save this customer. Go outside or near the door; GPS works without signal but needs a clear sky."
 
     enum Failure: Error, Equatable {
         case details, phone, channel, batch, location, photo, landmark

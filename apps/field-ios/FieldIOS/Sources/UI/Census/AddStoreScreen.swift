@@ -111,6 +111,14 @@ struct AddStoreScreen: View {
                                 CalmListRow(symbol: row.state == "Needs review" ? "exclamationmark.circle" : "storefront",
                                             title: row.name, meta: row.state)
                                     .accessibilityIdentifier("addStoreSaved")
+                                if model.censusLocationMissing(row.id) {
+                                    Text("Location not tagged yet")
+                                    SecondaryButton(title: "Tag location now") {
+                                        do { try model.tagStoreLocation(captureId: row.id.uuidString.lowercased()); message = StoreLocationTag.tip }
+                                        catch { message = "Could not start tagging. Refresh your access and try again." }
+                                    }
+                                    Text(StoreLocationTag.tip).font(SunprideTokens.TypeStyle.meta)
+                                }
                             }
                         }
                     }
@@ -554,6 +562,7 @@ struct AddStoreScreen: View {
             scrollTarget = first; scrollTick += 1
             return
         }
+        if draft.location == nil, let cached = locationCapture.cachedCustomerFix { draft.location = .gps(cached) }
         // SP-0243: Save never waits for GPS. Keep eligible evidence; otherwise send without a pin.
         if case .gps(let old)? = draft.location,
            !CensusCapture.gpsUsable(old, at: Int64(Date().timeIntervalSince1970 * 1000)) {

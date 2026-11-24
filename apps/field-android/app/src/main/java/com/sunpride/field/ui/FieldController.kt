@@ -151,6 +151,7 @@ interface FieldBackend {
     fun censusSaved(): List<com.sunpride.field.census.CensusRules.Saved> =
         censusHistory().map { com.sunpride.field.census.CensusRules.Saved(it.first, it.second, null) }
     fun queueCensus(payload: JSONObject) { error("Census unavailable") }
+    fun tagStoreLocation(captureId: String? = null, outletId: String? = null, initial: JSONObject? = null) {}
     /** SP-0170 Add customer: PSGC geography kept on this phone (national pack + barangays of [provinces] and of
      * every province fetched before). Downloads what is missing or older than 30 days when online. */
     fun customerGeography(provinces: List<String>): com.sunpride.field.census.CustomerCapture.Geography? = null
@@ -389,6 +390,10 @@ class LiveFieldBackend(
         return try { runBlocking { store.status() } } finally { store.close() }
     }
     override fun schedulePendingWork() {
+        if (isSignedIn && storedScope() != null) {
+            val pending = runCatching { withStore { store -> store.localCache(com.sunpride.field.census.StoreLocationTag.ENTITY, "session")?.json?.let { com.sunpride.field.census.StoreLocationTag.active(JSONObject(it), System.currentTimeMillis()) } == true } }.getOrDefault(false)
+            if (pending) com.sunpride.field.census.StoreLocationService.start(context)
+        }
         val status = syncStatus()
         if (status.queued + status.sending > 0 && status.health != "held_for_review")
             com.sunpride.field.sync.work.SyncWork.enqueue(context)
@@ -577,14 +582,17 @@ class LiveFieldBackend(
         }
     }
     override fun censusSaved(): List<com.sunpride.field.census.CensusRules.Saved> = withStore { store ->
-        val rows = store.history().filter { it.first.kind == com.sunpride.field.census.CensusRules.KIND }
+        val all = store.history()
+        val tagged = all.filter { it.first.kind == com.sunpride.field.census.StoreLocationTag.KIND && !com.sunpride.field.storage.OutboxState.refused(it.second.state) }
+            .map { JSONObject(it.first.serializedOperation).getJSONObject("payload").optString("captureId") }.toSet()
+        val rows = all.filter { it.first.kind == com.sunpride.field.census.CensusRules.KIND }
         val decided = if (rows.none { it.second.state == "done" }) emptyMap() else
             com.sunpride.field.census.CensusRules.allDecisions(myChanges(store))
         rows.map {
             val p = JSONObject(it.first.serializedOperation).getJSONObject("payload")
             // SP-0196: the store (Registered Name) first; the owner as a second line.
             val (store, owner) = com.sunpride.field.census.CustomerCapture.savedNames(p)
-            com.sunpride.field.census.CensusRules.Saved(store, it.second.state, decided[p.optString("captureId")], owner)
+            com.sunpride.field.census.CensusRules.Saved(store, it.second.state, decided[p.optString("captureId")], owner, p.optString("captureId"), p.optJSONObject("location") == null && p.optString("captureId") !in tagged)
         }
     }
     /** GET my-changes when online (saved on the phone), else the saved copy. */
@@ -621,6 +629,36 @@ class LiveFieldBackend(
     }
     override fun censusPlaces(): com.sunpride.field.census.CensusPlaces =
         com.sunpride.field.census.CensusPlaces({ path -> functions.api.get(path) }, { path, body -> functions.api.post(path, body) })
+    override fun tagStoreLocation(captureId: String?, outletId: String?, initial: JSONObject?) {
+        val epoch = authorizationEpoch; val partition = storedScope() ?: error("No verified local partition")
+        withStore { store -> store.retailTransaction {
+            check(epoch == authorizationEpoch && storedScope() == partition && isSignedIn)
+            val at = System.currentTimeMillis()
+            check(store.isLeaseValid(at)) { "Refresh today's access before tagging." }
+            val session = com.sunpride.field.census.StoreLocationTag.start(captureId, outletId, initial, at)
+            store.putLocalCache(com.sunpride.field.census.StoreLocationTag.ENTITY, "session", session.toString(), at, "session")
+        } }
+        com.sunpride.field.census.StoreLocationService.start(context)
+    }
+    fun improveStoreLocations(fix: JSONObject?, epoch: Long, account: String?): Boolean {
+        if (!isSignedIn || epoch != authorizationEpoch || account != locationAccount()) return false
+        val partition = storedScope() ?: return false
+        val active = withStore { store -> store.retailTransaction {
+            if (!isSignedIn || epoch != authorizationEpoch || account != locationAccount() || storedScope() != partition) return@retailTransaction false
+            val at = System.currentTimeMillis()
+            if (!store.isLeaseValid(at)) return@retailTransaction false
+            val row = store.localCache(com.sunpride.field.census.StoreLocationTag.ENTITY, "session") ?: return@retailTransaction false
+            val session = JSONObject(row.json ?: return@retailTransaction false)
+            if (fix != null && com.sunpride.field.census.StoreLocationTag.accept(session, fix, at)) {
+                store.enqueue(com.sunpride.field.census.StoreLocationTag.intent(partition, session, fix, at), at)
+                runCatching { com.sunpride.field.sync.work.SyncWork.enqueue(context) }
+            }
+            check(epoch == authorizationEpoch && storedScope() == partition && isSignedIn)
+            store.putLocalCache(com.sunpride.field.census.StoreLocationTag.ENTITY, "session", session.toString(), at, "session")
+            com.sunpride.field.census.StoreLocationTag.active(session, at)
+        } }
+        return active
+    }
     override fun queueCensus(payload: JSONObject) {
         val scope = storedScope() ?: error("No verified local partition")
         withStore { store ->

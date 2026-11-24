@@ -5,6 +5,8 @@ import { Card, Notice } from "@sunpride/ui";
 import { apiFetch, useApi } from "../../lib/api";
 import { SearchBox } from "../list-page/list-page";
 import { coverageLine } from "./model";
+import { usePermissions } from "../../lib/auth";
+import { StorePinEditor } from "./store-pin-editor";
 
 export type LocationRow = {
   id: string;
@@ -12,6 +14,8 @@ export type LocationRow = {
   name: string;
   address: string;
   located: boolean;
+  latitude?: number | null;
+  longitude?: number | null;
 };
 export type Locations = {
   total: number;
@@ -31,6 +35,7 @@ export function LocationCoverageView({
   missingOnly,
   onMissingOnly,
   term = "",
+  onEdit,
   storeHref = (id) => `/customers/customer?storeId=${encodeURIComponent(id)}`,
 }: {
   data: Locations;
@@ -38,6 +43,7 @@ export function LocationCoverageView({
   onMissingOnly: (v: boolean) => void;
   /** The search text, so an empty result names it (L7). */
   term?: string;
+  onEdit?: (store: LocationRow) => void;
   storeHref?: (id: string) => string;
 }) {
   const pct = data.total ? (100 * data.located) / data.total : 0;
@@ -97,8 +103,17 @@ export function LocationCoverageView({
               <span
                 className={`shrink-0 text-xs ${r.located ? "text-muted" : "font-medium text-foreground"}`}
               >
-                {r.located ? "Location verified" : "No location yet"}
+                {r.located ? "Location verified" : "Location not tagged yet"}
               </span>
+              {onEdit ? (
+                <button
+                  type="button"
+                  className={button}
+                  onClick={() => onEdit(r)}
+                >
+                  {r.located ? "Move pin" : "Set location"}
+                </button>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -121,6 +136,8 @@ export function LocationCoverageView({
 }
 
 export function LocationCoverage() {
+  const { can } = usePermissions();
+  const [editing, setEditing] = useState<LocationRow | null>(null);
   const [missingOnly, setMissingOnly] = useState(false);
   const [term, setTerm] = useState("");
   const result = useApi<Locations>(
@@ -133,6 +150,13 @@ export function LocationCoverage() {
   );
   return (
     <Card label="Store locations">
+      {editing && can("outlet.verify") ? (
+        <StorePinEditor
+          key={editing.id}
+          store={editing}
+          onClose={() => setEditing(null)}
+        />
+      ) : null}
       {/* WEB-160: filters as you type (L2), like every other list. */}
       <div className="mb-3">
         <SearchBox q={term} placeholder="Find a store" onSearch={setTerm} />
@@ -146,6 +170,7 @@ export function LocationCoverage() {
           missingOnly={missingOnly}
           onMissingOnly={setMissingOnly}
           term={term}
+          onEdit={can("outlet.verify") ? setEditing : undefined}
         />
       ) : (
         <p className="text-sm text-muted">Loading…</p>

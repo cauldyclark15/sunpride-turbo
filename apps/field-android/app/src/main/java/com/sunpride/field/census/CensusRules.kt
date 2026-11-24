@@ -203,7 +203,7 @@ object CensusRules {
         .mapNotNull { decisions[it.first.optString("captureId")] }.filter { !it.accepted && it.captureId !in seen }
         .map { it.captureId }.toSet()
     /** E2E-008: one row of Saved customers: its outbox state and, once decided, the office's decision. */
-    data class Saved(val name: String, val state: String, val decision: CustomerDecision?, val owner: String? = null)
+    data class Saved(val name: String, val state: String, val decision: CustomerDecision?, val owner: String? = null, val captureId: String? = null, val locationMissing: Boolean = false)
     data class CustomerDecision(val captureId: String, val accepted: Boolean, val reason: String?, val code: String? = null)
     /** The office's decisions on this person's Add customer captures (my-changes `customers`); malformed skipped. */
     fun customerDecisions(json: JSONObject?): Map<String, CustomerDecision> {

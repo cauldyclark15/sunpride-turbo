@@ -69,6 +69,7 @@ final class AppModel {
     /// IOS-020 authorization epoch for publishing a Team answer: moves on sign-in/out, scope change and
     /// phone removal. A Team request publishes only if it is unchanged when the answer arrives.
     @ObservationIgnored private var teamEpoch: UInt64 = 0
+    @ObservationIgnored private var storeLocationCollector: StoreLocationCollector?
     @ObservationIgnored var teamGrantDefaults: UserDefaults = .standard
     var dashboard: TodayDashboard {
         TodayDashboard.make(visits: visits, target: dayTarget, sales: daySales, now: now(),
@@ -325,6 +326,7 @@ final class AppModel {
 
     /// `newSession` starts the in-session Team refusal over; a phone removal keeps it in force.
     private func clearToday(newSession: Bool = true) {
+        storeLocationCollector?.stop(); storeLocationCollector = nil
         visits = []; callSheets = []; orderTerms = []; activityRules = []; photoTypes = []; visitPhotos = [:]; orderDrafts = []
         outletDetails = [:]; customerDetails = [:]; routeCode = nil
         customers = []; dayTasks = []; dayTarget = nil; daySales = nil
@@ -336,6 +338,7 @@ final class AppModel {
     /// Scope or phone state changed: drop the Team on screen and make in-flight answers stale, keeping
     /// any in-session refusal in force.
     private func invalidateTeam() {
+        storeLocationCollector?.stop(); storeLocationCollector = nil
         team = TeamView()
         teamEpoch &+= 1
         teamLatch.invalidate()
@@ -1099,7 +1102,56 @@ final class AppModel {
         let timestamp = now()
         let payload = try CensusCapture.payload(draft, now: timestamp)
         try store.enqueue(try CensusCapture.intent(payload), for: partition, now: timestamp)
+        // Location work starts only AFTER the customer is durable; a permission refusal never loses it.
+        let initial: VisitLocation? = if case .gps(let fix)? = draft.location { fix } else { nil }
+        try? tagStoreLocation(captureId: draft.captureId.uuidString.lowercased(), initial: initial)
         didQueueWork()
+    }
+
+    func tagStoreLocation(captureId: String? = nil, outletId: String? = nil, initial: VisitLocation? = nil) throws {
+        guard signedIn, let partition = activeStoragePartition, let store = fieldStore else { throw StoreError.heldForReview }
+        guard try store.isLeaseValid(now: now(), for: partition), try !store.isHeld(partition) else { throw StoreError.leaseExpired }
+        let at = Int64(now().timeIntervalSince1970 * 1000)
+        let fresh = initial.flatMap { StoreLocationTag.fresh($0, at: at) ? $0 : nil }
+        let session = StoreLocationTag(captureId: captureId, outletId: outletId, startedAt: at, anchor: fresh, best: fresh)
+        try store.putLocalCache(entity: StoreLocationTag.entity, key: "session", body: JSONEncoder().encode(session), savedAt: at, keepPrefix: "session", for: partition)
+        storeLocationCollector?.stop(); storeLocationCollector = nil
+        resumeStoreLocation()
+    }
+
+    func censusLocationMissing(_ id: UUID) -> Bool {
+        guard let partition = activeStoragePartition, let store = fieldStore, let rows = try? store.intents(for: partition),
+              let capture = rows.first(where: { $0.requestId == id }), capture.payload?["location"] is NSNull else { return false }
+        let rejected = Set(((try? store.reviewOutbox(for: partition)) ?? []).map(\.intent.requestId))
+        return !rows.contains { $0.kind == StoreLocationTag.kind && $0.payload?["captureId"] as? String == id.uuidString.lowercased() && !rejected.contains($0.requestId) }
+    }
+
+    private func resumeStoreLocation() {
+        guard storeLocationCollector == nil, signedIn, let partition = activeStoragePartition, let store = fieldStore,
+              let row = try? store.localCache(entity: StoreLocationTag.entity, key: "session", for: partition),
+              let session = try? JSONDecoder().decode(StoreLocationTag.self, from: row.body),
+              session.active(at: Int64(now().timeIntervalSince1970 * 1000)) else { return }
+        let epoch = teamEpoch
+        let collector = StoreLocationCollector(); storeLocationCollector = collector
+        func improve(_ fix: VisitLocation?, _ speed: Double?) -> Bool {
+            guard self.signedIn, self.teamEpoch == epoch, self.activeStoragePartition == partition,
+                  (try? store.isHeld(partition)) == false, (try? store.isLeaseValid(now: self.now(), for: partition)) == true,
+                  let row = try? store.localCache(entity: StoreLocationTag.entity, key: "session", for: partition),
+                  var state = try? JSONDecoder().decode(StoreLocationTag.self, from: row.body) else { self.storeLocationCollector = nil; return false }
+            let at = Int64(self.now().timeIntervalSince1970 * 1000)
+            do {
+                if let fix, state.accept(fix, speed: speed, at: at) {
+                    try store.enqueue(state.intent(fix, at: at), for: partition, now: self.now())
+                    self.didQueueWork()
+                }
+                try store.putLocalCache(entity: StoreLocationTag.entity, key: "session", body: JSONEncoder().encode(state), savedAt: at, keepPrefix: "session", for: partition)
+            } catch { self.storeLocationCollector = nil; return false }
+            let active = state.active(at: at)
+            if !active { self.storeLocationCollector = nil }
+            return active
+        }
+        collector.start(onFix: { [weak self] fix, speed in guard self != nil else { return false }; return improve(fix, speed) },
+                        onTick: { [weak self] in guard self != nil else { return false }; return improve(nil, nil) })
     }
 
     // MARK: SP-0138 live location
@@ -1108,6 +1160,7 @@ final class AppModel {
     /// An offline relaunch (phone still `checking` with the last verified partition) keeps sharing; a phone
     /// that is not registered or was removed never does. Uploads still wait for a verified phone.
     func syncLiveLocation() {
+        resumeStoreLocation()
         let phoneOK: Bool
         switch enrollment.state {
         case .ready: phoneOK = true
@@ -1173,6 +1226,7 @@ final class AppModel {
     }
 
     func signOut() async {
+        storeLocationCollector?.stop(); storeLocationCollector = nil
         // SP-0138: sharing stops before the session goes (a final stop ping stays buffered, encrypted).
         await liveLocation.signingOut()
         enrollment.signedOut()
@@ -1225,6 +1279,7 @@ enum ReviewText {
         case "order.submit", "order.capture": return "Order"
         case "evidence.attach": return "Photo"
         case "census.capture": return "New store"
+        case "store.location": return "Store location"
         default: return "Phone update"
         }
     }

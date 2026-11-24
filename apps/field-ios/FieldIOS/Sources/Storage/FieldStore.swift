@@ -711,7 +711,7 @@ final class EncryptedFieldStore: FieldLocalStore {
         return now.timeIntervalSince1970 * 1000 < Double(expiry)
     }
     func enqueue(_ intent: VisitIntent, for partition: StorePartition, now: Date) throws {
-        guard ["visit.checkIn", "visit.activity", "visit.checkOut", CensusCapture.kind].contains(intent.kind),
+        guard ["visit.checkIn", "visit.activity", "visit.checkOut", CensusCapture.kind, StoreLocationTag.kind].contains(intent.kind),
               !intent.operationJSON.isEmpty else { throw StoreError.invalidInput }
         // Validate a single immutable serialized operation; no financial/unsupported kinds.
         guard let json = try? JSONSerialization.jsonObject(with: intent.operationJSON) as? [String: Any],
@@ -723,6 +723,9 @@ final class EncryptedFieldStore: FieldLocalStore {
             guard (json["dependsOn"] as? [Any])?.isEmpty == true,
                   payload["captureId"] as? String == intent.requestId.uuidString.lowercased(),
                   CensusCapture.validStored(payload, now: now) else { throw StoreError.invalidInput }
+        }
+        if intent.kind == StoreLocationTag.kind {
+            guard StoreLocationTag.valid(payload, at: Int64(now.timeIntervalSince1970 * 1000)) else { throw StoreError.invalidInput }
         }
         try transaction {
             guard try isLeaseValid(now: now, for: partition) else { throw StoreError.leaseExpired }

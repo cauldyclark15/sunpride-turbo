@@ -160,6 +160,10 @@ final class LocationCapture: NSObject, @preconcurrency CLLocationManagerDelegate
         manager.distanceFilter = kCLDistanceFilterNone
     }
 
+    var cachedCustomerFix: VisitLocation? {
+        manager.location.flatMap { try? VisitLocation($0) }.flatMap { CensusCapture.bestFix(nil, $0, at: Int64(Date().timeIntervalSince1970 * 1000)) }
+    }
+
     /// Best effort fix for display (route distances); no permission or no fix simply means nil.
     func captureIfAvailable() async -> VisitLocation? { await capture().fix }
 

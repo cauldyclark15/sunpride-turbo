@@ -74,7 +74,11 @@ async function fieldRep(app = "field-android") {
       return { status: r.status, body: /** @type {any} */ (await r.json()) };
     },
     /** @param {any} payload @param {string} [clientOpId] */
-    push: async (payload, clientOpId = crypto.randomUUID()) => {
+    push: async (
+      payload,
+      clientOpId = crypto.randomUUID(),
+      opType = "census.capture",
+    ) => {
       const response = await signedPost(h, who, "/api/sync/push", {
         version: 2,
         app,
@@ -83,7 +87,7 @@ async function fieldRep(app = "field-android") {
         operations: [
           {
             clientOpId,
-            opType: "census.capture",
+            opType,
             clientTime: payload.deviceTime,
             dependsOn: [],
             payload,
@@ -219,6 +223,222 @@ test("geography pack: national levels in one request, barangays per province", a
     (await rep.get("/api/v1/geography/pack/barangays?provinceCode=x")).status,
   ).toBe(400);
 });
+
+/** Authenticated office request against this disposable lane fixture.
+ * @param {string} role @param {string} path @param {any} [body] @param {string} [key] */
+async function locationOffice(role, path, body, key = crypto.randomUUID()) {
+  const password = (
+    await Bun.file(`${process.env.HOME}/.sunpride-keys/v2-test-password`).text()
+  ).trim();
+  const login = await h.fetch("/api/auth/sign-in", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email: `${role}@sunpride.test`, password }),
+  });
+  expect(login.status).toBe(200);
+  const response = await h.fetch(path, {
+    method: body ? "POST" : "GET",
+    headers: {
+      cookie: (login.headers.get("set-cookie") ?? "").split(";")[0],
+      "content-type": "application/json",
+      "idempotency-key": key,
+    },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  return { status: response.status, body: await response.json() };
+}
+
+test("SP-0251 save without signal, later GPS, best-reading replacement, replay and office move", async () => {
+  const at = Date.now() - 3 * 86400000;
+  const p = capture({
+    location: null,
+    deviceTime: at,
+    name: "Delayed GPS Store",
+    customer: { ...capture().customer, customerName: "Delayed GPS Store" },
+  });
+  expect((await rep.push(p)).status).toBe("applied");
+  const [enrolment] =
+    await h.db`select * from outlet_enrolments where client_request_id=${p.captureId}`;
+  expect(enrolment.pin_id).toBeNull();
+  const tag = {
+    captureId: p.captureId,
+    deviceTime: at + 60_000,
+    location: {
+      ...capture().location,
+      accuracyMeters: 80,
+      fixTime: at + 60_000,
+    },
+  };
+  const id = crypto.randomUUID();
+  expect((await rep.push(tag, id, "store.location")).status).toBe("applied");
+  expect((await rep.push(tag, id, "store.location")).status).toBe("duplicate");
+  expect(
+    (
+      await h.db`select count(*)::int n from store_location_tags where capture_id=${p.captureId}`
+    )[0].n,
+  ).toBe(1);
+  const pending = async () =>
+    await h.db`select * from outlet_pins where outlet_id=${enrolment.outlet_id} and source='field-gps' and status='pending'`;
+  expect((await pending()).length).toBe(1);
+  const firstPin = (await pending())[0].id;
+  expect(
+    (
+      await rep.push(
+        { ...tag, location: { ...tag.location, accuracyMeters: 150 } },
+        crypto.randomUUID(),
+        "store.location",
+      )
+    ).status,
+  ).toBe("applied");
+  expect((await pending())[0].id).toBe(firstPin);
+  const better = {
+    ...tag,
+    location: {
+      ...tag.location,
+      accuracyMeters: 15,
+      latitude: tag.location.latitude + 0.00001,
+    },
+  };
+  expect(
+    (await rep.push(better, crypto.randomUUID(), "store.location")).status,
+  ).toBe("applied");
+  const pins = await pending();
+  expect(pins.length).toBe(1);
+  expect(pins[0].latitude).toBe(better.location.latitude);
+  expect(
+    (
+      await h.db`select pin_id,location_evidence from outlet_enrolments where id=${enrolment.id}`
+    )[0],
+  ).toMatchObject({ pin_id: pins[0].id, location_evidence: null });
+  for (const location of [
+    { ...tag.location, provider: "network" },
+    { ...tag.location, mockSignal: true },
+    { ...tag.location, fixTime: at - 120001 },
+  ]) {
+    expect(
+      (
+        await rep.push(
+          { ...tag, location },
+          crypto.randomUUID(),
+          "store.location",
+        )
+      ).status,
+    ).toBe("rejected");
+  }
+  const other = await fieldRep();
+  expect(
+    (await other.push(tag, crypto.randomUUID(), "store.location")).status,
+  ).toBe("rejected");
+  const office = {
+    outletId: enrolment.outlet_id,
+    latitude: 10.31,
+    longitude: 123.91,
+  };
+  const saved = await locationOffice(
+    "manager",
+    "/api/v1/masters/stores/location",
+    office,
+    "location-once",
+  );
+  expect(saved.status).toBe(200);
+  const again = await locationOffice(
+    "manager",
+    "/api/v1/masters/stores/location",
+    office,
+    "location-once",
+  );
+  expect(again.body.id).toBe(saved.body.id);
+  expect(
+    (await locationOffice("viewer", "/api/v1/masters/stores/location", office))
+      .status,
+  ).toBe(403);
+  expect(
+    (
+      await locationOffice("admin", "/api/v1/masters/stores/location", {
+        ...office,
+        latitude: 10.32,
+      })
+    ).status,
+  ).toBe(200);
+  const verified =
+    await h.db`select * from outlet_pins where outlet_id=${enrolment.outlet_id} and status='verified' order by effective_from`;
+  expect(verified.length).toBe(2);
+  expect(+verified[0].effective_to).toBe(+verified[1].effective_from);
+  expect(verified[0].latitude).toBe(10.31);
+  expect(verified[1].latitude).toBe(10.32);
+  // Late field evidence must not move an office-confirmed pin.
+  expect(
+    (
+      await rep.push(
+        { ...tag, location: { ...tag.location, accuracyMeters: 1 } },
+        crypto.randomUUID(),
+        "store.location",
+      )
+    ).status,
+  ).toBe("applied");
+  expect(
+    (
+      await h.db`select count(*)::int n from outlet_pins where outlet_id=${enrolment.outlet_id} and status='verified'`
+    )[0].n,
+  ).toBe(2);
+  const list = await locationOffice(
+    "manager",
+    "/api/v1/masters/store-locations?q=Delayed%20GPS",
+  );
+  expect(list.body.rows[0]).toMatchObject({
+    located: true,
+    latitude: 10.32,
+    longitude: 123.91,
+  });
+  // A replay is not permission to read a store after its ownership is withdrawn.
+  await h.db`update outlets set custodian_org_unit_id=${rowId("org_units", "territory-1")} where id=${enrolment.outlet_id}`;
+  expect((await rep.push(tag, id, "store.location")).status).toBe("rejected");
+}, 120000);
+
+test("SP-0251 iOS legacy capture keeps original bytes and receives its later reading before office approval", async () => {
+  const ios = await fieldRep("field-ios");
+  const config = (await ios.get("/api/v1/masters/census-config")).body;
+  const sub = config.subchannels[0];
+  const p = capture({
+    location: null,
+    channelId: sub.data.channelId,
+    subchannelId: sub.id,
+    estimatedClass: "C",
+  });
+  delete p.customer;
+  expect((await ios.push(p)).status).toBe("applied");
+  const tag = {
+    captureId: p.captureId,
+    deviceTime: Date.now(),
+    location: { ...capture().location, provider: "fused" },
+  };
+  expect(
+    (await ios.push(tag, crypto.randomUUID(), "store.location")).status,
+  ).toBe("applied");
+  expect(
+    (
+      await h.db`select latitude from census_captures where id=${p.captureId}`
+    )[0].latitude,
+  ).toBeNull();
+  const queue = await locationOffice("manager", "/api/v1/masters/census-queue");
+  expect(
+    queue.body.rows.find((/** @type {any} */ r) => r.id === p.captureId),
+  ).toMatchObject({
+    latitude: tag.location.latitude,
+    location_status: "verified",
+  });
+  const approved = await locationOffice(
+    "manager",
+    "/api/v1/masters/census/review",
+    { captureId: p.captureId, decision: "accept", reason: "Store checked" },
+  );
+  expect(approved.status).toBe(200);
+  expect(
+    (
+      await h.db`select latitude from outlet_pins where outlet_id=${approved.body.outletId} and status='verified'`
+    )[0].latitude,
+  ).toBe(tag.location.latitude);
+}, 120000);
 
 test("Add customer capture becomes a prospect customer with a complete pending profile; replay is idempotent", async () => {
   const p = capture();

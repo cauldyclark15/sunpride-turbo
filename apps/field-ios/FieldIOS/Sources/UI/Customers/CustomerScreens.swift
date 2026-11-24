@@ -195,6 +195,17 @@ struct CustomerDetailScreen: View {
                 .accessibilityIdentifier("customerActionError")
         }
 
+        if record.location == nil {
+            SectionCard(title: "Store location") {
+                Text("Location not tagged yet")
+                SecondaryButton(title: "Tag location now") {
+                    do { try model.tagStoreLocation(outletId: record.outletId); actionError = "Trying GPS for up to 15 minutes. The reading stays on this phone until it can send." }
+                    catch { actionError = "Could not start tagging. Refresh your access and try again." }
+                }
+                Text(StoreLocationTag.tip).font(SunprideTokens.TypeStyle.meta)
+            }
+        }
+
         SectionCard(title: "Summary") {
             DetailRows {
                 DetailRow(label: "Outlet code", value: record.outletCode ?? "Not sent")

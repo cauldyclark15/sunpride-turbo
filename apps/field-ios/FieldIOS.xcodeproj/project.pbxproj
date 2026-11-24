@@ -78,6 +78,7 @@
 		7C0C652561AF6AE17983B28B /* SuggestedOrderLoader.swift in Sources */ = {isa = PBXBuildFile; fileRef = BBEC99ED2ADDBB03F9B6CDEB /* SuggestedOrderLoader.swift */; };
 		7E1E45DF055DC85ADAE39759 /* FieldFeatures.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9494D7899E8B8864178C6D09 /* FieldFeatures.swift */; };
 		7FB2FAA9128C620EEC412895 /* LiveLocationSource.swift in Sources */ = {isa = PBXBuildFile; fileRef = F51321DFCD24B51B4B011E1D /* LiveLocationSource.swift */; };
+		819F94A23712BB45A953075F /* StoreLocationTag.swift in Sources */ = {isa = PBXBuildFile; fileRef = 728EB12AEF78FC608BAB18E9 /* StoreLocationTag.swift */; };
 		88EC02EB2A7A37BDE47BC202 /* CallSheetScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 9DFB348A3DA8ACCDA0313DDD /* CallSheetScreen.swift */; };
 		89BC70BD1F6001CC39FF6BCD /* AccountScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = F1A06A9EAE1322958F12F980 /* AccountScreen.swift */; };
 		8A556987873513B8A742E542 /* VisitCompletion.swift in Sources */ = {isa = PBXBuildFile; fileRef = AC0AF800FC6AF8CBFA9E75C9 /* VisitCompletion.swift */; };
@@ -142,6 +143,7 @@
 		F1F40E99FA9C373ADE94DBE5 /* TeamSummary.swift in Sources */ = {isa = PBXBuildFile; fileRef = B70C1FB290135B5A47051917 /* TeamSummary.swift */; };
 		F375944EE365E45405FEB199 /* RouteScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8475BBA96754FC9943196E1C /* RouteScreen.swift */; };
 		F73774D312A53BF21DE8779A /* TurnByTurnTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = DD5CBDE425E4474C43761F63 /* TurnByTurnTests.swift */; };
+		F8109C475F6D934F8F5ED253 /* StoreLocationTagTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = 393275463223436FB808BF73 /* StoreLocationTagTests.swift */; };
 		FB02B73F8C0E0E858F84F28C /* TeamScreen.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2D83524BAA274C5FAA46B65C /* TeamScreen.swift */; };
 		FC4C0B9DDF3D6D94E528542F /* CensusTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A532CA4F586363AEAF494B1F /* CensusTests.swift */; };
 		FDB32474097B7BE3233DD03B /* FieldStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8AD96B1A70BA8246D0F2CCCB /* FieldStore.swift */; };
@@ -198,6 +200,7 @@
 		34E3AD9EF21188447D122D5F /* VisitSyncTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitSyncTests.swift; sourceTree = "<group>"; };
 		3754A93F3B24E554D1DA1A76 /* CustomerDirectory.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomerDirectory.swift; sourceTree = "<group>"; };
 		38B72B061E537E400D99CE3E /* push-request.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "push-request.json"; path = "../../../packages/domain-contracts/fixtures/mobile-v1/push-request.json"; sourceTree = "<group>"; };
+		393275463223436FB808BF73 /* StoreLocationTagTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreLocationTagTests.swift; sourceTree = "<group>"; };
 		39462B39C13810B2977CC6EF /* bootstrap-activity-rules-response.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; name = "bootstrap-activity-rules-response.json"; path = "../../../packages/domain-contracts/fixtures/mobile-v1/bootstrap-activity-rules-response.json"; sourceTree = "<group>"; };
 		3982CC5A0CA421700FA09534 /* SignInShell.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SignInShell.swift; sourceTree = "<group>"; };
 		3AC500217A755E119ECC80EC /* ActivityRules.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ActivityRules.swift; sourceTree = "<group>"; };
@@ -231,6 +234,7 @@
 		6AD00CE0DB5536F7ED709072 /* FieldIOSTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldIOSTests.swift; sourceTree = "<group>"; };
 		6E57017428527439DC95AE4E /* EvidencePhotos.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = EvidencePhotos.swift; sourceTree = "<group>"; };
 		6E685772F0949EAE80DB7D32 /* BiometricGate.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BiometricGate.swift; sourceTree = "<group>"; };
+		728EB12AEF78FC608BAB18E9 /* StoreLocationTag.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StoreLocationTag.swift; sourceTree = "<group>"; };
 		768EE84295679AB410817800 /* VisitSyncClient.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisitSyncClient.swift; sourceTree = "<group>"; };
 		770ABB24A61E17AE7FC352FC /* StubBackend.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StubBackend.swift; sourceTree = "<group>"; };
 		7A6BE967D1FC73BC0A78D4ED /* FieldTabs.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FieldTabs.swift; sourceTree = "<group>"; };
@@ -453,6 +457,7 @@
 				83B6EE57DB1DE477B02CC0A6 /* SecurityHygieneTests.swift */,
 				43D95556239F0497628A2ABF /* ServerAPITests.swift */,
 				930F787C27D8364206637A1B /* StorageTests.swift */,
+				393275463223436FB808BF73 /* StoreLocationTagTests.swift */,
 				0CB6C99227CFEC3013BC36D8 /* SuggestedOrderTests.swift */,
 				CA4C96C1D58520ED598A16FB /* SyncStatusDiagnosticsTests.swift */,
 				FA05324F47DE966F1F35C492 /* TeamAuthorizationEpochTests.swift */,
@@ -618,6 +623,7 @@
 			children = (
 				658D48F1E13ED30A1CF6FFA4 /* CensusCapture.swift */,
 				BAC913AF8976FF6D2A688059 /* CensusDuplicates.swift */,
+				728EB12AEF78FC608BAB18E9 /* StoreLocationTag.swift */,
 			);
 			path = Census;
 			sourceTree = "<group>";
@@ -927,6 +933,7 @@
 				CA75BA40598DC97C020E513C /* SecurityHygieneTests.swift in Sources */,
 				90920AC23929C1D137D28DEE /* ServerAPITests.swift in Sources */,
 				1B04D06C36728973163262BA /* StorageTests.swift in Sources */,
+				F8109C475F6D934F8F5ED253 /* StoreLocationTagTests.swift in Sources */,
 				AE965CF2451DF21709DC5EB3 /* StubURLProtocol.swift in Sources */,
 				21B5FF7A7CE9A4FEDF769461 /* SuggestedOrderTests.swift in Sources */,
 				D8CA5082EEAA88C235A1B4AD /* SyncStatusDiagnosticsTests.swift in Sources */,
@@ -1000,6 +1007,7 @@
 				CE08B1385A22CBEF081A54E1 /* SecureStore.swift in Sources */,
 				27086111E615FFC697236771 /* ServerAPI.swift in Sources */,
 				0635E1F51801CA375D10E1E5 /* SignInShell.swift in Sources */,
+				819F94A23712BB45A953075F /* StoreLocationTag.swift in Sources */,
 				4192A817C9B71449CE92A730 /* StubBackend.swift in Sources */,
 				2829545B0F64608A87B314DD /* SuggestedOrder.swift in Sources */,
 				7C0C652561AF6AE17983B28B /* SuggestedOrderLoader.swift in Sources */,
