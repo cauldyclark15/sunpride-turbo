@@ -399,8 +399,9 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     }
     override suspend fun todaysVisits(day: String): List<SnapshotItem> =
         VisitCallRules.ordered(read("visit", day))
-    override suspend fun outlets(): List<SnapshotItem> = read("outlet")
+    override suspend fun outlets(): List<SnapshotItem> = com.sunpride.field.census.LocalCustomers.outlets(this, read("outlet"))
     override suspend fun callSheet(outletId: String): CallSheet? = db.withTransaction {
+        com.sunpride.field.census.LocalCustomers.callSheet(this@RoomFieldStore, outletId)?.let { return@withTransaction it }
         val generation = metadata().activeGeneration ?: return@withTransaction null
         val row = dao.callSheet(a, d, s, generation, outletId) ?: return@withTransaction null
         CallSheet(row.outletId, row.revision, CallSheetCodec.header(JSONObject(row.headerJson)),
@@ -542,6 +543,9 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             com.sunpride.field.census.StoreLocationTag.forCapture(intent, now)?.let { session ->
                 putLocalCache(com.sunpride.field.census.StoreLocationTag.ENTITY, "session", session.toString(), now, "session")
             }
+            val config = localCache("local.census", "config")?.takeUnless { it.tombstone }?.json?.let { JSONObject(it).optJSONObject("config") }
+            val customerCatalog = com.sunpride.field.census.LocalCustomers.catalog(config, catalog())
+            putLocalCache(com.sunpride.field.census.LocalCustomers.CATALOG, intent.requestId, customerCatalog, now, "")
             saveCustomerDraftBook(remainingDrafts, now)
         }
     }
@@ -550,7 +554,7 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     internal suspend fun enqueueWithCheckpoint(intent: IntentRow, now: Long, checkpoint: () -> Unit) {
         require(intent.account == a && intent.deviceId == d && intent.scope == s)
         require(intent.requestId.isNotBlank() && intent.clientVisitId.isNotBlank() &&
-            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut", com.sunpride.field.census.CensusRules.KIND, com.sunpride.field.census.StoreLocationTag.KIND, "availability.record", "availability.proposal", RetailCaptureQueue.KIND, MockAttempts.KIND) &&
+            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut", VisitCollection.KIND, com.sunpride.field.census.CensusRules.KIND, com.sunpride.field.census.StoreLocationTag.KIND, "availability.record", "availability.proposal", RetailCaptureQueue.KIND, MockAttempts.KIND) &&
             intent.serializedOperation.isNotBlank())
         db.withTransaction {
             if (!isLeaseValid(now)) throw RecordingClosed(metadata().held)
@@ -568,6 +572,11 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
             }
             if (intent.kind == com.sunpride.field.census.CensusRules.KIND)
                 com.sunpride.field.census.CensusRules.validate(payload ?: error("Missing census capture"))
+            VisitCollection.requireOpen(this@RoomFieldStore, intent)
+            if (intent.kind == "visit.checkIn") com.sunpride.field.census.LocalCustomers.requestId(payload!!.getString("outletId"))?.let { id ->
+                val parent = dao.intent(a, d, s, id) ?: error("Save the customer first")
+                require(com.sunpride.field.census.LocalCustomers.payload(parent) != null && !OutboxState.refused(dao.outbox(a,d,s,id)?.state))
+            }
             VisitCompletion.requireOpenForActivity(intent, history().map { it.first to it.second.state })
             RetailQueueRules.validate(this@RoomFieldStore, intent)
             CallSheetQueueRules.validate(this@RoomFieldStore, intent)

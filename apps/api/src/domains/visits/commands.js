@@ -68,8 +68,12 @@ export async function checkIn(ctx) {
     ctx[DSR_ACCESS]?.employee ??
     (await employeeAt(ctx.db, ctx.actor.profileId, ctx.now));
   const { outlet, owner } = await accessOutlet(ctx, p.outletId, "visit.record");
+  const draftCustomer = await (
+    await import("../masters/draft-access.js")
+  ).ownDraftCustomer(ctx, p.outletId);
   if (
-    outlet.status !== "active" ||
+    (outlet.status !== "active" &&
+      !(draftCustomer && outlet.status === "prospect")) ||
     (!ctx[DSR_ACCESS] &&
       (owner !== employee.org_unit_id || owner !== ctx.actor.orgUnitId))
   )
@@ -84,8 +88,12 @@ export async function checkIn(ctx) {
     and a.deleted_at is null and s.deleted_at is null and t.deleted_at is null
     and a.effective_from<=${new Date(ctx.now)} and (a.effective_to is null or a.effective_to>${new Date(ctx.now)})
     and s.effective_from<=${new Date(ctx.now)} and (s.effective_to is null or s.effective_to>${new Date(ctx.now)})`;
-  if (assignments.length !== 1) reject("out_of_scope");
-  const assignment = assignments[0];
+  if (
+    assignments.length !== 1 &&
+    !(draftCustomer && assignments.length === 0 && p.plannedVisitId == null)
+  )
+    reject("out_of_scope");
+  const assignment = assignments[0] ?? { route_id: null };
   if (assignment.route_id) {
     const route =
       await ctx.db`select 1 from routes where id=${assignment.route_id} and status='active' and deleted_at is null and effective_from<=${new Date(ctx.now)}`;
@@ -182,18 +190,21 @@ export async function checkIn(ctx) {
     values (${ORGANIZATION},${p.clientVisitId},${p.plannedVisitId ?? null},${planned?.plan_id ?? null},${planned?.plan_slot_id ?? null},${planned?.plan_version ?? null},
       ${ctx.actor.profileId},${p.outletId},${recordingUnit},${assignment.route_id},${links[0]?.customer_id ?? null},${p.serviceDate},${planned ? "planned" : "unplanned"},
       array(select jsonb_array_elements_text(${{ values: p.intents }}::jsonb->'values')),'checked-in',${planned ? null : text(p.unplannedReason, 500)},'pending',${RULE_VERSION},${new Date(ctx.now)},${new Date(ctx.now)},${new Date(p.deviceTime)},${ctx.device.id},${{ rules }}::jsonb->'rules',${productivePolicy}) returning *`;
-  await beginCall(ctx, {
-    channelProfile: PROFILE_FIELD,
-    clientCallId: p.clientVisitId,
-    outlet,
-    unitId: recordingUnit,
-    visitId: visit.id,
-    serviceDate: p.serviceDate,
-    planned: !!planned,
-    plannedVisitId: p.plannedVisitId,
-    sequence: planned?.sequence,
-    deviated,
-  });
+  // A just-captured customer has no verified pin/configuration on the phone yet.
+  // Preserve genuine visit evidence for review instead of pretending a configured flow was downloaded.
+  if (!draftCustomer)
+    await beginCall(ctx, {
+      channelProfile: PROFILE_FIELD,
+      clientCallId: p.clientVisitId,
+      outlet,
+      unitId: recordingUnit,
+      visitId: visit.id,
+      serviceDate: p.serviceDate,
+      planned: !!planned,
+      plannedVisitId: p.plannedVisitId,
+      sequence: planned?.sequence,
+      deviated,
+    });
   await recordLocation(ctx, visit, "check_in", p.location, p.deviceTime);
   await touchVisit(ctx, visit);
   const eventId = await event(
@@ -457,8 +468,13 @@ export async function collection(ctx) {
   const p = ctx.payload;
   validTime(p.deviceTime, ctx.now);
   const visit = await ownedVisit(ctx, p.visitId);
+  const draftCustomer =
+    !visit.customer_id &&
+    (await (
+      await import("../masters/draft-access.js")
+    ).ownDraftCustomer(ctx, visit.outlet_id));
   if (
-    !visit.customer_id ||
+    (!visit.customer_id && !draftCustomer) ||
     !Number.isSafeInteger(p.amountMinor) ||
     p.amountMinor <= 0 ||
     p.currency !== "PHP" ||
@@ -476,7 +492,7 @@ export async function collection(ctx) {
   const reference = text(p.reference);
   const [row] =
     await ctx.db`insert into field_collections (organization_id,org_unit_id,customer_id,outlet_id,visit_id,assignee_profile_id,amount_minor,currency,method,reference,status,device_time,server_time)
-    values (${ORGANIZATION},${visit.org_unit_id},${visit.customer_id},${visit.outlet_id},${visit.id},${ctx.actor.profileId},${p.amountMinor},'PHP',${p.method},${reference},'recorded',${new Date(p.deviceTime)},${new Date(ctx.now)}) returning id`;
+    values (${ORGANIZATION},${visit.org_unit_id},${visit.customer_id},${visit.outlet_id},${visit.id},${ctx.actor.profileId},${p.amountMinor},'PHP',${p.method},${reference},${draftCustomer ? "pending_review" : "recorded"},${new Date(p.deviceTime)},${new Date(ctx.now)}) returning id`;
   await touchVisit(ctx, visit);
   const eventId = await event(
     ctx,

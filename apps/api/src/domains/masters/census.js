@@ -771,6 +771,9 @@ export async function censusConfig(ctx) {
   if (batches.length > 100) rule("Too many active census batches.", "overflow");
   return {
     batches,
+    newCustomerProducts: await (
+      await import("./draft-access.js")
+    ).initialCustomerProducts(ctx.db),
     customerMaster: await customerMasterSetup(ctx, unitIds),
     defaultBatch: fallback ? { id: fallback.id, name: fallback.name } : null,
     addressSearch: placesConfigured(ctx.env),

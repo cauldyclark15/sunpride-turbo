@@ -159,6 +159,7 @@ object CustomerDirectory {
     private fun label(kind: String, p: JSONObject): String = when (kind) {
         "visit.checkIn" -> if (p.text("plannedVisitId") == null || p.text("plannedVisitId") == "null")
             "Unplanned call started" else "Call started"
+        "collection.record" -> "Collection recorded"
         "visit.checkOut" -> when (p.text("outcome")) {
             "completed" -> "Call ended · Completed"
             "nonproductive" -> "Call ended · Not productive" + (p.text("reasonCode")?.let { " ($it)" } ?: "")

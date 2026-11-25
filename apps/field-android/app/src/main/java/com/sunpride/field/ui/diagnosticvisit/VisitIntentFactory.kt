@@ -53,6 +53,7 @@ object VisitIntentFactory {
         }
         val op = JSONObject().put("kind", kind).put("clientRequestId", id)
         if (kind != "visit.checkIn") op.put("dependsOn", JSONArray().put(previousRequestId))
+        else com.sunpride.field.census.LocalCustomers.requestId(outletId)?.let { op.put("dependsOn", JSONArray().put(it)) }
         op.put("payload", payload)
         return IntentRow(scope.account, scope.deviceId, scope.fingerprint, id, visit, kind, op.toString(), at)
     }

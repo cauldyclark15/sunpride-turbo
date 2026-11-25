@@ -37,8 +37,9 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
     }
     override suspend fun todaysVisits(day: String) = active?.visits?.filter { it.serviceDate == day } ?: emptyList()
     override suspend fun plannedVisits() = active?.visits ?: emptyList()
-    override suspend fun outlets() = active?.outlets ?: emptyList()
-    override suspend fun callSheet(outletId: String) = active?.callSheets?.singleOrNull { it.outletId == outletId }
+    override suspend fun outlets() = com.sunpride.field.census.LocalCustomers.outlets(this, active?.outlets ?: emptyList())
+    override suspend fun callSheet(outletId: String) = com.sunpride.field.census.LocalCustomers.callSheet(this, outletId)
+        ?: active?.callSheets?.singleOrNull { it.outletId == outletId }
     override suspend fun catalog() = active?.productCatalog?.sortedWith(compareBy({ it.code }, { it.id })) ?: emptyList()
     override suspend fun availability(productId: String) = active?.inventoryAvailability
         ?.filter { it.productId == productId }?.sortedWith(compareBy({ it.locationCode }, { it.id })) ?: emptyList()
@@ -96,14 +97,25 @@ class FakeFieldStore(val identity: StoreScope) : FieldStore {
         deltas.clear(); deltas.putAll(nextDeltas)
         token = nextCursor
     }
+    override suspend fun localCache(entity: String, key: String) = deltas[entity to key]
+    override suspend fun putLocalCache(entity: String, key: String, json: String, at: Long, keepPrefix: String) {
+        require(entity.startsWith("local.") && !held)
+        deltas.keys.filter { it.first == entity && !it.second.startsWith(keepPrefix) }.toList().forEach { deltas.remove(it) }
+        deltas[entity to key] = DeltaRow(identity.account, identity.deviceId, identity.fingerprint, entity, key, at, json, false)
+    }
+    override suspend fun blockLocalCache(entity: String, key: String, reason: String, at: Long) {
+        deltas[entity to key] = DeltaRow(identity.account, identity.deviceId, identity.fingerprint, entity, key, at, reason, true)
+    }
     override suspend fun activityRules() = active?.activityRules ?: emptyList()
     override suspend fun isLeaseValid(now: Long) = !held && active != null && now < lease
     override suspend fun enqueue(intent: IntentRow, now: Long) {
         require(intent.account == identity.account && intent.deviceId == identity.deviceId && intent.scope == identity.fingerprint)
         require(intent.requestId.isNotBlank() && intent.clientVisitId.isNotBlank() &&
-            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut", RetailCaptureQueue.KIND, MockAttempts.KIND) && intent.serializedOperation.isNotBlank())
+            intent.kind in setOf("visit.checkIn", "visit.activity", "visit.checkOut", com.sunpride.field.census.CensusRules.KIND, VisitCollection.KIND, RetailCaptureQueue.KIND, MockAttempts.KIND) && intent.serializedOperation.isNotBlank())
         check(isLeaseValid(now))
         MockAttempts.validate(intent)
+        VisitCollection.requireOpen(this, intent)
+        if (intent.kind == com.sunpride.field.census.CensusRules.KIND) com.sunpride.field.census.CensusRules.validate(org.json.JSONObject(intent.serializedOperation).getJSONObject("payload"))
         VisitCompletion.requireOpenForActivity(intent, rows.map { it.first to it.second.state })
         CallSheetQueueRules.validate(this, intent)
         ActivityQueueRules.validate(this, intent)

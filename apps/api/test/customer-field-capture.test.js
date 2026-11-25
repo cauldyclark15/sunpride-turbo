@@ -15,6 +15,7 @@ import {
 } from "./harness.js";
 import { install as org } from "../src/domains/org/index.js";
 import { install as masters } from "../src/domains/masters/index.js";
+import { install as visits } from "../src/domains/visits/index.js";
 import { readCustomer } from "../src/domains/masters/customers.js";
 import { SAMPLE_IMAGE } from "../src/domains/masters/catalogue.js";
 import { seedDemo } from "../../../packages/db/seed/index.js";
@@ -56,6 +57,18 @@ async function fieldRep(app = "field-android") {
     userId,
     profileId: profile.id,
     deviceId,
+    /** @param {any} operation */
+    pushOperation: async (operation) => {
+      const response = await signedPost(h, who, "/api/sync/push", {
+        version: 2,
+        app,
+        deviceId,
+        scopeId: unitId,
+        operations: [operation],
+      });
+      expect(response.res.status).toBe(200);
+      return response.body.results[0];
+    },
     /** @param {string} path @param {any} body */
     post: async (path, body) => {
       const r = await h.fetch(path, {
@@ -152,7 +165,7 @@ function capture(over = {}) {
 
 beforeAll(async () => {
   h = await startHarness({
-    installers: [org, masters],
+    installers: [org, masters, visits],
     port: Number(process.env.SP_TEST_PORT) || 5002,
   });
   await seedDemo(h.db, { days: 3, anchorDate: plusDays(todayManila(), 1) });
@@ -1213,6 +1226,126 @@ test("SP-0241 missing additional required answers are saved for completion, not 
   } finally {
     await h.db`update enrollment_forms set fields=${JSON.stringify(prior.fields)}::text::jsonb where id='customer'`;
   }
+});
+
+test("SP-0241 signed upload links a new Draft customer's visit, order and full collection without approval or duplicates", async () => {
+  const own = await fieldRep();
+  const at = Date.now() - 1000;
+  const p = capture({
+    deviceTime: at,
+    location: null,
+    photoJpegBase64: null,
+    allowIncomplete: true,
+    customer: {
+      registeredName: "Immediate Store",
+      customerName: "Ana Cruz",
+      distributionChannelCode: "41",
+      typeOfBusiness: "Sole Proprietor",
+    },
+  });
+  const captureOp = p.captureId;
+  const customer = await own.push(p, captureOp);
+  expect(customer.status).toBe("applied");
+  const outletId = customer.ack.entityId;
+  const make = (
+    /** @type {string} */ kind,
+    /** @type {any} */ payload,
+    /** @type {string[]} */ deps,
+  ) => ({
+    clientOpId: crypto.randomUUID(),
+    opType: kind,
+    clientTime: payload.deviceTime,
+    dependsOn: deps,
+    payload,
+  });
+  const start = make(
+    "visit.checkIn",
+    {
+      clientVisitId: crypto.randomUUID(),
+      plannedVisitId: null,
+      outletId,
+      serviceDate: todayManila(),
+      deviceTime: at + 1,
+      location: null,
+      intents: ["sell", "collect"],
+      unplannedReason: "Newly enrolled customer",
+    },
+    [captureOp],
+  );
+  const other = await fieldRep();
+  expect(
+    (
+      await other.pushOperation({
+        ...start,
+        clientOpId: crypto.randomUUID(),
+        dependsOn: [],
+      })
+    ).status,
+  ).toBe("rejected");
+  const started = await own.pushOperation(start);
+  expect(started.status, JSON.stringify(started)).toBe("applied");
+  const visitId = started.ack.entityId;
+  const catalog = (await own.get("/api/v1/masters/census-config")).body
+    .newCustomerProducts;
+  expect(catalog.length).toBeGreaterThan(0);
+  const order = make(
+    "visit.activity",
+    {
+      visitId,
+      deviceTime: at + 2,
+      activity: {
+        kind: "order_intent",
+        clientOrderId: crypto.randomUUID(),
+        lines: [{ productId: catalog[0].id, uom: catalog[0].uom, quantity: 1 }],
+      },
+    },
+    [start.clientOpId],
+  );
+  const collected = make(
+    "collection.record",
+    {
+      visitId,
+      deviceTime: at + 3,
+      amountMinor: 12500,
+      currency: "PHP",
+      method: "cash",
+      reference: "New customer cash received",
+    },
+    [order.clientOpId],
+  );
+  for (const operation of [order, collected]) {
+    const first = await own.pushOperation(operation);
+    expect(first.status, JSON.stringify(first)).toBe("applied");
+    expect((await own.pushOperation(operation)).status).toBe("duplicate");
+  }
+  const [money] =
+    await h.db`select outlet_id,visit_id,customer_id,amount_minor,status from field_collections where visit_id=${visitId}`;
+  expect(money).toMatchObject({
+    outlet_id: outletId,
+    visit_id: visitId,
+    customer_id: null,
+    status: "pending_review",
+  });
+  expect(Number(money.amount_minor)).toBe(12500);
+  expect(
+    (
+      await h.db`select id from visit_activities where visit_id=${visitId} and activity_kind='order_intent'`
+    ).length,
+  ).toBe(1);
+  expect(
+    (await h.db`select id from field_collections where visit_id=${visitId}`)
+      .length,
+  ).toBe(1);
+  expect((await readCustomer(h.db, outletId)).completeness).toBe("draft");
+  expect(
+    (
+      await own.pushOperation({
+        ...collected,
+        clientOpId: crypto.randomUUID(),
+        payload: { ...collected.payload, amountMinor: 0 },
+      })
+    ).status,
+  ).toBe("rejected");
 });
 
 test("the old census payload (no customer) still works", async () => {

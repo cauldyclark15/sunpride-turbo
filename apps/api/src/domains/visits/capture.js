@@ -12,6 +12,18 @@ export async function validateAccountCapture(ctx, visit, activity) {
       if (!ctx[DSR_ACCESS].allowed.has(l.productId)) reject("out_of_scope");
     return;
   }
+  const { ownDraftCustomer } = await import("../masters/draft-access.js");
+  if (
+    activity.kind === "order_intent" &&
+    (await ownDraftCustomer(ctx, visit.outlet_id))
+  ) {
+    // A new customer's unpriced request is retained for office confirmation, not booked as money.
+    for (const line of activity.lines) {
+      const sku = await product(ctx.db, line.productId);
+      if (line.uom !== sku.uom) reject();
+    }
+    return;
+  }
   const [account] =
     await ctx.db`select * from call_sheet_accounts where outlet_id=${visit.outlet_id} and organization_id=${ORGANIZATION} and deleted_at is null`;
   if (!account && activity.kind === "call_sheet") reject();

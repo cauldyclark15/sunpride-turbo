@@ -450,6 +450,8 @@ export async function syncAccountingCustomer(c, outletId) {
       reason: "Customer master keeps the accounting customer 1:1 (SP-0170)",
     },
   );
+  await c.db`update visit_executions set customer_id=${customer.id} where outlet_id=${outletId} and customer_id is null`;
+  await c.db`update field_collections set customer_id=${customer.id} where outlet_id=${outletId} and customer_id is null and status='pending_review'`;
   return customer;
 }
 

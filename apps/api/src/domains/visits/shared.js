@@ -128,7 +128,13 @@ export async function accessVisit(
   );
   if (
     (!ctx[DSR_ACCESS] && !external && person.org_unit_id !== owner) ||
-    outlet.status !== "active"
+    (outlet.status !== "active" &&
+      !(
+        outlet.status === "prospect" &&
+        (await (
+          await import("../masters/draft-access.js")
+        ).ownDraftCustomer(ctx, outlet.id))
+      ))
   )
     throw forbidden("Visit ownership changed", "out_of_scope");
   return visit;

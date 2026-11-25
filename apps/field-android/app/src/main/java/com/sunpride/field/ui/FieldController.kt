@@ -103,6 +103,8 @@ interface FieldBackend {
     /** AND-013 activity-form rules from the active snapshot. */
     fun activityRules(): List<com.sunpride.field.storage.ActivityRule> = emptyList()
     /** Queue one structured activity form (merchandising, promotion, inventory or price check). */
+    fun queueCollection(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
+        amount: Long, method: String, reference: String) { error("Collection storage unavailable") }
     fun queueActivity(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
         outletId: String, activity: JSONObject) { error("No local store") }
     /** Local order drafts in this verified partition (SP-0061). */
@@ -783,6 +785,17 @@ class LiveFieldBackend(
         if(report.uploaded>0)com.sunpride.field.sync.work.SyncWork.enqueue(context)
         com.sunpride.field.evidence.EvidenceWork.notifyFinished(report)
         return report
+    }
+    override fun queueCollection(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
+        amount: Long, method: String, reference: String) {
+        val partition = storedScope() ?: error("No verified local partition")
+        withStore { store ->
+            val start = store.intent(checkInRequestId) ?: error("Start the visit first")
+            require(start.clientVisitId == clientVisitId)
+            val at = System.currentTimeMillis()
+            store.enqueue(com.sunpride.field.storage.VisitCollection.intent(partition, start, previousRequestId, amount, method, reference, at), at)
+        }
+        runCatching { com.sunpride.field.sync.work.SyncWork.enqueue(context) }
     }
     override fun queueActivity(clientVisitId: String, checkInRequestId: String, previousRequestId: String,
         outletId: String, activity: JSONObject) {
@@ -1780,6 +1793,22 @@ class FieldController(
     fun relatedCall(visit: VisitDisplay) = VisitCallRules.related(visit.plannedVisitId, visit.outletId, serviceDay(), diagnosticRows)
     fun startFailure(visit: VisitDisplay) = VisitCallRules.startFailure(visit.plannedVisitId, visit.outletId,
         serviceDay(), plans(), diagnosticRows)
+    fun recordCollection(amount: String, method: String, reference: String) = scope.launch(ui) {
+        val visit = diagnostic ?: return@launch
+        if (busy) return@launch
+        busy = true; diagnosticError = null
+        try {
+            refreshDiagnostic()
+            val rows = relatedCall(visit)
+            val start = rows.firstOrNull { it.first.kind == "visit.checkIn" }?.first ?: error("Start the visit first")
+            val previous = rows.lastOrNull { !com.sunpride.field.storage.OutboxState.refused(it.second) }?.first ?: start
+            val minor = CollectorDraft.minor(amount)
+            withContext(io) { backend.queueCollection(start.clientVisitId, start.requestId, previous.requestId, minor, method, reference) }
+            refreshDiagnostic()
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: Exception) { diagnosticError = e.message ?: "Could not save the collection. Your entries are still here." }
+        finally { busy = false }
+    }
     fun requestCallGeofence(reason: String, started: Boolean) = scope.launch(ui) {
         val visit=diagnostic ?: return@launch
         if (busy) return@launch

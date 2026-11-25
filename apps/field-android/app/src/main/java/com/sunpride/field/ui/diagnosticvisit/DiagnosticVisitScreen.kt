@@ -52,6 +52,9 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
     val scope = rememberCoroutineScope()
     var reason by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
+    var collectionAmount by remember { mutableStateOf("") }
+    var collectionMethod by remember { mutableStateOf("cash") }
+    var collectionReference by remember { mutableStateOf("") }
     var outcome by remember { mutableStateOf<String?>(null) }
     var reasonCode by remember { mutableStateOf("") }
     var sequenceReason by remember { mutableStateOf("") }
@@ -283,6 +286,22 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
                         style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     else ListRow("Add order", "Search this customer's products", "activity",
                         Modifier.testTag("order-new"), onClick = { controller.openOrder() })
+                }
+                SectionCard("Collection") {
+                    Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Text("Record only money actually received. The office confirms it; this does not mark an invoice paid.", style = MaterialTheme.typography.bodySmall)
+                        LabeledField("Amount received · pesos", collectionAmount, { collectionAmount = it }, Modifier.testTag("visit-collection-amount"))
+                        com.sunpride.field.storage.VisitCollection.METHODS.forEach { method ->
+                            ChoiceRow(method.replace('_', ' '), collectionMethod == method, { collectionMethod = method })
+                        }
+                        LabeledField("Reference (optional)", collectionReference, { collectionReference = it }, Modifier.testTag("visit-collection-reference"))
+                        com.sunpride.field.ui.SecondaryButton("Record collection", {
+                            controller.recordCollection(collectionAmount, collectionMethod, collectionReference)
+                        }, enabled = !controller.busy, modifier = Modifier.testTag("visit-collection-save"))
+                        related.filter { it.first.kind == com.sunpride.field.storage.VisitCollection.KIND }.forEach {
+                            Text("Collection saved on this phone · ${com.sunpride.field.ui.syncstatus.SyncStatus.itemState(it.second)}", style = MaterialTheme.typography.bodySmall)
+                        }
+                    }
                 }
                 SectionCard("Note") {
                     Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
