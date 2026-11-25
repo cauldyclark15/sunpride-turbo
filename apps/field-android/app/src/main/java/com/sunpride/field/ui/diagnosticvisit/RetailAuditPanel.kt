@@ -17,6 +17,7 @@ import java.math.BigDecimal
 /** F-310 F-311 F-313 F-315 F-317 F-318 F-320 F-321: steps inside the existing visit screen. */
 @Composable
 fun RetailAuditPanel(snapshot: JSONObject, busy: Boolean, photoCount: Int, call: String,
+    backend: com.sunpride.field.ui.FieldBackend? = null,
     onQueue: (String,JSONObject,()->Unit)->Unit) {
     val labels=linkedMapOf("planogram" to "Planogram", "posm" to "POSM audit", "freezer" to "Freezer audit",
         "expiry" to "Expiry audit", "promotion" to "Campaign compliance", "competitor" to "Competitor", "issue_log" to "Issue log")
@@ -26,13 +27,13 @@ fun RetailAuditPanel(snapshot: JSONObject, busy: Boolean, photoCount: Int, call:
         Column(Modifier.padding(16.dp),verticalArrangement=Arrangement.spacedBy(10.dp)) {
             Text("Save on this phone, then sync. The latest photo from this call is attached. Photos available: $photoCount.")
             labels.forEach { (key,label) -> ChoiceRow(label,kind==key,{kind=key;RetailDrafts.setKind(call,key)},Modifier.testTag("retail-kind-$key"),!busy) }
-            key(call,kind) { RetailFields(kind,snapshot,busy,call,onQueue) }
+            key(call,kind) { RetailFields(kind,snapshot,busy,call,backend,onQueue) }
         }
     }
 }
 
 @Composable
-private fun RetailFields(kind: String, snapshot: JSONObject, busy: Boolean, call: String, onQueue: (String,JSONObject,()->Unit)->Unit) {
+private fun RetailFields(kind: String, snapshot: JSONObject, busy: Boolean, call: String, backend: com.sunpride.field.ui.FieldBackend?, onQueue: (String,JSONObject,()->Unit)->Unit) {
     val masters=RetailCaptureQueue.objects(snapshot.optJSONArray("masters"))
     val choices=when(kind) {
         "freezer"->RetailCaptureQueue.objects(snapshot.optJSONArray("equipment"))
@@ -46,6 +47,16 @@ private fun RetailFields(kind: String, snapshot: JSONObject, busy: Boolean, call
     val targets=plan?.optJSONObject("data")?.optJSONArray("lines")?.let(RetailCaptureQueue::objects).orEmpty()
     var draft by remember { mutableStateOf(RetailDrafts.get(call,kind).let { d ->
         d.copy(facings=targets.indices.map { d.facings.getOrElse(it) { "" } }, positions=targets.indices.map { d.positions.getOrElse(it) { "" } }) }) }
+    val partial=com.sunpride.field.ui.rememberFormDraft(backend,"retail:$call:$kind") { o ->
+        fun strings(key:String)=o.optJSONArray(key)?.let { a->(0 until a.length()).map(a::getString) }.orEmpty()
+        val selection=o.optString("selection")
+        draft=RetailDraft(selected=choices.indexOfFirst { it.optString("id",it.optString("unit_code"))==selection },first=o.optString("first"),second=o.optString("second"),
+            third=o.optString("third"),fourth=o.optString("fourth"),note=o.optString("note"),none=o.optBoolean("none"),
+            condition=o.optString("condition","good"),type=o.optString("type","price"),passed=strings("passed").toSet(),
+            facings=targets.map { o.optJSONObject("facings")?.optString(it.getString("productId")).orEmpty() },
+            positions=targets.map { o.optJSONObject("positions")?.optString(it.getString("productId")).orEmpty() })
+        RetailDrafts.put(call,kind,draft)
+    }
     fun edit(change: (RetailDraft)->RetailDraft) { draft=change(draft); RetailDrafts.put(call,kind,draft) }
     val selected=draft.selected; val first=draft.first; val second=draft.second; val third=draft.third; val fourth=draft.fourth
     val note=draft.note; val none=draft.none; val condition=draft.condition; val type=draft.type; val passed=draft.passed
@@ -106,6 +117,11 @@ private fun RetailFields(kind: String, snapshot: JSONObject, busy: Boolean, call
             if(!none) field("Incident details",note,"retail-incident-note"){v->edit { it.copy(note=v) }}()
         }
     }
+    com.sunpride.field.ui.FormDraftControls(partial,JSONObject().put("selection",choices.getOrNull(selected)?.let { it.optString("id",it.optString("unit_code")) })
+        .put("first",first).put("second",second).put("third",third).put("fourth",fourth).put("note",note).put("none",none)
+        .put("condition",condition).put("type",type).put("passed",JSONArray(passed.toList()))
+        .put("facings",JSONObject(targets.mapIndexed { i,p -> p.getString("productId") to facings[i] }.toMap()))
+        .put("positions",JSONObject(targets.mapIndexed { i,p -> p.getString("productId") to positions[i] }.toMap())),!busy)
     error?.let { Text(it,Modifier.testTag("retail-form-error")) }
     if(saved) Text("Audit saved on this phone. Sync uploads the photo and observation.",Modifier.testTag("retail-saved"))
     val choiceLabel=when(kind) { "freezer"->"freezer or cooler"; "posm"->"display material"; "promotion"->"campaign"

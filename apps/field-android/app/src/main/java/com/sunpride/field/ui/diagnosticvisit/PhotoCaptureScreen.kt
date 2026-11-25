@@ -46,6 +46,8 @@ import com.sunpride.field.ui.FieldController
 import com.sunpride.field.ui.PrimaryBottomButton
 import com.sunpride.field.ui.SectionCard
 import com.sunpride.field.ui.SunprideTokens
+import kotlinx.coroutines.launch
+import org.json.JSONObject
 import java.io.ByteArrayOutputStream
 
 /** Instrumentation-only seam: a fixed JPEG instead of the camera. Always null in production. */
@@ -64,6 +66,13 @@ fun PhotoCaptureScreen(controller: FieldController, modifier: Modifier = Modifie
     val context = LocalContext.current
     val fake = PhotoCameraSeam.fake
     var type by remember { mutableStateOf<String?>(null) }
+    var keptPhoto by remember { mutableStateOf<ByteArray?>(null) }
+    var keptAt by remember { mutableStateOf(0L) }
+    val formScope = androidx.compose.runtime.rememberCoroutineScope()
+    val draft = com.sunpride.field.ui.rememberFormDraft(controller, "photo:${controller.diagnostic?.outletId}") { o ->
+        type = o.optString("type").takeIf { it.isNotBlank() }; keptAt = o.optLong("at")
+        keptPhoto = o.optString("photo").takeIf { it.isNotBlank() }?.let { java.util.Base64.getDecoder().decode(it) }
+    }
     var capture by remember { mutableStateOf<ImageCapture?>(null) }
     var taking by remember { mutableStateOf(false) }
     var cameraError by remember { mutableStateOf<String?>(null) }
@@ -76,7 +85,10 @@ fun PhotoCaptureScreen(controller: FieldController, modifier: Modifier = Modifie
         granted = it; asked = true
     }
     /** Saved under the type chosen when the shutter was pressed. */
-    fun keep(chosen: String, bytes: ByteArray, at: Long) = controller.savePhoto(chosen, bytes, at)
+    fun keep(chosen: String, bytes: ByteArray, at: Long) {
+        keptPhoto = bytes; keptAt = at
+        controller.savePhoto(chosen, bytes, at) { formScope.launch { runCatching { draft.clear() } } }
+    }
     fun shoot() {
         val chosen = type ?: return
         if (taking || controller.busy) return
@@ -97,6 +109,7 @@ fun PhotoCaptureScreen(controller: FieldController, modifier: Modifier = Modifie
                 }
             })
     }
+    val photoDraftValue = remember(keptPhoto, type, keptAt) { Triple(type,keptAt,keptPhoto) }
     Column(modifier.fillMaxSize().bottomSafe().padding(start = 16.dp, end = 16.dp, top = 4.dp, bottom = 12.dp)) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SectionCard("Photo type") {
@@ -128,6 +141,12 @@ fun PhotoCaptureScreen(controller: FieldController, modifier: Modifier = Modifie
         if (!granted && fake == null) Text(if (asked) "Camera access is off. Allow it in Settings to take visit photos."
             else "Allow camera access to take visit photos.", style = MaterialTheme.typography.bodyMedium,
             modifier = Modifier.padding(bottom = 8.dp).testTag("camera-permission"))
+        com.sunpride.field.ui.FormDraftControls(draft, { JSONObject().put("type",photoDraftValue.first).put("at",photoDraftValue.second)
+            .put("photo",photoDraftValue.third?.let { java.util.Base64.getEncoder().encodeToString(it) }) }, !taking && !controller.busy)
+        if (keptPhoto != null) com.sunpride.field.ui.SecondaryButton("Remove kept photo", { keptPhoto = null }, enabled = !taking && !controller.busy)
+        if (keptPhoto != null) com.sunpride.field.ui.SecondaryButton("Save kept photo", {
+            type?.let { keep(it, keptPhoto!!, keptAt) }
+        }, enabled = !taking && !controller.busy)
         PrimaryBottomButton(if (taking) "Taking photo…" else if (!granted) "Allow camera" else "Take photo", {
             if (granted) shoot()
             else if (asked && activity?.let { ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.CAMERA) } == false)

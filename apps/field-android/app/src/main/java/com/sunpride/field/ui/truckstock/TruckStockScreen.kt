@@ -38,6 +38,11 @@ fun TruckStockScreen(c: FieldController, modifier: Modifier = Modifier) {
     val now = System.currentTimeMillis()
     val d = data?.takeIf { it.optLong("authorizationExpiresAt") > now }
     val week = runCatching { TruckStock.decode(d) }.getOrNull()
+    val draft=rememberFormDraft(c,"truck-stock:${week?.id ?: "none"}") { o ->
+        fun restore(key:String,target:MutableMap<String,String>){ o.optJSONObject(key)?.let { a->a.keys().forEach { target[it]=a.getString(it) } } }
+        restore("counts",counts);restore("notes",notes)
+        o.optJSONObject("reasons")?.let { a->a.keys().forEach { reasons[it]=if(a.isNull(it))null else a.getString(it) } }
+    }
     LaunchedEffect(week?.id, week?.status) {
         week?.lines?.forEach { l ->
             if (l.counted != null && counts[l.productId] == null) counts[l.productId] = l.counted.toString()
@@ -78,6 +83,7 @@ fun TruckStockScreen(c: FieldController, modifier: Modifier = Modifier) {
                     modifier = Modifier.fillMaxWidth(), enabled = !closed)
             }
         }
+        if(!closed)FormDraftControls(draft,JSONObject().put("counts",JSONObject(counts.toMap())).put("reasons",JSONObject(reasons.toMap())).put("notes",JSONObject(notes.toMap())),!c.busy)
         HorizontalDivider(color = Look.hairline)
         FieldButton({
             message = null; saved = null

@@ -11,6 +11,7 @@ import { scopeFilterForActor } from "../domains/org/scope.js";
 
 /** Plain words for every phone op type (exact names first, then by family). */
 const OP_NAMES = /** @type {Record<string,string>} */ ({
+  "customer.amend": "Customer details",
   "census.capture": "New customer",
   "visit.checkIn": "Start visit",
   "visit.checkOut": "End visit",
@@ -30,7 +31,7 @@ const OP_NAMES = /** @type {Record<string,string>} */ ({
   "outlet.census": "Store change",
   "outlet.change": "Store change",
   "order.intent": "Order",
-  "order_intent": "Order",
+  order_intent: "Order",
   "sale.record": "Sale",
   "sale.void": "Cancelled sale",
   "return.record": "Return",
@@ -78,12 +79,14 @@ const WHY = /** @type {Record<string,string>} */ ({
   invalid_request: "Some details could not be read",
   invalid_plan: "The visit was changed or closed in the office first",
   out_of_scope: "This store or work is not assigned to this salesman",
-  dependency_missing: "An earlier step (for example the visit start) was not saved",
+  dependency_missing:
+    "An earlier step (for example the visit start) was not saved",
   invalid_transition: "The visit was already ended or changed",
   call_open: "Another call was still open",
   mcp_order: "Stores were visited out of plan order",
   wrong_date: "The phone's date did not match the visit date",
-  idempotency_conflict: "A different save was already recorded under the same entry",
+  idempotency_conflict:
+    "A different save was already recorded under the same entry",
   evidence_pending_review: "A visit photo was still waiting for a check",
   unsupported_operation: "The phone's app version cannot send this",
   load_not_posted: "The truck load was not posted yet",
@@ -108,7 +111,12 @@ function row(r) {
     id: r.id,
     createdAt: new Date(r.created_at).getTime(),
     salesman: r.salesman ?? "Unknown person",
-    app: r.app === "van-sales-android" ? "Van app" : r.app === "field-android" ? "Field app" : r.app,
+    app:
+      r.app === "van-sales-android"
+        ? "Van app"
+        : r.app === "field-android"
+          ? "Field app"
+          : r.app,
     what: opName(r.op_type),
     why: whyText(r.code),
     code: r.code,

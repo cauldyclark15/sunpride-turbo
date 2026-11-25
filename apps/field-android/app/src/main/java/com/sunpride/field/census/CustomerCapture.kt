@@ -304,6 +304,14 @@ object CustomerCapture {
         if (customerName(f).isBlank()) add(Missing("firstName", "Enter the person's name."))
     }
 
+    fun isComplete(f: Form, s: Setup?, g: Geography?, fix: JSONObject?): Boolean {
+        if (s == null) return false
+        val input = HashMap<String, Any?>(f.values()); input["customerName"] = customerName(f)
+        input["latitude"] = fix?.optDouble("latitude"); input["longitude"] = fix?.optDouble("longitude")
+        input["shipTos"] = listOf(shipTo(f,g))
+        return CustomerMaster.validate(input, "complete", s.index, g?.resolve(f)).errors.isEmpty() &&
+            EnrollmentFields.errors(s.enrollmentFields,f).isEmpty()
+    }
     /** Only size/identity mistakes block an incomplete save. Supplied nonessential values
      * are preserved verbatim for later correction, not silently lost when lists are absent. */
     fun saveErrors(f: Form, s: Setup?, g: Geography?): List<CustomerMaster.Error> =

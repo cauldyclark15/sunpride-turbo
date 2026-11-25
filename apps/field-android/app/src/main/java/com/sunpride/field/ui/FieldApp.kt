@@ -224,11 +224,16 @@ fun FieldApp(
     LaunchedEffect(syncRuns) { if (syncRuns > 0 && ready) controller.backgroundSyncFinished() }
     // F-616 prefetch after a verified snapshot/sync, never on every one-second UI pulse.
     LaunchedEffect(backend,ready,controller.today.lastSynced) {
-        if(ready && controller.today.lastSynced!=null) kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            val job=kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]
-            // SP-0176: Add customer lists + geography on the phone after every online sync, so a store can be added offline.
-            runCatching { backend?.warmCustomerSetup() }
-            runCatching { backend?.warmCatalogueImages { job?.isActive!=false } }
+        if(ready && controller.today.lastSynced!=null) {
+            val epoch = backend?.authorizationEpoch
+            val states = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+                val job=kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]
+                runCatching { backend?.warmCustomerSetup() }
+                runCatching { backend?.warmCatalogueImages { job?.isActive!=false } }
+                runCatching { backend?.customerDraftStates() }.getOrNull()
+            }
+            if (backend?.authorizationEpoch == epoch && states != null && censusDraft.loaded)
+                censusDraft.replace(censusDraft.customers.reconcile(states))
         }
     }
     // SP-0136 live map: the work day that bounds location sharing (consent, Start/End day, indicator).
@@ -360,6 +365,12 @@ fun FieldApp(
     // The visit screens take over the page the seller was on, exactly as the `when` below picks them.
     val visitOpen = controller.diagnostic != null && visits && ready && page !in FieldNav.pagesAheadOfVisit
     val barVisible = FieldNav.barVisible(ready, locked, controller.today.partnerMode, visitOpen, page) && !imeVisible && !sellFlow
+    fun editCustomer() {
+        val root=com.sunpride.field.census.LocalCustomers.requestId(customerId.orEmpty())
+        if (root!=null && censusDraft.customers.saved.any { it.captureRequestId==root }) openDrafts()
+        else if (root!=null && customer?.serverOutletId==null) openDrafts()
+        else { censusEdit = customer?.serverOutletId ?: customerId; go("customer-profiles") }
+    }
     MaterialTheme(colorScheme = if (dark) SunprideTokens.darkColors else SunprideTokens.lightColors,
         shapes = SunprideTokens.shapes, typography = SunprideTokens.typography) {
         if (ready && !locked && !controller.mustChangePassword && !controller.today.partnerMode && controller.needsModeChoice)
@@ -370,7 +381,7 @@ fun FieldApp(
             // SP-0147: Messages draws its own top bar (title, back, actions), so the app's bar steps aside there.
             // SP-0192: the Sell area draws its own selling header (title, sync badge), like the Van app's.
             if (com.sunpride.field.chat.FieldChat.appBarVisible(ready, page, chatAtRoot) && !(page == "sell" && sellHost != null)) {
-                val editStore = { censusEdit = customerId; go("customer-profiles") }
+                val editStore = { editCustomer() }
                 val spec = headerSpec(ready, locked, signedIn = controller.state != EnrollmentState.SignedOut, page = page,
                     visitOpen = visitOpen, controller = controller, routeCode = controller.today.routeCode,
                     editingStore = censusEdit != null, mode = mode).let {
@@ -536,7 +547,7 @@ fun FieldApp(
                     onDial = { uri -> openDialer(context, uri) }, modifier = modifier,
                     onVisit = controller::openDiagnostic, visitEnabled = visits, now = minuteNow,
                     unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features,
-                    onEdit = if (visits && STORE_EDIT_ENABLED) ({ censusEdit = customerId; go("customer-profiles") }) else null,
+                    onEdit = if (visits && STORE_EDIT_ENABLED) ({ editCustomer() }) else null,
                     changeLabel = storeChanges[customer.outletId], backend = backend)
                 ready && page == "customer" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,

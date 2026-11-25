@@ -50,6 +50,11 @@ fun WorkforceScreen(controller: FieldController,location: VisitLocation,modifier
     var message by remember { mutableStateOf<String?>(null) }
     var saved by remember { mutableStateOf(false) }
     var generation by remember { mutableStateOf(0) }
+    val draft = rememberFormDraft(controller,"workforce:${mode ?: "menu"}") { o ->
+        name=o.optString("name"); answers=o.optJSONObject("answers")?.let { a->a.keys().asSequence().associateWith { a.getString(it) } }.orEmpty()
+        geo=o.optJSONObject("geo");photoAt=o.optLong("photoAt")
+        jpeg=o.optString("photo").takeIf { it.isNotBlank() }?.let { java.util.Base64.getDecoder().decode(it) }
+    }
     val granted=ContextCompat.checkSelfPermission(context,Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED || !location.requiresPermission
     var locationGranted by remember { mutableStateOf(granted) }
     var cameraGranted by remember { mutableStateOf(ContextCompat.checkSelfPermission(context,Manifest.permission.CAMERA)==PackageManager.PERMISSION_GRANTED) }
@@ -134,7 +139,11 @@ fun WorkforceScreen(controller: FieldController,location: VisitLocation,modifier
                 }
             }
         }
-        if(mode!=null)ActionBar { PrimaryBottomButton(if(controller.busy)"Saving…" else "Save",{
+        if(mode!=null)ActionBar {
+            val value=Triple(geo,jpeg,photoAt)
+            FormDraftControls(draft,{JSONObject().put("name",name).put("answers",JSONObject(answers)).put("geo",value.first)
+                .put("photoAt",value.third).put("photo",value.second?.let { java.util.Base64.getEncoder().encodeToString(it) })},!controller.busy&&!taking)
+            PrimaryBottomButton(if(controller.busy)"Saving…" else "Save",{
             controller.saveWorkforce(mode!!,name,answers,geo,jpeg,photoAt) {saved=true;mode=null;generation++}
         },Modifier.testTag("workforce-save"),!controller.busy&&!taking&&policy?.valid(System.currentTimeMillis())==true&&(mode=="workforce.clockOut"||(geo!=null&&jpeg!=null))) }
     }

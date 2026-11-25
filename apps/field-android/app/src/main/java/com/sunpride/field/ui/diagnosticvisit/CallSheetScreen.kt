@@ -47,6 +47,9 @@ fun CallSheetScreen(sheet: CallSheet, controller: FieldController, modifier: Mod
     var values by rememberSaveable(sheet.outletId, sheet.revision) {
         mutableStateOf(List(sheet.lines.size * 6) { "" })
     }
+    val partial = com.sunpride.field.ui.rememberFormDraft(controller,"call-sheet:${sheet.outletId}") { o ->
+        values = sheet.lines.flatMap { p -> val a=o.optJSONArray(p.productId); (0 until 6).map { a?.optString(it).orEmpty() } }
+    }
     val drafts = sheet.lines.mapIndexed { i, product ->
         val v = values.subList(i * 6, i * 6 + 6)
         CallSheetDraftLine(product.productId, v[0], v[1], v[2], v[3], v[4], v[5])
@@ -171,6 +174,9 @@ fun CallSheetScreen(sheet: CallSheet, controller: FieldController, modifier: Mod
             } }
         }
         ActionBar {
+            com.sunpride.field.ui.FormDraftControls(partial,JSONObject().apply {
+                sheet.lines.forEachIndexed { i,p -> put(p.productId,org.json.JSONArray(values.subList(i*6,i*6+6))) }
+            },!controller.busy)
             PrimaryBottomButton("Save", {
                 controller.queueCallSheet(drafts) { values = List(sheet.lines.size * 6) { "" } }
             }, Modifier.testTag("call-sheet-save"), !controller.busy && valid)

@@ -64,6 +64,13 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
     var locationNotice by remember { mutableStateOf<LocationNotice?>(null) }
     var capturing by remember { mutableStateOf(false) }
     var pendingKind by remember { mutableStateOf("visit.checkIn") }
+    val draft = com.sunpride.field.ui.rememberFormDraft(controller, "visit:${visit.plannedVisitId ?: visit.outletId}") { o ->
+        reason = o.optString("reason"); note = o.optString("note"); collectionAmount = o.optString("collectionAmount")
+        collectionMethod = o.optString("collectionMethod", "cash"); collectionReference = o.optString("collectionReference")
+        outcome = o.optString("outcome").takeIf { it.isNotBlank() }; reasonCode = o.optString("reasonCode")
+        sequenceReason = o.optString("sequenceReason"); zeroSaleReason = o.optString("zeroSaleReason")
+        shortCallReason = o.optString("shortCallReason"); geofenceReason = o.optString("geofenceReason")
+    }
     suspend fun captureAndQueue(kind: String) {
         try {
             // Even a precise-permission denial may leave approximate/network location available.
@@ -112,6 +119,10 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
         }
         Column(Modifier.weight(1f).verticalScroll(scroll),
             verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            com.sunpride.field.ui.FormDraftControls(draft, JSONObject().put("reason", reason).put("note", note)
+                .put("collectionAmount", collectionAmount).put("collectionMethod", collectionMethod).put("collectionReference", collectionReference)
+                .put("outcome", outcome).put("reasonCode", reasonCode).put("sequenceReason", sequenceReason)
+                .put("zeroSaleReason", zeroSaleReason).put("shortCallReason", shortCallReason).put("geofenceReason", geofenceReason), !controller.busy && !capturing)
             // The header names the store; this line says where the call stands.
             Text(listOfNotNull(visit.planned.takeUnless { it == "Scheduled" },
                 when { checkedOut -> "Done"; checkedIn -> "In progress"; else -> "Not started" }).joinToString(" · "),
@@ -224,7 +235,8 @@ fun DiagnosticVisitScreen(visit: VisitDisplay, controller: FieldController, loca
             }
             if (checkedIn && !checkedOut) flow?.optJSONObject("retail")?.let { retail ->
                 RetailAuditPanel(retail,controller.busy,controller.diagnosticPhotos.count { it.state in setOf("pending","uploaded") },
-                    related.firstOrNull { it.first.kind == "visit.checkIn" }?.first?.clientVisitId ?: visit.outletId) { kind,data,onSaved ->
+                    related.firstOrNull { it.first.kind == "visit.checkIn" }?.first?.clientVisitId ?: visit.outletId,
+                    backend=controller.formDraftBackend()) { kind,data,onSaved ->
                     scope.launch {
                         if(kind=="issue_log" && !data.optBoolean("noneObserved")) {
                             val capture=location.captureOrUnavailable()

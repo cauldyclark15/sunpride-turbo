@@ -33,6 +33,11 @@ import java.util.UUID
  var page by remember(lifetime){mutableStateOf(0)}
  var productPage by remember(lifetime,selected){mutableStateOf(0)}
  var mslPage by remember(lifetime,selected){mutableStateOf(0)}
+ val draft=rememberFormDraft(controller,"dsr:${selected ?: "menu"}") { o ->
+  note=o.optString("note");reason=o.optString("reason");short=o.optString("short");zero=o.optString("zero").takeIf{it.isNotBlank()}
+  answers=o.optJSONObject("answers")?.let{a->a.keys().asSequence().associateWith{a.getString(it)}}.orEmpty()
+  cart=o.optJSONObject("cart")?.let{a->a.keys().asSequence().associateWith{a.getInt(it)}}.orEmpty()
+ }
  fun capture(){val before=selected;val life=lifetime;scope.launch{locating=true;try{val value=location.captureOrUnavailable().wire;if(before==selected&&life==controller.sapMasterLifetime())fix=value}finally{locating=false}}}
  val permission=rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()){result->if(result.values.any{it})capture()else message="Location is needed to start and end the call; this does not enable tracking."}
  fun attempt(block:()->Unit){message=null;CollectorDraft.guarded(block).onFailure{message=it.message?:"Check the fields"}}
@@ -50,6 +55,7 @@ import java.util.UUID
   for(o in ordered.drop(shown*6).take(6))FieldButton({selected=o.getString("id")},enabled=!controller.busy){Text(o.getString("name")+if(agenda.any{it.getString("outletId")==o.getString("id")})" · planned beat"else" · reasoned extra call")}
   if(ordered.size>6)Row(horizontalArrangement=Arrangement.spacedBy(8.dp)){FieldButton({page=shown-1},enabled=shown>0){Text("Previous")};Text("${shown+1}");FieldButton({page=shown+1},enabled=(shown+1)*6<ordered.size){Text("Next")}}
   val outlet=outlets.firstOrNull{it.getString("id")==selected}?:return@Column
+  FormDraftControls(draft,JSONObject().put("note",note).put("reason",reason).put("short",short).put("zero",zero).put("answers",JSONObject(answers)).put("cart",JSONObject(cart)),!controller.busy)
   val id=outlet.getString("id");Text(outlet.getString("name"),style=MaterialTheme.typography.titleLarge)
   val local=objects(data.optJSONArray("localOperations")).filter{it.getString("kind").startsWith("dsr.")}
   val accepted=local.filter{it.getString("state") !in setOf("review","office","held")}

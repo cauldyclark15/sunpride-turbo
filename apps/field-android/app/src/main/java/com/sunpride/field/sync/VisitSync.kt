@@ -232,6 +232,15 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
                 val media = com.sunpride.field.storage.RetailCaptureQueue.materialize(intent, store.visitPhotos(intent.clientVisitId))
                     ?: continue
                 val op = com.sunpride.field.census.LocalCustomers.materialize(store, media) ?: continue
+                if (intent.kind == com.sunpride.field.census.CensusRules.KIND) {
+                    val deps = op.optJSONArray("dependsOn") ?: JSONArray()
+                    if ((0 until deps.length()).any { store.ack(deps.getString(it)) == null }) {
+                        if ((0 until deps.length()).any { id -> store.history().any { it.first.requestId == deps.getString(id) &&
+                            com.sunpride.field.storage.OutboxState.refused(it.second.state) } })
+                            store.recordRejection(intent.requestId,"dependency_missing")
+                        continue
+                    }
+                }
                 if (com.sunpride.field.storage.WorkforceForms.isForm(intent.kind)) {
                     val deps=op.getJSONArray("dependsOn")
                     var waiting=false

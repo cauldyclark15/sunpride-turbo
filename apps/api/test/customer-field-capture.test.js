@@ -1348,6 +1348,110 @@ test("SP-0241 signed upload links a new Draft customer's visit, order and full c
   ).toBe("rejected");
 });
 
+test("SP-0241 editable capture revisions update one customer, finish Draft and reject office conflicts", async () => {
+  const own = await fieldRep();
+  const draftId = crypto.randomUUID();
+  const first = capture({
+    customerDraftId: draftId,
+    draftRevision: 1,
+    location: null,
+    photoJpegBase64: null,
+    customer: { registeredName: "Revision Store", customerName: "Ana Cruz" },
+  });
+  const created = await own.push(first, first.captureId);
+  expect(created.status).toBe("applied");
+  const id = created.ack.entityId;
+  const state = await own.post("/api/v1/customers/draft-states", {
+    draftIds: [draftId],
+  });
+  expect(state.body.states).toEqual([
+    { draftId, revision: 1, completeness: "draft", canEdit: true },
+  ]);
+  const stranger = await fieldRep();
+  expect(
+    (
+      await stranger.post("/api/v1/customers/draft-states", {
+        draftIds: [draftId],
+      })
+    ).body.states,
+  ).toEqual([]);
+  const second = capture({ customerDraftId: draftId, draftRevision: 2 });
+  const updated = await own.push(second, second.captureId);
+  expect(updated.status, JSON.stringify(updated)).toBe("applied");
+  expect(updated.ack.entityId).toBe(id);
+  expect((await own.push(second, second.captureId)).status).toBe("duplicate");
+  expect((await readCustomer(h.db, id)).completeness).toBe("complete");
+  expect(
+    (await own.post("/api/v1/customers/draft-states", { draftIds: [draftId] }))
+      .body.states[0].completeness,
+  ).toBe("complete");
+  expect(
+    (
+      await h.db`select * from customer_capture_revisions where profile_id=(select id from profiles where user_id=${own.userId}) and draft_id=${draftId}`
+    ).length,
+  ).toBe(1);
+  const before = await readCustomer(h.db, id);
+  await h.db`update customer_profiles set street1='Office correction' where outlet_id=${id}`;
+  const conflict = capture({
+    customerDraftId: draftId,
+    draftRevision: 3,
+    location: null,
+    photoJpegBase64: null,
+  });
+  expect((await own.push(conflict, conflict.captureId)).status).toBe(
+    "rejected",
+  );
+  expect((await readCustomer(h.db, id)).street1).toBe("Office correction");
+  expect((await readCustomer(h.db, id)).registeredName).toBe(
+    before.registeredName,
+  );
+});
+
+test("SP-0241 signed customer amendments save partial details once and refuse stale or foreign edits", async () => {
+  const own = await fieldRep();
+  const created = await own.push(
+    capture({
+      location: null,
+      photoJpegBase64: null,
+      customer: { registeredName: "Amend Store", customerName: "Ana Cruz" },
+    }),
+  );
+  expect(created.status).toBe("applied");
+  const id = created.ack.entityId;
+  const current = await readCustomer(h.db, id);
+  const op = {
+    clientOpId: crypto.randomUUID(),
+    opType: "customer.amend",
+    clientTime: Date.now(),
+    dependsOn: [],
+    payload: {
+      outletId: id,
+      expectedUpdatedAt: current.updatedAt,
+      edits: { mobileNo: "09175550101" },
+      deviceTime: Date.now(),
+    },
+  };
+  const stranger = await fieldRep();
+  expect(
+    (await stranger.pushOperation({ ...op, clientOpId: crypto.randomUUID() }))
+      .status,
+  ).toBe("rejected");
+  expect((await own.pushOperation(op)).status).toBe("applied");
+  expect((await own.pushOperation(op)).status).toBe("duplicate");
+  expect((await readCustomer(h.db, id)).mobileNo).toBe("09175550101");
+  expect((await readCustomer(h.db, id)).completeness).toBe("draft");
+  expect(
+    (
+      await own.pushOperation({
+        ...op,
+        clientOpId: crypto.randomUUID(),
+        payload: { ...op.payload, edits: { mobileNo: "09175550202" } },
+      })
+    ).status,
+  ).toBe("rejected");
+  expect((await readCustomer(h.db, id)).mobileNo).toBe("09175550101");
+});
+
 test("the old census payload (no customer) still works", async () => {
   const config = (await rep.get("/api/v1/masters/census-config")).body;
   const sub = config.subchannels[0];

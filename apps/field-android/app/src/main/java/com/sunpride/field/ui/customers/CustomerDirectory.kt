@@ -49,6 +49,8 @@ data class CustomerRecord(
     val callOpen: Boolean = false,
     /** SP-0220: the structured address (Street 1, barangay, city, province codes) when the office has it. */
     val addressParts: Map<String, String> = emptyMap(),
+    val draft: Boolean = false,
+    val serverOutletId: String? = null,
 ) {
     /** The chip on the Stores row: today's planned status, else "In progress" for an open unplanned call. */
     val visitStatus: String? get() = today?.status?.takeIf { it in setOf("Done", "In progress") }
@@ -133,7 +135,8 @@ object CustomerDirectory {
                 historyByOutlet[row.id].orEmpty(), today.firstOrNull { it.outletId == row.id },
                 o.text("ownerName"), o.text("ownerPhone"), callOpen = row.id in open,
                 addressParts = o.optJSONObject("addressParts")?.let { a -> a.keys().asSequence()
-                    .mapNotNull { k -> a.text(k)?.let { k to it } }.toMap() }.orEmpty())
+                    .mapNotNull { k -> a.text(k)?.let { k to it } }.toMap() }.orEmpty(), draft = o.optString("completeness") == "draft",
+                serverOutletId=o.text("serverOutletId"))
         }.distinctBy { it.outletId }
     }
 

@@ -153,6 +153,11 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     var saveNote by remember { mutableStateOf<String?>(null) }
     val requesters = remember { CensusRules.Field.entries.associateWith { BringIntoViewRequester() } }
     var camera by remember { mutableStateOf(false) }; var capture by remember { mutableStateOf<ImageCapture?>(null) }
+    val editDraft = if (edit) com.sunpride.field.ui.rememberFormDraft(backend, "customer-edit:${editing!!.outletId}") { o ->
+        name = o.optString("name"); address = o.optString("address"); owner = o.optString("owner"); phone = o.optString("phone")
+        landmark = o.optString("landmark"); mode = o.optString("mode")
+        CustomerCapture.parseDraft(o.optString("customer"))?.let { form = it.form; fix = it.fix; jpeg = it.photo }
+    } else null
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) runCatching { CustomerDraftReminders.update(context, keep.savedCount, announce = true) }
     }
@@ -334,10 +339,6 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             } finally { busy = false; savingDraft = false }
         }
     }
-    fun saveAsDraft() {
-        focus.clearFocus()
-        storeDrafts(keep.customers.save(CustomerCapture.Draft(form, fix, jpeg)), DRAFT_SAVED, list = true)
-    }
     fun browseDrafts() {
         focus.clearFocus()
         val d = CustomerCapture.Draft(form, fix, jpeg)
@@ -364,7 +365,10 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     }
     fun queue(p: JSONObject) {
         val backendNow = backend ?: return
-        val completed = keep.customers.clear(); val ticket = keep.ticket()
+        val complete = !CensusRules.isChange(p) && CustomerCapture.isComplete(form, setup, geography, fix)
+        val completed = if (CensusRules.isChange(p)) keep.customers else
+            keep.customers.queued(p, CustomerCapture.Draft(form, fix, jpeg), complete)
+        val ticket = keep.ticket()
         busy = true // synchronously: a second tap can never reach the cleared form
         scope.launch {
             try {
@@ -380,6 +384,10 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                     if (!CensusRules.isChange(p)) {
                         check(keep.session == draftSession && backendNow.authorizationEpoch == draftEpoch)
                         keep.replace(completed); savedDrafts = completed.saved
+                        runCatching { CustomerDraftReminders.update(context, completed.saved.size, announce = completed.saved.isNotEmpty()) }
+                        if (completed.saved.isNotEmpty() && android.os.Build.VERSION.SDK_INT >= 33 &&
+                            ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                            notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                         reset(); draftRestored = false
                         savedNotice = if (!completeSubmission) "Customer saved on this phone. Missing details stay Draft when it reaches the office."
                             else if (isOnline(context)) SAVED_ONLINE else SAVED_OFFLINE
@@ -419,6 +427,13 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             estimatedClass, System.currentTimeMillis(), if (mode == "gps") fix else null, place, landmark,
             reverse?.takeIf { mode == "gps" }?.let { it.formattedAddress to it.components.json() }, acknowledged,
             jpeg?.let { Base64.getEncoder().encodeToString(it) } ?: "")
+    }
+    fun saveAsDraft() {
+        focus.clearFocus()
+        if (CustomerCapture.saveMissing(form).isEmpty()) {
+            completeSubmission = false
+            queue(build(emptyList()))
+        } else storeDrafts(keep.customers.save(CustomerCapture.Draft(form, fix, jpeg)), DRAFT_SAVED, list = true)
     }
     fun save() {
         backend ?: return
@@ -628,6 +643,9 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             val note = saveNote ?: if (marked.isNotEmpty()) CensusRules.missingSummary(marked.size)
                 else if (customerMarks.isNotEmpty()) CensusRules.missingSummary(customerMarks.size) else null
             note?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("census-save-note")) }
+            if (editDraft != null) com.sunpride.field.ui.FormDraftControls(editDraft, JSONObject().put("name",name).put("address",address)
+                .put("owner",owner).put("phone",phone).put("landmark",landmark).put("mode",mode)
+                .put("customer",CustomerCapture.draftJson(CustomerCapture.Draft(form,fix,jpeg))), !busy)
             if (!edit) TonalButton("Save as draft", ::saveAsDraft, Modifier.fillMaxWidth().testTag("customer-save-draft"),
                 !busy && draftLoaded && backend != null && !camera)
             if (!edit) PrimaryBottomButton("Save customer", { completeSubmission = false; save() },

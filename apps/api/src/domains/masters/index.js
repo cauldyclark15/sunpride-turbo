@@ -92,7 +92,11 @@ export function install(router, platform) {
     } catch (e) {
       if (e instanceof ApiError)
         throw new OpRejected(
-          e.status === 403 ? "out_of_scope" : "invalid_request",
+          e.status === 403
+            ? "out_of_scope"
+            : e.status === 409
+              ? "invalid_transition"
+              : "invalid_request",
         );
       throw e;
     }

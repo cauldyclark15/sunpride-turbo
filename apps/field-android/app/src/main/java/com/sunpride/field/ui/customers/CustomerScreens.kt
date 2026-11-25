@@ -168,6 +168,7 @@ private fun StoreRow(record: CustomerRecord, now: Long, picked: Boolean, clicks:
                 record.address?.let { Text(it, style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant, maxLines = 1, overflow = TextOverflow.Ellipsis) }
             }
+            if (record.draft) StatusChip("Draft", Look.Tone.WARN)
             if (!mapping) when (record.visitStatus) {
                 "Done" -> StatusChip("Done", Look.Tone.GOOD)
                 "In progress" -> StatusChip("In progress", Look.Tone.ACCENT)

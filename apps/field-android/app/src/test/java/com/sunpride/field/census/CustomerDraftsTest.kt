@@ -11,6 +11,37 @@ class CustomerDraftsTest {
         CustomerCapture.Form(registeredName = name, mobileNo = "0917", email = "unfinished@",
             sameAsCustomer = false, shipToParty = "Warehouse", customFields = mapOf("cf_sample" to "In progress")), null, null)
 
+    @Test fun queuedDraftKeepsOneEditableIdentityAcrossRevisionsAndFinishesOnlyItsOwnEntry() {
+        val d = partial().copy(form = partial().form.copy(firstName = "Ana"))
+        val p1 = JSONObject().put("captureId", java.util.UUID.randomUUID().toString())
+        val first = CustomerDrafts().queued(p1,d,false)
+        val entry = first.saved.single()
+        assertEquals(1,entry.revision)
+        val reopened = CustomerDrafts.parse(first.json()).open(entry.id)
+        val changed = d.copy(form=d.form.copy(street1="Later Street"))
+        val p2 = JSONObject().put("captureId", java.util.UUID.randomUUID().toString())
+        val second = reopened.queued(p2,changed,false)
+        assertEquals(1,second.saved.size); assertEquals(entry.id,second.saved.single().id)
+        assertEquals(entry.captureRequestId,second.saved.single().captureRequestId)
+        assertEquals(p1.getString("captureId"),p2.getString("previousCustomerRequestId"))
+        assertEquals(2,second.saved.single().revision)
+        val finalPayload = JSONObject().put("captureId",java.util.UUID.randomUUID().toString())
+        val final = second.save(partial("Other")).open(entry.id).queued(finalPayload,changed,true)
+        assertEquals(listOf("Other"),final.saved.map { it.name })
+        val awaiting=CustomerDrafts.parse(final.json())
+        assertEquals(1,awaiting.awaitingConfirmation.size)
+        val latest=org.json.JSONArray().put(JSONObject().put("draftId",entry.id).put("revision",3).put("completeness","draft"))
+        assertEquals(2,awaiting.reconcile(latest).saved.size)
+        assertEquals(2,awaiting.reconcile(latest).reconcile(latest).saved.size)
+        latest.getJSONObject(0).put("completeness","complete")
+        assertTrue(awaiting.reconcile(latest).awaitingConfirmation.isEmpty())
+        val states=org.json.JSONArray().put(JSONObject().put("draftId",entry.id).put("revision",1).put("completeness","complete"))
+        assertEquals(1,second.reconcile(states).saved.size) // old response cannot erase a newer offline revision
+        states.getJSONObject(0).put("revision",2)
+        assertTrue(second.reconcile(states).saved.isEmpty())
+        assertEquals(1,second.open(entry.id).reconcile(states).saved.size) // an open edit is never discarded
+    }
+
     @Test fun missingAndPartlyTypedFieldsCanBeSavedWithoutSubmission() {
         val d = partial()
         assertTrue(CustomerCapture.missing(d.form, null, null, false, false).isNotEmpty())

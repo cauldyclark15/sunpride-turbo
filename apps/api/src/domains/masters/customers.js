@@ -825,9 +825,18 @@ export async function saveCustomer(c, b, opts = {}) {
           evidenceNote: "Geographical Coordinates from the customer record",
           reason,
         },
-        { customerEdit: pendingEdit },
+        {
+          customerEdit:
+            pendingEdit ||
+            (!!existing &&
+              opts.fieldCapture &&
+              existing.enrolmentStatus === "provisional"),
+        },
       );
-      if (pendingEdit)
+      if (
+        pendingEdit ||
+        (opts.fieldCapture && existing?.enrolmentStatus === "provisional")
+      )
         await c.db`update outlet_enrolments set pin_id=${pinId} where outlet_id=${outletId} and status='pending' and deleted_at is null`;
     }
   }

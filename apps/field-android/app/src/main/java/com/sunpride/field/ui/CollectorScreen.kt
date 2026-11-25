@@ -78,6 +78,10 @@ object CollectorDraft {
  var date by remember(life,selected){mutableStateOf("")};var bank by remember(life,selected){mutableStateOf("")};var number by remember(life,selected){mutableStateOf("")}
  var item by remember(life,selected){mutableStateOf<String?>(null)};var replacement by remember(life,selected){mutableStateOf<String?>(null)}
  var photo by remember(life,selected){mutableStateOf<JSONObject?>(null)};var message by remember(life,selected){mutableStateOf<String?>(null)};var messageAt by remember(life,selected){mutableStateOf("top")}
+ val draft = rememberFormDraft(c, "collector:${selected ?: "selection"}") { o ->
+  amount=o.optString("amount");note=o.optString("note");date=o.optString("date");bank=o.optString("bank");number=o.optString("number")
+  item=o.optString("item").takeIf{it.isNotBlank()};replacement=o.optString("replacement").takeIf{it.isNotBlank()};photo=o.optJSONObject("photo")
+ }
  var cameraTicket by remember{mutableStateOf<Triple<String?,String?,Long>?>(null)}
  // FLD-122: the save confirmation outlives the reload that resets the selected stop (keyed by the account lifetime),
  // so the person always sees that the promise/cheque was kept, even when the form collapses back to the stop list.
@@ -126,6 +130,7 @@ object CollectorDraft {
   Text("Promise to pay",style=MaterialTheme.typography.titleMedium)
   for(i in rows(ar?.optJSONArray("items")))ChoiceRow(i.optString("documentNumber","Open item")+" · due "+i.getString("dueDate")+" · ₱"+BigDecimal.valueOf(i.getLong("remainingMinor"),2).toPlainString(),item==i.getString("ref"),{item=i.getString("ref")})
   @Composable fun field(label:String,value:String,edit:(String)->Unit){FieldTextField(value,edit,label={Text(label)},modifier=Modifier.fillMaxWidth())}
+  FormDraftControls(draft,JSONObject().put("amount",amount).put("note",note).put("date",date).put("bank",bank).put("number",number).put("item",item).put("replacement",replacement).put("photo",photo),!c.busy)
   field("Amount · pesos",amount,{amount=it});field("Promise / cheque day · YYYY-MM-DD",date,{date=it})
   field("Capture / bank-notice evidence note",note,{note=it})
   FieldButton({attempt("promise"){send(CollectorDraft.promise(day,code,note,amount,date,item,ar?.getString("sourceHash")),"promise")}},enabled=!c.busy&&item!=null&&ar!=null,primary=true){Text("Save promise")}

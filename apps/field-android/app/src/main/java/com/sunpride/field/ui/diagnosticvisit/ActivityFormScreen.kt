@@ -37,6 +37,7 @@ import com.sunpride.field.ui.LabeledField
 import com.sunpride.field.ui.PrimaryBottomButton
 import com.sunpride.field.ui.SectionCard
 import com.sunpride.field.ui.SunprideTokens
+import kotlinx.coroutines.launch
 import org.json.JSONObject
 
 /** One selectable row; selection is exposed to accessibility and tests. */
@@ -74,6 +75,11 @@ fun ActivityFormScreen(kind: String, controller: FieldController, modifier: Modi
     var product by rememberSaveable(kind) { mutableStateOf<String?>(null) }
     var text by rememberSaveable(kind) { mutableStateOf("") }
     var compliant by rememberSaveable(kind) { mutableStateOf<Boolean?>(null) }
+    val draft = com.sunpride.field.ui.rememberFormDraft(controller, "activity:${controller.diagnostic?.outletId}:$kind") { o ->
+        choice = o.optString("choice").takeIf { it.isNotBlank() }; product = o.optString("product").takeIf { it.isNotBlank() }
+        text = o.optString("text"); compliant = if (o.has("compliant")) o.getBoolean("compliant") else null
+    }
+    val formScope = androidx.compose.runtime.rememberCoroutineScope()
     val build: () -> JSONObject = {
         when (kind) {
             "merchandising" -> ActivityForms.merchandising(choice, text)
@@ -144,7 +150,10 @@ fun ActivityFormScreen(kind: String, controller: FieldController, modifier: Modi
             Spacer(Modifier.height(16.dp))
         }
         Spacer(Modifier.height(12.dp))
-        PrimaryBottomButton("Save", { runCatching { build() }.onSuccess { controller.queueActivity(it) } },
+        com.sunpride.field.ui.FormDraftControls(draft, JSONObject().put("choice", choice).put("product", product).put("text", text).put("compliant", compliant), !busy)
+        PrimaryBottomButton("Save", { runCatching { build() }.onSuccess { controller.queueActivity(it) {
+            formScope.launch { runCatching { draft.clear() } }
+        } } },
             Modifier.testTag("activity-save"), !busy && valid)
     }
 }

@@ -50,7 +50,11 @@ fun SubmittedCustomersScreen(backend: FieldBackend?, onBack: () -> Unit, modifie
     var cursor by remember { mutableStateOf<String?>(null) }
     var query by remember { mutableStateOf("") }
     var waitingOnly by remember { mutableStateOf(true) }
-    var edits by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var edits by remember(selected) { mutableStateOf<Map<String, String>>(emptyMap()) }
+    val draft = rememberFormDraft(backend,"profile:${selected ?: "list"}") { o ->
+        val saved=o.optJSONObject("edits") ?: JSONObject()
+        edits=saved.keys().asSequence().associateWith { saved.getString(it) }
+    }
     var picker by remember { mutableStateOf<JSONObject?>(null) }
     var choiceQuery by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
@@ -70,7 +74,7 @@ fun SubmittedCustomersScreen(backend: FieldBackend?, onBack: () -> Unit, modifie
     }
     fun open(id: String) = run {
         val result = withContext(Dispatchers.IO) { backend!!.customerProfile(id) }
-        if (stillCurrent()) { selected = id; response = result; edits = emptyMap() }
+        if (stillCurrent()) { selected = id; response = result }
     }
     fun preview() = run {
         val id = selected ?: return@run
@@ -105,7 +109,7 @@ fun SubmittedCustomersScreen(backend: FieldBackend?, onBack: () -> Unit, modifie
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
             SecondaryButton("Back", { back() }, enabled = !busy)
             Text(if (selected == null) "Submitted customers" else customer?.optString("customerName") ?: "Customer profile", style = MaterialTheme.typography.headlineSmall)
-            Text("Needs internet. Saving details does not approve the customer.", style = MaterialTheme.typography.bodySmall)
+            Text("Draft changes stay on this phone without a connection. The office checks current access and completeness when they arrive.", style = MaterialTheme.typography.bodySmall)
             message?.let { Text(it, Modifier.testTag("profile-message")) }
             if (selected == null) {
                 FieldTextField(query, { query = it }, label = { Text("Search customer") }, modifier = Modifier.fillMaxWidth())
@@ -136,6 +140,7 @@ fun SubmittedCustomersScreen(backend: FieldBackend?, onBack: () -> Unit, modifie
                     }
                     if (!field.isNull("error")) Text(field.getString("error"), color = MaterialTheme.colorScheme.error, style = MaterialTheme.typography.bodySmall)
                 }
+                FormDraftControls(draft,JSONObject().put("edits",JSONObject(edits)),!busy)
                 if (editable) SecondaryButton("Check remaining fields", { preview() }, enabled = !busy)
                 SubmittedCustomerEdits.items(customer, "history").forEach { event ->
                     Text("${event.getString("actor")} · ${java.text.DateFormat.getDateTimeInstance().format(java.util.Date(event.getLong("at")))}", style = MaterialTheme.typography.titleSmall)
@@ -152,17 +157,17 @@ fun SubmittedCustomersScreen(backend: FieldBackend?, onBack: () -> Unit, modifie
             run {
                 val id = selected ?: return@run
                 val body = SubmittedCustomerEdits.body(edits, customer!!.getLong("updatedAt"))
-                val saved = withContext(Dispatchers.IO) { backend!!.saveCustomerProfile(id, body) }
+                withContext(Dispatchers.IO) { backend!!.queueCustomerProfile(id, body) }
                 if (stillCurrent()) {
-                    val reopened = withContext(Dispatchers.IO) { backend!!.customerProfile(id) }
-                    if (stillCurrent()) { response = reopened; edits = emptyMap()
-                        message = if (SubmittedCustomerEdits.waiting(saved)) "Saved. Still waiting for approval." else "Saved." }
+                    response = null; edits = emptyMap()
+                    message = "Changes saved on this phone. Sync, then reopen this customer to check them."
                 }
             }
-        }, Modifier.padding(16.dp).navigationBarsPadding(), enabled = !busy && edits.isNotEmpty())
+        }, Modifier.padding(16.dp).navigationBarsPadding(), enabled = !busy && !draft.busy && draft.loaded && edits.isNotEmpty())
     }
     picker?.let { field -> AlertDialog(onDismissRequest = { picker = null }, title = { Text(field.getString("label")) }, text = {
         Column { FieldTextField(choiceQuery, { choiceQuery = it }, label = { Text("Search choices") })
+            TextButton(onClick = { if(choiceQuery.isNotBlank()) { edits=SubmittedCustomerEdits.change(edits,field,choiceQuery); picker=null } }) { Text("Use typed value") }
             Column(Modifier.heightIn(max = 360.dp).verticalScroll(rememberScrollState())) {
                 TextButton(onClick = { edits = SubmittedCustomerEdits.change(edits, field, ""); picker = null; preview() }) { Text("Not set") }
                 SubmittedCustomerEdits.items(field, "options").filter { it.getString("name").contains(choiceQuery, true) }.forEach { option ->

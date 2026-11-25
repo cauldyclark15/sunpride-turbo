@@ -143,9 +143,13 @@ interface FieldBackend {
     fun warmCatalogueImages(isActive:()->Boolean = {true}) {}
     fun submittedCustomers(query: String, waitingOnly: Boolean, cursor: String?): JSONObject = error("Connect to view submitted customers")
     fun customerProfile(id: String, preview: JSONObject? = null): JSONObject = error("Connect to open the customer")
+    fun queueCustomerProfile(id: String, body: JSONObject) { saveCustomerProfile(id,body) }
     fun saveCustomerProfile(id: String, body: JSONObject): JSONObject = error("Connect to save the customer")
     fun censusConfig(): JSONObject? = null
     /** The working Add customer form and SP-0241 saved drafts, encrypted and scoped to this phone account. */
+    fun formDraft(key: String): String? = null
+    fun saveFormDraft(key: String, json: String?) { error("Draft storage unavailable") }
+    fun customerDraftStates(): JSONArray = JSONArray()
     fun customerDraft(): String? = null
     /** Persist the draft book without queueing an enrollment for approval. */
     fun saveCustomerDraft(json: String?) { error("Customer draft storage unavailable") }
@@ -526,8 +530,37 @@ class LiveFieldBackend(
     override fun submittedCustomers(query: String, waitingOnly: Boolean, cursor: String?): JSONObject =
         functions.api.get("/api/v1/customers?limit=50&q=${java.net.URLEncoder.encode(query, "UTF-8")}&awaitingApproval=$waitingOnly" +
             (cursor?.let { "&cursor=${java.net.URLEncoder.encode(it, "UTF-8")}" } ?: ""))
-    override fun customerProfile(id: String, preview: JSONObject?): JSONObject =
-        if (preview == null) functions.api.get("/api/v1/customers/$id/editor") else functions.api.post("/api/v1/customers/$id/editor", preview)
+    override fun customerProfile(id: String, preview: JSONObject?): JSONObject = withStore { store ->
+        val epoch=authorizationEpoch
+        val grant=projectionGrant("customer.editor",id) ?: error("Verify this account before opening profiles")
+        val cached=store.localCache("local.customer.editor",id)?.takeUnless { it.tombstone }?.json
+        check(!store.isHeld()) { "Verify this account before opening profiles" }
+        try {
+            val result=if(preview==null)functions.api.get("/api/v1/customers/$id/editor") else functions.api.post("/api/v1/customers/$id/editor",preview)
+            check(epoch==authorizationEpoch && grant.current()) { "Session changed" }
+            if(preview==null)grant.wrap(result.toString())?.let {
+                store.putLocalCache("local.customer.editor",id,it,System.currentTimeMillis(),"editor")
+            }
+            result
+        } catch(e:Exception) {
+            if(e is kotlinx.coroutines.CancellationException)throw e
+            if(e is AuthFailure && e.kind==AuthFailure.Kind.OFFLINE && epoch==authorizationEpoch)
+                cached?.let { grant.read(it) }?.let(::JSONObject) ?: throw e
+            else { if(!grant.deny())auth.signOut(); throw e }
+        }
+    }
+    override fun queueCustomerProfile(id: String, body: JSONObject) {
+        val partition=storedScope() ?: error("Verify this account before editing")
+        val epoch=authorizationEpoch
+        withStore { store -> store.retailTransaction {
+            val payload=JSONObject(body.toString()).put("outletId",id)
+            val intent=com.sunpride.field.sync.DomainOutbox.intent(partition,"customer.amend",payload,id)
+            store.enqueueDomain(intent,System.currentTimeMillis()) { epoch==authorizationEpoch && storedScope()==partition }
+            store.blockLocalCache(FieldFormDrafts.ENTITY,"profile:$id","queued",System.currentTimeMillis())
+            store.blockLocalCache("local.customer.editor",id,"queued",System.currentTimeMillis())
+        } }
+        runCatching { com.sunpride.field.sync.work.SyncWork.enqueue(context) }
+    }
     override fun saveCustomerProfile(id: String, body: JSONObject): JSONObject = functions.api.post("/api/v1/customers/$id/amend", body)
     override fun censusConfig(): JSONObject? = withStore { store ->
         val cached = com.sunpride.field.census.CensusConfigCache.load(
@@ -543,6 +576,26 @@ class LiveFieldBackend(
             fetch={functions.api.get("/api/v1/masters/census-config").toString()},
             isOffline=com.sunpride.field.census.CensusConfigCache::isUnreachable)
         cached?.let(::JSONObject)
+    }
+    override fun formDraft(key: String): String? = if (storedScope() == null) null else withStore { store ->
+        check(!store.isHeld()) { "Verify this account before opening drafts" }
+        store.localCache(FieldFormDrafts.ENTITY, key)?.takeUnless { it.tombstone }?.json
+    }
+    override fun saveFormDraft(key: String, json: String?) {
+        require(key.length in 1..200)
+        val partition = storedScope() ?: error("No verified local partition")
+        val epoch = authorizationEpoch
+        json?.let { FieldFormDrafts.encode(JSONObject(it)) }
+        withStore { store -> store.retailTransaction {
+            check(epoch == authorizationEpoch && storedScope() == partition && !store.isHeld()) { "Session changed" }
+            if (json == null) store.blockLocalCache(FieldFormDrafts.ENTITY, key, "completed", System.currentTimeMillis())
+            else store.putLocalCache(FieldFormDrafts.ENTITY, key, json, System.currentTimeMillis(), "draft")
+            check(store.localCache(FieldFormDrafts.ENTITY, key)?.takeUnless { it.tombstone }?.json == json)
+            check(epoch == authorizationEpoch && storedScope() == partition) { "Session changed" }
+        } }
+    }
+    override fun customerDraftStates(): JSONArray = if (storedScope() == null) JSONArray() else withStore { store ->
+        store.localCache(CUSTOMER_DRAFT,"states")?.takeUnless { it.tombstone }?.json?.let(::JSONArray) ?: JSONArray()
     }
     override fun customerDraft(): String? = if (storedScope() == null) null else withStore { store ->
         store.localCache(CUSTOMER_DRAFT, "draft")?.takeUnless { it.tombstone }?.json
@@ -562,6 +615,27 @@ class LiveFieldBackend(
         val config = runCatching { censusConfig() }.getOrNull() ?: return
         val provinces = com.sunpride.field.census.CustomerCapture.setup(config)?.provinceCodes.orEmpty()
         runCatching { customerGeography(provinces) }
+        // Refresh completion flags only after a live read; transport failures keep local work.
+        val partition = storedScope() ?: return
+        val epoch = authorizationEpoch
+        val book=com.sunpride.field.census.CustomerDrafts.parse(customerDraft())
+        val ids = (book.saved+book.awaitingConfirmation).filter { it.revision > 0 }.map { it.id }
+        for (batch in ids.chunked(100)) {
+            val states = runCatching { functions.api.post("/api/v1/customers/draft-states", JSONObject().put("draftIds", JSONArray(batch))).getJSONArray("states") }.getOrNull() ?: continue
+            withStore { store -> store.retailTransaction {
+                check(epoch == authorizationEpoch && storedScope() == partition && !store.isHeld()) { "Session changed" }
+                val previous = store.localCache(CUSTOMER_DRAFT,"states")?.takeUnless { it.tombstone }?.json?.let(::JSONArray) ?: JSONArray()
+                val all = (0 until previous.length()).map { previous.getJSONObject(it) }.filterNot { it.optString("draftId") in batch } +
+                    (0 until states.length()).map { states.getJSONObject(it) }
+                store.putLocalCache(CUSTOMER_DRAFT,"states",JSONArray(all).toString(),System.currentTimeMillis(),"states")
+                val old = store.localCache(CUSTOMER_DRAFT,"draft")?.takeUnless { it.tombstone }?.json
+                val next = com.sunpride.field.census.CustomerDrafts.parse(old).reconcile(states).json()
+                if (next != old) {
+                    if (next == null) store.blockLocalCache(CUSTOMER_DRAFT,"draft","completed",System.currentTimeMillis())
+                    else store.putLocalCache(CUSTOMER_DRAFT,"draft",next,System.currentTimeMillis(),"draft")
+                }
+            } }
+        }
     }
     override fun customerGeography(provinces: List<String>): com.sunpride.field.census.CustomerCapture.Geography? =
         if (storedScope() == null) null else withStore { store ->
@@ -2097,6 +2171,7 @@ class FieldController(
     fun creditControl(action:String,args:JSONObject):JSONObject=backend.creditControl(action,args)
     fun domainForms(kind:String,refresh:Boolean):JSONObject?=backend.domainForms(kind,refresh)
     fun sapMasters(refresh: Boolean): JSONObject? = backend.sapMasters(refresh)
+    internal fun formDraftBackend(): FieldBackend = backend
     fun sapMasterLifetime(): String? = backend.sapMasterLifetime()
     fun companySignIn(tokens: JSONObject) = scope.launch(ui) {
         ++sessionGeneration; busy=true; error=null; syncMessage=null

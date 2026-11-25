@@ -432,7 +432,49 @@ export async function captureCensus(ctx, p) {
   if (p.kind !== undefined && p.kind !== "new") rule("Unknown store request.");
   // SP-0170: a capture carrying the client's customer fields becomes a prospect customer
   // (field enrolment + customer profile) for CDM review and approval.
-  if (p.customer !== undefined) return captureCustomer(ctx, actor, p);
+  if (p.customer !== undefined) {
+    const { captureRevision } = await import("./capture-revisions.js");
+    if (
+      p.customerDraftId !== undefined &&
+      p.customer &&
+      typeof p.customer === "object" &&
+      !Array.isArray(p.customer)
+    ) {
+      const { l } = readLocation(
+        p,
+        integer(p.deviceTime, ctx.now - 7 * 86400000, ctx.now + 120000),
+        true,
+      );
+      // Only the validated phone fix can supply coordinates; unavailable location
+      // preserves a previously stored pin rather than clearing it on a text edit.
+      if (l)
+        p = {
+          ...p,
+          customer: {
+            ...p.customer,
+            latitude: l.latitude,
+            longitude: l.longitude,
+          },
+        };
+    }
+    return captureRevision(
+      ctx,
+      p,
+      () => captureCustomer(ctx, actor, p),
+      async (outletId) => {
+        if (p.photoJpegBase64) {
+          const file = await storeJpeg(
+            ctx,
+            uuid(p.captureId),
+            readJpeg(p.photoJpegBase64),
+            actor,
+          );
+          await ctx.db`insert into outlet_photos(outlet_id,ordinal,file_id) values(${outletId},0,${file.id})
+          on conflict(outlet_id,ordinal) do update set file_id=excluded.file_id,deleted_at=null,updated_at=now()`;
+        }
+      },
+    );
+  }
   let batch;
   if (p.batchId !== undefined && p.batchId !== null) {
     [batch] =

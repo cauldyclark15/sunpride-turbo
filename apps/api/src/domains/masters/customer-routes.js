@@ -1,6 +1,7 @@
 // SP-0170 routes: one canonical customer route set (/api/v1/customers), the client's reference
 // lists and PSGC geography. Old outlet routes stay for current apps. Contract:
 // docs/architecture/CUSTOMER_MASTER_CONTRACT.md.
+import { OpRejected } from "../../core/sync.js";
 import { tx } from "@sunpride/db/client";
 import {
   installEnrollmentForm,
@@ -41,6 +42,54 @@ const REFERENCE_LISTS_PUBLIC = REFERENCE_LISTS;
 /** @param {any} router @param {any} platform */
 export function installCustomers(router, platform) {
   installEnrollmentForm(router, platform);
+  // Native edits are durable offline intents; permission/version checks still run at receipt.
+  const amendAccess = async (
+    /** @type {any} */ db,
+    /** @type {any} */ actor,
+    /** @type {any} */ op,
+  ) => {
+    try {
+      await customerEditAccess(
+        { db, actor, now: Date.now() },
+        uuid(op.payload.outletId),
+        true,
+      );
+    } catch (e) {
+      if (e instanceof ApiError)
+        throw new OpRejected(
+          e.status === 403 ? "out_of_scope" : "invalid_request",
+        );
+      throw e;
+    }
+  };
+  platform.registerOp(
+    "customer.amend",
+    async (/** @type {any} */ c) => {
+      try {
+        const id = uuid(c.payload.outletId);
+        await customerEditAccess(c, id, true);
+        const current = await readCustomer(c.db, id);
+        if (c.payload.expectedUpdatedAt !== current.updatedAt)
+          throw new OpRejected("invalid_transition");
+        await saveCustomer(
+          c,
+          { customer: applyCustomerEdits(current, c.payload.edits) },
+          { outletId: id },
+        );
+        c.publish("masters");
+        c.publish("outlets");
+        await c.change("org.reference", id, "global");
+        return { entityId: id, eventIds: [] };
+      } catch (e) {
+        if (e instanceof ApiError)
+          throw new OpRejected(
+            e.status === 403 ? "out_of_scope" : "invalid_request",
+          );
+        throw e;
+      }
+    },
+    amendAccess,
+  );
   /** Transactional command: reauthorize inside the transaction, optional Idempotency-Key replay,
    * audit by the writer, then a sync invalidation and realtime publish.
    * @param {string} method @param {string} path @param {string} name @param {(c:any,b:any)=>Promise<string>} handler */
@@ -215,6 +264,39 @@ export function installCustomers(router, platform) {
       for (const topic of ["masters", "outlets", "org"])
         await ctx.publish(topic);
       return { customerIds: ids, updated: ids.length };
+    },
+  );
+  router.post(
+    "/api/v1/customers/draft-states",
+    async (/** @type {any} */ c) => {
+      await requireCapability(c, "outlet.read");
+      if (!Array.isArray(c.body?.draftIds) || c.body.draftIds.length > 100)
+        rule("Choose up to 100 drafts.");
+      const ids = c.body.draftIds.map((/** @type {any} */ id) => uuid(id));
+      const rows =
+        await c.db`select draft_id,outlet_id,revision from customer_capture_revisions where profile_id=${c.actor.profileId} and draft_id::text=any(${c.db.array(ids, "TEXT")})`;
+      const states = [];
+      for (const row of rows) {
+        try {
+          const canEdit = await customerEditAccess(c, row.outlet_id);
+          const customer = await readCustomer(c.db, row.outlet_id);
+          states.push({
+            draftId: row.draft_id,
+            revision: row.revision,
+            completeness: customer.completeness,
+            canEdit,
+          });
+        } catch (e) {
+          if (!(e instanceof ApiError) || ![403, 404].includes(e.status))
+            throw e;
+          states.push({
+            draftId: row.draft_id,
+            revision: row.revision,
+            withdrawn: true,
+          });
+        }
+      }
+      return { states };
     },
   );
   router.get("/api/v1/customers/:id", (/** @type {any} */ ctx) =>

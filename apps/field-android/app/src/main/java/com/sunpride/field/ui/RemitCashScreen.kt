@@ -60,18 +60,23 @@ fun RemitCashScreen(c: FieldController, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     var formId by rememberSaveable { mutableStateOf(UUID.randomUUID().toString()) }
-    var amount by rememberSaveable(formId) { mutableStateOf("") }
-    var channel by rememberSaveable(formId) { mutableStateOf<String?>(null) }
-    var other by rememberSaveable(formId) { mutableStateOf("") }
-    var reference by rememberSaveable(formId) { mutableStateOf("") }
-    var at by rememberSaveable(formId) { mutableStateOf(RemitCash.nowText()) }
-    var note by rememberSaveable(formId) { mutableStateOf("") }
-    var jpeg by remember(formId) { mutableStateOf<ByteArray?>(null) }
+    var amount by rememberSaveable { mutableStateOf("") }
+    var channel by rememberSaveable { mutableStateOf<String?>(null) }
+    var other by rememberSaveable { mutableStateOf("") }
+    var reference by rememberSaveable { mutableStateOf("") }
+    var at by rememberSaveable { mutableStateOf(RemitCash.nowText()) }
+    var note by rememberSaveable { mutableStateOf("") }
+    var jpeg by remember { mutableStateOf<ByteArray?>(null) }
     var camera by remember(formId) { mutableStateOf(false) }
     var capture by remember { mutableStateOf<ImageCapture?>(null) }
     var busy by remember { mutableStateOf(false) }
     var error by remember(formId) { mutableStateOf<String?>(null) }
     var saved by rememberSaveable { mutableStateOf<String?>(null) }
+    val draft = rememberFormDraft(c, "remittance") { o ->
+        formId = o.getString("formId"); amount = o.optString("amount"); channel = o.optString("channel").takeIf { it.isNotBlank() }
+        other = o.optString("other"); reference = o.optString("reference"); at = o.optString("at"); note = o.optString("note")
+        jpeg = o.optString("photo").takeIf { it.isNotBlank() }?.let { java.util.Base64.getDecoder().decode(it) }
+    }
     val permission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { ok ->
         camera = ok; if (!ok) error = "Camera access is needed for the receipt photo."
     }
@@ -126,6 +131,9 @@ fun RemitCashScreen(c: FieldController, modifier: Modifier = Modifier) {
             label = { Text("Note (optional)") }, minLines = 2)
         error?.let { NoticeCard(it, tone = Look.Tone.BAD, modifier = Modifier.testTag("remit-error")) }
         c.error?.let { NoticeCard(it, tone = Look.Tone.BAD) }
+        FormDraftControls(draft, org.json.JSONObject().put("formId", formId).put("amount", amount).put("channel", channel)
+            .put("other", other).put("reference", reference).put("at", at).put("note", note)
+            .put("photo", jpeg?.let { java.util.Base64.getEncoder().encodeToString(it) }), !busy && !c.busy)
         FieldButton({
             error = null
             val payload = try {
@@ -133,7 +141,10 @@ fun RemitCashScreen(c: FieldController, modifier: Modifier = Modifier) {
             } catch (e: IllegalArgumentException) { error = e.message; return@FieldButton }
             scope.launch {
                 c.queueDomain(RemitCash.KIND, payload, formId).join()
-                if (c.error == null) { saved = RemitCash.SAVED; formId = UUID.randomUUID().toString() }
+                if (c.error == null) {
+                    runCatching { draft.clear() }; saved = RemitCash.SAVED; formId = UUID.randomUUID().toString()
+                    amount = ""; channel = null; other = ""; reference = ""; at = RemitCash.nowText(); note = ""; jpeg = null
+                }
             }
         }, Modifier.fillMaxWidth().testTag("remit-save"), enabled = !busy && !c.busy, primary = true) { Text("Save remittance") }
         Text("Finance sees the remittance with your receipt and confirms it. Keep the paper receipt.",

@@ -51,6 +51,7 @@ import com.sunpride.field.ui.SearchField
 import com.sunpride.field.ui.SecondaryButton
 import com.sunpride.field.ui.StatusChip
 import com.sunpride.field.ui.VisitDisplay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.flow.distinctUntilChanged
 
 /** What the editor shows about the order's customer/territory/route before and after the first save. */
@@ -78,6 +79,14 @@ fun OrderDraftScreen(visit: VisitDisplay, sheet: CallSheet, controller: FieldCon
         mutableStateOf(catalog.map { item ->
             draft?.lines?.firstOrNull { it.productId == item.productId }?.uom?.takeIf { item.unit(it) != null } ?: item.uom
         })
+    }
+    val formScope = androidx.compose.runtime.rememberCoroutineScope()
+    val partial = com.sunpride.field.ui.rememberFormDraft(controller, "order:${visit.plannedVisitId ?: visit.outletId}:${controller.orderDraftId ?: "new"}") { o ->
+        val saved = o.optJSONObject("quantities") ?: org.json.JSONObject()
+        val savedUnits = o.optJSONObject("units") ?: org.json.JSONObject()
+        values = catalog.map { saved.optString(it.productId) }
+        chosenUnits = catalog.map { savedUnits.optString(it.productId, it.uom) }
+        deliveryDate = o.optString("deliveryDate")
     }
     val units = catalog.zip(chosenUnits).associate { (item, unit) -> item.productId to unit }
     val parsed = values.map { runCatching { OrderDraftRules.quantity(it) } }
@@ -182,6 +191,8 @@ fun OrderDraftScreen(visit: VisitDisplay, sheet: CallSheet, controller: FieldCon
             }
         }
         ActionBar {
+            com.sunpride.field.ui.FormDraftControls(partial, org.json.JSONObject().put("quantities", org.json.JSONObject(catalog.zip(values).associate { it.first.productId to it.second }))
+                .put("units", org.json.JSONObject(units)).put("deliveryDate", deliveryDate), !controller.busy)
             // FLD-110: Save is disabled while a Qty is invalid; always say why next to it.
             if (invalid) Text(OrderDraftFailure.Code.INVALID_QUANTITY.text, style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.error, modifier = Modifier.padding(bottom = 6.dp).testTag("order-invalid"))
@@ -193,7 +204,9 @@ fun OrderDraftScreen(visit: VisitDisplay, sheet: CallSheet, controller: FieldCon
                     draft.lines.any { units[it.productId] != it.uom } || draft.requestedDeliveryDate != deliveryDate.takeIf { it.isNotBlank() }
                 if (!unsaved && !changedPrices) PrimaryBottomButton("Review order", { controller.openOrderReview() },
                     Modifier.weight(1f).testTag("order-review"), !controller.busy)
-                else PrimaryBottomButton("Save draft", { controller.saveOrderDraft(quantities, units, deliveryDate.takeIf { it.isNotBlank() }) },
+                else PrimaryBottomButton("Save draft", { controller.saveOrderDraft(quantities, units, deliveryDate.takeIf { it.isNotBlank() }) {
+                        formScope.launch { runCatching { partial.clear() } }
+                    } },
                     Modifier.weight(1f).testTag("order-save"), !controller.busy && !invalid && quantities.isNotEmpty())
             }
         }

@@ -101,6 +101,8 @@ internal fun shortDay(iso:String):String=runCatching{java.time.LocalDate.parse(i
   if(chosen!="new"&&detail==null&&retained==null){Text("Refresh before reopening this session.");return@Column}
   if(chosen!="new"&&locals.any{it.getString("aggregateId")==chosen&&it.getString("state") in setOf("pending","sending")}){Text("This form is retained on the phone. Sync before editing again to avoid overwriting it.");return@Column}
   var text by remember(life,chosen,detail?.optString("revision")){mutableStateOf(retained?.getJSONObject("payload")?.toString()?:JointCallDraft.create(d.getString("serviceDate"),detail).toString())}
+  val draft=rememberFormDraft(c,"jointcall:$chosen") { o -> text=o.getJSONObject("form").toString() }
+  FormDraftControls(draft,JSONObject().put("form",JSONObject(text)),!c.busy)
   val a=JSONObject(text)
   fun change(block:(JSONObject)->Unit){val copy=JSONObject(text);block(copy);text=copy.toString()}
   @Composable fun field(label:String,value:String,edit:(String)->Unit){FieldTextField(value,edit,label={Text(label)},modifier=Modifier.fillMaxWidth(),minLines=2)}

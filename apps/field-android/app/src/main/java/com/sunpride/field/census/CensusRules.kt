@@ -253,7 +253,8 @@ object CensusRules {
         require(kotlin.math.abs(now - payload.getLong("deviceTime")) <= 120_000)
         val id = payload.getString("captureId")
         val operation = JSONObject().put("clientRequestId", id).put("kind", KIND)
-            .put("dependsOn", JSONArray()).put("payload", JSONObject(payload.toString()))
+            .put("dependsOn", JSONArray().apply { payload.optString("previousCustomerRequestId").takeIf { it.isNotBlank() }?.let { put(it) } })
+            .put("payload", JSONObject(payload.toString()))
         return IntentRow(scope.account, scope.deviceId, scope.fingerprint, id, id, KIND, operation.toString(), now)
     }
     fun captureId(): String = UUID.randomUUID().toString()
