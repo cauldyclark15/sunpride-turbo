@@ -1,6 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   bin,
+  COLORS,
+  compactMetric,
+  fitCamera,
+  legendRanges,
+  placeLabels,
+  shortAreaName,
   escapeAction,
   listIndex,
   metricValue,
@@ -69,6 +75,107 @@ describe("area explorer colour steps and totals", () => {
     expect(facts.planned).toBe(3);
   });
 });
+describe("area explorer polish", () => {
+  it("keeps five distinct steps for sparse, unequal measurements", () => {
+    expect(COLORS).toHaveLength(5);
+    expect(new Set(COLORS).size).toBe(5);
+    expect(steps([10, 50, null])).toEqual([10, 20, 30, 40]);
+    expect(steps([1, 3])).toEqual([0.6, 1.2, 1.8, 2.4]);
+    expect(legendRanges([150000, 400000], "sales").map((s) => s.label)).toEqual(
+      ["₱0–800", "₱800–1.6K", "₱1.6K–2.4K", "₱2.4K–3.2K", "₱3.2K–4K"],
+    );
+  });
+  it("labels a sole measured value exactly, not as all measured values", () => {
+    expect(legendRanges([null, 1, 1], "customers")).toMatchObject([
+      { label: "1", low: 1, high: 1, color: COLORS[4] },
+    ]);
+    expect(legendRanges([0], "customers")[0]?.label).toBe("0");
+    expect(legendRanges([null], "sales")).toEqual([]);
+    expect(compactMetric(150000, "sales")).toBe("₱1.5K");
+  });
+  it("fits the visible feature bounds tightly without distortion", () => {
+    for (const [width, height] of [
+      [650, 740],
+      [300, 440],
+    ]) {
+      const bounds: [[number, number], [number, number]] = [
+        [100, 200],
+        [250, 500],
+      ];
+      const c = fitCamera(bounds, width!, height!);
+      const x0 = bounds[0][0] * c.scale + c.x,
+        x1 = bounds[1][0] * c.scale + c.x;
+      const y0 = bounds[0][1] * c.scale + c.y,
+        y1 = bounds[1][1] * c.scale + c.y;
+      expect(x0).toBeGreaterThanOrEqual(11.99);
+      expect(x1).toBeLessThanOrEqual(width! - 11.99);
+      expect(y0).toBeGreaterThanOrEqual(11.99);
+      expect(y1).toBeLessThanOrEqual(height! - 11.99);
+      expect((x0 + x1) / 2).toBeCloseTo(width! / 2);
+      expect((y0 + y1) / 2).toBeCloseTo(height! / 2);
+      expect(Math.min(x0, y0)).toBeCloseTo(12);
+    }
+    expect(
+      fitCamera(
+        [
+          [Infinity, Infinity],
+          [-Infinity, -Infinity],
+        ],
+        650,
+        740,
+      ),
+    ).toEqual({ x: 0, y: 0, scale: 1 });
+  });
+  it("keeps clustered top-area labels inside the map without collisions", () => {
+    const labels = placeLabels(
+      ["Cebu", "Lapu-Lapu", "Mandaue"].map((name, i) => ({
+        id: name,
+        name,
+        value: 3 - i,
+        x: 200 + i * 3,
+        y: 300 + i * 3,
+      })),
+      400,
+      700,
+    );
+    labels.forEach((a, i) => {
+      expect(a.left).toBeGreaterThanOrEqual(8);
+      expect(a.left + a.width).toBeLessThanOrEqual(392);
+      expect(a.top).toBeGreaterThanOrEqual(8);
+      expect(a.top + a.height).toBeLessThanOrEqual(692);
+      labels
+        .slice(i + 1)
+        .forEach((b) =>
+          expect(
+            a.left < b.left + b.width &&
+              a.left + a.width > b.left &&
+              a.top < b.top + b.height &&
+              a.top + a.height > b.top,
+          ).toBe(false),
+        );
+    });
+    const keepout = { left: 175, top: 275, width: 80, height: 100 };
+    const clear = placeLabels(
+      [{ id: "Cebu", name: "Cebu", value: 1, x: 200, y: 300 }],
+      400,
+      700,
+      [keepout],
+    )[0]!;
+    expect(
+      clear.left < keepout.left + keepout.width &&
+        clear.left + clear.width > keepout.left &&
+        clear.top < keepout.top + keepout.height &&
+        clear.top + clear.height > keepout.top,
+    ).toBe(false);
+  });
+  it("uses readable region breadcrumb names without guessing other names", () => {
+    expect(shortAreaName("Region VII (Central Visayas)")).toBe(
+      "Central Visayas",
+    );
+    expect(shortAreaName("Cebu")).toBe("Cebu");
+  });
+});
+
 describe("area explorer keyboard and period flow", () => {
   it("arrows are bounded; Home/End reach the visible first/last row", () => {
     expect(listIndex("ArrowUp", 0, 18)).toBe(0);

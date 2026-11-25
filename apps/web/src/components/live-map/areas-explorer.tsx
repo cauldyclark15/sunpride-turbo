@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useId,
   useMemo,
   useRef,
   useState,
@@ -19,6 +20,11 @@ import { manilaToday, type LiveData, type StorePin } from "./live-map-model";
 import {
   bin,
   COLORS,
+  compactMetric,
+  fitCamera,
+  legendRanges,
+  placeLabels,
+  shortAreaName,
   escapeAction,
   formatMetric,
   listIndex,
@@ -148,6 +154,7 @@ function CityPins({
         if (!xy || error) return null;
         return (
           <circle
+            data-pin="true"
             key={`${p.longitude}:${p.latitude}:${p.label}`}
             cx={xy[0]}
             cy={xy[1]}
@@ -190,6 +197,9 @@ export function AreasExplorer() {
   const [pinStatus, setPinStatus] = useState("");
   const rowRefs = useRef(new Map<string, HTMLButtonElement>());
   const tooltip = useRef<HTMLDivElement>(null);
+  const mapElement = useRef<HTMLDivElement>(null);
+  const hatchId = `area-empty-${useId().replaceAll(":", "")}`;
+  const [viewport, setViewport] = useState({ width: 650, height: 740 });
   const pendingFocus = useRef<string | null>(null);
   const today = manilaToday();
   const dates = periodDates(period, today);
@@ -214,39 +224,70 @@ export function AreasExplorer() {
   useLive(["location", "orders", "outlets"], [["location", "areas"]]);
   const data = query.error ? undefined : query.data;
   const shapes = shapesQuery.data;
+  const mapReady = Boolean(
+    data && national.data && !shapesQuery.error && !national.error,
+  );
+  useEffect(() => {
+    if (!mapElement.current) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (!entry) return;
+      const width = Math.round(entry.contentRect.width),
+        height = Math.round(entry.contentRect.height);
+      if (width <= 0 || height <= 0) return;
+      setViewport((previous) =>
+        previous.width === width && previous.height === height
+          ? previous
+          : { width, height },
+      );
+    });
+    observer.observe(mapElement.current);
+    return () => observer.disconnect();
+  }, [mapReady]);
+  const visibleFeatures = useMemo(
+    () =>
+      history.length === 3
+        ? [history[2]!.shape]
+        : (shapes?.features ??
+          (history.at(-1)
+            ? [history.at(-1)!.shape]
+            : (national.data?.features ?? []))),
+    [shapes, history, national.data],
+  );
   const project = useMemo(
     () =>
       geoMercator().fitExtent(
         [
-          [24, 18],
-          [736, 582],
+          [12, 12],
+          [viewport.width - 12, viewport.height - 12],
         ],
         national.data ?? collection([]),
       ),
-    [national.data],
+    [national.data, viewport],
   );
   const path = useMemo(() => geoPath(project), [project]);
   const rows = useMemo(
     () =>
       rankAreas(
-        (history.length === 3
-          ? [history[2]!.shape]
-          : (shapes?.features ?? [])
-        ).map((shape) => ({
+        visibleFeatures.map((shape) => ({
           id: String(shape.id),
           name: shape.properties.name,
           shape,
           value: metricValue(data?.areas[String(shape.id)], metric),
         })),
       ),
-    [shapes, data, metric, history],
+    [visibleFeatures, data, metric],
   );
   useEffect(() => {
-    if (!pendingFocus.current || !rows.length) return;
+    if (
+      !pendingFocus.current ||
+      !rows.length ||
+      (!shapes && history.length < 3)
+    )
+      return;
     const id = pendingFocus.current;
     pendingFocus.current = null;
     (rowRefs.current.get(id) ?? rowRefs.current.get(rows[0]!.id))?.focus();
-  }, [rows]);
+  }, [rows, shapes, history.length]);
   const breaks = steps(rows.map((r) => r.value));
   const activeBin = hoverBin ?? pinned;
   const areaName = history.at(-1)?.shape.properties.name ?? "Philippines";
@@ -261,23 +302,64 @@ export function AreasExplorer() {
         : history.length === 2
           ? "cities / municipalities"
           : "city";
-  const camera = useMemo(() => {
-    const shape = history.at(-1)?.shape;
-    if (!shape) return { x: 0, y: 0, scale: 1 };
-    const [[x0, y0], [x1, y1]] = path.bounds(shape);
-    const scale = Math.min(
-      180,
-      Math.min(
-        (narrow ? 320 : 690) / Math.max(x1 - x0, 1),
-        530 / Math.max(y1 - y0, 1),
+  const camera = useMemo(
+    () =>
+      fitCamera(
+        path.bounds(collection(visibleFeatures)),
+        viewport.width,
+        viewport.height,
       ),
-    );
-    return {
-      scale,
-      x: 380 - (scale * (x0 + x1)) / 2,
-      y: 300 - (scale * (y0 + y1)) / 2,
-    };
-  }, [history, path, narrow]);
+    [visibleFeatures, path, viewport],
+  );
+  const labelKeepouts =
+    history.length === 2
+      ? rows
+          .filter((r) => r.value !== null)
+          .slice(0, 3)
+          .map((r) => {
+            const [[x0, y0], [x1, y1]] = path.bounds(r.shape);
+            return {
+              left: x0 * camera.scale + camera.x,
+              top: y0 * camera.scale + camera.y,
+              width: (x1 - x0) * camera.scale,
+              height: (y1 - y0) * camera.scale,
+            };
+          })
+      : [];
+  const labels = history.length
+    ? placeLabels(
+        rows
+          .filter((r) => r.value !== null)
+          .slice(0, 3)
+          .map((r) => {
+            const [x, y] = path.centroid(r.shape);
+            return {
+              id: r.id,
+              name: shortAreaName(r.name),
+              value: r.value!,
+              x: x * camera.scale + camera.x,
+              y: y * camera.scale + camera.y,
+            };
+          })
+          .filter((p) => Number.isFinite(p.x) && Number.isFinite(p.y)),
+        viewport.width,
+        viewport.height,
+        labelKeepouts,
+      )
+    : [];
+  const ranges = legendRanges(
+    rows.map((r) => r.value),
+    metric,
+  );
+  function goToDepth(depth: number) {
+    pendingFocus.current = String(history[depth]?.shape.id ?? "first");
+    setHistory((h) => h.slice(0, depth));
+    setHovered(null);
+    setFocusId(null);
+    setPinned(null);
+    setHoverBin(null);
+    setPinKind("none");
+  }
   function open(shape: Shape, keyboard = false) {
     if (history.length >= 3) return;
     if (keyboard) pendingFocus.current = "first";
@@ -336,7 +418,7 @@ export function AreasExplorer() {
   }
   const issue = query.error ?? shapesQuery.error ?? national.error;
   return (
-    <Card label="Philippine areas">
+    <Card label="Philippine areas" flush className="area-card">
       <section
         className="areas-explorer"
         aria-label="Philippine areas explorer"
@@ -373,24 +455,38 @@ export function AreasExplorer() {
             </label>
           </div>
         </header>
-        <div className="area-metrics" role="group" aria-label="Shade areas by">
-          {METRICS.map((m) => (
-            <button
-              key={m.id}
-              aria-pressed={metric === m.id}
-              onClick={() => {
-                setMetric(m.id);
-                setPinned(null);
-                setHoverBin(null);
-              }}
-            >
-              {m.label}
-            </button>
-          ))}
-        </div>
-        <div className="area-summary">
-          <div>
-            <p>{areaName}</p>
+        <div className="area-overview">
+          <div className="area-summary" data-area-name={areaName}>
+            <nav className="area-breadcrumb" aria-label="Area path">
+              <ol>
+                <li>
+                  {history.length ? (
+                    <button onClick={() => goToDepth(0)}>Philippines</button>
+                  ) : (
+                    <span aria-current="location">Philippines</span>
+                  )}
+                </li>
+                {history.map((level, index) => (
+                  <li key={String(level.shape.id)}>
+                    {index === history.length - 1 ? (
+                      <span
+                        aria-current="location"
+                        title={level.shape.properties.name}
+                      >
+                        {shortAreaName(level.shape.properties.name)}
+                      </span>
+                    ) : (
+                      <button
+                        title={level.shape.properties.name}
+                        onClick={() => goToDepth(index + 1)}
+                      >
+                        {shortAreaName(level.shape.properties.name)}
+                      </button>
+                    )}
+                  </li>
+                ))}
+              </ol>
+            </nav>
             <div className="area-headline">
               <CountingTotal value={total} metric={metric} />
               <span>
@@ -401,6 +497,25 @@ export function AreasExplorer() {
                     : METRICS.find((m) => m.id === metric)?.label}
               </span>
             </div>
+          </div>
+          <div
+            className="area-metrics"
+            role="group"
+            aria-label="Shade areas by"
+          >
+            {METRICS.map((m) => (
+              <button
+                key={m.id}
+                aria-pressed={metric === m.id}
+                onClick={() => {
+                  setMetric(m.id);
+                  setPinned(null);
+                  setHoverBin(null);
+                }}
+              >
+                {m.label}
+              </button>
+            ))}
           </div>
           {history.length > 0 && (
             <button className="area-back" onClick={back}>
@@ -421,28 +536,45 @@ export function AreasExplorer() {
               Try again
             </button>
           </p>
-        ) : !data || !shapes ? (
+        ) : !data || !national.data ? (
           <p role="status">Loading areas…</p>
         ) : (
           <>
             <div className="area-grid">
               <div className="area-map-column">
                 <div
+                  ref={mapElement}
                   className="area-map"
                   onPointerMove={(e) => {
                     if (tooltip.current) {
                       const rect = e.currentTarget.getBoundingClientRect();
-                      tooltip.current.style.left = `${Math.max(8, Math.min(rect.width - 248, e.clientX - rect.left + 14))}px`;
-                      tooltip.current.style.top = `${Math.max(8, Math.min(rect.height - 245, e.clientY - rect.top + 12))}px`;
+                      tooltip.current.style.left = `${Math.max(8, Math.min(rect.width - tooltip.current.offsetWidth - 8, e.clientX - rect.left + 14))}px`;
+                      tooltip.current.style.top = `${Math.max(8, Math.min(rect.height - tooltip.current.offsetHeight - 8, e.clientY - rect.top + 12))}px`;
                     }
                   }}
                   onPointerLeave={() => setHovered(null)}
                 >
                   <svg
-                    viewBox={narrow ? "200 0 360 600" : "0 0 760 600"}
+                    viewBox={`0 0 ${viewport.width} ${viewport.height}`}
                     role="img"
                     aria-label={`${areaName}, shaded by ${METRICS.find((m) => m.id === metric)?.label}. Use the ranked list to explore.`}
                   >
+                    <defs>
+                      <pattern
+                        id={hatchId}
+                        width="7"
+                        height="7"
+                        patternUnits="userSpaceOnUse"
+                        patternTransform={`scale(${1 / camera.scale})`}
+                      >
+                        <rect width="7" height="7" fill={NO_DATA} />
+                        <path
+                          d="M-1 1L1-1M0 7L7 0M6 8L8 6"
+                          stroke="var(--area-empty-line)"
+                          strokeWidth="0.8"
+                        />
+                      </pattern>
+                    </defs>
                     <motion.g
                       style={{
                         originX: 0,
@@ -460,7 +592,7 @@ export function AreasExplorer() {
                         <path
                           key={String(s.id)}
                           d={path(s) ?? ""}
-                          fill="#f1f3f5"
+                          fill="var(--area-context)"
                           stroke="white"
                           strokeWidth={1}
                           vectorEffect="non-scaling-stroke"
@@ -477,26 +609,19 @@ export function AreasExplorer() {
                             d={path(r.shape) ?? ""}
                             fill={
                               b < 0
-                                ? NO_DATA
-                                : COLORS[
-                                    Math.min(
-                                      4,
-                                      Math.round(
-                                        (b * 4) / Math.max(1, breaks.length),
-                                      ),
-                                    )
-                                  ]
+                                ? `url(#${hatchId})`
+                                : COLORS[breaks.length ? b : 4]
                             }
                             fillOpacity={
                               activeBin === null || activeBin === b ? 1 : 0.18
                             }
                             stroke={selected ? "#172b3a" : "white"}
-                            strokeWidth={selected ? 2 : 0.8}
+                            strokeWidth={selected ? 2 : 1}
                             vectorEffect="non-scaling-stroke"
                             style={{
                               transitionDelay: reduced
                                 ? "0ms"
-                                : `${Math.max(0, Math.min(420, (centroid[0] / 760) * 420))}ms`,
+                                : `${Math.max(0, Math.min(420, (centroid[0] / viewport.width) * 420))}ms`,
                             }}
                             onPointerEnter={(event) => {
                               if (event.pointerType === "mouse")
@@ -533,6 +658,55 @@ export function AreasExplorer() {
                         />
                       )}
                     </motion.g>
+                    <g
+                      className="area-map-labels"
+                      pointerEvents="none"
+                      aria-hidden="true"
+                    >
+                      {labels.map((label) => (
+                        <motion.g
+                          key={`${file}:${label.id}`}
+                          initial={{ opacity: 0 }}
+                          animate={{ opacity: 1 }}
+                          transition={{
+                            duration: reduced ? 0 : 0.18,
+                            delay: reduced ? 0 : 0.25,
+                          }}
+                        >
+                          <line
+                            x1={label.x}
+                            y1={label.y}
+                            x2={Math.max(
+                              label.left + 8,
+                              Math.min(label.left + label.width - 8, label.x),
+                            )}
+                            y2={label.top + 21}
+                          />
+                          <circle cx={label.x} cy={label.y} r="3" />
+                          <rect
+                            x={label.left}
+                            y={label.top}
+                            width={label.width}
+                            height={label.height}
+                            rx="6"
+                          />
+                          <text x={label.left + 10} y={label.top + 17}>
+                            <tspan className="area-label-name">
+                              {label.name.length > 24
+                                ? `${label.name.slice(0, 23)}…`
+                                : label.name}
+                            </tspan>
+                            <tspan
+                              className="area-label-value"
+                              x={label.left + 10}
+                              dy="16"
+                            >
+                              {compactMetric(label.value, metric)}
+                            </tspan>
+                          </text>
+                        </motion.g>
+                      ))}
+                    </g>
                   </svg>
                   {active && (
                     <div
@@ -578,26 +752,18 @@ export function AreasExplorer() {
                   className="area-legend"
                   role="group"
                   aria-label="Colour steps"
+                  data-single={ranges.length === 1}
                 >
-                  {[
-                    ...Array(
-                      rows.some((r) => r.value !== null)
-                        ? breaks.length + 1
-                        : 0,
-                    ),
-                  ].map((_, i) => {
-                    const range =
-                      breaks.length === 0
-                        ? "All measured values"
-                        : i === breaks.length
-                          ? `Over ${formatMetric(breaks[i - 1]!, metric)}`
-                          : i === 0
-                            ? `Up to ${formatMetric(breaks[i]!, metric)}`
-                            : `Over ${formatMetric(breaks[i - 1]!, metric)} to ${formatMetric(breaks[i]!, metric)}`;
+                  {ranges.map((range, i) => {
+                    const count = rows.filter(
+                      (r) => bin(r.value, breaks) === i,
+                    ).length;
                     return (
                       <button
                         key={i}
-                        aria-label={`${range}: ${rows.filter((r) => bin(r.value, breaks) === i).length} areas`}
+                        data-count={count}
+                        title={`${count} areas · ${range.description}`}
+                        aria-label={`${range.description}: ${count} areas`}
                         aria-pressed={pinned === i}
                         onPointerEnter={() => setHoverBin(i)}
                         onPointerLeave={() => setHoverBin(null)}
@@ -605,30 +771,19 @@ export function AreasExplorer() {
                         onBlur={() => setHoverBin(null)}
                         onClick={() => setPinned(pinned === i ? null : i)}
                       >
-                        <span
-                          style={{
-                            background:
-                              COLORS[
-                                Math.min(
-                                  4,
-                                  Math.round(
-                                    (i * 4) / Math.max(1, breaks.length),
-                                  ),
-                                )
-                              ],
-                          }}
-                        />
-                        {range}
+                        <span style={{ background: range.color }} />
+                        {range.label}
                       </button>
                     );
                   })}
                   <button
+                    className="area-no-data"
                     aria-pressed={pinned === -1}
                     onPointerEnter={() => setHoverBin(-1)}
                     onPointerLeave={() => setHoverBin(null)}
                     onClick={() => setPinned(pinned === -1 ? null : -1)}
                   >
-                    <span style={{ background: NO_DATA }} />
+                    <span className="area-empty-swatch" />
                     No data
                   </button>
                 </div>
@@ -703,6 +858,7 @@ export function AreasExplorer() {
                             : { type: "spring", stiffness: 190, damping: 28 }
                         }
                         tabIndex={(focusId ?? rows[0]?.id) === r.id ? 0 : -1}
+                        title={r.name}
                         aria-label={`${r.rank ? ordinal(r.rank) : "Unranked"}, ${r.name}, ${formatMetric(r.value, metric)}. ${history.length < 3 ? "Select to zoom in" : "City selected"}`}
                         onFocus={() => setFocusId(r.id)}
                         onBlur={() => setFocusId(null)}
@@ -724,7 +880,12 @@ export function AreasExplorer() {
                         }}
                       >
                         <span className="area-rank">{r.rank ?? "—"}</span>
-                        <span className="area-rank-name">{r.name}</span>
+                        <span className="area-rank-name">
+                          <span className="area-rank-text">{r.name}</span>
+                          <span className="area-rank-track" aria-hidden="true">
+                            <span />
+                          </span>
+                        </span>
                         <span className="area-rank-value">
                           {formatMetric(r.value, metric)}
                         </span>
@@ -741,6 +902,7 @@ export function AreasExplorer() {
             </p>
             {data.unlocated && (
               <p className="area-notice">
+                {history.length > 0 && <strong>Nationwide: </strong>}
                 Customers without a recognized region:{" "}
                 {data.unlocated.customers}. Completed visits:{" "}
                 {data.unlocated.done}. Booked sales:{" "}

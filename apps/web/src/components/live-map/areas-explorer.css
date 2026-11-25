@@ -1,16 +1,86 @@
+.area-card > header {
+  display: none;
+}
 .areas-explorer {
+  --area-ink: var(--foreground, #18181b);
+  --area-secondary: #52525b;
+  --area-surface: var(--surface, #fff);
+  --area-subtle: #f2f3f5;
+  --area-border: var(--border, #e1e3e6);
+  --area-accent: var(--accent, #ee1c25);
+  --area-step-1: color-mix(in oklab, var(--area-accent) 22%, white);
+  --area-step-2: color-mix(in oklab, var(--area-accent) 44%, white);
+  --area-step-3: color-mix(in oklab, var(--area-accent) 72%, white);
+  --area-step-4: var(--area-accent);
+  --area-step-5: color-mix(in oklab, var(--area-accent) 66%, black);
+  --area-empty: #f1f3f5;
+  --area-empty-line: #bfc5ce;
+  --area-context: #e6e8ec;
+  --area-map-height: 740px;
   container-type: inline-size;
   min-width: 0;
-  padding: 24px;
-  color: var(--color-foreground, #263442);
+  padding: 20px;
+  color: var(--area-ink);
 }
 .area-header,
-.area-summary {
+.area-overview {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12px;
   flex-wrap: wrap;
+}
+.area-header {
+  padding-bottom: 4px;
+}
+.area-overview {
+  margin: 8px 0 12px;
+  align-items: end;
+}
+.area-summary {
+  min-width: 180px;
+  flex: 1;
+}
+.area-breadcrumb ol {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  list-style: none;
+  padding: 0;
+  margin: 0 0 4px;
+}
+.area-breadcrumb li {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--area-secondary);
+}
+.area-breadcrumb li + li::before {
+  content: "";
+  width: 5px;
+  height: 5px;
+  border-top: 1px solid currentColor;
+  border-right: 1px solid currentColor;
+  transform: rotate(45deg);
+  flex-shrink: 0;
+}
+.area-breadcrumb button,
+.area-breadcrumb [aria-current] {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 180px;
+}
+.area-breadcrumb button {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.area-breadcrumb [aria-current] {
+  color: var(--area-ink);
+  font-weight: 600;
 }
 .area-header h2 {
   margin: 0;
@@ -22,55 +92,58 @@
 .area-summary p {
   margin: 4px 0;
   font-size: 12px;
-  color: var(--color-muted, #6b7785);
+  color: var(--area-secondary);
 }
 .area-filters {
   display: flex;
-  gap: 12px;
+  gap: 8px;
   flex-wrap: wrap;
 }
 .area-filters label {
   display: grid;
   gap: 4px;
-  font-size: 11px;
-  color: var(--color-muted, #6b7785);
+  font-size: 12px;
+  color: var(--area-secondary);
 }
 .area-filters select {
-  min-height: 40px;
-  max-width: 180px;
-  font-size: 12px;
-  padding: 4px 8px;
-  min-width: 150px;
-  padding-right: 32px;
+  height: 36px;
+  min-height: 36px;
+  width: 164px;
+  max-width: 100%;
+  min-width: 0;
+  font-size: 13px;
+  padding: 4px 28px 4px 10px;
 }
 .area-metrics {
   display: flex;
   width: fit-content;
   max-width: 100%;
   flex-wrap: wrap;
-  margin: 20px 0 20px auto;
-  background: var(--color-surface-alt, #f4f5f6);
-  border: 1px solid var(--color-border, #e6e8eb);
+  margin: 0;
+  background: var(--area-subtle);
+  border: 1px solid var(--area-border);
   border-radius: 9px;
   padding: 3px;
   gap: 2px;
 }
 .area-metrics button,
 .area-pin-controls button {
+  border: 1px solid transparent;
   border-radius: 6px;
-  padding: 8px 12px;
-  min-height: 38px;
-  font-size: 12px;
-  color: var(--color-muted, #6b7785);
+  padding: 7px 9px;
+  min-height: 36px;
+  font-size: 13px;
+  color: var(--area-secondary);
 }
 .area-metrics button[aria-pressed="true"],
 .area-pin-controls button[aria-pressed="true"] {
-  color: var(--color-foreground, #263442);
-  background: var(--color-surface, #fff);
-  box-shadow: 0 1px 3px #152a3b15;
-}
-.area-summary {
-  padding-bottom: 12px;
+  color: var(--area-ink);
+  background: var(--area-surface);
+  border-color: var(--area-border);
+  font-weight: 650;
+  box-shadow:
+    0 2px 4px #18181b20,
+    0 1px 1px #18181b0a;
 }
 .area-headline {
   display: flex;
@@ -80,29 +153,29 @@
   font-variant-numeric: tabular-nums;
 }
 .area-headline > span:first-child {
-  font-size: 32px;
+  font-size: 36px;
   line-height: 1.25;
   font-weight: 600;
   letter-spacing: -0.04em;
 }
 .area-headline > span:last-child {
-  font-size: 12px;
-  color: var(--color-muted, #6b7785);
+  font-size: 13px;
+  color: var(--area-secondary);
 }
 .area-back {
-  border: 1px solid var(--color-border, #e6e8eb);
+  border: 1px solid var(--area-border);
   padding: 9px 12px;
   font-size: 12px;
   border-radius: 8px;
 }
 .area-back span {
-  color: var(--color-muted, #6b7785);
+  color: var(--area-secondary);
   margin-left: 16px;
 }
 .area-grid {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 310px;
-  gap: 24px;
+  grid-template-columns: minmax(0, 1fr) 340px;
+  gap: 20px;
 }
 .area-map-column {
   min-width: 0;
@@ -110,13 +183,14 @@
 .area-map {
   position: relative;
   min-width: 0;
-  background: radial-gradient(ellipse at 52% 44%, #f4f8fb 0%, transparent 70%);
-  border-radius: 12px;
+  height: var(--area-map-height);
+  background: var(--area-surface);
+  border-radius: 10px;
   overflow: hidden;
 }
 .area-map svg {
   width: 100%;
-  height: 540px;
+  height: 100%;
   display: block;
 }
 .area-map path[data-area] {
@@ -129,23 +203,23 @@
   position: absolute;
   top: 24px;
   left: 16px;
-  width: 232px;
+  width: 260px;
   max-width: calc(100% - 16px);
   padding: 14px;
-  border: 1px solid var(--color-border, #e6e8eb);
-  background: var(--color-surface, #fff);
+  border: 1px solid var(--area-border);
+  background: var(--area-surface);
   box-shadow: 0 6px 24px #152a3b20;
   border-radius: 10px;
   pointer-events: none;
   z-index: 3;
-  font-size: 11px;
+  font-size: 12px;
 }
 .area-tooltip > div {
   display: flex;
   justify-content: space-between;
   gap: 12px;
   margin-bottom: 8px;
-  color: var(--color-muted, #6b7785);
+  color: var(--area-secondary);
 }
 .area-tooltip .area-tooltip-title {
   margin-bottom: 16px;
@@ -153,59 +227,112 @@
 }
 .area-tooltip strong {
   font-size: 13px;
-  color: var(--color-foreground, #263442);
+  color: var(--area-ink);
   max-width: 145px;
 }
 .area-tooltip .chosen {
-  color: var(--color-foreground, #263442);
+  color: var(--area-ink);
   font-weight: 600;
 }
 .area-tooltip p {
   margin: 12px 0 0;
-  font-size: 11px;
-  color: var(--color-muted, #6b7785);
+  font-size: 12px;
+  color: var(--area-secondary);
 }
 .area-tooltip-keyboard {
   top: 12px;
   left: 12px;
 }
 .area-legend {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: start;
-  gap: 3px;
-  padding-top: 8px;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 5px;
+  padding-top: 12px;
+}
+.area-legend[data-single="true"] {
+  grid-template-columns: minmax(100px, 180px);
 }
 .area-legend button {
   display: flex;
   flex-direction: column;
   align-items: start;
   justify-content: start;
-  min-width: 55px;
+  min-width: 0;
   min-height: 44px;
   padding: 5px 2px;
-  font-size: 10px;
-  color: var(--color-muted, #6b7785);
+  font-size: 12px;
+  line-height: 1.4;
+  color: var(--area-secondary);
   border-radius: 4px;
+  overflow-wrap: anywhere;
+  font-variant-numeric: tabular-nums;
 }
-.area-legend button span {
+.area-legend button > span {
   display: block;
   width: 100%;
-  min-width: 55px;
-  height: 7px;
-  border-radius: 1px;
-  margin-bottom: 8px;
+  height: 13px;
+  border-radius: 2px;
+  margin-bottom: 7px;
 }
 .area-legend button[aria-pressed="true"] {
-  outline: 2px solid #526e85;
+  outline: 2px solid var(--area-accent);
   outline-offset: 1px;
+  color: var(--area-ink);
+  font-weight: 650;
+}
+.area-legend .area-no-data {
+  grid-column: 1 / -1;
+  width: fit-content;
+  min-width: 95px;
+  flex-direction: row;
+  align-items: center;
+  gap: 7px;
+}
+.area-legend .area-empty-swatch {
+  width: 28px;
+  height: 13px;
+  margin: 0;
+  border: 1px solid var(--area-empty-line);
+  background: repeating-linear-gradient(
+    135deg,
+    var(--area-empty) 0 3px,
+    var(--area-empty-line) 3px 4px,
+    var(--area-empty) 4px 7px
+  );
+}
+.area-map-labels line {
+  stroke: var(--area-secondary);
+  stroke-width: 1;
+}
+.area-map-labels circle {
+  fill: var(--area-step-5);
+  stroke: var(--area-surface);
+  stroke-width: 1;
+}
+.area-map-labels rect {
+  fill: var(--area-surface);
+  stroke: var(--area-border);
+  stroke-width: 1;
+  filter: drop-shadow(0 2px 2px #18181b12);
+}
+.area-map-labels text {
+  font-family: inherit;
+  font-size: 12px;
+  fill: var(--area-ink);
+}
+.area-label-name {
+  font-weight: 600;
+}
+.area-label-value {
+  fill: var(--area-step-5);
+  font-weight: 700;
 }
 .area-caption,
 .area-help,
 .area-definitions,
 .area-notice {
-  font-size: 12px;
-  color: var(--color-muted, #6b7785);
+  font-size: 13px;
+  color: var(--area-secondary);
   line-height: 1.6;
 }
 .area-caption {
@@ -213,22 +340,26 @@
 }
 .area-list-column {
   min-width: 0;
-  border-left: 1px solid var(--color-border, #e6e8eb);
+  height: var(--area-map-height);
+  display: flex;
+  flex-direction: column;
+  border-left: 1px solid var(--area-border);
   padding-left: 20px;
 }
 .area-list-title {
   display: flex;
   flex-direction: column;
   gap: 4px;
-  padding: 12px 0;
-  font-size: 12px;
+  padding: 8px 0 14px;
+  font-size: 13px;
 }
 .area-list-title span {
-  font-size: 11px;
-  color: var(--color-muted, #6b7785);
+  font-size: 12px;
+  color: var(--area-secondary);
 }
 .area-ranking {
-  height: 540px;
+  flex: 1;
+  min-height: 0;
   overflow-y: auto;
   overflow-x: hidden;
   overscroll-behavior: contain;
@@ -244,50 +375,63 @@
   align-items: center;
   width: 100%;
   min-height: 44px;
+  height: 44px;
   text-align: left;
-  padding: 8px 6px;
+  padding: 6px;
+  border: 1px solid transparent;
   border-radius: 6px;
-  font-size: 12px;
-  isolation: isolate;
-}
-.area-rank-row::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  bottom: 2px;
-  height: 2px;
-  width: var(--rank-bar);
-  background: #83b5d950;
-  z-index: -1;
-  transition: width 500ms ease;
+  font-size: 13px;
 }
 .area-rank-row.is-active {
-  background: var(--color-surface-alt, #edf4f8);
+  background: color-mix(in oklab, var(--area-accent) 7%, var(--area-surface));
+  border-color: color-mix(
+    in oklab,
+    var(--area-accent) 28%,
+    var(--area-surface)
+  );
 }
 .area-rank {
-  color: var(--color-muted, #6b7785);
+  color: var(--area-secondary);
   width: 20px;
   flex-shrink: 0;
-  font-size: 11px;
+  font-size: 12px;
 }
 .area-rank-name {
   flex: 1;
   min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.area-rank-text {
+  white-space: nowrap;
   overflow: hidden;
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  line-height: 16px;
-  max-height: 32px;
+  text-overflow: ellipsis;
+}
+.area-rank-track {
+  height: 3px;
+  width: 100%;
+  border-radius: 2px;
+  background: var(--area-subtle);
+  overflow: hidden;
+}
+.area-rank-track > span {
+  display: block;
+  width: var(--rank-bar);
+  height: 100%;
+  border-radius: inherit;
+  background: var(--area-accent);
+  transition: width 500ms ease;
 }
 .area-rank-value {
   flex-shrink: 0;
   font-variant-numeric: tabular-nums;
-  font-size: 11px;
+  font-size: 13px;
+  font-weight: 600;
 }
 .area-help {
   margin-top: 20px;
-  border-top: 1px solid var(--color-border, #e6e8eb);
+  border-top: 1px solid var(--area-border);
   padding-top: 14px;
 }
 .area-definitions summary {
@@ -310,11 +454,11 @@
   margin: 14px 0;
 }
 .area-pin-controls p {
-  font-size: 11px;
-  color: var(--color-muted, #6b7785);
+  font-size: 12px;
+  color: var(--area-secondary);
 }
 .areas-explorer button:focus-visible {
-  outline: 2px solid #226da8;
+  outline: 2px solid var(--area-accent);
   outline-offset: -2px;
 }
 .map-view-tabs {
@@ -322,42 +466,57 @@
   gap: 4px;
   width: fit-content;
   padding: 3px;
-  background: var(--color-surface-alt, #f4f5f6);
-  border: 1px solid var(--color-border, #e6e8eb);
+  background: #f2f3f5;
+  border: 1px solid var(--border, #e1e3e6);
   border-radius: 8px;
 }
 .map-view-tabs button {
   min-height: 40px;
   padding: 8px 18px;
   font-size: 13px;
+  border: 1px solid transparent;
   border-radius: 5px;
 }
 .map-view-tabs button[aria-pressed="true"] {
-  background: var(--color-surface, #fff);
-  box-shadow: 0 1px 3px #152a3b15;
+  background: var(--surface, #fff);
+  border-color: var(--border, #e1e3e6);
+  font-weight: 650;
+  box-shadow: 0 2px 4px #18181b20;
 }
 @container (max-width:820px) {
   .area-grid {
+    --area-map-height: 560px;
     grid-template-columns: minmax(0, 1fr);
     gap: 16px;
   }
   .area-list-column {
     border-left: 0;
-    border-top: 1px solid var(--color-border, #e6e8eb);
+    border-top: 1px solid var(--area-border);
     padding-left: 0;
-  }
-  .area-ranking {
-    height: 320px;
+    height: 360px;
   }
   .area-list-title {
     flex-direction: row;
     justify-content: space-between;
   }
-  .area-map svg {
-    height: 440px;
-  }
 }
 @media (max-width: 600px) {
+  .area-grid {
+    --area-map-height: 440px;
+  }
+  .area-overview {
+    gap: 10px;
+  }
+  .area-summary {
+    min-width: 0;
+    flex-basis: calc(100% - 100px);
+  }
+  .area-metrics {
+    order: 2;
+  }
+  .area-back {
+    align-self: end;
+  }
   .areas-explorer {
     padding: 14px;
   }
@@ -386,12 +545,6 @@
   }
   .area-back {
     min-height: 44px;
-  }
-  .area-legend button {
-    min-width: 44px;
-  }
-  .area-legend button span {
-    min-width: 44px;
   }
   .area-list-title {
     flex-direction: column;

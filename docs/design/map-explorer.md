@@ -28,6 +28,14 @@ The source has 18 regions, 88 province/district shapes (including the Special Ge
 
 NCR district and Isabela pseudo-province codes differ between the picker and the map publisher. An explicit reviewed code crosswalk handles parent-only addresses. For recognized city PSGCs the generated polygon-parent index is authoritative for display, including the eight SGA municipalities (which the picker groups under Maguindanao del Sur). This does not edit customer records or change business-unit authorization. The API ships its generated index independently of web static assets. All 107 geometry files total 759,952 uncompressed bytes; the browser loads only one level at a time.
 
+## Polish pass
+
+Keep Sunpride's existing red accent rather than the reference's blue. A five-band equal-interval ramp uses 22%, 44%, 72%, 100% accent, then a deep accent/black mix; sparse unequal values retain all five real ranges. A sole distinct value uses the deepest swatch and its actual value. No-data uses a separate light grey diagonal hatch, not the lowest numeric colour. Neutral context land remains visible behind the selected areas.
+
+The desktop map stage is 740px high (previously 540px), and its ranked-list column ends at exactly the same baseline. ResizeObserver measures the actual plot; fitExtent and the zoom camera fit visible feature bounds with 12px padding, preserving north-up geographic proportions rather than stretching the archipelago. Mobile uses the same fit against its actual 440px stage. Remove the duplicate Card header and nested padding, and place the total and raised metric switch in one overview row, with 8–12px gaps. Secondary text is 12–13px, with darker neutral ink.
+
+Breadcrumbs retain the full hierarchy and link to ancestors. Zoomed maps label the top three measured areas using collision-avoiding callouts and leader lines; at city-list depth their placements avoid the measured polygons. Rows truncate to one line with a full-name title, and an inline three-pixel accent bar expresses the ratio to the largest value. The legend uses 13px swatches with compact real ranges; zoomed unassigned-data notes explicitly begin with “Nationwide:”. The polished browser captures and the public reference are compared side by side in Ubuntu Chrome; no paid source is used.
+
 ## Acceptance proof
 
 Unit tests cover equal/empty/zero/unknown color steps, deterministic ties, ordinal ranks, keyboard bounds and Escape precedence. API proof covers scoped customer/visit/sales aggregation and foreign source orders; admin screenshots must come from the running lane website and real lane reads, not mocked browser responses. Screenshots identify sample lane contents as sample where applicable. Production deployment and phone work are outside this lane.
