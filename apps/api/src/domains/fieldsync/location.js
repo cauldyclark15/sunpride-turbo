@@ -561,6 +561,11 @@ export async function trail(ctx) {
 export async function storePins(ctx) {
   const actor = await requireCapability(ctx, "location.read");
   const { unitIds } = await scopeFilterForActor(ctx.db, actor);
+  const filterUnit = ctx.url.searchParams.get("orgUnitId");
+  if (filterUnit) {
+    uuid(filterUnit);
+    await requireCapability(ctx, "location.read", filterUnit);
+  }
   const cursor = ctx.url.searchParams.get("cursor");
   if (cursor) uuid(cursor);
   const db = ctx.db;
@@ -574,6 +579,7 @@ export async function storePins(ctx) {
     where o.deleted_at is null and o.status!='inactive' and (${unitIds === null} or coalesce(own.org_unit_id,o.custodian_org_unit_id) in ${db(units)})
       and (${actor.role !== "sales"} or exists(select 1 from planned_visits pv where pv.assignee_profile_id=${actor.profileId} and pv.outlet_id=o.id and pv.status='planned' and pv.deleted_at is null
         and pv.service_date>=${manilaDate(ctx.now)}::date and pv.service_date<${manilaDate(ctx.now)}::date+3))
+      and (${!filterUnit} or coalesce(own.org_unit_id,o.custodian_org_unit_id)=${filterUnit ?? ZERO_UUID}::uuid)
       and (${!cursor} or o.id>${cursor ?? ZERO_UUID}::uuid) order by o.id limit 101`;
   return {
     items: rows.slice(0, 100).map((/** @type {any} */ r) => ({

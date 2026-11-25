@@ -1,0 +1,756 @@
+{
+  "source": "https://raw.githubusercontent.com/faeldon/philippines-json-maps/v1.1.1/",
+  "quarter": "2026-3q",
+  "attribution": "NAMRIA / PSA through OCHA COD-AB, CC BY-IGO 3.0; faeldon/philippines-json-maps, MIT",
+  "files": [
+    {
+      "file": "p-0102800000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-102800000.topo.0.001.json",
+      "bytes": 4148,
+      "sha256": "a82a43eac04f9089f7fbde2561e670ddbdff87bbf48d40c4c232a0b38d52d254",
+      "count": 23
+    },
+    {
+      "file": "p-0102900000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-102900000.topo.0.001.json",
+      "bytes": 6019,
+      "sha256": "b161cb7ffb983e551ecf56ee49435aeca05a901264deb029a933106bafc26ad1",
+      "count": 34
+    },
+    {
+      "file": "p-0103300000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-103300000.topo.0.001.json",
+      "bytes": 3669,
+      "sha256": "9684df56d852521f4bd17c97fb2b7525fa9389f423fd60b4da4ddb32f5f9509e",
+      "count": 20
+    },
+    {
+      "file": "p-0105500000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-105500000.topo.0.001.json",
+      "bytes": 9768,
+      "sha256": "1de85e654fa0015266dce8db41da1e84e41e97d635a87ec225f4910162048a14",
+      "count": 48
+    },
+    {
+      "file": "p-0200900000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-200900000.topo.0.001.json",
+      "bytes": 1824,
+      "sha256": "208c72f6b402334b8d589289e0eec202b5a4919ec540b493179a8542eb57781f",
+      "count": 6
+    },
+    {
+      "file": "p-0201500000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-201500000.topo.0.001.json",
+      "bytes": 7198,
+      "sha256": "10cda4e70e57eb1d7d593a7c0681fa2e2691cf62f35636571803f1277d4dff9a",
+      "count": 29
+    },
+    {
+      "file": "p-0203100000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-203100000.topo.0.001.json",
+      "bytes": 6935,
+      "sha256": "2bb800db3b60a4ba71bae68034728860e1725644d3de13faef2aff16beefa453",
+      "count": 37
+    },
+    {
+      "file": "p-0205000000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-205000000.topo.0.001.json",
+      "bytes": 2549,
+      "sha256": "f7fba3f0a00a3a82be83649672bb36be557e694692fc6b99f6bb4d639984931d",
+      "count": 15
+    },
+    {
+      "file": "p-0205700000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-205700000.topo.0.001.json",
+      "bytes": 1093,
+      "sha256": "2f5698b93bff13311283205662fc56fd4477d8cacdfe570002f0e78528ffdc9b",
+      "count": 6
+    },
+    {
+      "file": "p-0300800000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-300800000.topo.0.001.json",
+      "bytes": 2438,
+      "sha256": "1b92c9099e47247e0bf49de31dee7b29dd96848b608b8f9ed748feadbaf2c752",
+      "count": 12
+    },
+    {
+      "file": "p-0301400000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-301400000.topo.0.001.json",
+      "bytes": 4591,
+      "sha256": "06c7ae81dc35a5c1cf69f9803c5a86fdd2402732a697456636903a2a73c6a558",
+      "count": 24
+    },
+    {
+      "file": "p-0304900000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-304900000.topo.0.001.json",
+      "bytes": 6538,
+      "sha256": "90624a0874d71a7524ad0eb8bb868992433629ae50106c5aca233510c8a5d80f",
+      "count": 32
+    },
+    {
+      "file": "p-0305400000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-305400000.topo.0.001.json",
+      "bytes": 3941,
+      "sha256": "05341a9911826ec8624cf58c94e4cfcc71d5485ac1803e58c488a2b226d698c6",
+      "count": 22
+    },
+    {
+      "file": "p-0306900000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-306900000.topo.0.001.json",
+      "bytes": 3177,
+      "sha256": "f6992d4d7ab20dae024f68b3b7be9c00c0f0131da11f53bf85717a4afb364348",
+      "count": 18
+    },
+    {
+      "file": "p-0307100000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-307100000.topo.0.001.json",
+      "bytes": 2987,
+      "sha256": "7ba6ec18fab367f77b83c16a7531d8eba1bf7717f0945fa5fe2a494d9b5ba1ea",
+      "count": 14
+    },
+    {
+      "file": "p-0307700000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-307700000.topo.0.001.json",
+      "bytes": 2766,
+      "sha256": "94484ebfdfd9a76411d7fd9ad065670ccab1b3bae208150bf51e7774ee459077",
+      "count": 8
+    },
+    {
+      "file": "p-0401000000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-401000000.topo.0.001.json",
+      "bytes": 7568,
+      "sha256": "462b13d6cb9d0cc596a1298ba73fd293de2ad0f39e0c09a4ec583155f9b5b704",
+      "count": 34
+    },
+    {
+      "file": "p-0402100000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-402100000.topo.0.001.json",
+      "bytes": 4499,
+      "sha256": "887d0d129e0ad23e9a0842de2e234bbce6481d7c8d2b20ad459e8f26c3aa99a8",
+      "count": 23
+    },
+    {
+      "file": "p-0403400000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-403400000.topo.0.001.json",
+      "bytes": 5630,
+      "sha256": "26d5218e541be1defe7369b9885904619ea0f8f3275a1f30e75308c79a93840e",
+      "count": 30
+    },
+    {
+      "file": "p-0405600000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-405600000.topo.0.001.json",
+      "bytes": 11627,
+      "sha256": "2bfb583d143968f7972e38b2aeb1d8c43042fa55957df6649115bf47e9dfaeaf",
+      "count": 41
+    },
+    {
+      "file": "p-0405800000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-405800000.topo.0.001.json",
+      "bytes": 2604,
+      "sha256": "1f44e46bc3004c26aa271d25b75bcb3f9e75dbcc743896c1dfa90d78ff1920e1",
+      "count": 14
+    },
+    {
+      "file": "p-0500500000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-500500000.topo.0.001.json",
+      "bytes": 4445,
+      "sha256": "f19a84990bee0ffcc54b968e3091472dfdd6d870330aa7277c9238c218639688",
+      "count": 18
+    },
+    {
+      "file": "p-0501600000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-501600000.topo.0.001.json",
+      "bytes": 3766,
+      "sha256": "04cd63f726ac68143ab9cc239b3cfcc82210e76773a67b825167075790672eed",
+      "count": 12
+    },
+    {
+      "file": "p-0501700000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-501700000.topo.0.001.json",
+      "bytes": 10106,
+      "sha256": "031372805437d6e23a157076156b5b570cc70f5c3791f26644407e80b9fa2a9c",
+      "count": 37
+    },
+    {
+      "file": "p-0502000000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-502000000.topo.0.001.json",
+      "bytes": 3511,
+      "sha256": "9fd13818fa71c4679f756d314f69b573771533208390bb11eea327754f9f09e6",
+      "count": 11
+    },
+    {
+      "file": "p-0504100000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-504100000.topo.0.001.json",
+      "bytes": 7140,
+      "sha256": "f4fd83fc2b24f1869e71fc27b7d5a3c4cd3ffc97f531d1fa68b167e4cc6f882d",
+      "count": 21
+    },
+    {
+      "file": "p-0506200000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-506200000.topo.0.001.json",
+      "bytes": 4608,
+      "sha256": "3ebe63afd6f46bf7199e8d416afb2ed99525822864253317ae03b4ecd6f94bb1",
+      "count": 15
+    },
+    {
+      "file": "p-0600400000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-600400000.topo.0.001.json",
+      "bytes": 4150,
+      "sha256": "f4b33d4b27d55be63bb51367549628c4c641f112a1d94387adc0eb1b1770426f",
+      "count": 17
+    },
+    {
+      "file": "p-0600600000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-600600000.topo.0.001.json",
+      "bytes": 4013,
+      "sha256": "33ac466f154615a2ece68e523ba9e1ba225477672fd214166c4e31cc6b70e595",
+      "count": 18
+    },
+    {
+      "file": "p-0601900000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-601900000.topo.0.001.json",
+      "bytes": 3243,
+      "sha256": "1030d9fe5fdc99cba3b55640f23439f60cb2fbc1dbe2466fadc3bdaa063b5e69",
+      "count": 17
+    },
+    {
+      "file": "p-0603000000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-603000000.topo.0.001.json",
+      "bytes": 9752,
+      "sha256": "01ccdf264f99fd4cb912e3100307398e74ce75d84da332ee88412a838e57b92c",
+      "count": 44
+    },
+    {
+      "file": "p-0607900000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-607900000.topo.0.001.json",
+      "bytes": 2078,
+      "sha256": "d9f1b61cccfaf70cc8fdad860613aefd638bb4e742d4b14d3496085ee3c62296",
+      "count": 5
+    },
+    {
+      "file": "p-0701200000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-701200000.topo.0.001.json",
+      "bytes": 11553,
+      "sha256": "e4ea8b51a7827020a75d3ce31c6a8b5929e1c2470262be9ff605d734d0e090e8",
+      "count": 48
+    },
+    {
+      "file": "p-0702200000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-702200000.topo.0.001.json",
+      "bytes": 13303,
+      "sha256": "0e2ec15148f3c4b1e276cb4ddfac8cc29ffad87d64daf6199c83bfabfe4ffc77",
+      "count": 53
+    },
+    {
+      "file": "p-0802600000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-802600000.topo.0.001.json",
+      "bytes": 7619,
+      "sha256": "5f4edcfc3b13bd7b68e954cffc0ce0cfbcec0900523d6a1779ea9dedd0a2c42d",
+      "count": 23
+    },
+    {
+      "file": "p-0803700000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-803700000.topo.0.001.json",
+      "bytes": 10112,
+      "sha256": "91134f42999089c2bcc37a251aabb9ea8c0abbe5ac03ada58766036a75863bf0",
+      "count": 43
+    },
+    {
+      "file": "p-0804800000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-804800000.topo.0.001.json",
+      "bytes": 8230,
+      "sha256": "6d3c8d723d115be6801cb9aac6d1994e26be532059e62aeda4431272eab01f62",
+      "count": 24
+    },
+    {
+      "file": "p-0806000000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-806000000.topo.0.001.json",
+      "bytes": 8709,
+      "sha256": "6e99591c65d3c5ae94e8e0344647315c01ac01a792b135989b1a00422b0dd210",
+      "count": 26
+    },
+    {
+      "file": "p-0806400000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-806400000.topo.0.001.json",
+      "bytes": 4162,
+      "sha256": "246eb97285616bf4a966fccfbd6be91fb472538ba9f7d68b5611f68908b0d47d",
+      "count": 19
+    },
+    {
+      "file": "p-0807800000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-807800000.topo.0.001.json",
+      "bytes": 2045,
+      "sha256": "56d0bdc2c86ba82cbad07f380197606b302d6b091e00b0475644e52027fa31a2",
+      "count": 8
+    },
+    {
+      "file": "p-0906600000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-906600000.topo.0.001.json",
+      "bytes": 12174,
+      "sha256": "57f46902dcfe29d050e96f06c40228d05b0401901ca482439df5720bd86380f1",
+      "count": 19
+    },
+    {
+      "file": "p-0907200000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-907200000.topo.0.001.json",
+      "bytes": 5907,
+      "sha256": "e06240305d41796d8b6815748e060fafc3fc403a427f3088bb17a4984621c0ac",
+      "count": 27
+    },
+    {
+      "file": "p-0907300000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-907300000.topo.0.001.json",
+      "bytes": 7713,
+      "sha256": "a65f6626ef50ea7601fc618db58e70edfb311d94081435fa22c758055852d6b6",
+      "count": 28
+    },
+    {
+      "file": "p-0908300000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-908300000.topo.0.001.json",
+      "bytes": 5516,
+      "sha256": "aceab190be24edee282f6b118e4314baf483e7ecbe8a71cce971c055f7be92f9",
+      "count": 16
+    },
+    {
+      "file": "p-0990100000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-990100000.topo.0.001.json",
+      "bytes": 545,
+      "sha256": "f154fc327df9e097462d0f30d6ce91b0fcaaf468272f57b1e0835fd450064e6a",
+      "count": 1
+    },
+    {
+      "file": "p-1001300000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1001300000.topo.0.001.json",
+      "bytes": 3844,
+      "sha256": "e20c02c092830342a5aefaa97d90baffbd976a4adca81ff347c05e4649db8c1d",
+      "count": 22
+    },
+    {
+      "file": "p-1001800000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1001800000.topo.0.001.json",
+      "bytes": 1069,
+      "sha256": "359a05830dee531f69e26b7490c2a6f2d59d8bdc8e6660ab8a27ba00d4bfee7d",
+      "count": 5
+    },
+    {
+      "file": "p-1003500000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1003500000.topo.0.001.json",
+      "bytes": 4537,
+      "sha256": "632a12f9e1ed49d214d01308589e2e8ad453cc86a08cf5768393fb129002b08c",
+      "count": 23
+    },
+    {
+      "file": "p-1004200000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1004200000.topo.0.001.json",
+      "bytes": 3608,
+      "sha256": "2cbc0b046569dcd14dc2329a02ed7fc7d23c46d90fc1445d9517e1d45ab2b934",
+      "count": 17
+    },
+    {
+      "file": "p-1004300000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1004300000.topo.0.001.json",
+      "bytes": 5304,
+      "sha256": "da8cedd19e3845b75c96935a48dec8a0c85b528bf123be71d16ce6d8df4f4e19",
+      "count": 26
+    },
+    {
+      "file": "p-1102300000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1102300000.topo.0.001.json",
+      "bytes": 2546,
+      "sha256": "e3d4e49bfd024912205a486158e5c599b7278fda4322a5457800fbe57a22ed0b",
+      "count": 11
+    },
+    {
+      "file": "p-1102400000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1102400000.topo.0.001.json",
+      "bytes": 2425,
+      "sha256": "78dea7dd37f3ece5148e361c6f263d535d4b3408c138a1ac8ae91cf95eddd364",
+      "count": 11
+    },
+    {
+      "file": "p-1102500000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1102500000.topo.0.001.json",
+      "bytes": 3399,
+      "sha256": "1197d8cd5f8b2732b71b6ec8f10a7f58cd1d600e106c237a337b40472ade9bf1",
+      "count": 11
+    },
+    {
+      "file": "p-1108200000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1108200000.topo.0.001.json",
+      "bytes": 2145,
+      "sha256": "31e285473b5e2d4ea5cad8e10e681ee32746d42a986e4846d4ff6565362529db",
+      "count": 11
+    },
+    {
+      "file": "p-1108600000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1108600000.topo.0.001.json",
+      "bytes": 1618,
+      "sha256": "b578fa34d9eea681fca9de5d1367562436f9cce9228220ac496474a806b352d1",
+      "count": 5
+    },
+    {
+      "file": "p-1204700000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1204700000.topo.0.001.json",
+      "bytes": 3460,
+      "sha256": "9992ce0d22bed56dc2bff9c4a6ec89fd8fa7c49a57462ff126650be231154080",
+      "count": 18
+    },
+    {
+      "file": "p-1206300000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1206300000.topo.0.001.json",
+      "bytes": 2197,
+      "sha256": "685005b89fc4e213a0cb1e6c7eb725852a60188b06d1dcdbb1d3b7c0ca943f23",
+      "count": 12
+    },
+    {
+      "file": "p-1206500000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1206500000.topo.0.001.json",
+      "bytes": 2317,
+      "sha256": "23400dea637a301ada041842da9f4e1d0fb4cf4b1a4cfe209a4ed0eedac13435",
+      "count": 12
+    },
+    {
+      "file": "p-1208000000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1208000000.topo.0.001.json",
+      "bytes": 1579,
+      "sha256": "f421b38e0f5034659a6c3c5cbedf3d839dd3615837568d06af628f7335383eae",
+      "count": 7
+    },
+    {
+      "file": "p-1303900000.json",
+      "source": "latest/topojson/municities/lowres/bgysubmuns-municity-1380600000.topo.0.001.json",
+      "bytes": 60830,
+      "sha256": "ff253f6fffc6e56b2463f9fe214233be3f9570e934bf5cd4e5a41c0aa8cea12f",
+      "count": 14
+    },
+    {
+      "file": "p-1307400000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1307400000.topo.0.001.json",
+      "bytes": 971,
+      "sha256": "df9d513889bbdba31bcb2e7dc655125a01650e10b139605cb81832eeca70f0ef",
+      "count": 5
+    },
+    {
+      "file": "p-1307500000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1307500000.topo.0.001.json",
+      "bytes": 930,
+      "sha256": "af7decfd4915e59e927f7859dde580ebbc99a78aa299c6f9bf565ab39d518eab",
+      "count": 4
+    },
+    {
+      "file": "p-1307600000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1307600000.topo.0.001.json",
+      "bytes": 1468,
+      "sha256": "7a1b672b4060130bc082f1f7884b98380b60a6ed0fcd1fb8b91f6da6c7676846",
+      "count": 7
+    },
+    {
+      "file": "p-1400100000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1400100000.topo.0.001.json",
+      "bytes": 4413,
+      "sha256": "6a14f4a361cc52c36595a1e504c348e5cd7a0cb6205fdc071ccc8144a7cdc09c",
+      "count": 27
+    },
+    {
+      "file": "p-1401100000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1401100000.topo.0.001.json",
+      "bytes": 2371,
+      "sha256": "c4d3bb2d383097d0bb898776ea7d4fd12d2480f2d1686cf93357d928b31c0447",
+      "count": 14
+    },
+    {
+      "file": "p-1402700000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1402700000.topo.0.001.json",
+      "bytes": 1868,
+      "sha256": "340ce696c36d9571eb8f96bde2317268069055af63722fe45ca385b53f8e57a3",
+      "count": 11
+    },
+    {
+      "file": "p-1403200000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1403200000.topo.0.001.json",
+      "bytes": 1406,
+      "sha256": "eea803ba90402814d9d6a72648f15ef05e7ba2cf3548c7be34eed5bd4e3c851e",
+      "count": 8
+    },
+    {
+      "file": "p-1404400000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1404400000.topo.0.001.json",
+      "bytes": 1640,
+      "sha256": "8cfa10c3de2a5a5f1133323b42eed61d67eedeef2138e0c7f2e366b251f4c9bc",
+      "count": 10
+    },
+    {
+      "file": "p-1408100000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1408100000.topo.0.001.json",
+      "bytes": 1233,
+      "sha256": "fa8ab38f8109ded52a151ee037a50e17c92fa10fa116fe90710abc771cd3a1d9",
+      "count": 7
+    },
+    {
+      "file": "p-1600200000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1600200000.topo.0.001.json",
+      "bytes": 2253,
+      "sha256": "8491194976543ca3cf31bfbd1570969b9a4ea9868332a11cdac51c65f2fc2b2c",
+      "count": 12
+    },
+    {
+      "file": "p-1600300000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1600300000.topo.0.001.json",
+      "bytes": 2356,
+      "sha256": "7839390dc8ae6b1ee3c1abd547a531714485def8b2a4605be74e69c08b169238",
+      "count": 14
+    },
+    {
+      "file": "p-1606700000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1606700000.topo.0.001.json",
+      "bytes": 8484,
+      "sha256": "0504ac4228ed6b19b53b0081b82b86904448389fb67cd4272302793bcfa11ab7",
+      "count": 21
+    },
+    {
+      "file": "p-1606800000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1606800000.topo.0.001.json",
+      "bytes": 5149,
+      "sha256": "4f045d7e035428928486db149d81cd2ed8754005c1943027161f93975dc20542",
+      "count": 19
+    },
+    {
+      "file": "p-1608500000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1608500000.topo.0.001.json",
+      "bytes": 3242,
+      "sha256": "9f98ff1cf3a5c5b1aab243f1f16d2494e1415e67e368054efa360e6932c8f930",
+      "count": 7
+    },
+    {
+      "file": "p-1704000000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1704000000.topo.0.001.json",
+      "bytes": 1838,
+      "sha256": "79504a75cf11a5f829ca1587985f3daa2e892650c6d562f22a49077023513d96",
+      "count": 6
+    },
+    {
+      "file": "p-1705100000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1705100000.topo.0.001.json",
+      "bytes": 3365,
+      "sha256": "fe1b20b59a930417c49224d9211d51a6600a515975c5280f0db7496f07ec43c2",
+      "count": 11
+    },
+    {
+      "file": "p-1705200000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1705200000.topo.0.001.json",
+      "bytes": 3691,
+      "sha256": "5fee159713d14c4fc390bf4e9c7f304e93bed9fa3a528195910e987811c285cb",
+      "count": 15
+    },
+    {
+      "file": "p-1705300000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1705300000.topo.0.001.json",
+      "bytes": 24519,
+      "sha256": "1b308c2f840731dc0124de064273bde2bed8f2dec4d1410fb92a856103e25caf",
+      "count": 24
+    },
+    {
+      "file": "p-1705900000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1705900000.topo.0.001.json",
+      "bytes": 4406,
+      "sha256": "9798c0475363fccb8d125d1896a68d68f2d63cc30822915303b10f1b152a5d87",
+      "count": 17
+    },
+    {
+      "file": "p-1804500000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1804500000.topo.0.001.json",
+      "bytes": 8063,
+      "sha256": "788a417d2e10d448aee1145ddf068d8eb42f236e722f873033e3cb256b69c646",
+      "count": 32
+    },
+    {
+      "file": "p-1804600000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1804600000.topo.0.001.json",
+      "bytes": 5442,
+      "sha256": "755a772cb88f21d374148d5af9911187c97048fd002de06eee89632db6384b31",
+      "count": 25
+    },
+    {
+      "file": "p-1806100000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1806100000.topo.0.001.json",
+      "bytes": 1436,
+      "sha256": "b932f3b53153ed7b4409f3c170169fec7091a1410e1941e7507bf78c4526a4cd",
+      "count": 6
+    },
+    {
+      "file": "p-1900700000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1900700000.topo.0.001.json",
+      "bytes": 4390,
+      "sha256": "d0afd94fad9ac2ed650d60fdc2f437c3843fa9d71525f610454cf3dcb2a52109",
+      "count": 12
+    },
+    {
+      "file": "p-1903600000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1903600000.topo.0.001.json",
+      "bytes": 7051,
+      "sha256": "cf80a25e4b22de809c0fd61a451350028cf251e4ecba77737082d8e9da1568fd",
+      "count": 40
+    },
+    {
+      "file": "p-1907000000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1907000000.topo.0.001.json",
+      "bytes": 7781,
+      "sha256": "c7416b35e9f94d6fde8b7b15f22289aa7ab509505bfd9bb4a42da224b4cec265",
+      "count": 11
+    },
+    {
+      "file": "p-1908700000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1908700000.topo.0.001.json",
+      "bytes": 3063,
+      "sha256": "c9cdb09236dee6fc3c781897ea0e3d5733be512eebbbedefe9c794f24ade677c",
+      "count": 13
+    },
+    {
+      "file": "p-1908800000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1908800000.topo.0.001.json",
+      "bytes": 4255,
+      "sha256": "12c7c454ea989cda779fa1ed99b80dbe56471deb575b94c6ffbc4be25da5405e",
+      "count": 24
+    },
+    {
+      "file": "p-1999900000.json",
+      "source": "latest/topojson/provdists/lowres/municities-provdist-1999900000.topo.0.001.json",
+      "bytes": 1458,
+      "sha256": "ea55d089022288e0cb590660535410439ee00c7aedb104e798b67fb4c7e4482f",
+      "count": 8
+    },
+    {
+      "file": "r-0100000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-100000000.topo.0.001.json",
+      "bytes": 3051,
+      "sha256": "41ba9bd5f3f9e4a1b7c54dd6cf887a2b4896fac1df9119f88fc208ba086859fc",
+      "count": 4
+    },
+    {
+      "file": "r-0200000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-200000000.topo.0.001.json",
+      "bytes": 4729,
+      "sha256": "b085f4e59c9894329b3b81ddf517fbc3601da0d07c1b4037fcdbd1b779fd59b4",
+      "count": 5
+    },
+    {
+      "file": "r-0300000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-300000000.topo.0.001.json",
+      "bytes": 4068,
+      "sha256": "09d26c1aba7d612a73ab6f14124f4d8fc0be9250e96fcb184ebf825331b8985a",
+      "count": 7
+    },
+    {
+      "file": "r-0400000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-400000000.topo.0.001.json",
+      "bytes": 7474,
+      "sha256": "2e7373f811d4154ce4ef41d37a72006ad3b8c212b0e9d6ee4cb88a65ef22ff33",
+      "count": 5
+    },
+    {
+      "file": "r-0500000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-500000000.topo.0.001.json",
+      "bytes": 15046,
+      "sha256": "14d2e17d2668246c6cc1e1da0a69feef44ad90d24b5a4d9d6d19e39c57c51894",
+      "count": 6
+    },
+    {
+      "file": "r-0600000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-600000000.topo.0.001.json",
+      "bytes": 6845,
+      "sha256": "d8e09c7796430a24713fdd3f67226f30d3f4604535af0703517aeb6c8b2d8081",
+      "count": 5
+    },
+    {
+      "file": "r-0700000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-700000000.topo.0.001.json",
+      "bytes": 8529,
+      "sha256": "a809a9508a4c91f44496c00a1b744bcd300f5f6e4c8332dae22b136875124fe4",
+      "count": 2
+    },
+    {
+      "file": "r-0800000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-800000000.topo.0.001.json",
+      "bytes": 18319,
+      "sha256": "e570fa0c650e991a46e5c75a3a25c8f453371196bf7d1d0bc3002db3ffb450e2",
+      "count": 6
+    },
+    {
+      "file": "r-0900000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-900000000.topo.0.001.json",
+      "bytes": 16997,
+      "sha256": "7818a217a9f8aff8de8b197165445e8c9634b471e786e2dd50c31c2ab04d62ff",
+      "count": 5
+    },
+    {
+      "file": "r-1000000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-1000000000.topo.0.001.json",
+      "bytes": 3239,
+      "sha256": "1f39c00efb63378390614c1a8ce835e8a53177ad7dbdf8a2632d9d5aa9c23397",
+      "count": 5
+    },
+    {
+      "file": "r-1100000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-1100000000.topo.0.001.json",
+      "bytes": 4625,
+      "sha256": "6f2b1c2ffbe95b58a0639ef28e2b99d27a2078121fedcfc67e77f6806c571ba8",
+      "count": 5
+    },
+    {
+      "file": "r-1200000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-1200000000.topo.0.001.json",
+      "bytes": 1715,
+      "sha256": "71f1c2e0833828b571f0ca94570cf219edc19da223526bf6f4a9fa6ad4bd3b8b",
+      "count": 4
+    },
+    {
+      "file": "r-1300000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-1300000000.topo.0.001.json",
+      "bytes": 1123,
+      "sha256": "6f5515744372a05c06d38d3d5c447989a6586418117c7b4303f3b6b571b143c4",
+      "count": 4
+    },
+    {
+      "file": "r-1400000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-1400000000.topo.0.001.json",
+      "bytes": 1124,
+      "sha256": "b37ba830954e14d039e817ea115a80c54240453e09761fbd4a43a23c3c1271ad",
+      "count": 6
+    },
+    {
+      "file": "r-1600000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-1600000000.topo.0.001.json",
+      "bytes": 9699,
+      "sha256": "fe0066774af117e7ebde2e94251cd2d4ad889e83137b1c53affc12ca2836ddfd",
+      "count": 5
+    },
+    {
+      "file": "r-1700000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-1700000000.topo.0.001.json",
+      "bytes": 26961,
+      "sha256": "86afc0f92007bed6c204e17f545b7138825932b625a5e8723e1d5c66bd74f8bd",
+      "count": 5
+    },
+    {
+      "file": "r-1800000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-1800000000.topo.0.001.json",
+      "bytes": 4458,
+      "sha256": "80f0d8083d75b54df67964fe031bd2e00491760a168ff14d0182871da133a04b",
+      "count": 3
+    },
+    {
+      "file": "r-1900000000.json",
+      "source": "latest/topojson/regions/lowres/provdists-region-1900000000.topo.0.001.json",
+      "bytes": 10979,
+      "sha256": "129e5695a64d334fca73e09ef3ba2cd09af5759ea0bc79142b3a4538e10b90b0",
+      "count": 6
+    },
+    {
+      "file": "regions.json",
+      "source": "latest/topojson/country/lowres/country.topo.0.001.json",
+      "bytes": 135582,
+      "sha256": "e94b73c242b6eda67e87ad9fff109bac3d03e2f8b7635ac0c42f4df489598398",
+      "count": 18
+    }
+  ]
+}

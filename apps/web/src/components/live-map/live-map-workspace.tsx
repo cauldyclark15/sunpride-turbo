@@ -1,4 +1,5 @@
 "use client";
+import "./areas-explorer.css";
 import { formatDate } from "../../lib/format";
 
 import { apiFetch, useApi, useApiPages, useLive } from "../../lib/api";
@@ -29,6 +30,11 @@ import {
   type StorePin,
   type Trail,
 } from "./live-map-model";
+
+const AreasExplorer = dynamic(
+  () => import("./areas-explorer").then((m) => m.AreasExplorer),
+  { ssr: false },
+);
 
 const LiveMapCanvas = dynamic(
   () => import("./live-map-canvas").then((m) => m.LiveMapCanvas),
@@ -503,6 +509,26 @@ function TrailPanel({
 
 /** Field → Live map. Server-scoped Bun reads plus coalesced invalidation. */
 export function LiveMapWorkspace() {
+  const [view, setView] = useState("pins");
+  return (
+    <div className="grid min-w-0 gap-3">
+      <div className="map-view-tabs" role="group" aria-label="Map view">
+        <button aria-pressed={view === "pins"} onClick={() => setView("pins")}>
+          Pins
+        </button>
+        <button
+          aria-pressed={view === "areas"}
+          onClick={() => setView("areas")}
+        >
+          Areas
+        </button>
+      </div>
+      {view === "areas" ? <AreasExplorer /> : <PinMapWorkspace />}
+    </div>
+  );
+}
+
+function PinMapWorkspace() {
   const now = useNow();
   const [filters, setFilters] = useState<LiveFilters>({
     kind: "",

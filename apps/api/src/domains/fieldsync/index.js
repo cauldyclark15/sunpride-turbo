@@ -11,6 +11,7 @@ import {
   trail,
 } from "./location.js";
 import { installJobs } from "./jobs.js";
+import { areaExplorer } from "./areas.js";
 
 /** @param {import('../../core/router.js').Router} router @param {any} ctx */
 export function install(router, ctx) {
@@ -21,6 +22,7 @@ export function install(router, ctx) {
     (/** @type {any} */ actor, /** @type {string} */ topic) =>
       topic === "location" && roleHas(actor.role, "location.read"),
   );
+  router.get("/api/v1/location/areas", areaExplorer);
   router.get("/api/v1/location/live", live);
   router.get("/api/v1/location/trail", trail);
   router.get("/api/v1/location/store-pins", storePins);
