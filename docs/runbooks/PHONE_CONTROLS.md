@@ -109,7 +109,7 @@ Android stores unconfirmed terminal receipts in a separate Keystore-encrypted va
 or a lost acknowledgement, and never applies an old receipt to a newer sign-in. A completion retry cannot
 replace the last known unsent count with zero after the local partition is detached.
 
-Migration: packages/db/migrations/0849_phone_commands.sql. Local PostgreSQL tests can use
+Migration: packages/db/migrations/0851_phone_commands.sql. Local PostgreSQL tests can use
 SP_TEST_TEMPLATE_DB=sunpride_lane_sp249 after the owner has prepared extensions in this lane database;
 the harness rejects other database names and still creates and removes only its disposable lane databases.
 
