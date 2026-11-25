@@ -14,18 +14,20 @@ Shared rules: `@sunpride/customer-master` (pure JS; import it on web for live fo
 upload previews). It exports `FIELDS`, `SECTIONS`, `validateCustomer`, `formatAddress`,
 `optionLabel`, `normalizeTin`, `normalizePhMobile`, `shipToFromCustomer`, `ERROR_CODES`.
 
-## SP-0240: individual names on enrollment
+## SP-0240: single Customer Name restored
 
-Web and Android enrollment replace the Customer Name input with `firstName` (First Name, required),
-`middleName` (Middle Name, optional), and `lastName` (Last Name, required). Values are retained separately
-in `customer_profiles`; `customerName` / `outlets.name` is generated in first–middle–last order for existing
-readers, search, duplicate checks, accounting and copied ship-to names. Combined names are limited to
-200 characters, without truncation. Ordinary office saves validate both required parts.
+At the client's request to hold separate names and restore the previous form, web and Android
+use one required `customerName` input (Customer Name, at most 200 characters). Saved full names
+remain intact; historical Android drafts with only separate parts show their combined name.
+The current forms send the single name to display/search, accounting and copied ship-to readers.
 
-The original sheet/import field list below remains unchanged. Older customer names and queued phone
-saves are not split or guessed; file uploads retain their original single-name contract. The editor
-shows the previous name for reference and asks for the separate names before saving. Existing
-field-capture recovery still retains incomplete submissions for completion, rather than losing work.
+The nullable `firstName`, `middleName`, and `lastName` columns and older structured capture contract
+remain for compatibility, not visible enrollment controls. An unchanged full name preserves complete
+stored parts. A full-name edit, or a single-name save of an older partial capture, clears superseded
+parts so they cannot overwrite the full name or require hidden fields.
+Older queued captures explicitly sending parts still follow their original validation and naming
+rules. No existing records are bulk rewritten and no columns are removed. Imports and incomplete
+field-capture recovery keep their existing contracts.
 
 ## 1. Field keys and the client's labels (sheet order)
 

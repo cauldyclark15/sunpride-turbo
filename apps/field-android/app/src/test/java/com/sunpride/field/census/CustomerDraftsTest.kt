@@ -56,7 +56,7 @@ class CustomerDraftsTest {
         val restored = CustomerDrafts.parse(CustomerDrafts().save(unfinished).json()).saved.single().draft
         // Draft serialization trims surrounding whitespace, including a whitespace-only name.
         assertEquals(unfinished.form.copy(firstName = ""), restored.form)
-        assertTrue(CustomerCapture.missing(restored.form, null, null, false, false).any { it.key == "firstName" })
+        assertTrue(CustomerCapture.missing(restored.form, null, null, false, false).none { it.key in listOf("firstName", "lastName") })
     }
 
     @Test fun appRestartRestoresTheOpenDraftAndAllOfItsEvidence() {

@@ -378,86 +378,75 @@ it("SP-0223 read-only people cannot change visit frequency on the customer scree
   expect(view().canEdit).toBe(false);
 });
 
-describe("SP-0240 separate names on customer enrollment", () => {
+describe("SP-0240 restores the single Customer Name field", () => {
   it.each(["new", "prospect", "active"] as const)(
-    "requires First and Last Name for a %s customer but leaves Middle Name optional",
+    "requires a full name for a %s customer without separate name controls",
     async (status) => {
       if (status !== "new") state.customer = customer(complete(), status);
       const html = render();
-      expect(html).not.toContain('id="cm-customerName"');
-      for (const [key, label, required] of [
-        ["firstName", "First Name", true],
-        ["middleName", "Middle Name", false],
-        ["lastName", "Last Name", true],
-      ] as const) {
-        expect(html).toContain(`for="cm-${key}"`);
-        expect(html).toContain(label);
-        expect(state.inputs.get(`cm-${key}`)?.["aria-required"]).toBe(
-          required || undefined,
-        );
-      }
+      expect(html).toContain('id="cm-customerName"');
+      expect(state.inputs.get("cm-customerName")?.["aria-required"]).toBe(true);
+      for (const key of ["firstName", "middleName", "lastName"])
+        expect(html).not.toContain(`id="cm-${key}"`);
       view().onChange(complete());
       render();
-      const change = (key: string, value: string) => {
+      const change = (value: string) => {
         (
-          state.inputs.get(`cm-${key}`)!.onChange as (e: {
+          state.inputs.get("cm-customerName")!.onChange as (e: {
             target: { value: string };
           }) => void
         )({ target: { value } });
         render();
       };
-      change("firstName", " \t ");
-      change("lastName", "");
+      change(" \t ");
       await view().onSave?.();
       render();
       expect(state.mutate).not.toHaveBeenCalled();
       expect(view().errors).toMatchObject({
-        firstName: "First Name is required.",
-        lastName: "Last Name is required.",
+        customerName: "Customer Name is required.",
       });
-      expect(view().errors.middleName).toBeUndefined();
-      change("firstName", "mARÍA jOSÉ");
-      change("lastName", "de la cruz");
+      change("mARÍA jOSÉ de la cruz");
       await view().onSave?.();
       render();
       expect(state.mutate).toHaveBeenCalledTimes(1);
-      expect(state.mutate.mock.calls[0]![1].customer).toMatchObject({
-        firstName: "María José",
-        middleName: null,
-        lastName: "De La Cruz",
-        customerName: "María José De La Cruz",
-      });
+      const saved = state.mutate.mock.calls[0]![1].customer;
+      expect(saved.customerName).toBe("María José De La Cruz");
+      for (const key of ["firstName", "middleName", "lastName"])
+        expect(saved).not.toHaveProperty(key);
     },
   );
-  it("restores separately saved names without guessing the order of old full names", () => {
-    state.customer = {
-      ...customer(complete()),
+  it.each([
+    {
       firstName: "María José",
       middleName: "Peña",
       lastName: "O’Neil",
       customerName: "María José Peña O’Neil",
-    };
-    render();
-    expect(view().draft.values).toMatchObject({
-      firstName: "María José",
-      middleName: "Peña",
-      lastName: "O’Neil",
-    });
-    state.values = [];
-    state.customer = {
-      ...customer(complete()),
+    },
+    {
       firstName: null,
       middleName: null,
       lastName: null,
       customerName: "CRUZ, María José",
-    };
-    expect(render()).toContain("Previous Customer Name: CRUZ, María José");
-    expect(view().draft.values).toMatchObject({
-      firstName: "",
-      middleName: "",
-      lastName: "",
-    });
-  });
+    },
+  ])(
+    "reopens existing names intact and lets the full name be edited",
+    async (names) => {
+      state.customer = { ...customer(complete()), ...names };
+      expect(render()).not.toContain("Previous Customer Name");
+      expect(view().draft.values.customerName).toBe(names.customerName);
+      (
+        state.inputs.get("cm-customerName")!.onChange as (e: {
+          target: { value: string };
+        }) => void
+      )({ target: { value: "Ana Reyes" } });
+      render();
+      await view().onSave?.();
+      expect(state.mutate.mock.calls[0]![1].customer).toMatchObject({
+        customerName: "Ana Reyes",
+        shipTos: [expect.objectContaining({ shipToParty: "Ana Reyes" })],
+      });
+    },
+  );
 });
 
 describe("SP-0214 Street 1 on customer enrollment", () => {

@@ -201,11 +201,11 @@ class FieldAppTest {
         rule.setContent { FieldApp(configured, dark = false, backend = backend, features = beta) }
         rule.waitUntil(10_000) { rule.onAllNodesWithTagExists("today-title") }
         rule.onNodeWithTag("today-add-store").performScrollTo().assertTextContains("Add customer").performClick()
-        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("customer-firstName") }
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("customer-customerName") }
         rule.onNodeWithTag("account-back").performClick()
         rule.onNodeWithTag("customers-open").performScrollTo().performClick()
         rule.onNodeWithTag("customer-add-store-fab").assertIsDisplayed().assertContentDescriptionEquals("Add customer").performClick()
-        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("customer-firstName") }
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("customer-customerName") }
     }
 
     // Store detail: Edit top-right in the header and as a button; both open the Edit store form filled from the store.
@@ -262,7 +262,7 @@ class FieldAppTest {
         rule.onNodeWithTag("nav-more").performClick()
         shot("android-more")
         rule.onNodeWithTag("census-open").performClick()
-        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("customer-firstName") }
+        rule.waitUntil(5_000) { rule.onAllNodesWithTagExists("customer-customerName") }
         shot("android-add-a-store")
     }
 

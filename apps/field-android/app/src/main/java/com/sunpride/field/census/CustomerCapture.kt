@@ -222,6 +222,7 @@ object CustomerCapture {
         return out
     }
     /** SP-0196: the store's name for lists and the outlet: Registered Name (the store), else Customer Name. */
+    // SP-0240 rollback: historical drafts may contain only separate name parts.
     fun customerName(f: Form): String = CustomerMaster.fullName(f.values()).ifEmpty { f.customerName.trim() }
     fun storeName(f: Form): String = normalizeText("registeredName", f.registeredName.trim()).ifEmpty { normalizeText("customerName", customerName(f)) }
     /** The store name and owner of a saved Add customer payload (older saves sent the owner as `name`). */
@@ -267,9 +268,9 @@ object CustomerCapture {
     /** SP-0184: all required sheet fields before submission, including conditional ADP and ship-to.
      * Missing offline geography must be downloaded, not deferred to an Admin to complete. */
     fun missing(f: Form, s: Setup?, g: Geography?, hasFix: Boolean, hasPhoto: Boolean): List<Missing> = buildList {
-        val values = f.values()
+        val values = f.values().also { it["customerName"] = customerName(f) }
         val app = s?.let { applicability(it, f) }
-        for (key in CustomerMaster.FIELD_CAPTURE.flatMap { if (it == "customerName") listOf("firstName", "middleName", "lastName") else listOf(it) }) {
+        for (key in CustomerMaster.FIELD_CAPTURE) {
             val field = CustomerMaster.field(key)
             if (!field.required || key == "customerAddress" || (field.adp && f.distributionChannelCode != CustomerMaster.ADP_CHANNEL)) continue
             if (key == "customerGroup1Code" && app?.group1 == false) continue
@@ -319,7 +320,7 @@ object CustomerCapture {
         val input = HashMap<String, Any?>(f.values()); input["latitude"] = latitude; input["longitude"] = longitude
         input["customerName"] = customerName(f)
         input["shipTos"] = listOf(shipTo(f, g))
-        return (CustomerMaster.nameErrors(input, required = false) + CustomerMaster.validate(input, "draft", s.index, g?.resolve(f)).errors).map { error ->
+        return CustomerMaster.validate(input, "draft", s.index, g?.resolve(f)).errors.map { error ->
             val key = when (error.field) {
                 "shipTos[0].mobileNo" -> if (f.sameAsCustomer) "mobileNo" else "shipToMobileNo"
                 "shipTos[0].email" -> if (f.sameAsCustomer) "email" else "shipToEmail"
@@ -334,8 +335,7 @@ object CustomerCapture {
         val o = JSONObject()
         // Normalize at submission as well as blur: restored drafts and Save from a focused field are covered.
         // SP-0220: Customer Address is no longer a separate field; the server builds it from Street 1 and the location.
-        f.values().forEach { (k, v) -> if (k != "customerAddress") o.put(k, normalizeText(k, v)) }
-        for (field in CustomerMaster.NAME_FIELDS) o.put(field.key, normalizeText(field.key, f.values()[field.key].orEmpty()))
+        f.values().forEach { (k, v) -> if (k != "customerAddress" && CustomerMaster.NAME_FIELDS.none { it.key == k }) o.put(k, normalizeText(k, v)) }
         o.put("customerName", normalizeText("customerName", customerName(f)))
         builtAddress(f, g).takeIf { it.isNotEmpty() }?.let { o.put("customerAddress", it) }
         o.put("shipTos", JSONArray().put(JSONObject(shipTo(f, g))))

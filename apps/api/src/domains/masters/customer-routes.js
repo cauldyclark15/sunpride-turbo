@@ -176,7 +176,6 @@ export function installCustomers(router, platform) {
     const geography = await derive(ctx.db, customer, ctx.body.customer, null);
     const result = validateCustomer(customer, {
       level,
-      requireNameParts: level !== "draft",
       lists: await referenceRows(ctx.db),
       geography,
     });
@@ -226,12 +225,12 @@ export function installCustomers(router, platform) {
       "outlet.manage",
       uuid(b.custodianOrgUnitId ?? c.actor.orgUnitId, "Area"),
     );
-    return saveCustomer(c, b, { requireNameParts: true });
+    return saveCustomer(c, b);
   });
   command("put", "/api/v1/customers/:id", "customers/update", async (c, b) => {
     const id = uuid(c.params.id);
     await customerEditAccess(c, id, true);
-    return saveCustomer(c, b, { outletId: id, requireNameParts: true });
+    return saveCustomer(c, b, { outletId: id });
   });
   command(
     "post",

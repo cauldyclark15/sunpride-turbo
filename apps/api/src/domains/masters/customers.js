@@ -444,6 +444,16 @@ export async function syncAccountingCustomer(c, outletId) {
 /** Fill server-derived values: Country default, PSGC names, the one-line Customer Address and
  * the first ship-to when "same as customer" is ticked. @param {any} db @param {Record<string, any>} merged @param {Record<string, any>} input @param {Record<string, any>|null} existing */
 export async function derive(db, merged, input, existing) {
+  // SP-0240 rollback: a full-name edit must not be overwritten by saved parts.
+  // Unchanged complete parts are retained; older queued captures still send parts.
+  if (
+    "customerName" in input &&
+    !CUSTOMER_NAME_FIELDS.some((f) => f.key in input) &&
+    (input.customerName !== existing?.customerName ||
+      !text(existing?.firstName) ||
+      !text(existing?.lastName))
+  )
+    for (const f of CUSTOMER_NAME_FIELDS) merged[f.key] = null;
   if (hasCustomerNameParts(merged))
     merged.customerName = formatCustomerName(merged);
   if (!merged.countryCode) merged.countryCode = "PH";
@@ -488,7 +498,7 @@ export async function derive(db, merged, input, existing) {
  * field (SP-0213). Field captures, when incomplete (SP-0188), are kept as a draft with the agent's
  * submitted values and the missing fields so the office can finish it in the same CDM review.
  * Stores full completeness separately. Returns the customer id.
- * @param {any} c @param {Record<string, any>} b @param {{outletId?:string, fieldCapture?:boolean, importedCode?:string, requireNameParts?:boolean, fromUpload?:boolean}} [opts]
+ * @param {any} c @param {Record<string, any>} b @param {{outletId?:string, fieldCapture?:boolean, importedCode?:string, fromUpload?:boolean}} [opts]
  */
 export async function saveCustomer(c, b, opts = {}) {
   const input = b.customer ?? b;
@@ -570,10 +580,8 @@ export async function saveCustomer(c, b, opts = {}) {
   }
   let draft = validateCustomer(merged, {
     level: opts.fieldCapture ? "field" : pendingEdit ? "draft" : "complete",
-    // SP-0250 partial saves keep the stored name unless parts are being edited.
-    requireNameParts:
-      (opts.requireNameParts && !pendingEdit) ||
-      CUSTOMER_NAME_FIELDS.some((f) => f.key in input),
+    // SP-0240: only the full name is required by the restored form.
+    // Historical structured captures are still validated when they supply parts.
     lists,
     geography: geo,
   });
@@ -634,19 +642,16 @@ export async function saveCustomer(c, b, opts = {}) {
     invalid({
       errors: [
         {
-          field: "firstName",
-          label: "First Name",
+          field: "customerName",
+          label: "Customer Name",
           section: "Customer General Information",
           code: "required",
-          message: "First Name is required.",
+          message: "Customer Name is required.",
         },
       ],
     });
   const complete = validateCustomer(merged, {
     level: "complete",
-    requireNameParts:
-      (opts.requireNameParts && !pendingEdit) ||
-      CUSTOMER_NAME_FIELDS.some((f) => f.key in input),
     lists,
     geography: geo,
   });
@@ -830,9 +835,6 @@ export async function approveCustomer(c, outletId, b, opts = {}) {
   const lists = await referenceRows(c.db);
   const result = validateCustomer(customer, {
     level: "complete",
-    requireNameParts: CUSTOMER_NAME_FIELDS.some((f) =>
-      customer.fieldMissing?.some((/** @type {any} */ e) => e.field === f.key),
-    ),
     lists,
     geography: await resolveGeography(c.db, customer),
   });

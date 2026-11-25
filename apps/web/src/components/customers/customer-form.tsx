@@ -351,15 +351,7 @@ export function CustomerForm({
         }
         type={f.kind === "email" ? "email" : "text"}
         aria-required={marks[f.key] || undefined}
-        autoComplete={
-          (
-            {
-              firstName: "given-name",
-              middleName: "additional-name",
-              lastName: "family-name",
-            } as Record<string, string>
-          )[f.key]
-        }
+        autoComplete={f.key === "customerName" ? "name" : undefined}
         placeholder={
           f.kind === "mobile"
             ? "09XXXXXXXXX"
@@ -452,15 +444,6 @@ export function CustomerForm({
                 </span>
               ) : null}
             </legend>
-            {section === "Customer General Information" &&
-            draft.values.customerName &&
-            !draft.values.firstName &&
-            !draft.values.lastName ? (
-              <p className="text-[12px] text-muted">
-                Previous Customer Name: {draft.values.customerName}. Enter the
-                First Name and Last Name separately before saving.
-              </p>
-            ) : null}
             <div className="grid gap-3 sm:grid-cols-2">
               {fields.map(fieldBlock)}
             </div>

@@ -22,9 +22,7 @@ import {
 } from "@sunpride/customer-master";
 
 export { ADP_CHANNEL, FIELDS, SECTIONS, SHIP_TO_FIELDS, optionLabel };
-const EDITOR_FIELDS = FIELDS.flatMap((f) =>
-  f.key === "customerName" ? CUSTOMER_NAME_FIELDS : [f],
-);
+const EDITOR_FIELDS = FIELDS;
 
 export type FieldSpec = (typeof FIELDS)[number];
 export type Section = (typeof SECTIONS)[number];
@@ -254,6 +252,8 @@ export function draftFromCustomer(c: Customer): Draft {
   d.code = c.code ?? "";
   d.customFields = (c.customFields as Record<string, string>) ?? {};
   for (const key of Object.keys(d.values)) d.values[key] = str(c[key]);
+  if (!d.values.customerName)
+    d.values.customerName = formatCustomerName(d.values);
   if (!d.values.countryCode) d.values.countryCode = "PH";
   for (const [codeKey, nameKey] of Object.entries(GEO_NAME))
     d.names[codeKey] = str(c[nameKey]);
@@ -388,7 +388,7 @@ export function resolvedShipTo(d: Draft, s: ShipTo): ShipTo {
   if (!s.sameAsCustomer) return s;
   return {
     ...s,
-    shipToParty: formatCustomerName(d.values) || d.values.customerName || "",
+    shipToParty: d.values.customerName || "",
     shipToAddress: d.values.customerAddress ?? "",
     mobileNo: d.values.mobileNo ?? "",
     email: d.values.email ?? "",
@@ -470,11 +470,7 @@ export function toPayload(d: Draft, a?: { adp: boolean }) {
       normalizeCustomerText(f.key, d.values[f.key] ?? ""),
     );
   }
-  for (const f of CUSTOMER_NAME_FIELDS)
-    customer[f.key] = blankToNull(
-      normalizeCustomerText(f.key, d.values[f.key] ?? ""),
-    );
-  customer.customerName = formatCustomerName(customer) || null;
+  // SP-0240 rollback: submit the editable full name, not hidden historical parts.
   // SP-0220: Customer Address is no longer typed; the server builds it from Street 1 and the
   // location fields (an older custom address is kept until those change).
   delete customer.customerAddress;
@@ -521,7 +517,6 @@ export function checkDraft(
   const r = validateCustomer(input, {
     level: level === "pending" ? "draft" : level,
     lists: index,
-    requireNameParts: true,
   });
   // A "same as customer" ship-to repeats the customer's own fields: report those once, there.
   const copied = new Set(["shipToParty", "shipToAddress", "mobileNo", "email"]);
