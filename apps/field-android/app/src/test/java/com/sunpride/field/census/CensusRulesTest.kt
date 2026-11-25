@@ -131,6 +131,24 @@ class CensusRulesTest {
         }
         assertFalse(CensusRules.missingForChange("Nena Mini Mart", "Nena Cruz").contains(CensusRules.Field.ADDRESS))
     }
+    @Test fun storeEditRetainsTypedPlacesWithoutGeographyAndAcrossOutboxSerialization() {
+        val form = CustomerCapture.Form(street1 = "Mabini St", provinceCode = "Sample province",
+            municipalityCode = "Sample town", barangayCode = "Sample barangay", postalCode = "0123")
+        assertEquals("Mabini St, Sample barangay, Sample town, Sample province 0123", CensusRules.addressLine(form, null))
+        val p = CensusRules.changePayload(UUID.randomUUID().toString(), target, "Sample Store",
+            CensusRules.addressLine(form, null), "Ana", "", 5000L, null, null, "", null, CensusRules.addressPartsJson(form))
+        CensusRules.validate(p)
+        val queued = CensusRules.intent(StoreScope("account", "device", "scope"), p, 5000L)
+        val restored = JSONObject(queued.serializedOperation).getJSONObject("payload")
+        val parts = restored.getJSONObject("addressParts")
+        val reopened = CensusRules.formFromParts(CensusRules.ADDRESS_PART_KEYS.associateWith { key ->
+            if (parts.isNull(key)) "" else parts.getString(key)
+        })
+        assertEquals(CensusRules.addressParts(form), CensusRules.addressParts(reopened))
+        assertEquals("0123", parts.getString("postalCode"))
+        assertEquals(restored.getString("address"), CensusRules.addressLine(reopened, null))
+        CensusRules.validate(restored)
+    }
     @Test fun storeEditPayloadIsAChangeForTheStoreWithoutNewStoreFields() {
         val p = change()
         assertEquals("change", p.getString("kind")); assertEquals(target, p.getString("targetOutletId"))

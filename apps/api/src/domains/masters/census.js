@@ -190,9 +190,10 @@ function sameParts(a, b) {
   );
 }
 /** SP-0220: Edit customer's structured address, as Add customer sends it. Street 1 is
- * optional (SP-0255) and SP-0241 permits missing parts; supplied official places must still
- * fit together; the server builds the address line.
- * Absent (older phones) = the free-text `address` path.
+ * optional (SP-0255). SP-0241 permits missing or typed places; only recognized official
+ * places are checked for parent conflicts. Unlisted answers remain in the Draft profile and
+ * capture for later correction, never inserted into the official geography lists.
+ * Absent (older phones) = free-text `address`.
  * @param {any} db @param {any} raw */
 export async function readAddressParts(db, raw) {
   if (raw === undefined || raw === null) return null;
@@ -210,30 +211,28 @@ export async function readAddressParts(db, raw) {
   }
   const { resolveGeography } = await import("./customers.js");
   const g = await resolveGeography(db, f);
-  if (f.regionCode && !g.region) rule("Choose a Region from the list.");
-  if (
-    f.provinceCode &&
-    (!g.province || (f.regionCode && g.province.regionCode !== f.regionCode))
-  )
+  if (g.province && g.region && g.province.regionCode !== f.regionCode)
     rule("Choose a Province in that Region.");
   if (
-    f.municipalityCode &&
-    (!g.municipality ||
-      (f.provinceCode && g.municipality.provinceCode !== f.provinceCode))
+    g.municipality &&
+    g.province &&
+    g.municipality.provinceCode !== f.provinceCode
   )
     rule("Choose a Municipality in that Province.");
   if (
-    f.barangayCode &&
-    (!g.barangay ||
-      (f.municipalityCode &&
-        g.barangay.municipalityCode !== f.municipalityCode))
+    g.barangay &&
+    g.municipality &&
+    g.barangay.municipalityCode !== f.municipalityCode
   )
     rule("Choose a Barangay in that Municipality.");
+  // Typed places are retained, but an unresolved PSGC code is not a place name.
+  const typed = (/** @type {string|null} */ value) =>
+    value && !/^[0-9]{10}$/.test(value) ? value : null;
   const names = {
-    regionName: g.region?.name ?? null,
-    provinceName: g.province?.name ?? null,
-    municipalityName: g.municipality?.name ?? null,
-    barangayName: g.barangay?.name ?? null,
+    regionName: g.region?.name ?? typed(f.regionCode),
+    provinceName: g.province?.name ?? typed(f.provinceCode),
+    municipalityName: g.municipality?.name ?? typed(f.municipalityCode),
+    barangayName: g.barangay?.name ?? typed(f.barangayCode),
   };
   const [row] =
     await db`select customer_address_line(${f.roomStallNo},${f.floor},${f.houseNo},${f.street1},${f.street2},${names.barangayName},${names.municipalityName},${names.provinceName},${f.postalCode}) line`;

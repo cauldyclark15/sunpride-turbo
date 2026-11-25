@@ -491,16 +491,19 @@ test("store edit: a structured address (SP-0220) is checked, built by the server
   const [b] =
     await h.db`select b.code,b.name,m.code mcode,m.name mname,v.code pcode,v.name pname,v.region_code rcode from ph_barangays b join ph_municipalities m on m.code=b.municipality_code join ph_provinces v on v.code=m.province_code limit 1`;
   expect(b).toBeTruthy();
+  await h.db`insert into ph_municipalities(code,province_code,region_code,name,kind) values('0702299000','0702200000','0700000000','SP241 sample town','municipality') on conflict do nothing`;
+  await h.db`insert into ph_barangays(code,municipality_code,name) values('0702299001','0702299000','SP241 sample barangay') on conflict do nothing`;
   const wrong = await rep.push(
     change(id, {
       address: undefined,
       addressParts: {
         street1: "Rizal St",
         municipalityCode: b.mcode,
-        barangayCode: "000000000",
+        barangayCode: "0702299001",
       },
     }),
   );
+  // A recognized barangay in a different recognized town is still inconsistent.
   expect(wrong.status).toBe("rejected");
   const p = change(id, {
     address: "ignored free text",
@@ -636,5 +639,109 @@ test("SP-0241: customer edits and later photos save without optional phone/addre
     },
   ]) {
     expect((await rep.push(change(id, bad))).status).toBe("rejected");
+  }
+});
+
+test("SP-0241: typed places in customer changes survive signed sync and office acceptance as Draft, without changing official lists", async () => {
+  const rep = await fieldPerson();
+  const id = storeIds[4];
+  const { readCustomer } = await import("../src/domains/masters/customers.js");
+  const before = await readCustomer(h.db, id);
+  const count = await outletCount();
+  const geographyCount = async () =>
+    (
+      await h.db`select (select count(*)::int from ph_regions) regions,(select count(*)::int from ph_provinces) provinces,(select count(*)::int from ph_municipalities) towns,(select count(*)::int from ph_barangays) barangays`
+    )[0];
+  const placesBefore = await geographyCount();
+  const addressParts = {
+    regionCode: "Sample unlisted region",
+    provinceCode: "Sample unlisted province",
+    municipalityCode: "Sample unlisted town",
+    barangayCode: "Sample unlisted barangay",
+    street1: "",
+    postalCode: "0123",
+  };
+  const p = change(id, { address: "", ownerPhone: "", addressParts });
+  const opId = crypto.randomUUID();
+  expect((await rep.push(p, opId)).status).toBe("applied");
+  expect((await rep.push(p, opId)).status).toBe("duplicate");
+  const [capture] =
+    await h.db`select address,address_parts from census_captures where id=${p.captureId}`;
+  expect(capture.address_parts).toMatchObject({
+    ...addressParts,
+    street1: null,
+  });
+  expect(capture.address).toBe(
+    "Sample unlisted barangay, Sample unlisted town, Sample unlisted province 0123",
+  );
+  expect(
+    (
+      await as("admin", "/api/v1/masters/census/review", {
+        captureId: p.captureId,
+        decision: "accept",
+      })
+    ).status,
+  ).toBe(200);
+  const saved = await readCustomer(h.db, id);
+  expect(saved).toMatchObject({
+    ...addressParts,
+    street1: null,
+    completeness: "draft",
+  });
+  expect(saved.municipalityName).toBe(addressParts.municipalityCode);
+  expect(
+    saved.fieldMissing.some(
+      (/** @type {any} */ f) => f.field === "municipalityCode",
+    ),
+  ).toBe(true);
+  expect(saved.fieldSubmitted).toEqual(before.fieldSubmitted);
+  expect(saved.enrolmentStatus).toBe(before.enrolmentStatus);
+  expect(await outletCount()).toBe(count);
+  expect(await geographyCount()).toEqual(placesBefore);
+  // The office can subsequently replace the typed answers with official selections.
+  const [b] =
+    await h.db`select b.code,m.code municipality_code,v.code province_code,v.region_code from ph_barangays b join ph_municipalities m on m.code=b.municipality_code join ph_provinces v on v.code=m.province_code where b.code='0702230001'`;
+  const corrected = change(id, {
+    ownerPhone: "",
+    addressParts: {
+      regionCode: b.region_code,
+      provinceCode: b.province_code,
+      municipalityCode: b.municipality_code,
+      barangayCode: b.code,
+      street1: "Mabini St",
+      postalCode: "0123",
+    },
+  });
+  expect((await rep.push(corrected)).status).toBe("applied");
+  expect(
+    (
+      await as("admin", "/api/v1/masters/census/review", {
+        captureId: corrected.captureId,
+        decision: "accept",
+      })
+    ).status,
+  ).toBe(200);
+  const completed = await readCustomer(h.db, id);
+  expect(completed.municipalityCode).toBe(b.municipality_code);
+  expect(completed.municipalityName).not.toBe(addressParts.municipalityCode);
+  expect(
+    completed.fieldMissing?.some((/** @type {any} */ f) =>
+      [
+        "regionCode",
+        "provinceCode",
+        "municipalityCode",
+        "barangayCode",
+      ].includes(f.field),
+    ) ?? false,
+  ).toBe(false);
+  for (const invalid of [
+    42,
+    [],
+    { street1: "x".repeat(201) },
+    { municipalityCode: 123 },
+  ]) {
+    expect((await rep.push(change(id, { addressParts: invalid }))).status).toBe(
+      "rejected",
+    );
   }
 });

@@ -109,9 +109,15 @@ object CensusRules {
     fun addressPartsChanged(saved: Map<String, String>, f: CustomerCapture.Form): Boolean =
         addressParts(f).any { (k, v) -> v != saved[k].orEmpty().trim() }
     /** One-line address shown while editing (the server builds the saved one the same way). */
-    fun addressLine(f: CustomerCapture.Form, g: CustomerCapture.Geography?): String = CustomerMaster.formatAddress(f.roomStallNo,
-        f.floor, f.houseNo, f.street1, f.street2, g?.barangaysOf(f.municipalityCode)?.firstOrNull { it.code == f.barangayCode }?.name,
-        g?.municipality(f.municipalityCode)?.name, g?.province(f.provinceCode)?.name, f.postalCode).orEmpty()
+    fun addressLine(f: CustomerCapture.Form, g: CustomerCapture.Geography?): String {
+        // A missing list can contain a typed place, not an official PSGC selection.
+        // Keep that text visible while editing; never present an uncached code as a place name.
+        fun typed(value: String) = value.trim().takeIf { it.isNotEmpty() && !Regex("[0-9]{10}").matches(it) }
+        return CustomerMaster.formatAddress(f.roomStallNo, f.floor, f.houseNo, f.street1, f.street2,
+            g?.barangaysOf(f.municipalityCode)?.firstOrNull { it.code == f.barangayCode }?.name ?: typed(f.barangayCode),
+            g?.municipality(f.municipalityCode)?.name ?: typed(f.municipalityCode),
+            g?.province(f.provinceCode)?.name ?: typed(f.provinceCode), f.postalCode).orEmpty()
+    }
     /** The store as it is on the phone, to compare with the edited form. */
     data class Current(val name: String, val address: String, val ownerName: String, val ownerPhone: String)
     /** Edit customer opens with every saved value; a blank field takes the store's value, typed text is kept. */

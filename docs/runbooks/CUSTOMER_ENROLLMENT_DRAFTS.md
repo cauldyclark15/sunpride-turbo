@@ -5,11 +5,17 @@ In the Field app, open More > Add customer (or Add customer on the Customer mapp
 1. Enter whatever customer details are available.
 2. Tap Save as draft. Required fields, location and the storefront photo may be missing; partly typed values can be kept too.
 3. The Drafts list shows every saved draft. Tap a customer to reopen it, or Add another customer to begin another. The Drafts button keeps any partly filled current customer before opening the list.
-4. Edit the draft and save it as a draft again, or complete the required details and tap Submit for approval.
-5. Submit for approval checks required fields and entered values. Missing details are marked on the form; an incomplete customer is not queued for approval.
-6. A complete submission follows the existing sync and office approval process. Only that submitted draft is removed; other drafts remain editable.
+4. Edit the draft and save it as a draft again. With a store name and the person's name, Save customer also queues the available details for the office without requiring a photo, phone number, address lists or GPS. Missing details keep the uploaded customer marked Draft.
+5. Submit for approval is the separate complete-submission action. It checks required fields and entered values, marking missing details on the form. Save customer remains available to keep incomplete work instead.
+6. Queued customers follow the existing sync and office approval process. Only that queued customer's phone-only draft is removed; other phone drafts remain editable. A queued capture is not yet a customer that can be used for a visit or transaction before its first successful upload.
 
-Drafts are kept in the existing encrypted phone store for the signed-in account, device and area. They are not sent to the office or shared with another phone until submitted. Existing unfinished forms from earlier versions remain available. A draft save confirms success only after the phone write succeeds; a failed write leaves the current entries on screen for retry.
+Save as draft keeps work only in the encrypted phone store for the signed-in account, device and area; Save customer and Submit for approval queue it for the office. Existing unfinished forms from earlier versions remain available. A draft save confirms success only after the phone write succeeds; a failed write leaves the current entries on screen for retry.
+
+Home and Customers show the number of explicitly saved phone drafts. Tapping that count opens Drafts. With notification permission, the phone requests a reminder after saving a draft and each morning while these drafts remain; Android may delay morning delivery under battery restrictions. This count does not yet include submitted incomplete customer profiles. Office Customers has its own Drafts count and filter for uploaded profiles. These are not yet a unified list.
+
+Edit customer accepts blank nonessential phone/address details and typed places when a list has no matching option. It keeps those answers for office review; accepting the change leaves the customer Draft until its required information is complete. Typed place answers do not create entries in the official geography lists. Recognized official selections with conflicting parents still need correction.
+
+The unfinished acceptance work and physical-phone checklist are in `docs/delivery/SP-0241-OFFLINE-ACCEPTANCE.md`. This source change is not a published phone update.
 
 Discard and start again removes only the open draft. Saved drafts for other customers remain in Drafts.
 
