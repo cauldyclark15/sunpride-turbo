@@ -137,6 +137,7 @@ android {
     // F-312/F-024: one integrity implementation shared by both Android products.
     sourceSets.getByName("main").java.srcDir(rootProject.file("../../packages/android-integrity/src/main/java"))
     sourceSets.getByName("androidTest").java.srcDir(rootProject.file("../../packages/android-integrity/src/androidTest/java"))
+    sourceSets.getByName("test").java.srcDir(rootProject.file("../../packages/android-integrity/src/test/java"))
     // Explicit local-only throwaway proof configuration, never a tracked credential or a production asset.
     providers.environmentVariable("SUNPRIDE_INTEGRITY_PROOF_DIR").orNull?.let {
         sourceSets.getByName("androidTest").assets.srcDir(it)

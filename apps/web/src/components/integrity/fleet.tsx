@@ -6,6 +6,8 @@ import { usePermissions } from "../../lib/auth";
 import { CompanyIdentity } from "./identity";
 import { AppReleases } from "./app-releases";
 import { PhoneCode } from "../phone-code";
+import Link from "next/link";
+import { phoneControlsHref } from "../phone-controls";
 
 type Device = {
   id: string;
@@ -576,15 +578,16 @@ export function WaitingPhones() {
               <p className="text-xs text-muted">Asked {when(w.requestedAt)}</p>
             </div>
             <div className="flex flex-wrap gap-2">
+              <Link className={button} href={phoneControlsHref(w.personId)}>Phone controls</Link>
               <button
                 className={button}
                 disabled={busy}
-                onClick={() =>
+                onClick={() => { if (window.confirm("Register this phone and turn off any older phone for this app?"))
                   void send(
                     "/api/v1/integrity/devices/waiting/register",
                     { requestId: w.id },
                     `${w.person}'s phone is registered.`,
-                  )
+                  ); }
                 }
               >
                 Register

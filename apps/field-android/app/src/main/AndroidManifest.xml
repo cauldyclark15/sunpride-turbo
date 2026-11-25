@@ -8,6 +8,8 @@
          notification, started from Start day while the app is open. SP-0207: that needs only while-in-use
          location, so ACCESS_BACKGROUND_LOCATION is not requested (Google Play policy). -->
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE" />
+    <!-- SP-0249: independent office-control delivery; no location or exact-alarm prerequisite. -->
+    <uses-permission android:name="android.permission.FOREGROUND_SERVICE_SPECIAL_USE" />
     <uses-permission android:name="android.permission.FOREGROUND_SERVICE_LOCATION" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
     <!-- SP-0207: no REQUEST_INSTALL_PACKAGES (updates come from Google Play) and no
@@ -48,6 +50,11 @@
             </intent-filter>
         </activity>
         <service android:name=".census.StoreLocationService" android:exported="false" android:foregroundServiceType="location" />
+        <service android:name=".FieldPhoneSupportService" android:exported="false"
+            android:foregroundServiceType="specialUse">
+            <property android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
+                android:value="Ongoing office phone-control delivery for signed-in employees: check each minute for remote sign-out, removal, list refresh, send retry and app update requests, including while the sales screen is closed. Not location tracking." />
+        </service>
         <service android:name=".location.LocationShareService" android:exported="false"
             android:foregroundServiceType="location" />
     </application>

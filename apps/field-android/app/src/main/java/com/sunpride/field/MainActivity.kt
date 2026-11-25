@@ -7,10 +7,8 @@ import androidx.fragment.app.FragmentActivity
 import com.sunpride.field.auth.AndroidBiometricCrypto
 import com.sunpride.field.auth.SessionVaults
 import com.sunpride.field.ui.BiometricGate
-import com.sunpride.field.device.KeystoreDeviceKey
 import com.sunpride.field.ui.DeviceKeyInfo
 import com.sunpride.field.ui.FieldApp
-import com.sunpride.field.ui.LiveFieldBackend
 import com.sunpride.field.ui.applySystemBars
 import java.io.File
 
@@ -34,13 +32,18 @@ class MainActivity : FragmentActivity() {
         val vault = SessionVaults.app(app)
         // SP-0128: the prompt object is created here so it is bound to this activity instance.
         val biometrics = BiometricGate(vault, AndroidBiometricCrypto(this), BiometricGate.OfferMemory.Prefs(app))
-        val backend = LiveFieldBackend(environment, vault, app) { KeystoreDeviceKey.loadOrCreate(app) }
+        val backend = FieldPhoneSupport.backend(app)
         val batteryGuide = com.sunpride.field.location.AndroidBatteryGuide(app) // SP-0140
         setContent {
             FieldApp(environment, dark = dark, backend = backend, features = features,
                 onKeyLoaded = { exportPublicKeyForDev(it) }, biometrics = biometrics,
                 batteryGuide = batteryGuide, initialDrafts = intent.getBooleanExtra(com.sunpride.field.census.CustomerDraftReminders.OPEN, false))
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        FieldPhoneSupport.start(applicationContext)
     }
 
     // SP-0192 (Sell area only): the built-in printer's "Paper is not ready" alert takes the focus; the printer asks after a job.

@@ -169,6 +169,7 @@ android {
     // The shared in-app updater (integrity/AppUpdate*.kt) stays for the van app only and is not even compiled
     // here: the shared sources are copied without it (see fieldIntegritySources below).
     sourceSets.getByName("androidTest").java.srcDir(rootProject.file("../../packages/android-integrity/src/androidTest/java"))
+    sourceSets.getByName("test").java.srcDir(rootProject.file("../../packages/android-integrity/src/test/java"))
     packaging { resources.excludes += "/META-INF/{AL2.0,LGPL2.1}" }
 }
 

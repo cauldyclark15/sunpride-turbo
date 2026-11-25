@@ -64,6 +64,8 @@ interface FieldBackend {
     fun domainForms(kind:String,refresh:Boolean):JSONObject? = null
     fun queueMockRefusal(outletId: String) { error("Integrity attempt storage unavailable") }
     fun signOut()
+    fun phoneControls(): Boolean = false
+    fun officeUpdateRequested(): Boolean = false
     /** FLD-014/171: the plain reason the server last ended this phone's session, until the next sign-in. */
     fun endedSessionReason(): String? = null
     /** FLD-014/E2E-004: unsent work held on this phone, readable while signed out or removed. */
@@ -308,7 +310,8 @@ class LiveFieldBackend(
     private val signerLoader: () -> DeviceSigner
 ) : FieldBackend {
     private val environmentOrigin = environment.apiOrigin.trimEnd('/')
-    private val auth = AuthClient(environment, vault, signer = signerLoader)
+    private val auth = AuthClient(environment, vault, signer = signerLoader,
+        phoneReceipt = com.sunpride.field.auth.KeystoreSessionVault(context,"field_phone_receipt","sunpride-field-phone-receipt-aes-v1"))
     private val functions = ServerFunctions(environment, auth).also { it.signer = signerLoader }
     private val syncTransport = LiveBootstrapTransport(environment, auth, functions)
     private val visitTransport = com.sunpride.field.sync.LiveVisitTransport(environment, auth, functions)
@@ -370,6 +373,41 @@ class LiveFieldBackend(
             runBlocking { EncryptedFieldDatabase.holdExisting(context) }
             check(transport.edit().putInt("epoch", 2).commit())
         }
+    }
+    fun phoneSupportNeeded(): Boolean = auth.isSignedIn || auth.hasPhoneReceipts
+    private val checkingPhone = java.util.concurrent.atomic.AtomicBoolean(false)
+    @Volatile private var phoneForceRefresh = false
+    override fun officeUpdateRequested() = prefs.getInt("officeUpdateVersion",-1) == com.sunpride.field.BuildConfig.VERSION_CODE
+    override fun phoneControls(): Boolean {
+        if (!checkingPhone.compareAndSet(false,true)) return false
+        try {
+            return auth.phoneCommands(::unsentOnPhone) { kind ->
+                when(kind) {
+                    "sign_out", "remove" -> signOut()
+                    "update" -> check(prefs.edit().putInt("officeUpdateVersion",com.sunpride.field.BuildConfig.VERSION_CODE).commit())
+                    "refresh", "resend" -> {
+                        val ready = Enrollment(ServerDeviceApi(functions),loadSigner(),vault).refresh() as? EnrollmentState.Ready
+                            ?: error("Register this phone first")
+                        phoneForceRefresh = kind == "refresh"
+                        try {
+                            val downloaded = today(ready.deviceId,loadSigner(),true)
+                            check(!downloaded.stale) { "Phone refresh is still waiting" }
+                            if(kind == "refresh") {
+                                val config = checkNotNull(censusConfig()) { "Customer settings unavailable" }
+                                val provinces = com.sunpride.field.census.CustomerCapture.setup(config)?.provinceCodes.orEmpty()
+                                checkNotNull(customerGeography(provinces)) { "Address lists unavailable" }
+                            }
+                            if (runBlocking { EncryptedFieldDatabase.sellUnsent(context) } > 0) {
+                                val seller = com.sunpride.field.sell.data.VanRepository.forWorker(context,sellAccess(),false)
+                                try { runBlocking { seller.restoreSession(); seller.syncNow() } } finally { seller.close() }
+                            }
+                            uploadEvidence()
+                        } finally { phoneForceRefresh = false }
+                    }
+                }
+            }
+        } catch (_: Exception) { return !auth.isSignedIn }
+        finally { checkingPhone.set(false) }
     }
     private fun storedScope(): StoreScope? {
         val key = sessionKey() ?: return null
@@ -574,7 +612,8 @@ class LiveFieldBackend(
             block={runBlocking { store.blockLocalCache("local.census","config","checking",System.currentTimeMillis()) }},
             write={json->runBlocking { store.putLocalCache("local.census","config",json,JSONObject(json).getLong("savedAt"),"config") }},
             fetch={functions.api.get("/api/v1/masters/census-config").toString()},
-            isOffline=com.sunpride.field.census.CensusConfigCache::isUnreachable)
+            isOffline=com.sunpride.field.census.CensusConfigCache::isUnreachable,
+            requireOnline=phoneForceRefresh)
         cached?.let(::JSONObject)
     }
     override fun formDraft(key: String): String? = if (storedScope() == null) null else withStore { store ->
@@ -658,7 +697,8 @@ class LiveFieldBackend(
                 val saved = store.localCache(GEOGRAPHY, key)?.takeUnless { it.tombstone }
                 return com.sunpride.field.census.CustomerGeographyCache.load(key, now, saved?.json, saved?.revision,
                     fetch = { functions.api.get(path).toString() },
-                    save = { live -> store.putLocalCache(GEOGRAPHY, key, live, now, "") })
+                    save = { live -> store.putLocalCache(GEOGRAPHY, key, live, now, "") },
+                    forceRefresh = phoneForceRefresh)
             }
             val pack = cachedOrFetch("pack", "/api/v1/geography/pack?barangays=all") ?: return@withStore null
             val postalPack = com.sunpride.field.census.CustomerPostalPack.upgrade(pack,
@@ -1018,6 +1058,7 @@ class LiveFieldBackend(
 
     fun today(deviceId: String, signer: DeviceSigner, sync: Boolean, scheduleRemainder: Boolean): TodayData {
         // FLD-014/171: a session ended by another path (background sync, refresh) must not read as an empty phone.
+        if(sync && phoneControls()) throw sessionEndedFailure(false)
         val key = sessionKey() ?: throw sessionEnded()
         var subject = prefs.getString("$key.subject", null)
         var fingerprint = prefs.getString("$key.scope", null)
@@ -1048,7 +1089,7 @@ class LiveFieldBackend(
                 }
                 prefs.edit().putBoolean("$key.partner",false).apply()
                 val authenticated = "v2:${environmentOrigin}|${verifiedMe.getJSONObject("profile").getString("subject")}"
-                val existing = storedScope()?.takeIf { it.account == authenticated && it.deviceId == deviceId }
+                val existing = storedScope()?.takeIf { !phoneForceRefresh && it.account == authenticated && it.deviceId == deviceId }
                 runBlocking {
                     com.sunpride.field.sync.FieldSyncSession(authenticated, deviceId,
                         stores = { scope -> EncryptedFieldDatabase.store(context, scope) },
@@ -1480,6 +1521,7 @@ class LiveFieldBackend(
     override fun endedSessionReason(): String? =
         if (sessionEnd.contains("removed") && !auth.isSignedIn) sessionEnded().text else null
     override fun refreshEnrollment(signer: DeviceSigner): EnrollmentState {
+        if(phoneControls()) throw sessionEndedFailure(false)
         val state = try {
             Enrollment(ServerDeviceApi(functions), signer, vault).refresh()
         } catch (e: AuthFailure) {
@@ -2237,7 +2279,7 @@ class FieldController(
             val modes = withContext(io) { runCatching { backend.appModes() }.getOrDefault(AppModes.fallback(sells)) }
             val choice = withContext(io) { runCatching { backend.appModeChoice() }.getOrNull() }
             if (generation == sessionGeneration && state == ready) {
-                today = value; appModes = modes
+                today = value; officeUpdate = backend.officeUpdateRequested(); appModes = modes
                 modeChoice = (if (choiceVersion == modeChoiceVersion) choice else modeChoice)?.takeIf { it in modes.modes }
                 sellsNow = sells && !value.partnerMode
                 // SP-0195: Sell work runs only in Truck selling (SP-0192: and only with the office's Selling switch).
@@ -2319,7 +2361,32 @@ class FieldController(
         retireSuggestedOrder()
         countUnsent()
     }
-    fun checkAgain(quiet: Boolean = false) = scope.launch(ui) { refresh(quiet) }
+    var officeUpdate by mutableStateOf(false); private set
+    fun dismissOfficeUpdate() { officeUpdate = false }
+    /** The service already applied/acknowledged the effect; do not issue a second network poll. */
+    fun phoneSupportFinished() = scope.launch(ui) {
+        if (state == EnrollmentState.SignedOut) return@launch
+        val generation = sessionGeneration
+        val signedIn = withContext(io) { backend.isSignedIn }
+        if (generation != sessionGeneration) return@launch
+        if (!signedIn) { sessionEnded(sessionEndedFailure(false)); return@launch }
+        officeUpdate = backend.officeUpdateRequested()
+        if (!busy && state is EnrollmentState.Ready) runCatching { loadToday(false) }
+    }
+    fun phonePulse() = scope.launch(ui) {
+        if(busy) return@launch
+        busy = true
+        try {
+            val ended = withContext(io) { backend.phoneControls() }
+            if(state == EnrollmentState.SignedOut) return@launch
+            officeUpdate = backend.officeUpdateRequested()
+            if(ended || !backend.isSignedIn) sessionEnded(sessionEndedFailure(false))
+            else if(state is EnrollmentState.Ready) loadToday(false)
+        } catch(e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { /* A request stays waiting until a successful check. */ }
+        finally { busy = false }
+    }
+    fun checkAgain(quiet: Boolean = false) = scope.launch(ui) { refresh(quiet); officeUpdate = backend.officeUpdateRequested() }
     fun queueDomain(kind:String,payload:JSONObject,aggregate:String,dependencies:List<String> = emptyList())=scope.launch(ui){
         if(busy||state !is EnrollmentState.Ready)return@launch
         busy=true;error=null

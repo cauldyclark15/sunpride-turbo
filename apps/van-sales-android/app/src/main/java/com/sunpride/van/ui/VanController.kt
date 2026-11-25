@@ -222,6 +222,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         launch { repository.sessionState.collect { session = it; refreshSharing() } }
         launch { repository.enrollmentState.collect { enrollment = it; refreshSharing() } }
         launch { repository.passwordChangeRequired.collect { mustChangePassword = it } }
+        launch { repository.officeUpdateRequested.collect { officeUpdate = it } }
         launch { repository.currentTrip.collect { trip = it; refreshSharing() } }
         launch { repository.load.collect { load = it } }
         launch { repository.products.collect { products = it } }
@@ -394,6 +395,9 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
     fun replacementCode(): org.json.JSONObject = repository.replacementCode()
     fun sapMasters(refresh: Boolean): org.json.JSONObject? = repository.sapMasters(refresh)
     fun sapMasterLifetime(): String? = repository.sapMasterLifetime()
+    var officeUpdate by mutableStateOf(false); private set
+    fun dismissOfficeUpdate() { officeUpdate=false }
+    fun phonePulse() = command { repository.phoneControls(); officeUpdate=repository.officeUpdateRequested.value }
     fun appUpdates(): com.sunpride.integrity.AppUpdateClient = repository.appUpdates()
     fun signCompanyMessage(message: String): String = repository.signCompanyMessage(message)
     fun companySignIn(tokens: org.json.JSONObject) = command {
@@ -408,7 +412,7 @@ class VanController(val repository: VanRepository, val environment: AppEnvironme
         message = "Password changed. Your other sign-ins have ended."
     }
     fun signOut() = command { stopSharing(); repository.signOut(); page = Page.HOME; storeNav = StoreNav(); sale = null; pickingForSale = false; lastReceipt = null; savedSales = emptyList(); printMessage = null; returnDraft = null; lastReturn = null; cashSummary = null; cashDraft = CashDraft(CashReconciliationRules.newReconciliationId()); stockSummary = null; stockDraft = StockDraft(StockReconciliationRules.newCountId()); closeSummary = null; closeDraft = CloseDraft(TripCloseRules.newCloseId()) }
-    fun checkAgain() = command(failure = { AuthMessages.forFailure(it,AuthMessages.CHECK_FALLBACK) }) { repository.refreshEnrollment(); if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow() }
+    fun checkAgain() = command(failure = { AuthMessages.forFailure(it,AuthMessages.CHECK_FALLBACK) }) { repository.refreshEnrollment(); officeUpdate=repository.officeUpdateRequested.value; if (repository.enrollmentState.value is EnrollmentState.Ready) repository.syncNow() }
     private var quietSyncing = false
     private var quietSyncAt: Long? = null
     /** IP-INT3FIX: a quiet download of the office's stock and prices for the open store sale grid (see StoreStockRefresh). No busy flag, no message. */

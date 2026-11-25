@@ -18,6 +18,11 @@ import kotlin.coroutines.EmptyCoroutineContext
 
 class FieldControllerTest {
     private class FakeBackend : FieldBackend {
+        var phoneChecks = 0
+        var phoneAction: () -> Boolean = { false }
+        var updateRequested = false
+        override fun phoneControls(): Boolean { phoneChecks++; return phoneAction() }
+        override fun officeUpdateRequested() = updateRequested
         var signedIn = false
         var signInError: AuthFailure? = null
         val results = ArrayDeque<() -> EnrollmentState>()
@@ -42,7 +47,8 @@ class FieldControllerTest {
             todayResult?.let { return it }
             return if (sync) TodayData(lastSynced = 150, stale = false) else TodayData()
         }
-        override val isSignedIn get() = signedIn
+        var signedInRead: (() -> Boolean)? = null
+        override val isSignedIn get() = signedInRead?.invoke() ?: signedIn
         override fun loadSigner(): DeviceSigner = JcaDeviceSigner(CryptoVectors.privateKey, CryptoVectors.publicKey, KeyProtection.STRONGBOX)
         override fun signIn(email: String, password: String) { signInError?.let { throw it }; signedIn = true }
         override fun signOut() { signOuts++; signedIn = false }
@@ -89,6 +95,69 @@ class FieldControllerTest {
         assertTrue("a pre-load read must be invalidated by the load", reads.any { it in writes })
     }
 
+    @Test fun backgroundPhoneEffectUpdatesTheScreenWithoutASecondNetworkCheck() = run { c, b, _ ->
+        b.results += { EnrollmentState.Ready("dev1") }
+        c.signIn("a@example.test", "fake").join()
+        val checks = b.phoneChecks
+        b.updateRequested = true
+        c.phoneSupportFinished().join()
+        assertTrue(c.officeUpdate)
+        assertEquals(checks, b.phoneChecks)
+        b.unsent = 3
+        b.signedIn = false // the service has already ended the stored session
+        c.phoneSupportFinished().join()
+        assertEquals(EnrollmentState.SignedOut, c.state)
+        assertEquals(3, b.unsent)
+        assertEquals(checks, b.phoneChecks)
+    }
+
+    @Test fun aDelayedBackgroundSessionReadCannotEndANewerPasswordSignIn() = runBlocking {
+        val executor = java.util.concurrent.Executors.newSingleThreadExecutor()
+        val io = executor.asCoroutineDispatcher()
+        val entered = java.util.concurrent.CountDownLatch(1)
+        val release = java.util.concurrent.CountDownLatch(1)
+        try {
+            val b = FakeBackend()
+            val c = FieldController(b, this, io, EmptyCoroutineContext)
+            b.results += { EnrollmentState.Ready("dev1") }
+            c.signIn("a@example.test", "fake").join()
+            b.signedInRead = { entered.countDown(); check(release.await(5, java.util.concurrent.TimeUnit.SECONDS)); false }
+            val read = c.phoneSupportFinished()
+            kotlinx.coroutines.withContext(Dispatchers.IO) { check(entered.await(5, java.util.concurrent.TimeUnit.SECONDS)) }
+            b.signedInRead = null
+            b.results += { EnrollmentState.Ready("dev1") }
+            val newSignIn = c.signIn("a@example.test", "fresh")
+            kotlinx.coroutines.yield() // the new sign-in retires the old UI generation before its IO is released
+            release.countDown()
+            read.join(); newSignIn.join()
+            assertEquals(EnrollmentState.Ready("dev1"), c.state)
+            assertTrue(b.signedIn)
+        } finally { release.countDown(); io.close(); executor.shutdownNow() }
+    }
+
+    @Test fun officeSignOutReturnsToSignInWithoutDeletingTheQueuedWorkCount() = run { c, b, _ ->
+        b.results += { EnrollmentState.Ready("dev1") }
+        c.signIn("a@example.test", "fake").join()
+        b.unsent=3
+        b.phoneAction={ b.signedIn=false; true }
+        c.phonePulse().join()
+        assertEquals(EnrollmentState.SignedOut,c.state)
+        assertEquals(3,b.unsent)
+        assertFalse(c.busy)
+        val checks=b.phoneChecks
+        b.phoneAction={false}
+        c.phonePulse().join() // receipt acknowledgements must still be retried on the Sign in screen
+        assertEquals(checks+1,b.phoneChecks)
+    }
+    @Test fun officeUpdateRequestIsReflectedAfterThePhoneCheck() = run { c, b, _ ->
+        b.results += { EnrollmentState.Ready("dev1") }
+        c.signIn("a@example.test", "fake").join()
+        b.updateRequested=true
+        c.phonePulse().join()
+        assertTrue(c.officeUpdate)
+        assertTrue(b.signedIn)
+        assertFalse(c.busy)
+    }
     private fun synced() = TodayData(lastSynced = 150, stale = false,
         syncStatus = com.sunpride.field.ui.syncstatus.SyncStatus(lastSuccess = 150, health = "synced"))
 

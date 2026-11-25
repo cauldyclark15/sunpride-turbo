@@ -3,6 +3,7 @@ import { enforcePartnerHttp } from "../domains/partners/boundary.js";
 import { installAuth } from "./auth.js";
 import { buildCtx, passwordChangeBlocks } from "./context.js";
 import { installDevices } from "./devices.js";
+import { installPhoneChecks } from "./phone-commands.js";
 import { ApiError } from "./errors.js";
 import { registerTopic } from "./hooks.js";
 import { createScheduler, enqueue, registerJob } from "./jobs.js";
@@ -40,6 +41,7 @@ export function createApp(opts) {
   const router = new Router();
   installAuth(router);
   installDevices(router);
+  installPhoneChecks(router);
   installSync(router);
   installMedia(router);
   installOpRefusals(router);

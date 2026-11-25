@@ -66,6 +66,7 @@ import { enqueue } from "../../core/jobs.js";
 import { installOrgJobs } from "./jobs.js";
 import { sendInvitation } from "./invitation-email.js";
 import { signIns } from "./sign-ins.js";
+import { phoneControls, phoneControlCommand } from "./phone-controls.js";
 
 /** @typedef {import('./model.js').Ctx} Ctx */
 /** @typedef {import('./model.js').Row} Row */
@@ -546,6 +547,8 @@ export function install(router, platform) {
     );
   command("catalog/foundation", "admin.manage", foundation);
   command("catalog/set-standard", "admin.manage", setStandard);
+  read("people/phone-controls", phoneControls);
+  command("people/phone-controls", "phones.manage", phoneControlCommand);
   command("people/devices/register", "phones.manage", registerDevice);
   command("people/devices/reassign", "admin.manage", reassignPhone);
   command("people/devices/lost", "admin.manage", losePhone);

@@ -24,7 +24,8 @@ object CensusConfigCache {
         else -> false
     }
     fun load(now:Long,epoch:()->Long,generation:()->String?,read:()->String?,block:()->Unit,
-             write:(String)->Unit,fetch:()->String,isOffline:(Throwable)->Boolean):String? = synchronized(lock) {
+             write:(String)->Unit,fetch:()->String,isOffline:(Throwable)->Boolean,
+             requireOnline:Boolean=false):String? = synchronized(lock) {
         val started=epoch();val grant=generation()?:return@synchronized null
         fun current()=epoch()==started&&generation()==grant
         val saved=read()?.let { raw->runCatching { JSONObject(raw) }.getOrNull() }
@@ -41,10 +42,16 @@ object CensusConfigCache {
         }catch(error:Throwable){
             if(!isOffline(error))throw error
             check(current()){ "Census authorization changed" }
-            val cached=saved?.optJSONObject("config")?:return@synchronized null
+            val cached=saved?.optJSONObject("config")
+            if (cached == null) {
+                if (requireOnline) throw error
+                return@synchronized null
+            }
             // Restore the original grant/time, never renew it using an offline clock.
             write(saved.toString())
             check(current()){ "Census authorization changed" }
+            // Keep the last authorized lists for offline use, but do not complete an office refresh from them.
+            if (requireOnline) throw error
             cached.toString()
         }
     }

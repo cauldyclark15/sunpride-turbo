@@ -29,7 +29,8 @@ fun defaultHttpClient(): OkHttpClient = sharedHttpClient
 class AuthClient(private val environment: AppEnvironment, private val vault: SessionVault,
     private val http: OkHttpClient = defaultHttpClient(), private val clock: () -> Long = System::currentTimeMillis,
     private val signer: (() -> DeviceSigner)? = null,
-    private val phoneHeaders: () -> Map<String, String> = { com.sunpride.integrity.PhoneHardware.headers() }) {
+    private val phoneHeaders: () -> Map<String, String> = { com.sunpride.integrity.PhoneHardware.headers() },
+    private val phoneReceipt: SessionVault = InMemorySessionVault()) {
     private var access: String? = null
     private var refreshAt = 0L
     /** FLD-014/171: told why the server ended the session (true = the office removed/paused this phone). */
@@ -118,6 +119,16 @@ class AuthClient(private val environment: AppEnvironment, private val vault: Ses
             } catch (_: IOException) { throw AuthFailure(AuthFailure.Kind.OFFLINE) }
         }
         throw AuthFailure(AuthFailure.Kind.SESSION_EXPIRED)
+    }
+    val hasPhoneReceipts: Boolean get() = phoneReceipt.readSession() != null
+    /** Office commands use the stored session directly, including the one the office just ended. */
+    fun phoneCommands(unsent: () -> Int, apply: (String) -> Unit): Boolean {
+        val key = deviceKeyId() ?: return false
+        return com.sunpride.integrity.PhoneCommands.runSession(
+            { session, acks -> com.sunpride.integrity.PhoneCommands.check(http,environment.apiOrigin,session,NativeApi.APP,key,
+                com.sunpride.field.BuildConfig.VERSION_NAME,unsent(),acks,phoneHeaders()) },
+            vault::readSession, phoneReceipt::readSession,
+            { value -> if(value == null) phoneReceipt.wipe() else phoneReceipt.saveSession(value) }, apply)
     }
     @Synchronized fun invalidateAccessToken() { access = null; refreshAt = 0 }
     fun signOut(): Boolean {

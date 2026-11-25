@@ -23,6 +23,8 @@ import { StorePosAdmin } from "./storepos/storepos-admin";
 import { WaitingPhones } from "./integrity/fleet";
 import { PhoneCode } from "./phone-code";
 import { PhoneCustodyActions } from "./phone-custody-actions";
+import { PhoneControls } from "./phone-controls";
+import { useSetupParam } from "./master-data/location";
 
 export type DeviceAction = "suspend" | "revoke" | "reinstate";
 type DeviceStatus = "active" | "suspended" | "revoked";
@@ -164,6 +166,7 @@ const operationLabel: Record<string, string> = {
 };
 
 export function DevicesAdmin() {
+  const phonePerson = useSetupParam("phonePerson");
   const [personSearch, setPersonSearch] = useState("");
   const [search, setSearch] = useState<string | undefined>(undefined);
   const permissions = useQuery(api.lib.capabilities.currentPermissions, {});
@@ -305,6 +308,7 @@ export function DevicesAdmin() {
   const device = report?.device;
   return (
     <div className="grid gap-4">
+      {phonePerson ? <PhoneControls key={phonePerson} profileId={phonePerson} /> : null}
       <WaitingPhones />
       <div className="grid min-w-0 grid-cols-1 gap-4">
         <Card
@@ -388,6 +392,7 @@ export function DevicesAdmin() {
                 aria-label="Phone detail"
                 className="grid min-w-0 grid-cols-1 gap-4"
               >
+                {device.profileId && !phonePerson ? <PhoneControls key={device.profileId} profileId={device.profileId} /> : null}
                 <PhoneCode value={device.inventoryTag} />
                 <p className="text-[13px] text-muted">
                   {device.employeeName ?? "Unassigned"}

@@ -18,8 +18,9 @@ class CensusConfigCacheTest {
         var epoch=0L
         var now=100L
         var writable=true
+        var requireOnline=false
         fun load(fetch:()->String):String?=CensusConfigCache.load(now,{epoch},{grant},{row},
-            {check(writable);row=null},{check(writable);row=it},fetch,{it is Offline})
+            {check(writable);row=null},{check(writable);row=it},fetch,{it is Offline},requireOnline)
         fun seed(){load { "{\"batches\":[]}" }}
     }
     @Test fun f011offlineRestoresTheOriginalAuthorizedTimeAndSurvivesReopen(){
@@ -28,6 +29,18 @@ class CensusConfigCacheTest {
         assertEquals(100L,JSONObject(c.row!!).getLong("savedAt"))
         val reopened=Cache().also {it.row=c.row;it.now=300}
         assertNotNull(reopened.load {throw Offline()})
+    }
+    @Test fun officeRefreshCannotCompleteFromSavedSetupButPreservesItOffline(){
+        val c=Cache();c.seed();val saved=c.row;c.requireOnline=true;c.now=200
+        assertThrows(Offline::class.java){c.load {throw Offline()}}
+        assertEquals(saved,c.row)
+        c.requireOnline=false
+        assertNotNull(c.load {throw Offline()})
+        c.requireOnline=true
+        assertEquals("{\"batches\":[\"updated\"]}",c.load {"{\"batches\":[\"updated\"]}"})
+        assertEquals(200L,JSONObject(c.row!!).getLong("savedAt"))
+        val empty=Cache().also {it.requireOnline=true}
+        assertThrows(Offline::class.java){empty.load {throw Offline()}}
     }
     @Test fun f011preflightFailureReturnsNoDataAndNeverCallsTheServer(){
         val c=Cache();c.seed();c.writable=false;var called=false

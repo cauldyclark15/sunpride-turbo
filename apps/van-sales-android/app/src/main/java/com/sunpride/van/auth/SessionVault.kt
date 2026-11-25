@@ -53,7 +53,9 @@ class KeystoreSessionVault(
         cipher.init(Cipher.ENCRYPT_MODE, key()) // Keystore generates the random 12-byte IV
         cipher.updateAAD(AAD)
         val sealed = cipher.iv + cipher.doFinal(token.toByteArray(Charsets.UTF_8))
-        prefs.edit(commit = true) { putString(SESSION, Base64.getEncoder().encodeToString(sealed)) }
+        check(prefs.edit().putString(SESSION, Base64.getEncoder().encodeToString(sealed)).commit()) {
+            "Could not save encrypted phone state"
+        }
     }
 
     @Synchronized override fun readSession(): String? {
@@ -79,7 +81,9 @@ class KeystoreSessionVault(
         set(value) { prefs.edit(commit = true) { if (value == null) remove(DEVICE_ID) else putString(DEVICE_ID, value) } }
 
     @Synchronized override fun wipe() {
-        prefs.edit(commit = true) { remove(SESSION); remove(DEVICE_ID) }
+        check(prefs.edit().remove(SESSION).remove(DEVICE_ID).commit()) {
+            "Could not clear encrypted phone state"
+        }
     }
 
     companion object {

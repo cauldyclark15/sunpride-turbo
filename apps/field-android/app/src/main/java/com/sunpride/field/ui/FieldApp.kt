@@ -177,6 +177,17 @@ fun FieldApp(
         if (wasSignedIn && !signedIn) biometrics?.signedOut()
         wasSignedIn = signedIn
     }
+    if(controller.officeUpdate && controller.state != EnrollmentState.SignedOut) {
+        androidx.compose.material3.AlertDialog(onDismissRequest=controller::dismissOfficeUpdate,
+            title={ androidx.compose.material3.Text("Please update the app") },
+            text={ androidx.compose.material3.Text("The office asked you to get the latest version. Your saved work stays on this phone.") },
+            confirmButton={ androidx.compose.material3.TextButton(onClick={
+                val (market,web)=PlayStoreUpdate.uris(context.packageName)
+                try { context.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,market.toUri()).setPackage(PlayStoreUpdate.PLAY_PACKAGE)) }
+                catch (_: android.content.ActivityNotFoundException) { openLink(context,web) }
+            }) { androidx.compose.material3.Text("Download update") } },
+            dismissButton={ androidx.compose.material3.TextButton(onClick=controller::dismissOfficeUpdate) { androidx.compose.material3.Text("Later") } })
+    }
     val signOut = { controller.signOut(); biometrics?.signedOut(); page = "home"; Unit }
     // Whatever ends the session (sign-out, expiry, removal), the next person starts on a clean sign-in screen.
     // SP-0196: the open Add customer form lives above its screen for the whole session (see CustomerDraftHolder).
@@ -191,6 +202,15 @@ fun FieldApp(
         while (controller.state == EnrollmentState.Unregistered && !controller.mustChangePassword) {
             delay(com.sunpride.field.auth.Enrollment.POLL_INTERVAL_MS)
             controller.checkAgain(quiet = true)
+        }
+    }
+    // This only starts support after visible sign-in/biometric unlock. The Service owns its lifetime.
+    LaunchedEffect(controller.state, locked) {
+        if (backend is LiveFieldBackend && !locked) com.sunpride.field.FieldPhoneSupport.start(context)
+    }
+    LaunchedEffect(controller) {
+        com.sunpride.integrity.PhoneSupportEvents.runs.collect { runs ->
+            if (runs > 0) controller.phoneSupportFinished()
         }
     }
     var now by remember { mutableStateOf(System.currentTimeMillis()) }

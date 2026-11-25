@@ -23,7 +23,8 @@ class AuthClient(
     private val http: OkHttpClient = defaultHttpClient(),
     private val clock: () -> Long = System::currentTimeMillis,
     private val deviceKey: () -> JSONObject? = { null },
-    private val phoneHeaders: () -> Map<String, String> = { com.sunpride.integrity.PhoneHardware.headers() }
+    private val phoneHeaders: () -> Map<String, String> = { com.sunpride.integrity.PhoneHardware.headers() },
+    private val phoneReceipt: SessionVault = InMemorySessionVault()
 ) {
     private var access: String? = null
     private var refreshAt = 0L
@@ -149,6 +150,16 @@ class AuthClient(
     /** SP-0187: the forced change; [current] defaults to the temporary password kept in memory since sign-in. */
     @Synchronized fun setNewPassword(current: String?, next: String, confirm: String) =
         changePassword(current?.takeIf { it.isNotEmpty() } ?: temporary.orEmpty(),next,confirm)
+    val hasPhoneReceipts: Boolean get() = phoneReceipt.readSession() != null
+    /** Kept separate from access-token refresh so a removed phone can confirm its sign-out. */
+    fun phoneCommands(unsent: () -> Int, apply: (String) -> Unit): Boolean {
+        val key = deviceKey()?.optString("keyId") ?: return false
+        return com.sunpride.integrity.PhoneCommands.runSession(
+            { session, acks -> com.sunpride.integrity.PhoneCommands.check(http,environment.siteUrl,session,RestDeviceApi.APP,key,
+                com.sunpride.van.BuildConfig.VERSION_NAME,unsent(),acks,phoneHeaders()) },
+            vault::readSession, phoneReceipt::readSession,
+            { value -> if(value == null) phoneReceipt.wipe() else phoneReceipt.saveSession(value) }, apply)
+    }
     @Synchronized fun invalidateAccessToken() { access = null; refreshAt = 0 }
     fun signOut(): Boolean {
         val session = vault.readSession()

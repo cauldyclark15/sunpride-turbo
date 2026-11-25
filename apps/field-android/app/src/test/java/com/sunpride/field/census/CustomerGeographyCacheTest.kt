@@ -48,6 +48,24 @@ class CustomerGeographyCacheTest {
             fetch = { "updated" }, save = { throw IllegalStateException("disk full") }))
     }
 
+    @Test fun officeRefreshBypassesFreshBarangaysAndRequiresDurableNewLists() = runBlocking {
+        var saved = "cached"
+        assertEquals("updated", CustomerGeographyCache.load("brgy:0702200000", 1000, saved, 999,
+            fetch = { "updated" }, save = { saved = it }, forceRefresh = true))
+        assertEquals("updated", saved)
+        try {
+            CustomerGeographyCache.load("pack", 1000, saved, 999,
+                fetch = { throw java.io.IOException("offline") }, save = {}, forceRefresh = true)
+            fail("A failed office download must stay waiting")
+        } catch (_: java.io.IOException) { /* expected */ }
+        try {
+            CustomerGeographyCache.load("pack", 1000, saved, 999,
+                fetch = { "newer" }, save = { throw java.io.IOException("disk full") }, forceRefresh = true)
+            fail("An unsaved office download must stay waiting")
+        } catch (_: java.io.IOException) { /* expected */ }
+        assertEquals("updated", saved)
+    }
+
     @Test fun cancellationDoesNotContinueWithAnOldPack() = runBlocking {
         try {
             CustomerGeographyCache.load("pack", 1000, "old", 999,
