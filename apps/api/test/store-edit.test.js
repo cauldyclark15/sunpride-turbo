@@ -478,12 +478,12 @@ test("store edit: a structured address (SP-0220) is checked, built by the server
   const missing = await rep.push(
     change(id, { address: undefined, addressParts: { street1: "  " } }),
   );
-  expect(missing.status).toBe("rejected");
-  expect(missing.code).toBe("invalid_request");
+  // SP-0241: missing address information no longer blocks saving an edit.
+  expect(missing.status).toBe("applied");
   const { readAddressParts } = await import("../src/domains/masters/census.js");
-  await expect(readAddressParts(h.db, { street1: "" })).rejects.toThrow(
-    "Enter the customer's location.",
-  );
+  expect(
+    (await readAddressParts(h.db, { street1: "" }))?.fields.street1,
+  ).toBeNull();
   await h.db`insert into ph_regions(code,name) values('0700000000','Region VII (Central Visayas)') on conflict do nothing`;
   await h.db`insert into ph_provinces(code,region_code,name,kind) values('0702200000','0700000000','Cebu','province') on conflict do nothing`;
   await h.db`insert into ph_municipalities(code,province_code,region_code,name,kind) values('0702230000','0702200000','0700000000','Mandaue City','city') on conflict do nothing`;
@@ -537,4 +537,104 @@ test("store edit: a structured address (SP-0220) is checked, built by the server
     municipality_name: b.mname,
     address_custom: false,
   });
+});
+
+test("SP-0241: customer edits and later photos save without optional phone/address/GPS, and refresh Draft status", async () => {
+  const rep = await fieldPerson();
+  const id = storeIds[4];
+  // A previously complete badge must not survive clearing required sheet details.
+  await h.db`update customer_profiles set completeness='complete' where outlet_id=${id}`;
+  const p = change(id, {
+    name: "Deferred Details Store",
+    ownerName: "Ana Cruz",
+    ownerPhone: "",
+    address: "",
+    addressParts: { street1: null },
+    location: null,
+  });
+  const op = crypto.randomUUID();
+  expect((await rep.push(p, op)).status).toBe("applied");
+  expect((await rep.push(p, op)).status).toBe("duplicate");
+  expect(
+    (
+      await as("admin", "/api/v1/masters/census/review", {
+        captureId: p.captureId,
+        decision: "accept",
+      })
+    ).status,
+  ).toBe(200);
+  const [saved] =
+    await h.db`select o.address,cp.mobile_no,cp.street1,cp.completeness,cp.field_missing from outlets o join customer_profiles cp on cp.outlet_id=o.id where o.id=${id}`;
+  expect(saved).toMatchObject({
+    address: null,
+    mobile_no: null,
+    street1: null,
+    completeness: "draft",
+  });
+  expect(
+    saved.field_missing.some((/** @type {any} */ f) => f.field === "street1"),
+  ).toBe(true);
+  const [ship] =
+    await h.db`select mobile_no from customer_ship_tos where outlet_id=${id} and deleted_at is null order by ordinal limit 1`;
+  expect(ship.mobile_no).toBeNull();
+
+  const before = await outletCount();
+  const later = change(id, {
+    name: p.name,
+    ownerName: p.ownerName,
+    ownerPhone: "0917",
+    address: "",
+    addressParts: { street1: null },
+    photoJpegBase64: photo,
+    location: {
+      latitude: 10.3,
+      longitude: 123.9,
+      accuracyMeters: 900,
+      fixTime: Date.now(),
+      mockSignal: false,
+      provider: "gps",
+    },
+  });
+  expect((await rep.push(later)).status).toBe("applied");
+  const [cap] =
+    await h.db`select latitude,photo_file_id,owner_phone from census_captures where id=${later.captureId}`;
+  expect(cap.latitude).toBeNull();
+  expect(cap.photo_file_id).toBeTruthy();
+  expect(cap.owner_phone).toBe("0917");
+  expect(
+    (
+      await as("admin", "/api/v1/masters/census/review", {
+        captureId: later.captureId,
+        decision: "accept",
+      })
+    ).status,
+  ).toBe(200);
+  expect(await outletCount()).toBe(before);
+  const [attached] =
+    await h.db`select file_id from outlet_photos where outlet_id=${id} and ordinal=0 and deleted_at is null`;
+  expect(attached.file_id).toBe(cap.photo_file_id);
+  expect(
+    (
+      await h.db`select mobile_no,completeness from customer_profiles where outlet_id=${id}`
+    )[0],
+  ).toEqual({ mobile_no: "0917", completeness: "draft" });
+
+  for (const bad of [
+    { name: " " },
+    { ownerName: "\t" },
+    { ownerPhone: "x".repeat(41) },
+    { photoJpegBase64: "not-a-photo" },
+    {
+      location: {
+        latitude: 10.3,
+        longitude: 123.9,
+        accuracyMeters: 5,
+        fixTime: Date.now(),
+        mockSignal: true,
+        provider: "gps",
+      },
+    },
+  ]) {
+    expect((await rep.push(change(id, bad))).status).toBe("rejected");
+  }
 });

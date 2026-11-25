@@ -50,9 +50,14 @@ object CensusRules {
     /** A change carries the whole edited store; location and photo are optional (left out = unchanged). */
     fun validateChange(p: JSONObject) {
         require(uuid.matches(p.getString("captureId")) && uuid.matches(p.getString("targetOutletId"))) { "Open the customer again, then edit it." }
-        for ((key, max) in listOf("name" to 200, "address" to 500, "ownerName" to 150, "ownerPhone" to 40))
-            require(p.getString(key).trim().length in 1..max) { "Complete the customer and owner details." }
-        require(p.getString("ownerPhone").count { it.isDigit() } >= 7) { "Enter a complete owner phone number." }
+        for ((key, max) in listOf("name" to 200, "ownerName" to 150))
+            require((p.opt(key) as? String)?.trim()?.length in 1..max) { "Enter the store and person's name." }
+        for ((key, max) in listOf("address" to 500, "ownerPhone" to 40))
+            require(p.isNull(key) || (p.opt(key) as? String)?.length in 0..max) { "Check the customer details." }
+        p.optJSONObject("addressParts")?.let { parts -> parts.keys().forEach { key ->
+            require(key in ADDRESS_PART_KEYS && (parts.isNull(key) ||
+                (parts.opt(key) as? String)?.length in 0..if (key in setOf("street1", "street2")) 200 else 60)) { "Check the address parts." }
+        } }
         require(p.optString("landmark").length <= 200) { "Keep the landmark under 200 characters." }
         require(!p.has("channelId") && !p.has("batchId")) { "A customer change cannot move the customer to another batch or channel." }
         val at = p.getLong("deviceTime")
@@ -61,9 +66,8 @@ object CensusRules {
             require(l.getDouble("longitude").isFinite() && l.getDouble("longitude") in -180.0..180.0)
             when (p.optString("locationSource", "gps")) {
                 "places" -> require(p.optString("placeId").isNotBlank()) { "Pick the address again from the search list." }
-                "gps" -> require(l.getDouble("accuracyMeters") > 0 && l.getDouble("accuracyMeters") < 50 && !l.getBoolean("mockSignal") &&
-                    l.getString("provider") in listOf("gps", "fused", "network") && kotlin.math.abs(at - l.getLong("fixTime")) <= 120_000) {
-                    "Get a fresh GPS fix with accuracy under 50 m. Mock locations cannot be used."
+                "gps" -> require(CustomerLocation.usable(l, at)) {
+                    "Use a genuine phone location, or save without a location."
                 }
                 else -> throw IllegalArgumentException("Choose Use my location or Search address.")
             }
@@ -82,14 +86,10 @@ object CensusRules {
             photo[0] == 0xff.toByte() && photo[1] == 0xd8.toByte() &&
             photo[photo.size - 2] == 0xff.toByte() && photo.last() == 0xd9.toByte()) { "Choose a valid storefront photo up to 160 KiB." }
     }
-    /** Required fields of Edit store: name, owner, phone and address. Location and photo stay as they are unless set. */
-    fun missingForChange(name: String, owner: String, phone: String, mode: String, hasFix: Boolean, hasPlace: Boolean,
-        address: String): List<Field> = buildList {
+    /** Only identity is essential for a customer edit; unavailable GPS/search is deferred. */
+    fun missingForChange(name: String, owner: String): List<Field> = buildList {
         if (name.isBlank()) add(Field.NAME)
         if (owner.isBlank()) add(Field.OWNER)
-        if (phone.count { it.isDigit() } < 7) add(Field.PHONE)
-        if ((mode == "gps" && !hasFix) || (mode == "places" && !hasPlace)) add(Field.LOCATION)
-        if (address.isBlank()) add(Field.ADDRESS)
     }
     /** SP-0220 structured address keys Edit customer sends (same keys and labels as Add customer). */
     val ADDRESS_PART_KEYS = listOf("regionCode", "provinceCode", "municipalityCode", "barangayCode", "houseNo", "street1",
@@ -141,7 +141,7 @@ object CensusRules {
                     ?: JSONObject().put("latitude", place.latitude).put("longitude", place.longitude))
             place.formattedAddress?.let { p.put("formattedAddress", it.take(500)) }
             place.components?.takeIf { it.length() > 0 }?.let { p.put("addressComponents", it) }
-        } else if (gpsFix != null) p.put("locationSource", "gps").put("location", gpsFix)
+        } else gpsFix?.takeIf { CustomerLocation.usable(it, deviceTime) }?.let { p.put("locationSource", "gps").put("location", it) }
         landmark.trim().takeIf { it.isNotEmpty() }?.let { p.put("landmark", it.take(200)) }
         photo?.takeIf { it.isNotEmpty() }?.let { p.put("photoJpegBase64", it) }
         return p

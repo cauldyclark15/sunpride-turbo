@@ -151,9 +151,6 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     var attempted by remember { mutableStateOf(false) }
     var completeSubmission by remember { mutableStateOf(true) }
     var saveNote by remember { mutableStateOf<String?>(null) }
-    var staleRetry by remember { mutableStateOf(false) }
-    var refreshing by remember { mutableStateOf(false) }
-    var moved by remember { mutableStateOf<Moved?>(null) }
     val requesters = remember { CensusRules.Field.entries.associateWith { BringIntoViewRequester() } }
     var camera by remember { mutableStateOf(false) }; var capture by remember { mutableStateOf<ImageCapture?>(null) }
     val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -256,7 +253,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         (0 until a.length()).map { a.getJSONObject(it) }.filter { key != "subchannels" || it.getJSONObject("data").getString("channelId") == channel }
             .map { it.getString("id") to it.optString("label", it.optString("name")) }
     }.orEmpty()
-    fun missingNow() = if (edit) CensusRules.missingForChange(name, owner, phone, mode, fix != null, picked != null, CensusRules.addressLine(form, geography))
+    fun missingNow() = if (edit) CensusRules.missingForChange(name, owner)
         else CensusRules.missing(name, owner, phone, channel, subchannel, mode, fix != null, picked != null, address, jpeg != null)
     val marked = if (attempted && edit) missingNow().toSet() else emptySet()
     fun customerMissing() = if (completeSubmission) CustomerCapture.missing(form, setup, geography, fix != null, jpeg != null)
@@ -266,7 +263,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         (if (attempted) customerMissing().associate { it.key to it.message } else emptyMap()) + formErrors
     fun useMyLocation() {
         if (location.requiresPermission && ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
-            if (edit || ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
+            if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) != PackageManager.PERMISSION_GRANTED) {
                 locationPermission.launch(arrayOf(Manifest.permission.ACCESS_FINE_LOCATION, Manifest.permission.ACCESS_COARSE_LOCATION)); return
             }
         }
@@ -278,34 +275,11 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             if (edit) busy = true
             locationNote = StoreLocationTag.TIP
             try {
-                val got = if (edit) location.fixWithinAccuracy(50.0) else try { location.customerFix() }
+                val got = try { location.customerFix() }
                     catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
-                if (!edit) {
-                    fix = CustomerLocation.best(fix, got, System.currentTimeMillis())
-                    fix?.let { lastFix = it.getDouble("latitude") to it.getDouble("longitude") }
-                    locationNote = if (fix == null) CustomerLocation.UNCONFIRMED else "Best available location kept. You can save this customer."
-                    return@launch
-                }
-                val accuracy = got?.optDouble("accuracyMeters", Double.NaN) ?: Double.NaN
-                if (got == null || got.optBoolean("mockSignal") || !(accuracy > 0 && accuracy < 50)) {
-                    fix = null
-                    locationNote = if (got == null) "No location yet. Move outside or wait for a better signal, then try again."
-                        else if (got.optBoolean("mockSignal")) "This phone is using a fake location. Turn it off and try again."
-                        else "Location is only ±${accuracy.toInt()} m. Move outside or wait for a better signal, then try again."
-                    return@launch
-                }
-                fix = got; lastFix = got.getDouble("latitude") to got.getDouble("longitude")
-                locationNote = null
-                if (!edit) return@launch // Add customer: the address comes from the location pickers.
-                if (mode == "places") return@launch // the searched address stays the address
-                when (val r = places?.let { withContext(Dispatchers.IO) { it.reverse(got.getDouble("latitude"), got.getDouble("longitude")) } }) {
-                    is CensusPlaces.Result.Ok -> {
-                        reverse = r.value
-                        if (address.isBlank() || address == autoAddress) { address = r.value.formattedAddress; autoAddress = address }
-                    }
-                    CensusPlaces.Result.Offline -> { reverse = null; locationNote = "Saved with your location; the address can be fixed later. Type the address." }
-                    else -> { reverse = null; locationNote = "Type the address. Your location is saved." }
-                }
+                fix = CustomerLocation.best(fix, got, System.currentTimeMillis())
+                fix?.let { lastFix = it.getDouble("latitude") to it.getDouble("longitude") }
+                locationNote = if (fix == null) CustomerLocation.UNCONFIRMED else "Best available location kept. You can save this customer."
             } finally { if (edit) busy = false }
         }
     }
@@ -330,7 +304,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         locationJob?.cancel(); locationJob = null
         name = ""; address = ""; owner = ""; phone = ""; fix = null; jpeg = null; landmark = ""; mode = ""; picked = null
         reverse = null; autoAddress = null; query = ""; predictions = emptyList(); locationNote = null; searchNote = null
-        duplicates = emptyList(); pending = null; attempted = false; saveNote = null; staleRetry = false; moved = null
+        duplicates = emptyList(); pending = null; attempted = false; saveNote = null
         form = if (keepLocation) CustomerCapture.start(setup).copy(regionCode = form.regionCode, provinceCode = form.provinceCode,
             municipalityCode = form.municipalityCode) else CustomerCapture.start(setup)
         formErrors = emptyMap()
@@ -439,7 +413,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             }
         if (edit) return CensusRules.changePayload(CensusRules.captureId(), editing!!.outletId, name,
             CensusRules.addressLine(form, geography).ifEmpty { form.street1 }, owner, phone,
-            System.currentTimeMillis(), if (mode == "gps" || (mode == "places" && place != null)) fix?.takeIf { CensusRules.fixUsable(it) } else null,
+            System.currentTimeMillis(), if (mode == "gps" || (mode == "places" && place != null)) fix?.takeIf { CustomerLocation.usable(it, System.currentTimeMillis()) } else null,
             place, landmark, jpeg?.let { Base64.getEncoder().encodeToString(it) }, CensusRules.addressPartsJson(form))
         return CensusRules.payload(CensusRules.captureId(), CensusRules.chosenBatch(showBatch, batch), name, address, owner, phone, channel, subchannel,
             estimatedClass, System.currentTimeMillis(), if (mode == "gps") fix else null, place, landmark,
@@ -449,7 +423,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     fun save() {
         backend ?: return
         if (busy || (!edit && !draftLoaded)) return // never overwrite drafts before they have loaded
-        saveNote = null; staleRetry = false
+        saveNote = null
         if (!edit) {
             if (completeSubmission && setup == null) { saveNote = "Connect once to download the customer lists, or use Save customer to finish later."; return }
             val miss = customerMissing()
@@ -478,30 +452,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         busy = true // synchronously, before the coroutine is dispatched
         scope.launch {
             try {
-                // Use my location goes stale after two minutes: get a fresh fix instead of refusing. Address search is not a GPS fix.
-                if (edit && mode == "gps" && CensusRules.fixIsStale(fix, System.currentTimeMillis())) {
-                    refreshing = true
-                    val got = try { location.fixWithinAccuracy(50.0) } catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
-                        finally { refreshing = false }
-                    if (got == null || !CensusRules.fixUsable(got)) { saveNote = STALE_FIX; staleRetry = true; return@launch }
-                    val old = fix
-                    fix = got; lastFix = got.getDouble("latitude") to got.getDouble("longitude")
-                    if (CensusRules.movedTooFar(old, got)) {
-                        val r = places?.takeIf { edit }?.let { api -> withTimeoutOrNull(5_000) { withContext(Dispatchers.IO) { api.reverse(got.getDouble("latitude"), got.getDouble("longitude")) } } }
-                        moved = Moved(DuplicateRules.distanceMeters(old?.optDouble("latitude"), old?.optDouble("longitude"),
-                            got.getDouble("latitude"), got.getDouble("longitude")) ?: 0.0, (r as? CensusPlaces.Result.Ok)?.value)
-                        saveNote = "Your location changed. Check the address, then save."
-                        return@launch
-                    }
-                }
-                if (edit && mode == "gps" && fix == null) throw IllegalArgumentException("Tap Use my location and wait for a good signal.")
-                // E2E-010: a searched pin on Edit is sent with the agent's own fix, fetched now if none is fresh, so the
-                // office sees how far the new pin is from where the agent stood.
-                if (edit && mode == "places" && picked != null && (fix == null || CensusRules.fixIsStale(fix, System.currentTimeMillis()))) {
-                    val got = try { withTimeoutOrNull(10_000) { location.fixWithinAccuracy(50.0) } }
-                        catch (e: kotlinx.coroutines.CancellationException) { throw e } catch (_: Exception) { null }
-                    fix = got?.takeIf { CensusRules.fixUsable(it) }
-                }
+                // SP-0241: saving text/photo changes never waits for GPS, reverse
+                // lookup or address search. An available usable fix rides the capture.
                 val draft = build(emptyList()); CensusRules.validate(draft)
                 if (edit) {
                     // A change is for this store: no duplicate check, nothing to send when nothing changed.
@@ -612,7 +564,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                         }
                         if (picked != null) StatusChip("Pin from address", Look.Tone.GOOD, textTag = "census-pin-from-address")
                     }
-                    // SP-0255: the same address fields as Add customer (Street 1 optional); the server builds the address.
+                    // SP-0255/SP-0241: the same address fields as Add customer, all optional; the server builds the address.
                     current?.address?.takeIf { it.isNotBlank() }?.let { Text("Current address: $it", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("census-current-address")) }
                     Marked(CensusRules.Field.ADDRESS, marked, requesters) {
@@ -676,12 +628,11 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             val note = saveNote ?: if (marked.isNotEmpty()) CensusRules.missingSummary(marked.size)
                 else if (customerMarks.isNotEmpty()) CensusRules.missingSummary(customerMarks.size) else null
             note?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("census-save-note")) }
-            if (staleRetry) TonalButton("Try again", ::save, Modifier.fillMaxWidth().testTag("census-retry"), !busy)
             if (!edit) TonalButton("Save as draft", ::saveAsDraft, Modifier.fillMaxWidth().testTag("customer-save-draft"),
                 !busy && draftLoaded && backend != null && !camera)
             if (!edit) PrimaryBottomButton("Save customer", { completeSubmission = false; save() },
                 Modifier.fillMaxWidth().testTag("customer-save-incomplete"), !busy && draftLoaded && backend != null && !camera)
-            PrimaryBottomButton(if (refreshing) "Checking your location…" else if (edit) "Save changes" else "Submit for approval",
+            PrimaryBottomButton(if (edit) "Save changes" else "Submit for approval",
                 { completeSubmission = true; save() }, Modifier.fillMaxWidth().testTag("census-save"),
                 !busy && (edit || (draftLoaded && setup != null)) && !camera)
             }
@@ -693,18 +644,6 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             title = { Text("Customer saved") },
             text = { Text(text, modifier = Modifier.testTag("census-saved-notice")) }, modifier = Modifier.testTag("census-saved-dialog"))
     }
-    moved?.let { m -> SafeBottomSheet(onDismissRequest = { moved = null }, Modifier.testTag("census-moved")) {
-            Text("Your location changed", style = MaterialTheme.typography.titleMedium)
-            Text("You are ${m.meters.toInt()} m from where you first set the location.", style = MaterialTheme.typography.bodyMedium)
-            if (m.address != null) {
-                Text("New address", style = MaterialTheme.typography.labelMedium)
-                Text(m.address.formattedAddress, style = MaterialTheme.typography.bodyLarge, modifier = Modifier.testTag("census-moved-address"))
-                PrimaryBottomButton("Use the new address and save", {
-                    if (!busy) { address = m.address.formattedAddress; autoAddress = address; reverse = m.address; moved = null; save() }
-                }, Modifier.fillMaxWidth().testTag("census-moved-new"), !busy)
-            } else Text("No address found for the new spot. Check the address before you save.", style = MaterialTheme.typography.bodyMedium)
-            SecondaryButton("Keep my address and save", { if (!busy) { moved = null; save() } }, Modifier.fillMaxWidth().testTag("census-moved-keep"), !busy)
-    } }
     if (pending != null && duplicates.isNotEmpty()) SafeBottomSheet(onDismissRequest = { pending = null; duplicates = emptyList() }, Modifier.testTag("census-duplicates")) {
             Text("This might already be in the list", style = MaterialTheme.typography.titleMedium)
             duplicates.take(5).forEach { d ->
@@ -735,8 +674,6 @@ private fun isOnline(context: android.content.Context): Boolean = runCatching {
     caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
         caps.hasCapability(android.net.NetworkCapabilities.NET_CAPABILITY_VALIDATED)
 }.getOrDefault(false)
-private const val STALE_FIX = "Couldn't get your location. Move to an open spot and tap Try again."
-private class Moved(val meters: Double, val address: CensusPlaces.Address?)
 /** A required field plus its plain-words message once Save found it missing; Save scrolls here. */
 @OptIn(androidx.compose.foundation.ExperimentalFoundationApi::class)
 @Composable

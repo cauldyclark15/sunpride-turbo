@@ -85,7 +85,7 @@ function readAcknowledged(v) {
   return [...new Set(v.map((/** @type {any} */ id) => uuid(id)))];
 }
 
-/** New customers use best-effort GPS; Edit customer keeps its existing evidence rules.
+/** Customer enrollment and edits use best-effort GPS.
  * @param {any} p @param {number} at @param {boolean} [newCustomer] */
 function readLocation(p, at, newCustomer = false) {
   const source = p.locationSource ?? "gps";
@@ -190,7 +190,8 @@ function sameParts(a, b) {
   );
 }
 /** SP-0220: Edit customer's structured address, as Add customer sends it. Street 1 is
- * optional (SP-0255); the places must exist and fit together; the server builds the address line.
+ * optional (SP-0255) and SP-0241 permits missing parts; supplied official places must still
+ * fit together; the server builds the address line.
  * Absent (older phones) = the free-text `address` path.
  * @param {any} db @param {any} raw */
 export async function readAddressParts(db, raw) {
@@ -236,8 +237,8 @@ export async function readAddressParts(db, raw) {
   };
   const [row] =
     await db`select customer_address_line(${f.roomStallNo},${f.floor},${f.houseNo},${f.street1},${f.street2},${names.barangayName},${names.municipalityName},${names.provinceName},${f.postalCode}) line`;
-  const line = String(row?.line ?? "").slice(0, 500) || f.street1;
-  if (!line) rule("Enter the customer's location.");
+  // SP-0241: an empty address is saved for completion later.
+  const line = String(row?.line ?? "").slice(0, 500) || f.street1 || null;
   return { fields: f, line, stored: { ...f, ...names } };
 }
 /** The store as the office knows it now: the old side of an Edit store change.
@@ -290,13 +291,16 @@ async function captureChange(ctx, actor, p) {
   const parts = await readAddressParts(ctx.db, p.addressParts);
   const id = uuid(p.captureId),
     name = required(p.name, "Store name", 200),
-    address = parts ? parts.line : required(p.address, "Address", 500);
+    address = parts
+      ? (parts.line ?? "")
+      : (optionalText(p.address, "Address", 500) ?? "");
   const ownerName = required(p.ownerName, "Owner contact name", 150),
-    ownerPhone = required(p.ownerPhone, "Owner phone", 40);
-  if (ownerPhone.replace(/\D/g, "").length < 7)
-    rule("Enter a complete owner phone number.");
-  const moved = p.location !== undefined && p.location !== null;
-  const loc = moved ? readLocation(p, at) : null;
+    ownerPhone = optionalText(p.ownerPhone, "Owner phone", 40) ?? "";
+  // A genuine but old/weak GPS reading is deferred rather than making a
+  // text/photo change impossible to save.
+  const candidate = p.location == null ? null : readLocation(p, at, true);
+  const loc = candidate?.l ? candidate : null;
+  const moved = loc !== null;
   const components = moved ? readComponents(p.addressComponents) : null;
   const formattedAddress = moved
     ? optionalText(p.formattedAddress, "Address from search", 500)
@@ -362,7 +366,7 @@ async function applyChange(ctx, capture, actor, reason) {
     capture.latitude !== null && capture.location_source === "places"
       ? capture.place_id
       : null;
-  await ctx.db`update outlets set name=${capture.name},address=${capture.address},directions=coalesce(${capture.landmark ?? null}::text,directions),place_id=coalesce(${placeId}::text,place_id) where id=${id}`;
+  await ctx.db`update outlets set name=${capture.name},address=${capture.address || null},directions=coalesce(${capture.landmark ?? null}::text,directions),place_id=coalesce(${placeId}::text,place_id) where id=${id}`;
   // SP-0220: a structured address change updates the customer record; the address line is the server's.
   const ap = capture.address_parts;
   if (ap)
@@ -379,11 +383,9 @@ async function applyChange(ctx, capture, actor, reason) {
     ownerPhone = capture.owner_phone
       ? String(capture.owner_phone).replace(/[\s-]/g, "")
       : null;
-  if (ownerPhone)
-    await ctx.db`update customer_profiles set mobile_no=${ownerPhone},updated_by=${actor.userId},updated_at=now() where outlet_id=${id}`;
-  if (ownerName || ownerPhone)
-    await ctx.db`update customer_ship_tos set contact_person=coalesce(${ownerName}::text,contact_person),mobile_no=coalesce(${ownerPhone}::text,mobile_no),updated_by=${actor.userId},updated_at=now()
-      where outlet_id=${id} and deleted_at is null and ordinal=(select min(ordinal) from customer_ship_tos where outlet_id=${id} and deleted_at is null)`;
+  await ctx.db`update customer_profiles set mobile_no=${ownerPhone},updated_by=${actor.userId},updated_at=now() where outlet_id=${id}`;
+  await ctx.db`update customer_ship_tos set contact_person=coalesce(${ownerName}::text,contact_person),mobile_no=${ownerPhone},updated_by=${actor.userId},updated_at=now()
+    where outlet_id=${id} and deleted_at is null and ordinal=(select min(ordinal) from customer_ship_tos where outlet_id=${id} and deleted_at is null)`;
   if (capture.photo_file_id)
     await ctx.db`insert into outlet_photos(outlet_id,ordinal,file_id) values(${id},0,${capture.photo_file_id}) on conflict (outlet_id,ordinal) do update set file_id=excluded.file_id,deleted_at=null,updated_at=now()`;
   // E2E-010: a moved pin is a proposal, not a verified pin. It goes to Pins to confirm (the two-person pin
@@ -394,6 +396,24 @@ async function applyChange(ctx, capture, actor, reason) {
       await ctx.db`select coalesce(user_id::text,auth_subject,id::text) subject from profiles where id=${capture.actor_profile_id}`;
     await ctx.db`insert into outlet_pins(outlet_id,latitude,longitude,radius_meters,source,evidence_storage_id,evidence_note,status,effective_from,proposed_by,proposed_at) values(${id},${capture.latitude},${capture.longitude},50,'census',${capture.photo_file_id ?? null},${`Edit customer change ${capture.id} accepted by the office: ${reason}`.slice(0, 1000)},'pending',${new Date(ctx.now)},${agent?.subject ?? String(capture.actor_profile_id)},${capture.captured_at})`;
   }
+  // This older edit writer must refresh Draft status too, without changing the
+  // office's separate approval decision or replacing the original submitted copy.
+  const { readCustomer, referenceRows, resolveGeography } =
+    await import("./customers.js");
+  const { validateCustomer, validateEnrollment } =
+    await import("@sunpride/customer-master");
+  const { readEnrollmentForm } = await import("./enrollment-form.js");
+  const customer = await readCustomer(ctx.db, id);
+  const form = await readEnrollmentForm(ctx.db);
+  const errors = [
+    ...validateCustomer(customer, {
+      level: "complete",
+      lists: await referenceRows(ctx.db),
+      geography: await resolveGeography(ctx.db, customer),
+    }).errors,
+    ...validateEnrollment(form.fields, customer.customFields, customer).errors,
+  ];
+  await ctx.db`update customer_profiles set completeness=${errors.length ? "draft" : "complete"},field_missing=${errors.length ? JSON.stringify(errors.map(({ field, label, message }) => ({ field, label, message }))) : null}::text::jsonb where outlet_id=${id}`;
   return id;
 }
 /** F-011 standalone survey adapter, not a second call-flow engine. Photo bytes are

@@ -23,7 +23,10 @@ class SafeSurfacesAuditTest {
         assertTrue(sheet.contains("verticalScroll("))
         assertTrue(sheet.contains("bottomSafe()"))
         val census = File(main, "census/CensusScreen.kt").readText()
-        assertEquals(2, Regex("""SafeBottomSheet\(""").findAll(census).count())
+        // SP-0241 removed the save-blocking moved-location sheet; duplicate review remains.
+        assertEquals(1, Regex("""SafeBottomSheet\(""").findAll(census).count())
+        assertTrue(census.contains("testTag(\"census-duplicates\")"))
+        assertFalse(census.contains("testTag(\"census-moved\")"))
     }
 
     @Test fun fld075SavedCustomerRefreshesThePillAndSyncScreen() {

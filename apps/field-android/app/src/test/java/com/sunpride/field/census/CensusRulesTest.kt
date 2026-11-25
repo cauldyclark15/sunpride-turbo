@@ -106,7 +106,7 @@ class CensusRulesTest {
             "Nena Cruz", "0917 555 0101", 1000L, null, place, "", null)
         assertEquals(10.3126, only.getJSONObject("location").getDouble("latitude"), 0.0)
     }
-    /** SP-0255: Edit customer accepts the same optional Street 1 as Add customer. */
+    /** SP-0255/SP-0241: Edit customer accepts optional Street 1 and incomplete address parts. */
     @Test fun storeEditSendsTheStructuredAddress() {
         val saved = mapOf("houseNo" to "5", "street1" to "Rizal St", "municipalityCode" to "0702230000")
         val form = CensusRules.formFromParts(saved)
@@ -129,8 +129,7 @@ class CensusRulesTest {
             val intent = CensusRules.intent(StoreScope("account", "device", "scope"), blank, 1000L)
             CensusRules.validate(JSONObject(intent.serializedOperation).getJSONObject("payload"))
         }
-        assertFalse(CensusRules.missingForChange("Nena Mini Mart", "Nena Cruz", "0917 555 0101", "", false, false,
-            CensusRules.addressLine(form.copy(street1 = ""), null)).contains(CensusRules.Field.ADDRESS))
+        assertFalse(CensusRules.missingForChange("Nena Mini Mart", "Nena Cruz").contains(CensusRules.Field.ADDRESS))
     }
     @Test fun storeEditPayloadIsAChangeForTheStoreWithoutNewStoreFields() {
         val p = change()
@@ -146,11 +145,34 @@ class CensusRulesTest {
         assertThrows(Exception::class.java) { CensusRules.validate(change().put("targetOutletId", "o1")) }
         assertThrows(IllegalArgumentException::class.java) { CensusRules.validate(change().put("channelId", UUID.randomUUID().toString())) }
         val stale = change().put("locationSource", "gps").put("location", JSONObject().put("latitude", 10.3).put("longitude", 123.9)
-            .put("accuracyMeters", 80.0).put("fixTime", 1000L).put("provider", "gps").put("mockSignal", false))
+            .put("accuracyMeters", 900.0).put("fixTime", 1000L).put("provider", "gps").put("mockSignal", false))
         assertThrows(IllegalArgumentException::class.java) { CensusRules.validate(stale) }
-        assertEquals(emptyList<CensusRules.Field>(), CensusRules.missingForChange("A", "B", "0917 555 0101", "", false, false, "x"))
-        assertEquals(listOf(CensusRules.Field.LOCATION), CensusRules.missingForChange("A", "B", "0917 555 0101", "gps", false, false, "x"))
+        CensusRules.validate(stale.put("location", stale.getJSONObject("location").put("accuracyMeters", 80.0)))
+        assertTrue(CensusRules.missingForChange("A", "B").isEmpty())
+        assertEquals(listOf(CensusRules.Field.NAME, CensusRules.Field.OWNER), CensusRules.missingForChange(" ", "\t"))
     }
+    @Test fun storeEditKeepsPartialPhoneAndAddressWithoutPhotoOrGps() {
+        for (phone in listOf("", "0917")) {
+            val p = CensusRules.changePayload(UUID.randomUUID().toString(), target, "Sample Store", "", "Ana", phone,
+                5000L, null, null, "", null, CensusRules.addressPartsJson(CustomerCapture.Form()))
+            CensusRules.validate(p)
+            val queued = CensusRules.intent(StoreScope("account", "device", "scope"), p, 5000L)
+            val restored = JSONObject(queued.serializedOperation).getJSONObject("payload")
+            assertEquals(phone, restored.getString("ownerPhone"))
+            assertEquals("", restored.getString("address"))
+            assertFalse(restored.has("location")); assertFalse(restored.has("photoJpegBase64"))
+            for (key in listOf("name", "ownerName")) {
+                assertTrue(runCatching { CensusRules.validate(JSONObject(p.toString()).put(key, JSONObject.NULL)) }.isFailure)
+            }
+        }
+        val old = JSONObject().put("latitude", 10.3).put("longitude", 123.9).put("accuracyMeters", 9.0)
+            .put("fixTime", 1L).put("provider", "gps").put("mockSignal", false)
+        val deferred = CensusRules.changePayload(UUID.randomUUID().toString(), target, "Store", "", "Ana", "",
+            2_000_000L, old, null, "", null)
+        assertFalse(deferred.has("location"))
+        CensusRules.validate(deferred)
+    }
+
     @Test fun storeEditKnowsWhenNothingChanged() {
         val now = CensusRules.Current("Aling Nena", "5 Rizal St", "Nena", "0917")
         assertFalse(CensusRules.changed(now, " Aling Nena", "5 Rizal St", "Nena", "0917", "", moved = false, photo = false))

@@ -180,6 +180,32 @@ class AddStoreScreenTest {
         rule.waitUntil(5_000) { saved == 1 }
     }
 
+    @Test fun editCustomerSavesMissingOptionalDetailsAfterLocationFails() {
+        val backend = Backend(config(false), oldServer)
+        val unavailable = object : VisitLocation {
+            override val requiresPermission = false
+            override suspend fun fix(): JSONObject? = null
+        }
+        rule.setContent { MaterialTheme(colorScheme = SunprideTokens.lightColors) {
+            CensusScreen(backend, unavailable, {}, editing = editStore()) } }
+        waitTag("census-edit-note")
+        rule.onNodeWithTag("census-name").performTextClearance()
+        rule.onNodeWithTag("census-name").performTextInput("Customer To Complete")
+        rule.onNodeWithTag("census-phone").performScrollTo().performTextClearance()
+        rule.onNodeWithTag("customer-street1").performScrollTo().performTextClearance()
+        hideKeyboard()
+        rule.onNodeWithTag("census-gps").performScrollTo().performClick()
+        waitTag("census-location-note")
+        rule.onNodeWithTag("census-location-note").assertTextContains(CustomerLocation.UNCONFIRMED)
+        rule.onNodeWithTag("census-save").performClick()
+        rule.waitUntil(10_000) { backend.queued.isNotEmpty() }
+        val p = backend.queued.single()
+        assertEquals(target, p.getString("targetOutletId"))
+        assertEquals("", p.getString("ownerPhone"))
+        assertTrue(p.getJSONObject("addressParts").isNull("street1"))
+        assertFalse(p.has("location")); assertFalse(p.has("photoJpegBase64"))
+    }
+
     @Test fun editStoreWithNothingChangedSendsNothing() {
         val backend = Backend(config(false), oldServer)
         rule.setContent { MaterialTheme(colorScheme = SunprideTokens.lightColors) { CensusScreen(backend, gps, {}, editing = editStore()) } }

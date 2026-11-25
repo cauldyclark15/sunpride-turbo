@@ -2,7 +2,7 @@ package com.sunpride.field.census
 
 import org.json.JSONObject
 
-/** Add customer is best effort. Visit and Edit customer location rules are unchanged. */
+/** Customer Add/Edit location is best effort. Visit location rules are unchanged. */
 object CustomerLocation {
     const val MAX_ACCURACY_METERS = 500.0
     const val MAX_AGE_MS = 30 * 60_000L
