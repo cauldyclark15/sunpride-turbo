@@ -570,11 +570,14 @@ class LiveFieldBackend(
                     fetch = { functions.api.get(path).toString() },
                     save = { live -> store.putLocalCache(GEOGRAPHY, key, live, now, "") })
             }
-            val pack = cachedOrFetch("pack", "/api/v1/geography/pack") ?: return@withStore null
+            val pack = cachedOrFetch("pack", "/api/v1/geography/pack?barangays=all") ?: return@withStore null
             val postalPack = com.sunpride.field.census.CustomerPostalPack.upgrade(pack,
-                fetch = { functions.api.get("/api/v1/geography/pack").toString() },
+                fetch = { functions.api.get("/api/v1/geography/pack?barangays=all").toString() },
                 save = { live -> store.putLocalCache(GEOGRAPHY, "pack", live, now, "") })
-            var geography = com.sunpride.field.census.CustomerCapture.Geography.parse(JSONObject(postalPack))
+            val national = JSONObject(postalPack)
+            var geography = com.sunpride.field.census.CustomerCapture.Geography.parse(national)
+            if (national.optBoolean("barangaysComplete")) return@withStore geography
+            // Older server/cache: retain provinces already downloaded instead of losing them offline.
             val known = store.localCache(GEOGRAPHY, "provinces")?.takeUnless { it.tombstone }?.json
                 ?.let { runCatching { org.json.JSONArray(it) }.getOrNull() }
                 ?.let { a -> (0 until a.length()).mapNotNull { a.opt(it) as? String } }.orEmpty()

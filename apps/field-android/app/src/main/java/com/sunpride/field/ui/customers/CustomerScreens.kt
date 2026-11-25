@@ -66,7 +66,8 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
     /** SP-0196 Customer mapping: no route or visit items (no today's-route filter, no visit chips or days). */
     mapping: Boolean = false,
     /** SP-0196: this phone's new customers still waiting for the office (Customer mapping only). */
-    waiting: List<com.sunpride.field.ui.mapping.MappingSave> = emptyList()) {
+    waiting: List<com.sunpride.field.ui.mapping.MappingSave> = emptyList(),
+    draftCount: Int = 0, onDrafts: (() -> Unit)? = null) {
     var query by rememberSaveable { mutableStateOf("") }
     var onlyToday by rememberSaveable { mutableStateOf(false) }
     val found = remember(data.customers, query) { CustomerDirectory.search(data.customers, query) }
@@ -90,6 +91,9 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
             else SearchField(query, { query = it.take(80) }, "Search name, code or address",
                 Modifier.padding(bottom = 4.dp).testTag("customer-search"),
                 keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search))
+        }
+        if (draftCount > 0) item(key = "drafts") {
+            com.sunpride.field.census.CustomerDraftAlert(draftCount, onDrafts, Modifier.fillMaxWidth())
         }
         if (todayCount > 0) item(key = "filters") {
             androidx.compose.foundation.layout.Row(Modifier.padding(bottom = 4.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {

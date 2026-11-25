@@ -104,6 +104,7 @@ fun FieldApp(
     biometrics: BiometricGate? = null,
     // SP-0140: the one-time battery/autostart guide for location sharing; null in tests that don't cover it.
     batteryGuide: com.sunpride.field.location.BatteryGuideHost? = null,
+    initialDrafts: Boolean = false,
     // SP-0192: builds the Sell area for a person whose Selling is on (tests pass practice data; never called for anyone else).
     sellHostFactory: (android.content.Context, com.sunpride.field.sell.auth.SellAccess) -> com.sunpride.field.sell.SellHost =
         { ctx, access -> com.sunpride.field.sell.SellHost.create(ctx, access) },
@@ -179,7 +180,7 @@ fun FieldApp(
     val signOut = { controller.signOut(); biometrics?.signedOut(); page = "home"; Unit }
     // Whatever ends the session (sign-out, expiry, removal), the next person starts on a clean sign-in screen.
     // SP-0196: the open Add customer form lives above its screen for the whole session (see CustomerDraftHolder).
-    val censusDraft = remember(backend) { com.sunpride.field.census.CustomerDraftHolder() }
+    val censusDraft = remember(backend, backend?.authorizationEpoch) { com.sunpride.field.census.CustomerDraftHolder() }
     LaunchedEffect(controller.state) { if (controller.state == EnrollmentState.SignedOut) { page = "home"; pagesEpoch++; censusDraft.reset() } }
     // AND-020: each visit to the Team page asks the server again (saved copy when offline).
     LaunchedEffect(controller, page, controller.state) {
@@ -198,6 +199,22 @@ fun FieldApp(
     // CPU and battery on an entry-level phone. The sync pill keeps the 1-second clock.
     val minuteNow by remember { androidx.compose.runtime.derivedStateOf { now / 60_000 * 60_000 } }
     val ready = controller.state is EnrollmentState.Ready
+    val openDrafts = { censusDraft.openList = true; censusName = ""; censusEdit = null; go("census") }
+    LaunchedEffect(ready, censusDraft, backend) {
+        if (ready && backend != null && !censusDraft.loaded) {
+            val epoch = backend.authorizationEpoch
+            val saved = runCatching { kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) { backend.customerDraft() } }
+            if (saved.isSuccess && backend.authorizationEpoch == epoch && !censusDraft.loaded)
+                runCatching { censusDraft.restore(saved.getOrNull()) }
+        }
+    }
+    LaunchedEffect(ready, censusDraft.savedCount) {
+        runCatching { com.sunpride.field.census.CustomerDraftReminders.update(context, if (ready) censusDraft.savedCount else 0) }
+    }
+    var notificationOpened by rememberSaveable { mutableStateOf(false) }
+    LaunchedEffect(ready, initialDrafts) {
+        if (ready && initialDrafts && !notificationOpened) { notificationOpened = true; openDrafts() }
+    }
     val fieldStatus = controller.today.syncStatus.copy(offline = offline)
     // FLD-147: the upload worker runs outside the UI; when it finishes, refresh the pill and the Photos card.
     val photoRuns by com.sunpride.field.evidence.EvidenceWork.runs.collectAsState()
@@ -512,7 +529,8 @@ fun FieldApp(
                 ready && page == "customers" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,
                     onAddStore = if (visits) ({ typed -> censusName = typed; censusEdit = null; go("census") }) else null,
-                    mapping = mode == AppMode.MAPPING, waiting = if (mode == AppMode.MAPPING) controller.mappingSaves else emptyList())
+                    mapping = mode == AppMode.MAPPING, waiting = if (mode == AppMode.MAPPING) controller.mappingSaves else emptyList(),
+                    draftCount = censusDraft.savedCount, onDrafts = openDrafts)
                 ready && page == "customer" && customer != null -> com.sunpride.field.ui.customers.CustomerDetailScreen(
                     customer, controller.today, onNavigate = { uri -> openMaps(context, uri) },
                     onDial = { uri -> openDialer(context, uri) }, modifier = modifier,
@@ -523,20 +541,22 @@ fun FieldApp(
                 ready && page == "customer" -> com.sunpride.field.ui.customers.CustomerSearchScreen(controller.today,
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,
                     onAddStore = if (visits) ({ typed -> censusName = typed; censusEdit = null; go("census") }) else null,
-                    mapping = mode == AppMode.MAPPING, waiting = if (mode == AppMode.MAPPING) controller.mappingSaves else emptyList())
+                    mapping = mode == AppMode.MAPPING, waiting = if (mode == AppMode.MAPPING) controller.mappingSaves else emptyList(),
+                    draftCount = censusDraft.savedCount, onDrafts = openDrafts)
                 ready && page == "team" -> com.sunpride.field.ui.team.TeamScreen(controller.team,
                     controller.teamDirectOnly, controller.teamLoading, minuteNow,
                     onFilter = { controller.loadTeam(it) }, onRefresh = { controller.loadTeam() }, modifier = modifier)
                 // SP-0195: Customer mapping's Home is one big Add customer button and the person's own saves.
                 ready && mode == AppMode.MAPPING -> com.sunpride.field.ui.mapping.MappingHomeScreen(controller.mappingSaves, now,
-                    onAddCustomer = { censusName = ""; censusEdit = null; go("census") }, modifier = modifier)
+                    onAddCustomer = { censusName = ""; censusEdit = null; go("census") }, modifier = modifier,
+                    draftCount = censusDraft.savedCount, onDrafts = openDrafts)
                 ready -> TodayScreen(controller.today, controller.busy,
                     onSync = controller::syncNow, onSignOut = signOut,
                     onVisit = controller::openDiagnostic, diagnosticEnabled = visits, modifier = modifier, offline = offline,
                     unplannedEnabled = FieldFeature.UNPLANNED_VISITS in features,
                     onRoute = if (FieldTab.ROUTE in modeTabs) ({ page = "route" }) else null, onCustomers = { page = "customers" },
                     onTeam = if (FieldFeature.TEAM in features) ({ go("team") }) else null,
-                    showTitle = false,
+                    showTitle = false, draftCount = censusDraft.savedCount, onDrafts = openDrafts,
                     onAddStore = if (visits) ({ censusName = ""; censusEdit = null; go("census") }) else null,
                     workDay = {
                         dayView?.let { view ->

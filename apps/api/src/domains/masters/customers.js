@@ -578,7 +578,8 @@ export async function saveCustomer(c, b, opts = {}) {
         text(merged.customFields?.[e.field.split(".")[1] ?? ""]),
       )
     : custom.errors;
-  if (customErrors.length) invalid({ errors: customErrors });
+  if (customErrors.length && !opts.fieldCapture)
+    invalid({ errors: customErrors });
   const customFields = custom.value;
   const geo = await derive(c.db, merged, input, existing);
   const lists = await referenceRows(c.db);
@@ -608,10 +609,10 @@ export async function saveCustomer(c, b, opts = {}) {
   /** SP-0188: what the field app left incomplete (null = nothing). @type {any[]|null} */
   let fieldMissing = null;
   /** @type {Record<string, any>|null} */ let fieldSubmitted = null;
-  if (!draft.ok && opts.fieldCapture) {
+  if ((!draft.ok || custom.errors.length) && opts.fieldCapture) {
     // Keep the salesman's save as a field draft: drop only values that fail a format or
     // list check, keep everything else, and mark it incomplete for the office to finish.
-    fieldMissing = draft.errors.map((e) => ({
+    fieldMissing = [...draft.errors, ...custom.errors].map((e) => ({
       field: e.field,
       label: e.label,
       message: e.message,
@@ -977,7 +978,7 @@ export async function listCustomers(c) {
     await c.db`select x.*,count(*) over() as total_count from (select o.id,o.code,o.name,o.address,o.status,o.enrolment_status,o.visit_frequency_days,o.visit_frequency_per_month,p.completeness,p.registered_name,p.field_missing,p.custom_fields,
       (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end) as list_status,
       count(*) over() as n_all,count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='prospect') over() as n_prospect,
-      count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='active') over() as n_active,count(*) filter (where o.status='inactive') over() as n_inactive,
+      count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='active') over() as n_active,count(*) filter (where o.status='inactive') over() as n_inactive,count(*) filter (where coalesce(p.completeness,'draft')='draft') over() as n_draft,
       p.sales_org_code,p.distribution_channel_code,p.customer_group1_code,p.customer_group2_code,p.customer_group_code,
       p.sales_office_code,p.municipality_name,p.barangay_name,s.channel as distribution_channel_name,s.subchannel as customer_group1_name,
       s.customer_group2_name,s.customer_group_name,s.territory_id,s.territory_name
@@ -1010,9 +1011,9 @@ export async function listCustomers(c) {
   if (offset !== null) {
     const any =
       rows[0] ??
-      (status
+      (status || completeness || offset > 0
         ? (
-            await c.db`select count(*) as n_all,count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='prospect') as n_prospect,count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='active') as n_active,count(*) filter (where o.status='inactive') as n_inactive from analytics_store_scope s join outlets o on o.id=s.id left join customer_profiles p on p.outlet_id=o.id and p.deleted_at is null
+            await c.db`select count(*) as n_all,count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='prospect') as n_prospect,count(*) filter (where (case when o.status='active' and o.enrolment_status='provisional' then 'prospect' else o.status end)='active') as n_active,count(*) filter (where o.status='inactive') as n_inactive,count(*) filter (where coalesce(p.completeness,'draft')='draft') as n_draft from analytics_store_scope s join outlets o on o.id=s.id left join customer_profiles p on p.outlet_id=o.id and p.deleted_at is null
               where (${nationwide} or s.owner_unit_id::text=any(${c.db.array(unitIds ?? [], "TEXT")}))
                 and (${!awaiting} or (o.status='prospect' or (o.status='active' and o.enrolment_status='provisional')))
                 and (${completeness}::text is null or coalesce(p.completeness,'draft')=${completeness})
@@ -1039,6 +1040,7 @@ export async function listCustomers(c) {
       prospect: Number(any?.n_prospect ?? 0),
       active: Number(any?.n_active ?? 0),
       inactive: Number(any?.n_inactive ?? 0),
+      draft: Number(any?.n_draft ?? 0),
     };
   }
   const pageIds = rows.slice(0, limit).map((/** @type {any} */ r) => r.id);

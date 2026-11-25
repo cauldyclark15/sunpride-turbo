@@ -54,17 +54,17 @@ class CustomerDraftScreenTest {
             }
         }
         waitTag("customer-save-draft")
-        rule.onNodeWithTag("customer-customerName").performScrollTo().performTextInput("First customer")
+        rule.onNodeWithTag("customer-firstName").performScrollTo().performTextInput("First customer")
         rule.onNodeWithTag("customer-save-draft").performClick()
         waitTag("customer-drafts-new")
         rule.onNodeWithTag("customer-drafts-new").performClick()
-        rule.onNodeWithTag("customer-customerName").performScrollTo().performTextInput("Second customer")
+        rule.onNodeWithTag("customer-firstName").performScrollTo().performTextInput("Second customer")
         rule.onNodeWithTag("customer-save-draft").performClick()
         waitTag("customer-drafts-new")
         rule.runOnIdle { generation.value++ }
         waitTag("customer-drafts-new")
         rule.onNodeWithTag("customer-draft-${CustomerDrafts.parse(backend.disk).saved.first().id}").performScrollTo().performClick()
-        rule.onNodeWithTag("customer-customerName").assertTextContains("First customer")
+        rule.onNodeWithTag("customer-firstName").assertTextContains("First customer")
         rule.onNodeWithTag("census-save").performClick()
         waitTag("customer-missing-registeredName")
         rule.onNodeWithTag("customer-missing-coordinates").assertDoesNotExist() // SP-0243: location never blocks final Save.
@@ -79,15 +79,15 @@ class CustomerDraftScreenTest {
         val backend = Backend()
         rule.setContent { MaterialTheme { CensusScreen(backend, noLocation, {}) } }
         waitTag("customer-save-draft")
-        rule.onNodeWithTag("customer-customerName").performScrollTo().performTextInput("Not lost")
+        rule.onNodeWithTag("customer-firstName").performScrollTo().performTextInput("Not lost")
         backend.failWrites = true
         rule.onNodeWithTag("customer-save-draft").performClick()
         waitTag("census-save-note")
-        rule.onNodeWithTag("customer-customerName").performScrollTo().assertTextContains("Not lost")
+        rule.onNodeWithTag("customer-firstName").performScrollTo().assertTextContains("Not lost")
         assertTrue(backend.queued.isEmpty())
         backend.failWrites = false
         rule.onNodeWithTag("customer-save-draft").performClick()
         waitTag("customer-drafts-new")
-        assertEquals("Not lost", CustomerDrafts.parse(backend.disk).saved.single().draft.form.customerName)
+        assertEquals("Not lost", CustomerDrafts.parse(backend.disk).saved.single().draft.form.firstName)
     }
 }

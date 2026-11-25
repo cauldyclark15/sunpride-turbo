@@ -82,11 +82,13 @@ object MappingHome {
  * sync pill right above it, so it is not repeated here. Nothing about visits, routes, plans, targets or selling.
  */
 @Composable
-fun MappingHomeScreen(saves: List<MappingSave>, now: Long, onAddCustomer: () -> Unit, modifier: Modifier = Modifier) {
+fun MappingHomeScreen(saves: List<MappingSave>, now: Long, onAddCustomer: () -> Unit, modifier: Modifier = Modifier,
+    draftCount: Int = 0, onDrafts: (() -> Unit)? = null) {
     val counts = MappingHome.counts(saves, now)
     val recent = MappingHome.recent(saves)
     Column(modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(start = 16.dp, end = 16.dp, top = 8.dp, bottom = 24.dp)
         .testTag("mapping-home"), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+        com.sunpride.field.census.CustomerDraftAlert(draftCount, onDrafts, Modifier.fillMaxWidth())
         Button(onClick = onAddCustomer, modifier = Modifier.fillMaxWidth().heightIn(min = 96.dp).testTag("mapping-add-customer"),
             shape = RoundedCornerShape(24.dp),
             colors = ButtonDefaults.buttonColors(containerColor = Look.accent, contentColor = Look.onAccent)) {

@@ -47,7 +47,7 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
     /** SP-0136 work-day card (Start day / End day, location sharing status). */
     workDay: (@Composable () -> Unit)? = null,
     /** Agents allowed to add stores get a plain Add store action near the top. */
-    onAddStore: (() -> Unit)? = null) {
+    onAddStore: (() -> Unit)? = null, draftCount: Int = 0, onDrafts: (() -> Unit)? = null) {
     val summary = remember(data) { TodaySummary.of(data) }
     val bar = summary.planned > 0
     Box(modifier.fillMaxSize()) {
@@ -61,6 +61,7 @@ fun TodayScreen(data: TodayData, busy: Boolean, onSync: () -> Unit, onSignOut: (
                     style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             if (onCustomers != null) FindStoreRow(data, onCustomers)
+            com.sunpride.field.census.CustomerDraftAlert(draftCount, onDrafts, Modifier.fillMaxWidth())
             workDay?.invoke()
             if (onAddStore != null) TonalButton("Add customer", onAddStore,
                 Modifier.fillMaxWidth().testTag("today-add-store"), glyph = GlyphKind.STORE)

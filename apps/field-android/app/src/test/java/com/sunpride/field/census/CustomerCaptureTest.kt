@@ -459,6 +459,7 @@ class CustomerCaptureTest {
         assertTrue(refused(JSONObject(ok.toString()).also { it.getJSONObject("customer").put("nonsense", "x") }))
         assertTrue(refused(JSONObject(ok.toString()).put("ownerName", " ")))
         assertFalse(refused(JSONObject(ok.toString()).put("photoJpegBase64", "")))
+        assertTrue(refused(JSONObject(ok.toString()).put("photoJpegBase64", "broken-photo")))
         assertFalse(refused(JSONObject(ok.toString()).also { it.getJSONObject("location").put("accuracyMeters", 80.0) }))
         assertTrue(refused(JSONObject(ok.toString()).also { it.getJSONObject("location").put("accuracyMeters", 501.0) }))
         assertTrue(refused(JSONObject(ok.toString()).also { it.getJSONObject("location").put("mockSignal", true) }))

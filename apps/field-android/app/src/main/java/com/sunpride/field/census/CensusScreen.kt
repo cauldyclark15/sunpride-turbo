@@ -142,18 +142,23 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     var draftLoaded by remember { mutableStateOf(!edit && keep.loaded) }
     var draftRestored by remember { mutableStateOf(held != null && !held.isEmpty()) }
     var savedDrafts by remember { mutableStateOf(keep.customers.saved) }
-    var showDrafts by remember { mutableStateOf(held == null && initialName.isBlank() && keep.customers.saved.isNotEmpty()) }
+    val requestedDrafts = remember { keep.openList.also { keep.openList = false } }
+    var showDrafts by remember { mutableStateOf(requestedDrafts || (held == null && initialName.isBlank() && keep.customers.saved.isNotEmpty())) }
     var savedNotice by keep::savedNotice
     val keyRequesters = remember { mutableMapOf<String, BringIntoViewRequester>() }
     fun requester(key: String) = keyRequesters.getOrPut(key) { BringIntoViewRequester() }
     // Live test 2026-11-09: Save must never look like it does nothing.
     var attempted by remember { mutableStateOf(false) }
+    var completeSubmission by remember { mutableStateOf(true) }
     var saveNote by remember { mutableStateOf<String?>(null) }
     var staleRetry by remember { mutableStateOf(false) }
     var refreshing by remember { mutableStateOf(false) }
     var moved by remember { mutableStateOf<Moved?>(null) }
     val requesters = remember { CensusRules.Field.entries.associateWith { BringIntoViewRequester() } }
     var camera by remember { mutableStateOf(false) }; var capture by remember { mutableStateOf<ImageCapture?>(null) }
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) runCatching { CustomerDraftReminders.update(context, keep.savedCount, announce = true) }
+    }
     val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { camera = it; if (!it) message = "Camera access was not granted. You can save without a photo." }
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         message = "Tap Use my location again after allowing precise location."
@@ -167,7 +172,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 check(keep.session == draftSession && backend.authorizationEpoch == draftEpoch)
                 keep.restore(json)
                 savedDrafts = keep.customers.saved
-                showDrafts = keep.customers.active == null && initialName.isBlank() && savedDrafts.isNotEmpty()
+                showDrafts = requestedDrafts || (keep.customers.active == null && initialName.isBlank() && savedDrafts.isNotEmpty())
                 val kept = keep.draft
                 if (kept != null && (!kept.isEmpty() || keep.customers.activeId != null)) {
                     form = kept.form.let { if (it.customerName.isBlank()) it.copy(customerName = initialName.take(200)) else it }
@@ -254,7 +259,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     fun missingNow() = if (edit) CensusRules.missingForChange(name, owner, phone, mode, fix != null, picked != null, CensusRules.addressLine(form, geography))
         else CensusRules.missing(name, owner, phone, channel, subchannel, mode, fix != null, picked != null, address, jpeg != null)
     val marked = if (attempted && edit) missingNow().toSet() else emptySet()
-    fun customerMissing() = CustomerCapture.missing(form, setup, geography, fix != null, jpeg != null)
+    fun customerMissing() = if (completeSubmission) CustomerCapture.missing(form, setup, geography, fix != null, jpeg != null)
+        else CustomerCapture.saveMissing(form)
     // Missing (after a Save attempt) or invalid fields, by contract key, with the message to show under each.
     val customerMarks: Map<String, String> = if (edit) emptyMap() else
         (if (attempted) customerMissing().associate { it.key to it.message } else emptyMap()) + formErrors
@@ -340,6 +346,10 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                     withContext(Dispatchers.IO) { persistDraft(json, ticket) }
                     check(keep.session == draftSession && backend.authorizationEpoch == draftEpoch)
                     keep.replace(next); savedDrafts = next.saved
+                    runCatching { CustomerDraftReminders.update(context, next.saved.size, announce = notice == DRAFT_SAVED) }
+                    if (notice == DRAFT_SAVED && android.os.Build.VERSION.SDK_INT >= 33 &&
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+                        notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
                     reset(keepLocation = false); camera = false; draftRestored = false; showDrafts = list
                     message = notice
                     after()
@@ -360,6 +370,11 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         val next = if (!d.isEmpty() || keep.customers.activeId != null) keep.customers.save(d)
             else keep.customers.copy(active = null)
         storeDrafts(next, "Open a draft to continue, or add another customer.", list = true)
+    }
+    LaunchedEffect(requestedDrafts, draftLoaded) {
+        // Opening Drafts from Home must keep the active form too, not overwrite it or
+        // hit CustomerDrafts.open's protection when another unfinished form is open.
+        if (requestedDrafts && draftLoaded && keep.customers.active?.isEmpty() == false) browseDrafts()
     }
     fun discardDraft(after: () -> Unit = {}) {
         storeDrafts(keep.customers.clear(), "Started again. This draft was discarded; your other drafts were kept.", after = after)
@@ -392,7 +407,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                         check(keep.session == draftSession && backendNow.authorizationEpoch == draftEpoch)
                         keep.replace(completed); savedDrafts = completed.saved
                         reset(); draftRestored = false
-                        savedNotice = if (isOnline(context)) SAVED_ONLINE else SAVED_OFFLINE
+                        savedNotice = if (!completeSubmission) "Customer saved on this phone. Missing details stay Draft when it reaches the office."
+                            else if (isOnline(context)) SAVED_ONLINE else SAVED_OFFLINE
                     }
                 }
                 onQueued?.invoke()
@@ -419,6 +435,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         if (!edit) return CustomerCapture.payload(CensusRules.captureId(), form, geography, System.currentTimeMillis(),
             fix, jpeg?.let { Base64.getEncoder().encodeToString(it) }, acknowledged).also { p ->
                 keep.customers.activeId?.let { p.put("customerDraftId", it) }
+                if (!completeSubmission) p.put("allowIncomplete", true)
             }
         if (edit) return CensusRules.changePayload(CensusRules.captureId(), editing!!.outletId, name,
             CensusRules.addressLine(form, geography).ifEmpty { form.street1 }, owner, phone,
@@ -434,10 +451,10 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         if (busy || (!edit && !draftLoaded)) return // never overwrite drafts before they have loaded
         saveNote = null; staleRetry = false
         if (!edit) {
-            val s = setup ?: run { saveNote = "Connect once to download the customer lists."; return }
+            if (completeSubmission && setup == null) { saveNote = "Connect once to download the customer lists, or use Save customer to finish later."; return }
             val miss = customerMissing()
-            val errors = CustomerCapture.draftErrors(form, s, geography, fix?.optDouble("latitude"), fix?.optDouble("longitude"))
-                .associate { it.field to it.message }
+            val errors = (if (completeSubmission) CustomerCapture.draftErrors(form, setup!!, geography, fix?.optDouble("latitude"), fix?.optDouble("longitude"))
+                else CustomerCapture.saveErrors(form, setup, geography)).associate { it.field to it.message }
             formErrors = errors
             if (miss.isNotEmpty() || errors.isNotEmpty()) {
                 attempted = true
@@ -447,6 +464,8 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 return
             }
             mode = "gps"
+            // Internet-only duplicate checks must never delay saving an incomplete customer.
+            if (!completeSubmission) { queue(build(emptyList())); return }
         } else {
         val miss = missingNow()
         if (miss.isNotEmpty()) {
@@ -535,7 +554,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                     Modifier.fillMaxWidth().testTag("customer-drafts"), !busy)
             }
             if (edit || !showDrafts) {
-            if (!edit) CustomerSections(setup, geography, form, { formErrors = formErrors - changedKeys(form, it); form = it }, customerMarks, ::requester,
+            if (!edit) CustomerSections(setup ?: CustomerCapture.Setup("", emptyList(), CustomerMaster.ReferenceIndex(emptyList())), geography, form, { formErrors = formErrors - changedKeys(form, it); form = it }, customerMarks, ::requester,
                 geoNote, fix, busy, ::useMyLocation, locationNote)
             if (edit) {
             SectionCard("Customer") {
@@ -659,9 +678,12 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             note?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("census-save-note")) }
             if (staleRetry) TonalButton("Try again", ::save, Modifier.fillMaxWidth().testTag("census-retry"), !busy)
             if (!edit) TonalButton("Save as draft", ::saveAsDraft, Modifier.fillMaxWidth().testTag("customer-save-draft"),
-                !busy && draftLoaded && backend != null)
-            PrimaryBottomButton(if (refreshing) "Checking your location…" else if (edit) "Save changes" else "Submit for approval", ::save,
-                Modifier.fillMaxWidth().testTag("census-save"), !busy && (edit || (draftLoaded && setup != null)) && !camera)
+                !busy && draftLoaded && backend != null && !camera)
+            if (!edit) PrimaryBottomButton("Save customer", { completeSubmission = false; save() },
+                Modifier.fillMaxWidth().testTag("customer-save-incomplete"), !busy && draftLoaded && backend != null && !camera)
+            PrimaryBottomButton(if (refreshing) "Checking your location…" else if (edit) "Save changes" else "Submit for approval",
+                { completeSubmission = true; save() }, Modifier.fillMaxWidth().testTag("census-save"),
+                !busy && (edit || (draftLoaded && setup != null)) && !camera)
             }
         }
     }
@@ -731,12 +753,28 @@ private const val OFFLINE_SEARCH = "Address search needs internet. Use my locati
 internal fun CensusPicker(label: String, choices: List<Pair<String, String>>, value: String, onChange: (String) -> Unit, tag: String,
     empty: String = "Choose…") {
     var expanded by remember { mutableStateOf(false) }
+    var manual by remember { mutableStateOf(false) }
     Box {
-        PickerField(label, choices.firstOrNull { it.first == value }?.second, empty, { expanded = true }, Modifier.testTag(tag))
+        PickerField(label, choices.firstOrNull { it.first == value }?.second ?: value.takeIf { it.isNotBlank() }, empty, { manual = false; expanded = true }, Modifier.testTag(tag))
+        // SP-0241: missing lists are never a dead end. A blank can also be collected later.
+        if (expanded && (choices.isEmpty() || manual)) {
+            var typed by remember(value) { mutableStateOf(value) }
+            AlertDialog(onDismissRequest = { expanded = false }, title = { Text(label) },
+                text = { Column {
+                    Text("This list is not saved on the phone yet. Type a value, or leave it blank and complete it later.")
+                    FieldTextField(typed, { typed = it.take(200) }, singleLine = true, modifier = Modifier.testTag("$tag-manual"))
+                } },
+                confirmButton = { TextButton({ onChange(typed.trim()); expanded = false }) { Text("Use value") } },
+                dismissButton = { TextButton({ onChange(""); expanded = false }) { Text("Leave blank") } })
+        } else
         // SP-0176: long lists (Barangay, Customer Group ~90) open a type-to-search list.
         if (choices.size > SEARCH_PICKER_MIN) {
             if (expanded) SearchPickerDialog(label, choices, { onChange(it); expanded = false }, { expanded = false }, tag)
-        } else DropdownMenu(expanded, { expanded = false }) { choices.forEach { choice -> DropdownMenuItem(text = { Text(choice.second) }, onClick = { onChange(choice.first); expanded = false }) } }
+        } else DropdownMenu(expanded, { expanded = false }) {
+            DropdownMenuItem(text = { Text("Leave blank") }, onClick = { onChange(""); expanded = false })
+            choices.forEach { choice -> DropdownMenuItem(text = { Text(choice.second) }, onClick = { onChange(choice.first); expanded = false }) }
+            DropdownMenuItem(text = { Text("Type another value") }, onClick = { manual = true })
+        }
     }
 }
 internal const val SEARCH_PICKER_MIN = 12
@@ -762,7 +800,13 @@ private fun SearchPickerDialog(label: String, choices: List<Pair<String, String>
                             .clickable { onPick(c.first) }.padding(vertical = 12.dp).testTag("$tag-option"))
                     }
                 }
-                TextButton(onDismiss, Modifier.align(androidx.compose.ui.Alignment.End)) { Text("Cancel") }
+                if (shown.isEmpty() && q.isNotBlank()) TextButton({ onPick(q.trim()) }, Modifier.testTag("$tag-use-typed")) {
+                    Text("Use typed value: ${q.trim()}")
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton({ onPick("") }) { Text("Leave blank") }
+                    TextButton(onDismiss) { Text("Cancel") }
+                }
             }
         }
     }
@@ -958,7 +1002,7 @@ private fun CustomerSections(setup: CustomerCapture.Setup?, geography: CustomerC
             CmText("shipToMobileNo", ship["mobileNo"] as String, { onChange(form.copy(shipToMobileNo = it)) }, marks, requester, 20, phone, enabled = !form.sameAsCustomer)
             CmText("shipToEmail", ship["email"] as String, { onChange(form.copy(shipToEmail = it)) }, marks, requester, 200,
                 androidx.compose.ui.text.input.KeyboardType.Email, enabled = !form.sameAsCustomer)
-            Text("You can save missing details as a draft. Complete all required details before Submit for approval; the CDM reviews the profile after sync.",
+            Text("Save customer keeps missing details for later. Submit for approval checks completeness. Storefront photos are optional.",
                 style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.testTag("customer-review-note"))
         }

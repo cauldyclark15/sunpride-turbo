@@ -1106,6 +1106,115 @@ test("SP-0244 final submission closes its draft transactionally; late saves cann
   ).toBe("submitted");
 });
 
+test("geo national pack: keeps the existing small response and includes every barangay on request", async () => {
+  const small = await rep.get("/api/v1/geography/pack");
+  expect(small.body.barangays).toBeUndefined();
+  const full = await rep.get("/api/v1/geography/pack?barangays=all");
+  expect(full.status).toBe(200);
+  expect(full.body.barangaysComplete).toBe(true);
+  const rows = await h.db`select code from ph_barangays order by code`;
+  expect(
+    full.body.barangays.map((/** @type {any} */ r) => r.code).sort(),
+  ).toEqual(rows.map((/** @type {any} */ r) => r.code));
+  const towns = new Set(
+    full.body.municipalities.map((/** @type {any} */ r) => r.code),
+  );
+  expect(
+    full.body.barangays.every((/** @type {any} */ r) =>
+      towns.has(r.municipalityCode),
+    ),
+  ).toBe(true);
+});
+
+test("SP-0241 customer with just identity saves without camera or location and is a visible draft", async () => {
+  const own = await fieldRep();
+  for (const photoJpegBase64 of [undefined, null, ""]) {
+    const p = capture({
+      photoJpegBase64,
+      location: null,
+      ownerName: "",
+      ownerPhone: "",
+      allowIncomplete: true,
+      customer: {
+        registeredName: "SP241 store",
+        firstName: "Ana",
+        customerName: "Ana",
+        mobileNo: "partly typed",
+      },
+    });
+    const result = await own.push(p);
+    expect(result.status).toBe("applied");
+    const customer = await readCustomer(h.db, result.ack.entityId);
+    expect(customer).toMatchObject({
+      registeredName: "SP241 store",
+      customerName: "Ana",
+      completeness: "draft",
+      enrolmentStatus: "provisional",
+    });
+    expect(customer.fieldSubmitted.mobileNo).toBe("partly typed");
+    expect(customer.fieldMissing.length).toBeGreaterThan(0);
+    const photos =
+      await h.db`select 1 from outlet_enrolment_photos ep join outlet_enrolments e on e.id=ep.outlet_enrolment_id where e.outlet_id=${customer.id}`;
+    expect(photos.length).toBe(0);
+    const list = await own.get(
+      "/api/v1/customers?completeness=draft&q=SP241&offset=0",
+    );
+    expect(list.status).toBe(200);
+    expect(
+      list.body.rows.some((/** @type {any} */ r) => r.id === customer.id),
+    ).toBe(true);
+    expect(list.body.statusCounts.draft).toBe(list.body.total);
+    const emptyPage = await own.get(
+      "/api/v1/customers?completeness=draft&q=SP241&offset=1000",
+    );
+    expect(emptyPage.body.rows).toEqual([]);
+    expect(emptyPage.body.statusCounts.draft).toBe(list.body.total);
+  }
+  const withLocation = await own.push(capture({ photoJpegBase64: undefined }));
+  expect(withLocation.status).toBe("applied");
+  expect(await readCustomer(h.db, withLocation.ack.entityId)).toMatchObject({
+    pinStatus: "pending",
+    completeness: "complete",
+  });
+  expect(
+    (await own.push(capture({ photoJpegBase64: "broken-jpeg" }))).status,
+  ).toBe("rejected");
+});
+
+test("SP-0241 missing additional required answers are saved for completion, not refused", async () => {
+  const own = await fieldRep();
+  const [prior] =
+    await h.db`select fields from enrollment_forms where id='customer'`;
+  const key = "cf_24100000000000000000000000000000";
+  const fields = [
+    ...prior.fields,
+    {
+      key,
+      label: "Sample follow-up",
+      kind: "text",
+      choices: [],
+      requiredChannels: ["41"],
+      requiredTypes: [],
+    },
+  ];
+  try {
+    await h.db`update enrollment_forms set fields=${JSON.stringify(fields)}::text::jsonb where id='customer'`;
+    const p = capture();
+    const result = await own.push(p);
+    expect(result.status).toBe("applied");
+    const stored = await readCustomer(h.db, result.ack.entityId);
+    expect(stored.completeness).toBe("draft");
+    expect(
+      stored.fieldMissing.some(
+        (/** @type {any} */ e) => e.field === `customFields.${key}`,
+      ),
+    ).toBe(true);
+    expect(stored.fieldSubmitted.customerName).toBe(p.customer.customerName);
+  } finally {
+    await h.db`update enrollment_forms set fields=${JSON.stringify(prior.fields)}::text::jsonb where id='customer'`;
+  }
+});
+
 test("the old census payload (no customer) still works", async () => {
   const config = (await rep.get("/api/v1/masters/census-config")).body;
   const sub = config.subchannels[0];

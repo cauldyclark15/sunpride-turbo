@@ -39,7 +39,7 @@ class MainActivity : FragmentActivity() {
         setContent {
             FieldApp(environment, dark = dark, backend = backend, features = features,
                 onKeyLoaded = { exportPublicKeyForDev(it) }, biometrics = biometrics,
-                batteryGuide = batteryGuide)
+                batteryGuide = batteryGuide, initialDrafts = intent.getBooleanExtra(com.sunpride.field.census.CustomerDraftReminders.OPEN, false))
         }
     }
 

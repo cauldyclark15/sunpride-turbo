@@ -88,10 +88,17 @@ object CustomerCapture {
                 val postal = rows("postalCodes").groupBy { it.optString("municipalityCode") }
                     .mapValues { (_, values) -> values.map { PostalOption(it.optString("code"),
                         if (it.isNull("area")) null else it.optString("area")) } }
+                val municipalities = rows("municipalities").map {
+                    CustomerMaster.GeoMunicipality(it.getString("code"), it.getString("name"), it.getString("provinceCode")) }
+                val provinceOf = municipalities.associate { it.code to it.provinceCode }
+                val allBarangays = if (pack.optBoolean("barangaysComplete")) {
+                    val grouped = barangays(pack).groupBy { provinceOf[it.municipalityCode] }
+                    rows("provinces").associate { it.getString("code") to grouped[it.getString("code")].orEmpty() }
+                } else emptyMap()
                 return Geography(rows("regions").map { CustomerMaster.GeoRegion(it.getString("code"), it.getString("name")) },
                     rows("provinces").map { CustomerMaster.GeoProvince(it.getString("code"), it.getString("name"), it.getString("regionCode")) },
-                    rows("municipalities").map { CustomerMaster.GeoMunicipality(it.getString("code"), it.getString("name"), it.getString("provinceCode")) },
-                    postal.mapValues { (_, v) -> v.map { it.code }.distinct() }, postalAreas = postal)
+                    municipalities,
+                    postal.mapValues { (_, v) -> v.map { it.code }.distinct() }, allBarangays, postalAreas = postal)
             }
             /** GET /api/v1/geography/pack/barangays?provinceCode=. */
             fun barangays(json: JSONObject): List<CustomerMaster.GeoBarangay> = json.optJSONArray("barangays")?.let { a ->
@@ -287,8 +294,22 @@ object CustomerCapture {
             val key = if (field.key == "mobileNo") "shipToMobileNo" else field.key
             if ((ship[field.key] as? String).isNullOrBlank()) add(Missing(key, "${label(key)} is required."))
         }
+        // SP-0241: a storefront photo is always optional, including approval submission.
         EnrollmentFields.errors(s?.enrollmentFields.orEmpty(), f).forEach { (key,message) -> add(Missing(key,message)) }
     }
+    /** Saving work and submitting a complete profile are separate actions. Lists, camera and
+     * GPS are not prerequisites for saving; the office still checks completeness on approval. */
+    fun saveMissing(f: Form): List<Missing> = buildList {
+        if (f.registeredName.isBlank()) add(Missing("registeredName", "Registered Name is required."))
+        if (customerName(f).isBlank()) add(Missing("firstName", "Enter the person's name."))
+    }
+
+    /** Only size/identity mistakes block an incomplete save. Supplied nonessential values
+     * are preserved verbatim for later correction, not silently lost when lists are absent. */
+    fun saveErrors(f: Form, s: Setup?, g: Geography?): List<CustomerMaster.Error> =
+        draftErrors(f, s ?: Setup("", emptyList(), CustomerMaster.ReferenceIndex(emptyList())), g, null, null)
+            .filter { it.code == "too_long" }
+
     fun label(key: String): String = when (key) {
         "contactPerson", "shipToParty", "shipToAddress" -> CustomerMaster.shipToField(key).label
         "shipToMobileNo" -> CustomerMaster.shipToField("mobileNo").label
@@ -302,7 +323,7 @@ object CustomerCapture {
             "shipToEmail" -> CustomerMaster.shipToField("email")
             else -> CustomerMaster.field(key)
         }
-        return field.label + if (field.required && key != "coordinates") " *" else ""
+        return field.label + if (key in setOf("registeredName", "firstName", "lastName")) " *" else ""
     }
     fun shipTo(f: Form, g: Geography?): Map<String, Any?> = linkedMapOf(
         "sameAsCustomer" to f.sameAsCustomer,
@@ -367,7 +388,12 @@ object CustomerCapture {
         c.keys().forEach { k -> require(k in allowed) { "Unknown customer field $k." } }
         require(p.getString("name").trim().length in 1..200) { "Registered Name is required." }
         require(p.getString("address").trim().length in 1..500) { "Fill in the customer location." }
-        require(p.getString("ownerName").trim().length in 1..150) { "Contact Person is required." }
+        val incomplete = p.optBoolean("allowIncomplete")
+        require(p.optString("ownerName").trim().length <= 150 && (incomplete || p.optString("ownerName").isNotBlank())) { "Contact Person is required." }
+        if (incomplete) {
+            require((c.opt("registeredName") as? String)?.trim()?.isNotEmpty() == true) { "Registered Name is required." }
+            require((c.opt("customerName") as? String)?.trim()?.isNotEmpty() == true) { "Enter the person's name." }
+        }
         val input = HashMap<String, Any?>(); c.keys().forEach { input[it] = if (c.isNull(it)) null else c.get(it) }
         c.optJSONArray("shipTos")?.let { a ->
             require(a.length() in 1..20) { "Add a ship-to." }
@@ -383,11 +409,12 @@ object CustomerCapture {
         }
         val location = p.optJSONObject("location")
         input["latitude"] = location?.getDouble("latitude"); input["longitude"] = location?.getDouble("longitude")
-        val nameErrors = if (CustomerMaster.NAME_FIELDS.any { c.has(it.key) }) CustomerMaster.nameErrors(input) else emptyList()
+        val nameErrors = if (CustomerMaster.NAME_FIELDS.any { c.has(it.key) }) CustomerMaster.nameErrors(input, required = !incomplete) else emptyList()
         require(nameErrors.isEmpty()) { nameErrors.first().message }
-        val errors = CustomerMaster.validate(input, "field", CustomerMaster.ReferenceIndex(emptyList()), null).errors
-            // Reference lists are unavailable here; the form and server check conditional groups.
-            .filter { (it.field == "postalCode" || it.code !in setOf("invalid_option", "not_for_sales_org", "not_for_channel", "not_for_group1", "not_applicable", "choose_parent_first")) &&
+        val errors = CustomerMaster.validate(input, if (incomplete) "draft" else "field", CustomerMaster.ReferenceIndex(emptyList()), null).errors
+            // Reference lists are unavailable here; full submission and the office check them.
+            .filter { if (incomplete) it.code == "too_long" else
+                (it.field == "postalCode" || it.code !in setOf("invalid_option", "not_for_sales_org", "not_for_channel", "not_for_group1", "not_applicable", "choose_parent_first")) &&
                 !(it.code == "required" && it.field in setOf("coordinates", "customerGroup1Code", "customerGroup2Code")) }
         require(errors.isEmpty()) { errors.first().message }
         require(p.optString("locationSource", "gps") == "gps")

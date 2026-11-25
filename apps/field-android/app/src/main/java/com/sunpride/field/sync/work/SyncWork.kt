@@ -65,6 +65,7 @@ class VisitSyncWorker(context: Context, parameters: WorkerParameters) : Coroutin
             if (!SyncWork.shouldRun(before)) return Result.success()
             SafeLog.event(app, "sync_started")
             val data = backend.today(device, backend.loadSigner(), sync = true, scheduleRemainder = false)
+            if (data.syncStatus.health == "synced") runCatching { backend.warmCustomerSetup() }
             outcome(data.syncStatus, app)
         } catch (e: kotlinx.coroutines.CancellationException) {
             SafeLog.event(app, "worker_stopped")

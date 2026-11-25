@@ -26,9 +26,13 @@ class CustomerDraftHolder {
     /** The working form and explicitly saved drafts; persisted together in the existing encrypted phone row. */
     @Volatile var customers = CustomerDrafts()
         private set
+    /** Number of saved drafts, observable by Home and Customers without polling/network. */
+    var savedCount by mutableStateOf(0)
+        private set
+    var openList: Boolean = false
     val draft: CustomerCapture.Draft? get() = customers.active
-    fun restore(json: String?) { customers = CustomerDrafts.parse(json); loaded = true }
-    fun replace(next: CustomerDrafts) { customers = next; loaded = true }
+    fun restore(json: String?) { replace(CustomerDrafts.parse(json)) }
+    fun replace(next: CustomerDrafts) { customers = next; savedCount = next.saved.size; loaded = true }
     /** True once this session's form state is known here (kept, saved or discarded): the phone copy is not re-read. */
     @Volatile var loaded: Boolean = false
         private set
@@ -38,7 +42,7 @@ class CustomerDraftHolder {
     fun keep(d: CustomerCapture.Draft) { customers = customers.keep(d); loaded = true }
 
     /** Submitted or discarded: remove only the open draft, keeping the rest of the draft list. */
-    fun clear() { customers = customers.clear(); loaded = true }
+    fun clear() { replace(customers.clear()) }
 
     /** A number for a phone write, taken when its snapshot is taken. */
     fun ticket(): Long = synchronized(lock) { ++nextTicket }
@@ -54,6 +58,6 @@ class CustomerDraftHolder {
     /** Sign-out: nothing of this session carries over. */
     fun reset() = synchronized(lock) {
         written = ++nextTicket; session++
-        customers = CustomerDrafts(); loaded = false; savedNotice = null
+        customers = CustomerDrafts(); savedCount = 0; openList = false; loaded = false; savedNotice = null
     }
 }

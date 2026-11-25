@@ -348,6 +348,14 @@ export function installCustomers(router, platform) {
     return {
       release: release?.release ?? null,
       postalAreasVersion: 1,
+      // SP-0241: opt-in complete geography for sign-in/sync. Older callers keep the small pack.
+      ...(ctx.url.searchParams.get("barangays") === "all"
+        ? {
+            barangaysComplete: true,
+            barangays:
+              await ctx.db`select code,name,municipality_code as "municipalityCode" from ph_barangays order by municipality_code,name`,
+          }
+        : {}),
       regions: await ctx.db`select code,name from ph_regions order by code`,
       provinces:
         await ctx.db`select code,name,region_code as "regionCode" from ph_provinces order by name`,
