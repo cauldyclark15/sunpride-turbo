@@ -1,5 +1,6 @@
 // SP-0250: one permission and edit projection for web, Android and iOS.
 import {
+  CUSTOMER_NAME_FIELDS,
   FIELDS,
   referenceIndex,
   optionLabel,
@@ -77,10 +78,14 @@ export async function customerEditAccess(c, id, enforce = false) {
   return canEdit;
 }
 
+const OFFICE_FIELDS = FIELDS.flatMap((f) =>
+  f.key === "customerName" ? [f, ...CUSTOMER_NAME_FIELDS] : [f],
+);
+
 /** Comparable sheet facts, not row IDs or derived bookkeeping. @param {any} c */
 function facts(c) {
   /** @type {Record<string,any>} */ const out = {};
-  for (const f of FIELDS) {
+  for (const f of OFFICE_FIELDS) {
     if (f.shipTo) {
       for (const [i, s] of (c.shipTos ?? []).entries())
         out[`shipTos[${i}].${f.key}`] = s[f.key] ?? null;
@@ -107,7 +112,8 @@ export function customerChanges(before, after) {
     .map((field) => ({
       field,
       label:
-        FIELDS.find((f) => f.key === field.split(".").pop())?.label ?? field,
+        OFFICE_FIELDS.find((f) => f.key === field.split(".").pop())?.label ??
+        field,
       before: a[field] ?? null,
       after: b[field] ?? null,
     }));
@@ -136,7 +142,7 @@ export function applyCustomerEdits(existing, edits) {
       input.customFields[custom[1]] = raw;
     } else if (
       ["latitude", "longitude"].includes(key) ||
-      FIELDS.some(
+      OFFICE_FIELDS.some(
         (f) =>
           !f.shipTo && !f.hidden && f.kind !== "coordinates" && f.key === key,
       )
@@ -178,10 +184,16 @@ export async function customerView(c, id) {
   const labels = new Map(
     enrollment.fields.map((f) => [`customFields.${f.key}`, f.label]),
   );
+  const missingFields = [...result.errors, ...custom.errors];
+  const fieldMissing = customer.fieldMissing?.filter((/** @type {any} */ e) =>
+    missingFields.some((current) => current.field === e.field),
+  );
   return {
     ...customer,
     canEdit,
-    missingFields: [...result.errors, ...custom.errors],
+    completeness: missingFields.length ? customer.completeness : "complete",
+    fieldMissing: fieldMissing?.length ? fieldMissing : null,
+    missingFields,
     history: rows.slice(0, 50).map((/** @type {any} */ r) => ({
       id: r.id,
       at: new Date(r.created_at).getTime(),
@@ -283,7 +295,8 @@ export async function customerEditor(c, id, edits = {}) {
               e.field === "coordinates"),
         )?.message ?? null,
     });
-  for (const f of FIELDS) {
+  const editorFields = c.via === "access" ? FIELDS : OFFICE_FIELDS;
+  for (const f of editorFields) {
     if (f.hidden || (f.adp && v.distributionChannelCode !== "40")) continue;
     if (f.shipTo) {
       for (const [i, s] of (v.shipTos.length

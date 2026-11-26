@@ -444,20 +444,9 @@ export async function syncAccountingCustomer(c, outletId) {
 /** Fill server-derived values: Country default, PSGC names, the one-line Customer Address and
  * the first ship-to when "same as customer" is ticked. @param {any} db @param {Record<string, any>} merged @param {Record<string, any>} input @param {Record<string, any>|null} existing */
 export async function derive(db, merged, input, existing) {
-  // SP-0240 rollback: a full-name edit must not be overwritten by saved parts.
-  // Unchanged complete parts are retained; older queued captures still send parts.
-  if (
-    "customerName" in input &&
-    !CUSTOMER_NAME_FIELDS.some((f) => f.key in input) &&
-    (input.customerName !== existing?.customerName ||
-      !text(existing?.firstName) ||
-      !text(existing?.lastName))
-  )
-    for (const f of CUSTOMER_NAME_FIELDS) merged[f.key] = null;
-  if (
-    CUSTOMER_NAME_FIELDS.some((f) => f.key in input) &&
-    hasCustomerNameParts(merged)
-  )
+  // Office full names and manually mapped parts are independent. Combining
+  // explicitly supplied parts is only a fallback for a capture with no full name.
+  if (!text(merged.customerName) && hasCustomerNameParts(merged))
     merged.customerName = formatCustomerName(merged);
   if (!merged.countryCode) merged.countryCode = "PH";
   const geo = await resolveGeography(db, merged);
@@ -534,6 +523,22 @@ export async function saveCustomer(c, b, opts = {}) {
   if (existing?.status === "inactive") rule("This customer is inactive.");
   /** @type {Record<string, any>} */ const merged = { ...(existing ?? {}) };
   for (const key of INPUT_KEYS) if (key in input) merged[key] = input[key];
+  const partsCapture =
+    (opts.fieldCapture || (c.app ?? c.session?.app) === "field-android") &&
+    CUSTOMER_NAME_FIELDS.some((f) => f.key in input);
+  if (!partsCapture && existing)
+    for (const key of [
+      "customerName",
+      ...CUSTOMER_NAME_FIELDS.map((f) => f.key),
+    ])
+      if (
+        (merged[key] == null ||
+          (typeof merged[key] === "string" && !merged[key].trim())) &&
+        text(existing[key])
+      )
+        merged[key] = existing[key];
+  const requireNameParts = partsCapture || !text(merged.customerName);
+  if (partsCapture) merged.customerName = formatCustomerName(merged);
   const [hadProfile] = opts.outletId
     ? await c.db`select 1 from customer_profiles where outlet_id=${opts.outletId} and deleted_at is null`
     : [];
@@ -581,11 +586,7 @@ export async function saveCustomer(c, b, opts = {}) {
     merged.salesPartnerCode = partner?.code ?? null;
     withPartner(lists, partner);
   }
-  // Saved parts are historical data, not requirements of the restored form.
-  // Only explicitly submitted parts use the older structured-capture checks.
-  const requireNameParts = CUSTOMER_NAME_FIELDS.some((f) => f.key in input)
-    ? undefined
-    : false;
+  // Office saves retain Customer Name and all supplied optional name parts.
   let draft = validateCustomer(merged, {
     level: opts.fieldCapture ? "field" : pendingEdit ? "draft" : "complete",
     requireNameParts,
@@ -668,8 +669,6 @@ export async function saveCustomer(c, b, opts = {}) {
     geography: geo,
   });
   const v = draft.value;
-  if (requireNameParts === false)
-    for (const f of CUSTOMER_NAME_FIELDS) v[f.key] = merged[f.key] ?? null;
   const actor = c.actor;
   const reason =
     typeof b.reason === "string" && b.reason.trim()

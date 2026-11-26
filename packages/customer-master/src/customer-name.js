@@ -33,10 +33,12 @@ const text = (v) => (typeof v === "string" ? v.trim() : "");
 export const hasCustomerNameParts = (input) =>
   CUSTOMER_NAME_FIELDS.some((f) => text(input[f.key]) !== "");
 /** @param {Record<string, any>} input */
-export const formatCustomerName = (input) =>
-  CUSTOMER_NAME_FIELDS.map((f) => text(input[f.key]))
+export const formatCustomerName = (input) => {
+  const given = [text(input.firstName), text(input.middleName)]
     .filter(Boolean)
     .join(" ");
+  return [text(input.lastName), given].filter(Boolean).join(", ");
+};
 /** @param {Record<string, any>} input @param {boolean} [required] */
 export function validateCustomerName(input, required = true) {
   /** @type {Record<string,string|null>} */ const value = {};

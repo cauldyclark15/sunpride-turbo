@@ -93,14 +93,16 @@ class AddCustomerScreenTest {
 
     @Test fun fullCaptureQueuesTheCustomerObject() {
         val backend = Backend(config, geography); show(backend)
-        waitTag("customer-customerName")
+        waitTag("customer-firstName")
         rule.onNodeWithText(CustomerMaster.GENERAL).assertExists()
         rule.onNodeWithTag("customer-salesOrgCode").performScrollTo().assertTextContains("SFI (1000)", substring = true)
         rule.onNodeWithTag("customer-registeredName").performScrollTo(); shot("01-general-information")
-        // SP-0240: the restored form uses one required Customer Name.
-        rule.onNodeWithTag("customer-customerName").performScrollTo().assertTextContains("Customer Name *")
-        for (key in listOf("firstName", "middleName", "lastName")) rule.onAllNodesWithTag("customer-$key").assertCountEquals(0)
-        type("customerName", "Aling Nena Store"); type("tradeName", "Nena's"); type("mobileNo", "09175550101")
+        // SP-0240: keep Middle Name blank throughout this complete enrollment.
+        rule.onAllNodesWithTag("customer-customerName").assertCountEquals(0)
+        rule.onNodeWithTag("customer-firstName").performScrollTo().assertTextContains("First Name *")
+        rule.onNodeWithTag("customer-middleName").performScrollTo().assertTextContains("Middle Name")
+        rule.onNodeWithTag("customer-lastName").performScrollTo().assertTextContains("Last Name *")
+        type("firstName", "Aling Nena"); type("lastName", "Store"); type("tradeName", "Nena's"); type("mobileNo", "09175550101")
         choose("customer-taxClassificationCode", "Liable for Taxes (1)")
         choose("customer-regionCode", "Region VII (Central Visayas)"); choose("customer-provinceCode", "Cebu")
         choose("customer-municipalityCode", "City of Cebu"); choose("customer-barangayCode", "Apas")
@@ -134,7 +136,7 @@ class AddCustomerScreenTest {
         rule.waitUntil(10_000) { backend.queued.isNotEmpty() }
         val p = backend.queued.single(); val c = p.getJSONObject("customer")
         assertEquals("Aling Nena Store Inc.", p.getString("name")); assertEquals("Nena Cruz", p.getString("ownerName"))
-        for (key in listOf("firstName", "middleName", "lastName")) assertFalse(c.has(key))
+        assertEquals("Aling Nena", c.getString("firstName")); assertEquals("", c.getString("middleName")); assertEquals("Store", c.getString("lastName"))
         assertEquals("Aling Nena Store", c.getString("customerName"))
         assertEquals("RSS", c.getString("customerGroup2Code")); assertEquals("0730600003", c.getString("barangayCode"))
         assertEquals("12 Gorordo Ave, Apas, City of Cebu, Cebu 6000", c.getString("customerAddress"))
@@ -145,7 +147,7 @@ class AddCustomerScreenTest {
     }
 
     @Test fun allFormerAdminControlsAndConditionalAdpAreVisible() {
-        val backend = Backend(config, geography); show(backend); waitTag("customer-customerName")
+        val backend = Backend(config, geography); show(backend); waitTag("customer-firstName")
         for (key in listOf("taxClassificationCode", "countryCode", "salesOfficeCode", "salesPartnerCode", "paymentTermsCode",
             "creditLimit", "pricingProcedureCode", "deliveringPlantCode", "shipToParty", "shipToAddress", "contactPerson", "shipToMobileNo", "shipToEmail"))
             rule.onNodeWithTag("customer-$key").performScrollTo().assertExists()
@@ -158,12 +160,13 @@ class AddCustomerScreenTest {
 
     @Test fun saveWithMissingFieldsMarksThemAndServicesHasNoGroups() {
         val backend = Backend(config, geography); show(backend)
-        waitTag("customer-customerName")
-        rule.onNodeWithTag("customer-customerName").assertExists()
+        waitTag("customer-firstName")
+        rule.onAllNodesWithTag("customer-customerName").assertCountEquals(0)
         rule.onNodeWithTag("census-save").performClick(); rule.waitForIdle()
-        for (k in listOf("customerName", "registeredName", "mobileNo", "regionCode", "coordinates", "distributionChannelCode", "contactPerson")) waitTag("customer-missing-$k", 3_000)
-        rule.onNodeWithTag("customer-missing-customerName").assertTextContains("Customer Name is required.")
-        for (key in listOf("firstName", "middleName", "lastName")) rule.onAllNodesWithTag("customer-missing-$key").assertCountEquals(0)
+        for (k in listOf("firstName", "lastName", "registeredName", "mobileNo", "regionCode", "coordinates", "distributionChannelCode", "contactPerson")) waitTag("customer-missing-$k", 3_000)
+        rule.onNodeWithTag("customer-missing-firstName").assertTextContains("First Name is required.")
+        rule.onNodeWithTag("customer-missing-lastName").assertTextContains("Last Name is required.")
+        rule.onAllNodesWithTag("customer-missing-middleName").assertCountEquals(0)
         rule.onNodeWithTag("customer-missing-mobileNo").assertTextContains("Mobile No. is required.")
         shot("06-missing-fields")
         choose("customer-distributionChannelCode", "Services (50)")

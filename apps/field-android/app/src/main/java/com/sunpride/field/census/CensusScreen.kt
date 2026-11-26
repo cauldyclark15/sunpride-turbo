@@ -868,7 +868,11 @@ private fun CustomerSections(setup: CustomerCapture.Setup?, geography: CustomerC
         Column(pad, verticalArrangement = Arrangement.spacedBy(12.dp)) {
             CmText("registeredName", form.registeredName, { onChange(form.copy(registeredName = it)) }, marks, requester, 200)
             CmText("tradeName", form.tradeName, { onChange(form.copy(tradeName = it)) }, marks, requester, 200)
-            CmText("customerName", CustomerCapture.customerName(form), { onChange(form.copy(customerName = it, firstName = "", middleName = "", lastName = "")) }, marks, requester, 200)
+            if (form.customerName.isNotBlank() && form.firstName.isBlank() && form.lastName.isBlank())
+                Text("Previous Customer Name: ${form.customerName}. Enter the names separately.", style = MaterialTheme.typography.bodySmall)
+            CmText("firstName", form.firstName, { onChange(form.copy(firstName = it)) }, marks, requester, 200)
+            CmText("middleName", form.middleName, { onChange(form.copy(middleName = it)) }, marks, requester, 200)
+            CmText("lastName", form.lastName, { onChange(form.copy(lastName = it)) }, marks, requester, 200)
             // SP-0220: no separate Customer Address field; Street 1 and the location below are the address.
             CmText("email", form.email, { onChange(form.copy(email = it)) }, marks, requester, 200,
                 androidx.compose.ui.text.input.KeyboardType.Email)

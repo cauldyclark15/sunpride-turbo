@@ -49,7 +49,7 @@ class CustomerCaptureTest {
     private val geography by lazy {
         CustomerCapture.Geography.parse(pack).withBarangays("0702200000", CustomerCapture.Geography.barangays(cebuBarangays))
     }
-    private fun complete() = CustomerCapture.start(setup, "Aling Nena Store").copy(registeredName = "Aling Nena Store Inc.", mobileNo = "0917 555 0101",
+    private fun complete() = CustomerCapture.start(setup, "Aling Nena Store").copy(registeredName = "Aling Nena Store Inc.", firstName = "Aling Nena", lastName = "Store", mobileNo = "0917 555 0101",
         regionCode = "0700000000", provinceCode = "0702200000", municipalityCode = "0730600000", barangayCode = "0730600003",
         houseNo = "12", street1 = "Gorordo Ave", postalCode = "6000", distributionChannelCode = "41", customerGroup1Code = "RSF",
         customerGroup2Code = "RSS", customerGroupCode = "74", typeOfBusiness = "Sole Proprietor", contactPerson = "Nena Cruz",
@@ -102,35 +102,28 @@ class CustomerCaptureTest {
         assertSame(strong, CustomerLocation.best(weak, strong, now))
     }
 
-    @Test fun singleNameSurvivesDraftPayloadAndOutboxAndOldDraftsKeepTheirName() {
-        val f = complete().copy(customerName = "María José Peña O’Neil", firstName = "", lastName = "")
-        assertEquals("Customer Name *", CustomerCapture.formLabel("customerName"))
+    @Test fun separateNamesAreRequiredAndSurviveDraftPayloadAndOutbox() {
+        val f = complete().copy(firstName = "María José", middleName = "Peña", lastName = "O’Neil")
+        assertEquals("First Name *", CustomerCapture.formLabel("firstName"))
+        assertEquals("Middle Name", CustomerCapture.formLabel("middleName"))
+        assertEquals("Last Name *", CustomerCapture.formLabel("lastName"))
         val restored = CustomerCapture.parseDraft(CustomerCapture.draftJson(CustomerCapture.Draft(f, fix, null)))!!.form
         assertEquals(f, restored)
         val p = CustomerCapture.payload(UUID.randomUUID().toString(), restored, geography, 5000L, fix, jpeg)
         CensusRules.validate(p)
         val c = p.getJSONObject("customer")
-        CustomerMaster.NAME_FIELDS.forEach { assertFalse(c.has(it.key)) }
+        assertEquals("María José", c.getString("firstName")); assertEquals("Peña", c.getString("middleName")); assertEquals("O’Neil", c.getString("lastName"))
         assertEquals("María José Peña O’Neil", c.getString("customerName"))
         assertEquals(c.getString("customerName"), c.getJSONArray("shipTos").getJSONObject(0).getString("shipToParty"))
-        assertTrue(CustomerCapture.missing(f, setup, geography, true, true).isEmpty())
-        val blank = f.copy(customerName = " \t ")
-        assertEquals(listOf("customerName"), CustomerCapture.missing(blank, setup, geography, true, true).map { it.key })
+        assertTrue(CustomerCapture.missing(f.copy(middleName = ""), setup, geography, true, true).isEmpty())
+        val blank = f.copy(firstName = " \t ", lastName = "", middleName = "")
+        assertEquals(listOf("firstName", "lastName"), CustomerCapture.missing(blank, setup, geography, true, true).map { it.key })
         val bad = CustomerCapture.payload(UUID.randomUUID().toString(), blank, geography, 5000L, fix, jpeg)
         assertTrue(runCatching { CensusRules.validate(bad) }.isFailure)
-        assertTrue(CustomerCapture.draftErrors(f.copy(customerName = "A".repeat(201)), setup, geography, 10.33, 123.9).any { it.field == "customerName" && it.code == "too_long" })
-        // Old structured drafts survive restart and send their full name on the next save.
-        val old = f.copy(customerName = "Previous name", firstName = "María José", middleName = "Peña", lastName = "O’Neil")
-        val oldRestored = CustomerCapture.parseDraft(CustomerCapture.draftJson(CustomerCapture.Draft(old, fix, null)))!!.form
-        assertEquals("María José Peña O’Neil", CustomerCapture.customerName(oldRestored))
-        val oldPayload = CustomerCapture.payload(UUID.randomUUID().toString(), oldRestored, geography, 5000L, fix, jpeg)
-        CensusRules.validate(oldPayload)
-        assertEquals("María José Peña O’Neil", oldPayload.getJSONObject("customer").getString("customerName"))
-        // Already queued structured operations remain valid and unchanged.
-        val queued = JSONObject(p.toString()).also { it.getJSONObject("customer").put("firstName", "María José").put("middleName", "Peña").put("lastName", "O’Neil") }
-        CensusRules.validate(queued)
-        val edited = oldRestored.copy(customerName = "Ana Reyes", firstName = "", middleName = "", lastName = "")
-        assertEquals("Ana Reyes", CustomerCapture.customerName(CustomerCapture.parseDraft(CustomerCapture.draftJson(CustomerCapture.Draft(edited, fix, null)))!!.form))
+        assertTrue(CustomerCapture.draftErrors(f.copy(firstName = "A".repeat(200)), setup, geography, 10.33, 123.9).any { it.field == "lastName" && it.code == "too_long" })
+        // Pending payloads from an older build remain replayable; legacy text is never split.
+        val old = JSONObject(p.toString()).also { o -> CustomerMaster.NAME_FIELDS.forEach { o.getJSONObject("customer").remove(it.key) } }
+        CensusRules.validate(old)
         val legacy = CustomerCapture.parseDraft(CustomerCapture.draftJson(CustomerCapture.Draft(CustomerCapture.Form(customerName = "CRUZ, María José"), null, null)))!!.form
         assertEquals("CRUZ, María José", legacy.customerName)
         assertEquals("", legacy.firstName); assertEquals("", legacy.lastName)
@@ -230,7 +223,7 @@ class CustomerCaptureTest {
         assertEquals(listOf("barangayCode"), missing(bohol))
         assertEquals(listOf("barangayCode"), missing(complete().copy(barangayCode = "")))
         val blank = CustomerCapture.missing(CustomerCapture.Form(), setup, geography, hasFix = false, hasPhoto = false)
-        assertEquals(listOf("registeredName", "customerName", "mobileNo", "taxClassificationCode", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "street1",
+        assertEquals(listOf("registeredName", "firstName", "lastName", "mobileNo", "taxClassificationCode", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "street1",
             "salesOrgCode", "salesOfficeCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code", "customerGroupCode", "typeOfBusiness",
             "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode", "contactPerson", "photo"), blank.map { it.key })
         assertEquals("Registered Name is required.", blank.first().message)
@@ -252,7 +245,7 @@ class CustomerCaptureTest {
         val c = p.getJSONObject("customer")
         assertEquals("12 Gorordo Ave, Apas, City of Cebu, Cebu 6000", c.getString("customerAddress"))
         assertEquals(c.getString("customerAddress"), p.getString("address"))
-        assertEquals(listOf("registeredName", "customerName", "mobileNo", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "houseNo",
+        assertEquals(listOf("registeredName", "firstName", "middleName", "lastName", "customerName", "mobileNo", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "houseNo",
             "street1", "postalCode", "salesOrgCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code",
             "customerGroupCode", "typeOfBusiness", "customerAddress", "countryCode", "taxClassificationCode", "salesOfficeCode",
             "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode", "shipTos").sorted(), c.keys().asSequence().toList().sorted())
@@ -338,7 +331,7 @@ class CustomerCaptureTest {
     }
 
     @Test fun everyRequiredAgentFieldBlocksSaveIncludingWhitespaceAndMissingOfflineLists() {
-        val required = listOf("registeredName", "customerName", "mobileNo", "regionCode", "provinceCode", "municipalityCode",
+        val required = listOf("registeredName", "firstName", "lastName", "mobileNo", "regionCode", "provinceCode", "municipalityCode",
             "barangayCode", "street1", "salesOrgCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code",
             "customerGroupCode", "typeOfBusiness", "contactPerson")
         for (key in required) for (blank in listOf("", " \t ")) {
@@ -357,7 +350,7 @@ class CustomerCaptureTest {
 
     @Test fun outboxCannotQueueAnIncompleteCustomerEvenWithoutTheScreenCheck() {
         val ok = CustomerCapture.payload(UUID.randomUUID().toString(), complete(), geography, 5000L, fix, jpeg)
-        for (key in listOf("registeredName", "customerName", "mobileNo", "regionCode", "provinceCode",
+        for (key in listOf("registeredName", "customerName", "firstName", "lastName", "mobileNo", "regionCode", "provinceCode",
             "municipalityCode", "barangayCode", "street1", "salesOrgCode", "distributionChannelCode", "customerGroupCode", "typeOfBusiness", "countryCode", "taxClassificationCode",
             "salesOfficeCode", "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode")) {
             for (blank in listOf(null, JSONObject.NULL, "", " \t ")) {

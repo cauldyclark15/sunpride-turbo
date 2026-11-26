@@ -408,6 +408,7 @@ describe("SP-0170 customer writer", () => {
       customer: {
         firstName: "Aling Rosa",
         lastName: "Mini Mart",
+        customerName: "Aling Rosa Mini Mart",
         creditLimit: 20000,
         shipTos: [
           { sameAsCustomer: true, contactPerson: "Rosa" },
@@ -688,6 +689,7 @@ describe("SP-0170 customer writer", () => {
         customer: customer({
           firstName: "Aling Nena",
           lastName: "Sari-Sari Store",
+          customerName: "Aling Nena Sari-Sari Store",
           registeredName: "Nena Dela Paz",
           mobileNo: "09185550199",
           // Keep a distinct valid pin so duplicate assertions still isolate name/phone.
@@ -1321,101 +1323,92 @@ describe("SP-0246 postal codes", () => {
 });
 
 describe("SP-0240 separate customer names", () => {
-  test("full names refuse missing/blank input without writes; older structured captures still save and edit", async () => {
-    const count = async () =>
-      (await h.db`select count(*)::int n from outlets`)[0].n;
-    const before = await count();
+  test("office names and mapped parts save independently without losing either value", async () => {
+    const before = (await h.db`select count(*)::int n from outlets`)[0].n;
     for (const missing of [undefined, null, "", " \t "]) {
-      const input = /** @type {Record<string, any>} */ (
-        customer({ customerName: missing })
-      );
-      delete input.firstName;
-      delete input.lastName;
+      const input = customer({
+        customerName: missing,
+        firstName: undefined,
+        lastName: undefined,
+      });
       const bad = await call("admin", "POST", "/api/v1/customers", {
         custodianOrgUnitId: UNIT,
         customer: input,
       });
-      expect(bad.status, JSON.stringify(bad.body)).toBe(422);
+      expect(bad.status).toBe(422);
       expect(
         bad.body.error.details.errors.map((/** @type {any} */ e) => e.field),
-      ).toEqual(["customerName", "shipTos[0].shipToParty"]);
+      ).toEqual(["firstName", "lastName", "shipTos[0].shipToParty"]);
     }
-    expect(await count()).toBe(before);
-    const made = await call(
-      "admin",
-      "POST",
-      "/api/v1/customers",
-      {
-        custodianOrgUnitId: UNIT,
-        customer: customer({
-          firstName: " María José ",
-          middleName: " ",
-          lastName: " de la Cruz ",
-          customerName: "Wrong Order",
-        }),
-      },
-      crypto.randomUUID(),
-    );
+    expect((await h.db`select count(*)::int n from outlets`)[0].n).toBe(before);
+    const made = await call("admin", "POST", "/api/v1/customers", {
+      custodianOrgUnitId: UNIT,
+      customer: customer({
+        customerName: "CRUZ, María José",
+        firstName: " María José ",
+        middleName: " ",
+        lastName: " de la Cruz ",
+      }),
+    });
     expect(made.status, JSON.stringify(made.body)).toBe(200);
     const id = made.body.id;
-    const expected = {
+    expect(made.body).toMatchObject({
+      customerName: "CRUZ, María José",
       firstName: "María José",
       middleName: null,
       lastName: "de la Cruz",
-      customerName: "María José de la Cruz",
-    };
-    expect(made.body).toMatchObject(expected);
-    expect(
-      (await call("admin", "GET", `/api/v1/customers/${id}`)).body,
-    ).toMatchObject(expected);
-    expect((await accounting(id))[0].name).toBe(expected.customerName);
-    expect(made.body.shipTos[0].shipToParty).toBe(expected.customerName);
-    expect(
-      (
-        await h.db`select first_name,middle_name,last_name from customer_profiles where outlet_id=${id}`
-      )[0],
-    ).toEqual({
-      first_name: "María José",
-      middle_name: null,
-      last_name: "de la Cruz",
     });
-    const edited = await call("admin", "PUT", `/api/v1/customers/${id}`, {
+    const mapped = await call("admin", "PUT", `/api/v1/customers/${id}`, {
       customer: { middleName: " Peña ", lastName: " O’Neil " },
     });
-    expect(edited.status, JSON.stringify(edited.body)).toBe(200);
-    expect(edited.body).toMatchObject({
+    expect(mapped.status, JSON.stringify(mapped.body)).toBe(200);
+    expect(mapped.body).toMatchObject({
+      customerName: "CRUZ, María José",
       firstName: "María José",
       middleName: "Peña",
       lastName: "O’Neil",
-      customerName: "María José Peña O’Neil",
     });
-    expect((await accounting(id))[0].name).toBe("María José Peña O’Neil");
-    expect(edited.body.shipTos[0].shipToParty).toBe("María José Peña O’Neil");
+    for (const blank of [null, "", " \t "]) {
+      const saved = await call("admin", "PUT", `/api/v1/customers/${id}`, {
+        customer: {
+          customerName: blank,
+          firstName: blank,
+          middleName: blank,
+          lastName: blank,
+        },
+      });
+      expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+      expect(saved.body).toMatchObject({
+        customerName: "CRUZ, María José",
+        firstName: "María José",
+        middleName: "Peña",
+        lastName: "O’Neil",
+      });
+    }
+    const renamed = await call("admin", "PUT", `/api/v1/customers/${id}`, {
+      customer: { customerName: "O’Neil, María José Peña" },
+    });
+    expect(renamed.status).toBe(200);
     const reopened = (await call("admin", "GET", `/api/v1/customers/${id}`))
       .body;
-    const refused = await call("admin", "PUT", `/api/v1/customers/${id}`, {
-      customer: { firstName: " " },
-    });
-    expect(refused.status).toBe(422);
-    expect(
-      (await call("admin", "GET", `/api/v1/customers/${id}`)).body,
-    ).toEqual(reopened);
-    const cleared = await call("admin", "PUT", `/api/v1/customers/${id}`, {
-      customer: { middleName: null },
-    });
-    expect(cleared.status).toBe(200);
-    expect(cleared.body).toMatchObject({
+    expect(reopened).toMatchObject({
+      customerName: "O’Neil, María José Peña",
       firstName: "María José",
-      middleName: null,
+      middleName: "Peña",
       lastName: "O’Neil",
-      customerName: "María José O’Neil",
+      completeness: "complete",
     });
-    const found = await call(
-      "admin",
-      "GET",
-      `/api/v1/customers?q=${encodeURIComponent("María José O’Neil")}`,
+    expect(reopened.shipTos[0].shipToParty).toBe(reopened.customerName);
+    expect((await accounting(id))[0].name).toBe(reopened.customerName);
+    expect(
+      reopened.history.flatMap((/** @type {any} */ e) => e.changes),
+    ).toContainEqual(
+      expect.objectContaining({
+        field: "middleName",
+        label: "Middle Name",
+        after: "Peña",
+      }),
     );
-    expect(found.body.rows.map((/** @type {any} */ r) => r.id)).toContain(id);
   });
   test("restored single-name create, validation, reopen, edit and approval keep full names consistent", async () => {
     const input = customer({
@@ -1466,10 +1459,7 @@ describe("SP-0240 separate customer names", () => {
       const bad = await call("admin", "PUT", `/api/v1/customers/${id}`, {
         customer: { customerName: blank },
       });
-      expect(bad.status).toBe(422);
-      expect(
-        bad.body.error.details.errors.map((/** @type {any} */ e) => e.field),
-      ).toEqual(["customerName", "shipTos[0].shipToParty"]);
+      expect(bad.status).toBe(200);
       expect((await read()).customerName).toBe("María José Peña O’Neil");
     }
     const edited = await call("admin", "PUT", `/api/v1/customers/${id}`, {
@@ -1478,9 +1468,9 @@ describe("SP-0240 separate customer names", () => {
     expect(edited.status, JSON.stringify(edited.body)).toBe(200);
     expect(await read()).toMatchObject({
       customerName: "REYES, María José",
-      firstName: null,
-      middleName: null,
-      lastName: null,
+      firstName: "María José",
+      middleName: "Peña",
+      lastName: "O’Neil",
     });
     expect((await accounting(id))[0].name).toBe("REYES, María José");
     expect(edited.body.shipTos[0].shipToParty).toBe("REYES, María José");
@@ -1508,7 +1498,7 @@ describe("SP-0240 separate customer names", () => {
     expect(repaired.status, JSON.stringify(repaired.body)).toBe(200);
     expect(await read()).toMatchObject({
       customerName: "REYES, María José",
-      firstName: null,
+      firstName: "REYES, María José",
       lastName: null,
       completeness: "complete",
     });
@@ -1559,7 +1549,7 @@ describe("SP-0240 separate customer names", () => {
         for (const key of ["firstName", "middleName", "lastName"])
           expect(
             editor.body.fields.some((/** @type {any} */ f) => f.key === key),
-          ).toBe(false);
+          ).toBe(true);
         const approved = await call(
           role,
           "POST",
@@ -1694,7 +1684,7 @@ describe("SP-0240 separate customer names", () => {
     expect(corrected.status, JSON.stringify(corrected.body)).toBe(200);
     expect(corrected.body).toMatchObject({
       customerName: "Ana Reyes",
-      firstName: null,
+      firstName: "María José",
       middleName: null,
       lastName: null,
     });
@@ -1703,6 +1693,95 @@ describe("SP-0240 separate customer names", () => {
         .status,
     ).toBe(200);
     expect((await accounting(id))[0].name).toBe("Ana Reyes");
+  });
+  test("phone captures build Last, First Middle while middle remains optional", async () => {
+    const [agent] =
+      await h.db`select user_id from profiles where email='agent@sunpride.test'`;
+    const [file] =
+      await h.db`insert into files(purpose,sha256,mime,size,status,created_by) values('outlet_photo',${"d".repeat(64)},'image/jpeg',100,'stored',${agent.user_id}) returning id`;
+    for (const middleName of ["", "María"]) {
+      const proposed = await call(
+        "agent",
+        "POST",
+        "/api/v1/outlets/enrolment/propose",
+        {
+          name: "Phone example",
+          address: "Gorordo Ave, Apas, City of Cebu, Cebu",
+          contactName: "Owner",
+          latitude: 10.3,
+          longitude: 123.9,
+          photoStorageIds: [file.id],
+          clientRequestId: crypto.randomUUID(),
+          customer: customer({
+            customerName: "old phone display value",
+            firstName: "Ruchie",
+            middleName,
+            lastName: "Doronila",
+          }),
+        },
+      );
+      expect(proposed.status, JSON.stringify(proposed.body)).toBe(200);
+      const saved = await readCustomer(h.db, proposed.body.outletId);
+      const expected = `Doronila, Ruchie${middleName ? " María" : ""}`;
+      expect(saved).toMatchObject({
+        customerName: expected,
+        firstName: "Ruchie",
+        middleName: middleName || null,
+        lastName: "Doronila",
+        completeness: "complete",
+      });
+      expect(saved.shipTos[0].shipToParty).toBe(expected);
+    }
+  });
+  test("the correction repairs name-only draft flags without changing names or waiving other missing fields", async () => {
+    const ids = [];
+    for (const extra of [false, true, false]) {
+      const made = await call("admin", "POST", "/api/v1/customers", {
+        custodianOrgUnitId: UNIT,
+        customer: customer({ firstName: undefined, lastName: undefined }),
+      });
+      expect(made.status).toBe(200);
+      ids.push(made.body.id);
+      const errors = [
+        { field: "firstName", message: "First Name is required." },
+        { field: "lastName", message: "Last Name is required." },
+      ];
+      if (extra)
+        errors.push({ field: "street1", message: "Street 1 is required." });
+      if (ids.length === 1)
+        await h.db`update customer_profiles set completeness='draft',field_missing=${JSON.stringify(errors)}::text::jsonb where outlet_id=${made.body.id}`;
+      else
+        await h.db`update customer_profiles set completeness='draft',field_missing=${JSON.stringify(errors)}::jsonb where outlet_id=${made.body.id}`;
+    }
+    const sql = await Bun.file(
+      new URL(
+        "../../../packages/db/migrations/0851_customer_office_names.sql",
+        import.meta.url,
+      ),
+    ).text();
+    await h.db.unsafe(sql);
+    await h.db.unsafe(sql);
+    const repaired = await readCustomer(h.db, ids[0]);
+    const incomplete = await readCustomer(h.db, ids[1]);
+    expect(repaired).toMatchObject({
+      customerName: "Aling Rosa Store",
+      firstName: null,
+      middleName: null,
+      lastName: null,
+      completeness: "complete",
+      fieldMissing: null,
+    });
+    expect(incomplete.completeness).toBe("draft");
+    expect((await readCustomer(h.db, ids[2])).completeness).toBe("complete");
+    expect(incomplete.fieldMissing).toHaveLength(3);
+    const listed = await call(
+      "admin",
+      "GET",
+      `/api/v1/customers?q=${repaired.code}&completeness=complete`,
+    );
+    expect(listed.body.rows.map((/** @type {any} */ r) => r.id)).toContain(
+      ids[0],
+    );
   });
   test("legacy names remain intact without guessed parts until the office explicitly supplies them", async () => {
     const [row] =

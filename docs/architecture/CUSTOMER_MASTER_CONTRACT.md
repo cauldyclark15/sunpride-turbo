@@ -14,23 +14,22 @@ Shared rules: `@sunpride/customer-master` (pure JS; import it on web for live fo
 upload previews). It exports `FIELDS`, `SECTIONS`, `validateCustomer`, `formatAddress`,
 `optionLabel`, `normalizeTin`, `normalizePhMobile`, `shipToFromCustomer`, `ERROR_CODES`.
 
-## SP-0240: single Customer Name restored
+## SP-0240: Customer Name and manual name mapping
 
-At the client's request to hold separate names and restore the previous form, web and Android
-use one required `customerName` input (Customer Name, at most 200 characters). Saved full names
-remain intact; historical Android drafts with only separate parts show their combined name.
-The current forms send the single name to display/search, accounting and copied ship-to readers.
+The website shows editable Customer Name together with First Name, Middle Name and Last Name.
+A saved Customer Name is kept intact; first and last names are not required when it exists, and
+empty parts alone cannot make a customer incomplete or block saving/approval. Office staff map
+parts themselves. Changing Customer Name never clears parts, and mapping parts never overwrites
+the full name. Blank office name values do not erase existing names. No names are auto-split.
 
-The nullable `firstName`, `middleName`, and `lastName` columns and older structured capture contract
-remain for compatibility, not visible enrollment controls. An unchanged full name preserves complete
-stored parts. A full-name edit, or a single-name save of an older partial capture, clears superseded
-parts so they cannot overwrite the full name or require hidden fields.
-Older queued captures explicitly sending parts still follow their original validation and naming
-rules. Office completeness, approval and the shared Edit customer form validate only Customer Name,
-including records with incomplete historical parts; unrelated edits must not rebuild the full name
-from those parts. Successful approval clears obsolete missing-field notices. No existing records
-are bulk rewritten and no columns are removed. Imports and incomplete field-capture recovery keep
-their existing contracts.
+The Field Android form remains identical to main, with its separate required First/Last Name
+and optional Middle Name. A phone capture's combined name is stored as `Last, First Middle`;
+Customer Name remains the display/search/accounting and copied ship-to name. Old single-name
+captures remain readable. Imports keep their single-name contract.
+
+Migration 0851 corrects only completeness/missing-field flags caused entirely by retired split-name
+required errors on records that already have a full name. It never changes any name. Other missing
+or invalid customer details retain their existing rules.
 
 ## 1. Field keys and the client's labels (sheet order)
 

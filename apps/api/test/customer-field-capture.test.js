@@ -242,7 +242,7 @@ test("Add customer capture becomes a prospect customer with a complete pending p
     firstName: "Aling Nena",
     middleName: null,
     lastName: "Store",
-    customerName: "Aling Nena Store",
+    customerName: "Store, Aling Nena",
     tradeName: "Nena's",
     completeness: "complete",
     enrolmentStatus: "provisional",

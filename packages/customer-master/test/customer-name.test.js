@@ -23,7 +23,7 @@ describe("SP-0240 individual customer names", () => {
         firstName: "María José",
         middleName: null,
         lastName: "de la Cruz",
-        customerName: "María José de la Cruz",
+        customerName: "de la Cruz, María José",
       },
       errors: [],
     });
@@ -33,7 +33,7 @@ describe("SP-0240 individual customer names", () => {
         middleName: "Peña",
         lastName: "O’Neil",
       }),
-    ).toBe("Anne-Marie Peña O’Neil");
+    ).toBe("O’Neil, Anne-Marie Peña");
     for (const blank of [undefined, null, "", " \t "]) {
       expect(
         validateCustomerName({
@@ -108,7 +108,7 @@ describe("SP-0240 individual customer names", () => {
       firstName: "Rosa",
       middleName: "M.",
       lastName: "Cruz",
-      customerName: "Rosa M. Cruz",
+      customerName: "Cruz, Rosa M.",
     });
     const legacy = validateCustomer(
       { customerName: "CRUZ, Rosa M." },

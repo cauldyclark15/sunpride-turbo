@@ -1,6 +1,10 @@
 // SP-0170: one validation of the client's customer record for API, web and uploads.
 // Pure JS (no I/O): the caller passes the reference rows and the resolved geography records.
-import { hasCustomerNameParts, validateCustomerName } from "./customer-name.js";
+import {
+  CUSTOMER_NAME_FIELDS,
+  hasCustomerNameParts,
+  validateCustomerName,
+} from "./customer-name.js";
 import {
   ADP_CHANNEL,
   CUSTOMER_FIELDS,
@@ -195,14 +199,19 @@ export function validateCustomer(input, ctx) {
       message,
       ...(i === undefined ? {} : { index: i }),
     });
-  // SP-0240 rollback: stored customers are checked by their single editable name.
-  // Auto-detect parts only for older captures that still explicitly submit them.
+  // Phones still derive their display name from required split names. Office
+  // users can map optional parts without replacing the saved Customer Name.
   const structuredName = ctx.requireNameParts ?? hasCustomerNameParts(input);
   if (structuredName) {
     const name = validateCustomerName(input, level !== "draft");
     Object.assign(value, name.value);
     errors.push(...name.errors);
     input = { ...input, customerName: name.value.customerName };
+  } else {
+    const name = validateCustomerName(input, false);
+    for (const f of CUSTOMER_NAME_FIELDS)
+      if (f.key in input) value[f.key] = name.value[f.key];
+    errors.push(...name.errors);
   }
   const app = applicability(index, input);
   /** @param {FieldSpecRef} f */

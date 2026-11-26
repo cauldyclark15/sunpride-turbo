@@ -22,7 +22,9 @@ import {
 } from "@sunpride/customer-master";
 
 export { ADP_CHANNEL, FIELDS, SECTIONS, SHIP_TO_FIELDS, optionLabel };
-const EDITOR_FIELDS = FIELDS;
+const EDITOR_FIELDS = FIELDS.flatMap((f) =>
+  f.key === "customerName" ? [f, ...CUSTOMER_NAME_FIELDS] : [f],
+);
 
 export type FieldSpec = (typeof FIELDS)[number];
 export type Section = (typeof SECTIONS)[number];
@@ -337,8 +339,7 @@ export function setField(
     }
   if (key === "distributionChannelCode" && value !== ADP_CHANNEL)
     for (const k of ADP_KEYS) values[k] = "";
-  if (CUSTOMER_NAME_FIELDS.some((f) => f.key === key))
-    values.customerName = formatCustomerName(values);
+  // Office mapping edits are independent of the saved full name.
   const next = { ...d, values, names };
   // SP-0220: Street 1 and the location are the address; changing them replaces an older
   // custom line (the server does the same).
@@ -453,6 +454,8 @@ export function requiredMarks(
     if (f.key === "customerGroup1Code") r = a.group1 !== false;
     if (f.key === "customerGroup2Code")
       r = a.group1 !== false && a.group2 !== false;
+    if (CUSTOMER_NAME_FIELDS.some((part) => part.key === f.key))
+      r = f.required && !d.values.customerName?.trim();
     out[f.key] = r;
   }
   return out;
@@ -470,7 +473,11 @@ export function toPayload(d: Draft, a?: { adp: boolean }) {
       normalizeCustomerText(f.key, d.values[f.key] ?? ""),
     );
   }
-  // SP-0240 rollback: submit the editable full name, not hidden historical parts.
+  // SP-0240: office staff map parts independently of the saved full name.
+  for (const f of CUSTOMER_NAME_FIELDS)
+    customer[f.key] = blankToNull(
+      normalizeCustomerText(f.key, d.values[f.key] ?? ""),
+    );
   // SP-0220: Customer Address is no longer typed; the server builds it from Street 1 and the
   // location fields (an older custom address is kept until those change).
   delete customer.customerAddress;
@@ -517,6 +524,7 @@ export function checkDraft(
   const r = validateCustomer(input, {
     level: level === "pending" ? "draft" : level,
     lists: index,
+    requireNameParts: !String(input.customerName ?? "").trim(),
   });
   // A "same as customer" ship-to repeats the customer's own fields: report those once, there.
   const copied = new Set(["shipToParty", "shipToAddress", "mobileNo", "email"]);

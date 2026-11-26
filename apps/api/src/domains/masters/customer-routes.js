@@ -176,6 +176,7 @@ export function installCustomers(router, platform) {
     const geography = await derive(ctx.db, customer, ctx.body.customer, null);
     const result = validateCustomer(customer, {
       level,
+      requireNameParts: !String(customer.customerName ?? "").trim(),
       lists: await referenceRows(ctx.db),
       geography,
     });

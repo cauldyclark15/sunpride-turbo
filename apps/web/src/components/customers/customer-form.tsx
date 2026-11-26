@@ -351,7 +351,16 @@ export function CustomerForm({
         }
         type={f.kind === "email" ? "email" : "text"}
         aria-required={marks[f.key] || undefined}
-        autoComplete={f.key === "customerName" ? "name" : undefined}
+        autoComplete={
+          (
+            {
+              customerName: "name",
+              firstName: "given-name",
+              middleName: "additional-name",
+              lastName: "family-name",
+            } as Record<string, string>
+          )[f.key]
+        }
         placeholder={
           f.kind === "mobile"
             ? "09XXXXXXXXX"

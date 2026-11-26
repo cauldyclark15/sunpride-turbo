@@ -378,16 +378,16 @@ it("SP-0223 read-only people cannot change visit frequency on the customer scree
   expect(view().canEdit).toBe(false);
 });
 
-describe("SP-0240 restores the single Customer Name field", () => {
+describe("SP-0240 keeps full Customer Name and manual split-name mapping", () => {
   it.each(["new", "prospect", "active"] as const)(
-    "requires a full name for a %s customer without separate name controls",
+    "keeps a full name editable for a %s customer alongside optional name controls",
     async (status) => {
       if (status !== "new") state.customer = customer(complete(), status);
       const html = render();
       expect(html).toContain('id="cm-customerName"');
       expect(state.inputs.get("cm-customerName")?.["aria-required"]).toBe(true);
       for (const key of ["firstName", "middleName", "lastName"])
-        expect(html).not.toContain(`id="cm-${key}"`);
+        expect(html).toContain(`id="cm-${key}"`);
       view().onChange(complete());
       render();
       const change = (value: string) => {
@@ -398,12 +398,23 @@ describe("SP-0240 restores the single Customer Name field", () => {
         )({ target: { value } });
         render();
       };
+      view().onChange({
+        ...complete(),
+        values: {
+          ...complete().values,
+          firstName: "",
+          lastName: "",
+          middleName: "",
+        },
+      });
+      render();
       change(" \t ");
       await view().onSave?.();
       render();
       expect(state.mutate).not.toHaveBeenCalled();
       expect(view().errors).toMatchObject({
-        customerName: "Customer Name is required.",
+        firstName: "First Name is required.",
+        lastName: "Last Name is required.",
       });
       change("mARÍA jOSÉ de la cruz");
       await view().onSave?.();
@@ -412,7 +423,7 @@ describe("SP-0240 restores the single Customer Name field", () => {
       const saved = state.mutate.mock.calls[0]![1].customer;
       expect(saved.customerName).toBe("María José De La Cruz");
       for (const key of ["firstName", "middleName", "lastName"])
-        expect(saved).not.toHaveProperty(key);
+        expect(saved).toHaveProperty(key, null);
     },
   );
   it.each(["admin", "approver"])(
@@ -443,7 +454,7 @@ describe("SP-0240 restores the single Customer Name field", () => {
         "REYES, María José",
       );
       for (const key of ["firstName", "middleName", "lastName"])
-        expect(html).not.toContain(`id="cm-${key}"`);
+        expect(html).toContain(`id="cm-${key}"`);
       await view().onApprove?.();
       expect(state.mutate).toHaveBeenCalledTimes(1);
       expect(state.mutate.mock.calls[0]?.[0]).toBe(
@@ -451,6 +462,43 @@ describe("SP-0240 restores the single Customer Name field", () => {
       );
       expect(render()).toContain("Approved. Customer Code SAMPLE-213.");
       expect(view().draft.values.customerName).toBe("REYES, María José");
+    },
+  );
+  it.each(["admin", "approver"])(
+    "lets the %s map optional name parts without changing the saved full name",
+    async (role) => {
+      state.permissions = role === "admin" ? null : ["outlet.enrol.approve"];
+      state.customer = {
+        ...customer(complete()),
+        customerName: "Doronila, Ruchie",
+        firstName: null,
+        middleName: null,
+        lastName: null,
+        canEdit: true,
+      };
+      render();
+      expect(view().errors).toEqual({});
+      for (const key of ["firstName", "middleName", "lastName"])
+        expect(
+          state.inputs.get(`cm-${key}`)?.["aria-required"],
+        ).toBeUndefined();
+      const change = (key: string, value: string) => {
+        (
+          state.inputs.get(`cm-${key}`)!.onChange as (e: {
+            target: { value: string };
+          }) => void
+        )({ target: { value } });
+        render();
+      };
+      change("firstName", "Ruchie");
+      expect(view().draft.values.customerName).toBe("Doronila, Ruchie");
+      await view().onSave?.();
+      expect(state.mutate.mock.calls[0]?.[1].customer).toMatchObject({
+        customerName: "Doronila, Ruchie",
+        firstName: "Ruchie",
+        middleName: null,
+        lastName: null,
+      });
     },
   );
   it.each([
