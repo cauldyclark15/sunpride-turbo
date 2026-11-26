@@ -17,6 +17,10 @@ import {
   type CustomerFilters,
 } from "../../customers/customer-list";
 import { LIST_FILTER_KEYS, type CustomerStatus } from "../../customers/model";
+import {
+  customerListHref,
+  customerRecordHref,
+} from "../../customers/list-navigation";
 import { CustomerUpload } from "../../customer-upload/customer-upload";
 import { usePermissions } from "../../../lib/auth";
 import { useApi } from "../../../lib/api";
@@ -160,11 +164,13 @@ export function StoresView({
   csv,
   now: nowProp,
   link = (href) => href,
+  listParams = new URLSearchParams(),
 }: {
   data: StoresResponse;
   csv: string;
   now?: number;
   link?: (href: string) => string;
+  listParams?: URLSearchParams;
 }) {
   const now = nowProp ?? data.freshness.asOf;
   return (
@@ -193,9 +199,7 @@ export function StoresView({
           columns={storeColumns(now)}
           rows={data.rows}
           rowKey={(r) => r.storeId}
-          rowHref={(r) =>
-            link(`/customers/customer?storeId=${encodeURIComponent(r.storeId)}`)
-          }
+          rowHref={(r) => link(customerRecordHref(r.storeId, listParams))}
           empty={
             <EmptyState variant="zero" title="No store sales in this period" />
           }
@@ -432,9 +436,7 @@ function CustomersListTab({
         })
       }
       onEdit={onEdit ? (r) => onEdit(r.id) : undefined}
-      customerHref={(r) =>
-        link(`/customers/customer?storeId=${encodeURIComponent(r.id)}`)
-      }
+      customerHref={(r) => link(customerRecordHref(r.id, params))}
     />
   );
 }
@@ -444,7 +446,7 @@ const PERFORMANCE_VIEWS = ["distribution", "retail"] as const;
 /** Figures for the period: the only tab with the period filter. */
 function PerformanceTab() {
   const [view, setView] = useUrlTab(PERFORMANCE_VIEWS, "distribution", "view");
-  const { query, link } = usePageQuery([]);
+  const { query, params, link } = usePageQuery([]);
   // The top 200 stores (API limit) are enough for a ranked sales table.
   const result = useAnalytics("stores", { ...query, limit: "200" });
   return (
@@ -477,6 +479,7 @@ function PerformanceTab() {
               data={data}
               csv={csvHref("stores", query)}
               link={link}
+              listParams={params}
             />
           )}
         </PageData>
@@ -833,7 +836,7 @@ export function StorePage() {
         <h1 className="text-[26px] font-semibold tracking-tight text-foreground">
           Customer
         </h1>
-        <Link href={link("/customers")} className={buttonClass}>
+        <Link href={link(customerListHref(params))} className={buttonClass}>
           All customers
         </Link>
       </div>
@@ -882,7 +885,7 @@ export function StorePage() {
 }
 
 function StorePerformance({ storeId }: { storeId: string }) {
-  const { query, link } = usePageQuery(["storeId"]);
+  const { query, params, link } = usePageQuery(["storeId"]);
   const result = useAnalytics("store", { ...query, storeId });
   return (
     <CockpitPage
@@ -897,7 +900,14 @@ function StorePerformance({ storeId }: { storeId: string }) {
       }
     >
       <PageData result={result} label="this customer">
-        {(data) => <StoreView data={data} link={link} />}
+        {(data) => (
+          <StoreView
+            data={data}
+            link={(href) =>
+              link(href === "/customers" ? customerListHref(params) : href)
+            }
+          />
+        )}
       </PageData>
     </CockpitPage>
   );
