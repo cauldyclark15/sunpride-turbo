@@ -366,9 +366,11 @@ export function CustomerForm({
             ? "09XXXXXXXXX"
             : f.kind === "tin"
               ? "###-###-###"
-              : isAddress
-                ? "Built from the location below"
-                : undefined
+              : f.key === "street1"
+                ? "Optional"
+                : isAddress
+                  ? "Built from the location below"
+                  : undefined
         }
         aria-invalid={invalid || undefined}
         aria-describedby={invalid ? `${id}-error` : undefined}

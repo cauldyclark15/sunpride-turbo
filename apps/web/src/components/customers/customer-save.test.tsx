@@ -545,6 +545,8 @@ describe("SP-0255 optional Street 1 on customer enrollment", () => {
         /<label[^>]*for="cm-street1"[^>]*>Street 1<\/label>/,
       );
       expect(state.inputs.get("cm-street1")?.required).not.toBe(true);
+      expect(state.inputs.get("cm-street1")?.["aria-required"]).toBeUndefined();
+      expect(state.inputs.get("cm-street1")?.placeholder).toBe("Optional");
       state.mutate.mockImplementation(async (_path, body) => ({
         ...customer(complete(), status === "active" ? "active" : "prospect"),
         ...body.customer,
@@ -574,6 +576,50 @@ describe("SP-0255 optional Street 1 on customer enrollment", () => {
       expect(state.mutate.mock.calls.at(-1)![1].customer.street1).toBe(
         "Gorordo Ave",
       );
+    },
+  );
+
+  it.each(["prospect", "active"] as const)(
+    "lets an office administrator clear Street 1 and reopen a %s without weakening coordinates",
+    async (status) => {
+      state.permissions = ["outlet.manage"];
+      state.customer = { ...customer(complete(), status), canEdit: true };
+      // Fixture transport only: persist the real editor payload for a fresh form render.
+      state.mutate.mockImplementation(async (_path, body) => {
+        state.customer = { ...state.customer!, ...body.customer };
+        return state.customer;
+      });
+      render();
+      expect(view().readOnly).toBe(false);
+      const street = state.inputs.get("cm-street1")!;
+      (street.onChange as (e: { target: { value: string } }) => void)({
+        target: { value: "" },
+      });
+      render();
+      await view().onSave?.();
+      expect(state.mutate).toHaveBeenCalledTimes(1);
+      expect(state.mutate.mock.calls[0]![1].customer).toMatchObject({
+        street1: null,
+        latitude: 10.3312,
+        longitude: 123.9056,
+      });
+
+      state.values = [];
+      const reopened = render();
+      expect(view().draft.values.street1).toBe("");
+      expect(view().errors).toEqual({});
+      expect(reopened).toContain("All required fields filled");
+      expect(reopened).not.toContain('id="cm-street1-error"');
+      expect(state.inputs.get("cm-street1")?.placeholder).toBe("Optional");
+
+      view().onChange({ ...view().draft, latitude: "", longitude: "" });
+      render();
+      await view().onSave?.();
+      render();
+      expect(state.mutate).toHaveBeenCalledTimes(1);
+      expect(view().errors).toEqual({
+        coordinates: "Geographical Coordinates is required.",
+      });
     },
   );
 });
