@@ -299,6 +299,39 @@ export function installCustomers(router, platform) {
       return { states };
     },
   );
+  // Older Field builds saved incomplete customers before capture revisions existed.
+  // Page by the scanned key even when a row is no longer editable in current scope.
+  router.get("/api/v1/customers/unfinished", async (/** @type {any} */ c) => {
+    await requireCapability(c, "outlet.read");
+    const cursor = c.url.searchParams.get("cursor");
+    if (cursor) uuid(cursor);
+    const limit = 25;
+    const candidates = await c.db`select o.id from outlets o
+      join customer_profiles p on p.outlet_id=o.id and p.deleted_at is null
+      where o.deleted_at is null and o.status<>'inactive' and p.completeness='draft'
+        and (o.status='prospect' or o.enrolment_status='provisional')
+        and (${cursor}::uuid is null or o.id>${cursor}::uuid)
+        and (exists(select 1 from outlet_enrolments e where e.outlet_id=o.id
+          and e.deleted_at is null and e.status='pending'
+          and (e.proposed_by_profile_id=${c.actor.profileId} or e.proposed_by=${c.actor.subject}))
+          or o.created_by in (${c.actor.userId},${c.actor.subject}))
+        and not exists(select 1 from customer_capture_revisions r
+          where r.profile_id=${c.actor.profileId} and r.outlet_id=o.id)
+      order by o.id limit ${limit + 1}`;
+    const rows = [];
+    for (const row of candidates.slice(0, limit)) {
+      try {
+        if (await customerEditAccess(c, row.id))
+          rows.push(await readCustomer(c.db, row.id));
+      } catch (e) {
+        if (!(e instanceof ApiError) || ![403, 404].includes(e.status)) throw e;
+      }
+    }
+    return {
+      rows,
+      nextCursor: candidates.length > limit ? candidates[limit - 1].id : null,
+    };
+  });
   router.get("/api/v1/customers/:id", (/** @type {any} */ ctx) =>
     customerView(ctx, uuid(ctx.params.id)),
   );

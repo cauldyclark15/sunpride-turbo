@@ -26,7 +26,7 @@ This is an implementation/retest checklist, not evidence of a published phone up
 ## Remaining verification and delivery
 
 1. The standard Android forms above now have a persistent unfinished-save path. Exercise their actual Compose navigation, camera/gallery and restart flows on the designated phone; JVM persistence tests and compilation are not that proof.
-2. Check prior-version already-uploaded incomplete profiles separately: they remain accessible through Submitted customers, but are not automatically imported into the new capture-revision book/count. The new unified count covers explicitly saved drafts and incomplete captures saved through this updated lifecycle.
+2. Older incomplete customers uploaded by this same person are now downloaded into the same encrypted Drafts book at sign-in/sync. Every page is staged before replacement; typed deferred answers, full names, ship-to details and newer phone edits are preserved. First re-save joins the existing customer to ordered capture revisions with a current-access/version check rather than enrolling another customer.
 3. Test online-only address/duplicate checks after reconnection. No local incomplete save waits for those checks. Office duplicate review still uses the existing customer tools.
 4. Run the airplane-mode acceptance and notification checks below, then publish and verify the accepted signed Field build on Drive and the Play testing track. No phone, emulator, signing publication or live service was touched in this lane.
 5. iPhone/iPad is on hold; no iOS target was changed, built or exercised.
@@ -48,6 +48,6 @@ The new unfinished-save controls preserve typed text and selections independentl
 
 ## Verification environment
 
-Use the assigned SP-0241 database key and reserved ports only. On this Linux host the app role cannot install pgvector. The scratch-only bootstrap at `/home/jc/.hermes/cache/scratch/sp241-extension-bootstrap.js` initializes that extension only in disposable `sunpride_lane_sp241_t…` test databases through the existing local administration role, while tests/migrations retain the ordinary app role. It changes no domain or transport behavior and no shared template or role grants.
+Use the assigned SP-0241 database key and reserved ports only. This continuation ran the normal isolated API runner with `SP_LANE=sp241`, port 5000 and one test file at a time. It created and migrated its own disposable lane test databases without an extension bootstrap, shared-template changes or extra role grants.
 
 The web gate requires the real licensed `@heroui-pro/react` artifacts (`empty-state`, `kpi`, `sidebar`). They are present for this continuation: web TypeScript, the touched Customers suite and lint passed without substitute components or declarations. Preserve that dependency requirement.

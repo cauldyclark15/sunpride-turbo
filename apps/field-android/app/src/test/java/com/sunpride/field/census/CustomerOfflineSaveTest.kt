@@ -19,7 +19,7 @@ class CustomerOfflineSaveTest {
         val p = saved(form)
         CensusRules.validate(p)
         assertTrue(p.isNull("location"))
-        assertEquals("", p.getString("photoJpegBase64"))
+        assertFalse(p.has("photoJpegBase64")) // SP-0256: absent photo is omitted, not a dummy attachment.
         for (key in listOf("registeredName", "customerName")) {
             val explicitNull = JSONObject(p.toString()).also { it.getJSONObject("customer").put(key, JSONObject.NULL) }
             assertTrue(runCatching { CensusRules.validate(explicitNull) }.isFailure)

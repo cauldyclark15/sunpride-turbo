@@ -1452,6 +1452,89 @@ test("SP-0241 signed customer amendments save partial details once and refuse st
   expect((await readCustomer(h.db, id)).mobileNo).toBe("09175550101");
 });
 
+test("SP-0241 older incomplete customers page completely and join revisions without another customer", async () => {
+  const own = await fieldRep();
+  const other = await fieldRep();
+  const original = capture({
+    location: null,
+    photoJpegBase64: null,
+    customer: {
+      registeredName: "Older unfinished store",
+      customerName: "Ana Cruz",
+    },
+  });
+  const created = await own.push(original);
+  expect(created.status).toBe("applied");
+  const id = created.ack.entityId;
+  const before = await readCustomer(h.db, id);
+  const initial = await own.get("/api/v1/customers/unfinished");
+  expect(initial.status).toBe(200);
+  expect(initial.body.rows.map((/** @type {any} */ r) => r.id)).toContain(id);
+  expect(
+    initial.body.rows.find((/** @type {any} */ r) => r.id === id).customerName,
+  ).toBe("Ana Cruz");
+  expect((await other.get("/api/v1/customers/unfinished")).body.rows).toEqual(
+    [],
+  );
+  const draft = capture({
+    existingCustomerId: id,
+    expectedUpdatedAt: before.updatedAt,
+    customerDraftId: id,
+    draftRevision: 1,
+    location: null,
+    photoJpegBase64: null,
+    customer: {
+      registeredName: "Older unfinished store",
+      customerName: "Ana Cruz",
+      mobileNo: "09175550101",
+    },
+  });
+  expect((await other.push(draft, draft.captureId)).status).toBe("rejected");
+  expect(
+    (await own.push({ ...draft, expectedUpdatedAt: 0 }, crypto.randomUUID()))
+      .status,
+  ).toBe("rejected");
+  const updated = await own.push(draft, draft.captureId);
+  expect(updated.status, JSON.stringify(updated)).toBe("applied");
+  expect(updated.ack.entityId).toBe(id);
+  expect((await own.push(draft, draft.captureId)).status).toBe("duplicate");
+  const after = await readCustomer(h.db, id);
+  expect(after.customerName).toBe("Ana Cruz");
+  expect(after.code).toBe(before.code);
+  expect(after.fieldSubmitted).toEqual(before.fieldSubmitted);
+  expect(after.mobileNo).toBe("09175550101");
+  expect(after.completeness).toBe("draft");
+  expect((await own.get("/api/v1/customers/unfinished")).body.rows).toEqual([]);
+  // More than one page, with a different person's store excluded. These are
+  // minimal fixture rows, not user/customer data or a physical phone proof.
+  const inserted = [];
+  for (let i = 0; i < 27; i++) {
+    const oid = crypto.randomUUID();
+    const code = `SP241-PAGE-${oid}`;
+    await h.db`insert into outlets(id,organization_id,code,name,status,enrolment_status,custodian_org_unit_id,created_by)
+      values(${oid},'sunpride',${code},'Older page fixture','prospect','provisional',${rowId("org_units", "territory-0")},${own.userId})`;
+    await h.db`insert into customer_profiles(outlet_id,registered_name,completeness,updated_by) values(${oid},'Older page fixture','draft',${own.userId})`;
+    inserted.push(oid);
+  }
+  const found = [];
+  let cursor = null;
+  let pages = 0;
+  do {
+    const page = await own.get(
+      "/api/v1/customers/unfinished" + (cursor ? `?cursor=${cursor}` : ""),
+    );
+    expect(page.status).toBe(200);
+    found.push(...page.body.rows.map((/** @type {any} */ r) => r.id));
+    cursor = page.body.nextCursor;
+    expect(++pages).toBeLessThan(4);
+  } while (cursor);
+  expect(pages).toBe(2);
+  expect(found.sort()).toEqual(inserted.sort());
+  await h.db`update profiles set status='disabled' where user_id=${own.userId}`;
+  // A disabled person is refused by session authentication before this route.
+  expect((await own.get("/api/v1/customers/unfinished")).status).toBe(401);
+});
+
 test("the old census payload (no customer) still works", async () => {
   const config = (await rep.get("/api/v1/masters/census-config")).body;
   const sub = config.subchannels[0];

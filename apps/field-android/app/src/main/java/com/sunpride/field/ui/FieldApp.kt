@@ -226,14 +226,19 @@ fun FieldApp(
     LaunchedEffect(backend,ready,controller.today.lastSynced) {
         if(ready && controller.today.lastSynced!=null) {
             val epoch = backend?.authorizationEpoch
-            val states = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
+            val refreshed = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
                 val job=kotlin.coroutines.coroutineContext[kotlinx.coroutines.Job]
                 runCatching { backend?.warmCustomerSetup() }
                 runCatching { backend?.warmCatalogueImages { job?.isActive!=false } }
-                runCatching { backend?.customerDraftStates() }.getOrNull()
+                val states = runCatching { backend?.customerDraftStates() }.getOrNull()
+                val book = runCatching { com.sunpride.field.census.CustomerDrafts.parse(backend?.customerDraft()) }.getOrNull()
+                states to book
             }
-            if (backend?.authorizationEpoch == epoch && states != null && censusDraft.loaded)
-                censusDraft.replace(censusDraft.customers.reconcile(states))
+            if (backend?.authorizationEpoch == epoch && censusDraft.loaded) {
+                val imported = refreshed.second?.saved?.filter { it.existingCustomerId != null }
+                val book = imported?.let { censusDraft.customers.mergeImported(it) } ?: censusDraft.customers
+                censusDraft.replace(refreshed.first?.let { book.reconcile(it) } ?: book)
+            }
         }
     }
     // SP-0136 live map: the work day that bounds location sharing (consent, Start/End day, indicator).

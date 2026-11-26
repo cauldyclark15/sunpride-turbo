@@ -33,7 +33,27 @@ export async function captureRevision(c, p, create, amend) {
         409,
         "Reopen this customer before saving again.",
       );
-    result = await create();
+    if (p.existingCustomerId !== undefined) {
+      const outletId = uuid(p.existingCustomerId);
+      await customerEditAccess(c, outletId, true);
+      const customer = await readCustomer(c.db, outletId);
+      if (p.expectedUpdatedAt !== customer.updatedAt)
+        throw new ApiError(
+          "conflict",
+          409,
+          "This customer changed. Reopen it before saving again.",
+        );
+      await amend(outletId);
+      const input = { ...p.customer };
+      if (input.shipTos?.length === 1 && customer.shipTos.length > 1)
+        input.shipTos = [...input.shipTos, ...customer.shipTos.slice(1)];
+      await saveCustomer(
+        c,
+        { customer: input },
+        { outletId, fieldCapture: true },
+      );
+      result = { entityId: outletId, eventIds: [] };
+    } else result = await create();
   } else {
     // Authorization precedes every revision/replay check.
     await customerEditAccess(c, prior.outlet_id, true);
@@ -48,9 +68,12 @@ export async function captureRevision(c, p, create, amend) {
         "The office changed this customer. Your phone copy is kept for review.",
       );
     await amend(prior.outlet_id);
+    const input = { ...p.customer };
+    if (input.shipTos?.length === 1 && customer.shipTos.length > 1)
+      input.shipTos = [...input.shipTos, ...customer.shipTos.slice(1)];
     await saveCustomer(
       c,
-      { customer: p.customer },
+      { customer: input },
       { outletId: prior.outlet_id, fieldCapture: true },
     );
     result = { entityId: prior.outlet_id, eventIds: [] };

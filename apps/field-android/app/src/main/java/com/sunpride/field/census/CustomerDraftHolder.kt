@@ -24,7 +24,7 @@ class CustomerDraftHolder {
         private set
 
     /** The working form and explicitly saved drafts; persisted together in the existing encrypted phone row. */
-    @Volatile var customers = CustomerDrafts()
+    var customers by mutableStateOf(CustomerDrafts())
         private set
     /** Number of saved drafts, observable by Home and Customers without polling/network. */
     var savedCount by mutableStateOf(0)

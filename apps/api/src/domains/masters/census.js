@@ -462,13 +462,9 @@ export async function captureCensus(ctx, p) {
       p,
       () => captureCustomer(ctx, actor, p),
       async (outletId) => {
-        if (p.photoJpegBase64) {
-          const file = await storeJpeg(
-            ctx,
-            uuid(p.captureId),
-            readJpeg(p.photoJpegBase64),
-            actor,
-          );
+        const bytes = readJpeg(p.photoJpegBase64);
+        if (bytes) {
+          const file = await storeJpeg(ctx, uuid(p.captureId), bytes, actor);
           await ctx.db`insert into outlet_photos(outlet_id,ordinal,file_id) values(${outletId},0,${file.id})
           on conflict(outlet_id,ordinal) do update set file_id=excluded.file_id,deleted_at=null,updated_at=now()`;
         }

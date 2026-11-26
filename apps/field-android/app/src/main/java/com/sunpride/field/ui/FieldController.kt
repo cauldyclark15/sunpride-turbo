@@ -618,6 +618,20 @@ class LiveFieldBackend(
         // Refresh completion flags only after a live read; transport failures keep local work.
         val partition = storedScope() ?: return
         val epoch = authorizationEpoch
+        // Stage every page before replacing imported entries. A failed/partial download
+        // cannot erase the phone's previous list or edits made while the request was running.
+        runCatching {
+            val downloaded = com.sunpride.field.census.CustomerDraftDownload.load { cursor ->
+                functions.api.get("/api/v1/customers/unfinished" + (cursor?.let { "?cursor=$it" } ?: ""))
+            }
+            withStore { store -> store.retailTransaction {
+                check(epoch == authorizationEpoch && storedScope() == partition && !store.isHeld()) { "Session changed" }
+                val current = store.localCache(CUSTOMER_DRAFT,"draft")?.takeUnless { it.tombstone }?.json
+                val next = com.sunpride.field.census.CustomerDrafts.parse(current).mergeDownloaded(downloaded).json()
+                if (next == null) store.blockLocalCache(CUSTOMER_DRAFT,"draft","completed",System.currentTimeMillis())
+                else store.putLocalCache(CUSTOMER_DRAFT,"draft",next,System.currentTimeMillis(),"draft")
+            } }
+        }
         val book=com.sunpride.field.census.CustomerDrafts.parse(customerDraft())
         val ids = (book.saved+book.awaitingConfirmation).filter { it.revision > 0 }.map { it.id }
         for (batch in ids.chunked(100)) {

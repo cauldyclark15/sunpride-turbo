@@ -778,9 +778,12 @@ export async function saveCustomer(c, b, opts = {}) {
   row.country_code = v.countryCode ?? "PH";
   if (opts.fieldCapture) {
     row.field_missing = fieldMissing ? JSON.stringify(fieldMissing) : null;
-    row.field_submitted = fieldSubmitted
-      ? JSON.stringify(fieldSubmitted)
-      : null;
+    // Keep the original submitted copy, including after later phone revisions.
+    // Subsequent values are recorded in the immutable operation and change audit.
+    if (!existing?.fieldSubmitted)
+      row.field_submitted = fieldSubmitted
+        ? JSON.stringify(fieldSubmitted)
+        : null;
   } else if (pendingEdit || existing?.fieldMissing)
     row.field_missing = fieldMissing ? JSON.stringify(fieldMissing) : null;
   for (const k of Object.keys(row)) if (row[k] === undefined) delete row[k];

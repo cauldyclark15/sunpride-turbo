@@ -202,6 +202,41 @@ object CustomerCapture {
         Draft(form, o.optJSONObject("fix"), o.optString("photo").takeIf { it.isNotEmpty() }?.let { java.util.Base64.getDecoder().decode(it) })
     }.getOrNull()
 
+    /** Reopen a pre-draft-book customer without splitting or inventing its person's name.
+     * Keep the nested ship-to and every additional sheet field in the existing draft format. */
+    fun downloadedDraft(customer: JSONObject): Draft {
+        val submitted = customer.optJSONObject("fieldSubmitted")
+        val missing = customer.optJSONArray("fieldMissing")
+        val deferred = (0 until (missing?.length() ?: 0)).map { missing!!.getJSONObject(it).optString("field") }.toSet()
+        val values = JSONObject().apply {
+            (CustomerMaster.CUSTOMER_FIELDS + CustomerMaster.NAME_FIELDS).forEach { field ->
+                if (!customer.isNull(field.key)) put(field.key, customer.get(field.key))
+                else if (field.key in deferred && submitted?.isNull(field.key) == false) put(field.key, submitted.get(field.key))
+            }
+        }
+        val ship = customer.optJSONArray("shipTos")?.optJSONObject(0) ?: JSONObject()
+        val submittedShip = submitted?.optJSONArray("shipTos")?.optJSONObject(0)
+        fun shipValue(key: String): String = when {
+            !ship.isNull(key) -> ship.getString(key)
+            "shipTos[0].$key" in deferred && submittedShip?.isNull(key) == false -> submittedShip.getString(key)
+            else -> ""
+        }
+        // Only the additional controls belong in details; duplicating a main control
+        // there would silently replace later edits during values()/serialization.
+        val mainControls = setOf("registeredName", "tradeName", "customerName", "firstName", "middleName", "lastName",
+            "email", "mobileNo", "telNo", "tin", "regionCode", "provinceCode", "municipalityCode", "barangayCode",
+            "houseNo", "street1", "street2", "floor", "roomStallNo", "postalCode", "salesOrgCode",
+            "distributionChannelCode", "customerGroup1Code", "customerGroup2Code", "customerGroupCode", "typeOfBusiness")
+        val details = JSONObject().apply { values.keys().forEach { key -> if (key !in mainControls) put(key, values.get(key)) } }
+        val envelope = JSONObject().put("version", 1).put("form", values).put("details", details)
+            .put("customFields", customer.optJSONObject("customFields") ?: JSONObject())
+            .put("sameAsCustomer", ship.optBoolean("sameAsCustomer", true))
+            .put("shipToParty", shipValue("shipToParty")).put("shipToAddress", shipValue("shipToAddress"))
+            .put("shipToMobileNo", shipValue("mobileNo")).put("shipToEmail", shipValue("email"))
+        values.put("contactPerson", shipValue("contactPerson"))
+        return requireNotNull(parseDraft(envelope.toString()))
+    }
+
     /** The agent's form starts with the Sales Organization of their assignment. */
     fun start(setup: Setup?, customerName: String = ""): Form = Form(customerName = customerName.take(200),
         salesOrgCode = setup?.salesOrgCode?.takeIf { code -> setup.options("sales_organization").any { it.code == code } }.orEmpty())

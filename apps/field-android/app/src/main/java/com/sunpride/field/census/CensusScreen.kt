@@ -144,6 +144,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     var savedDrafts by remember { mutableStateOf(keep.customers.saved) }
     val requestedDrafts = remember { keep.openList.also { keep.openList = false } }
     var showDrafts by remember { mutableStateOf(requestedDrafts || (held == null && initialName.isBlank() && keep.customers.saved.isNotEmpty())) }
+    LaunchedEffect(keep.customers) { if (showDrafts) savedDrafts = keep.customers.saved }
     var savedNotice by keep::savedNotice
     val keyRequesters = remember { mutableMapOf<String, BringIntoViewRequester>() }
     fun requester(key: String) = keyRequesters.getOrPut(key) { BringIntoViewRequester() }
@@ -417,6 +418,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         if (!edit) return CustomerCapture.payload(CensusRules.captureId(), form, geography, System.currentTimeMillis(),
             fix, jpeg?.let { Base64.getEncoder().encodeToString(it) }, acknowledged).also { p ->
                 keep.customers.activeId?.let { p.put("customerDraftId", it) }
+                keep.customers.preparePayload(p)
                 if (!completeSubmission) p.put("allowIncomplete", true)
             }
         if (edit) return CensusRules.changePayload(CensusRules.captureId(), editing!!.outletId, name,
