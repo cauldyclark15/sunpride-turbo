@@ -164,6 +164,7 @@ export async function customerView(c, id) {
   const enrollment = await readEnrollmentForm(c.db);
   const result = validateCustomer(customer, {
     level: "complete",
+    requireNameParts: false,
     lists: await referenceRows(c.db),
     geography: await resolveGeography(c.db, customer),
   });
@@ -217,8 +218,12 @@ export async function customerEditor(c, id, edits = {}) {
     index = referenceIndex(refs);
   const enrollment = await readEnrollmentForm(c.db);
   const errors = [
-    ...validateCustomer(v, { level: "complete", lists: refs, geography: geo })
-      .errors,
+    ...validateCustomer(v, {
+      level: "complete",
+      requireNameParts: false,
+      lists: refs,
+      geography: geo,
+    }).errors,
     ...validateEnrollment(enrollment.fields, v.customFields, v).errors,
   ];
   /** @type {Record<string,any[]>} */ const places = {

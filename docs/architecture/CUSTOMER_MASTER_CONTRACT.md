@@ -26,8 +26,11 @@ remain for compatibility, not visible enrollment controls. An unchanged full nam
 stored parts. A full-name edit, or a single-name save of an older partial capture, clears superseded
 parts so they cannot overwrite the full name or require hidden fields.
 Older queued captures explicitly sending parts still follow their original validation and naming
-rules. No existing records are bulk rewritten and no columns are removed. Imports and incomplete
-field-capture recovery keep their existing contracts.
+rules. Office completeness, approval and the shared Edit customer form validate only Customer Name,
+including records with incomplete historical parts; unrelated edits must not rebuild the full name
+from those parts. Successful approval clears obsolete missing-field notices. No existing records
+are bulk rewritten and no columns are removed. Imports and incomplete field-capture recovery keep
+their existing contracts.
 
 ## 1. Field keys and the client's labels (sheet order)
 

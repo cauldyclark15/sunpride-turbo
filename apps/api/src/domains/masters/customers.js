@@ -454,7 +454,10 @@ export async function derive(db, merged, input, existing) {
       !text(existing?.lastName))
   )
     for (const f of CUSTOMER_NAME_FIELDS) merged[f.key] = null;
-  if (hasCustomerNameParts(merged))
+  if (
+    CUSTOMER_NAME_FIELDS.some((f) => f.key in input) &&
+    hasCustomerNameParts(merged)
+  )
     merged.customerName = formatCustomerName(merged);
   if (!merged.countryCode) merged.countryCode = "PH";
   const geo = await resolveGeography(db, merged);
@@ -578,10 +581,14 @@ export async function saveCustomer(c, b, opts = {}) {
     merged.salesPartnerCode = partner?.code ?? null;
     withPartner(lists, partner);
   }
+  // Saved parts are historical data, not requirements of the restored form.
+  // Only explicitly submitted parts use the older structured-capture checks.
+  const requireNameParts = CUSTOMER_NAME_FIELDS.some((f) => f.key in input)
+    ? undefined
+    : false;
   let draft = validateCustomer(merged, {
     level: opts.fieldCapture ? "field" : pendingEdit ? "draft" : "complete",
-    // SP-0240: only the full name is required by the restored form.
-    // Historical structured captures are still validated when they supply parts.
+    requireNameParts,
     lists,
     geography: geo,
   });
@@ -600,6 +607,7 @@ export async function saveCustomer(c, b, opts = {}) {
     for (let pass = 0; pass < 6; pass++) {
       const loose = validateCustomer(merged, {
         level: "draft",
+        requireNameParts,
         lists,
         geography: await derive(c.db, merged, input, existing),
       });
@@ -608,6 +616,7 @@ export async function saveCustomer(c, b, opts = {}) {
     }
     draft = validateCustomer(merged, {
       level: "draft",
+      requireNameParts,
       lists,
       geography: await derive(c.db, merged, input, existing),
     });
@@ -616,6 +625,7 @@ export async function saveCustomer(c, b, opts = {}) {
         text(merged.customerName).slice(0, 200) || "New customer (no name)";
       draft = validateCustomer(merged, {
         level: "draft",
+        requireNameParts,
         lists,
         geography: await derive(c.db, merged, input, existing),
       });
@@ -624,6 +634,7 @@ export async function saveCustomer(c, b, opts = {}) {
     // The office finishing a field customer clears the flag once the field level is met.
     const field = validateCustomer(merged, {
       level: "complete",
+      requireNameParts,
       lists,
       geography: geo,
     });
@@ -652,10 +663,13 @@ export async function saveCustomer(c, b, opts = {}) {
     });
   const complete = validateCustomer(merged, {
     level: "complete",
+    requireNameParts,
     lists,
     geography: geo,
   });
   const v = draft.value;
+  if (requireNameParts === false)
+    for (const f of CUSTOMER_NAME_FIELDS) v[f.key] = merged[f.key] ?? null;
   const actor = c.actor;
   const reason =
     typeof b.reason === "string" && b.reason.trim()
@@ -835,6 +849,7 @@ export async function approveCustomer(c, outletId, b, opts = {}) {
   const lists = await referenceRows(c.db);
   const result = validateCustomer(customer, {
     level: "complete",
+    requireNameParts: false,
     lists,
     geography: await resolveGeography(c.db, customer),
   });
@@ -852,7 +867,7 @@ export async function approveCustomer(c, outletId, b, opts = {}) {
       reason,
     });
   await c.db`update outlets set status='active' where id=${outletId} and status<>'active'`;
-  await c.db`update customer_profiles set completeness='complete',updated_by=${c.actor?.subject ?? "system"} where outlet_id=${outletId}`;
+  await c.db`update customer_profiles set completeness='complete',field_missing=null,updated_by=${c.actor?.subject ?? "system"} where outlet_id=${outletId}`;
   // A decided field enrolment already created the accounting customer (final code) in the
   // enrolment writer; a second interval in the same transaction would overlap it.
   if (!enrolment) await syncAccountingCustomer(c, outletId);

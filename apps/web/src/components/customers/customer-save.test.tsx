@@ -415,6 +415,44 @@ describe("SP-0240 restores the single Customer Name field", () => {
         expect(saved).not.toHaveProperty(key);
     },
   );
+  it.each(["admin", "approver"])(
+    "lets the %s review and approve a full name without hidden-name requirements",
+    async (role) => {
+      state.permissions = role === "admin" ? null : ["outlet.enrol.approve"];
+      state.customer = {
+        ...customer(complete()),
+        customerName: "REYES, María José",
+        firstName: "María José",
+        middleName: null,
+        lastName: null,
+        canEdit: role === "admin",
+        completeness: "draft",
+      };
+      state.mutate.mockResolvedValue({
+        ...state.customer,
+        status: "active",
+        completeness: "complete",
+        missingFields: [],
+        fieldMissing: null,
+      });
+      const html = render();
+      expect(html).toContain('id="cm-customerName"');
+      expect(html).toContain("Complete. Ready for approval.");
+      expect(view().errors).toEqual({});
+      expect(state.inputs.get("cm-customerName")?.value).toBe(
+        "REYES, María José",
+      );
+      for (const key of ["firstName", "middleName", "lastName"])
+        expect(html).not.toContain(`id="cm-${key}"`);
+      await view().onApprove?.();
+      expect(state.mutate).toHaveBeenCalledTimes(1);
+      expect(state.mutate.mock.calls[0]?.[0]).toBe(
+        "/api/v1/customers/customer/approve",
+      );
+      expect(render()).toContain("Approved. Customer Code SAMPLE-213.");
+      expect(view().draft.values.customerName).toBe("REYES, María José");
+    },
+  );
   it.each([
     {
       firstName: "María José",

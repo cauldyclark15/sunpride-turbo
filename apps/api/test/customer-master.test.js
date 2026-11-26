@@ -1513,6 +1513,197 @@ describe("SP-0240 separate customer names", () => {
       completeness: "complete",
     });
   });
+  test("admin and manager can approve a full name despite historical incomplete name parts", async () => {
+    for (const role of ["admin", "manager"]) {
+      for (const parts of [
+        { first: "María José", middle: null, last: null },
+        { first: null, middle: "Peña", last: null },
+        { first: null, middle: null, last: "O’Neil" },
+      ]) {
+        const name = "O’Neil, María José Peña";
+        const made = await call("admin", "POST", "/api/v1/customers", {
+          custodianOrgUnitId: UNIT,
+          customer: customer({
+            customerName: name,
+            firstName: undefined,
+            lastName: undefined,
+          }),
+        });
+        expect(made.status, JSON.stringify(made.body)).toBe(200);
+        const id = made.body.id;
+        // Reproduce retained data from the withdrawn three-field form.
+        const missing = JSON.stringify([
+          {
+            field: "lastName",
+            label: "Last Name",
+            message: "Last Name is required.",
+          },
+        ]);
+        await h.db`update customer_profiles set first_name=${parts.first},middle_name=${parts.middle},last_name=${parts.last},completeness='draft',field_missing=${missing}::jsonb where outlet_id=${id}`;
+        const opened = await call(role, "GET", `/api/v1/customers/${id}`);
+        expect(opened.status).toBe(200);
+        expect(opened.body.customerName).toBe(name);
+        expect(opened.body.missingFields).toEqual([]);
+        const editor = await call(
+          role,
+          "GET",
+          `/api/v1/customers/${id}/editor`,
+        );
+        expect(editor.status, JSON.stringify(editor.body)).toBe(200);
+        expect(editor.body.missingFields).toEqual([]);
+        expect(
+          editor.body.fields.find(
+            (/** @type {any} */ f) => f.key === "customerName",
+          ),
+        ).toMatchObject({ value: name, error: null });
+        for (const key of ["firstName", "middleName", "lastName"])
+          expect(
+            editor.body.fields.some((/** @type {any} */ f) => f.key === key),
+          ).toBe(false);
+        const approved = await call(
+          role,
+          "POST",
+          `/api/v1/customers/${id}/approve`,
+          {},
+        );
+        expect(approved.status, JSON.stringify(approved.body)).toBe(200);
+        const reopened = await call(role, "GET", `/api/v1/customers/${id}`);
+        expect(reopened.body).toMatchObject({
+          status: "active",
+          completeness: "complete",
+          customerName: name,
+          firstName: parts.first,
+          middleName: parts.middle,
+          lastName: parts.last,
+          fieldMissing: null,
+          missingFields: [],
+        });
+        expect(reopened.body.shipTos[0].shipToParty).toBe(name);
+        expect((await accounting(id))[0].name).toBe(name);
+      }
+    }
+  });
+  test("a field enrollment with retained partial parts can be approved without an office name edit", async () => {
+    const name = "SANTOS, Ana María";
+    const [agent] =
+      await h.db`select user_id from profiles where email='agent@sunpride.test'`;
+    const [file] =
+      await h.db`insert into files(purpose,sha256,mime,size,status,created_by) values('outlet_photo',${"c".repeat(64)},'image/jpeg',100,'stored',${agent.user_id}) returning id`;
+    const proposed = await call(
+      "agent",
+      "POST",
+      "/api/v1/outlets/enrolment/propose",
+      {
+        name,
+        address: "Gorordo Ave, Apas, City of Cebu, Cebu",
+        contactName: "Sample owner",
+        contactPhone: "09170000001",
+        latitude: 10.3,
+        longitude: 123.9,
+        photoStorageIds: [file.id],
+        clientRequestId: crypto.randomUUID(),
+        customer: customer({
+          customerName: name,
+          firstName: undefined,
+          lastName: undefined,
+        }),
+      },
+    );
+    expect(proposed.status, JSON.stringify(proposed.body)).toBe(200);
+    const id = proposed.body.outletId;
+    expect((await readCustomer(h.db, id)).enrolmentStatus).toBe("provisional");
+    await h.db`update customer_profiles set first_name='Ana María',last_name=null,completeness='draft' where outlet_id=${id}`;
+    const approved = await call(
+      "admin",
+      "POST",
+      `/api/v1/customers/${id}/approve`,
+      {},
+    );
+    expect(approved.status, JSON.stringify(approved.body)).toBe(200);
+    expect(approved.body).toMatchObject({
+      customerName: name,
+      enrolmentStatus: "approved",
+      completeness: "complete",
+      missingFields: [],
+    });
+    expect(approved.body.code).toMatch(/^SP\d{6}$/);
+    const reopened = await call("admin", "GET", `/api/v1/customers/${id}`);
+    expect(reopened.body.customerName).toBe(name);
+    expect(reopened.body.shipTos[0].shipToParty).toBe(name);
+    expect((await accounting(id))[0]).toMatchObject({
+      name,
+      code: approved.body.code,
+    });
+  });
+  test("editing other details preserves a full name and stored parts; real missing fields still block approval", async () => {
+    const name = "REYES, María José";
+    const made = await call("admin", "POST", "/api/v1/customers", {
+      custodianOrgUnitId: UNIT,
+      customer: customer({
+        customerName: name,
+        firstName: undefined,
+        lastName: undefined,
+      }),
+    });
+    expect(made.status).toBe(200);
+    const id = made.body.id;
+    await h.db`update customer_profiles set first_name='María José',last_name=null where outlet_id=${id}`;
+    const preview = await call(
+      "admin",
+      "POST",
+      `/api/v1/customers/${id}/editor`,
+      {
+        edits: { tradeName: "New trade name" },
+      },
+    );
+    expect(preview.status, JSON.stringify(preview.body)).toBe(200);
+    expect(preview.body.missingFields).toEqual([]);
+    expect(
+      preview.body.fields.find(
+        (/** @type {any} */ f) => f.key === "customerName",
+      ).value,
+    ).toBe(name);
+    const saved = await call("admin", "POST", `/api/v1/customers/${id}/amend`, {
+      edits: { tradeName: "New trade name" },
+    });
+    expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+    expect(saved.body).toMatchObject({
+      customerName: name,
+      firstName: "María José",
+      lastName: null,
+      completeness: "complete",
+      missingFields: [],
+    });
+    expect(saved.body.shipTos[0].shipToParty).toBe(name);
+    expect((await accounting(id))[0].name).toBe(name);
+    await h.db`update customer_profiles set street1=null,completeness='draft' where outlet_id=${id}`;
+    const refused = await call(
+      "admin",
+      "POST",
+      `/api/v1/customers/${id}/approve`,
+      {},
+    );
+    expect(refused.status).toBe(422);
+    expect(
+      refused.body.error.details.errors.map((/** @type {any} */ e) => e.field),
+    ).toContain("street1");
+    expect((await readCustomer(h.db, id)).status).toBe("prospect");
+    const corrected = await call("admin", "PUT", `/api/v1/customers/${id}`, {
+      customer: { customerName: "Ana Reyes", street1: "Gorordo Ave" },
+    });
+    expect(corrected.status, JSON.stringify(corrected.body)).toBe(200);
+    expect(corrected.body).toMatchObject({
+      customerName: "Ana Reyes",
+      firstName: null,
+      middleName: null,
+      lastName: null,
+    });
+    expect(
+      (await call("admin", "POST", `/api/v1/customers/${id}/approve`, {}))
+        .status,
+    ).toBe(200);
+    expect((await accounting(id))[0].name).toBe("Ana Reyes");
+  });
   test("legacy names remain intact without guessed parts until the office explicitly supplies them", async () => {
     const [row] =
       await h.db`select o.id,o.name from outlets o join customer_profiles p on p.outlet_id=o.id where p.first_name is null and o.status<>'inactive' and o.deleted_at is null limit 1`;

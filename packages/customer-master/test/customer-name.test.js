@@ -59,6 +59,40 @@ describe("SP-0240 individual customer names", () => {
         ?.field,
     ).toBe("firstName");
   });
+  test("single-name validation ignores historical parts but still requires the full name", () => {
+    for (const parts of [
+      { firstName: "Rosa", lastName: null },
+      { firstName: null, middleName: "M.", lastName: null },
+      { firstName: "Rosa", lastName: "Cruz" },
+    ]) {
+      const input = { customerName: "CRUZ, Rosa M.", ...parts };
+      const result = validateCustomer(input, {
+        level: "draft",
+        lists: [],
+        requireNameParts: false,
+      });
+      expect(result.ok).toBe(true);
+      expect(result.value.customerName).toBe(input.customerName);
+      for (const blank of [undefined, null, "", " \t "]) {
+        const bad = validateCustomer(
+          { ...input, customerName: blank },
+          {
+            level: "draft",
+            lists: [],
+            requireNameParts: false,
+          },
+        );
+        expect(bad.errors.map((e) => e.field)).toEqual(["customerName"]);
+      }
+      const complete = validateCustomer(input, {
+        level: "complete",
+        lists: [],
+        requireNameParts: false,
+      });
+      for (const key of ["customerName", "firstName", "middleName", "lastName"])
+        expect(complete.errors.some((e) => e.field === key)).toBe(false);
+    }
+  });
   test("the canonical validator derives a consistent display name and leaves legacy names unparsed", () => {
     const r = validateCustomer(
       {

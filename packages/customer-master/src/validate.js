@@ -195,7 +195,9 @@ export function validateCustomer(input, ctx) {
       message,
       ...(i === undefined ? {} : { index: i }),
     });
-  const structuredName = ctx.requireNameParts || hasCustomerNameParts(input);
+  // SP-0240 rollback: stored customers are checked by their single editable name.
+  // Auto-detect parts only for older captures that still explicitly submit them.
+  const structuredName = ctx.requireNameParts ?? hasCustomerNameParts(input);
   if (structuredName) {
     const name = validateCustomerName(input, level !== "draft");
     Object.assign(value, name.value);
