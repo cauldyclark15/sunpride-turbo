@@ -4,7 +4,7 @@ import org.json.JSONArray
 import org.json.JSONObject
 import java.util.UUID
 
-/** SP-0241: editable, phone-only enrollments. These never enter the submission outbox. */
+/** Editable phone-owned enrollments. Office sharing uses separate non-approval operations. */
 data class CustomerDrafts(
     val active: CustomerCapture.Draft? = null,
     val activeId: String? = null,

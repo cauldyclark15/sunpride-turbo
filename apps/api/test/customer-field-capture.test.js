@@ -54,6 +54,8 @@ async function fieldRep(app = "field-android") {
   const who = { access: tokens.accessToken, deviceId, key };
   return {
     userId,
+    profileId: profile.id,
+    deviceId,
     /** @param {string} path @param {any} body */
     post: async (path, body) => {
       const r = await h.fetch(path, {
@@ -73,7 +75,7 @@ async function fieldRep(app = "field-android") {
       });
       return { status: r.status, body: /** @type {any} */ (await r.json()) };
     },
-    /** @param {any} payload @param {string} [clientOpId] */
+    /** @param {any} payload @param {string} [clientOpId] @param {string} [opType] */
     push: async (
       payload,
       clientOpId = crypto.randomUUID(),
@@ -901,6 +903,207 @@ test("SP-0188 a pre-SP-0183 payload (name at the top level, few customer fields)
   const [m] =
     await h.db`select count(*)::int n from outlet_enrolments where client_request_id=${p.captureId}`;
   expect(m.n).toBe(1);
+});
+
+/** @param {string} role */
+async function draftOffice(role) {
+  const email = `draft-office-${crypto.randomUUID()}@example.com`,
+    password = "SP0244-sample-office-only";
+  const user = await createUser(h, email, password),
+    unit = rowId("org_units", "territory-0");
+  const [p] =
+    await h.db`insert into profiles(user_id,auth_subject,name,email,role,status,org_unit_id) values(${user},${user},'Draft office',${email},${role},'active',${unit}) returning id`;
+  await h.db`insert into employee_assignments(profile_id,org_unit_id,role,effective_from,actor_subject,reason) values(${p.id},${unit},${role},${new Date(0)},${user},'SP-0244 sample office')`;
+  const login = await h.fetch("/api/auth/sign-in", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ email, password }),
+  });
+  expect(login.status).toBe(200);
+  const cookie = login.headers.get("set-cookie")?.split(";")[0] ?? "";
+  return {
+    /** @param {string} path @param {any} [body] */
+    request: async (path, body) => {
+      const r = await h.fetch(path, {
+        method: body ? "POST" : "GET",
+        headers: { cookie, "content-type": "application/json" },
+        ...(body ? { body: JSON.stringify(body) } : {}),
+      });
+      return { status: r.status, body: /** @type {any} */ (await r.json()) };
+    },
+  };
+}
+
+test("SP-0244 incomplete drafts are visible to office roles but never approvable", async () => {
+  const own = await fieldRep(),
+    admin = await draftOffice("admin");
+  const first = crypto.randomUUID(),
+    second = crypto.randomUUID();
+  const draft = {
+    draftId: first,
+    revision: 1,
+    action: "save",
+    deviceTime: Date.now(),
+    profile: {
+      form: {
+        registeredName: "SP244 unfinished",
+        email: "unfinished@",
+        mobileNo: "09",
+      },
+      details: { creditLimit: "1." },
+      sameAsCustomer: false,
+    },
+  };
+  const [before] = await h.db`select count(*)::int n from outlets`;
+  const op = crypto.randomUUID();
+  expect((await own.push(draft, op, "census.draft")).status).toBe("applied");
+  expect((await own.push(draft, op, "census.draft")).status).toBe("duplicate");
+  expect(
+    (
+      await own.push(
+        { ...draft, draftId: second, profile: {} },
+        undefined,
+        "census.draft",
+      )
+    ).status,
+  ).toBe("applied");
+  for (const reader of [
+    admin,
+    await draftOffice("approver"),
+    await draftOffice("manager"),
+  ]) {
+    const r = await reader.request("/api/v1/customers/drafts");
+    expect(r.status).toBe(200);
+    expect(
+      r.body.rows.filter((/** @type {any} */ d) =>
+        [first, second].includes(d.id),
+      ),
+    ).toHaveLength(2);
+    expect(
+      r.body.rows.find((/** @type {any} */ d) => d.id === first),
+    ).toMatchObject({
+      status: "draft",
+      canApprove: false,
+      profile: draft.profile,
+    });
+  }
+  expect((await own.get("/api/v1/customers/drafts")).status).toBe(403);
+  expect(
+    (await (await draftOffice("viewer")).request("/api/v1/customers/drafts"))
+      .status,
+  ).toBe(403);
+  expect((await h.db`select count(*)::int n from outlets`)[0].n).toBe(before.n);
+  const queue = await admin.request(
+    "/api/v1/customers?awaitingApproval=true&limit=100",
+  );
+  expect(queue.status).toBe(200);
+  expect(
+    queue.body.rows.some((/** @type {any} */ d) =>
+      [first, second].includes(d.id),
+    ),
+  ).toBe(false);
+  expect(
+    (await admin.request(`/api/v1/customers/${first}/approve`, {})).status,
+  ).not.toBe(200);
+  expect(
+    (
+      await h.db`select 1 from outlet_enrolments where client_request_id=${first}`
+    ).length,
+  ).toBe(0);
+  expect(
+    (
+      await own.push(
+        {
+          ...draft,
+          revision: 3,
+          profile: { form: { registeredName: "SP244 edited" } },
+        },
+        undefined,
+        "census.draft",
+      )
+    ).status,
+  ).toBe("applied");
+  expect(
+    (await own.push({ ...draft, revision: 2 }, undefined, "census.draft"))
+      .status,
+  ).toBe("applied");
+  expect(
+    (await admin.request("/api/v1/customers/drafts")).body.rows.find(
+      (/** @type {any} */ d) => d.id === first,
+    ).profile.form.registeredName,
+  ).toBe("SP244 edited");
+  expect(
+    (
+      await own.push(
+        { ...draft, revision: 4, action: "discard" },
+        undefined,
+        "census.draft",
+      )
+    ).status,
+  ).toBe("applied");
+  expect((await own.push(draft, undefined, "census.draft")).status).toBe(
+    "applied",
+  );
+  const rows = (await admin.request("/api/v1/customers/drafts")).body.rows;
+  expect(rows.some((/** @type {any} */ d) => d.id === first)).toBe(false);
+  expect(rows.some((/** @type {any} */ d) => d.id === second)).toBe(true);
+});
+
+test("SP-0244 final submission closes its draft transactionally; late saves cannot reopen it", async () => {
+  const own = await fieldRep(),
+    draftId = crypto.randomUUID();
+  const draft = {
+    draftId,
+    revision: 1,
+    action: "save",
+    deviceTime: Date.now(),
+    profile: {},
+  };
+  expect((await own.push(draft, undefined, "census.draft")).status).toBe(
+    "applied",
+  );
+  expect(
+    (
+      await own.push(
+        capture({ customerDraftId: draftId, photoJpegBase64: "bad" }),
+      )
+    ).status,
+  ).toBe("rejected");
+  expect(
+    (
+      await h.db`select status from customer_enrollment_drafts where device_id=${own.deviceId} and draft_id=${draftId}`
+    )[0].status,
+  ).toBe("draft");
+  expect((await own.push(capture({ customerDraftId: draftId }))).status).toBe(
+    "applied",
+  );
+  expect(
+    (await own.push({ ...draft, revision: 100 }, undefined, "census.draft"))
+      .status,
+  ).toBe("applied");
+  expect(
+    (
+      await h.db`select status from customer_enrollment_drafts where device_id=${own.deviceId} and draft_id=${draftId}`
+    )[0].status,
+  ).toBe("submitted");
+  const neverShared = crypto.randomUUID();
+  expect(
+    (await own.push(capture({ customerDraftId: neverShared }))).status,
+  ).toBe("applied");
+  expect(
+    (
+      await own.push(
+        { ...draft, draftId: neverShared },
+        undefined,
+        "census.draft",
+      )
+    ).status,
+  ).toBe("applied");
+  expect(
+    (
+      await h.db`select status from customer_enrollment_drafts where device_id=${own.deviceId} and draft_id=${neverShared}`
+    )[0].status,
+  ).toBe("submitted");
 });
 
 test("the old census payload (no customer) still works", async () => {

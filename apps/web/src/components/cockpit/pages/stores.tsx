@@ -21,6 +21,7 @@ import {
   customerListHref,
   customerRecordHref,
 } from "../../customers/list-navigation";
+import { CustomerDraftList } from "../../customers/customer-drafts";
 import { CustomerUpload } from "../../customer-upload/customer-upload";
 import { usePermissions } from "../../../lib/auth";
 import { useApi } from "../../../lib/api";
@@ -228,8 +229,10 @@ export function StoresPage() {
     "q",
     ...LIST_FILTER_KEYS,
   ]);
-  const { can } = usePermissions();
+  const { can, role } = usePermissions();
   const hidden: StoresTab[] = can("masterdata.manage") ? [] : ["settings"];
+  if (!["super_admin", "admin", "manager", "approver"].includes(role ?? ""))
+    hidden.push("drafts");
   const tab = readStoresTab(params, hidden);
   const canAdd = can("outlet.manage");
   // Only roles that can change something open the editor (SP-0223/SP-0250);
@@ -324,6 +327,8 @@ export function StoresPage() {
             />
           </section>
         </div>
+      ) : tab === "drafts" ? (
+        <CustomerDraftList />
       ) : tab === "map" ? (
         <LocationCoverage />
       ) : tab === "winback" ? (

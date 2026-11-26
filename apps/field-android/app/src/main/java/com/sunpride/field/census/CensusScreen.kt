@@ -417,7 +417,9 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         }
         if (!edit) fix = CustomerLocation.best(fix, location.cachedCustomerFix(), System.currentTimeMillis())
         if (!edit) return CustomerCapture.payload(CensusRules.captureId(), form, geography, System.currentTimeMillis(),
-            fix, jpeg?.let { Base64.getEncoder().encodeToString(it) }, acknowledged)
+            fix, jpeg?.let { Base64.getEncoder().encodeToString(it) }, acknowledged).also { p ->
+                keep.customers.activeId?.let { p.put("customerDraftId", it) }
+            }
         if (edit) return CensusRules.changePayload(CensusRules.captureId(), editing!!.outletId, name,
             CensusRules.addressLine(form, geography).ifEmpty { form.street1 }, owner, phone,
             System.currentTimeMillis(), if (mode == "gps" || (mode == "places" && place != null)) fix?.takeIf { CensusRules.fixUsable(it) } else null,
@@ -516,10 +518,12 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                 glyph = if (config == null) GlyphKind.INFO else GlyphKind.LOCK, textTag = "census-message")
             if (!edit && draftLoaded) {
                 StatusChip("Draft · not sent for approval", Look.Tone.NEUTRAL, textTag = "customer-draft-state")
+                if (!showDrafts) TonalButton("Save as draft", ::saveAsDraft, Modifier.fillMaxWidth().testTag("customer-save-draft-top"),
+                    !busy && backend != null)
                 if (showDrafts) {
                     SectionCard("Drafts") {
                         Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text("Saved on this phone. Open a draft to finish it, then tap Submit for approval.", style = MaterialTheme.typography.bodySmall)
+                            Text("Open a draft to finish it, then tap Submit for approval. After sync, the office can see drafts but cannot approve them.", style = MaterialTheme.typography.bodySmall)
                             if (savedDrafts.isEmpty()) Text("No saved drafts yet.", modifier = Modifier.testTag("customer-drafts-empty"))
                             savedDrafts.forEach { entry ->
                                 TonalButton(entry.name, { openDraft(entry.id) },
@@ -655,7 +659,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             note?.let { Text(it, style = MaterialTheme.typography.bodyMedium, color = MaterialTheme.colorScheme.error, modifier = Modifier.testTag("census-save-note")) }
             if (staleRetry) TonalButton("Try again", ::save, Modifier.fillMaxWidth().testTag("census-retry"), !busy)
             if (!edit) TonalButton("Save as draft", ::saveAsDraft, Modifier.fillMaxWidth().testTag("customer-save-draft"),
-                !busy && draftLoaded && backend != null && !camera)
+                !busy && draftLoaded && backend != null)
             PrimaryBottomButton(if (refreshing) "Checking your location…" else if (edit) "Save changes" else "Submit for approval", ::save,
                 Modifier.fillMaxWidth().testTag("census-save"), !busy && (edit || (draftLoaded && setup != null)) && !camera)
             }
@@ -702,7 +706,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
 internal const val SAVED_ONLINE = "Customer saved. Sent to the office for approval."
 internal const val SAVED_OFFLINE = "Saved. It will send when you have signal."
 internal const val DRAFT_KEPT = "Your customer draft was kept. Complete it and tap Submit for approval, or save it as a draft again."
-internal const val DRAFT_SAVED = "Draft saved on this phone. It has not been sent for approval. Open it from Drafts to continue later."
+internal const val DRAFT_SAVED = "Draft saved on this phone. After sync, the office can see it as a draft, not for approval. Open it from Drafts to continue later."
 private fun isOnline(context: android.content.Context): Boolean = runCatching {
     val cm = context.getSystemService(android.net.ConnectivityManager::class.java)
     val caps = cm.getNetworkCapabilities(cm.activeNetwork) ?: return false

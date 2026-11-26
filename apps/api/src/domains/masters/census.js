@@ -569,6 +569,8 @@ function firstText(max, ...values) {
  * Old payloads (no `customer`) keep the census review path unchanged.
  * @param {any} ctx @param {any} actor @param {any} p */
 async function captureCustomer(ctx, actor, p) {
+  const { submittedCustomerDraft } = await import("./customer-drafts.js");
+  await submittedCustomerDraft(ctx, p.customerDraftId);
   if (
     !p.customer ||
     typeof p.customer !== "object" ||

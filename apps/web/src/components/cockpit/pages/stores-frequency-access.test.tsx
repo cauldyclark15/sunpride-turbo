@@ -4,6 +4,7 @@ import { StoresPage } from "./stores";
 
 const state = vi.hoisted(() => ({
   permissions: [] as string[],
+  role: "sales",
   params: new URLSearchParams(),
   set: vi.fn(),
 }));
@@ -13,6 +14,7 @@ vi.mock("react", async (original) => {
 });
 vi.mock("../../../lib/auth", () => ({
   usePermissions: () => ({
+    role: state.role,
     can: (capability: string) => state.permissions.includes(capability),
   }),
 }));
@@ -61,6 +63,7 @@ function listProps(node: ReactNode): ListProps | undefined {
 
 beforeEach(() => {
   state.permissions = [];
+  state.role = "sales";
   state.params = new URLSearchParams();
   state.set.mockReset();
 });
@@ -77,6 +80,27 @@ it.each(["list", "new"])(
     expect(state.set).toHaveBeenCalledWith({ edit: "sample-customer" });
   },
 );
+it.each(["admin", "super_admin", "manager", "approver", "sales", "viewer"])(
+  "SP-0244 only administrators and approvers can open Drafts (%s)",
+  (role) => {
+    state.role = role;
+    state.params.set("tab", "drafts");
+    function hasDraftList(node: ReactNode): boolean {
+      if (Array.isArray(node)) return node.some(hasDraftList);
+      if (!node || typeof node !== "object" || !("props" in node)) return false;
+      const el = node as ReactElement<{ children?: ReactNode }>;
+      return (
+        (typeof el.type === "function" &&
+          el.type.name === "CustomerDraftList") ||
+        hasDraftList(el.props.children)
+      );
+    }
+    expect(hasDraftList(StoresPage())).toBe(
+      ["admin", "super_admin", "manager", "approver"].includes(role),
+    );
+  },
+);
+
 it("SP-0223 retains the office editor and does not offer it to read-only users", () => {
   state.permissions = ["outlet.manage"];
   expect(listProps(StoresPage())?.onEdit).toBeTypeOf("function");

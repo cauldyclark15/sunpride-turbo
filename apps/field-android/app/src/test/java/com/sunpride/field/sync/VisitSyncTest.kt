@@ -163,6 +163,24 @@ class VisitSyncTest {
         assertEquals("dependency_missing", store.rows.single().second.rejectionCode)
         assertFalse(transport.sent.any { it.first.endsWith("push") })
     }
+    @Test fun customerDraftSharesWithoutVisitDependenciesAndKeepsBytesAfterOfflineRetry() = runBlocking {
+        val store = Store(); val transport = Transport()
+        val book = com.sunpride.field.census.CustomerDrafts().save(com.sunpride.field.census.CustomerCapture.Draft(
+            com.sunpride.field.census.CustomerCapture.Form(), null, null))
+        val draft = com.sunpride.field.census.CustomerDraftSharing.changes(identity, null, book.json(), 1000).single()
+        store.enqueue(draft, 1000)
+        transport.handler = { path, _ -> if (path.endsWith("push")) throw java.io.IOException("no signal") else 200 to pull() }
+        engine(store, transport).sync() // return value means the flight ran, not successful delivery
+        assertEquals("retry_pending", store.health)
+        assertEquals("pending", store.history().single().second.state)
+        assertEquals(draft.serializedOperation, store.history().single().first.serializedOperation)
+        assertNull(store.ack(draft.requestId))
+        transport.handler = { path, body -> if (path.endsWith("push")) 200 to pushResult(body.getJSONArray("operations")) else 200 to pull() }
+        assertTrue(engine(store, transport).sync())
+        assertEquals("done", store.history().single().second.state)
+        assertEquals(draft.serializedOperation, store.history().single().first.serializedOperation)
+        assertNotNull(store.ack(draft.requestId))
+    }
     @Test fun enrollmentPhotoSizedSavesAreSplitBeforeTheRequestLimit() = runBlocking {
         val store = Store(); val transport = Transport()
         repeat(2) {

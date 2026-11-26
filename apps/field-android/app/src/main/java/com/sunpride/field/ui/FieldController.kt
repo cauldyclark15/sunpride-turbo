@@ -550,12 +550,11 @@ class LiveFieldBackend(
         val epoch = authorizationEpoch
         withStore { store -> store.retailTransaction {
             check(epoch == authorizationEpoch && storedScope() == partition && !store.isHeld()) { "Session changed" }
-            if (json == null) store.blockLocalCache(CUSTOMER_DRAFT, "draft", "discarded", System.currentTimeMillis())
-            else store.putLocalCache(CUSTOMER_DRAFT, "draft", json, System.currentTimeMillis(), "draft")
-            val saved = store.localCache(CUSTOMER_DRAFT, "draft")?.takeUnless { it.tombstone }?.json
-            check(saved == json) { "Customer draft was not saved" }
-            check(epoch == authorizationEpoch && storedScope() == partition) { "Session changed" }
+            store.saveCustomerDraftBook(json, System.currentTimeMillis()) {
+                epoch == authorizationEpoch && storedScope() == partition
+            }
         } }
+        runCatching { com.sunpride.field.sync.work.SyncWork.enqueue(context) }
     }
     override fun warmCustomerSetup() {
         val config = runCatching { censusConfig() }.getOrNull() ?: return

@@ -513,16 +513,36 @@ class RoomFieldStore(private val db: StoreDatabase, private val identity: StoreS
     }
     override suspend fun enqueue(intent: IntentRow, now: Long) = enqueueWithCheckpoint(intent, now) {}
 
-    /** Save, draft removal and the resumable GPS attempt commit together, even if the screen closes. */
+    /** SP-0244: keep the phone book and its office-sharing outbox rows in one transaction.
+     * Drafts do not need a recording lease or any enrollment checks. Held accounts stay isolated.
+     */
+    suspend fun saveCustomerDraftBook(json: String?, now: Long, isCurrent: () -> Boolean = { true }) {
+        db.withTransaction {
+            check(isCurrent() && !isHeld()) { "Session changed" }
+            val previous = localCache("local.customerdraft", "draft")?.takeUnless { it.tombstone }?.json
+            val at = maxOf(now, (dao.latestCreatedAt(a, d, s) ?: Long.MIN_VALUE) + 1)
+            val known = history().filter { it.first.kind == com.sunpride.field.census.CustomerDraftSharing.KIND }
+                .map { it.first.clientVisitId }.toSet()
+            val changes = com.sunpride.field.census.CustomerDraftSharing.changes(StoreScope(a, d, s), previous, json, at, known)
+            changes.forEachIndexed { index, intent ->
+                dao.insertIntent(intent.copy(createdAt = at + index))
+                dao.insertOutbox(OutboxRow(a, d, s, intent.requestId, at + index))
+            }
+            if (json == null) blockLocalCache("local.customerdraft", "draft", "discarded", at)
+            else putLocalCache("local.customerdraft", "draft", json, at, "draft")
+            check(localCache("local.customerdraft", "draft")?.takeUnless { it.tombstone }?.json == json)
+            check(isCurrent()) { "Session changed" }
+        }
+    }
+
+    /** Save, draft removal, sharing and the resumable GPS attempt commit together, even if the screen closes. */
     suspend fun enqueueCustomerCapture(intent: IntentRow, remainingDrafts: String?, now: Long) {
         db.withTransaction {
             enqueue(intent, now)
             com.sunpride.field.census.StoreLocationTag.forCapture(intent, now)?.let { session ->
                 putLocalCache(com.sunpride.field.census.StoreLocationTag.ENTITY, "session", session.toString(), now, "session")
             }
-            if (remainingDrafts == null) blockLocalCache("local.customerdraft", "draft", "completed", now)
-            else putLocalCache("local.customerdraft", "draft", remainingDrafts, now, "draft")
-            check(localCache("local.customerdraft", "draft")?.takeUnless { it.tombstone }?.json == remainingDrafts)
+            saveCustomerDraftBook(remainingDrafts, now)
         }
     }
 

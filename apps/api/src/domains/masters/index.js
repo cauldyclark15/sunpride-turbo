@@ -37,6 +37,7 @@ import { autocomplete, details, reverse } from "./places.js";
 import { duplicateCheck } from "./duplicates.js";
 import { officeAddStore, storeSetup, storeLocations } from "./office-store.js";
 import { installCustomers } from "./customer-routes.js";
+import { shareCustomerDraft, listCustomerDrafts } from "./customer-drafts.js";
 import {
   requireCapability,
   requireNationalScope,
@@ -73,6 +74,18 @@ export async function readMslFramework(ctx, at = ctx.now) {
 }
 /** @param {any} router @param {any} platform */
 export function install(router, platform) {
+  platform.registerOp("census.draft", async (/** @type {any} */ ctx) => {
+    try {
+      return await shareCustomerDraft(ctx);
+    } catch (e) {
+      if (e instanceof ApiError)
+        throw new OpRejected(
+          e.status === 403 ? "out_of_scope" : "invalid_request",
+        );
+      throw e;
+    }
+  });
+  router.get("/api/v1/customers/drafts", listCustomerDrafts);
   platform.registerOp("census.capture", async (/** @type {any} */ ctx) => {
     try {
       return await captureCensus({ ...ctx, env: platform.env }, ctx.payload);

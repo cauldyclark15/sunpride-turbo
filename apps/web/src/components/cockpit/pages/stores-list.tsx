@@ -11,6 +11,7 @@ import type { StoreRow, StoreStatus } from "../types";
 export const STORE_TABS = [
   { id: "list", label: "Customers" },
   { id: "new", label: "New customers" },
+  { id: "drafts", label: "Drafts" },
   { id: "map", label: "Locations" },
   { id: "performance", label: "Performance" },
   { id: "winback", label: "Win-back" },

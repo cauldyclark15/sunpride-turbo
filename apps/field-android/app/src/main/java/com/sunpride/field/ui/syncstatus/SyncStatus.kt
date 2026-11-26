@@ -159,6 +159,7 @@ data class SyncStatus(
             "order_intent", "order.intent" -> "Order"
             "census.capture" -> "New customer"
             "store.location" -> "Store location"
+            "census.draft" -> "Customer draft (not for approval)"
             else -> "Saved work"
         }
 

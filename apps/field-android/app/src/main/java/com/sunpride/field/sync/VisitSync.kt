@@ -254,7 +254,7 @@ class VisitSync(private val gateway: SignedVisitGateway, private val store: Fiel
                         if (parent == null || com.sunpride.field.storage.OutboxState.refused(parent.second.state)) store.recordRejection(intent.requestId, "dependency_missing")
                         continue
                     }
-                } else if (intent.kind != "visit.checkIn" && intent.kind != com.sunpride.field.census.CensusRules.KIND && intent.kind != com.sunpride.field.storage.MockAttempts.KIND) {
+                } else if (intent.kind != "visit.checkIn" && intent.kind != com.sunpride.field.census.CensusRules.KIND && intent.kind != com.sunpride.field.census.CustomerDraftSharing.KIND && intent.kind != com.sunpride.field.storage.MockAttempts.KIND) {
                     val deps = op.getJSONArray("dependsOn")
                     val dependency = deps.getString(0)
                     val ack = store.ack(dependency)

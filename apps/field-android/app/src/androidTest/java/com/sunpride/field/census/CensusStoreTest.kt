@@ -81,18 +81,43 @@ class CensusStoreTest {
         target.putLocalCache("local.customerdraft", "draft", original, 1001, "draft")
         val intent = CensusRules.intent(scope, payload(), 1002)
         // Simulate failure updating the draft record AFTER enqueue: the intent/outbox must roll back too.
-        assertThrows(IllegalArgumentException::class.java) { runBlocking { target.enqueueCustomerCapture(intent, "", 1002) } }
+        assertThrows(org.json.JSONException::class.java) { runBlocking { target.enqueueCustomerCapture(intent, "", 1002) } }
         assertTrue(target.pending().isEmpty())
         assertNull(target.localCache(StoreLocationTag.ENTITY, "session"))
         assertEquals(original, target.localCache("local.customerdraft", "draft")!!.json)
         val remaining = book.open(book.saved.first().id).clear().json()
         target.enqueueCustomerCapture(intent, remaining, 1003)
         db.close(); db = EncryptedFieldDatabase.open(context)
-        assertEquals(intent.serializedOperation, store().pending().single().first.serializedOperation)
+        assertEquals(intent.serializedOperation, store().pending().single { it.first.kind == CensusRules.KIND }.first.serializedOperation)
         val session = JSONObject(store().localCache(StoreLocationTag.ENTITY, "session")!!.json!!)
         assertEquals(JSONObject(intent.serializedOperation).getJSONObject("payload").getString("captureId"), session.getString("captureId"))
         assertTrue(StoreLocationTag.active(session, 1004))
+        assertTrue(store().pending().any { it.first.kind == CustomerDraftSharing.KIND })
         assertEquals(listOf(book.saved.last().id), CustomerDrafts.parse(store().localCache("local.customerdraft", "draft")!!.json).saved.map { it.id })
+        Unit
+    }
+
+    @Test fun draftsShareDurablyWithoutALeaseAndAuthorizationFailureRollsBackBothCopies() = runBlocking {
+        val target = store()
+        val snapshot = ScopedSnapshot("{}", null, emptyList(), emptyList(), emptyList(), emptyList())
+        target.swap(target.stage(snapshot), "draft-cursor", 1, 1)
+        val book = CustomerDrafts().save(CustomerCapture.Draft(CustomerCapture.Form(), null, null))
+        target.saveCustomerDraftBook(book.json(), 1000)
+        assertFalse(target.isLeaseValid(1000))
+        val original = target.pending().single().first.serializedOperation
+        assertEquals(CustomerDraftSharing.KIND, target.pending().single().first.kind)
+        db.close(); db = EncryptedFieldDatabase.open(context)
+        assertEquals(original, store().pending().single().first.serializedOperation)
+        val next = book.save(CustomerCapture.Draft(CustomerCapture.Form(email = "unfinished@"), null, null)).json()
+        var checks = 0
+        assertThrows(IllegalStateException::class.java) { runBlocking {
+            store().saveCustomerDraftBook(next, 900) { ++checks == 1 }
+        } }
+        assertEquals(book.json(), store().localCache("local.customerdraft", "draft")!!.json)
+        assertEquals(1, store().pending().size)
+        store().saveCustomerDraftBook(next, 900)
+        assertEquals(2, store().pending().size)
+        assertTrue(store().pending().last().first.createdAt > store().pending().first().first.createdAt)
         Unit
     }
 
