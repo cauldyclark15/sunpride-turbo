@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { mutate, useApi } from "../lib/api";
+import { formatDateTime } from "../lib/format";
 
 export const phoneControlLabels: Record<string, string> = {
   sign_out: "Sign out phone",
@@ -45,7 +46,7 @@ const button =
   "rounded-lg border border-border px-3 py-2 text-sm disabled:opacity-50";
 const when = (s: string | null) =>
   s
-    ? new Date(s).toLocaleString("en-PH", { timeZone: "Asia/Manila" })
+    ? formatDateTime(s)
     : "Not reported yet";
 export function phoneControlsHref(profileId: string) {
   return `/admin?section=devices&phonePerson=${encodeURIComponent(profileId)}#phone-controls`;
