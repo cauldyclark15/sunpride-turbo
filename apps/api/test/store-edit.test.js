@@ -574,9 +574,10 @@ test("SP-0241: customer edits and later photos save without optional phone/addre
     street1: null,
     completeness: "draft",
   });
+  // SP-0255: Street 1 is optional, so it is never listed as missing.
   expect(
     saved.field_missing.some((/** @type {any} */ f) => f.field === "street1"),
-  ).toBe(true);
+  ).toBe(false);
   const [ship] =
     await h.db`select mobile_no from customer_ship_tos where outlet_id=${id} and deleted_at is null order by ordinal limit 1`;
   expect(ship.mobile_no).toBeNull();

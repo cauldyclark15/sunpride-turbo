@@ -18,9 +18,14 @@ function fingerprint(value) {
  * Serial revisions are independent immutable operations, never edits of sent bytes.
  * @param {any} c @param {any} p @param {()=>Promise<any>} create @param {(id:string)=>Promise<void>} amend */
 export async function captureRevision(c, p, create, amend) {
-  if (p.customerDraftId === undefined) return create(); // older phones
+  // Older phones, and SP-0244 submissions that only close an office-visible draft.
+  if (p.customerDraftId === undefined || p.draftRevision === undefined)
+    return create();
   const id = uuid(p.customerDraftId);
   const revision = integer(p.draftRevision, 1, 1000000);
+  // SP-0244: once saved as a customer, the same phone draft leaves the office Drafts list.
+  const { submittedCustomerDraft } = await import("./customer-drafts.js");
+  await submittedCustomerDraft(c, p.customerDraftId);
   await c.db`select pg_advisory_xact_lock(${ORG_LOCK})`;
   await c.db`select pg_advisory_xact_lock(4310420)`;
   const [prior] =
