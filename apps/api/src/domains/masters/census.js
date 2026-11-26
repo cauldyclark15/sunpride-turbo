@@ -132,6 +132,12 @@ function readLocation(p, at, newCustomer = false) {
 }
 /** @param {any} encodedValue */
 function readJpeg(encodedValue) {
+  if (
+    encodedValue === undefined ||
+    encodedValue === null ||
+    encodedValue === ""
+  )
+    return null;
   const encoded = required(encodedValue, "Storefront photo", 220000);
   const bytes = Buffer.from(encoded, "base64");
   if (
@@ -484,9 +490,9 @@ export async function captureCensus(ctx, p) {
   const flag = candidates.some(
     (/** @type {any} */ c) => !acknowledged.includes(c.id),
   );
-  const file = await storeJpeg(ctx, id, bytes, actor);
+  const file = bytes ? await storeJpeg(ctx, id, bytes, actor) : null;
   const gps = source === "gps" && l !== null;
-  await ctx.db`insert into census_captures(id,batch_id,actor_profile_id,payload_hash,name,address,latitude,longitude,accuracy_meters,captured_at,owner_name,owner_phone,channel_id,subchannel_id,estimated_class,photo_file_id,location_provider,location_recorded_at,device_id,location_source,place_id,address_components,formatted_address,landmark,acknowledged_duplicate_ids,duplicate_candidates,duplicate_flag,app) values(${id},${batch.id},${actor.profileId},${hash},${name},${address},${latitude},${longitude},${gps ? l.accuracyMeters : null},${new Date(at)},${ownerName},${ownerPhone},${channel.id},${sub.id},${p.estimatedClass},${file.id},${l ? (gps ? l.provider : "places") : null},${l ? new Date(gps ? l.fixTime : at) : null},${ctx.device.id},${source},${placeId},${components},${formattedAddress},${landmark},${acknowledged},${candidates},${flag},${ctx.app})`;
+  await ctx.db`insert into census_captures(id,batch_id,actor_profile_id,payload_hash,name,address,latitude,longitude,accuracy_meters,captured_at,owner_name,owner_phone,channel_id,subchannel_id,estimated_class,photo_file_id,location_provider,location_recorded_at,device_id,location_source,place_id,address_components,formatted_address,landmark,acknowledged_duplicate_ids,duplicate_candidates,duplicate_flag,app) values(${id},${batch.id},${actor.profileId},${hash},${name},${address},${latitude},${longitude},${gps ? l.accuracyMeters : null},${new Date(at)},${ownerName},${ownerPhone},${channel.id},${sub.id},${p.estimatedClass},${file?.id ?? null},${l ? (gps ? l.provider : "places") : null},${l ? new Date(gps ? l.fixTime : at) : null},${ctx.device.id},${source},${placeId},${components},${formattedAddress},${landmark},${acknowledged},${candidates},${flag},${ctx.app})`;
   if (pendingPlace)
     await ctx.enqueue({
       kind: RESOLVE_PLACE_JOB,
@@ -594,7 +600,7 @@ async function captureCustomer(ctx, actor, p) {
   const contactPhone = firstText(40, p.ownerPhone, p.customer.mobileNo);
   const { l } = readLocation(p, at, true);
   const bytes = readJpeg(p.photoJpegBase64);
-  const file = await storeJpeg(ctx, id, bytes, actor);
+  const file = bytes ? await storeJpeg(ctx, id, bytes, actor) : null;
   const result = await enrolmentCommand(ctx, "propose", {
     name,
     address,
@@ -603,7 +609,7 @@ async function captureCustomer(ctx, actor, p) {
     latitude: l?.latitude ?? null,
     longitude: l?.longitude ?? null,
     locationEvidence: l,
-    photoStorageIds: [file.id],
+    photoStorageIds: file ? [file.id] : [],
     clientRequestId: id,
     note: "Captured through Add customer on the field app",
     customer: { ...p.customer, customerName: name },
@@ -699,7 +705,8 @@ export async function reviewCensus(ctx, p) {
     outletId = outlet.id;
     await ctx.db`update outlets set channel_id=${capture.channel_id},subchannel_id=${capture.subchannel_id},place_id=${capture.place_id ?? null},directions=${capture.landmark ?? null} where id=${outletId}`;
     await ctx.db`insert into outlet_contacts(outlet_id,ordinal,name,phone) values(${outletId},0,${capture.owner_name},${capture.owner_phone})`;
-    await ctx.db`insert into outlet_photos(outlet_id,ordinal,file_id) values(${outletId},0,${capture.photo_file_id})`;
+    if (capture.photo_file_id)
+      await ctx.db`insert into outlet_photos(outlet_id,ordinal,file_id) values(${outletId},0,${capture.photo_file_id})`;
     if (capture.latitude !== null)
       await ctx.db`insert into outlet_pins(outlet_id,latitude,longitude,radius_meters,source,evidence_storage_id,status,effective_from,proposed_by,proposed_at,verified_by,verified_at,reviewer_reason) values(${outletId},${capture.latitude},${capture.longitude},50,'census',${capture.photo_file_id},'verified',${new Date(ctx.now)},${capture.actor_profile_id},${capture.captured_at},${actor.userId},${new Date(ctx.now)},${reason})`;
   } else outletId = null;

@@ -78,6 +78,27 @@ class CustomerCaptureTest {
         assertTrue(reopened.keep(draft.copy(form = corrected)).clear().saved.isEmpty())
     }
 
+    @Test fun optionalStorePhotoSurvivesDraftAndImmutableOutbox() {
+        assertTrue(CustomerCapture.missing(complete(), setup, geography, true, false).isEmpty())
+        val restored = CustomerCapture.parseDraft(CustomerCapture.draftJson(CustomerCapture.Draft(complete(), fix, null)))!!
+        assertNull(restored.photo)
+        for (photo in listOf(null, "")) {
+            val p = CustomerCapture.payload(UUID.randomUUID().toString(), restored.form, geography, 5000L, restored.fix, photo)
+            assertFalse(p.has("photoJpegBase64"))
+            val intent = CensusRules.intent(StoreScope("account", "device", "scope"), p, 5000L)
+            assertFalse(JSONObject(intent.serializedOperation).getJSONObject("payload").has("photoJpegBase64"))
+            p.put("photoJpegBase64", JSONObject.NULL); CensusRules.validate(p)
+            p.put("photoJpegBase64", ""); CensusRules.validate(p)
+        }
+        val p = CustomerCapture.payload(UUID.randomUUID().toString(), complete(), geography, 5000L, fix, jpeg)
+        for (bad in listOf<Any>(false, "invalid", Base64.getEncoder().encodeToString(byteArrayOf(1, 2, 3, 4)),
+            Base64.getEncoder().encodeToString(ByteArray(CensusRules.MAX_PHOTO_BYTES + 1)))) {
+            assertThrows(IllegalArgumentException::class.java) { CensusRules.validate(JSONObject(p.toString()).put("photoJpegBase64", bad)) }
+        }
+        CensusRules.validate(p)
+        assertEquals(jpeg, p.getString("photoJpegBase64"))
+    }
+
     @Test fun weakOldAndMissingLocationSurviveDraftAndImmutableOutbox() {
         val now = 2_000_000L
         val weak = JSONObject(fix.toString()).put("accuracyMeters", 500.0).put("fixTime", now - 1_800_000L)
@@ -225,7 +246,7 @@ class CustomerCaptureTest {
         val blank = CustomerCapture.missing(CustomerCapture.Form(), setup, geography, hasFix = false, hasPhoto = false)
         assertEquals(listOf("registeredName", "firstName", "lastName", "mobileNo", "taxClassificationCode", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "street1",
             "salesOrgCode", "salesOfficeCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code", "customerGroupCode", "typeOfBusiness",
-            "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode", "contactPerson", "photo"), blank.map { it.key })
+            "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode", "contactPerson"), blank.map { it.key })
         assertEquals("Registered Name is required.", blank.first().message)
         assertEquals("Contact Person is required.", blank.first { it.key == "contactPerson" }.message)
     }
@@ -416,7 +437,7 @@ class CustomerCaptureTest {
         assertTrue(refused(JSONObject(ok.toString()).also { it.getJSONObject("customer").put("mobileNo", "123") }))
         assertTrue(refused(JSONObject(ok.toString()).also { it.getJSONObject("customer").put("nonsense", "x") }))
         assertTrue(refused(JSONObject(ok.toString()).put("ownerName", " ")))
-        assertTrue(refused(JSONObject(ok.toString()).put("photoJpegBase64", "")))
+        assertFalse(refused(JSONObject(ok.toString()).put("photoJpegBase64", "")))
         assertFalse(refused(JSONObject(ok.toString()).also { it.getJSONObject("location").put("accuracyMeters", 80.0) }))
         assertTrue(refused(JSONObject(ok.toString()).also { it.getJSONObject("location").put("accuracyMeters", 501.0) }))
         assertTrue(refused(JSONObject(ok.toString()).also { it.getJSONObject("location").put("mockSignal", true) }))

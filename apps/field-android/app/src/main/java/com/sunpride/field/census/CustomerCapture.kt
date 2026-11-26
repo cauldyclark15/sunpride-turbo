@@ -262,7 +262,7 @@ object CustomerCapture {
     fun applicability(s: Setup, f: Form) = CustomerMaster.applicability(s.index, f.salesOrgCode, f.distributionChannelCode,
         f.customerGroup1Code.ifEmpty { null })
 
-    /** A field Save found missing, in form order; [key] matches the contract key ("photo" for the storefront photo). */
+    /** A required field Save found missing, in form order; [key] matches the contract key. */
     data class Missing(val key: String, val message: String)
     /** SP-0184: all required sheet fields before submission, including conditional ADP and ship-to.
      * Missing offline geography must be downloaded, not deferred to an Admin to complete. */
@@ -287,7 +287,6 @@ object CustomerCapture {
             val key = if (field.key == "mobileNo") "shipToMobileNo" else field.key
             if ((ship[field.key] as? String).isNullOrBlank()) add(Missing(key, "${label(key)} is required."))
         }
-        if (!hasPhoto) add(Missing("photo", "Take a storefront photo."))
         EnrollmentFields.errors(s?.enrollmentFields.orEmpty(), f).forEach { (key,message) -> add(Missing(key,message)) }
     }
     fun label(key: String): String = when (key) {
@@ -344,7 +343,7 @@ object CustomerCapture {
     }
 
     /** census.capture payload for a new customer (server: field enrolment + draft customer profile). */
-    fun payload(captureId: String, f: Form, g: Geography?, deviceTime: Long, gpsFix: JSONObject?, photo: String,
+    fun payload(captureId: String, f: Form, g: Geography?, deviceTime: Long, gpsFix: JSONObject?, photo: String?,
         acknowledged: List<String> = emptyList()): JSONObject {
         val customer = customer(f, g)
         // SP-0196: `name` is the store (Registered Name); the customer object keeps both names as entered.
@@ -353,7 +352,8 @@ object CustomerCapture {
             .put("address", builtAddress(f, g).ifEmpty { name })
             .put("ownerName", normalizeText("contactPerson", f.contactPerson.trim())).put("ownerPhone", f.mobileNo.trim()).put("deviceTime", deviceTime)
             .put("locationSource", "gps").put("location", gpsFix?.takeIf { CustomerLocation.usable(it, deviceTime) } ?: JSONObject.NULL)
-            .put("photoJpegBase64", photo).put("customer", customer)
+            .put("customer", customer)
+        photo?.takeIf { it.isNotEmpty() }?.let { p.put("photoJpegBase64", it) }
         if (acknowledged.isNotEmpty()) p.put("acknowledgedDuplicateIds", JSONArray(acknowledged.distinct().take(10)))
         return p
     }
@@ -394,8 +394,6 @@ object CustomerCapture {
         require(!p.has("location") || p.isNull("location") || CustomerLocation.usable(location, p.getLong("deviceTime"))) {
             "Try Use my location again, or save without a location."
         }
-        val photo = Base64.getDecoder().decode(p.getString("photoJpegBase64"))
-        require(photo.size in 4..CensusRules.MAX_PHOTO_BYTES && photo[0] == 0xff.toByte() && photo[1] == 0xd8.toByte() &&
-            photo[photo.size - 2] == 0xff.toByte() && photo.last() == 0xd9.toByte()) { "Take a storefront photo." }
+        CensusRules.validatePhoto(p)
     }
 }

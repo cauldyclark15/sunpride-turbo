@@ -625,8 +625,7 @@ export async function enrolmentCommand(c, action, b) {
     const photos = [
       ...new Set(/** @type {string[]} */ (b.photoStorageIds ?? [])),
     ];
-    if (photos.length > 5 || (!photos.length && !b.cisStorageId))
-      rule("Attach a customer information sheet or up to five store photos");
+    if (photos.length > 5) rule("Attach up to five store photos");
     for (const id of photos) await evidence(c, id);
     if (b.cisStorageId) await evidence(c, b.cisStorageId);
     required(b.address, "Address", 500);

@@ -45,9 +45,7 @@ object CensusRules {
             }
             else -> throw IllegalArgumentException("Choose Use my location or Search address.")
         }
-        val photo = Base64.getDecoder().decode(p.getString("photoJpegBase64"))
-        require(photo.size in 4..MAX_PHOTO_BYTES && photo[0] == 0xff.toByte() && photo[1] == 0xd8.toByte() &&
-            photo[photo.size - 2] == 0xff.toByte() && photo.last() == 0xd9.toByte()) { "Take a storefront photo." }
+        validatePhoto(p)
     }
     /** A change carries the whole edited store; location and photo are optional (left out = unchanged). */
     fun validateChange(p: JSONObject) {
@@ -71,11 +69,19 @@ object CensusRules {
                 else -> throw IllegalArgumentException("Choose Use my location or Search address.")
             }
         }
-        p.optString("photoJpegBase64").takeIf { it.isNotEmpty() }?.let {
-            val photo = Base64.getDecoder().decode(it)
-            require(photo.size in 4..MAX_PHOTO_BYTES && photo[0] == 0xff.toByte() && photo[1] == 0xd8.toByte() &&
-                photo[photo.size - 2] == 0xff.toByte() && photo.last() == 0xd9.toByte()) { "Take a storefront photo." }
-        }
+        validatePhoto(p)
+    }
+    /** Store Photo is optional; an attached photo must still be a bounded JPEG. */
+    fun validatePhoto(p: JSONObject) {
+        if (!p.has("photoJpegBase64") || p.isNull("photoJpegBase64")) return
+        val encoded = p.get("photoJpegBase64")
+        require(encoded is String) { "Choose a valid storefront photo." }
+        if (encoded.isEmpty()) return
+        require(encoded.length <= 220000) { "Choose a photo up to 160 KiB." }
+        val photo = Base64.getDecoder().decode(encoded)
+        require(Base64.getEncoder().encodeToString(photo) == encoded && photo.size in 4..MAX_PHOTO_BYTES &&
+            photo[0] == 0xff.toByte() && photo[1] == 0xd8.toByte() &&
+            photo[photo.size - 2] == 0xff.toByte() && photo.last() == 0xd9.toByte()) { "Choose a valid storefront photo up to 160 KiB." }
     }
     /** Required fields of Edit store: name, owner, phone and address. Location and photo stay as they are unless set. */
     fun missingForChange(name: String, owner: String, phone: String, mode: String, hasFix: Boolean, hasPlace: Boolean,
@@ -263,7 +269,6 @@ object CensusRules {
         if (!uuid.matches(subchannel)) add(Field.SUBCHANNEL)
         if (mode == "" || (mode == "gps" && !hasFix) || (mode == "places" && !hasPlace)) add(Field.LOCATION)
         if (address.isBlank()) add(Field.ADDRESS)
-        if (!hasPhoto) add(Field.PHOTO)
     }
     /** Short line next to Save. */
     fun missingSummary(count: Int): String = if (count == 1) "Fill in the field marked above" else "Fill in the $count fields marked above"
@@ -305,11 +310,11 @@ object CensusRules {
     /** One payload for both location choices (contract census.capture changes). [batchId] null = server default batch. */
     fun payload(captureId: String, batchId: String?, name: String, address: String, ownerName: String, ownerPhone: String,
         channelId: String, subchannelId: String, estimatedClass: String, deviceTime: Long, gpsFix: JSONObject?, place: Place?,
-        landmark: String, reverse: Pair<String, JSONObject?>?, acknowledged: List<String>, photo: String): JSONObject {
+        landmark: String, reverse: Pair<String, JSONObject?>?, acknowledged: List<String>, photo: String?): JSONObject {
         val p = JSONObject().put("captureId", captureId).put("name", name.trim()).put("address", address.trim())
             .put("ownerName", ownerName.trim()).put("ownerPhone", ownerPhone.trim()).put("channelId", channelId)
             .put("subchannelId", subchannelId).put("estimatedClass", estimatedClass).put("deviceTime", deviceTime)
-            .put("photoJpegBase64", photo)
+        photo?.takeIf { it.isNotEmpty() }?.let { p.put("photoJpegBase64", it) }
         if (!batchId.isNullOrEmpty()) p.put("batchId", batchId)
         if (place != null) {
             p.put("locationSource", "places").put("placeId", place.placeId)

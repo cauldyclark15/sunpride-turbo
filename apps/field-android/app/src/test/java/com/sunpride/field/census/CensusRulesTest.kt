@@ -42,9 +42,12 @@ class CensusRulesTest {
             assertThrows(IllegalArgumentException::class.java) { CensusRules.validate(p) }
         }
     }
-    @Test fun f011RequiresARealPhotoEnvelopeAndPreservesLeadingZeroPhoneDigits() {
+    @Test fun f011OptionalPhotoPreservesLeadingZeroPhoneDigits() {
         val p = payload(); CensusRules.validate(p); assertEquals("09171234567", p.getString("ownerPhone"))
-        p.put("photoJpegBase64", ""); assertThrows(IllegalArgumentException::class.java) { CensusRules.validate(p) }
+        p.put("photoJpegBase64", ""); CensusRules.validate(p)
+        p.put("photoJpegBase64", JSONObject.NULL); CensusRules.validate(p)
+        p.remove("photoJpegBase64"); CensusRules.validate(p)
+        p.put("photoJpegBase64", "not-a-photo"); assertThrows(IllegalArgumentException::class.java) { CensusRules.validate(p) }
     }
     @Test fun f011BadIdentityAndIncompleteOwnerCannotEnterTheQueue() {
         for ((key, value) in listOf("captureId" to "1-1-1-1-1", "ownerName" to "", "ownerPhone" to "123", "estimatedClass" to "E")) {
@@ -55,7 +58,7 @@ class CensusRulesTest {
     // Live test 2026-11-09: Save names every missing field, top first.
     @Test fun missingListsEveryRequiredFieldInFormOrder() {
         val all = CensusRules.missing("", "", "", "", "", "", false, false, "", false)
-        assertEquals(CensusRules.Field.entries.toList(), all)
+        assertEquals(CensusRules.Field.entries.filter { it != CensusRules.Field.PHOTO }, all)
         val ch = UUID.randomUUID().toString()
         val some = CensusRules.missing("Nena", "", "0917 123 4567", ch, "", "gps", true, false, "Colon St", true)
         assertEquals(listOf(CensusRules.Field.OWNER, CensusRules.Field.SUBCHANNEL), some)

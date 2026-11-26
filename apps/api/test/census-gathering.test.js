@@ -178,6 +178,36 @@ afterAll(async () => {
   await h?.close();
 });
 
+async function optionalPhotoProof() {
+  const rep = await fieldRep("field-android");
+  config = (await rep.get("/api/v1/masters/census-config")).body;
+  const p = capture({
+    photoJpegBase64: undefined,
+    name: "SP-0256 sample no-photo store",
+  });
+  const op = crypto.randomUUID();
+  expect((await rep.push(p, op)).status).toBe("applied");
+  expect((await rep.push(p, op)).status).toBe("duplicate");
+  const [saved] =
+    await h.db`select photo_file_id from census_captures where id=${p.captureId}`;
+  expect(saved.photo_file_id).toBeNull();
+  const queue = await as("manager", "/api/v1/masters/census-queue");
+  expect(
+    queue.body.rows.find((/** @type {any} */ r) => r.id === p.captureId)
+      ?.has_photo,
+  ).toBe(false);
+  const approved = await as("manager", "/api/v1/masters/census/review", {
+    captureId: p.captureId,
+    decision: "accept",
+    reason: "Sample store verified without a photo",
+  });
+  expect(approved.status).toBe(200);
+  expect(approved.body.outletId).toBeTruthy();
+  expect(
+    await h.db`select file_id from outlet_photos where outlet_id=${approved.body.outletId}`,
+  ).toHaveLength(0);
+}
+
 test("SP-0162 places proxy maps Google answers, biases to the fix and never leaks the key", async () => {
   google = (url) => {
     if (url.pathname.endsWith("/place/autocomplete/json"))
@@ -1020,3 +1050,8 @@ test("SP-0239: office Add store always assigns a unique number, ignoring supplie
     await h.db`select count(*)::int n from outlets where code='TST-WEB-0001'`;
   expect(rows[0].n).toBe(0);
 });
+
+test(
+  "SP-0256 photo-less store gathering can be reviewed and approved without a placeholder photo",
+  optionalPhotoProof,
+);

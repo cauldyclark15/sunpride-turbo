@@ -153,7 +153,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
     var moved by remember { mutableStateOf<Moved?>(null) }
     val requesters = remember { CensusRules.Field.entries.associateWith { BringIntoViewRequester() } }
     var camera by remember { mutableStateOf(false) }; var capture by remember { mutableStateOf<ImageCapture?>(null) }
-    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { camera = it; if (!it) message = "Camera access is needed for the storefront photo." }
+    val cameraPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { camera = it; if (!it) message = "Camera access was not granted. You can save without a photo." }
     val locationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestMultiplePermissions()) {
         message = "Tap Use my location again after allowing precise location."
     }
@@ -412,7 +412,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             CensusRules.Place(it.placeId ?: "", it.latitude ?: Double.NaN, it.longitude ?: Double.NaN, it.formattedAddress, it.components.json())
         }
         if (!edit) return CustomerCapture.payload(CensusRules.captureId(), form, geography, System.currentTimeMillis(),
-            fix, jpeg?.let { Base64.getEncoder().encodeToString(it) } ?: "", acknowledged)
+            fix, jpeg?.let { Base64.getEncoder().encodeToString(it) }, acknowledged)
         if (edit) return CensusRules.changePayload(CensusRules.captureId(), editing!!.outletId, name,
             CensusRules.addressLine(form, geography).ifEmpty { form.street1 }, owner, phone,
             System.currentTimeMillis(), if (mode == "gps" || (mode == "places" && place != null)) fix?.takeIf { CensusRules.fixUsable(it) } else null,
@@ -600,9 +600,13 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
             }
             }
             if (!edit) EnrollmentFieldsSection(setup?.enrollmentFields.orEmpty(), form, { formErrors = formErrors - changedKeys(form,it); form = it }, customerMarks, !busy, { busy = it })
-            SectionCard("Storefront photo") {
+            SectionCard("Store Photo (optional)") {
                 Column(Modifier.padding(start = 16.dp, end = 16.dp, bottom = 16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text("You can save this customer without a photo.", style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("census-photo-optional"))
                     if (camera) {
+                        TonalButton("Skip photo", { camera = false; capture = null },
+                            Modifier.fillMaxWidth().testTag("census-skip-photo"), !busy)
                         CameraPreview({ capture = it }, { message = "Camera unavailable." }, Modifier.fillMaxWidth().height(260.dp).clip(RoundedCornerShape(20.dp)))
                         PrimaryBottomButton("Take storefront photo", {
                             val still = capture ?: return@PrimaryBottomButton
@@ -618,8 +622,6 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                         if (ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) camera = true
                         else cameraPermission.launch(Manifest.permission.CAMERA)
                     }, Modifier.fillMaxWidth().testTag("census-camera"), !busy, glyph = GlyphKind.CAMERA)
-                    Marked(CensusRules.Field.PHOTO, marked, requesters) { }
-                    if (!edit) KeyMark("photo", customerMarks, ::requester)
                     jpeg?.let { bytes -> BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.let { Image(it.asImageBitmap(), "Captured storefront", Modifier.fillMaxWidth().height(180.dp).clip(RoundedCornerShape(16.dp)), contentScale = ContentScale.Crop) } }
                 }
             }

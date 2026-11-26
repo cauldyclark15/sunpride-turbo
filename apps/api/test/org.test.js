@@ -1237,7 +1237,9 @@ describe("setup queues, enrollment and current-scope history", () => {
     expect(health.status).toBe(200);
     expect(health.body.items).toHaveLength(6);
     expect(
-      health.body.items.find((/** @type {any} */ item) => item.key === "people"),
+      health.body.items.find(
+        (/** @type {any} */ item) => item.key === "people",
+      ),
     ).toMatchObject({
       label: "People without a branch",
       href: "/admin?section=people&unassigned=true",
@@ -1261,7 +1263,7 @@ describe("setup queues, enrollment and current-scope history", () => {
     expect((await call("org/setup-health", sales)).status).toBe(403);
     expect((await call("org/setup-health", admin)).status).toBe(200);
   });
-  test("enrollment requires owned stored evidence, forbids self-approval and issues a code on independent review", async () => {
+  test("enrollment accepts optional photos, validates attached evidence and issues a code on review", async () => {
     const bytes = Buffer.from("small-fixture-image");
     const sha = new Bun.CryptoHasher("sha256").update(bytes).digest("hex");
     const dir = join(h.filesDir, sha.slice(0, 2));
@@ -1280,11 +1282,29 @@ describe("setup queues, enrollment and current-scope history", () => {
       territoryId: territory.id,
       photoStorageIds: [file.id],
     };
+    const photoLess = await call("outlets/enrolment/propose", sales, {
+      ...b,
+      clientRequestId: "SP-0256-no-photo",
+      photoStorageIds: [],
+    });
+    expect(photoLess.status).toBe(200);
+    expect(
+      await h.db`select file_id from outlet_enrolment_photos where outlet_enrolment_id=${photoLess.body.enrolmentId}`,
+    ).toHaveLength(0);
+    expect(
+      (
+        await call("outlets/enrolment/decide", manager, {
+          enrolmentId: photoLess.body.enrolmentId,
+          decision: "approved",
+          reason: "Verified without a store photo",
+        })
+      ).status,
+    ).toBe(200);
     expect(
       (
         await call("outlets/enrolment/propose", sales, {
           ...b,
-          photoStorageIds: [],
+          photoStorageIds: Array.from({ length: 6 }, () => crypto.randomUUID()),
         })
       ).status,
     ).toBe(422);
@@ -1788,7 +1808,9 @@ describe("loosened rules (jc)", () => {
       reason: "Loosened rule 1",
     });
     expect(r.status, JSON.stringify(r.body)).toBe(200);
-    expect(JSON.stringify(r.body)).not.toContain("Person outside owner hierarchy");
+    expect(JSON.stringify(r.body)).not.toContain(
+      "Person outside owner hierarchy",
+    );
   });
   test("rule 2: a route and its salesperson can start today; an earlier day is still refused", async () => {
     const today = manilaTodayStart(Date.now());

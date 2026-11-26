@@ -60,7 +60,7 @@ export function CaptureRow({
       aria-pressed={selected}
       className={`flex w-full items-center gap-3 rounded-lg border p-2 text-left ${selected ? "border-foreground" : "border-border hover:bg-default-soft"}`}
     >
-      {isChange(capture) && !capture.has_photo ? (
+      {capture.has_photo === false ? (
         <span className="h-12 w-12 shrink-0 rounded-md bg-default-soft" />
       ) : (
         /* eslint-disable-next-line @next/next/no-img-element -- protected same-origin photo, no optimizer */
@@ -218,12 +218,18 @@ export function CaptureDetail({
         </button>
       </div>
       <div className="grid gap-4 lg:grid-cols-2">
-        {/* eslint-disable-next-line @next/next/no-img-element -- protected same-origin photo */}
-        <img
-          src={`/api/v1/masters/census/${capture.id}/photo`}
-          alt={`Storefront of ${capture.name}`}
-          className="max-h-72 w-full rounded-xl border border-border object-cover"
-        />
+        {capture.has_photo === false ? (
+          <p className="text-sm text-muted">
+            No store photo attached (optional).
+          </p>
+        ) : (
+          /* eslint-disable-next-line @next/next/no-img-element -- protected same-origin photo */
+          <img
+            src={`/api/v1/masters/census/${capture.id}/photo`}
+            alt={`Storefront of ${capture.name}`}
+            className="max-h-72 w-full rounded-xl border border-border object-cover"
+          />
+        )}
         {map}
       </div>
       <dl className="grid gap-x-6 gap-y-2 text-sm sm:grid-cols-2">
@@ -383,7 +389,9 @@ export function CaptureDetail({
             name="reason"
             defaultValue={
               decision === "accept"
-                ? "Checked photo, owner and location"
+                ? capture.has_photo === false
+                  ? "Checked owner and location"
+                  : "Checked photo, owner and location"
                 : decision === "duplicate"
                   ? "Same customer as the existing one"
                   : ""

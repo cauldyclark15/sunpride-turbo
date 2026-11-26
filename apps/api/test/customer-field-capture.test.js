@@ -275,6 +275,51 @@ test("Add customer capture becomes a prospect customer with a complete pending p
   ).toBe(1);
 });
 
+test("SP-0256 customer profiling saves without a photo and replays without adding files", async () => {
+  for (const photoJpegBase64 of [undefined, null, ""]) {
+    const p = capture({ photoJpegBase64 });
+    const op = crypto.randomUUID();
+    const [{ n: before }] = await h.db`select count(*)::int n from files`;
+    const saved = await rep.push(p, op);
+    expect(saved.status).toBe("applied");
+    const [e] =
+      await h.db`select id,outlet_id,status,pin_id from outlet_enrolments where client_request_id=${p.captureId}`;
+    expect(e.status).toBe("pending");
+    expect(await readCustomer(h.db, e.outlet_id)).toMatchObject({
+      customerName: p.customer.customerName,
+      completeness: "complete",
+    });
+    expect(
+      await h.db`select file_id from outlet_enrolment_photos where outlet_enrolment_id=${e.id}`,
+    ).toHaveLength(0);
+    const [pin] =
+      await h.db`select evidence_storage_id from outlet_pins where id=${e.pin_id}`;
+    expect(pin.evidence_storage_id).toBeNull();
+    expect((await rep.push(p, op)).status).toBe("duplicate");
+    // Also exercise the capture-level replay with a fresh operation identifier.
+    expect((await rep.push(p)).status).toBe("applied");
+    expect((await h.db`select count(*)::int n from files`)[0].n).toBe(before);
+    expect(
+      await h.db`select id from outlet_enrolments where client_request_id=${p.captureId}`,
+    ).toHaveLength(1);
+  }
+});
+
+test("SP-0256 supplied storefront photos still require a real bounded JPEG", async () => {
+  for (const photoJpegBase64 of [
+    false,
+    "not-base64",
+    Buffer.from([255, 216, 255, 217]).toString("base64"),
+    Buffer.alloc(160 * 1024 + 1).toString("base64"),
+  ]) {
+    const p = capture({ photoJpegBase64 });
+    expect((await rep.push(p)).status).toBe("rejected");
+    expect(
+      await h.db`select id from outlet_enrolments where client_request_id=${p.captureId}`,
+    ).toHaveLength(0);
+  }
+});
+
 test("SP-0243 weak, old and absent location save through signed sync, including delayed send and replay", async () => {
   const at = Date.now() - 3 * 86400000;
   const weak = {
@@ -378,7 +423,9 @@ test("SP-0184 agents submit complete profiles directly for manager review, appro
   expect(signIn.status).toBe(200);
   const cookie = signIn.headers.get("set-cookie")?.split(";")[0] ?? "";
   for (const decision of ["approve", "reject"]) {
-    const p = capture();
+    const p = capture({
+      photoJpegBase64: decision === "approve" ? undefined : photo,
+    });
     const adp = decision === "reject";
     const fields = {
       ...p.customer,

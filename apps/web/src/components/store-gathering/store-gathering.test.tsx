@@ -118,6 +118,33 @@ describe("store gathering review views", () => {
     expect(m).toContain("Maybe already listed");
     noIds(m);
   });
+  it("SP-0256 allows review without requesting a missing optional photo", () => {
+    const noPhoto = { ...capture, has_photo: false };
+    const row = html(
+      createElement(CaptureRow, {
+        capture: noPhoto,
+        selected: false,
+        onOpen: () => {},
+      }),
+    );
+    expect(row).not.toContain("/photo");
+    const detail = html(
+      createElement(CaptureDetail, {
+        capture: noPhoto,
+        candidates: [],
+        decision: "accept",
+        survivor: null,
+        onDecision: () => {},
+        onSurvivor: () => {},
+        onSubmit: () => {},
+        onClose: () => {},
+      }),
+    );
+    expect(detail).toContain("No store photo attached (optional).");
+    expect(detail).toContain("Approve as new customer");
+    expect(detail).not.toContain("/photo");
+    expect(detail).not.toMatch(/<button[^>]*\sdisabled(?:=|\s|>)/);
+  });
   it("candidate list explains each match and offers Same store only for stores", () => {
     const onSame = vi.fn();
     const m = html(
