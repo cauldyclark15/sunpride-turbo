@@ -1,7 +1,7 @@
 // SP-0170: the client's customer fields in the order of Sunpride's "Customer Information
 // template" (Loren Muñoz, 2026-11-10). `label` is their exact wording and is what every UI,
 // upload header and error message shows. `required` is the sheet's asterisk; rules 5/6 of the
-// SPEC make some of them conditional (see validate.js). SP-0214 additionally requires Street 1.
+// SPEC make some of them conditional (see validate.js). SP-0255 keeps Street 1 optional.
 // `key` is our API/JSON field key.
 
 /** @typedef {'text'|'list'|'geo'|'coordinates'|'money'|'email'|'mobile'|'tin'} FieldKind */
@@ -140,7 +140,7 @@ export const FIELDS = [
     key: "street1",
     label: "Street 1",
     section: L,
-    required: true,
+    required: false,
     kind: "text",
     max: 200,
   },

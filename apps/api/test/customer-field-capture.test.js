@@ -769,7 +769,6 @@ test("SP-0188 missing agent fields are kept as an incomplete customer for the of
     "registeredName",
     "mobileNo",
     "regionCode",
-    "street1",
     "distributionChannelCode",
     "customerGroupCode",
     "typeOfBusiness",
@@ -808,6 +807,26 @@ test("SP-0183 a valid Services customer needs no groups or optional fields; SP-0
     distributionChannelCode: "50",
     completeness: "complete",
   });
+});
+
+test("SP-0255 signed Android captures without Street 1 stay complete and retain coordinates", async () => {
+  const phone = await fieldRep();
+  for (const street1 of [undefined, null, "", " \t "]) {
+    const p = capture();
+    p.customer = { ...p.customer, street1 };
+    const result = await phone.push(p);
+    expect(result.status, JSON.stringify(result)).toBe("applied");
+    const stored = await readCustomer(h.db, result.ack.entityId);
+    expect(stored).toMatchObject({
+      street1: null,
+      completeness: "complete",
+      enrolmentStatus: "provisional",
+    });
+    expect(stored.fieldMissing ?? []).toEqual([]);
+    expect(stored.latitude).toBe(p.location.latitude);
+    expect(stored.longitude).toBe(p.location.longitude);
+    expect(stored.customerAddress).toContain("Apas");
+  }
 });
 
 test("SP-0188 a value that fails a format or list check is dropped from the record and kept in the agent's copy", async () => {

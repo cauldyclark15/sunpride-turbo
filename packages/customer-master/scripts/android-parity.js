@@ -277,6 +277,17 @@ export async function buildParity() {
           ]),
       ),
     ),
+    ...["field", "complete"].flatMap((level) =>
+      [undefined, null, "", " \t "].map(
+        (street1) =>
+          /** @type {typeof CASES[number]} */ ([
+            `optional street1 ${level} ${String(street1)}`,
+            { ...fieldInput, street1 },
+            cebu,
+            level,
+          ]),
+      ),
+    ),
     ["field complete ADP", adpInput, cebu, "field"],
     ["field missing ship-to", { ...fieldInput, shipTos: [] }, cebu, "field"],
     ...["shipToParty", "shipToAddress", "contactPerson", "mobileNo"].map(

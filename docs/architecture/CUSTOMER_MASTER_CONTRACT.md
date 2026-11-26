@@ -54,7 +54,7 @@ Dropdowns show `optionLabel(row)` = "Description (Code)", e.g. "General Trade (3
 | 13  | Customer Location            | Municipality               | `municipalityCode`        | yes                                    | geo                         |
 | 14  | Customer Location            | Barangay                   | `barangayCode`            | yes                                    | geo                         |
 | 15  | Customer Location            | House No.                  | `houseNo`                 | no                                     | text                        |
-| 16  | Customer Location            | Street 1                   | `street1`                 | yes                                    | text                        |
+| 16  | Customer Location            | Street 1                   | `street1`                 | no                                     | text                        |
 | 17  | Customer Location            | Street 2                   | `street2`                 | no                                     | text                        |
 | 18  | Customer Location            | Floor                      | `floor`                   | no                                     | text                        |
 | 19  | Customer Location            | Room No. / Stall No.       | `roomStallNo`             | no                                     | text                        |
@@ -104,10 +104,11 @@ number to the customer writer; request bodies cannot enable this exception.
 
 Notes:
 
-- SP-0214 makes Street 1 required for enrollment (`field` and `complete`), superseding the
-  original workbook's optional flag. House No., Street 2, Floor and Room No. / Stall No.
-  remain optional. A custom Customer Address does not replace Street 1. Incomplete field
-  capture recovery remains available (SP-0188), but approval requires Street 1.
+- SP-0255 makes Street 1 optional for customer creation, editing, field capture, uploads and
+  approval, superseding SP-0214. Omitted, cleared and whitespace-only values are accepted;
+  supplied street text keeps its 200-character limit. The address is built from the remaining
+  location fields, and geographical-coordinate validation is unchanged. House No., Street 2,
+  Floor and Room No. / Stall No. remain optional.
 - SP-0246 makes Postal Code optional at every validation level, including uploads and approval.
   Blank, omitted and cleared values are accepted. A nonblank value must be exactly four ASCII
   digits; it need not appear in the municipality list. Choosing a barangay suggests the town's

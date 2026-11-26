@@ -106,7 +106,7 @@ class CensusRulesTest {
             "Nena Cruz", "0917 555 0101", 1000L, null, place, "", null)
         assertEquals(10.3126, only.getJSONObject("location").getDouble("latitude"), 0.0)
     }
-    /** SP-0220: Edit customer sends the same structured address as Add customer; Street 1 is required. */
+    /** SP-0255: Edit customer accepts the same optional Street 1 as Add customer. */
     @Test fun storeEditSendsTheStructuredAddress() {
         val saved = mapOf("houseNo" to "5", "street1" to "Rizal St", "municipalityCode" to "0702230000")
         val form = CensusRules.formFromParts(saved)
@@ -121,9 +121,16 @@ class CensusRulesTest {
         assertEquals("Mabini St", parts.getString("street1")); assertTrue(parts.isNull("barangayCode"))
         assertEquals(CensusRules.ADDRESS_PART_KEYS.toSet(), parts.keys().asSequence().toSet())
         CensusRules.validate(p)
-        val blank = CensusRules.changePayload(UUID.randomUUID().toString(), target, "Nena Mini Mart", "5",
-            "Nena Cruz", "0917 555 0101", 1000L, null, null, "", null, CensusRules.addressPartsJson(form.copy(street1 = " ")))
-        assertEquals("Street 1 is required.", runCatching { CensusRules.validate(blank) }.exceptionOrNull()?.message)
+        for (street in listOf(null, JSONObject.NULL, "", " \t ")) {
+            val blank = CensusRules.changePayload(UUID.randomUUID().toString(), target, "Nena Mini Mart", "5",
+                "Nena Cruz", "0917 555 0101", 1000L, null, null, "", null, CensusRules.addressPartsJson(form.copy(street1 = "")))
+            if (street == null) blank.getJSONObject("addressParts").remove("street1") else blank.getJSONObject("addressParts").put("street1", street)
+            CensusRules.validate(blank)
+            val intent = CensusRules.intent(StoreScope("account", "device", "scope"), blank, 1000L)
+            CensusRules.validate(JSONObject(intent.serializedOperation).getJSONObject("payload"))
+        }
+        assertFalse(CensusRules.missingForChange("Nena Mini Mart", "Nena Cruz", "0917 555 0101", "", false, false,
+            CensusRules.addressLine(form.copy(street1 = ""), null)).contains(CensusRules.Field.ADDRESS))
     }
     @Test fun storeEditPayloadIsAChangeForTheStoreWithoutNewStoreFields() {
         val p = change()

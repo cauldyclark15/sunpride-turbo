@@ -42,7 +42,7 @@ object CustomerMaster {
         f("municipalityCode", "Municipality", LOCATION, true, Kind.GEO),
         f("barangayCode", "Barangay", LOCATION, true, Kind.GEO),
         f("houseNo", "House No.", LOCATION, false, Kind.TEXT, max = 60),
-        f("street1", "Street 1", LOCATION, true, Kind.TEXT, max = 200),
+        f("street1", "Street 1", LOCATION, false, Kind.TEXT, max = 200),
         f("street2", "Street 2", LOCATION, false, Kind.TEXT, max = 200),
         f("floor", "Floor", LOCATION, false, Kind.TEXT, max = 60),
         f("roomStallNo", "Room No. / Stall No.", LOCATION, false, Kind.TEXT, max = 60),

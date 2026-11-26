@@ -213,7 +213,7 @@
    "key": "street1",
    "label": "Street 1",
    "section": "Customer Location",
-   "required": true,
+   "required": false,
    "kind": "text",
    "max": 200,
    "shipTo": false,
@@ -5452,6 +5452,588 @@
    }
   },
   {
+   "name": "optional street1 field undefined",
+   "level": "field",
+   "input": {
+    "customerName": "Aling Rosa Store",
+    "mobileNo": "0917 123 4567",
+    "regionCode": "0700000000",
+    "provinceCode": "0702200000",
+    "municipalityCode": "0730600000",
+    "barangayCode": "0730600003",
+    "postalCode": "6000",
+    "latitude": 10.3312,
+    "longitude": 123.9056,
+    "salesOrgCode": "1000",
+    "distributionChannelCode": "41",
+    "customerGroup1Code": "RSF",
+    "customerGroup2Code": "RSS",
+    "customerGroupCode": "74",
+    "typeOfBusiness": "Sole Proprietor",
+    "registeredName": "Aling Rosa Store Inc.",
+    "customerAddress": "Apas, City of Cebu, Cebu 6000",
+    "taxClassificationCode": "1",
+    "countryCode": "PH",
+    "salesOfficeCode": "100",
+    "paymentTermsCode": "0003",
+    "pricingProcedureCode": "2",
+    "deliveringPlantCode": "1000",
+    "shipTos": [
+     {
+      "sameAsCustomer": true,
+      "shipToParty": "Aling Rosa Store",
+      "shipToAddress": "Apas, City of Cebu, Cebu 6000",
+      "contactPerson": "Rosa",
+      "mobileNo": "0917 123 4567"
+     }
+    ]
+   },
+   "geography": {
+    "region": {
+     "code": "0700000000",
+     "name": "Region VII (Central Visayas)"
+    },
+    "province": {
+     "code": "0702200000",
+     "name": "Cebu",
+     "regionCode": "0700000000"
+    },
+    "municipality": {
+     "code": "0730600000",
+     "name": "City of Cebu",
+     "provinceCode": "0702200000",
+     "regionCode": "0700000000"
+    },
+    "barangay": {
+     "code": "0730600003",
+     "name": "Apas",
+     "municipalityCode": "0730600000"
+    },
+    "postalCodes": [
+     "6000"
+    ]
+   },
+   "expected": {
+    "ok": true,
+    "errors": [],
+    "value": {
+     "mobileNo": "09171234567",
+     "tin": null,
+     "email": null
+    }
+   }
+  },
+  {
+   "name": "optional street1 field null",
+   "level": "field",
+   "input": {
+    "customerName": "Aling Rosa Store",
+    "mobileNo": "0917 123 4567",
+    "regionCode": "0700000000",
+    "provinceCode": "0702200000",
+    "municipalityCode": "0730600000",
+    "barangayCode": "0730600003",
+    "street1": null,
+    "postalCode": "6000",
+    "latitude": 10.3312,
+    "longitude": 123.9056,
+    "salesOrgCode": "1000",
+    "distributionChannelCode": "41",
+    "customerGroup1Code": "RSF",
+    "customerGroup2Code": "RSS",
+    "customerGroupCode": "74",
+    "typeOfBusiness": "Sole Proprietor",
+    "registeredName": "Aling Rosa Store Inc.",
+    "customerAddress": "Apas, City of Cebu, Cebu 6000",
+    "taxClassificationCode": "1",
+    "countryCode": "PH",
+    "salesOfficeCode": "100",
+    "paymentTermsCode": "0003",
+    "pricingProcedureCode": "2",
+    "deliveringPlantCode": "1000",
+    "shipTos": [
+     {
+      "sameAsCustomer": true,
+      "shipToParty": "Aling Rosa Store",
+      "shipToAddress": "Apas, City of Cebu, Cebu 6000",
+      "contactPerson": "Rosa",
+      "mobileNo": "0917 123 4567"
+     }
+    ]
+   },
+   "geography": {
+    "region": {
+     "code": "0700000000",
+     "name": "Region VII (Central Visayas)"
+    },
+    "province": {
+     "code": "0702200000",
+     "name": "Cebu",
+     "regionCode": "0700000000"
+    },
+    "municipality": {
+     "code": "0730600000",
+     "name": "City of Cebu",
+     "provinceCode": "0702200000",
+     "regionCode": "0700000000"
+    },
+    "barangay": {
+     "code": "0730600003",
+     "name": "Apas",
+     "municipalityCode": "0730600000"
+    },
+    "postalCodes": [
+     "6000"
+    ]
+   },
+   "expected": {
+    "ok": true,
+    "errors": [],
+    "value": {
+     "mobileNo": "09171234567",
+     "tin": null,
+     "email": null
+    }
+   }
+  },
+  {
+   "name": "optional street1 field ",
+   "level": "field",
+   "input": {
+    "customerName": "Aling Rosa Store",
+    "mobileNo": "0917 123 4567",
+    "regionCode": "0700000000",
+    "provinceCode": "0702200000",
+    "municipalityCode": "0730600000",
+    "barangayCode": "0730600003",
+    "street1": "",
+    "postalCode": "6000",
+    "latitude": 10.3312,
+    "longitude": 123.9056,
+    "salesOrgCode": "1000",
+    "distributionChannelCode": "41",
+    "customerGroup1Code": "RSF",
+    "customerGroup2Code": "RSS",
+    "customerGroupCode": "74",
+    "typeOfBusiness": "Sole Proprietor",
+    "registeredName": "Aling Rosa Store Inc.",
+    "customerAddress": "Apas, City of Cebu, Cebu 6000",
+    "taxClassificationCode": "1",
+    "countryCode": "PH",
+    "salesOfficeCode": "100",
+    "paymentTermsCode": "0003",
+    "pricingProcedureCode": "2",
+    "deliveringPlantCode": "1000",
+    "shipTos": [
+     {
+      "sameAsCustomer": true,
+      "shipToParty": "Aling Rosa Store",
+      "shipToAddress": "Apas, City of Cebu, Cebu 6000",
+      "contactPerson": "Rosa",
+      "mobileNo": "0917 123 4567"
+     }
+    ]
+   },
+   "geography": {
+    "region": {
+     "code": "0700000000",
+     "name": "Region VII (Central Visayas)"
+    },
+    "province": {
+     "code": "0702200000",
+     "name": "Cebu",
+     "regionCode": "0700000000"
+    },
+    "municipality": {
+     "code": "0730600000",
+     "name": "City of Cebu",
+     "provinceCode": "0702200000",
+     "regionCode": "0700000000"
+    },
+    "barangay": {
+     "code": "0730600003",
+     "name": "Apas",
+     "municipalityCode": "0730600000"
+    },
+    "postalCodes": [
+     "6000"
+    ]
+   },
+   "expected": {
+    "ok": true,
+    "errors": [],
+    "value": {
+     "mobileNo": "09171234567",
+     "tin": null,
+     "email": null
+    }
+   }
+  },
+  {
+   "name": "optional street1 field  \t ",
+   "level": "field",
+   "input": {
+    "customerName": "Aling Rosa Store",
+    "mobileNo": "0917 123 4567",
+    "regionCode": "0700000000",
+    "provinceCode": "0702200000",
+    "municipalityCode": "0730600000",
+    "barangayCode": "0730600003",
+    "street1": " \t ",
+    "postalCode": "6000",
+    "latitude": 10.3312,
+    "longitude": 123.9056,
+    "salesOrgCode": "1000",
+    "distributionChannelCode": "41",
+    "customerGroup1Code": "RSF",
+    "customerGroup2Code": "RSS",
+    "customerGroupCode": "74",
+    "typeOfBusiness": "Sole Proprietor",
+    "registeredName": "Aling Rosa Store Inc.",
+    "customerAddress": "Apas, City of Cebu, Cebu 6000",
+    "taxClassificationCode": "1",
+    "countryCode": "PH",
+    "salesOfficeCode": "100",
+    "paymentTermsCode": "0003",
+    "pricingProcedureCode": "2",
+    "deliveringPlantCode": "1000",
+    "shipTos": [
+     {
+      "sameAsCustomer": true,
+      "shipToParty": "Aling Rosa Store",
+      "shipToAddress": "Apas, City of Cebu, Cebu 6000",
+      "contactPerson": "Rosa",
+      "mobileNo": "0917 123 4567"
+     }
+    ]
+   },
+   "geography": {
+    "region": {
+     "code": "0700000000",
+     "name": "Region VII (Central Visayas)"
+    },
+    "province": {
+     "code": "0702200000",
+     "name": "Cebu",
+     "regionCode": "0700000000"
+    },
+    "municipality": {
+     "code": "0730600000",
+     "name": "City of Cebu",
+     "provinceCode": "0702200000",
+     "regionCode": "0700000000"
+    },
+    "barangay": {
+     "code": "0730600003",
+     "name": "Apas",
+     "municipalityCode": "0730600000"
+    },
+    "postalCodes": [
+     "6000"
+    ]
+   },
+   "expected": {
+    "ok": true,
+    "errors": [],
+    "value": {
+     "mobileNo": "09171234567",
+     "tin": null,
+     "email": null
+    }
+   }
+  },
+  {
+   "name": "optional street1 complete undefined",
+   "level": "complete",
+   "input": {
+    "customerName": "Aling Rosa Store",
+    "mobileNo": "0917 123 4567",
+    "regionCode": "0700000000",
+    "provinceCode": "0702200000",
+    "municipalityCode": "0730600000",
+    "barangayCode": "0730600003",
+    "postalCode": "6000",
+    "latitude": 10.3312,
+    "longitude": 123.9056,
+    "salesOrgCode": "1000",
+    "distributionChannelCode": "41",
+    "customerGroup1Code": "RSF",
+    "customerGroup2Code": "RSS",
+    "customerGroupCode": "74",
+    "typeOfBusiness": "Sole Proprietor",
+    "registeredName": "Aling Rosa Store Inc.",
+    "customerAddress": "Apas, City of Cebu, Cebu 6000",
+    "taxClassificationCode": "1",
+    "countryCode": "PH",
+    "salesOfficeCode": "100",
+    "paymentTermsCode": "0003",
+    "pricingProcedureCode": "2",
+    "deliveringPlantCode": "1000",
+    "shipTos": [
+     {
+      "sameAsCustomer": true,
+      "shipToParty": "Aling Rosa Store",
+      "shipToAddress": "Apas, City of Cebu, Cebu 6000",
+      "contactPerson": "Rosa",
+      "mobileNo": "0917 123 4567"
+     }
+    ]
+   },
+   "geography": {
+    "region": {
+     "code": "0700000000",
+     "name": "Region VII (Central Visayas)"
+    },
+    "province": {
+     "code": "0702200000",
+     "name": "Cebu",
+     "regionCode": "0700000000"
+    },
+    "municipality": {
+     "code": "0730600000",
+     "name": "City of Cebu",
+     "provinceCode": "0702200000",
+     "regionCode": "0700000000"
+    },
+    "barangay": {
+     "code": "0730600003",
+     "name": "Apas",
+     "municipalityCode": "0730600000"
+    },
+    "postalCodes": [
+     "6000"
+    ]
+   },
+   "expected": {
+    "ok": true,
+    "errors": [],
+    "value": {
+     "mobileNo": "09171234567",
+     "tin": null,
+     "email": null
+    }
+   }
+  },
+  {
+   "name": "optional street1 complete null",
+   "level": "complete",
+   "input": {
+    "customerName": "Aling Rosa Store",
+    "mobileNo": "0917 123 4567",
+    "regionCode": "0700000000",
+    "provinceCode": "0702200000",
+    "municipalityCode": "0730600000",
+    "barangayCode": "0730600003",
+    "street1": null,
+    "postalCode": "6000",
+    "latitude": 10.3312,
+    "longitude": 123.9056,
+    "salesOrgCode": "1000",
+    "distributionChannelCode": "41",
+    "customerGroup1Code": "RSF",
+    "customerGroup2Code": "RSS",
+    "customerGroupCode": "74",
+    "typeOfBusiness": "Sole Proprietor",
+    "registeredName": "Aling Rosa Store Inc.",
+    "customerAddress": "Apas, City of Cebu, Cebu 6000",
+    "taxClassificationCode": "1",
+    "countryCode": "PH",
+    "salesOfficeCode": "100",
+    "paymentTermsCode": "0003",
+    "pricingProcedureCode": "2",
+    "deliveringPlantCode": "1000",
+    "shipTos": [
+     {
+      "sameAsCustomer": true,
+      "shipToParty": "Aling Rosa Store",
+      "shipToAddress": "Apas, City of Cebu, Cebu 6000",
+      "contactPerson": "Rosa",
+      "mobileNo": "0917 123 4567"
+     }
+    ]
+   },
+   "geography": {
+    "region": {
+     "code": "0700000000",
+     "name": "Region VII (Central Visayas)"
+    },
+    "province": {
+     "code": "0702200000",
+     "name": "Cebu",
+     "regionCode": "0700000000"
+    },
+    "municipality": {
+     "code": "0730600000",
+     "name": "City of Cebu",
+     "provinceCode": "0702200000",
+     "regionCode": "0700000000"
+    },
+    "barangay": {
+     "code": "0730600003",
+     "name": "Apas",
+     "municipalityCode": "0730600000"
+    },
+    "postalCodes": [
+     "6000"
+    ]
+   },
+   "expected": {
+    "ok": true,
+    "errors": [],
+    "value": {
+     "mobileNo": "09171234567",
+     "tin": null,
+     "email": null
+    }
+   }
+  },
+  {
+   "name": "optional street1 complete ",
+   "level": "complete",
+   "input": {
+    "customerName": "Aling Rosa Store",
+    "mobileNo": "0917 123 4567",
+    "regionCode": "0700000000",
+    "provinceCode": "0702200000",
+    "municipalityCode": "0730600000",
+    "barangayCode": "0730600003",
+    "street1": "",
+    "postalCode": "6000",
+    "latitude": 10.3312,
+    "longitude": 123.9056,
+    "salesOrgCode": "1000",
+    "distributionChannelCode": "41",
+    "customerGroup1Code": "RSF",
+    "customerGroup2Code": "RSS",
+    "customerGroupCode": "74",
+    "typeOfBusiness": "Sole Proprietor",
+    "registeredName": "Aling Rosa Store Inc.",
+    "customerAddress": "Apas, City of Cebu, Cebu 6000",
+    "taxClassificationCode": "1",
+    "countryCode": "PH",
+    "salesOfficeCode": "100",
+    "paymentTermsCode": "0003",
+    "pricingProcedureCode": "2",
+    "deliveringPlantCode": "1000",
+    "shipTos": [
+     {
+      "sameAsCustomer": true,
+      "shipToParty": "Aling Rosa Store",
+      "shipToAddress": "Apas, City of Cebu, Cebu 6000",
+      "contactPerson": "Rosa",
+      "mobileNo": "0917 123 4567"
+     }
+    ]
+   },
+   "geography": {
+    "region": {
+     "code": "0700000000",
+     "name": "Region VII (Central Visayas)"
+    },
+    "province": {
+     "code": "0702200000",
+     "name": "Cebu",
+     "regionCode": "0700000000"
+    },
+    "municipality": {
+     "code": "0730600000",
+     "name": "City of Cebu",
+     "provinceCode": "0702200000",
+     "regionCode": "0700000000"
+    },
+    "barangay": {
+     "code": "0730600003",
+     "name": "Apas",
+     "municipalityCode": "0730600000"
+    },
+    "postalCodes": [
+     "6000"
+    ]
+   },
+   "expected": {
+    "ok": true,
+    "errors": [],
+    "value": {
+     "mobileNo": "09171234567",
+     "tin": null,
+     "email": null
+    }
+   }
+  },
+  {
+   "name": "optional street1 complete  \t ",
+   "level": "complete",
+   "input": {
+    "customerName": "Aling Rosa Store",
+    "mobileNo": "0917 123 4567",
+    "regionCode": "0700000000",
+    "provinceCode": "0702200000",
+    "municipalityCode": "0730600000",
+    "barangayCode": "0730600003",
+    "street1": " \t ",
+    "postalCode": "6000",
+    "latitude": 10.3312,
+    "longitude": 123.9056,
+    "salesOrgCode": "1000",
+    "distributionChannelCode": "41",
+    "customerGroup1Code": "RSF",
+    "customerGroup2Code": "RSS",
+    "customerGroupCode": "74",
+    "typeOfBusiness": "Sole Proprietor",
+    "registeredName": "Aling Rosa Store Inc.",
+    "customerAddress": "Apas, City of Cebu, Cebu 6000",
+    "taxClassificationCode": "1",
+    "countryCode": "PH",
+    "salesOfficeCode": "100",
+    "paymentTermsCode": "0003",
+    "pricingProcedureCode": "2",
+    "deliveringPlantCode": "1000",
+    "shipTos": [
+     {
+      "sameAsCustomer": true,
+      "shipToParty": "Aling Rosa Store",
+      "shipToAddress": "Apas, City of Cebu, Cebu 6000",
+      "contactPerson": "Rosa",
+      "mobileNo": "0917 123 4567"
+     }
+    ]
+   },
+   "geography": {
+    "region": {
+     "code": "0700000000",
+     "name": "Region VII (Central Visayas)"
+    },
+    "province": {
+     "code": "0702200000",
+     "name": "Cebu",
+     "regionCode": "0700000000"
+    },
+    "municipality": {
+     "code": "0730600000",
+     "name": "City of Cebu",
+     "provinceCode": "0702200000",
+     "regionCode": "0700000000"
+    },
+    "barangay": {
+     "code": "0730600003",
+     "name": "Apas",
+     "municipalityCode": "0730600000"
+    },
+    "postalCodes": [
+     "6000"
+    ]
+   },
+   "expected": {
+    "ok": true,
+    "errors": [],
+    "value": {
+     "mobileNo": "09171234567",
+     "tin": null,
+     "email": null
+    }
+   }
+  },
+  {
    "name": "field complete ADP",
    "level": "field",
    "input": {
@@ -6714,85 +7296,6 @@
       "code": "required",
       "field": "barangayCode",
       "message": "Barangay is required."
-     }
-    ],
-    "value": {
-     "mobileNo": "09171234567",
-     "tin": null,
-     "email": null
-    }
-   }
-  },
-  {
-   "name": "field missing street1",
-   "level": "field",
-   "input": {
-    "customerName": "Aling Rosa Store",
-    "mobileNo": "0917 123 4567",
-    "regionCode": "0700000000",
-    "provinceCode": "0702200000",
-    "municipalityCode": "0730600000",
-    "barangayCode": "0730600003",
-    "street1": " ",
-    "postalCode": "6000",
-    "latitude": 10.3312,
-    "longitude": 123.9056,
-    "salesOrgCode": "1000",
-    "distributionChannelCode": "41",
-    "customerGroup1Code": "RSF",
-    "customerGroup2Code": "RSS",
-    "customerGroupCode": "74",
-    "typeOfBusiness": "Sole Proprietor",
-    "registeredName": "Aling Rosa Store Inc.",
-    "customerAddress": "Apas, City of Cebu, Cebu 6000",
-    "taxClassificationCode": "1",
-    "countryCode": "PH",
-    "salesOfficeCode": "100",
-    "paymentTermsCode": "0003",
-    "pricingProcedureCode": "2",
-    "deliveringPlantCode": "1000",
-    "shipTos": [
-     {
-      "sameAsCustomer": true,
-      "shipToParty": "Aling Rosa Store",
-      "shipToAddress": "Apas, City of Cebu, Cebu 6000",
-      "contactPerson": "Rosa",
-      "mobileNo": "0917 123 4567"
-     }
-    ]
-   },
-   "geography": {
-    "region": {
-     "code": "0700000000",
-     "name": "Region VII (Central Visayas)"
-    },
-    "province": {
-     "code": "0702200000",
-     "name": "Cebu",
-     "regionCode": "0700000000"
-    },
-    "municipality": {
-     "code": "0730600000",
-     "name": "City of Cebu",
-     "provinceCode": "0702200000",
-     "regionCode": "0700000000"
-    },
-    "barangay": {
-     "code": "0730600003",
-     "name": "Apas",
-     "municipalityCode": "0730600000"
-    },
-    "postalCodes": [
-     "6000"
-    ]
-   },
-   "expected": {
-    "ok": false,
-    "errors": [
-     {
-      "code": "required",
-      "field": "street1",
-      "message": "Street 1 is required."
      }
     ],
     "value": {

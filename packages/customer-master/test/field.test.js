@@ -32,7 +32,6 @@ const required = [
   "provinceCode",
   "municipalityCode",
   "barangayCode",
-  "street1",
   "salesOrgCode",
   "distributionChannelCode",
   "customerGroup1Code",

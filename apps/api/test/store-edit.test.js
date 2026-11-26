@@ -482,7 +482,7 @@ test("store edit: a structured address (SP-0220) is checked, built by the server
   expect(missing.code).toBe("invalid_request");
   const { readAddressParts } = await import("../src/domains/masters/census.js");
   await expect(readAddressParts(h.db, { street1: "" })).rejects.toThrow(
-    "Street 1 is required.",
+    "Enter the customer's location.",
   );
   await h.db`insert into ph_regions(code,name) values('0700000000','Region VII (Central Visayas)') on conflict do nothing`;
   await h.db`insert into ph_provinces(code,region_code,name,kind) values('0702200000','0700000000','Cebu','province') on conflict do nothing`;
@@ -510,12 +510,12 @@ test("store edit: a structured address (SP-0220) is checked, built by the server
       municipalityCode: b.mcode,
       barangayCode: b.code,
       houseNo: "12",
-      street1: "Rizal St",
+      street1: " \t ",
       street2: null,
     },
   });
   expect((await rep.push(p)).status).toBe("applied");
-  const expected = `12 Rizal St, ${b.name}, ${b.mname}, ${b.pname}`;
+  const expected = `12, ${b.name}, ${b.mname}, ${b.pname}`;
   const [cap] =
     await h.db`select address from census_captures where id=${p.captureId}`;
   expect(cap.address).toBe(expected);
@@ -530,7 +530,7 @@ test("store edit: a structured address (SP-0220) is checked, built by the server
   const [cp] =
     await h.db`select street1,house_no,barangay_code,barangay_name,municipality_name,address_custom from customer_profiles where outlet_id=${id}`;
   expect(cp).toEqual({
-    street1: "Rizal St",
+    street1: null,
     house_no: "12",
     barangay_code: b.code,
     barangay_name: b.name,

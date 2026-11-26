@@ -203,10 +203,10 @@ it("SP-0250 the submitting salesman and CDM can save partial details while appro
     enrolmentStatus: "provisional",
     updatedAt: 123,
   };
-  const edited = setField(complete(), "street1", "");
+  const edited = setField(complete(), "registeredName", "");
   const saved = {
     ...state.customer,
-    street1: null,
+    registeredName: null,
     completeness: "draft",
     updatedAt: 124,
   };
@@ -221,12 +221,12 @@ it("SP-0250 the submitting salesman and CDM can save partial details while appro
     "/api/v1/customers/customer",
     expect.objectContaining({
       expectedUpdatedAt: 123,
-      customer: expect.objectContaining({ street1: null }),
+      customer: expect.objectContaining({ registeredName: null }),
     }),
     expect.objectContaining({ method: "PUT" }),
   );
   expect(html).toContain("Still waiting for approval");
-  expect(view().errors.street1).toContain("required");
+  expect(view().errors.registeredName).toContain("required");
 });
 
 it("SP-0250 a newer read-only permission withdraws editing from an already open form", async () => {
@@ -535,15 +535,20 @@ describe("SP-0240 keeps full Customer Name and manual split-name mapping", () =>
   );
 });
 
-describe("SP-0214 Street 1 on customer enrollment", () => {
+describe("SP-0255 optional Street 1 on customer enrollment", () => {
   it.each(["new", "prospect", "active"] as const)(
-    "marks Street 1 required and blocks a %s customer until it is filled",
+    "saves a %s customer without Street 1 and keeps the coordinates",
     async (status) => {
       if (status !== "new") state.customer = customer(complete(), status);
       const initial = render();
       expect(initial).toMatch(
-        /<label[^>]*for="cm-street1"[^>]*>Street 1<span[^>]*title="Required"[^>]*> \*<\/span><\/label>/,
+        /<label[^>]*for="cm-street1"[^>]*>Street 1<\/label>/,
       );
+      expect(state.inputs.get("cm-street1")?.required).not.toBe(true);
+      state.mutate.mockImplementation(async (_path, body) => ({
+        ...customer(complete(), status === "active" ? "active" : "prospect"),
+        ...body.customer,
+      }));
       for (const blank of [undefined, "", " \t "]) {
         const draft = complete();
         if (blank === undefined) delete draft.values.street1;
@@ -552,23 +557,23 @@ describe("SP-0214 Street 1 on customer enrollment", () => {
         render();
         await view().onSave?.();
         const html = render();
-        expect(state.mutate).not.toHaveBeenCalled();
-        expect(view().errors).toEqual({ street1: "Street 1 is required." });
-        expect(html).toContain('aria-describedby="cm-street1-error"');
-        expect(html).toContain("Street 1 is required.");
+        expect(view().errors).toEqual({});
+        expect(html).not.toContain('aria-describedby="cm-street1-error"');
+        expect(html).toMatch(/Saved\.|created as a prospect\./);
+        expect(state.mutate.mock.calls.at(-1)![1].customer).toMatchObject({
+          street1: null,
+          latitude: 10.3312,
+          longitude: 123.9056,
+        });
+        expect(view().draft.values.street1).toBe("");
       }
-      view().onChange(complete());
+      expect(state.mutate).toHaveBeenCalledTimes(3);
+      view().onChange(setField(complete(), "street1", "  Gorordo Ave  "));
       render();
-      expect(view().errors.street1).toBeUndefined();
       await view().onSave?.();
-      expect(state.mutate).toHaveBeenCalledTimes(1);
-      expect(state.mutate.mock.calls[0]![1].customer).toMatchObject({
-        street1: "Gorordo Ave",
-        street2: null,
-        houseNo: null,
-        floor: null,
-        roomStallNo: null,
-      });
+      expect(state.mutate.mock.calls.at(-1)![1].customer.street1).toBe(
+        "Gorordo Ave",
+      );
     },
   );
 });
@@ -618,7 +623,7 @@ describe("SP-0220 address edits", () => {
 
 describe("SP-0213 customer Save required fields", () => {
   it.each(["new", "prospect", "active"] as const)(
-    "does not keep a saved notice after Street 1 is cleared on a %s customer",
+    "does not keep a saved notice after Registered Name is cleared on a %s customer",
     async (status) => {
       if (status !== "new") state.customer = customer(complete(), status);
       render();
@@ -631,42 +636,46 @@ describe("SP-0213 customer Save required fields", () => {
       expect(view().message?.tone).toBe("ok");
       expect(state.mutate).toHaveBeenCalledTimes(1);
 
-      // Use the real Street 1 control, not an independently constructed draft.
-      const changeStreet = (value: string) => {
-        const input = state.inputs.get("cm-street1")!;
+      // Use a still-required control, not an independently constructed draft.
+      const changeName = (value: string) => {
+        const input = state.inputs.get("cm-registeredName")!;
         (input.onChange as (e: { target: { value: string } }) => void)({
           target: { value },
         });
         return render();
       };
-      const changed = changeStreet("");
+      const changed = changeName("");
       expect(view().message?.tone).not.toBe("ok");
       expect(changed).toContain("Unsaved changes");
       expect(changed).not.toContain("All required fields filled");
-      expect(view().draft.values.street1).toBe("");
+      expect(view().draft.values.registeredName).toBe("");
       await view().onSave?.();
       const refused = render();
       expect(state.mutate).toHaveBeenCalledTimes(1);
-      expect(view().errors).toEqual({ street1: "Street 1 is required." });
-      expect(refused).toContain("Street 1 is required.");
+      expect(view().errors).toEqual({
+        registeredName: "Registered Name is required.",
+      });
+      expect(refused).toContain("Registered Name is required.");
       expect(refused).not.toContain("Saved.");
       expect(refused).not.toContain("All required fields filled");
       expect(refused).toContain("Unsaved changes");
-      expect(view().draft.values.street1).toBe("");
+      expect(view().draft.values.registeredName).toBe("");
       if (status !== "active") {
         await view().onApprove?.();
         render();
         expect(state.mutate).toHaveBeenCalledTimes(1);
-        expect(view().errors.street1).toBe("Street 1 is required.");
+        expect(view().errors.registeredName).toBe(
+          "Registered Name is required.",
+        );
       }
 
-      changeStreet("New Sample Street");
-      expect(view().errors.street1).toBeUndefined();
+      changeName("New Sample Store");
+      expect(view().errors.registeredName).toBeUndefined();
       await view().onSave?.();
       render();
       expect(state.mutate).toHaveBeenCalledTimes(2);
-      expect(state.mutate.mock.calls[1]![1].customer.street1).toBe(
-        "New Sample Street",
+      expect(state.mutate.mock.calls[1]![1].customer.registeredName).toBe(
+        "New Sample Store",
       );
       expect(view().message?.tone).toBe("ok");
       expect(view().hasUnsavedChanges).toBe(false);

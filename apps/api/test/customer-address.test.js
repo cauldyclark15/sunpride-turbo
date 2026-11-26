@@ -160,19 +160,9 @@ describe("SP-0220 customer addresses", () => {
     }
   });
 
-  test("SP-0213 clearing Street 1 in the web payload cannot save; fixing it can retry the same request", async () => {
-    const opened = await call("GET", `/${customerId}`);
-    const before = (
-      await h.db`select
-        (select count(*)::int from outlets) outlets,
-        (select count(*)::int from customer_profiles) profiles,
-        (select count(*)::int from customer_ship_tos) ship_tos,
-        (select count(*)::int from customers) accounting,
-        (select count(*)::int from audit_logs) audits,
-        (select count(*)::int from master_command_receipts) receipts`
-    )[0];
-    const key = crypto.randomUUID();
+  test("SP-0255 clearing Street 1 saves and reopens the same complete customer with its coordinates", async () => {
     for (const street1 of ["", " \t "]) {
+      const opened = await call("GET", `/${customerId}`);
       const cleared = setField(
         draftFromCustomer(opened.body),
         "street1",
@@ -181,80 +171,67 @@ describe("SP-0220 customer addresses", () => {
       const payload = toPayload(cleared);
       expect(payload.street1).toBeNull();
       expect(payload).not.toHaveProperty("customerAddress");
-      // The remaining location still builds an address, but cannot replace Street 1.
-      expect(cleared.values.customerAddress).not.toBe("");
-      const refused = await call(
+      const key = crypto.randomUUID();
+      const saved = await call(
         "PUT",
         `/${customerId}`,
         { customer: payload },
         key,
       );
-      expect(refused.status).toBe(422);
-      expect(refused.body.error.details.errors).toEqual([
-        expect.objectContaining({
-          field: "street1",
-          message: "Street 1 is required.",
-        }),
-      ]);
+      expect(saved.status, JSON.stringify(saved.body)).toBe(200);
+      expect(
+        (await call("PUT", `/${customerId}`, { customer: payload }, key))
+          .status,
+      ).toBe(200);
       const reopened = await call("GET", `/${customerId}`);
-      expect(reopened.body).toEqual(opened.body);
+      expect(reopened.body).toMatchObject({
+        id: customerId,
+        street1: null,
+        customerAddress: "Apas, City of Cebu, Cebu 6000",
+        completeness: "complete",
+        latitude: 10.33,
+        longitude: 123.9,
+      });
+      expect(reopened.body.missingFields).toEqual([]);
+      expect(reopened.body.shipTos[0].shipToAddress).toBe(
+        "Apas, City of Cebu, Cebu 6000",
+      );
+      const [stored] =
+        await h.db`select cp.street1,o.address,c.name from customer_profiles cp
+        join outlets o on o.id=cp.outlet_id join outlet_customer_links l on l.outlet_id=o.id and l.deleted_at is null
+        join customers c on c.id=l.customer_id where o.id=${customerId} order by l.effective_from desc limit 1`;
+      expect(stored).toMatchObject({
+        street1: null,
+        address: "Apas, City of Cebu, Cebu 6000",
+      });
     }
-    const after = (
-      await h.db`select
-        (select count(*)::int from outlets) outlets,
-        (select count(*)::int from customer_profiles) profiles,
-        (select count(*)::int from customer_ship_tos) ship_tos,
-        (select count(*)::int from customers) accounting,
-        (select count(*)::int from audit_logs) audits,
-        (select count(*)::int from master_command_receipts) receipts`
-    )[0];
-    expect(after).toEqual(before);
-    const fixed = setField(
-      draftFromCustomer(opened.body),
-      "street1",
-      "New Sample Street",
-    );
-    const saved = await call(
-      "PUT",
-      `/${customerId}`,
-      { customer: toPayload(fixed) },
-      key,
-    );
-    expect(saved.status).toBe(200);
-    const reopened = await call("GET", `/${customerId}`);
-    expect(reopened.body).toMatchObject({
-      street1: "New Sample Street",
-      customerAddress: "New Sample Street, Apas, City of Cebu, Cebu 6000",
-      completeness: "complete",
-    });
   });
 
-  test("a custom Customer Address cannot bypass blank Street 1 on create or edit", async () => {
+  test("SP-0255 create and approve accept all empty Street 1 representations", async () => {
     const opened = await call("GET", `/${customerId}`);
-    for (const street1 of [null, "", " \t "]) {
-      const input = {
-        ...toPayload(draftFromCustomer(opened.body)),
-        street1,
-        customerAddress: reportedAddress,
-      };
-      for (const [method, path] of [
-        ["POST", ""],
-        ["PUT", `/${customerId}`],
-      ]) {
-        const result = await call(method, path, {
-          custodianOrgUnitId: unitId,
-          customer: input,
-        });
-        expect(result.status).toBe(422);
-        expect(result.body.error.details.errors).toEqual([
-          expect.objectContaining({
-            field: "street1",
-            message: "Street 1 is required.",
-          }),
-        ]);
-      }
+    for (const street1 of [undefined, null, "", " \t "]) {
+      const input = { ...toPayload(draftFromCustomer(opened.body)), street1 };
+      const created = await call("POST", "", {
+        custodianOrgUnitId: unitId,
+        customer: input,
+      });
+      expect(created.status, JSON.stringify(created.body)).toBe(200);
+      const id = created.body.id;
+      const approved = await call("POST", `/${id}/approve`, {});
+      expect(approved.status, JSON.stringify(approved.body)).toBe(200);
+      const reopened = await call("GET", `/${id}`);
+      expect(reopened.body).toMatchObject({
+        street1: null,
+        completeness: "complete",
+        status: "active",
+        customerAddress: "Apas, City of Cebu, Cebu 6000",
+        latitude: 10.33,
+        longitude: 123.9,
+      });
+      expect(reopened.body.missingFields).toEqual([]);
+      expect(reopened.body.shipTos[0].shipToAddress).toBe(
+        "Apas, City of Cebu, Cebu 6000",
+      );
     }
-    const reopened = await call("GET", `/${customerId}`);
-    expect(reopened.body).toEqual(opened.body);
   });
 });

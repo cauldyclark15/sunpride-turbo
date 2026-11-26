@@ -366,7 +366,7 @@ object CustomerCapture {
         val allowed = (CustomerMaster.CUSTOMER_FIELDS + CustomerMaster.NAME_FIELDS).map { it.key }.toSet() + setOf("shipTos", "customFields")
         c.keys().forEach { k -> require(k in allowed) { "Unknown customer field $k." } }
         require(p.getString("name").trim().length in 1..200) { "Registered Name is required." }
-        require(p.getString("address").trim().length in 1..500) { "Fill Street 1 and the location." }
+        require(p.getString("address").trim().length in 1..500) { "Fill in the customer location." }
         require(p.getString("ownerName").trim().length in 1..150) { "Contact Person is required." }
         val input = HashMap<String, Any?>(); c.keys().forEach { input[it] = if (c.isNull(it)) null else c.get(it) }
         c.optJSONArray("shipTos")?.let { a ->

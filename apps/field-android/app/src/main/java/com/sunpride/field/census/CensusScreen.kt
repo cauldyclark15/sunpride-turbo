@@ -251,7 +251,7 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
         (0 until a.length()).map { a.getJSONObject(it) }.filter { key != "subchannels" || it.getJSONObject("data").getString("channelId") == channel }
             .map { it.getString("id") to it.optString("label", it.optString("name")) }
     }.orEmpty()
-    fun missingNow() = if (edit) CensusRules.missingForChange(name, owner, phone, mode, fix != null, picked != null, form.street1)
+    fun missingNow() = if (edit) CensusRules.missingForChange(name, owner, phone, mode, fix != null, picked != null, CensusRules.addressLine(form, geography))
         else CensusRules.missing(name, owner, phone, channel, subchannel, mode, fix != null, picked != null, address, jpeg != null)
     val marked = if (attempted && edit) missingNow().toSet() else emptySet()
     fun customerMissing() = CustomerCapture.missing(form, setup, geography, fix != null, jpeg != null)
@@ -589,12 +589,11 @@ internal fun CensusScreenForTest(backend: FieldBackend?, location: VisitLocation
                         }
                         if (picked != null) StatusChip("Pin from address", Look.Tone.GOOD, textTag = "census-pin-from-address")
                     }
-                    // SP-0220: the same address fields as Add customer (Street 1 required); the server builds the address.
+                    // SP-0255: the same address fields as Add customer (Street 1 optional); the server builds the address.
                     current?.address?.takeIf { it.isNotBlank() }?.let { Text("Current address: $it", style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("census-current-address")) }
-                    Marked(CensusRules.Field.ADDRESS, emptySet(), requesters) {
-                        AddressFields(geography, form, { form = it },
-                            if (CensusRules.Field.ADDRESS in marked) mapOf("street1" to "Street 1 is required.") else emptyMap(), ::requester, geoNote)
+                    Marked(CensusRules.Field.ADDRESS, marked, requesters) {
+                        AddressFields(geography, form, { form = it }, emptyMap(), ::requester, geoNote)
                     }
                     (if (mode == "places") picked?.components else reverse?.components)?.line()?.takeIf { it.isNotEmpty() }?.let {
                         Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.testTag("census-address-line"))

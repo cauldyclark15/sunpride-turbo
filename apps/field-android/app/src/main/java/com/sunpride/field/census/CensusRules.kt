@@ -50,7 +50,6 @@ object CensusRules {
     /** A change carries the whole edited store; location and photo are optional (left out = unchanged). */
     fun validateChange(p: JSONObject) {
         require(uuid.matches(p.getString("captureId")) && uuid.matches(p.getString("targetOutletId"))) { "Open the customer again, then edit it." }
-        p.optJSONObject("addressParts")?.let { require(it.optString("street1").isNotBlank()) { "Street 1 is required." } }
         for ((key, max) in listOf("name" to 200, "address" to 500, "ownerName" to 150, "ownerPhone" to 40))
             require(p.getString(key).trim().length in 1..max) { "Complete the customer and owner details." }
         require(p.getString("ownerPhone").count { it.isDigit() } >= 7) { "Enter a complete owner phone number." }

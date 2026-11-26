@@ -2,7 +2,7 @@
 
 Setup > Enrollment form lets an administrator add text, number, date, choice-list, yes/no and photo fields. Drag a field to a new position or use Move up / Move down, then Save enrollment form.
 
-The original customer-sheet fields and Street 1 rule are unchanged. Extra fields appear after those fields on Customers > Add customer and Field app > Add customer. The phone downloads the current form when opening Add customer online (and during its normal customer-setup warmup); its authorized encrypted setup cache is used offline. Answers survive the existing encrypted draft and outbox paths.
+The original customer-sheet fields keep their shared validation rules; Street 1 is optional (SP-0255). Extra fields appear after those fields on Customers > Add customer and Field app > Add customer. The phone downloads the current form when opening Add customer online (and during its normal customer-setup warmup); its authorized encrypted setup cache is used offline. Answers survive the existing encrypted draft and outbox paths.
 
 ## Required or optional
 

@@ -51,7 +51,7 @@ function grid(ws, from = 1) {
 }
 
 describe("SP-0170 template = the client's Customer Information template", () => {
-  test("Customer Code + every source field, with the SP-0214 Street 1 requirement", () => {
+  test("Customer Code + every source field, with optional Street 1 (SP-0255)", () => {
     const sections = new Set([
       "Customer General Information",
       "Customer Location",
@@ -70,11 +70,10 @@ describe("SP-0170 template = the client's Customer Information template", () => 
       if (!label || sections.has(label)) continue;
       // SP-0220: the separate Customer Address column was removed (client decision).
       if (label === "Customer Address") continue;
-      // SP-0214 supersedes the original sheet's optional Street 1 flag.
+      // SP-0255 restores optional Street 1; Postal Code is also optional.
       sheet.push({
         label,
-        required:
-          label !== "Postal Code" && (label === "Street 1" || req === "Y"),
+        required: !["Street 1", "Postal Code"].includes(label) && req === "Y",
         remark: remark ?? "",
       });
     }
@@ -433,22 +432,16 @@ describe("SP-0170 values", () => {
       ]),
     );
   });
-  test("SP-0214 marks Street 1 required and refuses blank uploads even with Customer Address", () => {
+  test("SP-0255 marks Street 1 optional and accepts blank uploads", () => {
     expect(CUSTOMER_COLUMNS.find((c) => c.key === "street1")?.required).toBe(
-      true,
+      false,
     );
     for (const street1 of ["", " \t "]) {
       const r = validateCustomerRows(
         [{ rowNumber: 2, values: { ...EXAMPLE, street1 } }],
         index,
       );
-      expect(r.errors).toContainEqual(
-        expect.objectContaining({
-          column: "street1",
-          code: "required",
-          message: "Street 1 is required.",
-        }),
-      );
+      expect(r.errors).toEqual([]);
     }
     expect(
       validateCustomerRows([{ rowNumber: 2, values: { ...EXAMPLE } }], index)

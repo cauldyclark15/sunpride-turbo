@@ -60,15 +60,15 @@ class CustomerCaptureTest {
     private val jpeg = Base64.getEncoder().encodeToString(byteArrayOf(0xff.toByte(), 0xd8.toByte(), 0xff.toByte(), 0xd9.toByte()))
 
     @Test fun draftCanBeEditedButCompletenessIsStillRequiredBeforeApprovalSubmission() {
-        val missingStreet = complete().copy(street1 = "", mobileNo = "0917")
+        val missingStreet = complete().copy(registeredName = "", street1 = "", mobileNo = "0917")
         val draft = CustomerCapture.Draft(missingStreet, fix, Base64.getDecoder().decode(jpeg))
         val stored = CustomerDrafts.parse(CustomerDrafts().save(draft).json())
         val reopened = stored.open(stored.saved.single().id)
         val form = reopened.active!!.form
-        assertTrue(CustomerCapture.missing(form, setup, geography, true, true).any { it.key == "street1" })
+        assertTrue(CustomerCapture.missing(form, setup, geography, true, true).any { it.key == "registeredName" })
         val premature = CustomerCapture.payload(UUID.randomUUID().toString(), form, geography, 5000L, fix, jpeg)
         assertThrows(IllegalArgumentException::class.java) { CensusRules.validate(premature) }
-        val corrected = form.copy(street1 = "Gorordo Ave", mobileNo = "09175550101")
+        val corrected = form.copy(registeredName = "Aling Nena Store Inc.", street1 = "Gorordo Ave", mobileNo = "09175550101")
         assertTrue(CustomerCapture.missing(corrected, setup, geography, true, true).isEmpty())
         assertTrue(CustomerCapture.draftErrors(corrected, setup, geography, 10.3312, 123.9056).isEmpty())
         val submitted = CustomerCapture.payload(UUID.randomUUID().toString(), corrected, geography, 5000L, fix, jpeg)
@@ -244,7 +244,7 @@ class CustomerCaptureTest {
         assertEquals(listOf("barangayCode"), missing(bohol))
         assertEquals(listOf("barangayCode"), missing(complete().copy(barangayCode = "")))
         val blank = CustomerCapture.missing(CustomerCapture.Form(), setup, geography, hasFix = false, hasPhoto = false)
-        assertEquals(listOf("registeredName", "firstName", "lastName", "mobileNo", "taxClassificationCode", "regionCode", "provinceCode", "municipalityCode", "barangayCode", "street1",
+        assertEquals(listOf("registeredName", "firstName", "lastName", "mobileNo", "taxClassificationCode", "regionCode", "provinceCode", "municipalityCode", "barangayCode",
             "salesOrgCode", "salesOfficeCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code", "customerGroupCode", "typeOfBusiness",
             "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode", "contactPerson"), blank.map { it.key })
         assertEquals("Registered Name is required.", blank.first().message)
@@ -353,7 +353,7 @@ class CustomerCaptureTest {
 
     @Test fun everyRequiredAgentFieldBlocksSaveIncludingWhitespaceAndMissingOfflineLists() {
         val required = listOf("registeredName", "firstName", "lastName", "mobileNo", "regionCode", "provinceCode", "municipalityCode",
-            "barangayCode", "street1", "salesOrgCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code",
+            "barangayCode", "salesOrgCode", "distributionChannelCode", "customerGroup1Code", "customerGroup2Code",
             "customerGroupCode", "typeOfBusiness", "contactPerson")
         for (key in required) for (blank in listOf("", " \t ")) {
             val draft = JSONObject(CustomerCapture.draftJson(CustomerCapture.Draft(complete(), fix, null)))
@@ -365,14 +365,35 @@ class CustomerCaptureTest {
             CustomerCapture.Geography.parse(pack), true, true).any { it.key == "barangayCode" })
         assertEquals("Registered Name *", CustomerCapture.formLabel("registeredName"))
         assertEquals("Trade Name", CustomerCapture.formLabel("tradeName"))
-        assertEquals("Street 1 *", CustomerCapture.formLabel("street1"))
+        assertEquals("Street 1", CustomerCapture.formLabel("street1"))
         assertEquals("Street 2", CustomerCapture.formLabel("street2"))
+    }
+
+    @Test fun optionalStreetSurvivesDraftReopenFormSaveAndOutbox() {
+        assertFalse(CustomerMaster.field("street1").required)
+        for (street in listOf("", " \t ")) {
+            val form = complete().copy(street1 = street)
+            val reopened = CustomerCapture.parseDraft(CustomerCapture.draftJson(CustomerCapture.Draft(form, fix, null)))!!.form
+            assertEquals("", reopened.street1)
+            assertTrue(CustomerCapture.missing(reopened, setup, geography, true, true).isEmpty())
+            assertTrue(CustomerCapture.draftErrors(reopened, setup, geography, 10.33, 123.9).isEmpty())
+            val payload = CustomerCapture.payload(UUID.randomUUID().toString(), reopened, geography, 5000L, fix, jpeg)
+            assertTrue(payload.getString("address").isNotBlank())
+            CensusRules.validate(payload)
+            val intent = CensusRules.intent(StoreScope("account", "device", "scope"), payload, 5000L)
+            CensusRules.validate(JSONObject(intent.serializedOperation).getJSONObject("payload"))
+            for (blank in listOf(null, JSONObject.NULL, "", " \t ")) {
+                val p = JSONObject(payload.toString())
+                if (blank == null) p.getJSONObject("customer").remove("street1") else p.getJSONObject("customer").put("street1", blank)
+                CensusRules.validate(p)
+            }
+        }
     }
 
     @Test fun outboxCannotQueueAnIncompleteCustomerEvenWithoutTheScreenCheck() {
         val ok = CustomerCapture.payload(UUID.randomUUID().toString(), complete(), geography, 5000L, fix, jpeg)
         for (key in listOf("registeredName", "customerName", "firstName", "lastName", "mobileNo", "regionCode", "provinceCode",
-            "municipalityCode", "barangayCode", "street1", "salesOrgCode", "distributionChannelCode", "customerGroupCode", "typeOfBusiness", "countryCode", "taxClassificationCode",
+            "municipalityCode", "barangayCode", "salesOrgCode", "distributionChannelCode", "customerGroupCode", "typeOfBusiness", "countryCode", "taxClassificationCode",
             "salesOfficeCode", "paymentTermsCode", "pricingProcedureCode", "deliveringPlantCode")) {
             for (blank in listOf(null, JSONObject.NULL, "", " \t ")) {
                 val p = JSONObject(ok.toString())

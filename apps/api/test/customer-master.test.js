@@ -460,9 +460,6 @@ describe("SP-0170 customer writer", () => {
       { mobileNo: "" },
       { taxClassificationCode: "   " },
       { regionCode: null },
-      { street1: null },
-      { street1: "" },
-      { street1: " \t " },
       { postalCode: "123" },
       { salesOfficeCode: null },
       { customerGroup2Code: " " },
@@ -471,23 +468,6 @@ describe("SP-0170 customer writer", () => {
       { latitude: null, longitude: null },
       { shipTos: [{ sameAsCustomer: true, contactPerson: "  " }] },
     ];
-    // SP-0214: a custom address does not substitute for an omitted Street 1.
-    const withoutStreet = customer({
-      customerAddress: "Custom customer address",
-      street1: undefined,
-    });
-    const omitted = await call("admin", "POST", "/api/v1/customers", {
-      custodianOrgUnitId: UNIT,
-      customer: withoutStreet,
-    });
-    expect(omitted.status).toBe(422);
-    expect(omitted.body.error.details.errors).toContainEqual(
-      expect.objectContaining({
-        field: "street1",
-        code: "required",
-        message: "Street 1 is required.",
-      }),
-    );
     const saved = await readCustomer(h.db, id);
     for (const missing of cases) {
       const create = await call(
@@ -531,7 +511,7 @@ describe("SP-0170 customer writer", () => {
     );
     expect(approval.status).toBe(422);
     expect(approval.body.error.details.errors).toContainEqual(
-      expect.objectContaining({ field: "street1", code: "required" }),
+      expect.objectContaining({ field: "registeredName", code: "required" }),
     );
     expect(await readCustomer(h.db, id)).toEqual(incomplete);
     const finished = await call("admin", "PUT", `/api/v1/customers/${id}`, {

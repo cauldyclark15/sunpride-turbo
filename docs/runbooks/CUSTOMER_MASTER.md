@@ -147,8 +147,8 @@ Every existing store (all sample/demo data) got a profile with sales org **1000 
 | `distributor`               | 30 General Trade / KAS3 / GSD GT-Sub-Distributors  | 65 DISTRIBUTOR |
 | anything else               | 30 General Trade / KAS3 / GGS                      | 74             |
 
-Other required values are clearly marked samples: Registered Name "Sample …", Street 1 "Sample
-street", ship-to Contact Person "Sample contact person", Mobile No. from the store contact or
+Other required values are clearly marked samples: Registered Name "Sample …", ship-to Contact
+Person "Sample contact person", Mobile No. from the store contact or
 `09000000000`; Cebu PSGC location by sample territory (Mandaue → Banilad 6014, Cebu North → Apas
 6000, Cebu South → Basak Pardo 6000, Talisay → Bulacao 6045); Sales Office 100 SFI Cebu; Plant
 1000 Cebu Production; Tax Class 1; Terms 0005 (accounts with a credit limit) else ZC03; Pricing

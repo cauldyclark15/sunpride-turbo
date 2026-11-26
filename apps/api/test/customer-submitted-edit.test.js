@@ -166,7 +166,7 @@ test("SP-0250 original salesman and CDM save partial profiles without approving 
     expect(viewed.body.canEdit).toBe(true);
     expect(
       viewed.body.missingFields.some(
-        (/** @type {any} */ e) => e.field === "street1",
+        (/** @type {any} */ e) => e.field === "taxClassificationCode",
       ),
     ).toBe(true);
     const saved = await call(who, "PUT", `/${id}`, {

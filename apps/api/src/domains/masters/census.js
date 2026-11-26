@@ -190,7 +190,7 @@ function sameParts(a, b) {
   );
 }
 /** SP-0220: Edit customer's structured address, as Add customer sends it. Street 1 is
- * required; the places must exist and fit together; the server builds the address line.
+ * optional (SP-0255); the places must exist and fit together; the server builds the address line.
  * Absent (older phones) = the free-text `address` path.
  * @param {any} db @param {any} raw */
 export async function readAddressParts(db, raw) {
@@ -207,7 +207,6 @@ export async function readAddressParts(db, raw) {
       rule("The address is too long.");
     f[k] = t || null;
   }
-  if (!f.street1) rule("Street 1 is required.");
   const { resolveGeography } = await import("./customers.js");
   const g = await resolveGeography(db, f);
   if (f.regionCode && !g.region) rule("Choose a Region from the list.");
@@ -238,6 +237,7 @@ export async function readAddressParts(db, raw) {
   const [row] =
     await db`select customer_address_line(${f.roomStallNo},${f.floor},${f.houseNo},${f.street1},${f.street2},${names.barangayName},${names.municipalityName},${names.provinceName},${f.postalCode}) line`;
   const line = String(row?.line ?? "").slice(0, 500) || f.street1;
+  if (!line) rule("Enter the customer's location.");
   return { fields: f, line, stored: { ...f, ...names } };
 }
 /** The store as the office knows it now: the old side of an Edit store change.

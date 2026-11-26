@@ -79,17 +79,15 @@ const codes = (r) =>
   r.errors.map((/** @type {any} */ e) => `${e.field}:${e.code}`).sort();
 
 describe("client field list", () => {
-  test("51 fields in the sheet's order, with the SP-0214 Street 1 requirement", () => {
+  test("51 fields in the sheet's order, with optional Street 1 (SP-0255)", () => {
     expect(FIELDS.map((f) => [f.section, f.label, f.required])).toEqual(
       json.fields.map((/** @type {any} */ f) => [
         f.section,
         f.field,
-        // SP-0214 made Street 1 required; SP-0220 dropped the separate Customer Address.
-        f.field === "Street 1"
-          ? true
-          : ["Customer Address", "Postal Code"].includes(f.field)
-            ? false
-            : f.required,
+        // SP-0255 restores optional Street 1; SP-0220 dropped the separate Customer Address.
+        ["Street 1", "Customer Address", "Postal Code"].includes(f.field)
+          ? false
+          : f.required,
       ]),
     );
     expect([...SECTIONS]).toEqual([
@@ -178,17 +176,20 @@ describe("dependent lists per sales organization (rule 8)", () => {
   });
 });
 
-describe("SP-0214 Street 1", () => {
-  for (const level of /** @type {const} */ (["field", "complete"])) {
-    test(`${level} requires Street 1 even with a custom Customer Address`, () => {
+describe("SP-0255 optional Street 1", () => {
+  for (const level of /** @type {const} */ (["draft", "field", "complete"])) {
+    test(`${level} accepts omitted, null, empty and whitespace Street 1`, () => {
       for (const street1 of [undefined, null, "", " \t "]) {
         const r = validateCustomer(complete({ street1 }), {
           level,
           lists,
           geography: cebu,
         });
-        expect(codes(r)).toEqual(["street1:required"]);
-        expect(r.errors[0].message).toBe("Street 1 is required.");
+        expect(r.ok).toBe(true);
+        expect(r.errors).toEqual([]);
+        expect(r.value.street1).toBeNull();
+        expect(r.value.latitude).toBe(10.33);
+        expect(r.value.longitude).toBe(123.9);
       }
       const r = validateCustomer(complete({ street1: "  Gorordo Ave  " }), {
         level,
@@ -199,16 +200,31 @@ describe("SP-0214 Street 1", () => {
       expect(r.value.street1).toBe("Gorordo Ave");
       for (const key of ["houseNo", "street2", "floor", "roomStallNo"])
         expect(r.value[key]).toBeNull();
-    });
-  }
-  test("incomplete field recovery can still retain a draft without Street 1", () => {
-    expect(
-      validateCustomer(complete({ street1: "" }), {
-        level: "draft",
+      const long = validateCustomer(complete({ street1: "x".repeat(201) }), {
+        level,
         lists,
         geography: cebu,
-      }).errors,
-    ).toEqual([]);
+      });
+      expect(codes(long)).toEqual(["street1:too_long"]);
+    });
+  }
+  test("field and complete still require valid coordinates without Street 1", () => {
+    for (const level of /** @type {const} */ (["field", "complete"])) {
+      for (const [latitude, longitude, code] of [
+        [null, null, "required"],
+        [91, 123.9, "invalid_coordinates"],
+      ]) {
+        const r = validateCustomer(
+          complete({ street1: null, latitude, longitude }),
+          {
+            level,
+            lists,
+            geography: cebu,
+          },
+        );
+        expect(codes(r)).toEqual([`coordinates:${code}`]);
+      }
+    }
   });
 });
 
