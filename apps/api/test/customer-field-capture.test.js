@@ -1004,7 +1004,7 @@ test("SP-0244 incomplete drafts are visible to office roles but never approvable
   ).toBe(false);
   expect(
     (await admin.request(`/api/v1/customers/${first}/approve`, {})).status,
-  ).not.toBe(200);
+  ).toBe(404);
   expect(
     (
       await h.db`select 1 from outlet_enrolments where client_request_id=${first}`

@@ -4,6 +4,7 @@ import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { startHarness, createUser } from "./harness.js";
 import { install as org } from "../src/domains/org/index.js";
 import { install as masters } from "../src/domains/masters/index.js";
+import { readCustomer } from "../src/domains/masters/customers.js";
 import {
   draftFromCustomer,
   setField,
@@ -228,11 +229,15 @@ describe("SP-0220 customer addresses", () => {
     for (const remaining of [stillNeeded, []]) {
       const stored = [obsolete, ...remaining];
       await h.db`update customer_profiles set field_missing=${JSON.stringify(stored)}::text::jsonb where outlet_id=${customerId}`;
-      const detail = await call("GET", `/${customerId}`);
-      expect(detail.status).toBe(200);
-      expect(detail.body.fieldMissing).toEqual(
+      const canonical = await readCustomer(h.db, customerId);
+      expect(canonical.fieldMissing).toEqual(
         remaining.length ? remaining : null,
       );
+      const detail = await call("GET", `/${customerId}`);
+      expect(detail.status).toBe(200);
+      // The editable detail revalidates today's complete values, not the old capture's warnings.
+      expect(detail.body.fieldMissing).toBeNull();
+      expect(detail.body.missingFields).toEqual([]);
       const list = await call("GET", "");
       expect(list.status).toBe(200);
       expect(
