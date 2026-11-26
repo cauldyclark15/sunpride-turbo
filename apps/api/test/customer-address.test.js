@@ -207,6 +207,62 @@ describe("SP-0220 customer addresses", () => {
     }
   });
 
+  test("SP-0255 older field captures no longer ask the office to fill optional Street 1", async () => {
+    const obsolete = {
+      field: "street1",
+      label: "Street 1",
+      message: "Street 1 is required.",
+    };
+    const stillNeeded = [
+      {
+        field: "registeredName",
+        label: "Registered Name",
+        message: "Registered Name is required.",
+      },
+      {
+        field: "street1",
+        label: "Street 1",
+        message: "Street 1 must be 200 characters or fewer.",
+      },
+    ];
+    for (const remaining of [stillNeeded, []]) {
+      const stored = [obsolete, ...remaining];
+      await h.db`update customer_profiles set field_missing=${JSON.stringify(stored)}::text::jsonb where outlet_id=${customerId}`;
+      const detail = await call("GET", `/${customerId}`);
+      expect(detail.status).toBe(200);
+      expect(detail.body.fieldMissing).toEqual(
+        remaining.length ? remaining : null,
+      );
+      const list = await call("GET", "");
+      expect(list.status).toBe(200);
+      expect(
+        list.body.rows.find((/** @type {any} */ r) => r.id === customerId)
+          ?.fieldMissing,
+      ).toEqual(remaining.length ? remaining : null);
+      // Reading current guidance must not rewrite the agent's original evidence.
+      const [row] =
+        await h.db`select field_missing from customer_profiles where outlet_id=${customerId}`;
+      expect(row.field_missing).toEqual(stored);
+    }
+  });
+
+  test("SP-0255 approving an older blank-street capture clears its obsolete incomplete flag", async () => {
+    const approved = await call("POST", `/${customerId}/approve`, {});
+    expect(approved.status, JSON.stringify(approved.body)).toBe(200);
+    const reopened = await call("GET", `/${customerId}`);
+    expect(reopened.body).toMatchObject({
+      status: "active",
+      completeness: "complete",
+      fieldMissing: null,
+      street1: null,
+      latitude: 10.33,
+      longitude: 123.9,
+    });
+    const [stored] =
+      await h.db`select field_missing from customer_profiles where outlet_id=${customerId}`;
+    expect(stored.field_missing).toBeNull();
+  });
+
   test("SP-0255 create and approve accept all empty Street 1 representations", async () => {
     const opened = await call("GET", `/${customerId}`);
     for (const street1 of [undefined, null, "", " \t "]) {

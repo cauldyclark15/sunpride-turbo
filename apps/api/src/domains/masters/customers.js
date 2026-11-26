@@ -288,6 +288,18 @@ async function currentPin(db, outletId) {
   return pin ?? null;
 }
 
+/** Current office guidance, not an obsolete requirement saved by an older field app.
+ * Preserve format errors and other missing fields, plus the stored capture evidence.
+ * @param {any} raw */
+function currentFieldMissing(raw) {
+  const missing = asJsonValue(raw);
+  if (!Array.isArray(missing)) return missing;
+  const current = missing.filter(
+    (m) => !(m.field === "street1" && m.message === "Street 1 is required."),
+  );
+  return current.length ? current : null;
+}
+
 /** Read one customer in the API shape. @param {any} db @param {string} id */
 export async function readCustomer(db, id) {
   const [o] =
@@ -305,7 +317,7 @@ export async function readCustomer(db, id) {
     completeness: o.completeness ?? "draft",
     enrolmentStatus: o.enrolment_status ?? null,
     // SP-0188: a field app save the office must finish, with what the agent typed.
-    fieldMissing: asJsonValue(o.field_missing),
+    fieldMissing: currentFieldMissing(o.field_missing),
     fieldSubmitted: asJsonValue(o.field_submitted),
     customFields: asJsonValue(o.custom_fields) ?? {},
     customerName: o.name,
@@ -1081,7 +1093,7 @@ export async function listCustomers(c) {
       status: r.status,
       enrolmentStatus: r.enrolment_status ?? null,
       completeness: r.completeness ?? "draft",
-      fieldMissing: asJsonValue(r.field_missing),
+      fieldMissing: currentFieldMissing(r.field_missing),
       customFields: asJsonValue(r.custom_fields) ?? {},
       salesOrgCode: r.sales_org_code ?? null,
       salesOfficeCode: r.sales_office_code ?? null,
