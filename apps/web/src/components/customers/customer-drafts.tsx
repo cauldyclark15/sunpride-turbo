@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { CUSTOMER_NAME_FIELDS, FIELDS } from "@sunpride/customer-master";
 import { useApi } from "../../lib/api";
+import { formatDateTime } from "../../lib/format";
 import { useCustomerReference } from "./customer-editor";
 import type { EnrollmentField } from "@sunpride/customer-master";
 
@@ -62,9 +63,7 @@ export function CustomerDraftRows({
               approval
               <span className="block text-[13px] text-muted">
                 {r.addedByName} · Last shared{" "}
-                {new Date(r.updatedAt).toLocaleString("en-PH", {
-                  timeZone: "Asia/Manila",
-                })}
+                {formatDateTime(r.updatedAt)}
               </span>
             </summary>
             <p className="my-3 text-[13px] text-muted">
