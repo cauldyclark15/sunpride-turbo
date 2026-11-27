@@ -433,6 +433,8 @@ fun FieldApp(
                             StatusPill(label, Modifier.testTag("sync-status"), onClick = { go("sync") },
                                 warning = status.notAccepted.isNotEmpty(), good = label == com.sunpride.field.ui.syncstatus.SyncStatus.ALL_SENT)
                             if (dayView != null) com.sunpride.field.ui.location.LocationIndicator(dayView)
+                            // SP-0259: the version stays in sight so staff can tell which build a phone has.
+                            AppVersionLabel(Modifier.align(Alignment.CenterVertically))
                         }
                     }) else null)
             }
@@ -712,6 +714,13 @@ fun SunprideLogo(modifier: Modifier = Modifier, size: androidx.compose.ui.unit.D
         contentDescription = "Sunpride", modifier = modifier.size(size).clip(MaterialTheme.shapes.large))
 }
 
+/** SP-0259: small, always-visible app version (e.g. "v1.0.0-beta.78"). */
+@Composable
+internal fun AppVersionLabel(modifier: Modifier = Modifier) {
+    Text("v" + BuildConfig.VERSION_NAME, style = MaterialTheme.typography.labelSmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = modifier.testTag("app-version"))
+}
+
 @Composable
 private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: String?,
     onSignIn: (String, String) -> Unit, modifier: Modifier = Modifier, onBiometric: (() -> Unit)? = null,
@@ -766,6 +775,7 @@ private fun SignInScreen(environment: AppEnvironment, busy: Boolean, error: Stri
                 }
             }
             PrivacyPolicyLink(Modifier.testTag("sign-in-privacy-policy"))
+            AppVersionLabel()
             if (error != null) NoticeCard(error, tone = Look.Tone.BAD, textTag = "auth-error")
             // FLD-014/E2E-004: work queued before the office removed this phone stays visible, never silently gone.
             if (unsent > 0) NoticeCard(unsentText(unsent), tone = Look.Tone.WARN, textTag = "unsent-on-phone")
