@@ -106,7 +106,7 @@ async function phone(who, app) {
   });
 }
 beforeAll(async () => {
-  h = await startHarness({ installers: [org, masters], port: 5040 });
+  h = await startHarness({ installers: [org, masters] });
   const [u] =
     await h.db`insert into org_units(organization_id,code,name,type_code,status,effective_from) values('sunpride','SUNPRIDE','Sample profile proof','NATIONAL','active','2020-01-01') returning id`;
   unit = u.id;

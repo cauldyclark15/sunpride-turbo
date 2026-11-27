@@ -16,6 +16,11 @@ import org.json.JSONObject
 object FieldFormDrafts {
     const val ENTITY = "local.formdraft"
     const val MAX_BYTES = 900 * 1024
+    /** Keep every unfinished form; their keys are profile IDs or menu-specific names, not "draft". */
+    suspend fun save(store: com.sunpride.field.storage.FieldStore, key: String, json: String?, at: Long) {
+        if (json == null) store.blockLocalCache(ENTITY, key, "completed", at)
+        else store.putLocalCache(ENTITY, key, json, at, "")
+    }
     fun encode(value: JSONObject): String = value.toString().also {
         require(it.toByteArray(Charsets.UTF_8).size <= MAX_BYTES) { "This draft is too large. Remove a photo and retry." }
     }

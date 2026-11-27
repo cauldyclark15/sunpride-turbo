@@ -571,21 +571,10 @@ class LiveFieldBackend(
     override fun customerProfile(id: String, preview: JSONObject?): JSONObject = withStore { store ->
         val epoch=authorizationEpoch
         val grant=projectionGrant("customer.editor",id) ?: error("Verify this account before opening profiles")
-        val cached=store.localCache("local.customer.editor",id)?.takeUnless { it.tombstone }?.json
-        check(!store.isHeld()) { "Verify this account before opening profiles" }
-        try {
-            val result=if(preview==null)functions.api.get("/api/v1/customers/$id/editor") else functions.api.post("/api/v1/customers/$id/editor",preview)
-            check(epoch==authorizationEpoch && grant.current()) { "Session changed" }
-            if(preview==null)grant.wrap(result.toString())?.let {
-                store.putLocalCache("local.customer.editor",id,it,System.currentTimeMillis(),"editor")
-            }
-            result
-        } catch(e:Exception) {
-            if(e is kotlinx.coroutines.CancellationException)throw e
-            if(e is AuthFailure && e.kind==AuthFailure.Kind.OFFLINE && epoch==authorizationEpoch)
-                cached?.let { grant.read(it) }?.let(::JSONObject) ?: throw e
-            else { if(!grant.deny())auth.signOut(); throw e }
-        }
+        com.sunpride.field.ui.customers.SubmittedCustomerProfiles.load(store,id,preview!=null,grant,
+            current={epoch==authorizationEpoch},
+            fetch={if(preview==null)functions.api.get("/api/v1/customers/$id/editor") else functions.api.post("/api/v1/customers/$id/editor",preview)},
+            signOut={auth.signOut()})
     }
     override fun queueCustomerProfile(id: String, body: JSONObject) {
         val partition=storedScope() ?: error("Verify this account before editing")
@@ -627,8 +616,7 @@ class LiveFieldBackend(
         json?.let { FieldFormDrafts.encode(JSONObject(it)) }
         withStore { store -> store.retailTransaction {
             check(epoch == authorizationEpoch && storedScope() == partition && !store.isHeld()) { "Session changed" }
-            if (json == null) store.blockLocalCache(FieldFormDrafts.ENTITY, key, "completed", System.currentTimeMillis())
-            else store.putLocalCache(FieldFormDrafts.ENTITY, key, json, System.currentTimeMillis(), "draft")
+            FieldFormDrafts.save(store, key, json, System.currentTimeMillis())
             check(store.localCache(FieldFormDrafts.ENTITY, key)?.takeUnless { it.tombstone }?.json == json)
             check(epoch == authorizationEpoch && storedScope() == partition) { "Session changed" }
         } }
