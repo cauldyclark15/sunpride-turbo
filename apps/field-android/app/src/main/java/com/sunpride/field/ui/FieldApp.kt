@@ -566,7 +566,8 @@ fun FieldApp(
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,
                     onAddStore = if (visits) ({ typed -> censusName = typed; censusEdit = null; go("census") }) else null,
                     mapping = mode == AppMode.MAPPING, waiting = if (mode == AppMode.MAPPING) controller.mappingSaves else emptyList(),
-                    draftCount = censusDraft.savedCount, onDrafts = openDrafts)
+                    draftCount = censusDraft.savedCount, onDrafts = openDrafts,
+                    onOpenSubmitted = { id -> censusEdit = id; go("customer-profiles") })
                 ready && page == "customer" && customer != null -> com.sunpride.field.ui.customers.CustomerDetailScreen(
                     customer, controller.today, onNavigate = { uri -> openMaps(context, uri) },
                     onDial = { uri -> openDialer(context, uri) }, modifier = modifier,
@@ -578,7 +579,8 @@ fun FieldApp(
                     onOpen = { id -> customerId = id; page = "customer" }, modifier = modifier, offline = offline, now = minuteNow,
                     onAddStore = if (visits) ({ typed -> censusName = typed; censusEdit = null; go("census") }) else null,
                     mapping = mode == AppMode.MAPPING, waiting = if (mode == AppMode.MAPPING) controller.mappingSaves else emptyList(),
-                    draftCount = censusDraft.savedCount, onDrafts = openDrafts)
+                    draftCount = censusDraft.savedCount, onDrafts = openDrafts,
+                    onOpenSubmitted = { id -> censusEdit = id; go("customer-profiles") })
                 ready && page == "team" -> com.sunpride.field.ui.team.TeamScreen(controller.team,
                     controller.teamDirectOnly, controller.teamLoading, minuteNow,
                     onFilter = { controller.loadTeam(it) }, onRefresh = { controller.loadTeam() }, modifier = modifier)

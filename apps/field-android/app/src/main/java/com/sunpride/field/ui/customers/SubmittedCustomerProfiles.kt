@@ -10,6 +10,14 @@ import org.json.JSONObject
 object SubmittedCustomerProfiles {
     const val ENTITY = "local.customer.editor"
 
+    /** A submitted row opens the real customer, never the capture/request UUID. */
+    suspend fun profileId(store: FieldStore, requestId: String, state: String): String? {
+        if (state != "done") return null
+        return store.ack(requestId)?.entityId?.takeIf { id ->
+            runCatching { java.util.UUID.fromString(id).toString() == id }.getOrDefault(false)
+        }
+    }
+
     suspend fun load(store: FieldStore, id: String, preview: Boolean, grant: ProjectionGrant,
         current: () -> Boolean, fetch: () -> JSONObject, signOut: () -> Unit): JSONObject {
         check(!store.isHeld()) { "Verify this account before opening profiles" }

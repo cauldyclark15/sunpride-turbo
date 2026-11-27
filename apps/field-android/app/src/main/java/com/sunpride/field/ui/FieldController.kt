@@ -1391,13 +1391,13 @@ class LiveFieldBackend(
         val rows = store.history().filter { it.first.kind == com.sunpride.field.census.CensusRules.KIND }.mapNotNull { (intent, outbox) ->
             val p = runCatching { JSONObject(intent.serializedOperation).getJSONObject("payload") }.getOrNull() ?: return@mapNotNull null
             if (com.sunpride.field.census.CensusRules.isChange(p)) return@mapNotNull null
-            Triple(p, outbox.state, intent.createdAt)
+            Triple(p, outbox, intent)
         }
         // The office's decisions already saved on this phone (no network here): approved stores leave the waiting list.
         val decided = com.sunpride.field.census.CensusRules.customerDecisions(
             store.localCache(STORE_CHANGES, "decisions")?.takeUnless { it.tombstone }?.json?.let { runCatching { JSONObject(it) }.getOrNull() })
         // Barangay names only for the newest five, from the geography already on this phone (never downloaded here).
-        val newest = rows.sortedByDescending { it.third }.take(5).map { it.first }.toSet()
+        val newest = rows.sortedByDescending { it.third.createdAt }.take(5).map { it.first }.toSet()
         val barangays = HashMap<String, Map<String, String>>()
         suspend fun barangay(customer: JSONObject?): String? {
             val province = customer?.optString("provinceCode")?.takeIf { it.isNotBlank() } ?: return null
@@ -1409,12 +1409,13 @@ class LiveFieldBackend(
             }
             return names[code]
         }
-        rows.map { (p, state, at) ->
+        rows.map { (p, outbox, intent) ->
+            val profileId = com.sunpride.field.ui.customers.SubmittedCustomerProfiles.profileId(store, intent.requestId, outbox.state)
             // SP-0196: listed by the store (Registered Name), the owner (Customer Name) underneath.
-            val (store, owner) = com.sunpride.field.census.CustomerCapture.savedNames(p)
-            com.sunpride.field.ui.mapping.MappingSave(store, if (p in newest) barangay(p.optJSONObject("customer")) else null,
-                sent = state == "done" || com.sunpride.field.storage.OutboxState.refused(state), savedAt = at,
-                owner = owner, accepted = decided[p.optString("captureId")]?.accepted)
+            val (name, owner) = com.sunpride.field.census.CustomerCapture.savedNames(p)
+            com.sunpride.field.ui.mapping.MappingSave(name, if (p in newest) barangay(p.optJSONObject("customer")) else null,
+                sent = outbox.state == "done" || com.sunpride.field.storage.OutboxState.refused(outbox.state), savedAt = intent.createdAt,
+                owner = owner, accepted = decided[p.optString("captureId")]?.accepted, profileId = profileId)
         }
     }
     override fun sellAccess(): com.sunpride.field.sell.auth.SellAccess =

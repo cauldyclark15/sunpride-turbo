@@ -1,5 +1,6 @@
 package com.sunpride.field.ui.customers
 
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.lazy.LazyColumn
@@ -67,7 +68,8 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
     mapping: Boolean = false,
     /** SP-0196: this phone's new customers still waiting for the office (Customer mapping only). */
     waiting: List<com.sunpride.field.ui.mapping.MappingSave> = emptyList(),
-    draftCount: Int = 0, onDrafts: (() -> Unit)? = null) {
+    draftCount: Int = 0, onDrafts: (() -> Unit)? = null,
+    onOpenSubmitted: ((String) -> Unit)? = null) {
     var query by rememberSaveable { mutableStateOf("") }
     var onlyToday by rememberSaveable { mutableStateOf(false) }
     val found = remember(data.customers, query) { CustomerDirectory.search(data.customers, query) }
@@ -107,7 +109,9 @@ fun CustomerSearchScreen(data: TodayData, onOpen: (String) -> Unit, modifier: Mo
                 Text("Waiting for approval (${pending.size})", style = MaterialTheme.typography.titleSmall,
                     modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 8.dp).testTag("customer-waiting-title"))
             }
-            items(pending, key = { "waiting-${it.savedAt}-${it.name}" }) { save -> WaitingRow(save) }
+            items(pending, key = { "waiting-${it.savedAt}-${it.name}" }) { save ->
+                WaitingRow(save, save.profileId?.let { id -> onOpenSubmitted?.let { open -> { open(id) } } })
+            }
         }
         item(key = "count") {
             Text(listOfNotNull(
@@ -178,10 +182,11 @@ private fun StoreRow(record: CustomerRecord, now: Long, picked: Boolean, clicks:
     }
 }
 
-/** SP-0196: one of this phone's new customers waiting for the office (not openable yet: it has no customer page). */
+/** Submitted captures open their current authorized profile; unsent captures have no customer ID yet. */
 @Composable
-private fun WaitingRow(save: com.sunpride.field.ui.mapping.MappingSave) {
-    Surface(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).testTag("customer-waiting"),
+private fun WaitingRow(save: com.sunpride.field.ui.mapping.MappingSave, onOpen: (() -> Unit)?) {
+    Surface(modifier = Modifier.fillMaxWidth().padding(bottom = 8.dp).clip(SunprideTokens.shapes.large)
+            .then(if (onOpen != null) Modifier.clickable(onClick = onOpen) else Modifier).testTag("customer-waiting"),
         shape = SunprideTokens.shapes.large, color = MaterialTheme.colorScheme.surface, border = BorderStroke(1.dp, Look.hairline)) {
         androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth().heightIn(min = 72.dp).padding(horizontal = 16.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -197,6 +202,7 @@ private fun WaitingRow(save: com.sunpride.field.ui.mapping.MappingSave) {
             com.sunpride.field.ui.mapping.MappingHome.waitingLabel(save).takeIf { save.accepted == false || !save.sent }?.let {
                 StatusChip(it, if (save.accepted == false) Look.Tone.WARN else Look.Tone.NEUTRAL)
             }
+            if (onOpen != null) Glyph(GlyphKind.CHEVRON, MaterialTheme.colorScheme.onSurfaceVariant, 20.dp)
         }
     }
 }

@@ -37,6 +37,23 @@ class SubmittedCustomerProfilesTest {
     private suspend fun load(preview: Boolean = false, fetch: () -> JSONObject): JSONObject =
         SubmittedCustomerProfiles.load(store, id, preview, grant(), { current }, fetch, { signOuts++ })
 
+    @Test fun waitingListResolvesTheAcknowledgedCustomerInsteadOfTheCaptureId(): Unit = runBlocking {
+        val captureRequestId = "589ddba0-1399-4f25-ac7a-363597427d46"
+        val ack = com.sunpride.field.storage.AckRow("sample", "phone", "scope", captureRequestId, id, "[]", 123L)
+        var storedAck: com.sunpride.field.storage.AckRow? = ack
+        val captures = object : FieldStore by store {
+            override suspend fun ack(requestId: String) = storedAck.takeIf { requestId == captureRequestId }
+        }
+        assertEquals(id, SubmittedCustomerProfiles.profileId(captures, captureRequestId, "done"))
+        assertNull(SubmittedCustomerProfiles.profileId(captures, "another-capture", "done"))
+        for (state in listOf("pending", "sending", "review", "office", "held"))
+            assertNull(SubmittedCustomerProfiles.profileId(captures, captureRequestId, state))
+        storedAck = null
+        assertNull(SubmittedCustomerProfiles.profileId(captures, captureRequestId, "done"))
+        storedAck = ack.copy(entityId = "not-a-customer-id")
+        assertNull(SubmittedCustomerProfiles.profileId(captures, captureRequestId, "done"))
+    }
+
     @Test fun waitingCustomerOpensThroughTheCacheAndKeepsMissingFields(): Unit = runBlocking {
         val response = profile()
         val opened = load { response }

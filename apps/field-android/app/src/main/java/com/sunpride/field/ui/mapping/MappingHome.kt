@@ -39,7 +39,7 @@ import java.time.temporal.TemporalAdjusters
  * SP-0196: [name] is the store (Registered Name), [owner] the Customer Name when it differs; [accepted] is the office's
  * decision once this phone has it (null = still waiting). */
 data class MappingSave(val name: String, val barangay: String?, val sent: Boolean, val savedAt: Long,
-    val owner: String? = null, val accepted: Boolean? = null)
+    val owner: String? = null, val accepted: Boolean? = null, val profileId: String? = null)
 
 /** SP-0195 Customer mapping Home: counted from the phone's own saves, so it works offline. */
 object MappingHome {
