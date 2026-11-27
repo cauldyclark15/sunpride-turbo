@@ -485,6 +485,8 @@ function EditorBody({
             },
           );
       setHasUnsavedChanges(false);
+      // The key belongs to this exact save; the next save (new details or a newer version) needs its own.
+      saveKey.current = "";
       setCustomer(saved);
       setDraft({ ...draftFromCustomer(saved), enrollmentFields });
       return saved;

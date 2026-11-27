@@ -828,3 +828,20 @@ describe("SP-0239 automatic Customer Code", () => {
     },
   );
 });
+
+it("a second save of the same open customer uses a new request key, so it is never refused as different details", async () => {
+  state.customer = { ...customer(complete()), canEdit: true, updatedAt: 123 };
+  state.mutate.mockImplementation(async (_url: string, body: { expectedUpdatedAt?: number }) => ({
+    ...state.customer!,
+    updatedAt: (body.expectedUpdatedAt ?? 0) + 1,
+  }));
+  render();
+  view().onChange(setField(complete(), "tradeName", "First"));
+  render();
+  await view().onSave?.();
+  render();
+  await view().onSave?.();
+  const keys = state.mutate.mock.calls.map((call) => (call[2] as { idempotencyKey: string }).idempotencyKey);
+  expect(keys).toHaveLength(2);
+  expect(keys[0]).not.toBe(keys[1]);
+});
